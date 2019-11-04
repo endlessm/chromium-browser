@@ -57,6 +57,15 @@ public:
 
   ArrayRef<const char *> getGCCRegNames() const override;
 
+  int getEHDataRegisterNumber(unsigned RegNo) const override {
+    if (RegNo == 0)
+      return 10;
+    else if (RegNo == 1)
+      return 11;
+    else
+      return -1;
+  }
+
   ArrayRef<TargetInfo::GCCRegAlias> getGCCRegAliases() const override;
 
   bool validateAsmConstraint(const char *&Name,
@@ -78,12 +87,18 @@ public:
   }
 
   bool setABI(const std::string &Name) override {
-    // TODO: support ilp32f and ilp32d ABIs.
-    if (Name == "ilp32") {
+    if (Name == "ilp32" || Name == "ilp32f" || Name == "ilp32d") {
       ABI = Name;
       return true;
     }
     return false;
+  }
+
+  void setMaxAtomicWidth() override {
+    MaxAtomicPromoteWidth = 128;
+
+    if (HasA)
+      MaxAtomicInlineWidth = 32;
   }
 };
 class LLVM_LIBRARY_VISIBILITY RISCV64TargetInfo : public RISCVTargetInfo {
@@ -96,12 +111,18 @@ public:
   }
 
   bool setABI(const std::string &Name) override {
-    // TODO: support lp64f and lp64d ABIs.
-    if (Name == "lp64") {
+    if (Name == "lp64" || Name == "lp64f" || Name == "lp64d") {
       ABI = Name;
       return true;
     }
     return false;
+  }
+
+  void setMaxAtomicWidth() override {
+    MaxAtomicPromoteWidth = 128;
+
+    if (HasA)
+      MaxAtomicInlineWidth = 64;
   }
 };
 } // namespace targets

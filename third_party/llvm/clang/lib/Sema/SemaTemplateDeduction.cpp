@@ -2872,7 +2872,7 @@ Sema::DeduceTemplateArguments(ClassTemplatePartialSpecializationDecl *Partial,
     return Sema::TDK_SubstitutionFailure;
 
   return ::FinishTemplateArgumentDeduction(
-      *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
+      *this, Partial, /*IsPartialOrdering=*/false, TemplateArgs, Deduced, Info);
 }
 
 /// Perform template argument deduction to determine whether
@@ -2913,7 +2913,7 @@ Sema::DeduceTemplateArguments(VarTemplatePartialSpecializationDecl *Partial,
     return Sema::TDK_SubstitutionFailure;
 
   return ::FinishTemplateArgumentDeduction(
-      *this, Partial, /*PartialOrdering=*/false, TemplateArgs, Deduced, Info);
+      *this, Partial, /*IsPartialOrdering=*/false, TemplateArgs, Deduced, Info);
 }
 
 /// Determine whether the given type T is a simple-template-id type.
@@ -3701,6 +3701,12 @@ static Sema::TemplateDeductionResult DeduceFromInitializerList(
     //   considered a non-deduced context
     return Sema::TDK_Success;
   }
+
+  // Resolving a core issue: a braced-init-list containing any designators is
+  // a non-deduced context.
+  for (Expr *E : ILE->inits())
+    if (isa<DesignatedInitExpr>(E))
+      return Sema::TDK_Success;
 
   // Deduction only needs to be done for dependent types.
   if (ElTy->isDependentType()) {
@@ -4509,6 +4515,12 @@ Sema::DeduceAutoType(TypeLoc Type, Expr *&Init, QualType &Result,
     if (!Type.getType().getNonReferenceType()->getAs<AutoType>())
       return DAR_Failed;
 
+    // Resolving a core issue: a braced-init-list containing any designators is
+    // a non-deduced context.
+    for (Expr *E : InitList->inits())
+      if (isa<DesignatedInitExpr>(E))
+        return DAR_Failed;
+
     SourceRange DeducedFromInitRange;
     for (unsigned i = 0, e = InitList->getNumInits(); i < e; ++i) {
       Expr *Init = InitList->getInit(i);
@@ -4632,8 +4644,11 @@ bool Sema::DeduceReturnType(FunctionDecl *FD, SourceLocation Loc,
 
       // We might need to deduce the return type by instantiating the definition
       // of the operator() function.
-      if (CallOp->getReturnType()->isUndeducedType())
-        InstantiateFunctionDefinition(Loc, CallOp);
+      if (CallOp->getReturnType()->isUndeducedType()) {
+        runWithSufficientStackSpace(Loc, [&] {
+          InstantiateFunctionDefinition(Loc, CallOp);
+        });
+      }
     }
 
     if (CallOp->isInvalidDecl())
@@ -4654,8 +4669,11 @@ bool Sema::DeduceReturnType(FunctionDecl *FD, SourceLocation Loc,
     return false;
   }
 
-  if (FD->getTemplateInstantiationPattern())
-    InstantiateFunctionDefinition(Loc, FD);
+  if (FD->getTemplateInstantiationPattern()) {
+    runWithSufficientStackSpace(Loc, [&] {
+      InstantiateFunctionDefinition(Loc, FD);
+    });
+  }
 
   bool StillUndeduced = FD->getReturnType()->isUndeducedType();
   if (StillUndeduced && Diagnose && !FD->isInvalidDecl()) {
@@ -5067,7 +5085,7 @@ static bool isAtLeastAsSpecializedAs(Sema &S, QualType T1, QualType T2,
                                    Info);
   auto *TST1 = T1->castAs<TemplateSpecializationType>();
   if (FinishTemplateArgumentDeduction(
-          S, P2, /*PartialOrdering=*/true,
+          S, P2, /*IsPartialOrdering=*/true,
           TemplateArgumentList(TemplateArgumentList::OnStack,
                                TST1->template_arguments()),
           Deduced, Info))

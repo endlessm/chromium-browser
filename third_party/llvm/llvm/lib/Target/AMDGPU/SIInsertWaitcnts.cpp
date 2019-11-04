@@ -463,7 +463,7 @@ RegInterval WaitcntBrackets::getRegInterval(const MachineInstr *MI,
                                             unsigned OpNo, bool Def) const {
   const MachineOperand &Op = MI->getOperand(OpNo);
   if (!Op.isReg() || !TRI->isInAllocatableClass(Op.getReg()) ||
-      (Def && !Op.isDef()))
+      (Def && !Op.isDef()) || TRI->isAGPR(*MRI, Op.getReg()))
     return {-1, -1};
 
   // A use via a PW operand does not need a waitcnt.
@@ -1483,12 +1483,12 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
 
       if (BI.Incoming) {
         if (!Brackets)
-          Brackets = llvm::make_unique<WaitcntBrackets>(*BI.Incoming);
+          Brackets = std::make_unique<WaitcntBrackets>(*BI.Incoming);
         else
           *Brackets = *BI.Incoming;
       } else {
         if (!Brackets)
-          Brackets = llvm::make_unique<WaitcntBrackets>(ST);
+          Brackets = std::make_unique<WaitcntBrackets>(ST);
         else
           Brackets->clear();
       }
@@ -1508,7 +1508,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
             if (!MoveBracketsToSucc) {
               MoveBracketsToSucc = &SuccBI;
             } else {
-              SuccBI.Incoming = llvm::make_unique<WaitcntBrackets>(*Brackets);
+              SuccBI.Incoming = std::make_unique<WaitcntBrackets>(*Brackets);
             }
           } else if (SuccBI.Incoming->merge(*Brackets)) {
             SuccBI.Dirty = true;

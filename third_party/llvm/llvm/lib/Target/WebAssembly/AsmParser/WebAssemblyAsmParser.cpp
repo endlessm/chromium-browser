@@ -89,9 +89,8 @@ struct WebAssemblyOperand : public MCParsedAsmOperand {
   }
 
   bool isToken() const override { return Kind == Token; }
-  bool isImm() const override {
-    return Kind == Integer || Kind == Float || Kind == Symbol;
-  }
+  bool isImm() const override { return Kind == Integer || Kind == Symbol; }
+  bool isFPImm() const { return Kind == Float; }
   bool isMem() const override { return false; }
   bool isReg() const override { return false; }
   bool isBrList() const { return Kind == BrList; }
@@ -118,12 +117,18 @@ struct WebAssemblyOperand : public MCParsedAsmOperand {
     assert(N == 1 && "Invalid number of operands!");
     if (Kind == Integer)
       Inst.addOperand(MCOperand::createImm(Int.Val));
-    else if (Kind == Float)
-      Inst.addOperand(MCOperand::createFPImm(Flt.Val));
     else if (Kind == Symbol)
       Inst.addOperand(MCOperand::createExpr(Sym.Exp));
     else
-      llvm_unreachable("Should be immediate or symbol!");
+      llvm_unreachable("Should be integer immediate or symbol!");
+  }
+
+  void addFPImmOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    if (Kind == Float)
+      Inst.addOperand(MCOperand::createFPImm(Flt.Val));
+    else
+      llvm_unreachable("Should be float immediate!");
   }
 
   void addBrListOperands(MCInst &Inst, unsigned N) const {
@@ -303,8 +308,8 @@ public:
         Type == "i32x4" || Type == "i64x2" || Type == "f32x4" ||
         Type == "f64x2")
       return wasm::ValType::V128;
-    if (Type == "except_ref")
-      return wasm::ValType::EXCEPT_REF;
+    if (Type == "exnref")
+      return wasm::ValType::EXNREF;
     return Optional<wasm::ValType>();
   }
 
@@ -315,7 +320,7 @@ public:
         .Case("f32", WebAssembly::ExprType::F32)
         .Case("f64", WebAssembly::ExprType::F64)
         .Case("v128", WebAssembly::ExprType::V128)
-        .Case("except_ref", WebAssembly::ExprType::ExceptRef)
+        .Case("exnref", WebAssembly::ExprType::Exnref)
         .Case("void", WebAssembly::ExprType::Void)
         .Default(WebAssembly::ExprType::Invalid);
   }
@@ -338,10 +343,46 @@ public:
     int64_t Val = Int.getIntVal();
     if (IsNegative)
       Val = -Val;
-    Operands.push_back(make_unique<WebAssemblyOperand>(
+    Operands.push_back(std::make_unique<WebAssemblyOperand>(
         WebAssemblyOperand::Integer, Int.getLoc(), Int.getEndLoc(),
         WebAssemblyOperand::IntOp{Val}));
     Parser.Lex();
+  }
+
+  bool parseSingleFloat(bool IsNegative, OperandVector &Operands) {
+    auto &Flt = Lexer.getTok();
+    double Val;
+    if (Flt.getString().getAsDouble(Val, false))
+      return error("Cannot parse real: ", Flt);
+    if (IsNegative)
+      Val = -Val;
+    Operands.push_back(std::make_unique<WebAssemblyOperand>(
+        WebAssemblyOperand::Float, Flt.getLoc(), Flt.getEndLoc(),
+        WebAssemblyOperand::FltOp{Val}));
+    Parser.Lex();
+    return false;
+  }
+
+  bool parseSpecialFloatMaybe(bool IsNegative, OperandVector &Operands) {
+    if (Lexer.isNot(AsmToken::Identifier))
+      return true;
+    auto &Flt = Lexer.getTok();
+    auto S = Flt.getString();
+    double Val;
+    if (S.compare_lower("infinity") == 0) {
+      Val = std::numeric_limits<double>::infinity();
+    } else if (S.compare_lower("nan") == 0) {
+      Val = std::numeric_limits<double>::quiet_NaN();
+    } else {
+      return true;
+    }
+    if (IsNegative)
+      Val = -Val;
+    Operands.push_back(std::make_unique<WebAssemblyOperand>(
+        WebAssemblyOperand::Float, Flt.getLoc(), Flt.getEndLoc(),
+        WebAssemblyOperand::FltOp{Val}));
+    Parser.Lex();
+    return false;
   }
 
   bool checkForP2AlignIfLoadStore(OperandVector &Operands, StringRef InstName) {
@@ -366,7 +407,7 @@ public:
         // an opcode until after the assembly matcher, so set a default to fix
         // up later.
         auto Tok = Lexer.getTok();
-        Operands.push_back(make_unique<WebAssemblyOperand>(
+        Operands.push_back(std::make_unique<WebAssemblyOperand>(
             WebAssemblyOperand::Integer, Tok.getLoc(), Tok.getEndLoc(),
             WebAssemblyOperand::IntOp{-1}));
       }
@@ -376,7 +417,7 @@ public:
 
   void addBlockTypeOperand(OperandVector &Operands, SMLoc NameLoc,
                            WebAssembly::ExprType BT) {
-    Operands.push_back(make_unique<WebAssemblyOperand>(
+    Operands.push_back(std::make_unique<WebAssemblyOperand>(
         WebAssemblyOperand::Integer, NameLoc, NameLoc,
         WebAssemblyOperand::IntOp{static_cast<int64_t>(BT)}));
   }
@@ -408,7 +449,7 @@ public:
     }
 
     // Now construct the name as first operand.
-    Operands.push_back(make_unique<WebAssemblyOperand>(
+    Operands.push_back(std::make_unique<WebAssemblyOperand>(
         WebAssemblyOperand::Token, NameLoc, SMLoc::getFromPointer(Name.end()),
         WebAssemblyOperand::TokOp{Name}));
 
@@ -448,15 +489,39 @@ public:
       if (pop(Name, Block))
         return true;
     } else if (Name == "end_function") {
+      ensureLocals(getStreamer());
       CurrentState = EndFunction;
       if (pop(Name, Function) || ensureEmptyNestingStack())
         return true;
+    } else if (Name == "call_indirect" || Name == "return_call_indirect") {
+      // This has a special TYPEINDEX operand which in text we
+      // represent as a signature, such that we can re-build this signature,
+      // attach it to an anonymous symbol, which is what WasmObjectWriter
+      // expects to be able to recreate the actual unique-ified type indices.
+      auto Loc = Parser.getTok();
+      auto Signature = std::make_unique<wasm::WasmSignature>();
+      if (parseSignature(Signature.get()))
+        return true;
+      auto &Ctx = getStreamer().getContext();
+      // The "true" here will cause this to be a nameless symbol.
+      MCSymbol *Sym = Ctx.createTempSymbol("typeindex", true);
+      auto *WasmSym = cast<MCSymbolWasm>(Sym);
+      WasmSym->setSignature(Signature.get());
+      addSignature(std::move(Signature));
+      WasmSym->setType(wasm::WASM_SYMBOL_TYPE_FUNCTION);
+      const MCExpr *Expr = MCSymbolRefExpr::create(
+          WasmSym, MCSymbolRefExpr::VK_WASM_TYPEINDEX, Ctx);
+      Operands.push_back(std::make_unique<WebAssemblyOperand>(
+          WebAssemblyOperand::Symbol, Loc.getLoc(), Loc.getEndLoc(),
+          WebAssemblyOperand::SymOp{Expr}));
     }
 
     while (Lexer.isNot(AsmToken::EndOfStatement)) {
       auto &Tok = Lexer.getTok();
       switch (Tok.getKind()) {
       case AsmToken::Identifier: {
+        if (!parseSpecialFloatMaybe(false, Operands))
+          break;
         auto &Id = Lexer.getTok();
         if (ExpectBlockType) {
           // Assume this identifier is a block_type.
@@ -471,7 +536,7 @@ public:
           SMLoc End;
           if (Parser.parseExpression(Val, End))
             return error("Cannot parse symbol: ", Lexer.getTok());
-          Operands.push_back(make_unique<WebAssemblyOperand>(
+          Operands.push_back(std::make_unique<WebAssemblyOperand>(
               WebAssemblyOperand::Symbol, Id.getLoc(), Id.getEndLoc(),
               WebAssemblyOperand::SymOp{Val}));
           if (checkForP2AlignIfLoadStore(Operands, Name))
@@ -481,11 +546,18 @@ public:
       }
       case AsmToken::Minus:
         Parser.Lex();
-        if (Lexer.isNot(AsmToken::Integer))
-          return error("Expected integer instead got: ", Lexer.getTok());
-        parseSingleInteger(true, Operands);
-        if (checkForP2AlignIfLoadStore(Operands, Name))
-          return true;
+        if (Lexer.is(AsmToken::Integer)) {
+          parseSingleInteger(true, Operands);
+          if (checkForP2AlignIfLoadStore(Operands, Name))
+            return true;
+        } else if(Lexer.is(AsmToken::Real)) {
+          if (parseSingleFloat(true, Operands))
+            return true;
+        } else if (!parseSpecialFloatMaybe(true, Operands)) {
+        } else {
+          return error("Expected numeric constant instead got: ",
+                       Lexer.getTok());
+        }
         break;
       case AsmToken::Integer:
         parseSingleInteger(false, Operands);
@@ -493,18 +565,13 @@ public:
           return true;
         break;
       case AsmToken::Real: {
-        double Val;
-        if (Tok.getString().getAsDouble(Val, false))
-          return error("Cannot parse real: ", Tok);
-        Operands.push_back(make_unique<WebAssemblyOperand>(
-            WebAssemblyOperand::Float, Tok.getLoc(), Tok.getEndLoc(),
-            WebAssemblyOperand::FltOp{Val}));
-        Parser.Lex();
+        if (parseSingleFloat(false, Operands))
+          return true;
         break;
       }
       case AsmToken::LCurly: {
         Parser.Lex();
-        auto Op = make_unique<WebAssemblyOperand>(
+        auto Op = std::make_unique<WebAssemblyOperand>(
             WebAssemblyOperand::BrList, Tok.getLoc(), Tok.getEndLoc());
         if (!Lexer.is(AsmToken::RCurly))
           for (;;) {
@@ -626,7 +693,7 @@ public:
         LastFunctionLabel = LastLabel;
         push(Function);
       }
-      auto Signature = make_unique<wasm::WasmSignature>();
+      auto Signature = std::make_unique<wasm::WasmSignature>();
       if (parseSignature(Signature.get()))
         return true;
       WasmSym->setSignature(Signature.get());
@@ -642,7 +709,7 @@ public:
       if (SymName.empty())
         return true;
       auto WasmSym = cast<MCSymbolWasm>(Ctx.getOrCreateSymbol(SymName));
-      auto Signature = make_unique<wasm::WasmSignature>();
+      auto Signature = std::make_unique<wasm::WasmSignature>();
       if (parseRegTypeList(Signature->Params))
         return true;
       WasmSym->setSignature(Signature.get());
@@ -692,24 +759,30 @@ public:
     return true; // We didn't process this directive.
   }
 
+  // Called either when the first instruction is parsed of the function ends.
+  void ensureLocals(MCStreamer &Out) {
+    if (CurrentState == FunctionStart) {
+      // We haven't seen a .local directive yet. The streamer requires locals to
+      // be encoded as a prelude to the instructions, so emit an empty list of
+      // locals here.
+      auto &TOut = reinterpret_cast<WebAssemblyTargetStreamer &>(
+          *Out.getTargetStreamer());
+      TOut.emitLocal(SmallVector<wasm::ValType, 0>());
+      CurrentState = FunctionLocals;
+    }
+  }
+
   bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned & /*Opcode*/,
                                OperandVector &Operands, MCStreamer &Out,
                                uint64_t &ErrorInfo,
                                bool MatchingInlineAsm) override {
     MCInst Inst;
+    Inst.setLoc(IDLoc);
     unsigned MatchResult =
         MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm);
     switch (MatchResult) {
     case Match_Success: {
-      if (CurrentState == FunctionStart) {
-        // This is the first instruction in a function, but we haven't seen
-        // a .local directive yet. The streamer requires locals to be encoded
-        // as a prelude to the instructions, so emit an empty list of locals
-        // here.
-        auto &TOut = reinterpret_cast<WebAssemblyTargetStreamer &>(
-            *Out.getTargetStreamer());
-        TOut.emitLocal(SmallVector<wasm::ValType, 0>());
-      }
+      ensureLocals(Out);
       // Fix unknown p2align operands.
       auto Align = WebAssembly::GetDefaultP2AlignAny(Inst.getOpcode());
       if (Align != -1U) {

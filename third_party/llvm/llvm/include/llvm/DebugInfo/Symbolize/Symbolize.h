@@ -39,6 +39,7 @@ public:
     bool UseSymbolTable = true;
     bool Demangle = true;
     bool RelativeAddresses = false;
+    bool UntagAddresses = false;
     std::string DefaultArch;
     std::vector<std::string> DsymHints;
     std::string FallbackDebugPath;
@@ -52,6 +53,8 @@ public:
     flush();
   }
 
+  Expected<DILineInfo> symbolizeCode(const ObjectFile &Obj,
+                                     object::SectionedAddress ModuleOffset);
   Expected<DILineInfo> symbolizeCode(const std::string &ModuleName,
                                      object::SectionedAddress ModuleOffset);
   Expected<DIInliningInfo>
@@ -71,7 +74,11 @@ public:
 private:
   // Bundles together object file with code/data and object file with
   // corresponding debug info. These objects can be the same.
-  using ObjectPair = std::pair<ObjectFile *, ObjectFile *>;
+  using ObjectPair = std::pair<const ObjectFile *, const ObjectFile *>;
+
+  Expected<DILineInfo>
+  symbolizeCodeCommon(SymbolizableModule *Info,
+                      object::SectionedAddress ModuleOffset);
 
   /// Returns a SymbolizableModule or an error if loading debug info failed.
   /// Only one attempt is made to load a module, and errors during loading are
@@ -79,6 +86,11 @@ private:
   /// failed to load will return nullptr.
   Expected<SymbolizableModule *>
   getOrCreateModuleInfo(const std::string &ModuleName);
+
+  Expected<SymbolizableModule *>
+  createModuleInfo(const ObjectFile *Obj,
+                   std::unique_ptr<DIContext> Context,
+                   StringRef ModuleName);
 
   ObjectFile *lookUpDsymFile(const std::string &Path,
                              const MachOObjectFile *ExeObj,

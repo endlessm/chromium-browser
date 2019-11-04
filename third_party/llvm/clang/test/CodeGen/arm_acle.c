@@ -2,6 +2,9 @@
 // RUN: %clang_cc1 -ffreestanding -triple armv8-eabi -target-cpu cortex-a57 -O2  -fexperimental-new-pass-manager -S -emit-llvm -o - %s | FileCheck %s -check-prefix=ARM -check-prefix=AArch32 -check-prefix=ARM-NEWPM -check-prefix=AArch32-NEWPM
 // RUN: %clang_cc1 -ffreestanding -triple aarch64-eabi -target-cpu cortex-a57 -target-feature +neon -target-feature +crc -target-feature +crypto -O2 -fno-experimental-new-pass-manager -S -emit-llvm -o - %s | FileCheck %s -check-prefix=ARM -check-prefix=AArch64 -check-prefix=ARM-LEGACY -check-prefix=AArch64-LEGACY
 // RUN: %clang_cc1 -ffreestanding -triple aarch64-eabi -target-cpu cortex-a57 -target-feature +neon -target-feature +crc -target-feature +crypto -O2 -fexperimental-new-pass-manager -S -emit-llvm -o - %s | FileCheck %s -check-prefix=ARM -check-prefix=AArch64 -check-prefix=ARM-NEWPM -check-prefix=AArch64-NEWPM
+// RUN: %clang_cc1 -ffreestanding -triple aarch64-eabi -target-cpu cortex-a57 -target-feature +v8.3a -O2 -fexperimental-new-pass-manager -S -emit-llvm -o - %s | FileCheck %s -check-prefix=AArch64-v8_3
+// RUN: %clang_cc1 -ffreestanding -triple aarch64-eabi -target-cpu cortex-a57 -target-feature +v8.4a -O2 -fexperimental-new-pass-manager -S -emit-llvm -o - %s | FileCheck %s -check-prefix=AArch64-v8_3
+// RUN: %clang_cc1 -ffreestanding -triple aarch64-eabi -target-cpu cortex-a57 -target-feature +v8.5a -O2 -fexperimental-new-pass-manager -S -emit-llvm -o - %s | FileCheck %s -check-prefix=AArch64-v8_3
 
 #include <arm_acle.h>
 
@@ -85,28 +88,28 @@ void test_swp(uint32_t x, volatile void *p) {
 /* 8.6 Memory prefetch intrinsics */
 /* 8.6.1 Data prefetch */
 // ARM-LABEL: test_pld
-// ARM: call void @llvm.prefetch(i8* null, i32 0, i32 3, i32 1)
+// ARM: call void @llvm.prefetch.p0i8(i8* null, i32 0, i32 3, i32 1)
 void test_pld() {
   __pld(0);
 }
 
 // ARM-LABEL: test_pldx
-// AArch32: call void @llvm.prefetch(i8* null, i32 1, i32 3, i32 1)
-// AArch64: call void @llvm.prefetch(i8* null, i32 1, i32 1, i32 1)
+// AArch32: call void @llvm.prefetch.p0i8(i8* null, i32 1, i32 3, i32 1)
+// AArch64: call void @llvm.prefetch.p0i8(i8* null, i32 1, i32 1, i32 1)
 void test_pldx() {
   __pldx(1, 2, 0, 0);
 }
 
 /* 8.6.2 Instruction prefetch */
 // ARM-LABEL: test_pli
-// ARM: call void @llvm.prefetch(i8* null, i32 0, i32 3, i32 0)
+// ARM: call void @llvm.prefetch.p0i8(i8* null, i32 0, i32 3, i32 0)
 void test_pli() {
   __pli(0);
 }
 
 // ARM-LABEL: test_plix
-// AArch32: call void @llvm.prefetch(i8* null, i32 0, i32 3, i32 0)
-// AArch64: call void @llvm.prefetch(i8* null, i32 0, i32 1, i32 0)
+// AArch32: call void @llvm.prefetch.p0i8(i8* null, i32 0, i32 3, i32 0)
+// AArch64: call void @llvm.prefetch.p0i8(i8* null, i32 0, i32 1, i32 0)
 void test_plix() {
   __plix(2, 0, 0);
 }
@@ -823,3 +826,11 @@ void test_wsrp(void *v) {
 
 // AArch64: ![[M0]] = !{!"1:2:3:4:5"}
 // AArch64: ![[M1]] = !{!"sysreg"}
+
+// AArch64-v8_3-LABEL: @test_jcvt(
+// AArch64-v8_3: call i32 @llvm.aarch64.fjcvtzs
+#ifdef __ARM_64BIT_STATE
+int32_t test_jcvt(double v) {
+  return __jcvt(v);
+}
+#endif

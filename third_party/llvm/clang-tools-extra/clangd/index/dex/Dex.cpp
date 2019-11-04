@@ -29,7 +29,7 @@ std::unique_ptr<SymbolIndex> Dex::build(SymbolSlab Symbols, RefSlab Refs,
   // There is no need to include "Rels" in Data because the relations are self-
   // contained, without references into a backing store.
   auto Data = std::make_pair(std::move(Symbols), std::move(Refs));
-  return llvm::make_unique<Dex>(Data.first, Data.second, Rels, std::move(Data),
+  return std::make_unique<Dex>(Data.first, Data.second, Rels, std::move(Data),
                                 Size);
 }
 
@@ -316,9 +316,9 @@ std::vector<std::string> generateProximityURIs(llvm::StringRef URIPath) {
     // FIXME(kbobyrev): Parsing and encoding path to URIs is not necessary and
     // could be optimized.
     Body = llvm::sys::path::parent_path(Body, llvm::sys::path::Style::posix);
-    URI TokenURI(ParsedURI->scheme(), ParsedURI->authority(), Body);
     if (!Body.empty())
-      Result.emplace_back(TokenURI.toString());
+      Result.emplace_back(
+          URI(ParsedURI->scheme(), ParsedURI->authority(), Body).toString());
   }
   return Result;
 }

@@ -43,9 +43,9 @@ struct PerFunctionStats {
   unsigned NumVars = 0;
   /// Number of variables with source location.
   unsigned NumVarSourceLocations = 0;
-  /// Number of variables wtih type.
+  /// Number of variables with type.
   unsigned NumVarTypes = 0;
-  /// Number of variables wtih DW_AT_location.
+  /// Number of variables with DW_AT_location.
   unsigned NumVarLocations = 0;
 };
 
@@ -56,9 +56,12 @@ struct GlobalStats {
   /// Total number of PC range bytes in each variable's enclosing scope,
   /// starting from the first definition of the variable.
   unsigned ScopeBytesFromFirstDefinition = 0;
-  /// Total number of call site entries (DW_TAG_call_site) or
-  /// (DW_AT_call_file & DW_AT_call_line).
+  /// Total number of call site entries (DW_AT_call_file & DW_AT_call_line).
   unsigned CallSiteEntries = 0;
+  /// Total number of call site DIEs (DW_TAG_call_site).
+  unsigned CallSiteDIEs = 0;
+  /// Total number of call site parameter DIEs (DW_TAG_call_site_parameter).
+  unsigned CallSiteParamDIEs = 0;
   /// Total byte size of concrete functions. This byte size includes
   /// inline functions contained in the concrete functions.
   uint64_t FunctionSize = 0;
@@ -82,7 +85,7 @@ static uint64_t getLowPC(DWARFDie Die) {
 }
 
 /// Collect debug info quality metrics for one DIE.
-static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
+static void collectStatsForDie(DWARFDie Die, uint64_t UnitLowPC, std::string FnPrefix,
                                std::string VarPrefix, uint64_t ScopeLowPC,
                                uint64_t BytesInScope, uint32_t InlineDepth,
                                StringMap<PerFunctionStats> &FnStatMap,
@@ -94,8 +97,15 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
   uint64_t BytesCovered = 0;
   uint64_t OffsetToFirstDefinition = 0;
 
-  if (Die.getTag() == dwarf::DW_TAG_call_site) {
-    GlobalStats.CallSiteEntries++;
+  if (Die.getTag() == dwarf::DW_TAG_call_site ||
+      Die.getTag() == dwarf::DW_TAG_GNU_call_site) {
+    GlobalStats.CallSiteDIEs++;
+    return;
+  }
+
+  if (Die.getTag() == dwarf::DW_TAG_call_site_parameter ||
+      Die.getTag() == dwarf::DW_TAG_GNU_call_site_parameter) {
+    GlobalStats.CallSiteParamDIEs++;
     return;
   }
 
@@ -137,7 +147,7 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
             BytesCovered += Entry.End - Entry.Begin;
           if (List->Entries.size()) {
             uint64_t FirstDef = List->Entries[0].Begin;
-            uint64_t UnitOfs = getLowPC(Die.getDwarfUnit()->getUnitDIE());
+            uint64_t UnitOfs = UnitLowPC; 
             // Ranges sometimes start before the lexical scope.
             if (UnitOfs + FirstDef >= ScopeLowPC)
               OffsetToFirstDefinition = UnitOfs + FirstDef - ScopeLowPC;
@@ -200,7 +210,7 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
 }
 
 /// Recursively collect debug info quality metrics.
-static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
+static void collectStatsRecursive(DWARFDie Die, uint64_t UnitLowPC, std::string FnPrefix,
                                   std::string VarPrefix, uint64_t ScopeLowPC,
                                   uint64_t BytesInScope, uint32_t InlineDepth,
                                   StringMap<PerFunctionStats> &FnStatMap,
@@ -272,7 +282,7 @@ static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
     }
   } else {
     // Not a scope, visit the Die itself. It could be a variable.
-    collectStatsForDie(Die, FnPrefix, VarPrefix, ScopeLowPC, BytesInScope,
+    collectStatsForDie(Die, UnitLowPC, FnPrefix, VarPrefix, ScopeLowPC, BytesInScope,
                        InlineDepth, FnStatMap, GlobalStats);
   }
 
@@ -290,7 +300,7 @@ static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
     if (Child.getTag() == dwarf::DW_TAG_lexical_block)
       ChildVarPrefix += toHex(LexicalBlockIndex++) + '.';
 
-    collectStatsRecursive(Child, FnPrefix, ChildVarPrefix, ScopeLowPC,
+    collectStatsRecursive(Child, UnitLowPC, FnPrefix, ChildVarPrefix, ScopeLowPC,
                           BytesInScope, InlineDepth, FnStatMap, GlobalStats);
     Child = Child.getSibling();
   }
@@ -324,7 +334,7 @@ bool collectStatsForObjectFile(ObjectFile &Obj, DWARFContext &DICtx,
   StringMap<PerFunctionStats> Statistics;
   for (const auto &CU : static_cast<DWARFContext *>(&DICtx)->compile_units())
     if (DWARFDie CUDie = CU->getNonSkeletonUnitDIE(false))
-      collectStatsRecursive(CUDie, "/", "g", 0, 0, 0, Statistics, GlobalStats);
+      collectStatsRecursive(CUDie, getLowPC(CUDie), "/", "g", 0, 0, 0, Statistics, GlobalStats);
 
   /// The version number should be increased every time the algorithm is changed
   /// (including bug fixes). New metrics may be added without increasing the
@@ -387,6 +397,8 @@ bool collectStatsForObjectFile(ObjectFile &Obj, DWARFContext &DICtx,
   printDatum(OS, "source variables", VarParamTotal);
   printDatum(OS, "variables with location", VarParamWithLoc);
   printDatum(OS, "call site entries", GlobalStats.CallSiteEntries);
+  printDatum(OS, "call site DIEs", GlobalStats.CallSiteDIEs);
+  printDatum(OS, "call site parameter DIEs", GlobalStats.CallSiteParamDIEs);
   printDatum(OS, "scope bytes total",
              GlobalStats.ScopeBytesFromFirstDefinition);
   printDatum(OS, "scope bytes covered", GlobalStats.ScopeBytesCovered);

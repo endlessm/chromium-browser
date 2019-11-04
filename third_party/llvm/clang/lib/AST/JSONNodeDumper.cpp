@@ -66,6 +66,10 @@ void JSONNodeDumper::Visit(const Stmt *S) {
 
 void JSONNodeDumper::Visit(const Type *T) {
   JOS.attribute("id", createPointerRepresentation(T));
+
+  if (!T)
+    return;
+
   JOS.attribute("kind", (llvm::Twine(T->getTypeClassName()) + "Type").str());
   JOS.attribute("type", createQualType(QualType(T, 0), /*Desugar*/ false));
   attributeOnlyIfTrue("isDependent", T->isDependentType());
@@ -107,9 +111,14 @@ void JSONNodeDumper::Visit(const Decl *D) {
   if (const auto *ND = dyn_cast<NamedDecl>(D))
     attributeOnlyIfTrue("isHidden", ND->isHidden());
 
-  if (D->getLexicalDeclContext() != D->getDeclContext())
-    JOS.attribute("parentDeclContext",
-                  createPointerRepresentation(D->getDeclContext()));
+  if (D->getLexicalDeclContext() != D->getDeclContext()) {
+    // Because of multiple inheritance, a DeclContext pointer does not produce
+    // the same pointer representation as a Decl pointer that references the
+    // same AST Node.
+    const auto *ParentDeclContextDecl = dyn_cast<Decl>(D->getDeclContext());
+    JOS.attribute("parentDeclContextId",
+                  createPointerRepresentation(ParentDeclContextDecl));
+  }
 
   addPreviousDeclaration(D);
   InnerDeclVisitor::Visit(D);
@@ -171,20 +180,28 @@ void JSONNodeDumper::Visit(const GenericSelectionExpr::ConstAssociation &A) {
   attributeOnlyIfTrue("selected", A.isSelected());
 }
 
-void JSONNodeDumper::writeBareSourceLocation(SourceLocation Loc) {
+void JSONNodeDumper::writeBareSourceLocation(SourceLocation Loc,
+                                             bool IsSpelling) {
   PresumedLoc Presumed = SM.getPresumedLoc(Loc);
-
+  unsigned ActualLine = IsSpelling ? SM.getSpellingLineNumber(Loc)
+                                   : SM.getExpansionLineNumber(Loc);
   if (Presumed.isValid()) {
     if (LastLocFilename != Presumed.getFilename()) {
       JOS.attribute("file", Presumed.getFilename());
-      JOS.attribute("line", Presumed.getLine());
-    } else if (LastLocLine != Presumed.getLine())
-      JOS.attribute("line", Presumed.getLine());
+      JOS.attribute("line", ActualLine);
+    } else if (LastLocLine != ActualLine)
+      JOS.attribute("line", ActualLine);
+
+    unsigned PresumedLine = Presumed.getLine();
+    if (ActualLine != PresumedLine && LastLocPresumedLine != PresumedLine)
+      JOS.attribute("presumedLine", PresumedLine);
+
     JOS.attribute("col", Presumed.getColumn());
     JOS.attribute("tokLen",
                   Lexer::MeasureTokenLength(Loc, SM, Ctx.getLangOpts()));
     LastLocFilename = Presumed.getFilename();
-    LastLocLine = Presumed.getLine();
+    LastLocPresumedLine = PresumedLine;
+    LastLocLine = ActualLine;
   }
 }
 
@@ -195,17 +212,18 @@ void JSONNodeDumper::writeSourceLocation(SourceLocation Loc) {
   if (Expansion != Spelling) {
     // If the expansion and the spelling are different, output subobjects
     // describing both locations.
-    JOS.attributeObject(
-        "spellingLoc", [Spelling, this] { writeBareSourceLocation(Spelling); });
+    JOS.attributeObject("spellingLoc", [Spelling, this] {
+      writeBareSourceLocation(Spelling, /*IsSpelling*/ true);
+    });
     JOS.attributeObject("expansionLoc", [Expansion, Loc, this] {
-      writeBareSourceLocation(Expansion);
+      writeBareSourceLocation(Expansion, /*IsSpelling*/ false);
       // If there is a macro expansion, add extra information if the interesting
       // bit is the macro arg expansion.
       if (SM.isMacroArgExpansion(Loc))
         JOS.attribute("isMacroArgExpansion", true);
     });
   } else
-    writeBareSourceLocation(Spelling);
+    writeBareSourceLocation(Spelling, /*IsSpelling*/ true);
 }
 
 void JSONNodeDumper::writeSourceRange(SourceRange R) {
@@ -229,6 +247,8 @@ llvm::json::Object JSONNodeDumper::createQualType(QualType QT, bool Desugar) {
     SplitQualType DSQT = QT.getSplitDesugaredType();
     if (DSQT != SQT)
       Ret["desugaredQualType"] = QualType::getAsString(DSQT, PrintPolicy);
+    if (const auto *TT = QT->getAs<TypedefType>())
+      Ret["typeAliasDeclId"] = createPointerRepresentation(TT->getDecl());
   }
   return Ret;
 }
@@ -1349,7 +1369,9 @@ void JSONNodeDumper::VisitFixedPointLiteral(const FixedPointLiteral *FPL) {
   JOS.attribute("value", FPL->getValueAsString(/*Radix=*/10));
 }
 void JSONNodeDumper::VisitFloatingLiteral(const FloatingLiteral *FL) {
-  JOS.attribute("value", FL->getValueAsApproximateDouble());
+  llvm::SmallVector<char, 16> Buffer;
+  FL->getValue().toString(Buffer);
+  JOS.attribute("value", Buffer);
 }
 void JSONNodeDumper::VisitStringLiteral(const StringLiteral *SL) {
   std::string Buffer;

@@ -100,6 +100,7 @@ def LLVMAlpha : Package<"llvm">, ParentPackage<Alpha>;
 // intended for API modeling that is not controlled by the target triple.
 def APIModeling : Package<"apiModeling">, Hidden;
 def GoogleAPIModeling : Package<"google">, ParentPackage<APIModeling>, Hidden;
+def LLVMAPIModeling : Package<"llvm">, ParentPackage<APIModeling>, Hidden;
 
 def Debug : Package<"debug">, Hidden;
 
@@ -503,6 +504,15 @@ def MoveChecker: Checker<"Move">,
   ]>,
   Documentation<HasDocumentation>;
 
+def VirtualCallModeling : Checker<"VirtualCallModeling">,
+  HelpText<"Auxiliary modeling for the virtual method call checkers">,
+  Documentation<NotDocumented>,
+  Hidden;
+
+def PureVirtualCallChecker : Checker<"PureVirtualCall">,
+  HelpText<"Check pure virtual function calls during construction/destruction">,
+  Dependencies<[VirtualCallModeling]>,
+  Documentation<HasDocumentation>;
 } // end: "cplusplus"
 
 let ParentPackage = CplusplusOptIn in {
@@ -551,14 +561,17 @@ def UninitializedObjectChecker: Checker<"UninitializedObject">,
   Documentation<HasAlphaDocumentation>;
 
 def VirtualCallChecker : Checker<"VirtualCall">,
-  HelpText<"Check virtual function calls during construction or destruction">,
+  HelpText<"Check virtual function calls during construction/destruction">,
   CheckerOptions<[
     CmdLineOption<Boolean,
                   "PureOnly",
-                  "Whether to only report calls to pure virtual methods.",
+                  "Disables the checker. Keeps cplusplus.PureVirtualCall "
+                  "enabled. This option is only provided for backwards "
+                  "compatibility.",
                   "false",
-                  Released>
+                  InAlpha>
   ]>,
+  Dependencies<[VirtualCallModeling]>,
   Documentation<HasDocumentation>;
 
 } // end: "optin.cplusplus"
@@ -635,6 +648,14 @@ let ParentPackage = DeadCode in {
 def DeadStoresChecker : Checker<"DeadStores">,
   HelpText<"Check for values stored to variables that are never read "
            "afterwards">,
+  CheckerOptions<[
+    CmdLineOption<Boolean,
+                  "WarnForDeadNestedAssignments",
+                  "Warns for deadstores in nested assignments."
+                  "E.g.: if ((P = f())) where P is unused.",
+                  "true",
+                  Released>
+  ]>,
   Documentation<HasDocumentation>;
 
 } // end DeadCode
@@ -798,6 +819,13 @@ let ParentPackage = Taint in {
 
 def GenericTaintChecker : Checker<"TaintPropagation">,
   HelpText<"Generate taint information used by other checkers">,
+  CheckerOptions<[
+    CmdLineOption<String,
+                  "Config",
+                  "Specifies the name of the configuration file.",
+                  "",
+                  InAlpha>,
+  ]>,
   Documentation<HasAlphaDocumentation>;
 
 } // end "alpha.security.taint"
@@ -1105,6 +1133,18 @@ def LLVMConventionsChecker : Checker<"Conventions">,
 
 } // end "llvm"
 
+let ParentPackage = LLVMAPIModeling in {
+
+def CastValueChecker : Checker<"CastValue">,
+  HelpText<"Model implementation of custom RTTIs">,
+  Documentation<NotDocumented>;
+
+def ReturnValueChecker : Checker<"ReturnValue">,
+  HelpText<"Model the guaranteed boolean return value of function calls">,
+  Documentation<NotDocumented>;
+
+} // end "apiModeling.llvm"
+
 //===----------------------------------------------------------------------===//
 // Checkers modeling Google APIs.
 //===----------------------------------------------------------------------===//
@@ -1231,6 +1271,10 @@ def DominatorsTreeDumper : Checker<"DumpDominators">,
 
 def PostDominatorsTreeDumper : Checker<"DumpPostDominators">,
   HelpText<"Print the post dominance tree for a given CFG">,
+  Documentation<NotDocumented>;
+
+def ControlDependencyTreeDumper : Checker<"DumpControlDependencies">,
+  HelpText<"Print the post control dependency tree for a given CFG">,
   Documentation<NotDocumented>;
 
 def LiveVariablesDumper : Checker<"DumpLiveVars">,

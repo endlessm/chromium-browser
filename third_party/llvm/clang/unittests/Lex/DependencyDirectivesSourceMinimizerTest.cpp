@@ -60,7 +60,9 @@ TEST(MinimizeSourceToDependencyDirectivesTest, AllTokens) {
                                            "#__include_macros <A>\n"
                                            "#import <A>\n"
                                            "@import A;\n"
-                                           "#pragma clang module import A\n",
+                                           "#pragma clang module import A\n"
+                                           "export module m;\n"
+                                           "import m;\n",
                                            Out, Tokens));
   EXPECT_EQ(pp_define, Tokens[0].K);
   EXPECT_EQ(pp_undef, Tokens[1].K);
@@ -76,7 +78,10 @@ TEST(MinimizeSourceToDependencyDirectivesTest, AllTokens) {
   EXPECT_EQ(pp_import, Tokens[11].K);
   EXPECT_EQ(decl_at_import, Tokens[12].K);
   EXPECT_EQ(pp_pragma_import, Tokens[13].K);
-  EXPECT_EQ(pp_eof, Tokens[14].K);
+  EXPECT_EQ(cxx_export_decl, Tokens[14].K);
+  EXPECT_EQ(cxx_module_decl, Tokens[15].K);
+  EXPECT_EQ(cxx_import_decl, Tokens[16].K);
+  EXPECT_EQ(pp_eof, Tokens[17].K);
 }
 
 TEST(MinimizeSourceToDependencyDirectivesTest, Define) {
@@ -505,6 +510,111 @@ int c = 12 ' ';
 )";
   ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out));
   EXPECT_STREQ("#include <bob>\n#include <foo>\n", Out.data());
+}
+
+TEST(MinimizeSourceToDependencyDirectivesTest, CharacterLiteralPrefixL) {
+  SmallVector<char, 128> Out;
+
+  StringRef Source = R"(L'P'
+#if DEBUG
+// '
+#endif
+#include <test.h>
+)";
+  ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out));
+  EXPECT_STREQ("#include <test.h>\n", Out.data());
+}
+
+TEST(MinimizeSourceToDependencyDirectivesTest, CharacterLiteralPrefixU) {
+  SmallVector<char, 128> Out;
+
+  StringRef Source = R"(int x = U'P';
+#include <test.h>
+// '
+)";
+  ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out));
+  EXPECT_STREQ("#include <test.h>\n", Out.data());
+}
+
+TEST(MinimizeSourceToDependencyDirectivesTest, CharacterLiteralPrefixu) {
+  SmallVector<char, 128> Out;
+
+  StringRef Source = R"(int x = u'b';
+int y = u8'a';
+int z = 128'78;
+#include <test.h>
+// '
+)";
+  ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out));
+  EXPECT_STREQ("#include <test.h>\n", Out.data());
+}
+
+TEST(MinimizeSourceToDependencyDirectivesTest, PragmaOnce) {
+  SmallVector<char, 128> Out;
+  SmallVector<Token, 4> Tokens;
+
+  StringRef Source = R"(// comment
+#pragma once
+// another comment
+#include <test.h>
+)";
+  ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out, Tokens));
+  EXPECT_STREQ("#pragma once\n#include <test.h>\n", Out.data());
+  ASSERT_EQ(Tokens.size(), 3u);
+  EXPECT_EQ(Tokens[0].K,
+            minimize_source_to_dependency_directives::pp_pragma_once);
+
+  Source = R"(// comment
+    #pragma once extra tokens
+    // another comment
+    #include <test.h>
+    )";
+  ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out));
+  EXPECT_STREQ("#pragma once\n#include <test.h>\n", Out.data());
+}
+
+TEST(MinimizeSourceToDependencyDirectivesTest, CxxModules) {
+  SmallVector<char, 128> Out;
+  SmallVector<Token, 4> Tokens;
+
+  StringRef Source = R"(
+    module;
+    #include "textual-header.h"
+
+    export module m;
+    exp\
+ort \
+      import \
+      :l [[rename]];
+
+    export void f();
+
+    void h() {
+      import.a = 3;
+      import = 3;
+      import <<= 3;
+      import->a = 3;
+      import();
+      import . a();
+
+      import a b d e d e f e;
+      import foo [[no_unique_address]];
+      import foo();
+      import f(:sefse);
+      import f(->a = 3);
+    }
+    )";
+  ASSERT_FALSE(minimizeSourceToDependencyDirectives(Source, Out, Tokens));
+  EXPECT_STREQ("#include \"textual-header.h\"\nexport module m;\n"
+               "export import :l [[rename]];\n"
+               "import <<= 3;\nimport a b d e d e f e;\n"
+               "import foo [[no_unique_address]];\nimport foo();\n"
+               "import f(:sefse);\nimport f(->a = 3);\n", Out.data());
+  ASSERT_EQ(Tokens.size(), 12u);
+  EXPECT_EQ(Tokens[0].K,
+            minimize_source_to_dependency_directives::pp_include);
+  EXPECT_EQ(Tokens[2].K,
+            minimize_source_to_dependency_directives::cxx_module_decl);
 }
 
 } // end anonymous namespace

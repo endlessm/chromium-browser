@@ -34,6 +34,10 @@ class GINodeEquiv<Instruction i, SDNode node> {
   // depending on the predicates on the node.
   Instruction IfSignExtend = ?;
   Instruction IfZeroExtend = ?;
+
+  // SelectionDAG has one setcc for all compares. This differentiates
+  // for G_ICMP and G_FCMP.
+  Instruction IfFloatingPoint = ?;
 }
 
 // These are defined in the same order as the G_* instructions.
@@ -46,6 +50,7 @@ def : GINodeEquiv<G_BITCAST, bitconvert>;
 // G_PTRTOINT - SelectionDAG has no equivalent.
 def : GINodeEquiv<G_CONSTANT, imm>;
 def : GINodeEquiv<G_FCONSTANT, fpimm>;
+def : GINodeEquiv<G_IMPLICIT_DEF, undef>;
 def : GINodeEquiv<G_ADD, add>;
 def : GINodeEquiv<G_SUB, sub>;
 def : GINodeEquiv<G_MUL, mul>;
@@ -85,6 +90,7 @@ def : GINodeEquiv<G_INTRINSIC_W_SIDE_EFFECTS, intrinsic_void>;
 def : GINodeEquiv<G_INTRINSIC_W_SIDE_EFFECTS, intrinsic_w_chain>;
 def : GINodeEquiv<G_BR, br>;
 def : GINodeEquiv<G_BSWAP, bswap>;
+def : GINodeEquiv<G_BITREVERSE, bitreverse>;
 def : GINodeEquiv<G_CTLZ, ctlz>;
 def : GINodeEquiv<G_CTTZ, cttz>;
 def : GINodeEquiv<G_CTLZ_ZERO_UNDEF, ctlz_zero_undef>;
@@ -100,10 +106,15 @@ def : GINodeEquiv<G_FSQRT, fsqrt>;
 def : GINodeEquiv<G_FFLOOR, ffloor>;
 def : GINodeEquiv<G_FRINT, frint>;
 def : GINodeEquiv<G_FNEARBYINT, fnearbyint>;
+def : GINodeEquiv<G_FCOPYSIGN, fcopysign>;
 def : GINodeEquiv<G_SMIN, smin>;
 def : GINodeEquiv<G_SMAX, smax>;
 def : GINodeEquiv<G_UMIN, umin>;
 def : GINodeEquiv<G_UMAX, umax>;
+def : GINodeEquiv<G_FMINNUM, fminnum>;
+def : GINodeEquiv<G_FMAXNUM, fmaxnum>;
+def : GINodeEquiv<G_FMINNUM_IEEE, fminnum_ieee>;
+def : GINodeEquiv<G_FMAXNUM_IEEE, fmaxnum_ieee>;
 
 // Broadly speaking G_LOAD is equivalent to ISD::LOAD but there are some
 // complications that tablegen must take care of. For example, Predicates such
@@ -117,6 +128,11 @@ def : GINodeEquiv<G_LOAD, ld> {
   let IfSignExtend = G_SEXTLOAD;
   let IfZeroExtend = G_ZEXTLOAD;
 }
+
+def : GINodeEquiv<G_ICMP, setcc> {
+  let IfFloatingPoint = G_FCMP;
+}
+
 // Broadly speaking G_STORE is equivalent to ISD::STORE but there are some
 // complications that tablegen must take care of. For example, predicates such
 // as isTruncStore require that this is not a perfect 1:1 mapping since a
@@ -138,6 +154,8 @@ def : GINodeEquiv<G_ATOMICRMW_MIN, atomic_load_min>;
 def : GINodeEquiv<G_ATOMICRMW_MAX, atomic_load_max>;
 def : GINodeEquiv<G_ATOMICRMW_UMIN, atomic_load_umin>;
 def : GINodeEquiv<G_ATOMICRMW_UMAX, atomic_load_umax>;
+def : GINodeEquiv<G_ATOMICRMW_FADD, atomic_load_fadd>;
+def : GINodeEquiv<G_ATOMICRMW_FSUB, atomic_load_fsub>;
 def : GINodeEquiv<G_FENCE, atomic_fence>;
 
 // Specifies the GlobalISel equivalents for SelectionDAG's ComplexPattern.

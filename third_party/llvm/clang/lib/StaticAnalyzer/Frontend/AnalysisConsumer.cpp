@@ -64,19 +64,19 @@ STATISTIC(MaxCFGSize, "The maximum number of basic blocks in a function.");
 // Special PathDiagnosticConsumers.
 //===----------------------------------------------------------------------===//
 
-void ento::createPlistHTMLDiagnosticConsumer(AnalyzerOptions &AnalyzerOpts,
-                                             PathDiagnosticConsumers &C,
-                                             const std::string &prefix,
-                                             const Preprocessor &PP) {
+void ento::createPlistHTMLDiagnosticConsumer(
+    AnalyzerOptions &AnalyzerOpts, PathDiagnosticConsumers &C,
+    const std::string &prefix, const Preprocessor &PP,
+    const cross_tu::CrossTranslationUnitContext &CTU) {
   createHTMLDiagnosticConsumer(AnalyzerOpts, C,
-                               llvm::sys::path::parent_path(prefix), PP);
-  createPlistMultiFileDiagnosticConsumer(AnalyzerOpts, C, prefix, PP);
+                               llvm::sys::path::parent_path(prefix), PP, CTU);
+  createPlistMultiFileDiagnosticConsumer(AnalyzerOpts, C, prefix, PP, CTU);
 }
 
-void ento::createTextPathDiagnosticConsumer(AnalyzerOptions &AnalyzerOpts,
-                                            PathDiagnosticConsumers &C,
-                                            const std::string &Prefix,
-                                            const clang::Preprocessor &PP) {
+void ento::createTextPathDiagnosticConsumer(
+    AnalyzerOptions &AnalyzerOpts, PathDiagnosticConsumers &C,
+    const std::string &Prefix, const clang::Preprocessor &PP,
+    const cross_tu::CrossTranslationUnitContext &CTU) {
   llvm_unreachable("'text' consumer should be enabled on ClangDiags");
 }
 
@@ -212,13 +212,13 @@ public:
         Plugins(plugins), Injector(injector), CTU(CI) {
     DigestAnalyzerOptions();
     if (Opts->PrintStats || Opts->ShouldSerializeStats) {
-      AnalyzerTimers = llvm::make_unique<llvm::TimerGroup>(
+      AnalyzerTimers = std::make_unique<llvm::TimerGroup>(
           "analyzer", "Analyzer timers");
-      SyntaxCheckTimer = llvm::make_unique<llvm::Timer>(
+      SyntaxCheckTimer = std::make_unique<llvm::Timer>(
           "syntaxchecks", "Syntax-based analysis time", *AnalyzerTimers);
-      ExprEngineTimer = llvm::make_unique<llvm::Timer>(
+      ExprEngineTimer = std::make_unique<llvm::Timer>(
           "exprengine", "Path exploration time", *AnalyzerTimers);
-      BugReporterTimer = llvm::make_unique<llvm::Timer>(
+      BugReporterTimer = std::make_unique<llvm::Timer>(
           "bugreporter", "Path-sensitive report post-processing time",
           *AnalyzerTimers);
       llvm::EnableStatistics(/* PrintOnExit= */ false);
@@ -249,7 +249,7 @@ public:
         default:
 #define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATEFN)                    \
   case PD_##NAME:                                                              \
-    CREATEFN(*Opts.get(), PathConsumers, OutDir, PP);                       \
+    CREATEFN(*Opts.get(), PathConsumers, OutDir, PP, CTU);                     \
     break;
 #include "clang/StaticAnalyzer/Core/Analyses.def"
         }
@@ -311,9 +311,9 @@ public:
     checkerMgr = createCheckerManager(
         *Ctx, *Opts, Plugins, CheckerRegistrationFns, PP.getDiagnostics());
 
-    Mgr = llvm::make_unique<AnalysisManager>(
-        *Ctx, PP.getDiagnostics(), PathConsumers, CreateStoreMgr,
-        CreateConstraintMgr, checkerMgr.get(), *Opts, Injector);
+    Mgr = std::make_unique<AnalysisManager>(*Ctx, PathConsumers, CreateStoreMgr,
+                                            CreateConstraintMgr,
+                                            checkerMgr.get(), *Opts, Injector);
   }
 
   /// Store the top level decls in the set to be processed later on.
@@ -609,6 +609,7 @@ void AnalysisConsumer::runAnalysisOnTranslationUnit(ASTContext &C) {
   // After all decls handled, run checkers on the entire TranslationUnit.
   checkerMgr->runCheckersOnEndOfTranslationUnit(TU, *Mgr, BR);
 
+  BR.FlushReports();
   RecVisitorBR = nullptr;
 }
 
@@ -766,6 +767,9 @@ void AnalysisConsumer::HandleCode(Decl *D, AnalysisMode Mode,
     if (SyntaxCheckTimer)
       SyntaxCheckTimer->stopTimer();
   }
+
+  BR.FlushReports();
+
   if ((Mode & AM_Path) && checkerMgr->hasPathSensitiveCheckers()) {
     RunPathSensitiveChecks(D, IMode, VisitedCallees);
     if (IMode != ExprEngine::Inline_Minimal)
@@ -826,7 +830,7 @@ ento::CreateAnalysisConsumer(CompilerInstance &CI) {
   AnalyzerOptionsRef analyzerOpts = CI.getAnalyzerOpts();
   bool hasModelPath = analyzerOpts->Config.count("model-path") > 0;
 
-  return llvm::make_unique<AnalysisConsumer>(
+  return std::make_unique<AnalysisConsumer>(
       CI, CI.getFrontendOpts().OutputFile, analyzerOpts,
       CI.getFrontendOpts().Plugins,
       hasModelPath ? new ModelInjector(CI) : nullptr);

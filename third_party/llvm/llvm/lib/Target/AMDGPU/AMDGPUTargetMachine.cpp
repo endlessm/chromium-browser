@@ -238,16 +238,17 @@ extern "C" void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUUseNativeCallsPass(*PR);
   initializeAMDGPUSimplifyLibCallsPass(*PR);
   initializeAMDGPUInlinerPass(*PR);
+  initializeAMDGPUPrintfRuntimeBindingPass(*PR);
   initializeGCNRegBankReassignPass(*PR);
   initializeGCNNSAReassignPass(*PR);
 }
 
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
-  return llvm::make_unique<AMDGPUTargetObjectFile>();
+  return std::make_unique<AMDGPUTargetObjectFile>();
 }
 
 static ScheduleDAGInstrs *createR600MachineScheduler(MachineSchedContext *C) {
-  return new ScheduleDAGMILive(C, llvm::make_unique<R600SchedStrategy>());
+  return new ScheduleDAGMILive(C, std::make_unique<R600SchedStrategy>());
 }
 
 static ScheduleDAGInstrs *createSIMachineScheduler(MachineSchedContext *C) {
@@ -257,7 +258,7 @@ static ScheduleDAGInstrs *createSIMachineScheduler(MachineSchedContext *C) {
 static ScheduleDAGInstrs *
 createGCNMaxOccupancyMachineScheduler(MachineSchedContext *C) {
   ScheduleDAGMILive *DAG =
-    new GCNScheduleDAGMILive(C, make_unique<GCNMaxOccupancySchedStrategy>(C));
+    new GCNScheduleDAGMILive(C, std::make_unique<GCNMaxOccupancySchedStrategy>(C));
   DAG->addMutation(createLoadClusterDAGMutation(DAG->TII, DAG->TRI));
   DAG->addMutation(createStoreClusterDAGMutation(DAG->TII, DAG->TRI));
   DAG->addMutation(createAMDGPUMacroFusionDAGMutation());
@@ -412,6 +413,7 @@ void AMDGPUTargetMachine::adjustPassManager(PassManagerBuilder &Builder) {
         PM.add(createAMDGPUExternalAAWrapperPass());
       }
       PM.add(createAMDGPUUnifyMetadataPass());
+      PM.add(createAMDGPUPrintfRuntimeBinding());
       PM.add(createAMDGPUPropagateAttributesLatePass(this));
       if (Internalize) {
         PM.add(createInternalizePass(mustPreserveGV));
@@ -482,7 +484,7 @@ const R600Subtarget *R600TargetMachine::getSubtargetImpl(
     // creation will depend on the TM and the code generation flags on the
     // function that reside in TargetOptions.
     resetTargetOptions(F);
-    I = llvm::make_unique<R600Subtarget>(TargetTriple, GPU, FS, *this);
+    I = std::make_unique<R600Subtarget>(TargetTriple, GPU, FS, *this);
   }
 
   return I.get();
@@ -518,7 +520,7 @@ const GCNSubtarget *GCNTargetMachine::getSubtargetImpl(const Function &F) const 
     // creation will depend on the TM and the code generation flags on the
     // function that reside in TargetOptions.
     resetTargetOptions(F);
-    I = llvm::make_unique<GCNSubtarget>(TargetTriple, GPU, FS, *this);
+    I = std::make_unique<GCNSubtarget>(TargetTriple, GPU, FS, *this);
   }
 
   I->setScalarizeGlobalBehavior(ScalarizeGlobal);
@@ -659,6 +661,8 @@ void AMDGPUPassConfig::addIRPasses() {
   disablePass(&FuncletLayoutID);
   disablePass(&PatchableFunctionID);
 
+  addPass(createAMDGPUPrintfRuntimeBinding());
+
   // This must occur before inlining, as the inliner will not look through
   // bitcast calls.
   addPass(createAMDGPUFixFunctionBitcastsPass());
@@ -680,12 +684,6 @@ void AMDGPUPassConfig::addIRPasses() {
   // functions, then we will generate code for the first function
   // without ever running any passes on the second.
   addPass(createBarrierNoopPass());
-
-  if (TM.getTargetTriple().getArch() == Triple::amdgcn) {
-    // TODO: May want to move later or split into an early and late one.
-
-    addPass(createAMDGPUCodeGenPreparePass());
-  }
 
   // Handle uses of OpenCL image2d_t, image3d_t and sampler_t arguments.
   if (TM.getTargetTriple().getArch() == Triple::r600)
@@ -714,6 +712,11 @@ void AMDGPUPassConfig::addIRPasses() {
     }
   }
 
+  if (TM.getTargetTriple().getArch() == Triple::amdgcn) {
+    // TODO: May want to move later or split into an early and late one.
+    addPass(createAMDGPUCodeGenPreparePass());
+  }
+
   TargetPassConfig::addIRPasses();
 
   // EarlyCSE is not always strong enough to clean up what LSR produces. For
@@ -739,6 +742,8 @@ void AMDGPUPassConfig::addCodeGenPrepare() {
   if (TM->getTargetTriple().getArch() == Triple::amdgcn &&
       EnableLowerKernelArguments)
     addPass(createAMDGPULowerKernelArgumentsPass());
+
+  addPass(&AMDGPUPerfHintAnalysisID);
 
   TargetPassConfig::addCodeGenPrepare();
 
@@ -880,6 +885,9 @@ bool GCNPassConfig::addInstSelector() {
   addPass(createSILowerI1CopiesPass());
   addPass(createSIFixupVectorISelPass());
   addPass(createSIAddIMGInitPass());
+  // FIXME: Remove this once the phi on CF_END is cleaned up by either removing
+  // LCSSA or other ways.
+  addPass(&UnreachableMachineBlockElimID);
   return false;
 }
 
@@ -1065,15 +1073,15 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
 
   auto parseAndCheckArgument = [&](const Optional<yaml::SIArgument> &A,
                                    const TargetRegisterClass &RC,
-                                   ArgDescriptor &Arg) {
+                                   ArgDescriptor &Arg, unsigned UserSGPRs,
+                                   unsigned SystemSGPRs) {
     // Skip parsing if it's not present.
     if (!A)
       return false;
 
     if (A->IsRegister) {
       unsigned Reg;
-      if (parseNamedRegisterReference(PFS, Reg, A->RegisterName.Value,
-                                      Error)) {
+      if (parseNamedRegisterReference(PFS, Reg, A->RegisterName.Value, Error)) {
         SourceRange = A->RegisterName.SourceRange;
         return true;
       }
@@ -1086,61 +1094,66 @@ bool GCNTargetMachine::parseMachineFunctionInfo(
     if (A->Mask)
       Arg = ArgDescriptor::createArg(Arg, A->Mask.getValue());
 
+    MFI->NumUserSGPRs += UserSGPRs;
+    MFI->NumSystemSGPRs += SystemSGPRs;
     return false;
   };
 
   if (YamlMFI.ArgInfo &&
       (parseAndCheckArgument(YamlMFI.ArgInfo->PrivateSegmentBuffer,
                              AMDGPU::SReg_128RegClass,
-                             MFI->ArgInfo.PrivateSegmentBuffer) ||
+                             MFI->ArgInfo.PrivateSegmentBuffer, 4, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->DispatchPtr,
-                             AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.DispatchPtr) ||
+                             AMDGPU::SReg_64RegClass, MFI->ArgInfo.DispatchPtr,
+                             2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->QueuePtr, AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.QueuePtr) ||
+                             MFI->ArgInfo.QueuePtr, 2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->KernargSegmentPtr,
                              AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.KernargSegmentPtr) ||
+                             MFI->ArgInfo.KernargSegmentPtr, 2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->DispatchID,
-                             AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.DispatchID) ||
+                             AMDGPU::SReg_64RegClass, MFI->ArgInfo.DispatchID,
+                             2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->FlatScratchInit,
                              AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.FlatScratchInit) ||
+                             MFI->ArgInfo.FlatScratchInit, 2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->PrivateSegmentSize,
                              AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.PrivateSegmentSize) ||
+                             MFI->ArgInfo.PrivateSegmentSize, 0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkGroupIDX,
-                             AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.WorkGroupIDX) ||
+                             AMDGPU::SGPR_32RegClass, MFI->ArgInfo.WorkGroupIDX,
+                             0, 1) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkGroupIDY,
-                             AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.WorkGroupIDY) ||
+                             AMDGPU::SGPR_32RegClass, MFI->ArgInfo.WorkGroupIDY,
+                             0, 1) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkGroupIDZ,
-                             AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.WorkGroupIDZ) ||
+                             AMDGPU::SGPR_32RegClass, MFI->ArgInfo.WorkGroupIDZ,
+                             0, 1) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkGroupInfo,
                              AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.WorkGroupInfo) ||
+                             MFI->ArgInfo.WorkGroupInfo, 0, 1) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->PrivateSegmentWaveByteOffset,
                              AMDGPU::SGPR_32RegClass,
-                             MFI->ArgInfo.PrivateSegmentWaveByteOffset) ||
+                             MFI->ArgInfo.PrivateSegmentWaveByteOffset, 0, 1) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->ImplicitArgPtr,
                              AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.ImplicitArgPtr) ||
+                             MFI->ArgInfo.ImplicitArgPtr, 0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->ImplicitBufferPtr,
                              AMDGPU::SReg_64RegClass,
-                             MFI->ArgInfo.ImplicitBufferPtr) ||
+                             MFI->ArgInfo.ImplicitBufferPtr, 2, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkItemIDX,
                              AMDGPU::VGPR_32RegClass,
-                             MFI->ArgInfo.WorkItemIDX) ||
+                             MFI->ArgInfo.WorkItemIDX, 0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkItemIDY,
                              AMDGPU::VGPR_32RegClass,
-                             MFI->ArgInfo.WorkItemIDY) ||
+                             MFI->ArgInfo.WorkItemIDY, 0, 0) ||
        parseAndCheckArgument(YamlMFI.ArgInfo->WorkItemIDZ,
                              AMDGPU::VGPR_32RegClass,
-                             MFI->ArgInfo.WorkItemIDZ)))
+                             MFI->ArgInfo.WorkItemIDZ, 0, 0)))
     return true;
+
+  MFI->Mode.IEEE = YamlMFI.Mode.IEEE;
+  MFI->Mode.DX10Clamp = YamlMFI.Mode.DX10Clamp;
 
   return false;
 }

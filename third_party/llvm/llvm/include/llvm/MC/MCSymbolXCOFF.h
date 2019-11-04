@@ -8,27 +8,49 @@
 #ifndef LLVM_MC_MCSYMBOLXCOFF_H
 #define LLVM_MC_MCSYMBOLXCOFF_H
 
+#include "llvm/ADT/Optional.h"
 #include "llvm/BinaryFormat/XCOFF.h"
 #include "llvm/MC/MCSymbol.h"
 
 namespace llvm {
 
-class GlobalValue;
+class MCSectionXCOFF;
 
 class MCSymbolXCOFF : public MCSymbol {
-  // The IR symbol this MCSymbolXCOFF is based on. It is set on function
-  // entry point symbols when they are the callee operand of a direct call
-  // SDNode.
-  const GlobalValue *GV = nullptr;
-
 public:
   MCSymbolXCOFF(const StringMapEntry<bool> *Name, bool isTemporary)
       : MCSymbol(SymbolKindXCOFF, Name, isTemporary) {}
 
-  void setGlobalValue(const GlobalValue *G) { GV = G; }
-  const GlobalValue *getGlobalValue() const { return GV; }
-
   static bool classof(const MCSymbol *S) { return S->isXCOFF(); }
+
+  void setStorageClass(XCOFF::StorageClass SC) {
+    assert((!StorageClass.hasValue() || StorageClass.getValue() == SC) &&
+           "Redefining StorageClass of XCOFF MCSymbol.");
+    StorageClass = SC;
+  };
+
+  XCOFF::StorageClass getStorageClass() const {
+    assert(StorageClass.hasValue() &&
+           "StorageClass not set on XCOFF MCSymbol.");
+    return StorageClass.getValue();
+  }
+
+  void setContainingCsect(const MCSectionXCOFF *C) {
+    assert((!ContainingCsect || ContainingCsect == C) &&
+           "Trying to set a containing csect that doesn't match the one that"
+           "this symbol is already mapped to.");
+    ContainingCsect = C;
+  }
+
+  const MCSectionXCOFF *getContainingCsect() const {
+    assert(ContainingCsect &&
+           "Trying to get containing csect but none was set.");
+    return ContainingCsect;
+  }
+
+private:
+  Optional<XCOFF::StorageClass> StorageClass;
+  const MCSectionXCOFF *ContainingCsect = nullptr;
 };
 
 } // end namespace llvm

@@ -160,23 +160,37 @@ MachineInstrBuilder MachineIRBuilder::buildDbgLabel(const MDNode *Label) {
   return MIB.addMetadata(Label);
 }
 
-MachineInstrBuilder MachineIRBuilder::buildFrameIndex(Register Res, int Idx) {
-  assert(getMRI()->getType(Res).isPointer() && "invalid operand type");
-  return buildInstr(TargetOpcode::G_FRAME_INDEX)
-      .addDef(Res)
-      .addFrameIndex(Idx);
+MachineInstrBuilder MachineIRBuilder::buildDynStackAlloc(const DstOp &Res,
+                                                         const SrcOp &Size,
+                                                         unsigned Align) {
+  assert(Res.getLLTTy(*getMRI()).isPointer() && "expected ptr dst type");
+  auto MIB = buildInstr(TargetOpcode::G_DYN_STACKALLOC);
+  Res.addDefToMIB(*getMRI(), MIB);
+  Size.addSrcToMIB(MIB);
+  MIB.addImm(Align);
+  return MIB;
 }
 
-MachineInstrBuilder MachineIRBuilder::buildGlobalValue(Register Res,
+MachineInstrBuilder MachineIRBuilder::buildFrameIndex(const DstOp &Res,
+                                                      int Idx) {
+  assert(Res.getLLTTy(*getMRI()).isPointer() && "invalid operand type");
+  auto MIB = buildInstr(TargetOpcode::G_FRAME_INDEX);
+  Res.addDefToMIB(*getMRI(), MIB);
+  MIB.addFrameIndex(Idx);
+  return MIB;
+}
+
+MachineInstrBuilder MachineIRBuilder::buildGlobalValue(const DstOp &Res,
                                                        const GlobalValue *GV) {
-  assert(getMRI()->getType(Res).isPointer() && "invalid operand type");
-  assert(getMRI()->getType(Res).getAddressSpace() ==
+  assert(Res.getLLTTy(*getMRI()).isPointer() && "invalid operand type");
+  assert(Res.getLLTTy(*getMRI()).getAddressSpace() ==
              GV->getType()->getAddressSpace() &&
          "address space mismatch");
 
-  return buildInstr(TargetOpcode::G_GLOBAL_VALUE)
-      .addDef(Res)
-      .addGlobalAddress(GV);
+  auto MIB = buildInstr(TargetOpcode::G_GLOBAL_VALUE);
+  Res.addDefToMIB(*getMRI(), MIB);
+  MIB.addGlobalAddress(GV);
+  return MIB;
 }
 
 MachineInstrBuilder MachineIRBuilder::buildJumpTable(const LLT PtrTy,
@@ -197,16 +211,14 @@ void MachineIRBuilder::validateShiftOp(const LLT &Res, const LLT &Op0,
   assert((Res == Op0) && "type mismatch");
 }
 
-MachineInstrBuilder MachineIRBuilder::buildGEP(Register Res, Register Op0,
-                                               Register Op1) {
-  assert(getMRI()->getType(Res).isPointer() &&
-         getMRI()->getType(Res) == getMRI()->getType(Op0) && "type mismatch");
-  assert(getMRI()->getType(Op1).isScalar() && "invalid offset type");
+MachineInstrBuilder MachineIRBuilder::buildGEP(const DstOp &Res,
+                                               const SrcOp &Op0,
+                                               const SrcOp &Op1) {
+  assert(Res.getLLTTy(*getMRI()).isPointer() &&
+         Res.getLLTTy(*getMRI()) == Op0.getLLTTy(*getMRI()) && "type mismatch");
+  assert(Op1.getLLTTy(*getMRI()).isScalar() && "invalid offset type");
 
-  return buildInstr(TargetOpcode::G_GEP)
-      .addDef(Res)
-      .addUse(Op0)
-      .addUse(Op1);
+  return buildInstr(TargetOpcode::G_GEP, {Res}, {Op0, Op1});
 }
 
 Optional<MachineInstrBuilder>
@@ -225,15 +237,17 @@ MachineIRBuilder::materializeGEP(Register &Res, Register Op0,
   return buildGEP(Res, Op0, Cst.getReg(0));
 }
 
-MachineInstrBuilder MachineIRBuilder::buildPtrMask(Register Res, Register Op0,
+MachineInstrBuilder MachineIRBuilder::buildPtrMask(const DstOp &Res,
+                                                   const SrcOp &Op0,
                                                    uint32_t NumBits) {
-  assert(getMRI()->getType(Res).isPointer() &&
-         getMRI()->getType(Res) == getMRI()->getType(Op0) && "type mismatch");
+  assert(Res.getLLTTy(*getMRI()).isPointer() &&
+         Res.getLLTTy(*getMRI()) == Op0.getLLTTy(*getMRI()) && "type mismatch");
 
-  return buildInstr(TargetOpcode::G_PTR_MASK)
-      .addDef(Res)
-      .addUse(Op0)
-      .addImm(NumBits);
+  auto MIB = buildInstr(TargetOpcode::G_PTR_MASK);
+  Res.addDefToMIB(*getMRI(), MIB);
+  Op0.addSrcToMIB(MIB);
+  MIB.addImm(NumBits);
+  return MIB;
 }
 
 MachineInstrBuilder MachineIRBuilder::buildBr(MachineBasicBlock &Dest) {
@@ -343,33 +357,37 @@ MachineInstrBuilder MachineIRBuilder::buildBrCond(Register Tst,
   return buildInstr(TargetOpcode::G_BRCOND).addUse(Tst).addMBB(&Dest);
 }
 
-MachineInstrBuilder MachineIRBuilder::buildLoad(Register Res, Register Addr,
+MachineInstrBuilder MachineIRBuilder::buildLoad(const DstOp &Res,
+                                                const SrcOp &Addr,
                                                 MachineMemOperand &MMO) {
   return buildLoadInstr(TargetOpcode::G_LOAD, Res, Addr, MMO);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildLoadInstr(unsigned Opcode,
-                                                     Register Res,
-                                                     Register Addr,
+                                                     const DstOp &Res,
+                                                     const SrcOp &Addr,
                                                      MachineMemOperand &MMO) {
-  assert(getMRI()->getType(Res).isValid() && "invalid operand type");
-  assert(getMRI()->getType(Addr).isPointer() && "invalid operand type");
+  assert(Res.getLLTTy(*getMRI()).isValid() && "invalid operand type");
+  assert(Addr.getLLTTy(*getMRI()).isPointer() && "invalid operand type");
 
-  return buildInstr(Opcode)
-      .addDef(Res)
-      .addUse(Addr)
-      .addMemOperand(&MMO);
+  auto MIB = buildInstr(Opcode);
+  Res.addDefToMIB(*getMRI(), MIB);
+  Addr.addSrcToMIB(MIB);
+  MIB.addMemOperand(&MMO);
+  return MIB;
 }
 
-MachineInstrBuilder MachineIRBuilder::buildStore(Register Val, Register Addr,
+MachineInstrBuilder MachineIRBuilder::buildStore(const SrcOp &Val,
+                                                 const SrcOp &Addr,
                                                  MachineMemOperand &MMO) {
-  assert(getMRI()->getType(Val).isValid() && "invalid operand type");
-  assert(getMRI()->getType(Addr).isPointer() && "invalid operand type");
+  assert(Val.getLLTTy(*getMRI()).isValid() && "invalid operand type");
+  assert(Addr.getLLTTy(*getMRI()).isPointer() && "invalid operand type");
 
-  return buildInstr(TargetOpcode::G_STORE)
-      .addUse(Val)
-      .addUse(Addr)
-      .addMemOperand(&MMO);
+  auto MIB = buildInstr(TargetOpcode::G_STORE);
+  Val.addSrcToMIB(MIB);
+  Addr.addSrcToMIB(MIB);
+  MIB.addMemOperand(&MMO);
+  return MIB;
 }
 
 MachineInstrBuilder MachineIRBuilder::buildUAddo(const DstOp &Res,
@@ -557,6 +575,7 @@ MachineInstrBuilder MachineIRBuilder::buildMerge(const DstOp &Res,
   // we need some temporary storage for the DstOp objects. Here we use a
   // sufficiently large SmallVector to not go through the heap.
   SmallVector<SrcOp, 8> TmpVec(Ops.begin(), Ops.end());
+  assert(TmpVec.size() > 1);
   return buildInstr(TargetOpcode::G_MERGE_VALUES, Res, TmpVec);
 }
 
@@ -566,6 +585,7 @@ MachineInstrBuilder MachineIRBuilder::buildUnmerge(ArrayRef<LLT> Res,
   // we need some temporary storage for the DstOp objects. Here we use a
   // sufficiently large SmallVector to not go through the heap.
   SmallVector<DstOp, 8> TmpVec(Res.begin(), Res.end());
+  assert(TmpVec.size() > 1);
   return buildInstr(TargetOpcode::G_UNMERGE_VALUES, TmpVec, Op);
 }
 
@@ -584,6 +604,7 @@ MachineInstrBuilder MachineIRBuilder::buildUnmerge(ArrayRef<Register> Res,
   // we need some temporary storage for the DstOp objects. Here we use a
   // sufficiently large SmallVector to not go through the heap.
   SmallVector<DstOp, 8> TmpVec(Res.begin(), Res.end());
+  assert(TmpVec.size() > 1);
   return buildInstr(TargetOpcode::G_UNMERGE_VALUES, TmpVec, Op);
 }
 
@@ -683,17 +704,19 @@ MachineInstrBuilder MachineIRBuilder::buildICmp(CmpInst::Predicate Pred,
 MachineInstrBuilder MachineIRBuilder::buildFCmp(CmpInst::Predicate Pred,
                                                 const DstOp &Res,
                                                 const SrcOp &Op0,
-                                                const SrcOp &Op1) {
+                                                const SrcOp &Op1,
+                                                Optional<unsigned> Flags) {
 
-  return buildInstr(TargetOpcode::G_FCMP, Res, {Pred, Op0, Op1});
+  return buildInstr(TargetOpcode::G_FCMP, Res, {Pred, Op0, Op1}, Flags);
 }
 
 MachineInstrBuilder MachineIRBuilder::buildSelect(const DstOp &Res,
                                                   const SrcOp &Tst,
                                                   const SrcOp &Op0,
-                                                  const SrcOp &Op1) {
+                                                  const SrcOp &Op1,
+                                                  Optional<unsigned> Flags) {
 
-  return buildInstr(TargetOpcode::G_SELECT, {Res}, {Tst, Op0, Op1});
+  return buildInstr(TargetOpcode::G_SELECT, {Res}, {Tst, Op0, Op1}, Flags);
 }
 
 MachineInstrBuilder
@@ -760,26 +783,28 @@ MachineIRBuilder::buildAtomicCmpXchg(Register OldValRes, Register Addr,
       .addMemOperand(&MMO);
 }
 
-MachineInstrBuilder MachineIRBuilder::buildAtomicRMW(unsigned Opcode,
-                                                     Register OldValRes,
-                                                     Register Addr,
-                                                     Register Val,
-                                                     MachineMemOperand &MMO) {
+MachineInstrBuilder MachineIRBuilder::buildAtomicRMW(
+  unsigned Opcode, const DstOp &OldValRes,
+  const SrcOp &Addr, const SrcOp &Val,
+  MachineMemOperand &MMO) {
+
 #ifndef NDEBUG
-  LLT OldValResTy = getMRI()->getType(OldValRes);
-  LLT AddrTy = getMRI()->getType(Addr);
-  LLT ValTy = getMRI()->getType(Val);
+  LLT OldValResTy = OldValRes.getLLTTy(*getMRI());
+  LLT AddrTy = Addr.getLLTTy(*getMRI());
+  LLT ValTy = Val.getLLTTy(*getMRI());
   assert(OldValResTy.isScalar() && "invalid operand type");
   assert(AddrTy.isPointer() && "invalid operand type");
   assert(ValTy.isValid() && "invalid operand type");
   assert(OldValResTy == ValTy && "type mismatch");
+  assert(MMO.isAtomic() && "not atomic mem operand");
 #endif
 
-  return buildInstr(Opcode)
-      .addDef(OldValRes)
-      .addUse(Addr)
-      .addUse(Val)
-      .addMemOperand(&MMO);
+  auto MIB = buildInstr(Opcode);
+  OldValRes.addDefToMIB(*getMRI(), MIB);
+  Addr.addSrcToMIB(MIB);
+  Val.addSrcToMIB(MIB);
+  MIB.addMemOperand(&MMO);
+  return MIB;
 }
 
 MachineInstrBuilder
@@ -847,6 +872,21 @@ MachineInstrBuilder
 MachineIRBuilder::buildAtomicRMWUmin(Register OldValRes, Register Addr,
                                      Register Val, MachineMemOperand &MMO) {
   return buildAtomicRMW(TargetOpcode::G_ATOMICRMW_UMIN, OldValRes, Addr, Val,
+                        MMO);
+}
+
+MachineInstrBuilder
+MachineIRBuilder::buildAtomicRMWFAdd(
+  const DstOp &OldValRes, const SrcOp &Addr, const SrcOp &Val,
+  MachineMemOperand &MMO) {
+  return buildAtomicRMW(TargetOpcode::G_ATOMICRMW_FADD, OldValRes, Addr, Val,
+                        MMO);
+}
+
+MachineInstrBuilder
+MachineIRBuilder::buildAtomicRMWFSub(const DstOp &OldValRes, const SrcOp &Addr, const SrcOp &Val,
+                                     MachineMemOperand &MMO) {
+  return buildAtomicRMW(TargetOpcode::G_ATOMICRMW_FSUB, OldValRes, Addr, Val,
                         MMO);
 }
 

@@ -381,44 +381,48 @@ CodeGenFunction::EmitCompoundStmtWithoutScope(const CompoundStmt &S,
                                               bool GetLast,
                                               AggValueSlot AggSlot) {
 
-  for (CompoundStmt::const_body_iterator I = S.body_begin(),
-       E = S.body_end()-GetLast; I != E; ++I)
-    EmitStmt(*I);
+  const Stmt *ExprResult = S.getStmtExprResult();
+  assert((!GetLast || (GetLast && ExprResult)) &&
+         "If GetLast is true then the CompoundStmt must have a StmtExprResult");
 
   Address RetAlloca = Address::invalid();
-  if (GetLast) {
-    // We have to special case labels here.  They are statements, but when put
-    // at the end of a statement expression, they yield the value of their
-    // subexpression.  Handle this by walking through all labels we encounter,
-    // emitting them before we evaluate the subexpr.
-    // Similar issues arise for attributed statements.
-    const Stmt *LastStmt = S.body_back();
-    while (!isa<Expr>(LastStmt)) {
-      if (const auto *LS = dyn_cast<LabelStmt>(LastStmt)) {
-        EmitLabel(LS->getDecl());
-        LastStmt = LS->getSubStmt();
-      } else if (const auto *AS = dyn_cast<AttributedStmt>(LastStmt)) {
-        // FIXME: Update this if we ever have attributes that affect the
-        // semantics of an expression.
-        LastStmt = AS->getSubStmt();
-      } else {
-        llvm_unreachable("unknown value statement");
+
+  for (auto *CurStmt : S.body()) {
+    if (GetLast && ExprResult == CurStmt) {
+      // We have to special case labels here.  They are statements, but when put
+      // at the end of a statement expression, they yield the value of their
+      // subexpression.  Handle this by walking through all labels we encounter,
+      // emitting them before we evaluate the subexpr.
+      // Similar issues arise for attributed statements.
+      while (!isa<Expr>(ExprResult)) {
+        if (const auto *LS = dyn_cast<LabelStmt>(ExprResult)) {
+          EmitLabel(LS->getDecl());
+          ExprResult = LS->getSubStmt();
+        } else if (const auto *AS = dyn_cast<AttributedStmt>(ExprResult)) {
+          // FIXME: Update this if we ever have attributes that affect the
+          // semantics of an expression.
+          ExprResult = AS->getSubStmt();
+        } else {
+          llvm_unreachable("unknown value statement");
+        }
       }
-    }
 
-    EnsureInsertPoint();
+      EnsureInsertPoint();
 
-    const Expr *E = cast<Expr>(LastStmt);
-    QualType ExprTy = E->getType();
-    if (hasAggregateEvaluationKind(ExprTy)) {
-      EmitAggExpr(E, AggSlot);
+      const Expr *E = cast<Expr>(ExprResult);
+      QualType ExprTy = E->getType();
+      if (hasAggregateEvaluationKind(ExprTy)) {
+        EmitAggExpr(E, AggSlot);
+      } else {
+        // We can't return an RValue here because there might be cleanups at
+        // the end of the StmtExpr.  Because of that, we have to emit the result
+        // here into a temporary alloca.
+        RetAlloca = CreateMemTemp(ExprTy);
+        EmitAnyExprToMem(E, RetAlloca, Qualifiers(),
+                         /*IsInit*/ false);
+      }
     } else {
-      // We can't return an RValue here because there might be cleanups at
-      // the end of the StmtExpr.  Because of that, we have to emit the result
-      // here into a temporary alloca.
-      RetAlloca = CreateMemTemp(ExprTy);
-      EmitAnyExprToMem(E, RetAlloca, Qualifiers(),
-                       /*IsInit*/ false);
+      EmitStmt(CurStmt);
     }
   }
 
@@ -1842,11 +1846,9 @@ llvm::Value* CodeGenFunction::EmitAsmInput(
       InputExpr->EvaluateAsRValue(EVResult, getContext(), true);
 
       llvm::APSInt IntResult;
-      if (!EVResult.Val.toIntegralConstant(IntResult, InputExpr->getType(),
-                                           getContext()))
-        llvm_unreachable("Invalid immediate constant!");
-
-      return llvm::ConstantInt::get(getLLVMContext(), IntResult);
+      if (EVResult.Val.toIntegralConstant(IntResult, InputExpr->getType(),
+                                          getContext()))
+        return llvm::ConstantInt::get(getLLVMContext(), IntResult);
     }
 
     Expr::EvalResult Result;
@@ -1982,6 +1984,7 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   std::vector<llvm::Type *> ResultTruncRegTypes;
   std::vector<llvm::Type *> ArgTypes;
   std::vector<llvm::Value*> Args;
+  llvm::BitVector ResultTypeRequiresCast;
 
   // Keep track of inout constraints.
   std::string InOutConstraints;
@@ -2020,13 +2023,23 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
 
     // If this is a register output, then make the inline asm return it
     // by-value.  If this is a memory result, return the value by-reference.
-    if (!Info.allowsMemory() && hasScalarEvaluationKind(OutExpr->getType())) {
+    bool isScalarizableAggregate =
+        hasAggregateEvaluationKind(OutExpr->getType());
+    if (!Info.allowsMemory() && (hasScalarEvaluationKind(OutExpr->getType()) ||
+                                 isScalarizableAggregate)) {
       Constraints += "=" + OutputConstraint;
       ResultRegQualTys.push_back(OutExpr->getType());
       ResultRegDests.push_back(Dest);
-      ResultRegTypes.push_back(ConvertTypeForMem(OutExpr->getType()));
-      ResultTruncRegTypes.push_back(ResultRegTypes.back());
-
+      ResultTruncRegTypes.push_back(ConvertTypeForMem(OutExpr->getType()));
+      if (Info.allowsRegister() && isScalarizableAggregate) {
+        ResultTypeRequiresCast.push_back(true);
+        unsigned Size = getContext().getTypeSize(OutExpr->getType());
+        llvm::Type *ConvTy = llvm::IntegerType::get(getLLVMContext(), Size);
+        ResultRegTypes.push_back(ConvTy);
+      } else {
+        ResultTypeRequiresCast.push_back(false);
+        ResultRegTypes.push_back(ResultTruncRegTypes.back());
+      }
       // If this output is tied to an input, and if the input is larger, then
       // we need to set the actual result type of the inline asm node to be the
       // same as the input type.
@@ -2269,6 +2282,9 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
   assert(RegResults.size() == ResultRegTypes.size());
   assert(RegResults.size() == ResultTruncRegTypes.size());
   assert(RegResults.size() == ResultRegDests.size());
+  // ResultRegDests can be also populated by addReturnRegisterOutputs() above,
+  // in which case its size may grow.
+  assert(ResultTypeRequiresCast.size() <= ResultRegDests.size());
   for (unsigned i = 0, e = RegResults.size(); i != e; ++i) {
     llvm::Value *Tmp = RegResults[i];
 
@@ -2298,7 +2314,24 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
       }
     }
 
-    EmitStoreThroughLValue(RValue::get(Tmp), ResultRegDests[i]);
+    LValue Dest = ResultRegDests[i];
+    // ResultTypeRequiresCast elements correspond to the first
+    // ResultTypeRequiresCast.size() elements of RegResults.
+    if ((i < ResultTypeRequiresCast.size()) && ResultTypeRequiresCast[i]) {
+      unsigned Size = getContext().getTypeSize(ResultRegQualTys[i]);
+      Address A = Builder.CreateBitCast(Dest.getAddress(),
+                                        ResultRegTypes[i]->getPointerTo());
+      QualType Ty = getContext().getIntTypeForBitwidth(Size, /*Signed*/ false);
+      if (Ty.isNull()) {
+        const Expr *OutExpr = S.getOutputExpr(i);
+        CGM.Error(
+            OutExpr->getExprLoc(),
+            "impossible constraint in asm: can't store value into a register");
+        return;
+      }
+      Dest = MakeAddrLValue(A, Ty);
+    }
+    EmitStoreThroughLValue(RValue::get(Tmp), Dest);
   }
 }
 

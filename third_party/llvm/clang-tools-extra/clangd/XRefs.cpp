@@ -11,9 +11,11 @@
 #include "FindSymbols.h"
 #include "FormattedString.h"
 #include "Logger.h"
+#include "ParsedAST.h"
 #include "Protocol.h"
 #include "SourceCode.h"
 #include "URI.h"
+#include "index/Index.h"
 #include "index/Merge.h"
 #include "index/SymbolCollector.h"
 #include "index/SymbolLocation.h"
@@ -129,16 +131,13 @@ SymbolLocation getPreferredLocation(const Location &ASTLoc,
 }
 
 /// Finds declarations locations that a given source location refers to.
-class DeclarationAndMacrosFinder : public index::IndexDataConsumer {
-  std::vector<DefinedMacro> MacroInfos;
+class DeclarationFinder : public index::IndexDataConsumer {
   llvm::DenseSet<const Decl *> Decls;
   const SourceLocation &SearchedLocation;
-  Preprocessor &PP;
 
 public:
-  DeclarationAndMacrosFinder(const SourceLocation &SearchedLocation,
-                             Preprocessor &PP)
-      : SearchedLocation(SearchedLocation), PP(PP) {}
+  DeclarationFinder(const SourceLocation &SearchedLocation)
+      : SearchedLocation(SearchedLocation) {}
 
   // The results are sorted by declaration location.
   std::vector<const Decl *> getFoundDecls() const {
@@ -150,22 +149,6 @@ public:
       return L->getBeginLoc() < R->getBeginLoc();
     });
     return Result;
-  }
-
-  std::vector<DefinedMacro> takeMacroInfos() {
-    // Don't keep the same Macro info multiple times.
-    llvm::sort(MacroInfos,
-               [](const DefinedMacro &Left, const DefinedMacro &Right) {
-                 return Left.Info < Right.Info;
-               });
-
-    auto Last =
-        std::unique(MacroInfos.begin(), MacroInfos.end(),
-                    [](const DefinedMacro &Left, const DefinedMacro &Right) {
-                      return Left.Info == Right.Info;
-                    });
-    MacroInfos.erase(Last, MacroInfos.end());
-    return std::move(MacroInfos);
   }
 
   bool
@@ -186,6 +169,11 @@ public:
         // experssion is impossible to write down.
         if (const auto *CtorExpr = dyn_cast<CXXConstructExpr>(E))
           return CtorExpr->getParenOrBraceRange().isInvalid();
+        // Ignore implicit conversion-operator AST node.
+        if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+          if (isa<CXXConversionDecl>(ME->getMemberDecl()))
+            return ME->getMemberLoc().isInvalid();
+        }
         return isa<ImplicitCastExpr>(E);
       };
 
@@ -204,24 +192,11 @@ public:
     }
     return true;
   }
-
-private:
-  void finish() override {
-    if (auto DefinedMacro = locateMacroAt(SearchedLocation, PP)) {
-      MacroInfos.push_back(*DefinedMacro);
-      assert(Decls.empty());
-    }
-  }
 };
 
-struct IdentifiedSymbol {
-  std::vector<const Decl *> Decls;
-  std::vector<DefinedMacro> Macros;
-};
-
-IdentifiedSymbol getSymbolAtPosition(ParsedAST &AST, SourceLocation Pos) {
-  auto DeclMacrosFinder =
-      DeclarationAndMacrosFinder(Pos, AST.getPreprocessor());
+std::vector<const Decl *> getDeclAtPosition(ParsedAST &AST,
+                                            SourceLocation Pos) {
+  DeclarationFinder Finder(Pos);
   index::IndexingOptions IndexOpts;
   IndexOpts.SystemSymbolFilter =
       index::IndexingOptions::SystemSymbolFilterKind::All;
@@ -229,9 +204,9 @@ IdentifiedSymbol getSymbolAtPosition(ParsedAST &AST, SourceLocation Pos) {
   IndexOpts.IndexParametersInDeclarations = true;
   IndexOpts.IndexTemplateParameters = true;
   indexTopLevelDecls(AST.getASTContext(), AST.getPreprocessor(),
-                     AST.getLocalTopLevelDecls(), DeclMacrosFinder, IndexOpts);
+                     AST.getLocalTopLevelDecls(), Finder, IndexOpts);
 
-  return {DeclMacrosFinder.getFoundDecls(), DeclMacrosFinder.takeMacroInfos()};
+  return Finder.getFoundDecls();
 }
 
 llvm::Optional<Location> makeLocation(ASTContext &AST, SourceLocation TokLoc,
@@ -281,17 +256,17 @@ std::vector<LocatedSymbol> locateSymbolAt(ParsedAST &AST, Position Pos,
   }
 
   SourceLocation SourceLocationBeg =
-      getBeginningOfIdentifier(AST, Pos, SM.getMainFileID());
-  auto Symbols = getSymbolAtPosition(AST, SourceLocationBeg);
+      SM.getMacroArgExpandedLocation(getBeginningOfIdentifier(
+          Pos, AST.getSourceManager(), AST.getASTContext().getLangOpts()));
 
   // Macros are simple: there's no declaration/definition distinction.
   // As a consequence, there's no need to look them up in the index either.
   std::vector<LocatedSymbol> Result;
-  for (auto M : Symbols.Macros) {
-    if (auto Loc = makeLocation(AST.getASTContext(), M.Info->getDefinitionLoc(),
-                                *MainFilePath)) {
+  if (auto M = locateMacroAt(SourceLocationBeg, AST.getPreprocessor())) {
+    if (auto Loc = makeLocation(AST.getASTContext(),
+                                M->Info->getDefinitionLoc(), *MainFilePath)) {
       LocatedSymbol Macro;
-      Macro.Name = M.Name;
+      Macro.Name = M->Name;
       Macro.PreferredDeclaration = *Loc;
       Macro.Definition = Loc;
       Result.push_back(std::move(Macro));
@@ -308,8 +283,10 @@ std::vector<LocatedSymbol> locateSymbolAt(ParsedAST &AST, Position Pos,
   llvm::DenseMap<SymbolID, size_t> ResultIndex;
 
   // Emit all symbol locations (declaration or definition) from AST.
-  for (const Decl *D : Symbols.Decls) {
-    auto Loc = makeLocation(AST.getASTContext(), findNameLoc(D), *MainFilePath);
+  for (const Decl *D : getDeclAtPosition(AST, SourceLocationBeg)) {
+    auto Loc =
+        makeLocation(AST.getASTContext(), spellingLocIfSpelled(findName(D), SM),
+                     *MainFilePath);
     if (!Loc)
       continue;
 
@@ -369,7 +346,6 @@ namespace {
 class ReferenceFinder : public index::IndexDataConsumer {
 public:
   struct Reference {
-    const Decl *CanonicalTarget;
     SourceLocation Loc;
     index::SymbolRoleSet Role;
   };
@@ -383,17 +359,15 @@ public:
 
   std::vector<Reference> take() && {
     llvm::sort(References, [](const Reference &L, const Reference &R) {
-      return std::tie(L.Loc, L.CanonicalTarget, L.Role) <
-             std::tie(R.Loc, R.CanonicalTarget, R.Role);
+      return std::tie(L.Loc, L.Role) < std::tie(R.Loc, R.Role);
     });
     // We sometimes see duplicates when parts of the AST get traversed twice.
-    References.erase(
-        std::unique(References.begin(), References.end(),
-                    [](const Reference &L, const Reference &R) {
-                      return std::tie(L.CanonicalTarget, L.Loc, L.Role) ==
-                             std::tie(R.CanonicalTarget, R.Loc, R.Role);
-                    }),
-        References.end());
+    References.erase(std::unique(References.begin(), References.end(),
+                                 [](const Reference &L, const Reference &R) {
+                                   return std::tie(L.Loc, L.Role) ==
+                                          std::tie(R.Loc, R.Role);
+                                 }),
+                     References.end());
     return std::move(References);
   }
 
@@ -405,8 +379,8 @@ public:
     assert(D->isCanonicalDecl() && "expect D to be a canonical declaration");
     const SourceManager &SM = AST.getSourceManager();
     Loc = SM.getFileLoc(Loc);
-    if (SM.isWrittenInMainFile(Loc) && CanonicalTargets.count(D))
-      References.push_back({D, Loc, Roles});
+    if (isInsideMainFile(Loc, SM) && CanonicalTargets.count(D))
+      References.push_back({Loc, Roles});
     return true;
   }
 
@@ -435,10 +409,15 @@ findRefs(const std::vector<const Decl *> &Decls, ParsedAST &AST) {
 std::vector<DocumentHighlight> findDocumentHighlights(ParsedAST &AST,
                                                       Position Pos) {
   const SourceManager &SM = AST.getSourceManager();
-  auto Symbols = getSymbolAtPosition(
-      AST, getBeginningOfIdentifier(AST, Pos, SM.getMainFileID()));
-  auto References = findRefs(Symbols.Decls, AST);
+  // FIXME: show references to macro within file?
+  auto References =
+      findRefs(getDeclAtPosition(
+                   AST, SM.getMacroArgExpandedLocation(getBeginningOfIdentifier(
+                            Pos, SM, AST.getASTContext().getLangOpts()))),
+               AST);
 
+  // FIXME: we may get multiple DocumentHighlights with the same location and
+  // different kinds, deduplicate them.
   std::vector<DocumentHighlight> Result;
   for (const auto &Ref : References) {
     if (auto Range =
@@ -601,8 +580,32 @@ static const FunctionDecl *getUnderlyingFunction(const Decl *D) {
   return D->getAsFunction();
 }
 
+// Look up information about D from the index, and add it to Hover.
+static void enhanceFromIndex(HoverInfo &Hover, const Decl *D,
+                             const SymbolIndex *Index) {
+  if (!Index || !llvm::isa<NamedDecl>(D))
+    return;
+  const NamedDecl &ND = *cast<NamedDecl>(D);
+  // We only add documentation, so don't bother if we already have some.
+  if (!Hover.Documentation.empty())
+    return;
+  // Skip querying for non-indexable symbols, there's no point.
+  // We're searching for symbols that might be indexed outside this main file.
+  if (!SymbolCollector::shouldCollectSymbol(ND, ND.getASTContext(),
+                                            SymbolCollector::Options(),
+                                            /*IsMainFileOnly=*/false))
+    return;
+  auto ID = getSymbolID(&ND);
+  if (!ID)
+    return;
+  LookupRequest Req;
+  Req.IDs.insert(*ID);
+  Index->lookup(
+      Req, [&](const Symbol &S) { Hover.Documentation = S.Documentation; });
+}
+
 /// Generate a \p Hover object given the declaration \p D.
-static HoverInfo getHoverContents(const Decl *D) {
+static HoverInfo getHoverContents(const Decl *D, const SymbolIndex *Index) {
   HoverInfo HI;
   const ASTContext &Ctx = D->getASTContext();
 
@@ -691,25 +694,28 @@ static HoverInfo getHoverContents(const Decl *D) {
         HI.Value.emplace();
         llvm::raw_string_ostream ValueOS(*HI.Value);
         Result.Val.printPretty(ValueOS, const_cast<ASTContext &>(Ctx),
-                               Var->getType());
+                               Init->getType());
       }
     }
   }
 
   HI.Definition = printDefinition(D);
+  enhanceFromIndex(HI, D, Index);
   return HI;
 }
 
 /// Generate a \p Hover object given the type \p T.
-static HoverInfo getHoverContents(QualType T, const Decl *D,
-                                  ASTContext &ASTCtx) {
+static HoverInfo getHoverContents(QualType T, const Decl *D, ASTContext &ASTCtx,
+                                  const SymbolIndex *Index) {
   HoverInfo HI;
   llvm::raw_string_ostream OS(HI.Name);
   PrintingPolicy Policy = printingPolicyForDecls(ASTCtx.getPrintingPolicy());
   T.print(OS, Policy);
 
-  if (D)
+  if (D) {
     HI.Kind = indexSymbolKindToSymbolKind(index::getSymbolInfo(D).Kind);
+    enhanceFromIndex(HI, D, Index);
+  }
   return HI;
 }
 
@@ -842,7 +848,9 @@ public:
 } // namespace
 
 /// Retrieves the deduced type at a given location (auto, decltype).
-bool hasDeducedType(ParsedAST &AST, SourceLocation SourceLocationBeg) {
+/// SourceLocationBeg must point to the first character of the token
+llvm::Optional<QualType> getDeducedType(ParsedAST &AST,
+                                        SourceLocation SourceLocationBeg) {
   Token Tok;
   auto &ASTCtx = AST.getASTContext();
   // Only try to find a deduced type if the token is auto or decltype.
@@ -850,36 +858,45 @@ bool hasDeducedType(ParsedAST &AST, SourceLocation SourceLocationBeg) {
       Lexer::getRawToken(SourceLocationBeg, Tok, ASTCtx.getSourceManager(),
                          ASTCtx.getLangOpts(), false) ||
       !Tok.is(tok::raw_identifier)) {
-    return false;
+    return {};
   }
   AST.getPreprocessor().LookUpIdentifierInfo(Tok);
   if (!(Tok.is(tok::kw_auto) || Tok.is(tok::kw_decltype)))
-    return false;
-  return true;
+    return {};
+
+  DeducedTypeVisitor V(SourceLocationBeg);
+  V.TraverseAST(AST.getASTContext());
+  return V.DeducedType;
+}
+
+/// Retrieves the deduced type at a given location (auto, decltype).
+bool hasDeducedType(ParsedAST &AST, SourceLocation SourceLocationBeg) {
+  return (bool)getDeducedType(AST, SourceLocationBeg);
 }
 
 llvm::Optional<HoverInfo> getHover(ParsedAST &AST, Position Pos,
-                                   format::FormatStyle Style) {
+                                   format::FormatStyle Style,
+                                   const SymbolIndex *Index) {
+  const SourceManager &SM = AST.getSourceManager();
   llvm::Optional<HoverInfo> HI;
-  SourceLocation SourceLocationBeg = getBeginningOfIdentifier(
-      AST, Pos, AST.getSourceManager().getMainFileID());
-  // Identified symbols at a specific position.
-  auto Symbols = getSymbolAtPosition(AST, SourceLocationBeg);
+  SourceLocation SourceLocationBeg = SM.getMacroArgExpandedLocation(
+      getBeginningOfIdentifier(Pos, SM, AST.getASTContext().getLangOpts()));
 
-  if (!Symbols.Macros.empty())
-    HI = getHoverContents(Symbols.Macros[0], AST);
-  else if (!Symbols.Decls.empty())
-    HI = getHoverContents(Symbols.Decls[0]);
-  else {
-    if (!hasDeducedType(AST, SourceLocationBeg))
-      return None;
-
+  if (auto M = locateMacroAt(SourceLocationBeg, AST.getPreprocessor())) {
+    HI = getHoverContents(*M, AST);
+  } else {
+    auto Decls = getDeclAtPosition(AST, SourceLocationBeg);
+    if (!Decls.empty())
+      HI = getHoverContents(Decls.front(), Index);
+  }
+  if (!HI && hasDeducedType(AST, SourceLocationBeg)) {
     DeducedTypeVisitor V(SourceLocationBeg);
     V.TraverseAST(AST.getASTContext());
-    if (V.DeducedType.isNull())
-      return None;
-    HI = getHoverContents(V.DeducedType, V.D, AST.getASTContext());
+    if (!V.DeducedType.isNull())
+      HI = getHoverContents(V.DeducedType, V.D, AST.getASTContext(), Index);
   }
+  if (!HI)
+    return llvm::None;
 
   auto Replacements = format::reformat(
       Style, HI->Definition, tooling::Range(0, HI->Definition.size()));
@@ -905,12 +922,22 @@ std::vector<Location> findReferences(ParsedAST &AST, Position Pos,
     elog("Failed to get a path for the main file, so no references");
     return Results;
   }
-  auto Loc = getBeginningOfIdentifier(AST, Pos, SM.getMainFileID());
-  auto Symbols = getSymbolAtPosition(AST, Loc);
+  auto Loc = SM.getMacroArgExpandedLocation(
+      getBeginningOfIdentifier(Pos, SM, AST.getASTContext().getLangOpts()));
+  // TODO: should we handle macros, too?
+  auto Decls = getDeclAtPosition(AST, Loc);
 
   // We traverse the AST to find references in the main file.
-  // TODO: should we handle macros, too?
-  auto MainFileRefs = findRefs(Symbols.Decls, AST);
+  auto MainFileRefs = findRefs(Decls, AST);
+  // We may get multiple refs with the same location and different Roles, as
+  // cross-reference is only interested in locations, we deduplicate them
+  // by the location to avoid emitting duplicated locations.
+  MainFileRefs.erase(std::unique(MainFileRefs.begin(), MainFileRefs.end(),
+                                 [](const ReferenceFinder::Reference &L,
+                                    const ReferenceFinder::Reference &R) {
+                                   return L.Loc == R.Loc;
+                                 }),
+                     MainFileRefs.end());
   for (const auto &Ref : MainFileRefs) {
     if (auto Range =
             getTokenRange(AST.getASTContext().getSourceManager(),
@@ -927,7 +954,7 @@ std::vector<Location> findReferences(ParsedAST &AST, Position Pos,
     RefsRequest Req;
     Req.Limit = Limit;
 
-    for (const Decl *D : Symbols.Decls) {
+    for (const Decl *D : Decls) {
       // Not all symbols can be referenced from outside (e.g. function-locals).
       // TODO: we could skip TU-scoped symbols here (e.g. static functions) if
       // we know this file isn't a header. The details might be tricky.
@@ -952,13 +979,12 @@ std::vector<Location> findReferences(ParsedAST &AST, Position Pos,
 
 std::vector<SymbolDetails> getSymbolInfo(ParsedAST &AST, Position Pos) {
   const SourceManager &SM = AST.getSourceManager();
-
-  auto Loc = getBeginningOfIdentifier(AST, Pos, SM.getMainFileID());
-  auto Symbols = getSymbolAtPosition(AST, Loc);
+  auto Loc = SM.getMacroArgExpandedLocation(
+      getBeginningOfIdentifier(Pos, SM, AST.getASTContext().getLangOpts()));
 
   std::vector<SymbolDetails> Results;
 
-  for (const Decl *D : Symbols.Decls) {
+  for (const Decl *D : getDeclAtPosition(AST, Loc)) {
     SymbolDetails NewSymbol;
     if (const NamedDecl *ND = dyn_cast<NamedDecl>(D)) {
       std::string QName = printQualifiedName(*ND);
@@ -979,12 +1005,12 @@ std::vector<SymbolDetails> getSymbolInfo(ParsedAST &AST, Position Pos) {
     Results.push_back(std::move(NewSymbol));
   }
 
-  for (const auto &Macro : Symbols.Macros) {
+  if (auto M = locateMacroAt(Loc, AST.getPreprocessor())) {
     SymbolDetails NewMacro;
-    NewMacro.name = Macro.Name;
+    NewMacro.name = M->Name;
     llvm::SmallString<32> USR;
-    if (!index::generateUSRForMacro(NewMacro.name,
-                                    Macro.Info->getDefinitionLoc(), SM, USR)) {
+    if (!index::generateUSRForMacro(NewMacro.name, M->Info->getDefinitionLoc(),
+                                    SM, USR)) {
       NewMacro.USR = USR.str();
       NewMacro.ID = SymbolID(NewMacro.USR);
     }
@@ -1006,7 +1032,8 @@ static llvm::Optional<TypeHierarchyItem>
 declToTypeHierarchyItem(ASTContext &Ctx, const NamedDecl &ND) {
   auto &SM = Ctx.getSourceManager();
 
-  SourceLocation NameLoc = findNameLoc(&ND);
+  SourceLocation NameLoc =
+      spellingLocIfSpelled(findName(&ND), Ctx.getSourceManager());
   // getFileLoc is a good choice for us, but we also need to make sure
   // sourceLocToPosition won't switch files, so we call getSpellingLoc on top of
   // that to make sure it does not switch files.
@@ -1065,6 +1092,10 @@ symbolToTypeHierarchyItem(const Symbol &S, const SymbolIndex *Index,
   // (https://github.com/clangd/clangd/issues/59).
   THI.range = THI.selectionRange;
   THI.uri = Loc->uri;
+  // Store the SymbolID in the 'data' field. The client will
+  // send this back in typeHierarchy/resolve, allowing us to
+  // continue resolving additional levels of the type hierarchy.
+  THI.data = S.ID.str();
 
   return std::move(THI);
 }
@@ -1089,15 +1120,9 @@ static void fillSubTypes(const SymbolID &ID,
 
 using RecursionProtectionSet = llvm::SmallSet<const CXXRecordDecl *, 4>;
 
-static Optional<TypeHierarchyItem>
-getTypeAncestors(const CXXRecordDecl &CXXRD, ASTContext &ASTCtx,
-                 RecursionProtectionSet &RPSet) {
-  Optional<TypeHierarchyItem> Result = declToTypeHierarchyItem(ASTCtx, CXXRD);
-  if (!Result)
-    return Result;
-
-  Result->parents.emplace();
-
+static void fillSuperTypes(const CXXRecordDecl &CXXRD, ASTContext &ASTCtx,
+                           std::vector<TypeHierarchyItem> &SuperTypes,
+                           RecursionProtectionSet &RPSet) {
   // typeParents() will replace dependent template specializations
   // with their class template, so to avoid infinite recursion for
   // certain types of hierarchies, keep the templates encountered
@@ -1106,32 +1131,33 @@ getTypeAncestors(const CXXRecordDecl &CXXRD, ASTContext &ASTCtx,
   auto *Pattern = CXXRD.getDescribedTemplate() ? &CXXRD : nullptr;
   if (Pattern) {
     if (!RPSet.insert(Pattern).second) {
-      return Result;
+      return;
     }
   }
 
   for (const CXXRecordDecl *ParentDecl : typeParents(&CXXRD)) {
     if (Optional<TypeHierarchyItem> ParentSym =
-            getTypeAncestors(*ParentDecl, ASTCtx, RPSet)) {
-      Result->parents->emplace_back(std::move(*ParentSym));
+            declToTypeHierarchyItem(ASTCtx, *ParentDecl)) {
+      ParentSym->parents.emplace();
+      fillSuperTypes(*ParentDecl, ASTCtx, *ParentSym->parents, RPSet);
+      SuperTypes.emplace_back(std::move(*ParentSym));
     }
   }
 
   if (Pattern) {
     RPSet.erase(Pattern);
   }
-
-  return Result;
 }
 
 const CXXRecordDecl *findRecordTypeAt(ParsedAST &AST, Position Pos) {
-  SourceLocation SourceLocationBeg = getBeginningOfIdentifier(
-      AST, Pos, AST.getSourceManager().getMainFileID());
-  IdentifiedSymbol Symbols = getSymbolAtPosition(AST, SourceLocationBeg);
-  if (Symbols.Decls.empty())
+  const SourceManager &SM = AST.getSourceManager();
+  SourceLocation SourceLocationBeg = SM.getMacroArgExpandedLocation(
+      getBeginningOfIdentifier(Pos, SM, AST.getASTContext().getLangOpts()));
+  auto Decls = getDeclAtPosition(AST, SourceLocationBeg);
+  if (Decls.empty())
     return nullptr;
 
-  const Decl *D = Symbols.Decls[0];
+  const Decl *D = Decls[0];
 
   if (const VarDecl *VD = dyn_cast<VarDecl>(D)) {
     // If this is a variable, use the type of the variable.
@@ -1188,9 +1214,18 @@ getTypeHierarchy(ParsedAST &AST, Position Pos, int ResolveLevels,
   if (!CXXRD)
     return llvm::None;
 
-  RecursionProtectionSet RPSet;
   Optional<TypeHierarchyItem> Result =
-      getTypeAncestors(*CXXRD, AST.getASTContext(), RPSet);
+      declToTypeHierarchyItem(AST.getASTContext(), *CXXRD);
+  if (!Result)
+    return Result;
+
+  if (Direction == TypeHierarchyDirection::Parents ||
+      Direction == TypeHierarchyDirection::Both) {
+    Result->parents.emplace();
+
+    RecursionProtectionSet RPSet;
+    fillSuperTypes(*CXXRD, AST.getASTContext(), *Result->parents, RPSet);
+  }
 
   if ((Direction == TypeHierarchyDirection::Children ||
        Direction == TypeHierarchyDirection::Both) &&
@@ -1204,6 +1239,25 @@ getTypeHierarchy(ParsedAST &AST, Position Pos, int ResolveLevels,
   }
 
   return Result;
+}
+
+void resolveTypeHierarchy(TypeHierarchyItem &Item, int ResolveLevels,
+                          TypeHierarchyDirection Direction,
+                          const SymbolIndex *Index) {
+  // We only support typeHierarchy/resolve for children, because for parents
+  // we ignore ResolveLevels and return all levels of parents eagerly.
+  if (Direction == TypeHierarchyDirection::Parents || ResolveLevels == 0)
+    return;
+
+  Item.children.emplace();
+
+  if (Index && Item.data) {
+    // We store the item's SymbolID in the 'data' field, and the client
+    // passes it back to us in typeHierarchy/resolve.
+    if (Expected<SymbolID> ID = SymbolID::fromStr(*Item.data)) {
+      fillSubTypes(*ID, *Item.children, Index, ResolveLevels, Item.uri.file());
+    }
+  }
 }
 
 FormattedString HoverInfo::present() const {
@@ -1225,6 +1279,9 @@ FormattedString HoverInfo::present() const {
     // Builtin types
     Output.appendCodeBlock(Name);
   }
+
+  if (!Documentation.empty())
+    Output.appendText(Documentation);
   return Output;
 }
 

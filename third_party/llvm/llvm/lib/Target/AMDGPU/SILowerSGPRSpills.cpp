@@ -37,6 +37,12 @@ using MBBVector = SmallVector<MachineBasicBlock *, 4>;
 
 namespace {
 
+static cl::opt<bool> EnableSpillVGPRToAGPR(
+  "amdgpu-spill-vgpr-to-agpr",
+  cl::desc("Enable spilling VGPRs to AGPRs"),
+  cl::ReallyHidden,
+  cl::init(true));
+
 class SILowerSGPRSpills : public MachineFunctionPass {
 private:
   const SIRegisterInfo *TRI = nullptr;
@@ -92,7 +98,7 @@ static void insertCSRSaves(MachineBasicBlock &SaveBlock,
       // Insert the spill to the stack frame.
       unsigned Reg = CS.getReg();
 
-      MachineInstrSpan MIS(I);
+      MachineInstrSpan MIS(I, &SaveBlock);
       const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
 
       TII.storeRegToStackSlot(SaveBlock, I, Reg, true, CS.getFrameIdx(), RC,
@@ -242,10 +248,19 @@ bool SILowerSGPRSpills::runOnMachineFunction(MachineFunction &MF) {
     return false;
   }
 
+  MachineRegisterInfo &MRI = MF.getRegInfo();
   SIMachineFunctionInfo *FuncInfo = MF.getInfo<SIMachineFunctionInfo>();
+  const bool SpillVGPRToAGPR = ST.hasMAIInsts() && FuncInfo->hasSpilledVGPRs()
+    && EnableSpillVGPRToAGPR;
+
   bool MadeChange = false;
 
-  if (TRI->spillSGPRToVGPR() && (HasCSRs || FuncInfo->hasSpilledSGPRs())) {
+  const bool SpillToAGPR = EnableSpillVGPRToAGPR && ST.hasMAIInsts();
+
+  // TODO: CSR VGPRs will never be spilled to AGPRs. These can probably be
+  // handled as SpilledToReg in regular PrologEpilogInserter.
+  if ((TRI->spillSGPRToVGPR() && (HasCSRs || FuncInfo->hasSpilledSGPRs())) ||
+      SpillVGPRToAGPR) {
     // Process all SGPR spills before frame offsets are finalized. Ideally SGPRs
     // are spilled to VGPRs, in which case we can eliminate the stack usage.
     //
@@ -257,6 +272,21 @@ bool SILowerSGPRSpills::runOnMachineFunction(MachineFunction &MF) {
         MachineInstr &MI = *I;
         Next = std::next(I);
 
+        if (SpillToAGPR && TII->isVGPRSpill(MI)) {
+          // Try to eliminate stack used by VGPR spills before frame
+          // finalization.
+          unsigned FIOp = AMDGPU::getNamedOperandIdx(MI.getOpcode(),
+                                                     AMDGPU::OpName::vaddr);
+          int FI = MI.getOperand(FIOp).getIndex();
+          Register VReg =
+              TII->getNamedOperand(MI, AMDGPU::OpName::vdata)->getReg();
+          if (FuncInfo->allocateVGPRSpillToAGPR(MF, FI,
+                                                TRI->isAGPR(MRI, VReg))) {
+            TRI->eliminateFrameIndex(MI, 0, FIOp, nullptr);
+            continue;
+          }
+        }
+
         if (!TII->isSGPRSpill(MI))
           continue;
 
@@ -267,17 +297,22 @@ bool SILowerSGPRSpills::runOnMachineFunction(MachineFunction &MF) {
           (void)Spilled;
           assert(Spilled && "failed to spill SGPR to VGPR when allocated");
         }
-
       }
     }
 
     for (MachineBasicBlock &MBB : MF) {
       for (auto SSpill : FuncInfo->getSGPRSpillVGPRs())
         MBB.addLiveIn(SSpill.VGPR);
+
+      for (MCPhysReg Reg : FuncInfo->getVGPRSpillAGPRs())
+        MBB.addLiveIn(Reg);
+
+      for (MCPhysReg Reg : FuncInfo->getAGPRSpillVGPRs())
+        MBB.addLiveIn(Reg);
+
       MBB.sortUniqueLiveIns();
     }
 
-    FuncInfo->removeSGPRToVGPRFrameIndices(MFI);
     MadeChange = true;
   }
 

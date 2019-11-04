@@ -1018,6 +1018,9 @@ namespace serialization {
 #define EXT_OPAQUE_TYPE(ExtType, Id, Ext) \
       PREDEF_TYPE_##Id##_ID,
 #include "clang/Basic/OpenCLExtensionTypes.def"
+      // \brief SVE types with auto numeration
+#define SVE_TYPE(Name, Id, SingletonId) PREDEF_TYPE_##Id##_ID,
+#include "clang/Basic/AArch64SVEACLETypes.def"
     };
 
     /// The number of predefined type IDs that are reserved for
@@ -1489,7 +1492,10 @@ namespace serialization {
       /// A TypeAliasTemplateDecl record.
       DECL_TYPE_ALIAS_TEMPLATE,
 
-      /// A StaticAssertDecl record.
+      /// \brief A ConceptDecl record.
+      DECL_CONCEPT,
+
+      /// \brief A StaticAssertDecl record.
       DECL_STATIC_ASSERT,
 
       /// A record containing CXXBaseSpecifiers.

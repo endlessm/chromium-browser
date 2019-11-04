@@ -20,8 +20,8 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Format/Format.h"
 #include "clang/Tooling/Core/Replacement.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/SHA1.h"
 
 namespace clang {
@@ -32,7 +32,7 @@ namespace clangd {
 // We tend to generate digests for source codes in a lot of different places.
 // This represents the type for those digests to prevent us hard coding details
 // of hashing function at every place that needs to store this information.
-using FileDigest = decltype(llvm::SHA1::hash({}));
+using FileDigest = std::array<uint8_t, 8>;
 FileDigest digest(StringRef Content);
 Optional<FileDigest> digestFile(const SourceManager &SM, FileID FID);
 
@@ -74,6 +74,41 @@ llvm::Optional<Range> getTokenRange(const SourceManager &SM,
 /// care to avoid comparing the result with expansion locations.
 llvm::Expected<SourceLocation> sourceLocationInMainFile(const SourceManager &SM,
                                                         Position P);
+
+/// Get the beginning SourceLocation at a specified \p Pos in the main file.
+/// May be invalid if Pos is, or if there's no identifier.
+/// The returned position is in the main file, callers may prefer to
+/// obtain the macro expansion location.
+SourceLocation getBeginningOfIdentifier(const Position &Pos,
+                                        const SourceManager &SM,
+                                        const LangOptions &LangOpts);
+
+/// Returns true iff \p Loc is inside the main file. This function handles
+/// file & macro locations. For macro locations, returns iff the macro is being
+/// expanded inside the main file.
+///
+/// The function is usually used to check whether a declaration is inside the
+/// the main file.
+bool isInsideMainFile(SourceLocation Loc, const SourceManager &SM);
+
+/// Returns the #include location through which IncludedFIle was loaded.
+/// Where SM.getIncludeLoc() returns the location of the *filename*, which may
+/// be in a macro, includeHashLoc() returns the location of the #.
+SourceLocation includeHashLoc(FileID IncludedFile, const SourceManager &SM);
+
+/// Returns true if the token at Loc is spelled in the source code.
+/// This is not the case for:
+///   * symbols formed via macro concatenation, the spelling location will
+///     be "<scratch space>"
+///   * symbols controlled and defined by a compile command-line option
+///     `-DName=foo`, the spelling location will be "<command line>".
+bool isSpelledInSource(SourceLocation Loc, const SourceManager &SM);
+
+/// Returns the spelling location of the token at Loc if isSpelledInSource,
+/// otherwise its expansion location.
+/// FIXME: Most callers likely want some variant of "file location" instead.
+SourceLocation spellingLocIfSpelled(SourceLocation Loc,
+                                    const SourceManager &SM);
 
 /// Turns a token range into a half-open range and checks its correctness.
 /// The resulting range will have only valid source location on both sides, both

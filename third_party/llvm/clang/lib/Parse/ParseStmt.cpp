@@ -140,7 +140,7 @@ public:
   }
 
   std::unique_ptr<CorrectionCandidateCallback> clone() override {
-    return llvm::make_unique<StatementFilterCCC>(*this);
+    return std::make_unique<StatementFilterCCC>(*this);
   }
 
 private:
@@ -153,6 +153,7 @@ StmtResult Parser::ParseStatementOrDeclarationAfterAttributes(
     SourceLocation *TrailingElseLoc, ParsedAttributesWithRange &Attrs) {
   const char *SemiError = nullptr;
   StmtResult Res;
+  SourceLocation GNUAttributeLoc;
 
   // Cases in this switch statement should fall through if the parser expects
   // the token to end in a semicolon (in which case SemiError should be set),
@@ -208,10 +209,17 @@ Retry:
     if ((getLangOpts().CPlusPlus || getLangOpts().MicrosoftExt ||
          (StmtCtx & ParsedStmtContext::AllowDeclarationsInC) !=
              ParsedStmtContext()) &&
-        isDeclarationStatement()) {
+        (GNUAttributeLoc.isValid() || isDeclarationStatement())) {
       SourceLocation DeclStart = Tok.getLocation(), DeclEnd;
-      DeclGroupPtrTy Decl = ParseDeclaration(DeclaratorContext::BlockContext,
-                                             DeclEnd, Attrs);
+      DeclGroupPtrTy Decl;
+      if (GNUAttributeLoc.isValid()) {
+        DeclStart = GNUAttributeLoc;
+        Decl = ParseDeclaration(DeclaratorContext::BlockContext, DeclEnd, Attrs,
+                                &GNUAttributeLoc);
+      } else {
+        Decl =
+            ParseDeclaration(DeclaratorContext::BlockContext, DeclEnd, Attrs);
+      }
       return Actions.ActOnDeclStmt(Decl, DeclStart, DeclEnd);
     }
 
@@ -221,6 +229,12 @@ Retry:
     }
 
     return ParseExprStatement(StmtCtx);
+  }
+
+  case tok::kw___attribute: {
+    GNUAttributeLoc = Tok.getLocation();
+    ParseGNUAttributes(Attrs);
+    goto Retry;
   }
 
   case tok::kw_case:                // C99 6.8.1: labeled-statement
@@ -972,10 +986,16 @@ bool Parser::ConsumeNullStmt(StmtVector &Stmts) {
 StmtResult Parser::handleExprStmt(ExprResult E, ParsedStmtContext StmtCtx) {
   bool IsStmtExprResult = false;
   if ((StmtCtx & ParsedStmtContext::InStmtExpr) != ParsedStmtContext()) {
-    // Look ahead to see if the next two tokens close the statement expression;
-    // if so, this expression statement is the last statement in a
-    // statment expression.
-    IsStmtExprResult = Tok.is(tok::r_brace) && NextToken().is(tok::r_paren);
+    // For GCC compatibility we skip past NullStmts.
+    unsigned LookAhead = 0;
+    while (GetLookAheadToken(LookAhead).is(tok::semi)) {
+      ++LookAhead;
+    }
+    // Then look to see if the next two tokens close the statement expression;
+    // if so, this expression statement is the last statement in a statment
+    // expression.
+    IsStmtExprResult = GetLookAheadToken(LookAhead).is(tok::r_brace) &&
+                       GetLookAheadToken(LookAhead + 1).is(tok::r_paren);
   }
 
   if (IsStmtExprResult)

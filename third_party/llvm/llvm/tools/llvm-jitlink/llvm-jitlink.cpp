@@ -14,6 +14,7 @@
 
 #include "llvm-jitlink.h"
 
+#include "llvm/ExecutionEngine/JITLink/EHFrameSupport.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -32,6 +33,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/Timer.h"
 
 #include <list>
 #include <string>
@@ -92,6 +94,10 @@ static cl::opt<bool> ShowSizes(
     "show-sizes",
     cl::desc("Show sizes pre- and post-dead stripping, and allocations"),
     cl::init(false));
+
+static cl::opt<bool> ShowTimes("show-times",
+                               cl::desc("Show times for llvm-jitlink phases"),
+                               cl::init(false));
 
 static cl::opt<bool> ShowRelocatedSectionContents(
     "show-relocated-section-contents",
@@ -232,9 +238,10 @@ Session::Session(Triple TT) : ObjLayer(ES, MemMgr), TT(std::move(TT)) {
   };
 
   if (!NoExec && !TT.isOSWindows())
-    ObjLayer.addPlugin(llvm::make_unique<LocalEHFrameRegistrationPlugin>());
+    ObjLayer.addPlugin(std::make_unique<EHFrameRegistrationPlugin>(
+        InProcessEHFrameRegistrar::getInstance()));
 
-  ObjLayer.addPlugin(llvm::make_unique<JITLinkSessionPlugin>(*this));
+  ObjLayer.addPlugin(std::make_unique<JITLinkSessionPlugin>(*this));
 }
 
 void Session::dumpSessionInfo(raw_ostream &OS) {
@@ -378,7 +385,7 @@ Error loadProcessSymbols(Session &S) {
   auto FilterMainEntryPoint = [InternedEntryPointName](SymbolStringPtr Name) {
     return Name != InternedEntryPointName;
   };
-  S.ES.getMainJITDylib().setGenerator(
+  S.ES.getMainJITDylib().addGenerator(
       ExitOnErr(orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           GlobalPrefix, FilterMainEntryPoint)));
 
@@ -587,7 +594,7 @@ Expected<int> runEntryPoint(Session &S, JITEvaluatedSymbol EntryPoint) {
   assert(EntryPoint.getAddress() && "Entry point address should not be null");
 
   constexpr const char *JITProgramName = "<llvm-jitlink jit'd code>";
-  auto PNStorage = llvm::make_unique<char[]>(strlen(JITProgramName) + 1);
+  auto PNStorage = std::make_unique<char[]>(strlen(JITProgramName) + 1);
   strcpy(PNStorage.get(), JITProgramName);
 
   std::vector<const char *> EntryPointArgs;
@@ -602,6 +609,13 @@ Expected<int> runEntryPoint(Session &S, JITEvaluatedSymbol EntryPoint) {
   return EntryPointPtr(EntryPointArgs.size() - 1, EntryPointArgs.data());
 }
 
+struct JITLinkTimers {
+  TimerGroup JITLinkTG{"llvm-jitlink timers", "timers for llvm-jitlink phases"};
+  Timer LoadObjectsTimer{"load", "time to load/add object files", JITLinkTG};
+  Timer LinkTimer{"link", "time to link object files", JITLinkTG};
+  Timer RunTimer{"run", "time to execute jitlink'd code", JITLinkTG};
+};
+
 int main(int argc, char *argv[]) {
   InitLLVM X(argc, argv);
 
@@ -612,6 +626,10 @@ int main(int argc, char *argv[]) {
   cl::ParseCommandLineOptions(argc, argv, "llvm jitlink tool");
   ExitOnErr.setBanner(std::string(argv[0]) + ": ");
 
+  /// If timers are enabled, create a JITLinkTimers instance.
+  std::unique_ptr<JITLinkTimers> Timers =
+      ShowTimes ? std::make_unique<JITLinkTimers>() : nullptr;
+
   Session S(getFirstFileTriple());
 
   ExitOnErr(sanitizeArguments(S));
@@ -620,9 +638,17 @@ int main(int argc, char *argv[]) {
     ExitOnErr(loadProcessSymbols(S));
   ExitOnErr(loadDylibs());
 
-  ExitOnErr(loadObjects(S));
 
-  auto EntryPoint = ExitOnErr(getMainEntryPoint(S));
+  {
+    TimeRegion TR(Timers ? &Timers->LoadObjectsTimer : nullptr);
+    ExitOnErr(loadObjects(S));
+  }
+
+  JITEvaluatedSymbol EntryPoint = 0;
+  {
+    TimeRegion TR(Timers ? &Timers->LinkTimer : nullptr);
+    EntryPoint = ExitOnErr(getMainEntryPoint(S));
+  }
 
   if (ShowAddrs)
     S.dumpSessionInfo(outs());
@@ -634,5 +660,11 @@ int main(int argc, char *argv[]) {
   if (NoExec)
     return 0;
 
-  return ExitOnErr(runEntryPoint(S, EntryPoint));
+  int Result = 0;
+  {
+    TimeRegion TR(Timers ? &Timers->RunTimer : nullptr);
+    Result = ExitOnErr(runEntryPoint(S, EntryPoint));
+  }
+
+  return Result;
 }

@@ -401,8 +401,12 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
     // Successful peeling may result in a change in the loop preheader/trip
     // counts. If we later unroll the loop, we want these to be updated.
     if (Peeled) {
-      BasicBlock *ExitingBlock = L->getExitingBlock();
+      // According to our guards and profitability checks the only
+      // meaningful exit should be latch block. Other exits go to deopt,
+      // so we do not worry about them.
+      BasicBlock *ExitingBlock = L->getLoopLatch();
       assert(ExitingBlock && "Loop without exiting block?");
+      assert(L->isLoopExiting(ExitingBlock) && "Latch is not exiting?");
       Preheader = L->getLoopPreheader();
       ULO.TripCount = SE->getSmallConstantTripCount(L, ExitingBlock);
       ULO.TripMultiple = SE->getSmallConstantTripMultiple(L, ExitingBlock);
@@ -707,7 +711,7 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
 
   auto setDest = [LoopExit, ContinueOnTrue](BasicBlock *Src, BasicBlock *Dest,
                                             ArrayRef<BasicBlock *> NextBlocks,
-                                            BasicBlock *CurrentHeader,
+                                            BasicBlock *BlockInLoop,
                                             bool NeedConditional) {
     auto *Term = cast<BranchInst>(Src->getTerminator());
     if (NeedConditional) {
@@ -719,7 +723,9 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
       if (Dest != LoopExit) {
         BasicBlock *BB = Src;
         for (BasicBlock *Succ : successors(BB)) {
-          if (Succ == CurrentHeader)
+          // Preserve the incoming value from BB if we are jumping to the block
+          // in the current loop.
+          if (Succ == BlockInLoop)
             continue;
           for (PHINode &Phi : Succ->phis())
             Phi.removeIncomingValue(BB, false);
@@ -790,7 +796,7 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
         // unconditional branch for some iterations.
         NeedConditional = false;
 
-      setDest(Headers[i], Dest, Headers, Headers[i], NeedConditional);
+      setDest(Headers[i], Dest, Headers, HeaderSucc[i], NeedConditional);
     }
 
     // Set up latches to branch to the new header in the unrolled iterations or
@@ -864,7 +870,7 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
   assert(!DT || !UnrollVerifyDomtree ||
          DT->verify(DominatorTree::VerificationLevel::Fast));
 
-  DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Eager);
+  DomTreeUpdater DTU(DT, DomTreeUpdater::UpdateStrategy::Lazy);
   // Merge adjacent basic blocks, if possible.
   for (BasicBlock *Latch : Latches) {
     BranchInst *Term = dyn_cast<BranchInst>(Latch->getTerminator());
@@ -884,6 +890,8 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
       }
     }
   }
+  // Apply updates to the DomTree.
+  DT = &DTU.getDomTree();
 
   // At this point, the code is well formed.  We now simplify the unrolled loop,
   // doing constant propagation and dead code elimination as we go.

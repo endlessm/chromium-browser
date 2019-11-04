@@ -10,6 +10,7 @@ add_clang_library(clangTidy
   ClangTidyOptions.cpp
   ClangTidyProfiling.cpp
   ExpandModularHeadersPPCallbacks.cpp
+  GlobList.cpp
 
   DEPENDS
   ClangSACheckers
@@ -44,6 +45,7 @@ add_subdirectory(cppcoreguidelines)
 add_subdirectory(fuchsia)
 add_subdirectory(google)
 add_subdirectory(hicpp)
+add_subdirectory(linuxkernel)
 add_subdirectory(llvm)
 add_subdirectory(misc)
 add_subdirectory(modernize)

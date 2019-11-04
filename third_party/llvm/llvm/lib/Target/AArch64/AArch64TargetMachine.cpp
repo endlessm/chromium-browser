@@ -179,6 +179,8 @@ extern "C" void LLVMInitializeAArch64Target() {
   initializeFalkorMarkStridedAccessesLegacyPass(*PR);
   initializeLDTLSCleanupPass(*PR);
   initializeAArch64SpeculationHardeningPass(*PR);
+  initializeAArch64StackTaggingPass(*PR);
+  initializeAArch64StackTaggingPreRAPass(*PR);
 }
 
 //===----------------------------------------------------------------------===//
@@ -186,11 +188,11 @@ extern "C" void LLVMInitializeAArch64Target() {
 //===----------------------------------------------------------------------===//
 static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
   if (TT.isOSBinFormatMachO())
-    return llvm::make_unique<AArch64_MachoTargetObjectFile>();
+    return std::make_unique<AArch64_MachoTargetObjectFile>();
   if (TT.isOSBinFormatCOFF())
-    return llvm::make_unique<AArch64_COFFTargetObjectFile>();
+    return std::make_unique<AArch64_COFFTargetObjectFile>();
 
-  return llvm::make_unique<AArch64_ELFTargetObjectFile>();
+  return std::make_unique<AArch64_ELFTargetObjectFile>();
 }
 
 // Helper function to build a DataLayout string
@@ -309,7 +311,7 @@ AArch64TargetMachine::getSubtargetImpl(const Function &F) const {
     // creation will depend on the TM and the code generation flags on the
     // function that reside in TargetOptions.
     resetTargetOptions(F);
-    I = llvm::make_unique<AArch64Subtarget>(TargetTriple, CPU, FS, *this,
+    I = std::make_unique<AArch64Subtarget>(TargetTriple, CPU, FS, *this,
                                             isLittle);
   }
   return I.get();
@@ -446,6 +448,9 @@ void AArch64PassConfig::addIRPasses() {
     // invariant.
     addPass(createLICMPass());
   }
+
+  addPass(createAArch64StackTaggingPass(/* MergeInit = */ TM->getOptLevel() !=
+                                        CodeGenOpt::None));
 }
 
 // Pass Pipeline Configuration
@@ -537,6 +542,8 @@ bool AArch64PassConfig::addILPOpts() {
   if (EnableStPairSuppress)
     addPass(createAArch64StorePairSuppressPass());
   addPass(createAArch64SIMDInstrOptPass());
+  if (TM->getOptLevel() != CodeGenOpt::None)
+    addPass(createAArch64StackTaggingPreRAPass());
   return true;
 }
 

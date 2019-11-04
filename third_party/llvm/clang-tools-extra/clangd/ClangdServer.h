@@ -11,7 +11,6 @@
 
 #include "../clang-tidy/ClangTidyOptions.h"
 #include "Cancellation.h"
-#include "ClangdUnit.h"
 #include "CodeComplete.h"
 #include "FSProvider.h"
 #include "FormattedString.h"
@@ -52,6 +51,8 @@ public:
   virtual void onFileUpdated(PathRef File, const TUStatus &Status){};
 
   /// Called by ClangdServer when some \p Highlightings for \p File are ready.
+  /// \p NumLines are the number of lines in the file where the highlightings
+  /// where generated from.
   virtual void
   onHighlightingsReady(PathRef File,
                        std::vector<HighlightingToken> Highlightings) {}
@@ -98,10 +99,6 @@ public:
     /// If true, ClangdServer automatically indexes files in the current project
     /// on background threads. The index is stored in the project root.
     bool BackgroundIndex = false;
-    /// If set to non-zero, the background index rebuilds the symbol index
-    /// periodically every BuildIndexPeriodMs milliseconds; otherwise, the
-    /// symbol index will be updated for each indexed file.
-    size_t BackgroundIndexRebuildPeriodMs = 0;
 
     /// If set, use this index to augment code completion results.
     SymbolIndex *StaticIndex = nullptr;
@@ -130,10 +127,6 @@ public:
 
     bool SuggestMissingIncludes = false;
 
-    /// Enable hidden features mostly useful to clangd developers.
-    /// e.g. tweaks to dump the AST.
-    bool HiddenFeatures = false;
-
     /// Clangd will execute compiler drivers matching one of these globs to
     /// fetch system include path.
     std::vector<std::string> QueryDriverGlobs;
@@ -141,8 +134,10 @@ public:
     /// Enable semantic highlighting features.
     bool SemanticHighlighting = false;
 
-    /// Returns true if the StringRef is a tweak that should be enabled
-    std::function<bool(llvm::StringRef)> TweakFilter = [](llvm::StringRef TweakToSearch) {return true;};
+    /// Returns true if the tweak should be enabled.
+    std::function<bool(const Tweak &)> TweakFilter = [](const Tweak &T) {
+      return !T.hidden(); // only enable non-hidden tweaks.
+    };
   };
   // Sensible default options for use in tests.
   // Features like indexing must be enabled if desired.
@@ -216,6 +211,11 @@ public:
                      TypeHierarchyDirection Direction,
                      Callback<llvm::Optional<TypeHierarchyItem>> CB);
 
+  /// Resolve type hierarchy item in the given direction.
+  void resolveTypeHierarchy(TypeHierarchyItem Item, int Resolve,
+                            TypeHierarchyDirection Direction,
+                            Callback<llvm::Optional<TypeHierarchyItem>> CB);
+
   /// Retrieve the top symbols from the workspace matching a query.
   void workspaceSymbols(StringRef Query, int Limit,
                         Callback<std::vector<SymbolInformation>> CB);
@@ -242,10 +242,17 @@ public:
                                                      PathRef File, Position Pos,
                                                      StringRef TriggerText);
 
+  /// Test the validity of a rename operation.
+  void prepareRename(PathRef File, Position Pos,
+                     Callback<llvm::Optional<Range>> CB);
+
   /// Rename all occurrences of the symbol at the \p Pos in \p File to
   /// \p NewName.
+  /// If WantFormat is false, the final TextEdit will be not formatted,
+  /// embedders could use this method to get all occurrences of the symbol (e.g.
+  /// highlighting them in prepare stage).
   void rename(PathRef File, Position Pos, llvm::StringRef NewName,
-              Callback<std::vector<TextEdit>> CB);
+              bool WantFormat, Callback<std::vector<TextEdit>> CB);
 
   struct TweakRef {
     std::string ID;    /// ID to pass for applyTweak.
@@ -315,9 +322,8 @@ private:
   // If this is true, suggest include insertion fixes for diagnostic errors that
   // can be caused by missing includes (e.g. member access in incomplete type).
   bool SuggestMissingIncludes = false;
-  bool EnableHiddenFeatures = false;
-   
-  std::function<bool(llvm::StringRef)> TweakFilter;
+
+  std::function<bool(const Tweak &)> TweakFilter;
 
   // GUARDED_BY(CachedCompletionFuzzyFindRequestMutex)
   llvm::StringMap<llvm::Optional<FuzzyFindRequest>>

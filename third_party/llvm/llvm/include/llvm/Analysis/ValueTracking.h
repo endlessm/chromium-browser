@@ -19,6 +19,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Intrinsics.h"
 #include <cassert>
@@ -29,7 +30,6 @@ namespace llvm {
 class AddOperator;
 class APInt;
 class AssumptionCache;
-class DataLayout;
 class DominatorTree;
 class GEPOperator;
 class IntrinsicInst;
@@ -224,7 +224,7 @@ class Value;
   /// 0.0 etc. If the value can't be handled with a repeated byte store (e.g.
   /// i16 0x1234), return null. If the value is entirely undef and padding,
   /// return undef.
-  Value *isBytewiseValue(Value *V);
+  Value *isBytewiseValue(Value *V, const DataLayout &DL);
 
   /// Given an aggregrate and an sequence of indices, see if the scalar value
   /// indexed is already around as a register, for example if it were inserted
@@ -238,13 +238,25 @@ class Value;
 
   /// Analyze the specified pointer to see if it can be expressed as a base
   /// pointer plus a constant offset. Return the base and offset to the caller.
-  Value *GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
-                                          const DataLayout &DL);
-  inline const Value *GetPointerBaseWithConstantOffset(const Value *Ptr,
-                                                       int64_t &Offset,
-                                                       const DataLayout &DL) {
-    return GetPointerBaseWithConstantOffset(const_cast<Value *>(Ptr), Offset,
-                                            DL);
+  ///
+  /// This is a wrapper around Value::stripAndAccumulateConstantOffsets that
+  /// creates and later unpacks the required APInt.
+  inline Value *GetPointerBaseWithConstantOffset(Value *Ptr, int64_t &Offset,
+                                                 const DataLayout &DL,
+                                                 bool AllowNonInbounds = true) {
+    APInt OffsetAPInt(DL.getIndexTypeSizeInBits(Ptr->getType()), 0);
+    Value *Base =
+        Ptr->stripAndAccumulateConstantOffsets(DL, OffsetAPInt, AllowNonInbounds);
+
+    Offset = OffsetAPInt.getSExtValue();
+    return Base;
+  }
+  inline const Value *
+  GetPointerBaseWithConstantOffset(const Value *Ptr, int64_t &Offset,
+                                   const DataLayout &DL,
+                                   bool AllowNonInbounds = true) {
+    return GetPointerBaseWithConstantOffset(const_cast<Value *>(Ptr), Offset, DL,
+                                            AllowNonInbounds);
   }
 
   /// Returns true if the GEP is based on a pointer to a string (array of
@@ -297,20 +309,26 @@ class Value;
   uint64_t GetStringLength(const Value *V, unsigned CharSize = 8);
 
   /// This function returns call pointer argument that is considered the same by
-  /// aliasing rules. You CAN'T use it to replace one value with another.
-  const Value *getArgumentAliasingToReturnedPointer(const CallBase *Call);
-  inline Value *getArgumentAliasingToReturnedPointer(CallBase *Call) {
+  /// aliasing rules. You CAN'T use it to replace one value with another. If
+  /// \p MustPreserveNullness is true, the call must preserve the nullness of
+  /// the pointer.
+  const Value *getArgumentAliasingToReturnedPointer(const CallBase *Call,
+                                                    bool MustPreserveNullness);
+  inline Value *
+  getArgumentAliasingToReturnedPointer(CallBase *Call,
+                                       bool MustPreserveNullness) {
     return const_cast<Value *>(getArgumentAliasingToReturnedPointer(
-        const_cast<const CallBase *>(Call)));
+        const_cast<const CallBase *>(Call), MustPreserveNullness));
   }
 
-  // {launder,strip}.invariant.group returns pointer that aliases its argument,
-  // and it only captures pointer by returning it.
-  // These intrinsics are not marked as nocapture, because returning is
-  // considered as capture. The arguments are not marked as returned neither,
-  // because it would make it useless.
+  /// {launder,strip}.invariant.group returns pointer that aliases its argument,
+  /// and it only captures pointer by returning it.
+  /// These intrinsics are not marked as nocapture, because returning is
+  /// considered as capture. The arguments are not marked as returned neither,
+  /// because it would make it useless. If \p MustPreserveNullness is true,
+  /// the intrinsic must preserve the nullness of the pointer.
   bool isIntrinsicReturningPointerAliasingArgumentWithoutCapturing(
-      const CallBase *Call);
+      const CallBase *Call, bool MustPreserveNullness);
 
   /// This method strips off any GEP address adjustments and pointer casts from
   /// the specified value, returning the original object being addressed. Note
@@ -644,6 +662,12 @@ class Value;
   Optional<bool> isImpliedByDomCondition(const Value *Cond,
                                          const Instruction *ContextI,
                                          const DataLayout &DL);
+
+  /// If Ptr1 is provably equal to Ptr2 plus a constant offset, return that
+  /// offset. For example, Ptr1 might be &A[42], and Ptr2 might be &A[40]. In
+  /// this case offset would be -8.
+  Optional<int64_t> isPointerOffset(const Value *Ptr1, const Value *Ptr2,
+                                    const DataLayout &DL);
 } // end namespace llvm
 
 #endif // LLVM_ANALYSIS_VALUETRACKING_H

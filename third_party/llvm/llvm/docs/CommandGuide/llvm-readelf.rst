@@ -66,7 +66,7 @@ OPTIONS
 
 .. option:: --elf-output-style=<value>
 
- Specify the style to dump ELF information in. Valid options are ``LLVM`` and
+ Format ELF information in the specified style. Valid options are ``LLVM`` and
  ``GNU``. ``LLVM`` output is an expanded and structured format, whilst ``GNU``
  (the default) output mimics the equivalent GNU :program:`readelf` output.
 
@@ -89,7 +89,7 @@ OPTIONS
 
 .. option:: --hash-symbols
 
- Display the dynamic symbols derived from the hash table.
+ Display the expanded hash table with dynamic symbol data.
 
 .. option:: --hash-table
 
@@ -139,7 +139,8 @@ OPTIONS
 
 .. option:: --section-data
 
- When used with :option:`--sections`, display section data for each section shown.
+ When used with :option:`--sections`, display section data for each section
+ shown. This option has no effect for GNU style output.
 
 .. option:: --section-mapping
 
@@ -147,15 +148,22 @@ OPTIONS
 
 .. option:: --section-relocations
 
- When used with :option:`--sections`, display relocations for each section shown.
+ When used with :option:`--sections`, display relocations for each section
+ shown. This option has no effect for GNU style output.
 
 .. option:: --section-symbols
 
  When used with :option:`--sections`, display symbols for each section shown.
+ This option has no effect for GNU style output.
 
 .. option:: --stackmap
 
  Display contents of the stackmap section.
+
+.. option:: --stack-sizes
+
+ Display the contents of the stack sizes section(s), i.e. pairs of function
+ names and the size of their stack frames.
 
 .. option:: --string-dump=<section[,section,...]>, -p
 

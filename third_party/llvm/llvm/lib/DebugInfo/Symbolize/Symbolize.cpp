@@ -52,14 +52,8 @@ namespace llvm {
 namespace symbolize {
 
 Expected<DILineInfo>
-LLVMSymbolizer::symbolizeCode(const std::string &ModuleName,
-                              object::SectionedAddress ModuleOffset) {
-  SymbolizableModule *Info;
-  if (auto InfoOrErr = getOrCreateModuleInfo(ModuleName))
-    Info = InfoOrErr.get();
-  else
-    return InfoOrErr.takeError();
-
+LLVMSymbolizer::symbolizeCodeCommon(SymbolizableModule *Info,
+                                    object::SectionedAddress ModuleOffset) {
   // A null module means an error has already been reported. Return an empty
   // result.
   if (!Info)
@@ -75,6 +69,32 @@ LLVMSymbolizer::symbolizeCode(const std::string &ModuleName,
   if (Opts.Demangle)
     LineInfo.FunctionName = DemangleName(LineInfo.FunctionName, Info);
   return LineInfo;
+}
+
+Expected<DILineInfo>
+LLVMSymbolizer::symbolizeCode(const ObjectFile &Obj,
+                              object::SectionedAddress ModuleOffset) {
+  StringRef ModuleName = Obj.getFileName();
+  auto I = Modules.find(ModuleName);
+  if (I != Modules.end())
+    return symbolizeCodeCommon(I->second.get(), ModuleOffset);
+
+  std::unique_ptr<DIContext> Context =
+        DWARFContext::create(Obj, nullptr, DWARFContext::defaultErrorHandler);
+  Expected<SymbolizableModule *> InfoOrErr =
+                     createModuleInfo(&Obj, std::move(Context), ModuleName);
+  if (!InfoOrErr)
+    return InfoOrErr.takeError();
+  return symbolizeCodeCommon(*InfoOrErr, ModuleOffset);
+}
+
+Expected<DILineInfo>
+LLVMSymbolizer::symbolizeCode(const std::string &ModuleName,
+                              object::SectionedAddress ModuleOffset) {
+  Expected<SymbolizableModule *> InfoOrErr = getOrCreateModuleInfo(ModuleName);
+  if (!InfoOrErr)
+    return InfoOrErr.takeError();
+  return symbolizeCodeCommon(*InfoOrErr, ModuleOffset);
 }
 
 Expected<DIInliningInfo>
@@ -239,7 +259,11 @@ bool getGNUDebuglinkContents(const ObjectFile *Obj, std::string &DebugName,
     return false;
   for (const SectionRef &Section : Obj->sections()) {
     StringRef Name;
-    Section.getName(Name);
+    if (Expected<StringRef> NameOrErr = Section.getName())
+      Name = *NameOrErr;
+    else
+      consumeError(NameOrErr.takeError());
+
     Name = Name.substr(Name.find_first_not_of("._"));
     if (Name == "gnu_debuglink") {
       Expected<StringRef> ContentsOrErr = Section.getContents();
@@ -248,7 +272,7 @@ bool getGNUDebuglinkContents(const ObjectFile *Obj, std::string &DebugName,
         return false;
       }
       DataExtractor DE(*ContentsOrErr, Obj->isLittleEndian(), 0);
-      uint32_t Offset = 0;
+      uint64_t Offset = 0;
       if (const char *DebugNameStr = DE.getCStr(&Offset)) {
         // 4-byte align the offset.
         Offset = (Offset + 3) & ~0x3;
@@ -395,6 +419,23 @@ LLVMSymbolizer::getOrCreateObject(const std::string &Path,
 }
 
 Expected<SymbolizableModule *>
+LLVMSymbolizer::createModuleInfo(const ObjectFile *Obj,
+                                 std::unique_ptr<DIContext> Context,
+                                 StringRef ModuleName) {
+  auto InfoOrErr = SymbolizableObjectFile::create(Obj, std::move(Context),
+                                                  Opts.UntagAddresses);
+  std::unique_ptr<SymbolizableModule> SymMod;
+  if (InfoOrErr)
+    SymMod = std::move(*InfoOrErr);
+  auto InsertResult =
+      Modules.insert(std::make_pair(ModuleName, std::move(SymMod)));
+  assert(InsertResult.second);
+  if (std::error_code EC = InfoOrErr.getError())
+    return errorCodeToError(EC);
+  return InsertResult.first->second.get();
+}
+
+Expected<SymbolizableModule *>
 LLVMSymbolizer::getOrCreateModuleInfo(const std::string &ModuleName) {
   auto I = Modules.find(ModuleName);
   if (I != Modules.end())
@@ -442,16 +483,7 @@ LLVMSymbolizer::getOrCreateModuleInfo(const std::string &ModuleName) {
     Context =
         DWARFContext::create(*Objects.second, nullptr,
                              DWARFContext::defaultErrorHandler, Opts.DWPName);
-  auto InfoOrErr =
-      SymbolizableObjectFile::create(Objects.first, std::move(Context));
-  std::unique_ptr<SymbolizableModule> SymMod;
-  if (InfoOrErr)
-    SymMod = std::move(InfoOrErr.get());
-  auto InsertResult = Modules.emplace(ModuleName, std::move(SymMod));
-  assert(InsertResult.second);
-  if (auto EC = InfoOrErr.getError())
-    return errorCodeToError(EC);
-  return InsertResult.first->second.get();
+  return createModuleInfo(Objects.first, std::move(Context), ModuleName);
 }
 
 namespace {

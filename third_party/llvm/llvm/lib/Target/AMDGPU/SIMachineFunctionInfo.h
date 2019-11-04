@@ -232,6 +232,31 @@ template <> struct MappingTraits<SIArgumentInfo> {
   }
 };
 
+// Default to default mode for default calling convention.
+struct SIMode {
+  bool IEEE = true;
+  bool DX10Clamp = true;
+
+  SIMode() = default;
+
+
+  SIMode(const AMDGPU::SIModeRegisterDefaults &Mode) {
+    IEEE = Mode.IEEE;
+    DX10Clamp = Mode.DX10Clamp;
+  }
+
+  bool operator ==(const SIMode Other) const {
+    return IEEE == Other.IEEE && DX10Clamp == Other.DX10Clamp;
+  }
+};
+
+template <> struct MappingTraits<SIMode> {
+  static void mapping(IO &YamlIO, SIMode &Mode) {
+    YamlIO.mapOptional("ieee", Mode.IEEE, true);
+    YamlIO.mapOptional("dx10-clamp", Mode.DX10Clamp, true);
+  }
+};
+
 struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   uint64_t ExplicitKernArgSize = 0;
   unsigned MaxKernArgAlign = 0;
@@ -240,6 +265,7 @@ struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   bool NoSignedZerosFPMath = false;
   bool MemoryBound = false;
   bool WaveLimiter = false;
+  uint32_t HighBitsOf32BitAddress = 0;
 
   StringValue ScratchRSrcReg = "$private_rsrc_reg";
   StringValue ScratchWaveOffsetReg = "$scratch_wave_offset_reg";
@@ -247,6 +273,7 @@ struct SIMachineFunctionInfo final : public yaml::MachineFunctionInfo {
   StringValue StackPtrOffsetReg = "$sp_reg";
 
   Optional<SIArgumentInfo> ArgInfo;
+  SIMode Mode;
 
   SIMachineFunctionInfo() = default;
   SIMachineFunctionInfo(const llvm::SIMachineFunctionInfo &,
@@ -275,6 +302,9 @@ template <> struct MappingTraits<SIMachineFunctionInfo> {
     YamlIO.mapOptional("stackPtrOffsetReg", MFI.StackPtrOffsetReg,
                        StringValue("$sp_reg"));
     YamlIO.mapOptional("argumentInfo", MFI.ArgInfo);
+    YamlIO.mapOptional("mode", MFI.Mode, SIMode());
+    YamlIO.mapOptional("highBitsOf32BitAddress",
+                       MFI.HighBitsOf32BitAddress, 0u);
   }
 };
 
@@ -415,6 +445,11 @@ public:
     SGPRSpillVGPRCSR(unsigned V, Optional<int> F) : VGPR(V), FI(F) {}
   };
 
+  struct VGPRSpillToAGPR {
+    SmallVector<MCPhysReg, 32> Lanes;
+    bool FullyAllocated = false;
+  };
+
   SparseBitVector<> WWMReservedRegs;
 
   void ReserveWWMRegister(unsigned reg) { WWMReservedRegs.set(reg); }
@@ -428,6 +463,20 @@ private:
   DenseMap<int, std::vector<SpilledReg>> SGPRToVGPRSpills;
   unsigned NumVGPRSpillLanes = 0;
   SmallVector<SGPRSpillVGPRCSR, 2> SpillVGPRs;
+
+  DenseMap<int, VGPRSpillToAGPR> VGPRToAGPRSpills;
+
+  // AGPRs used for VGPR spills.
+  SmallVector<MCPhysReg, 32> SpillAGPR;
+
+  // VGPRs used for AGPR spills.
+  SmallVector<MCPhysReg, 32> SpillVGPR;
+
+public: // FIXME
+  /// If this is set, an SGPR used for save/restore of the register used for the
+  /// frame pointer.
+  unsigned SGPRForFPSaveRestoreCopy = 0;
+  Optional<int> FramePointerSaveIndex;
 
 public:
   SIMachineFunctionInfo(const MachineFunction &MF);
@@ -444,12 +493,29 @@ public:
     return SpillVGPRs;
   }
 
+  ArrayRef<MCPhysReg> getAGPRSpillVGPRs() const {
+    return SpillAGPR;
+  }
+
+  ArrayRef<MCPhysReg> getVGPRSpillAGPRs() const {
+    return SpillVGPR;
+  }
+
+  MCPhysReg getVGPRToAGPRSpill(int FrameIndex, unsigned Lane) const {
+    auto I = VGPRToAGPRSpills.find(FrameIndex);
+    return (I == VGPRToAGPRSpills.end()) ? (MCPhysReg)AMDGPU::NoRegister
+                                         : I->second.Lanes[Lane];
+  }
+
   AMDGPU::SIModeRegisterDefaults getMode() const {
     return Mode;
   }
 
+  bool haveFreeLanesForSGPRSpill(const MachineFunction &MF,
+                                 unsigned NumLane) const;
   bool allocateSGPRSpillToVGPR(MachineFunction &MF, int FI);
-  void removeSGPRToVGPRFrameIndices(MachineFrameInfo &MFI);
+  bool allocateVGPRSpillToAGPR(MachineFunction &MF, int FI, bool isAGPRtoVGPR);
+  void removeDeadFrameIndices(MachineFrameInfo &MFI);
 
   bool hasCalculatedTID() const { return TIDReg != 0; };
   unsigned getTIDReg() const { return TIDReg; };
@@ -607,7 +673,7 @@ public:
     return GITPtrHigh;
   }
 
-  unsigned get32BitAddressHighBits() const {
+  uint32_t get32BitAddressHighBits() const {
     return HighBitsOf32BitAddress;
   }
 
@@ -810,7 +876,7 @@ public:
     assert(BufferRsrc);
     auto PSV = BufferPSVs.try_emplace(
       BufferRsrc,
-      llvm::make_unique<AMDGPUBufferPseudoSourceValue>(TII));
+      std::make_unique<AMDGPUBufferPseudoSourceValue>(TII));
     return PSV.first->second.get();
   }
 
@@ -819,14 +885,14 @@ public:
     assert(ImgRsrc);
     auto PSV = ImagePSVs.try_emplace(
       ImgRsrc,
-      llvm::make_unique<AMDGPUImagePseudoSourceValue>(TII));
+      std::make_unique<AMDGPUImagePseudoSourceValue>(TII));
     return PSV.first->second.get();
   }
 
   const AMDGPUGWSResourcePseudoSourceValue *getGWSPSV(const SIInstrInfo &TII) {
     if (!GWSResourcePSV) {
       GWSResourcePSV =
-          llvm::make_unique<AMDGPUGWSResourcePseudoSourceValue>(TII);
+          std::make_unique<AMDGPUGWSResourcePseudoSourceValue>(TII);
     }
 
     return GWSResourcePSV.get();

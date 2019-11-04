@@ -379,7 +379,7 @@ public:
 
     auto hasDefaultCXXMethodCC = [](ASTContext &C, const CXXMethodDecl *MD) {
       auto DefaultCC = C.getDefaultCallingConvention(/*IsVariadic=*/false,
-                                                     /*IsCSSMethod=*/true);
+                                                     /*IsCXXMethod=*/true);
       auto CC = MD->getType()->getAs<FunctionProtoType>()->getCallConv();
       return CC == DefaultCC;
     };
@@ -470,7 +470,7 @@ private:
 };
 
 ASTNameGenerator::ASTNameGenerator(ASTContext &Ctx)
-    : Impl(llvm::make_unique<Implementation>(Ctx)) {}
+    : Impl(std::make_unique<Implementation>(Ctx)) {}
 
 ASTNameGenerator::~ASTNameGenerator() {}
 

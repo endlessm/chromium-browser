@@ -60,8 +60,8 @@ template <class Allocator> struct TSDRegistryExT {
 
 private:
   void initOnceMaybe(Allocator *Instance) {
-    SpinMutexLock L(&Mutex);
-    if (Initialized)
+    ScopedLock L(Mutex);
+    if (LIKELY(Initialized))
       return;
     initLinkerInitialized(Instance); // Sets Initialized.
   }
@@ -71,7 +71,7 @@ private:
   // used instead.
   NOINLINE void initThread(Allocator *Instance, bool MinimalInit) {
     initOnceMaybe(Instance);
-    if (MinimalInit)
+    if (UNLIKELY(MinimalInit))
       return;
     CHECK_EQ(
         pthread_setspecific(PThreadKey, reinterpret_cast<void *>(Instance)), 0);
@@ -82,7 +82,7 @@ private:
   pthread_key_t PThreadKey;
   bool Initialized;
   TSD<Allocator> *FallbackTSD;
-  StaticSpinMutex Mutex;
+  HybridMutex Mutex;
   static THREADLOCAL ThreadState State;
   static THREADLOCAL TSD<Allocator> ThreadTSD;
 

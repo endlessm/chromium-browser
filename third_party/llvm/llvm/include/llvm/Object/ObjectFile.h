@@ -94,7 +94,7 @@ public:
 
   void moveNext();
 
-  std::error_code getName(StringRef &Result) const;
+  Expected<StringRef> getName() const;
   uint64_t getAddress() const;
   uint64_t getIndex() const;
   uint64_t getSize() const;
@@ -359,7 +359,7 @@ public:
   createCOFFObjectFile(MemoryBufferRef Object);
 
   static Expected<std::unique_ptr<ObjectFile>>
-  createXCOFFObjectFile(MemoryBufferRef Object);
+  createXCOFFObjectFile(MemoryBufferRef Object, unsigned FileType);
 
   static Expected<std::unique_ptr<ObjectFile>>
   createELFObjectFile(MemoryBufferRef Object);
@@ -434,12 +434,8 @@ inline void SectionRef::moveNext() {
   return OwningObject->moveSectionNext(SectionPimpl);
 }
 
-inline std::error_code SectionRef::getName(StringRef &Result) const {
-  Expected<StringRef> NameOrErr = OwningObject->getSectionName(SectionPimpl);
-  if (!NameOrErr)
-    return errorToErrorCode(NameOrErr.takeError());
-  Result = *NameOrErr;
-  return std::error_code();
+inline Expected<StringRef> SectionRef::getName() const {
+  return OwningObject->getSectionName(SectionPimpl);
 }
 
 inline uint64_t SectionRef::getAddress() const {

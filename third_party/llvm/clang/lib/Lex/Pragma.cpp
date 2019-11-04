@@ -183,7 +183,7 @@ void Preprocessor::Handle_Pragma(Token &Tok) {
       assert(!Tokens.empty() && "collected unexpected number of tokens");
 
       // Push the ( "string" ) tokens into the token stream.
-      auto Toks = llvm::make_unique<Token[]>(Tokens.size());
+      auto Toks = std::make_unique<Token[]>(Tokens.size());
       std::copy(Tokens.begin() + 1, Tokens.end(), Toks.get());
       Toks[Tokens.size() - 1] = Tok;
       Self.EnterTokenStream(std::move(Toks), Tokens.size(),
@@ -498,7 +498,7 @@ void Preprocessor::HandlePragmaDependency(Token &DependencyTok) {
 
   // Search include directories for this file.
   const DirectoryLookup *CurDir;
-  const FileEntry *File =
+  Optional<FileEntryRef> File =
       LookupFile(FilenameTok.getLocation(), Filename, isAngled, nullptr,
                  nullptr, CurDir, nullptr, nullptr, nullptr, nullptr, nullptr);
   if (!File) {
@@ -1191,7 +1191,7 @@ public:
 
     std::string WarningName;
     if (!PP.FinishLexStringLiteral(Tok, WarningName, "pragma diagnostic",
-                                   /*MacroExpansion=*/false))
+                                   /*AllowMacroExpansion=*/false))
       return;
 
     if (Tok.isNot(tok::eod)) {
@@ -1389,7 +1389,7 @@ struct PragmaExecCharsetHandler : public PragmaHandler {
         std::string ExecCharset;
         if (!PP.FinishLexStringLiteral(Tok, ExecCharset,
                                        "pragma execution_character_set",
-                                       /*MacroExpansion=*/false))
+                                       /*AllowMacroExpansion=*/false))
           return;
 
         // MSVC supports either of these, but nothing else.
@@ -1490,7 +1490,7 @@ public:
 
     std::string MessageString;
     if (!PP.FinishLexStringLiteral(Tok, MessageString, PragmaKind(Kind),
-                                   /*MacroExpansion=*/true))
+                                   /*AllowMacroExpansion=*/true))
       return;
 
     if (ExpectClosingParen) {
@@ -1540,7 +1540,7 @@ struct PragmaModuleImportHandler : public PragmaHandler {
     // If we have a non-empty module path, load the named module.
     Module *Imported =
         PP.getModuleLoader().loadModule(ImportLoc, ModuleName, Module::Hidden,
-                                      /*IsIncludeDirective=*/false);
+                                      /*IsInclusionDirective=*/false);
     if (!Imported)
       return;
 
@@ -1666,7 +1666,7 @@ struct PragmaModuleLoadHandler : public PragmaHandler {
 
     // Load the module, don't make it visible.
     PP.getModuleLoader().loadModule(Loc, ModuleName, Module::Hidden,
-                                    /*IsIncludeDirective=*/false);
+                                    /*IsInclusionDirective=*/false);
   }
 };
 

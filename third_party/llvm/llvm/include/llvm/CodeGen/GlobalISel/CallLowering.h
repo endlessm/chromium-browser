@@ -27,6 +27,7 @@
 
 namespace llvm {
 
+class CCState;
 class DataLayout;
 class Function;
 class MachineIRBuilder;
@@ -44,18 +45,58 @@ class CallLowering {
 public:
   struct ArgInfo {
     SmallVector<Register, 4> Regs;
+    // If the argument had to be split into multiple parts according to the
+    // target calling convention, then this contains the original vregs
+    // if the argument was an incoming arg.
+    SmallVector<Register, 2> OrigRegs;
     Type *Ty;
-    ISD::ArgFlagsTy Flags;
+    SmallVector<ISD::ArgFlagsTy, 4> Flags;
     bool IsFixed;
 
     ArgInfo(ArrayRef<Register> Regs, Type *Ty,
-            ISD::ArgFlagsTy Flags = ISD::ArgFlagsTy{}, bool IsFixed = true)
-        : Regs(Regs.begin(), Regs.end()), Ty(Ty), Flags(Flags),
-          IsFixed(IsFixed) {
+            ArrayRef<ISD::ArgFlagsTy> Flags = ArrayRef<ISD::ArgFlagsTy>(),
+            bool IsFixed = true)
+        : Regs(Regs.begin(), Regs.end()), Ty(Ty),
+          Flags(Flags.begin(), Flags.end()), IsFixed(IsFixed) {
+      if (!Regs.empty() && Flags.empty())
+        this->Flags.push_back(ISD::ArgFlagsTy());
       // FIXME: We should have just one way of saying "no register".
       assert((Ty->isVoidTy() == (Regs.empty() || Regs[0] == 0)) &&
              "only void types should have no register");
     }
+
+    ArgInfo() : Ty(nullptr), IsFixed(false) {}
+  };
+
+  struct CallLoweringInfo {
+    /// Calling convention to be used for the call.
+    CallingConv::ID CallConv = CallingConv::C;
+
+    /// Destination of the call. It should be either a register, globaladdress,
+    /// or externalsymbol.
+    MachineOperand Callee = MachineOperand::CreateImm(0);
+
+    /// Descriptor for the return type of the function.
+    ArgInfo OrigRet;
+
+    /// List of descriptors of the arguments passed to the function.
+    SmallVector<ArgInfo, 8> OrigArgs;
+
+    /// Valid if the call has a swifterror inout parameter, and contains the
+    /// vreg that the swifterror should be copied into after the call.
+    Register SwiftErrorVReg = 0;
+
+    MDNode *KnownCallees = nullptr;
+
+    /// True if the call must be tail call optimized.
+    bool IsMustTailCall = false;
+
+    /// True if the call passes all target-independent checks for tail call
+    /// optimization.
+    bool IsTailCall = false;
+
+    /// True if the call is to a vararg function.
+    bool IsVarArg = false;
   };
 
   /// Argument handling is mostly uniform between the four places that
@@ -71,9 +112,9 @@ public:
 
     virtual ~ValueHandler() = default;
 
-    /// Returns true if the handler is dealing with formal arguments,
-    /// not with return values etc.
-    virtual bool isArgumentHandler() const { return false; }
+    /// Returns true if the handler is dealing with incoming arguments,
+    /// i.e. those that move values from some physical location to vregs.
+    virtual bool isIncomingArgumentHandler() const { return false; }
 
     /// Materialize a VReg containing the address of the specified
     /// stack-based object. This is either based on a FrameIndex or
@@ -111,8 +152,8 @@ public:
 
     virtual bool assignArg(unsigned ValNo, MVT ValVT, MVT LocVT,
                            CCValAssign::LocInfo LocInfo, const ArgInfo &Info,
-                           CCState &State) {
-      return AssignFn(ValNo, ValVT, LocVT, LocInfo, Info.Flags, State);
+                           ISD::ArgFlagsTy Flags, CCState &State) {
+      return AssignFn(ValNo, ValVT, LocVT, LocInfo, Flags, State);
     }
 
     MachineIRBuilder &MIRBuilder;
@@ -161,7 +202,13 @@ protected:
   /// \p Callback to move them to the assigned locations.
   ///
   /// \return True if everything has succeeded, false otherwise.
-  bool handleAssignments(MachineIRBuilder &MIRBuilder, ArrayRef<ArgInfo> Args,
+  bool handleAssignments(MachineIRBuilder &MIRBuilder,
+                         SmallVectorImpl<ArgInfo> &Args,
+                         ValueHandler &Handler) const;
+  bool handleAssignments(CCState &CCState,
+                         SmallVectorImpl<CCValAssign> &ArgLocs,
+                         MachineIRBuilder &MIRBuilder,
+                         SmallVectorImpl<ArgInfo> &Args,
                          ValueHandler &Handler) const;
 
 public:
@@ -219,37 +266,10 @@ public:
   /// This hook must be implemented to lower the given call instruction,
   /// including argument and return value marshalling.
   ///
-  /// \p CallConv is the calling convention to be used for the call.
-  ///
-  /// \p Callee is the destination of the call. It should be either a register,
-  /// globaladdress, or externalsymbol.
-  ///
-  /// \p OrigRet is a descriptor for the return type of the function.
-  ///
-  /// \p OrigArgs is a list of descriptors of the arguments passed to the
-  /// function.
-  ///
-  /// \p SwiftErrorVReg is non-zero if the call has a swifterror inout
-  /// parameter, and contains the vreg that the swifterror should be copied into
-  /// after the call.
   ///
   /// \return true if the lowering succeeded, false otherwise.
-  virtual bool lowerCall(MachineIRBuilder &MIRBuilder, CallingConv::ID CallConv,
-                         const MachineOperand &Callee, const ArgInfo &OrigRet,
-                         ArrayRef<ArgInfo> OrigArgs,
-                         Register SwiftErrorVReg) const {
-    if (!supportSwiftError()) {
-      assert(SwiftErrorVReg == 0 && "trying to use unsupported swifterror");
-      return lowerCall(MIRBuilder, CallConv, Callee, OrigRet, OrigArgs);
-    }
-    return false;
-  }
-
-  /// This hook behaves as the extended lowerCall function, but for targets that
-  /// do not support swifterror value promotion.
-  virtual bool lowerCall(MachineIRBuilder &MIRBuilder, CallingConv::ID CallConv,
-                         const MachineOperand &Callee, const ArgInfo &OrigRet,
-                         ArrayRef<ArgInfo> OrigArgs) const {
+  virtual bool lowerCall(MachineIRBuilder &MIRBuilder,
+                         CallLoweringInfo &Info) const {
     return false;
   }
 

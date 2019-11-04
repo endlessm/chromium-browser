@@ -114,15 +114,21 @@ namespace __sanitizer {
     long key;
   };
 
+#if !defined(__i386__)
+  typedef long long __sanitizer_time_t;
+#else
+  typedef long __sanitizer_time_t;
+#endif
+
   struct __sanitizer_shmid_ds {
     __sanitizer_ipc_perm shm_perm;
     unsigned long shm_segsz;
     unsigned int shm_lpid;
     unsigned int shm_cpid;
     int shm_nattch;
-    unsigned long shm_atime;
-    unsigned long shm_dtime;
-    unsigned long shm_ctime;
+    __sanitizer_time_t shm_atime;
+    __sanitizer_time_t shm_dtime;
+    __sanitizer_time_t shm_ctime;
   };
 
   extern unsigned struct_msqid_ds_sz;
@@ -153,12 +159,12 @@ namespace __sanitizer {
     char *pw_passwd;
     int pw_uid;
     int pw_gid;
-    long pw_change;
+    __sanitizer_time_t pw_change;
     char *pw_class;
     char *pw_gecos;
     char *pw_dir;
     char *pw_shell;
-    long pw_expire;
+    __sanitizer_time_t pw_expire;
     int pw_fields;
   };
 
@@ -168,12 +174,6 @@ namespace __sanitizer {
     int gr_gid;
     char **gr_mem;
   };
-
-#if defined(__LP64___)
-  typedef long long __sanitizer_time_t;
-#else
-  typedef long __sanitizer_time_t;
-#endif
 
   typedef long __sanitizer_suseconds_t;
 
@@ -267,7 +267,7 @@ namespace __sanitizer {
   } __sanitizer___kernel_fd_set;
 
   // This thing depends on the platform. We are only interested in the upper
-  // limit. Verified with a compiler assert in .cc.
+  // limit. Verified with a compiler assert in .cpp.
   const int pthread_attr_t_max_sz = 128;
   union __sanitizer_pthread_attr_t {
     char size[pthread_attr_t_max_sz]; // NOLINT

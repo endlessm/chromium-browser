@@ -184,7 +184,10 @@ Error RTDyldObjectLinkingLayer::onObjLoad(
     if (auto Err = R.defineMaterializing(ExtraSymbolsToClaim))
       return Err;
 
-  R.notifyResolved(Symbols);
+  if (auto Err = R.notifyResolved(Symbols)) {
+    R.failMaterialization();
+    return Err;
+  }
 
   if (NotifyLoaded)
     NotifyLoaded(K, Obj, *LoadedObjInfo);
@@ -201,11 +204,24 @@ void RTDyldObjectLinkingLayer::onObjEmit(
     return;
   }
 
-  R.notifyEmitted();
+  if (auto Err = R.notifyEmitted()) {
+    getExecutionSession().reportError(std::move(Err));
+    R.failMaterialization();
+    return;
+  }
 
   if (NotifyEmitted)
     NotifyEmitted(K, std::move(ObjBuffer));
 }
+
+LegacyRTDyldObjectLinkingLayer::LegacyRTDyldObjectLinkingLayer(
+    ExecutionSession &ES, ResourcesGetter GetResources,
+    NotifyLoadedFtor NotifyLoaded, NotifyFinalizedFtor NotifyFinalized,
+    NotifyFreedFtor NotifyFreed)
+    : ES(ES), GetResources(std::move(GetResources)),
+      NotifyLoaded(std::move(NotifyLoaded)),
+      NotifyFinalized(std::move(NotifyFinalized)),
+      NotifyFreed(std::move(NotifyFreed)), ProcessAllSections(false) {}
 
 } // End namespace orc.
 } // End namespace llvm.

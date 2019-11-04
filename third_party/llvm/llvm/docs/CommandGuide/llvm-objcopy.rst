@@ -36,6 +36,13 @@ multiple file formats.
 
  Add a .gnu_debuglink section for ``<debug-file>`` to the output.
 
+.. option:: --add-section <section=file>
+
+ Add a section named ``<section>`` with the contents of ``<file>`` to the
+ output. For ELF objects the section will be of type `SHT_NOTE`, if the name
+ starts with ".note". Otherwise, it will have type `SHT_PROGBITS`. Can be
+ specified multiple times to add multiple sections.
+
 .. option:: --disable-deterministic-archives, -U
 
  Use real values for UIDs, GIDs and timestamps when updating archive member
@@ -141,25 +148,19 @@ The following options are implemented only for ELF objects. If used with other
 objects, :program:`llvm-objcopy` will either emit an error or silently ignore
 them.
 
-.. option:: --add-section <section=file>
-
- Add a section named ``<section>`` with the contents of ``<file>`` to the
- output. The section will be of type `SHT_NOTE`, if the name starts with
- ".note". Otherwise, it will have type `SHT_PROGBITS`. Can be specified multiple
- times to add multiple sections.
-
 .. option:: --add-symbol <name>=[<section>:]<value>[,<flags>]
 
- Add to the output a new symbol called ``<name>`` to the symbol table, in the
- section named ``<section>``, with value ``<value>``. If ``<section>`` is not
- specified, the symbol is added as an absolute symbol. The ``<flags>`` affect
- the symbol properties. Accepted values are:
+ Add a new symbol called ``<name>`` to the output symbol table, in the section
+ named ``<section>``, with value ``<value>``. If ``<section>`` is not specified,
+ the symbol is added as an absolute symbol. The ``<flags>`` affect the symbol
+ properties. Accepted values are:
 
  - `global` = the symbol will have global binding.
  - `local` = the symbol will have local binding.
  - `weak` = the symbol will have weak binding.
  - `default` = the symbol will have default visibility.
  - `hidden` = the symbol will have hidden visibility.
+ - `protected` = the symbol will have protected visibility.
  - `file` = the symbol will be an `STT_FILE` symbol.
  - `section` = the symbol will be an `STT_SECTION` symbol.
  - `object` = the symbol will be an `STT_OBJECT` symbol.
@@ -317,6 +318,18 @@ them.
  represents a single symbol, with leading and trailing whitespace ignored, as is
  anything following a '#'. Can be specified multiple times to read names from
  multiple files.
+ 
+.. option:: --new-symbol-visibility <visibility>
+
+ Specify the visibility of the symbols automatically created when using binary
+ input or :option:`--add-symbol`. Valid options are:
+
+ - `default`
+ - `hidden`
+ - `internal`
+ - `protected`
+
+ The default is `default`.
 
 .. option:: --output-target <format>, -O
 
@@ -457,8 +470,23 @@ options. For GNU :program:`objcopy` compatibility, the values are all bfdnames.
 - `elf32-sparc`
 - `elf32-sparcel`
 
-Additionally, all targets except ``binary`` and ``ihex`` can have ``-freebsd``
-as a suffix.
+Additionally, all targets except `binary` and `ihex` can have `-freebsd` as a
+suffix.
+
+BINARY INPUT AND OUTPUT
+-----------------------
+
+If `binary` is used as the value for :option:`--input-target`, the input file
+will be embedded as a data section in an ELF relocatable object, with symbols
+``_binary_<file_name>_start``, ``_binary_<file_name>_end``, and
+``_binary_<file_name>_size`` representing the start, end and size of the data,
+where ``<file_name>`` is the path of the input file as specified on the command
+line with non-alphanumeric characters converted to ``_``.
+
+If `binary` is used as the value for :option:`--output-target`, the output file
+will be a raw binary file, containing the memory image of the input file.
+Symbols and relocation information will be discarded. The image will start at
+the address of the first loadable section in the output.
 
 EXIT STATUS
 -----------

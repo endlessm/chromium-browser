@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "TestTU.h"
+#include "Compiler.h"
+#include "Diagnostics.h"
 #include "TestFS.h"
 #include "index/FileIndex.h"
 #include "index/MemIndex.h"
@@ -38,6 +40,10 @@ ParsedAST TestTU::build() const {
     Cmd.push_back("-include");
     Cmd.push_back(ImplicitHeaderGuard ? ImportThunk.c_str()
                                       : FullHeaderName.c_str());
+    // ms-compatibility changes the meaning of #import.
+    // The default is OS-dependent (on on windows), ensure it's off.
+    if (ImplicitHeaderGuard)
+      Cmd.push_back("-fno-ms-compatibility");
   }
   Cmd.insert(Cmd.end(), ExtraArgs.begin(), ExtraArgs.end());
   // Put the file name at the end -- this allows the extra arg (-xc++) to
@@ -55,14 +61,16 @@ ParsedAST TestTU::build() const {
   Inputs.Index = ExternalIndex;
   if (Inputs.Index)
     Inputs.Opts.SuggestMissingIncludes = true;
-  auto CI = buildCompilerInvocation(Inputs);
+  StoreDiags Diags;
+  auto CI = buildCompilerInvocation(Inputs, Diags);
   assert(CI && "Failed to build compilation invocation.");
   auto Preamble =
       buildPreamble(FullFilename, *CI,
                     /*OldPreamble=*/nullptr,
                     /*OldCompileCommand=*/Inputs.CompileCommand, Inputs,
                     /*StoreInMemory=*/true, /*PreambleCallback=*/nullptr);
-  auto AST = buildAST(FullFilename, std::move(CI), Inputs, Preamble);
+  auto AST =
+      buildAST(FullFilename, std::move(CI), Diags.take(), Inputs, Preamble);
   if (!AST.hasValue()) {
     ADD_FAILURE() << "Failed to build code:\n" << Code;
     llvm_unreachable("Failed to build TestTU!");
@@ -79,7 +87,7 @@ SymbolSlab TestTU::headerSymbols() const {
 
 std::unique_ptr<SymbolIndex> TestTU::index() const {
   auto AST = build();
-  auto Idx = llvm::make_unique<FileIndex>(/*UseDex=*/true);
+  auto Idx = std::make_unique<FileIndex>(/*UseDex=*/true);
   Idx->updatePreamble(Filename, AST.getASTContext(), AST.getPreprocessorPtr(),
                       AST.getCanonicalIncludes());
   Idx->updateMain(Filename, AST);

@@ -6,15 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 #include "Annotations.h"
-#include "ClangdUnit.h"
 #include "Compiler.h"
 #include "Matchers.h"
+#include "ParsedAST.h"
 #include "Protocol.h"
 #include "SyncAPI.h"
 #include "TestFS.h"
+#include "TestIndex.h"
 #include "TestTU.h"
 #include "XRefs.h"
 #include "index/FileIndex.h"
+#include "index/MemIndex.h"
 #include "index/SymbolCollector.h"
 #include "clang/Index/IndexingAction.h"
 #include "llvm/ADT/None.h"
@@ -987,7 +989,7 @@ void foo())cpp";
     auto AST = TU.build();
     ASSERT_TRUE(AST.getDiagnostics().empty());
 
-    auto H = getHover(AST, T.point(), format::getLLVMStyle());
+    auto H = getHover(AST, T.point(), format::getLLVMStyle(), nullptr);
     ASSERT_TRUE(H);
     HoverInfo Expected;
     Expected.SymRange = T.range();
@@ -1101,7 +1103,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "int foo(int)\n"
-          "]",
+          "]\n"
+          "text[Function definition via pointer]",
       },
       {
           R"cpp(// Function declaration via call
@@ -1113,7 +1116,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "int foo(int)\n"
-          "]",
+          "]\n"
+          "text[Function declaration via call]",
       },
       {
           R"cpp(// Field
@@ -1224,7 +1228,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "typedef int Foo\n"
-          "]",
+          "]\n"
+          "text[Typedef]",
       },
       {
           R"cpp(// Namespace
@@ -1294,7 +1299,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "class Foo {}\n"
-          "]",
+          "]\n"
+          "text[Forward class declaration]",
       },
       {
           R"cpp(// Function declaration
@@ -1305,7 +1311,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "void foo()\n"
-          "]",
+          "]\n"
+          "text[Function declaration]",
       },
       {
           R"cpp(// Enum declaration
@@ -1319,7 +1326,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "enum Hello {}\n"
-          "]",
+          "]\n"
+          "text[Enum declaration]",
       },
       {
           R"cpp(// Enumerator
@@ -1359,7 +1367,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "static int hey = 10\n"
-          "]",
+          "]\n"
+          "text[Global variable]",
       },
       {
           R"cpp(// Global variable in namespace
@@ -1400,7 +1409,8 @@ TEST(Hover, All) {
           "text[Declared in]code[global namespace]\n"
           "codeblock(cpp) [\n"
           "template <typename T> T foo()\n"
-          "]",
+          "]\n"
+          "text[Templated function]",
       },
       {
           R"cpp(// Anonymous union
@@ -1415,6 +1425,18 @@ TEST(Hover, All) {
           "codeblock(cpp) [\n"
           "int def\n"
           "]",
+      },
+      {
+          R"cpp(// documentation from index
+            int nextSymbolIsAForwardDeclFromIndexWithNoLocalDocs;
+            void indexSymbol();
+            void g() { ind^exSymbol(); }
+          )cpp",
+          "text[Declared in]code[global namespace]\n"
+          "codeblock(cpp) [\n"
+          "void indexSymbol()\n"
+          "]\n"
+          "text[comment from index]",
       },
       {
           R"cpp(// Nothing
@@ -1771,14 +1793,33 @@ TEST(Hover, All) {
           "int\n"
           "]",
       },
+      {
+          R"cpp(// Should not crash when evaluating the initializer.
+            struct Test {};
+            void test() { Test && te^st = {}; }
+          )cpp",
+          "text[Declared in]code[test]\n"
+          "codeblock(cpp) [\n"
+          "struct Test &&test = {}\n"
+          "]",
+      },
   };
+
+  // Create a tiny index, so tests above can verify documentation is fetched.
+  Symbol IndexSym = func("indexSymbol");
+  IndexSym.Documentation = "comment from index";
+  SymbolSlab::Builder Symbols;
+  Symbols.insert(IndexSym);
+  auto Index =
+      MemIndex::build(std::move(Symbols).build(), RefSlab(), RelationSlab());
 
   for (const OneTest &Test : Tests) {
     Annotations T(Test.Input);
     TestTU TU = TestTU::withCode(T.code());
     TU.ExtraArgs.push_back("-std=c++17");
     auto AST = TU.build();
-    if (auto H = getHover(AST, T.point(), format::getLLVMStyle())) {
+    if (auto H =
+            getHover(AST, T.point(), format::getLLVMStyle(), Index.get())) {
       EXPECT_NE("", Test.ExpectedHover) << Test.Input;
       EXPECT_EQ(H->present().renderForTests(), Test.ExpectedHover.str())
           << Test.Input;
@@ -1996,37 +2037,50 @@ TEST(FindReferences, WithinAST) {
 TEST(FindReferences, ExplicitSymbols) {
   const char *Tests[] = {
       R"cpp(
-      struct Foo { Foo* [self]() const; };
+      struct Foo { Foo* [[self]]() const; };
       void f() {
-        if (Foo* T = foo.[^self]()) {} // Foo member call expr.
+        Foo foo;
+        if (Foo* T = foo.[[^self]]()) {} // Foo member call expr.
       }
       )cpp",
 
       R"cpp(
       struct Foo { Foo(int); };
       Foo f() {
-        int [b];
-        return [^b]; // Foo constructor expr.
+        int [[b]];
+        return [[^b]]; // Foo constructor expr.
       }
       )cpp",
 
       R"cpp(
       struct Foo {};
       void g(Foo);
-      Foo [f]();
+      Foo [[f]]();
       void call() {
-        g([^f]());  // Foo constructor expr.
+        g([[^f]]());  // Foo constructor expr.
       }
       )cpp",
 
       R"cpp(
-      void [foo](int);
-      void [foo](double);
+      void [[foo]](int);
+      void [[foo]](double);
 
       namespace ns {
-      using ::[fo^o];
+      using ::[[fo^o]];
       }
       )cpp",
+
+      R"cpp(
+      struct X {
+        operator bool();
+      };
+
+      int test() {
+        X [[a]];
+        [[a]].operator bool();
+        if ([[a^]]) {} // ignore implicit conversion-operator AST node
+      }
+    )cpp",
   };
   for (const char *Test : Tests) {
     Annotations T(Test);
@@ -2034,6 +2088,7 @@ TEST(FindReferences, ExplicitSymbols) {
     std::vector<Matcher<Location>> ExpectedLocations;
     for (const auto &R : T.ranges())
       ExpectedLocations.push_back(RangeIs(R));
+    ASSERT_THAT(ExpectedLocations, Not(IsEmpty()));
     EXPECT_THAT(findReferences(AST, T.point(), 0),
                 ElementsAreArray(ExpectedLocations))
         << Test;
@@ -2105,6 +2160,30 @@ TEST(FindReferences, NoQueryForLocalSymbols) {
       EXPECT_NE(Rec.RefIDs, None) << T.AnnotatedCode;
     else
       EXPECT_EQ(Rec.RefIDs, None) << T.AnnotatedCode;
+  }
+}
+
+TEST(GetDeducedType, KwAutoExpansion) {
+  struct Test {
+    StringRef AnnotatedCode;
+    const char *DeducedType;
+  } Tests[] = {
+      {"^auto i = 0;", "int"},
+      {"^auto f(){ return 1;};", "int"}
+  };
+  for (Test T : Tests) {
+    Annotations File(T.AnnotatedCode);
+    auto AST = TestTU::withCode(File.code()).build();
+    ASSERT_TRUE(AST.getDiagnostics().empty())
+        << AST.getDiagnostics().begin()->Message;
+    SourceManagerForFile SM("foo.cpp", File.code());
+
+    for (Position Pos : File.points()) {
+      auto Location = sourceLocationInMainFile(SM.get(), Pos);
+      ASSERT_TRUE(!!Location) << llvm::toString(Location.takeError());
+      auto DeducedType = getDeducedType(AST, *Location);
+      EXPECT_EQ(DeducedType->getAsString(), T.DeducedType);
+    }
   }
 }
 

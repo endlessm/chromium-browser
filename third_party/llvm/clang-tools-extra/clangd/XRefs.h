@@ -13,11 +13,13 @@
 #ifndef LLVM_CLANG_TOOLS_EXTRA_CLANGD_XREFS_H
 #define LLVM_CLANG_TOOLS_EXTRA_CLANGD_XREFS_H
 
-#include "ClangdUnit.h"
 #include "FormattedString.h"
+#include "Path.h"
 #include "Protocol.h"
 #include "index/Index.h"
+#include "clang/AST/Type.h"
 #include "index/SymbolLocation.h"
+#include "clang/Format/Format.h"
 #include "clang/Index/IndexSymbol.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/raw_ostream.h"
@@ -25,6 +27,7 @@
 
 namespace clang {
 namespace clangd {
+class ParsedAST;
 
 // Describes where a symbol is declared and defined (as far as clangd knows).
 // There are three cases:
@@ -118,7 +121,8 @@ inline bool operator==(const HoverInfo::Param &LHS,
 
 /// Get the hover information when hovering at \p Pos.
 llvm::Optional<HoverInfo> getHover(ParsedAST &AST, Position Pos,
-                                   format::FormatStyle Style);
+                                   format::FormatStyle Style,
+                                   const SymbolIndex *Index);
 
 /// Returns reference locations of the symbol at a specified \p Pos.
 /// \p Limit limits the number of results returned (0 means no limit).
@@ -139,6 +143,20 @@ std::vector<const CXXRecordDecl *> typeParents(const CXXRecordDecl *CXXRD);
 llvm::Optional<TypeHierarchyItem> getTypeHierarchy(
     ParsedAST &AST, Position Pos, int Resolve, TypeHierarchyDirection Direction,
     const SymbolIndex *Index = nullptr, PathRef TUPath = PathRef{});
+
+void resolveTypeHierarchy(TypeHierarchyItem &Item, int ResolveLevels,
+                          TypeHierarchyDirection Direction,
+                          const SymbolIndex *Index);
+
+/// Retrieves the deduced type at a given location (auto, decltype).
+/// Retuns None unless SourceLocationBeg starts an auto/decltype token.
+/// It will return the underlying type.
+llvm::Optional<QualType> getDeducedType(ParsedAST &AST,
+                                        SourceLocation SourceLocationBeg);
+
+/// Check if there is a deduced type at a given location (auto, decltype).
+/// SourceLocationBeg must point to the first character of the token
+bool hasDeducedType(ParsedAST &AST, SourceLocation SourceLocationBeg);
 
 } // namespace clangd
 } // namespace clang

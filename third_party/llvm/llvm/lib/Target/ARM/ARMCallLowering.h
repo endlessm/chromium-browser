@@ -38,23 +38,19 @@ public:
   bool lowerFormalArguments(MachineIRBuilder &MIRBuilder, const Function &F,
                             ArrayRef<ArrayRef<Register>> VRegs) const override;
 
-  bool lowerCall(MachineIRBuilder &MIRBuilder, CallingConv::ID CallConv,
-                 const MachineOperand &Callee, const ArgInfo &OrigRet,
-                 ArrayRef<ArgInfo> OrigArgs) const override;
+  bool lowerCall(MachineIRBuilder &MIRBuilder,
+                 CallLoweringInfo &Info) const override;
 
 private:
   bool lowerReturnVal(MachineIRBuilder &MIRBuilder, const Value *Val,
                       ArrayRef<Register> VRegs,
                       MachineInstrBuilder &Ret) const;
 
-  using SplitArgTy = std::function<void(unsigned Reg)>;
-
   /// Split an argument into one or more arguments that the CC lowering can cope
-  /// with (e.g. replace pointers with integers).
+  /// with.
   void splitToValueTypes(const ArgInfo &OrigArg,
                          SmallVectorImpl<ArgInfo> &SplitArgs,
-                         MachineFunction &MF,
-                         const SplitArgTy &PerformArgSplit) const;
+                         MachineFunction &MF) const;
 };
 
 } // end namespace llvm

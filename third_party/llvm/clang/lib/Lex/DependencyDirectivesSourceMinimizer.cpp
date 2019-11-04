@@ -59,6 +59,7 @@ private:
   LLVM_NODISCARD bool minimizeImpl(const char *First, const char *const End);
   LLVM_NODISCARD bool lexPPLine(const char *&First, const char *const End);
   LLVM_NODISCARD bool lexAt(const char *&First, const char *const End);
+  LLVM_NODISCARD bool lexModule(const char *&First, const char *const End);
   LLVM_NODISCARD bool lexDefine(const char *&First, const char *const End);
   LLVM_NODISCARD bool lexPragma(const char *&First, const char *const End);
   LLVM_NODISCARD bool lexEndif(const char *&First, const char *const End);
@@ -185,8 +186,8 @@ static void skipRawString(const char *&First, const char *const End) {
 }
 
 static void skipString(const char *&First, const char *const End) {
-  assert(*First == '\'' || *First == '"');
-  const char Terminator = *First;
+  assert(*First == '\'' || *First == '"' || *First == '<');
+  const char Terminator = *First == '<' ? '>' : *First;
   for (++First; First != End && *First != Terminator; ++First)
     if (*First == '\\')
       if (++First == End)
@@ -195,15 +196,29 @@ static void skipString(const char *&First, const char *const End) {
     ++First; // Finish off the string.
 }
 
-static void skipNewline(const char *&First, const char *End) {
-  assert(isVerticalWhitespace(*First));
-  ++First;
+// Returns the length of EOL, either 0 (no end-of-line), 1 (\n) or 2 (\r\n)
+static unsigned isEOL(const char *First, const char *const End) {
   if (First == End)
-    return;
+    return 0;
+  if (End - First > 1 && isVerticalWhitespace(First[0]) &&
+      isVerticalWhitespace(First[1]) && First[0] != First[1])
+    return 2;
+  return !!isVerticalWhitespace(First[0]);
+}
 
-  // Check for "\n\r" and "\r\n".
-  if (LLVM_UNLIKELY(isVerticalWhitespace(*First) && First[-1] != First[0]))
-    ++First;
+// Returns the length of the skipped newline
+static unsigned skipNewline(const char *&First, const char *End) {
+  if (First == End)
+    return 0;
+  assert(isVerticalWhitespace(*First));
+  unsigned Len = isEOL(First, End);
+  assert(Len && "expected newline");
+  First += Len;
+  return Len;
+}
+
+static bool wasLineContinuation(const char *First, unsigned EOLLen) {
+  return *(First - (int)EOLLen - 1) == '\\';
 }
 
 static void skipToNewlineRaw(const char *&First, const char *const End) {
@@ -211,17 +226,21 @@ static void skipToNewlineRaw(const char *&First, const char *const End) {
     if (First == End)
       return;
 
-    if (isVerticalWhitespace(*First))
+    unsigned Len = isEOL(First, End);
+    if (Len)
       return;
 
-    while (!isVerticalWhitespace(*First))
+    do {
       if (++First == End)
         return;
+      Len = isEOL(First, End);
+    } while (!Len);
 
     if (First[-1] != '\\')
       return;
 
-    ++First; // Keep going...
+    First += Len;
+    // Keep skipping lines...
   }
 }
 
@@ -262,14 +281,21 @@ static bool isQuoteCppDigitSeparator(const char *const Start,
   if (Start == Cur)
     return false;
   // The previous character must be a valid PP number character.
-  if (!isPreprocessingNumberBody(*(Cur - 1)))
+  // Make sure that the L, u, U, u8 prefixes don't get marked as a
+  // separator though.
+  char Prev = *(Cur - 1);
+  if (Prev == 'L' || Prev == 'U' || Prev == 'u')
+    return false;
+  if (Prev == '8' && (Cur - 1 != Start) && *(Cur - 2) == 'u')
+    return false;
+  if (!isPreprocessingNumberBody(Prev))
     return false;
   // The next character should be a valid identifier body character.
   return (Cur + 1) < End && isIdentifierBody(*(Cur + 1));
 }
 
 static void skipLine(const char *&First, const char *const End) {
-  do {
+  for (;;) {
     assert(First <= End);
     if (First == End)
       return;
@@ -314,9 +340,10 @@ static void skipLine(const char *&First, const char *const End) {
       return;
 
     // Skip over the newline.
-    assert(isVerticalWhitespace(*First));
-    skipNewline(First, End);
-  } while (First[-2] == '\\'); // Continue past line-continuations.
+    unsigned Len = skipNewline(First, End);
+    if (!wasLineContinuation(First, Len)) // Continue past line-continuations.
+      break;
+  }
 }
 
 static void skipDirective(StringRef Name, const char *&First,
@@ -336,7 +363,8 @@ void Minimizer::printToNewline(const char *&First, const char *const End) {
     const char *Last = First;
     do {
       // Iterate over strings correctly to avoid comments and newlines.
-      if (*Last == '"' || *Last == '\'') {
+      if (*Last == '"' || *Last == '\'' ||
+          (*Last == '<' && top() == pp_include)) {
         if (LLVM_UNLIKELY(isRawStringLiteral(First, Last)))
           skipRawString(Last, End);
         else
@@ -371,6 +399,8 @@ void Minimizer::printToNewline(const char *&First, const char *const End) {
     // Print out the string.
     if (Last == End || Last == First || Last[-1] != '\\') {
       append(First, reverseOverSpaces(First, Last));
+      First = Last;
+      skipNewline(First, End);
       return;
     }
 
@@ -569,6 +599,59 @@ bool Minimizer::lexAt(const char *&First, const char *const End) {
   return false;
 }
 
+bool Minimizer::lexModule(const char *&First, const char *const End) {
+  IdInfo Id = lexIdentifier(First, End);
+  First = Id.Last;
+  bool Export = false;
+  if (Id.Name == "export") {
+    Export = true;
+    skipWhitespace(First, End);
+    if (!isIdentifierBody(*First)) {
+      skipLine(First, End);
+      return false;
+    }
+    Id = lexIdentifier(First, End);
+    First = Id.Last;
+  }
+
+  if (Id.Name != "module" && Id.Name != "import") {
+    skipLine(First, End);
+    return false;
+  }
+
+  skipWhitespace(First, End);
+
+  // Ignore this as a module directive if the next character can't be part of
+  // an import.
+
+  switch (*First) {
+  case ':':
+  case '<':
+  case '"':
+    break;
+  default:
+    if (!isIdentifierBody(*First)) {
+      skipLine(First, End);
+      return false;
+    }
+  }
+
+  if (Export) {
+    makeToken(cxx_export_decl);
+    append("export ");
+  }
+
+  if (Id.Name == "module")
+    makeToken(cxx_module_decl);
+  else
+    makeToken(cxx_import_decl);
+  append(Id.Name);
+  append(" ");
+  printToNewline(First, End);
+  append("\n");
+  return false;
+}
+
 bool Minimizer::lexDefine(const char *&First, const char *const End) {
   makeToken(pp_define);
   append("#define ");
@@ -605,7 +688,21 @@ bool Minimizer::lexDefine(const char *&First, const char *const End) {
 
 bool Minimizer::lexPragma(const char *&First, const char *const End) {
   // #pragma.
-  if (!isNextIdentifier("clang", First, End)) {
+  skipWhitespace(First, End);
+  if (First == End || !isIdentifierHead(*First))
+    return false;
+
+  IdInfo FoundId = lexIdentifier(First, End);
+  First = FoundId.Last;
+  if (FoundId.Name == "once") {
+    // #pragma once
+    skipLine(First, End);
+    makeToken(pp_pragma_once);
+    append("#pragma once\n");
+    return false;
+  }
+
+  if (FoundId.Name != "clang") {
     skipLine(First, End);
     return false;
   }
@@ -656,6 +753,18 @@ bool Minimizer::lexDefault(TokenKind Kind, StringRef Directive,
   return false;
 }
 
+static bool isStartOfRelevantLine(char First) {
+  switch (First) {
+  case '#':
+  case '@':
+  case 'i':
+  case 'e':
+  case 'm':
+    return true;
+  }
+  return false;
+}
+
 bool Minimizer::lexPPLine(const char *&First, const char *const End) {
   assert(First != End);
 
@@ -664,7 +773,7 @@ bool Minimizer::lexPPLine(const char *&First, const char *const End) {
   if (First == End)
     return false;
 
-  if (*First != '#' && *First != '@') {
+  if (!isStartOfRelevantLine(*First)) {
     skipLine(First, End);
     assert(First <= End);
     return false;
@@ -673,6 +782,9 @@ bool Minimizer::lexPPLine(const char *&First, const char *const End) {
   // Handle "@import".
   if (*First == '@')
     return lexAt(First, End);
+
+  if (*First == 'i' || *First == 'e' || *First == 'm')
+    return lexModule(First, End);
 
   // Handle preprocessing directives.
   ++First; // Skip over '#'.
@@ -722,7 +834,14 @@ bool Minimizer::lexPPLine(const char *&First, const char *const End) {
   return lexDefault(Kind, Id.Name, First, End);
 }
 
+static void skipUTF8ByteOrderMark(const char *&First, const char *const End) {
+  if ((End - First) >= 3 && First[0] == '\xef' && First[1] == '\xbb' &&
+      First[2] == '\xbf')
+    First += 3;
+}
+
 bool Minimizer::minimizeImpl(const char *First, const char *const End) {
+  skipUTF8ByteOrderMark(First, End);
   while (First != End)
     if (lexPPLine(First, End))
       return true;

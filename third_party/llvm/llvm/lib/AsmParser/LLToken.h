@@ -37,6 +37,7 @@ enum Kind {
   bar,     // |
   colon,   // :
 
+  kw_vscale,
   kw_x,
   kw_true,
   kw_false,
@@ -175,6 +176,7 @@ enum Kind {
   kw_argmemonly,
   kw_sanitize_address,
   kw_sanitize_hwaddress,
+  kw_sanitize_memtag,
   kw_builtin,
   kw_byval,
   kw_inalloca,
@@ -194,6 +196,7 @@ enum Kind {
   kw_nobuiltin,
   kw_nocapture,
   kw_noduplicate,
+  kw_nofree,
   kw_noimplicitfloat,
   kw_noinline,
   kw_norecurse,
@@ -201,6 +204,7 @@ enum Kind {
   kw_nonnull,
   kw_noredzone,
   kw_noreturn,
+  kw_nosync,
   kw_nocf_check,
   kw_nounwind,
   kw_optforfuzzing,

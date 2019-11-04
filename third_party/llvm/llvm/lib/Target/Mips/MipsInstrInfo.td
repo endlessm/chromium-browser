@@ -211,9 +211,9 @@ def HasCnMips    :    Predicate<"Subtarget->hasCnMips()">,
                       AssemblerPredicate<"FeatureCnMips">;
 def NotCnMips    :    Predicate<"!Subtarget->hasCnMips()">,
                       AssemblerPredicate<"!FeatureCnMips">;
-def IsSym32     :     Predicate<"Subtarget->HasSym32()">,
+def IsSym32     :     Predicate<"Subtarget->hasSym32()">,
                       AssemblerPredicate<"FeatureSym32">;
-def IsSym64     :     Predicate<"!Subtarget->HasSym32()">,
+def IsSym64     :     Predicate<"!Subtarget->hasSym32()">,
                       AssemblerPredicate<"!FeatureSym32">;
 def IsN64       :     Predicate<"Subtarget->isABI_N64()">;
 def IsNotN64    :     Predicate<"!Subtarget->isABI_N64()">;
@@ -2693,18 +2693,64 @@ let AdditionalPredicates = [NotInMicroMips] in {
                       (SUBu GPR32Opnd:$rt, ZERO, GPR32Opnd:$rs), 1>, ISA_MIPS1;
   def : MipsInstAlias<"negu $rt",
                       (SUBu GPR32Opnd:$rt, ZERO, GPR32Opnd:$rt), 1>, ISA_MIPS1;
+
+  def SGE : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                              (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                              "sge\t$rd, $rs, $rt">, ISA_MIPS1;
+  def : MipsInstAlias<"sge $rs, $rt",
+                      (SGE GPR32Opnd:$rs, GPR32Opnd:$rs, GPR32Opnd:$rt), 0>,
+        ISA_MIPS1;
+  def SGEImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                 (ins GPR32Opnd:$rs, simm32:$imm),
+                                 "sge\t$rd, $rs, $imm">, GPR_32;
+  def : MipsInstAlias<"sge $rs, $imm", (SGEImm GPR32Opnd:$rs,
+                                               GPR32Opnd:$rs,
+                                               simm32:$imm), 0>,
+        GPR_32;
+
+  def SGEU : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                               (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                               "sgeu\t$rd, $rs, $rt">, ISA_MIPS1;
+  def : MipsInstAlias<"sgeu $rs, $rt",
+                      (SGEU GPR32Opnd:$rs, GPR32Opnd:$rs, GPR32Opnd:$rt), 0>,
+        ISA_MIPS1;
+  def SGEUImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                  (ins GPR32Opnd:$rs, uimm32_coerced:$imm),
+                                  "sgeu\t$rd, $rs, $imm">, GPR_32;
+  def : MipsInstAlias<"sgeu $rs, $imm", (SGEUImm GPR32Opnd:$rs,
+                                                 GPR32Opnd:$rs,
+                                                 uimm32_coerced:$imm), 0>,
+        GPR_32;
+
   def : MipsInstAlias<
           "sgt $rd, $rs, $rt",
           (SLT GPR32Opnd:$rd, GPR32Opnd:$rt, GPR32Opnd:$rs), 0>, ISA_MIPS1;
   def : MipsInstAlias<
           "sgt $rs, $rt",
           (SLT GPR32Opnd:$rs, GPR32Opnd:$rt, GPR32Opnd:$rs), 0>, ISA_MIPS1;
+
+  def SGTImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                 (ins GPR32Opnd:$rs, simm32:$imm),
+                                 "sgt\t$rd, $rs, $imm">, GPR_32;
+  def : MipsInstAlias<"sgt $rs, $imm", (SGTImm GPR32Opnd:$rs,
+                                               GPR32Opnd:$rs,
+                                               simm32:$imm), 0>,
+        GPR_32;
   def : MipsInstAlias<
           "sgtu $rd, $rs, $rt",
           (SLTu GPR32Opnd:$rd, GPR32Opnd:$rt, GPR32Opnd:$rs), 0>, ISA_MIPS1;
   def : MipsInstAlias<
           "sgtu $$rs, $rt",
           (SLTu GPR32Opnd:$rs, GPR32Opnd:$rt, GPR32Opnd:$rs), 0>, ISA_MIPS1;
+
+  def SGTUImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                  (ins GPR32Opnd:$rs, uimm32_coerced:$imm),
+                                  "sgtu\t$rd, $rs, $imm">, GPR_32;
+  def : MipsInstAlias<"sgtu $rs, $imm", (SGTUImm GPR32Opnd:$rs,
+                                                 GPR32Opnd:$rs,
+                                                 uimm32_coerced:$imm), 0>,
+        GPR_32;
+
   def : MipsInstAlias<
           "not $rt, $rs",
           (NOR GPR32Opnd:$rt, GPR32Opnd:$rs, ZERO), 0>, ISA_MIPS1;
@@ -2755,14 +2801,14 @@ let AdditionalPredicates = [NotInMicroMips] in {
   def : MipsInstAlias<"bnez $rs,$offset",
                       (BNE GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>,
         ISA_MIPS1;
-  def : MipsInstAlias<"bnezl $rs,$offset",
-                      (BNEL GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>,
+  def : MipsInstAlias<"bnezl $rs, $offset",
+                      (BNEL GPR32Opnd:$rs, ZERO, brtarget:$offset), 1>,
         ISA_MIPS2;
   def : MipsInstAlias<"beqz $rs,$offset",
                       (BEQ GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>,
         ISA_MIPS1;
-  def : MipsInstAlias<"beqzl $rs,$offset",
-                      (BEQL GPR32Opnd:$rs, ZERO, brtarget:$offset), 0>,
+  def : MipsInstAlias<"beqzl $rs, $offset",
+                      (BEQL GPR32Opnd:$rs, ZERO, brtarget:$offset), 1>,
         ISA_MIPS2;
 
   def : MipsInstAlias<"syscall", (SYSCALL 0), 1>, ISA_MIPS1;
@@ -3096,25 +3142,31 @@ multiclass MipsHiLoRelocs<Instruction Lui, Instruction Addiu,
   def : MipsPat<(MipsHi tconstpool:$in), (Lui tconstpool:$in)>;
   def : MipsPat<(MipsHi texternalsym:$in), (Lui texternalsym:$in)>;
 
-  def : MipsPat<(MipsLo tglobaladdr:$in), (Addiu ZeroReg, tglobaladdr:$in)>;
+  def : MipsPat<(MipsLo tglobaladdr:$in),
+                (Addiu ZeroReg, tglobaladdr:$in)>;
   def : MipsPat<(MipsLo tblockaddress:$in),
                 (Addiu ZeroReg, tblockaddress:$in)>;
-  def : MipsPat<(MipsLo tjumptable:$in), (Addiu ZeroReg, tjumptable:$in)>;
-  def : MipsPat<(MipsLo tconstpool:$in), (Addiu ZeroReg, tconstpool:$in)>;
+  def : MipsPat<(MipsLo tjumptable:$in),
+                (Addiu ZeroReg, tjumptable:$in)>;
+  def : MipsPat<(MipsLo tconstpool:$in),
+                (Addiu ZeroReg, tconstpool:$in)>;
   def : MipsPat<(MipsLo tglobaltlsaddr:$in),
                 (Addiu ZeroReg, tglobaltlsaddr:$in)>;
-  def : MipsPat<(MipsLo texternalsym:$in), (Addiu ZeroReg, texternalsym:$in)>;
+  def : MipsPat<(MipsLo texternalsym:$in),
+                (Addiu ZeroReg, texternalsym:$in)>;
 
   def : MipsPat<(add GPROpnd:$hi, (MipsLo tglobaladdr:$lo)),
-              (Addiu GPROpnd:$hi, tglobaladdr:$lo)>;
+                (Addiu GPROpnd:$hi, tglobaladdr:$lo)>;
   def : MipsPat<(add GPROpnd:$hi, (MipsLo tblockaddress:$lo)),
-              (Addiu GPROpnd:$hi, tblockaddress:$lo)>;
+                (Addiu GPROpnd:$hi, tblockaddress:$lo)>;
   def : MipsPat<(add GPROpnd:$hi, (MipsLo tjumptable:$lo)),
-              (Addiu GPROpnd:$hi, tjumptable:$lo)>;
+                (Addiu GPROpnd:$hi, tjumptable:$lo)>;
   def : MipsPat<(add GPROpnd:$hi, (MipsLo tconstpool:$lo)),
-              (Addiu GPROpnd:$hi, tconstpool:$lo)>;
+                (Addiu GPROpnd:$hi, tconstpool:$lo)>;
   def : MipsPat<(add GPROpnd:$hi, (MipsLo tglobaltlsaddr:$lo)),
-              (Addiu GPROpnd:$hi, tglobaltlsaddr:$lo)>;
+                (Addiu GPROpnd:$hi, tglobaltlsaddr:$lo)>;
+  def : MipsPat<(add GPROpnd:$hi, (MipsLo texternalsym:$lo)),
+                (Addiu GPROpnd:$hi, texternalsym:$lo)>;
 }
 
 // wrapper_pic

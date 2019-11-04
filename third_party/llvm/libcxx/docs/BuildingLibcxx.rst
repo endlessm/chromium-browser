@@ -204,7 +204,7 @@ libc++ specific options
   Do not export any symbols from the static libc++ library.
   This is useful when the static libc++ library is being linked into shared
   libraries that may be used in with other shared libraries that use different
-  C++ library. We want to avoid avoid exporting any libc++ symbols in that case.
+  C++ library. We want to avoid exporting any libc++ symbols in that case.
 
 .. option:: LIBCXX_ENABLE_FILESYSTEM:BOOL
 
@@ -287,6 +287,12 @@ libc++ Feature Options
   **Default**: ``ON``
 
   Build libc++ with run time type information.
+
+.. option:: LIBCXX_INCLUDE_TESTS:BOOL
+
+  **Default**: ``ON`` (or value of ``LLVM_INCLUDE_DIR``)
+
+  Build the libc++ tests.
 
 .. option:: LIBCXX_INCLUDE_BENCHMARKS:BOOL
 

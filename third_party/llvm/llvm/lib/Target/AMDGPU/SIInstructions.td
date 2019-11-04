@@ -111,6 +111,10 @@ def V_MOV_B64_PSEUDO : VPseudoInstSI <(outs VReg_64:$vdst),
 // WQM pass processes it.
 def WQM : PseudoInstSI <(outs unknown:$vdst), (ins unknown:$src0)>;
 
+// Pseudoinstruction for @llvm.amdgcn.softwqm. Like @llvm.amdgcn.wqm it is
+// turned into a copy by WQM pass, but does not seed WQM requirements.
+def SOFT_WQM : PseudoInstSI <(outs unknown:$vdst), (ins unknown:$src0)>;
+
 // Pseudoinstruction for @llvm.amdgcn.wwm. It is turned into a copy post-RA, so
 // that the @earlyclobber is respected. The @earlyclobber is to make sure that
 // the instruction that defines $src0 (which is run in WWM) doesn't
@@ -513,6 +517,7 @@ defm SI_SPILL_S128 : SI_SPILL_SGPR <SReg_128>;
 defm SI_SPILL_S160 : SI_SPILL_SGPR <SReg_160>;
 defm SI_SPILL_S256 : SI_SPILL_SGPR <SReg_256>;
 defm SI_SPILL_S512 : SI_SPILL_SGPR <SReg_512>;
+defm SI_SPILL_S1024 : SI_SPILL_SGPR <SReg_1024>;
 
 multiclass SI_SPILL_VGPR <RegisterClass vgpr_class> {
   let UseNamedOperandTable = 1, VGPRSpill = 1,
@@ -524,7 +529,9 @@ multiclass SI_SPILL_VGPR <RegisterClass vgpr_class> {
       let mayStore = 1;
       let mayLoad = 0;
       // (2 * 4) + (8 * num_subregs) bytes maximum
-      let Size = !add(!shl(!srl(vgpr_class.Size, 5), 3), 8);
+      int MaxSize = !add(!shl(!srl(vgpr_class.Size, 5), 3), 8);
+      // Size field is unsigned char and cannot fit more.
+      let Size = !if(!le(MaxSize, 256), MaxSize, 252);
     }
 
     def _RESTORE : VPseudoInstSI <
@@ -535,7 +542,9 @@ multiclass SI_SPILL_VGPR <RegisterClass vgpr_class> {
       let mayLoad = 1;
 
       // (2 * 4) + (8 * num_subregs) bytes maximum
-      let Size = !add(!shl(!srl(vgpr_class.Size, 5), 3), 8);
+      int MaxSize = !add(!shl(!srl(vgpr_class.Size, 5), 3), 8);
+      // Size field is unsigned char and cannot fit more.
+      let Size = !if(!le(MaxSize, 256), MaxSize, 252);
     }
   } // End UseNamedOperandTable = 1, VGPRSpill = 1, SchedRW = [WriteVMEM]
 }
@@ -547,6 +556,44 @@ defm SI_SPILL_V128 : SI_SPILL_VGPR <VReg_128>;
 defm SI_SPILL_V160 : SI_SPILL_VGPR <VReg_160>;
 defm SI_SPILL_V256 : SI_SPILL_VGPR <VReg_256>;
 defm SI_SPILL_V512 : SI_SPILL_VGPR <VReg_512>;
+defm SI_SPILL_V1024 : SI_SPILL_VGPR <VReg_1024>;
+
+multiclass SI_SPILL_AGPR <RegisterClass vgpr_class> {
+  let UseNamedOperandTable = 1, VGPRSpill = 1,
+      Constraints = "@earlyclobber $tmp",
+      SchedRW = [WriteVMEM] in {
+    def _SAVE : VPseudoInstSI <
+      (outs VGPR_32:$tmp),
+      (ins vgpr_class:$vdata, i32imm:$vaddr, SReg_128:$srsrc,
+           SReg_32:$soffset, i32imm:$offset)> {
+      let mayStore = 1;
+      let mayLoad = 0;
+      // (2 * 4) + (16 * num_subregs) bytes maximum
+      int MaxSize = !add(!shl(!srl(vgpr_class.Size, 5), 4), 8);
+      // Size field is unsigned char and cannot fit more.
+      let Size = !if(!le(MaxSize, 256), MaxSize, 252);
+    }
+
+    def _RESTORE : VPseudoInstSI <
+      (outs vgpr_class:$vdata, VGPR_32:$tmp),
+      (ins i32imm:$vaddr, SReg_128:$srsrc, SReg_32:$soffset,
+           i32imm:$offset)> {
+      let mayStore = 0;
+      let mayLoad = 1;
+
+      // (2 * 4) + (16 * num_subregs) bytes maximum
+      int MaxSize = !add(!shl(!srl(vgpr_class.Size, 5), 4), 8);
+      // Size field is unsigned char and cannot fit more.
+      let Size = !if(!le(MaxSize, 256), MaxSize, 252);
+    }
+  } // End UseNamedOperandTable = 1, VGPRSpill = 1, SchedRW = [WriteVMEM]
+}
+
+defm SI_SPILL_A32  : SI_SPILL_AGPR <AGPR_32>;
+defm SI_SPILL_A64  : SI_SPILL_AGPR <AReg_64>;
+defm SI_SPILL_A128 : SI_SPILL_AGPR <AReg_128>;
+defm SI_SPILL_A512 : SI_SPILL_AGPR <AReg_512>;
+defm SI_SPILL_A1024 : SI_SPILL_AGPR <AReg_1024>;
 
 def SI_PC_ADD_REL_OFFSET : SPseudoInstSI <
   (outs SReg_64:$dst),
@@ -746,17 +793,18 @@ def : FMADModsPat<V_MAD_F16, AMDGPUfmad_ftz, f16> {
   let SubtargetPredicate = Has16BitInsts;
 }
 
-multiclass SelectPat <ValueType vt, Instruction inst> {
+multiclass SelectPat <ValueType vt> {
   def : GCNPat <
-    (vt (select i1:$src0, vt:$src1, vt:$src2)),
-    (inst (i32 0), $src2, (i32 0), $src1, $src0)
+    (vt (select i1:$src0, (VOP3Mods_f32 vt:$src1, i32:$src1_mods),
+                          (VOP3Mods_f32 vt:$src2, i32:$src2_mods))),
+    (V_CNDMASK_B32_e64 $src2_mods, $src2, $src1_mods, $src1, $src0)
   >;
 }
 
-defm : SelectPat <i16, V_CNDMASK_B32_e64>;
-defm : SelectPat <i32, V_CNDMASK_B32_e64>;
-defm : SelectPat <f16, V_CNDMASK_B32_e64>;
-defm : SelectPat <f32, V_CNDMASK_B32_e64>;
+defm : SelectPat <i16>;
+defm : SelectPat <i32>;
+defm : SelectPat <f16>;
+defm : SelectPat <f32>;
 
 let AddedComplexity = 1 in {
 def : GCNPat <
@@ -890,6 +938,24 @@ def : Pat <
   (v2f16 (EXTRACT_SUBREG v4f16:$vec, sub1))
 >;
 
+foreach Index = 0-31 in {
+  def Extract_Element_v32i32_#Index : Extract_Element <
+    i32, v32i32, Index, !cast<SubRegIndex>(sub#Index)
+  >;
+
+  def Insert_Element_v32i32_#Index : Insert_Element <
+    i32, v32i32, Index, !cast<SubRegIndex>(sub#Index)
+  >;
+
+  def Extract_Element_v32f32_#Index : Extract_Element <
+    f32, v32f32, Index, !cast<SubRegIndex>(sub#Index)
+  >;
+
+  def Insert_Element_v32f32_#Index : Insert_Element <
+    f32, v32f32, Index, !cast<SubRegIndex>(sub#Index)
+  >;
+}
+
 // FIXME: Why do only some of these type combinations for SReg and
 // VReg?
 // 16-bit bitcast
@@ -979,6 +1045,10 @@ def : BitConvert <v8f32, v8i32, VReg_256>;
 // 512-bit bitcast
 def : BitConvert <v16i32, v16f32, VReg_512>;
 def : BitConvert <v16f32, v16i32, VReg_512>;
+
+// 1024-bit bitcast
+def : BitConvert <v32i32, v32f32, VReg_1024>;
+def : BitConvert <v32f32, v32i32, VReg_1024>;
 
 /********** =================== **********/
 /********** Src & Dst modifiers **********/

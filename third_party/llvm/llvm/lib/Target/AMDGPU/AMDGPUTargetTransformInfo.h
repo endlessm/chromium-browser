@@ -183,6 +183,11 @@ public:
     return AMDGPUAS::FLAT_ADDRESS;
   }
 
+  bool collectFlatAddressOperands(SmallVectorImpl<int> &OpIndexes,
+                                  Intrinsic::ID IID) const;
+  bool rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
+                                        Value *OldV, Value *NewV) const;
+
   unsigned getVectorSplitCost() { return 0; }
 
   unsigned getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
@@ -191,7 +196,9 @@ public:
   bool areInlineCompatible(const Function *Caller,
                            const Function *Callee) const;
 
-  unsigned getInliningThresholdMultiplier() { return 9; }
+  unsigned getInliningThresholdMultiplier() { return 7; }
+
+  int getInlinerVectorBonusPercent() { return 0; }
 
   int getArithmeticReductionCost(unsigned Opcode,
                                  Type *Ty,

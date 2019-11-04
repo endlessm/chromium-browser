@@ -12,6 +12,8 @@ include_directories(
 add_extra_unittest(ClangDocTests
   BitcodeTest.cpp
   ClangDocTest.cpp
+  GeneratorTest.cpp
+  HTMLGeneratorTest.cpp
   MDGeneratorTest.cpp
   MergeTest.cpp
   SerializeTest.cpp

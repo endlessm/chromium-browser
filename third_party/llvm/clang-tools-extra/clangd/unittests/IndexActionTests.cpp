@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Headers.h"
 #include "TestFS.h"
 #include "index/IndexAction.h"
 #include "clang/Tooling/Tooling.h"
@@ -25,7 +26,7 @@ using ::testing::UnorderedPointwise;
 
 std::string toUri(llvm::StringRef Path) { return URI::create(Path).toString(); }
 
-MATCHER(IsTU, "") { return arg.IsTU; }
+MATCHER(IsTU, "") { return arg.Flags & IncludeGraphNode::SourceFlag::IsTU; }
 
 MATCHER_P(HasDigest, Digest, "") { return arg.Digest == Digest; }
 
@@ -87,7 +88,7 @@ public:
     Args.push_back(MainFilePath);
 
     tooling::ToolInvocation Invocation(
-        Args, Action.release(), Files.get(),
+        Args, std::move(Action), Files.get(),
         std::make_shared<PCHContainerOperations>());
 
     Invocation.run();

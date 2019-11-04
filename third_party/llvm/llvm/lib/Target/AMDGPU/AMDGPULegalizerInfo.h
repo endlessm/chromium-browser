@@ -49,6 +49,14 @@ public:
                               MachineIRBuilder &MIRBuilder) const;
   bool legalizeITOFP(MachineInstr &MI, MachineRegisterInfo &MRI,
                      MachineIRBuilder &MIRBuilder, bool Signed) const;
+  bool legalizeMinNumMaxNum(MachineInstr &MI, MachineRegisterInfo &MRI,
+                            MachineIRBuilder &MIRBuilder) const;
+  bool legalizeExtractVectorElt(MachineInstr &MI, MachineRegisterInfo &MRI,
+                                MachineIRBuilder &MIRBuilder) const;
+  bool legalizeInsertVectorElt(MachineInstr &MI, MachineRegisterInfo &MRI,
+                               MachineIRBuilder &MIRBuilder) const;
+  bool legalizeSinCos(MachineInstr &MI, MachineRegisterInfo &MRI,
+                      MachineIRBuilder &MIRBuilder) const;
 
   Register getLiveInRegister(MachineRegisterInfo &MRI,
                              Register Reg, LLT Ty) const;
@@ -59,8 +67,13 @@ public:
     MachineInstr &MI, MachineRegisterInfo &MRI, MachineIRBuilder &B,
     AMDGPUFunctionArgInfo::PreloadedValue ArgType) const;
 
+  bool legalizeFDIVFast(MachineInstr &MI, MachineRegisterInfo &MRI,
+                        MachineIRBuilder &B) const;
+
   bool legalizeImplicitArgPtr(MachineInstr &MI, MachineRegisterInfo &MRI,
                               MachineIRBuilder &B) const;
+  bool legalizeIsAddrSpace(MachineInstr &MI, MachineRegisterInfo &MRI,
+                           MachineIRBuilder &B, unsigned AddrSpace) const;
   bool legalizeIntrinsic(MachineInstr &MI, MachineRegisterInfo &MRI,
                          MachineIRBuilder &MIRBuilder) const override;
 

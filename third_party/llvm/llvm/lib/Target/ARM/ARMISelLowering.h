@@ -103,6 +103,7 @@ class VectorType;
       ADDE,         // Add using carry
       SUBC,         // Sub with carry
       SUBE,         // Sub using carry
+      LSLS,         // Shift left producing carry
 
       VMOVRRD,      // double to two gprs.
       VMOVDRR,      // Two gprs to double.
@@ -126,45 +127,45 @@ class VectorType;
       WIN__DBZCHK,  // Windows' divide by zero check
 
       WLS,          // Low-overhead loops, While Loop Start
+      LOOP_DEC,     // Really a part of LE, performs the sub
+      LE,           // Low-overhead loops, Loop End
 
-      VCEQ,         // Vector compare equal.
-      VCEQZ,        // Vector compare equal to zero.
-      VCGE,         // Vector compare greater than or equal.
-      VCGEZ,        // Vector compare greater than or equal to zero.
-      VCLEZ,        // Vector compare less than or equal to zero.
-      VCGEU,        // Vector compare unsigned greater than or equal.
-      VCGT,         // Vector compare greater than.
-      VCGTZ,        // Vector compare greater than zero.
-      VCLTZ,        // Vector compare less than zero.
-      VCGTU,        // Vector compare unsigned greater than.
+      PREDICATE_CAST, // Predicate cast for MVE i1 types
+
+      VCMP,         // Vector compare.
+      VCMPZ,        // Vector compare to zero.
       VTST,         // Vector test bits.
 
+      // Vector shift by vector
+      VSHLs,        // ...left/right by signed
+      VSHLu,        // ...left/right by unsigned
+
       // Vector shift by immediate:
-      VSHL,         // ...left
-      VSHRs,        // ...right (signed)
-      VSHRu,        // ...right (unsigned)
+      VSHLIMM,      // ...left
+      VSHRsIMM,     // ...right (signed)
+      VSHRuIMM,     // ...right (unsigned)
 
       // Vector rounding shift by immediate:
-      VRSHRs,       // ...right (signed)
-      VRSHRu,       // ...right (unsigned)
-      VRSHRN,       // ...right narrow
+      VRSHRsIMM,    // ...right (signed)
+      VRSHRuIMM,    // ...right (unsigned)
+      VRSHRNIMM,    // ...right narrow
 
       // Vector saturating shift by immediate:
-      VQSHLs,       // ...left (signed)
-      VQSHLu,       // ...left (unsigned)
-      VQSHLsu,      // ...left (signed to unsigned)
-      VQSHRNs,      // ...right narrow (signed)
-      VQSHRNu,      // ...right narrow (unsigned)
-      VQSHRNsu,     // ...right narrow (signed to unsigned)
+      VQSHLsIMM,    // ...left (signed)
+      VQSHLuIMM,    // ...left (unsigned)
+      VQSHLsuIMM,   // ...left (signed to unsigned)
+      VQSHRNsIMM,   // ...right narrow (signed)
+      VQSHRNuIMM,   // ...right narrow (unsigned)
+      VQSHRNsuIMM,  // ...right narrow (signed to unsigned)
 
       // Vector saturating rounding shift by immediate:
-      VQRSHRNs,     // ...right narrow (signed)
-      VQRSHRNu,     // ...right narrow (unsigned)
-      VQRSHRNsu,    // ...right narrow (signed to unsigned)
+      VQRSHRNsIMM,  // ...right narrow (signed)
+      VQRSHRNuIMM,  // ...right narrow (unsigned)
+      VQRSHRNsuIMM, // ...right narrow (signed to unsigned)
 
       // Vector shift and insert:
-      VSLI,         // ...left
-      VSRI,         // ...right
+      VSLIIMM,      // ...left
+      VSRIIMM,      // ...right
 
       // Vector get lane (VMOV scalar to ARM core register)
       // (These are used for 8- and 16-bit element types only.)
@@ -238,6 +239,11 @@ class VectorType;
       // Pseudo-instruction representing a memory copy using ldm/stm
       // instructions.
       MEMCPY,
+
+      // V8.1MMainline condition select
+      CSINV, // Conditional select invert.
+      CSNEG, // Conditional select negate.
+      CSINC, // Conditional select increment.
 
       // Vector load N-element structure to all lanes:
       VLD1DUP = ISD::FIRST_TARGET_MEMORY_OPCODE,
@@ -535,7 +541,7 @@ class VectorType;
     Instruction *emitTrailingFence(IRBuilder<> &Builder, Instruction *Inst,
                                    AtomicOrdering Ord) const override;
 
-    unsigned getMaxSupportedInterleaveFactor() const override { return 4; }
+    unsigned getMaxSupportedInterleaveFactor() const override;
 
     bool lowerInterleavedLoad(LoadInst *LI,
                               ArrayRef<ShuffleVectorInst *> Shuffles,
@@ -554,6 +560,10 @@ class VectorType;
     shouldExpandAtomicCmpXchgInIR(AtomicCmpXchgInst *AI) const override;
 
     bool useLoadStackGuardNode() const override;
+
+    void insertSSPDeclarations(Module &M) const override;
+    Value *getSDagStackGuard(const Module &M) const override;
+    Function *getSSPStackGuardCheck(const Module &M) const override;
 
     bool canCombineStoreAndExtract(Type *VectorTy, Value *Idx,
                                    unsigned &Cost) const override;
@@ -662,6 +672,8 @@ class VectorType;
     SDValue LowerEH_SJLJ_SETJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerEH_SJLJ_SETUP_DISPATCH(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerINTRINSIC_VOID(SDValue Op, SelectionDAG &DAG,
+                                    const ARMSubtarget *Subtarget) const;
     SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG,
                                     const ARMSubtarget *Subtarget) const;
     SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -830,9 +842,10 @@ class VectorType;
     void setAllExpand(MVT VT);
   };
 
-  enum NEONModImmType {
+  enum VMOVModImmType {
     VMOVModImm,
     VMVNModImm,
+    MVEVMVNModImm,
     OtherModImm
   };
 

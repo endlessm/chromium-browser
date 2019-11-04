@@ -175,6 +175,9 @@ if lit.util.which('xmllint'):
 if config.enable_backtrace:
     config.available_features.add('backtrace')
 
+if config.enable_threads:
+    config.available_features.add('thread_support')
+
 # Check if we should allow outputs to console.
 run_console_tests = int(lit_config.params.get('enable_console', '0'))
 if run_console_tests != 0:
@@ -183,7 +186,7 @@ if run_console_tests != 0:
 lit.util.usePlatformSdkOnDarwin(config, lit_config)
 macOSSDKVersion = lit.util.findPlatformSdkVersionOnMacOS(config, lit_config)
 if macOSSDKVersion is not None:
-    config.available_features.add('macos-sdk-' + macOSSDKVersion)
+    config.available_features.add('macos-sdk-' + str(macOSSDKVersion))
 
 if os.path.exists('/etc/gentoo-release'):
     config.available_features.add('gentoo')

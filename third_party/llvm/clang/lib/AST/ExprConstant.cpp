@@ -36,9 +36,9 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/ASTLambda.h"
+#include "clang/AST/CXXInheritance.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/CurrentSourceLocExprScope.h"
-#include "clang/AST/CXXInheritance.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/OSLog.h"
 #include "clang/AST/RecordLayout.h"
@@ -2212,10 +2212,8 @@ static bool HandleFloatToFloatCast(EvalInfo &Info, const Expr *E,
                                    APFloat &Result) {
   APFloat Value = Result;
   bool ignored;
-  if (Result.convert(Info.Ctx.getFloatTypeSemantics(DestType),
-                     APFloat::rmNearestTiesToEven, &ignored)
-      & APFloat::opOverflow)
-    return HandleOverflow(Info, E, Value, DestType);
+  Result.convert(Info.Ctx.getFloatTypeSemantics(DestType),
+                 APFloat::rmNearestTiesToEven, &ignored);
   return true;
 }
 
@@ -2236,10 +2234,8 @@ static bool HandleIntToFloatCast(EvalInfo &Info, const Expr *E,
                                  QualType SrcType, const APSInt &Value,
                                  QualType DestType, APFloat &Result) {
   Result = APFloat(Info.Ctx.getFloatTypeSemantics(DestType), 1);
-  if (Result.convertFromAPInt(Value, Value.isSigned(),
-                              APFloat::rmNearestTiesToEven)
-      & APFloat::opOverflow)
-    return HandleOverflow(Info, E, Value, DestType);
+  Result.convertFromAPInt(Value, Value.isSigned(),
+                          APFloat::rmNearestTiesToEven);
   return true;
 }
 
@@ -2457,11 +2453,19 @@ static bool handleFloatFloatBinOp(EvalInfo &Info, const Expr *E,
     LHS.subtract(RHS, APFloat::rmNearestTiesToEven);
     break;
   case BO_Div:
+    // [expr.mul]p4:
+    //   If the second operand of / or % is zero the behavior is undefined.
+    if (RHS.isZero())
+      Info.CCEDiag(E, diag::note_expr_divide_by_zero);
     LHS.divide(RHS, APFloat::rmNearestTiesToEven);
     break;
   }
 
-  if (LHS.isInfinity() || LHS.isNaN()) {
+  // [expr.pre]p4:
+  //   If during the evaluation of an expression, the result is not
+  //   mathematically defined [...], the behavior is undefined.
+  // FIXME: C++ rules require us to not conform to IEEE 754 here.
+  if (LHS.isNaN()) {
     Info.CCEDiag(E, diag::note_constexpr_float_arithmetic) << LHS.isNaN();
     return Info.noteUndefinedBehavior();
   }
@@ -9004,6 +9008,9 @@ EvaluateBuiltinClassifyType(QualType T, const LangOptions &LangOpts) {
     case BuiltinType::OCLClkEvent:
     case BuiltinType::OCLQueue:
     case BuiltinType::OCLReserveID:
+#define SVE_TYPE(Name, Id, SingletonId) \
+    case BuiltinType::Id:
+#include "clang/Basic/AArch64SVEACLETypes.def"
       return GCCTypeClass::None;
 
     case BuiltinType::Dependent:

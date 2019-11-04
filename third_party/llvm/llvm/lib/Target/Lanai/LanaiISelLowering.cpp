@@ -145,8 +145,8 @@ LanaiTargetLowering::LanaiTargetLowering(const TargetMachine &TM,
   setTargetDAGCombine(ISD::XOR);
 
   // Function alignments (log2)
-  setMinFunctionAlignment(2);
-  setPrefFunctionAlignment(2);
+  setMinFunctionAlignment(llvm::Align(4));
+  setPrefFunctionLogAlignment(2);
 
   setJumpIsExpensive(true);
 
@@ -459,7 +459,7 @@ SDValue LanaiTargetLowering::LowerCCCArguments(
       EVT RegVT = VA.getLocVT();
       switch (RegVT.getSimpleVT().SimpleTy) {
       case MVT::i32: {
-        unsigned VReg = RegInfo.createVirtualRegister(&Lanai::GPRRegClass);
+        Register VReg = RegInfo.createVirtualRegister(&Lanai::GPRRegClass);
         RegInfo.addLiveIn(VA.getLocReg(), VReg);
         SDValue ArgValue = DAG.getCopyFromReg(Chain, DL, VReg, RegVT);
 

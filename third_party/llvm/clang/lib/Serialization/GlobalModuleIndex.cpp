@@ -657,9 +657,9 @@ llvm::Error GlobalModuleIndexBuilder::loadModuleFile(const FileEntry *File) {
         Idx += Length;
 
         // Find the imported module file.
-        const FileEntry *DependsOnFile
-          = FileMgr.getFile(ImportedFile, /*openFile=*/false,
-                            /*cacheFailure=*/false);
+        auto DependsOnFile
+          = FileMgr.getFile(ImportedFile, /*OpenFile=*/false,
+                            /*CacheFailure=*/false);
 
         if (!DependsOnFile)
           return llvm::createStringError(std::errc::bad_file_descriptor,
@@ -669,11 +669,11 @@ llvm::Error GlobalModuleIndexBuilder::loadModuleFile(const FileEntry *File) {
         // Save the information in ImportedModuleFileInfo so we can verify after
         // loading all pcms.
         ImportedModuleFiles.insert(std::make_pair(
-            DependsOnFile, ImportedModuleFileInfo(StoredSize, StoredModTime,
-                                                  StoredSignature)));
+            *DependsOnFile, ImportedModuleFileInfo(StoredSize, StoredModTime,
+                                                   StoredSignature)));
 
         // Record the dependency.
-        unsigned DependsOnID = getModuleFileInfo(DependsOnFile).ID;
+        unsigned DependsOnID = getModuleFileInfo(*DependsOnFile).ID;
         getModuleFileInfo(File).Dependencies.push_back(DependsOnID);
       }
 
@@ -894,12 +894,12 @@ GlobalModuleIndex::writeIndex(FileManager &FileMgr,
     }
 
     // If we can't find the module file, skip it.
-    const FileEntry *ModuleFile = FileMgr.getFile(D->path());
+    auto ModuleFile = FileMgr.getFile(D->path());
     if (!ModuleFile)
       continue;
 
     // Load this module file.
-    if (llvm::Error Err = Builder.loadModuleFile(ModuleFile))
+    if (llvm::Error Err = Builder.loadModuleFile(*ModuleFile))
       return Err;
   }
 

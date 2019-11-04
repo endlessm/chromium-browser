@@ -169,8 +169,9 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
 
   bool assignArg(unsigned ValNo, MVT ValVT, MVT LocVT,
                  CCValAssign::LocInfo LocInfo,
-                 const CallLowering::ArgInfo &Info, CCState &State) override {
-    if (AssignFn(ValNo, ValVT, LocVT, LocInfo, Info.Flags, State))
+                 const CallLowering::ArgInfo &Info, ISD::ArgFlagsTy Flags,
+                 CCState &State) override {
+    if (AssignFn(ValNo, ValVT, LocVT, LocInfo, Flags, State))
       return true;
 
     StackSize =
@@ -184,23 +185,22 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
 
 } // end anonymous namespace
 
-void ARMCallLowering::splitToValueTypes(
-    const ArgInfo &OrigArg, SmallVectorImpl<ArgInfo> &SplitArgs,
-    MachineFunction &MF, const SplitArgTy &PerformArgSplit) const {
+void ARMCallLowering::splitToValueTypes(const ArgInfo &OrigArg,
+                                        SmallVectorImpl<ArgInfo> &SplitArgs,
+                                        MachineFunction &MF) const {
   const ARMTargetLowering &TLI = *getTLI<ARMTargetLowering>();
   LLVMContext &Ctx = OrigArg.Ty->getContext();
   const DataLayout &DL = MF.getDataLayout();
-  MachineRegisterInfo &MRI = MF.getRegInfo();
   const Function &F = MF.getFunction();
 
   SmallVector<EVT, 4> SplitVTs;
   ComputeValueVTs(TLI, DL, OrigArg.Ty, SplitVTs, nullptr, nullptr, 0);
+  assert(OrigArg.Regs.size() == SplitVTs.size() && "Regs / types mismatch");
 
   if (SplitVTs.size() == 1) {
     // Even if there is no splitting to do, we still want to replace the
     // original type (e.g. pointer type -> integer).
-    assert(OrigArg.Regs.size() == 1 && "Regs / types mismatch");
-    auto Flags = OrigArg.Flags;
+    auto Flags = OrigArg.Flags[0];
     unsigned OriginalAlignment = DL.getABITypeAlignment(OrigArg.Ty);
     Flags.setOrigAlign(OriginalAlignment);
     SplitArgs.emplace_back(OrigArg.Regs[0], SplitVTs[0].getTypeForEVT(Ctx),
@@ -208,38 +208,11 @@ void ARMCallLowering::splitToValueTypes(
     return;
   }
 
-  if (OrigArg.Regs.size() > 1) {
-    // Create one ArgInfo for each virtual register.
-    assert(OrigArg.Regs.size() == SplitVTs.size() && "Regs / types mismatch");
-    for (unsigned i = 0, e = SplitVTs.size(); i != e; ++i) {
-      EVT SplitVT = SplitVTs[i];
-      Type *SplitTy = SplitVT.getTypeForEVT(Ctx);
-      auto Flags = OrigArg.Flags;
-
-      unsigned OriginalAlignment = DL.getABITypeAlignment(SplitTy);
-      Flags.setOrigAlign(OriginalAlignment);
-
-      bool NeedsConsecutiveRegisters =
-          TLI.functionArgumentNeedsConsecutiveRegisters(
-              SplitTy, F.getCallingConv(), F.isVarArg());
-      if (NeedsConsecutiveRegisters) {
-        Flags.setInConsecutiveRegs();
-        if (i == e - 1)
-          Flags.setInConsecutiveRegsLast();
-      }
-
-      // FIXME: We also want to split SplitTy further.
-      Register PartReg = OrigArg.Regs[i];
-      SplitArgs.emplace_back(PartReg, SplitTy, Flags, OrigArg.IsFixed);
-    }
-
-    return;
-  }
-
+  // Create one ArgInfo for each virtual register.
   for (unsigned i = 0, e = SplitVTs.size(); i != e; ++i) {
     EVT SplitVT = SplitVTs[i];
     Type *SplitTy = SplitVT.getTypeForEVT(Ctx);
-    auto Flags = OrigArg.Flags;
+    auto Flags = OrigArg.Flags[0];
 
     unsigned OriginalAlignment = DL.getABITypeAlignment(SplitTy);
     Flags.setOrigAlign(OriginalAlignment);
@@ -253,10 +226,9 @@ void ARMCallLowering::splitToValueTypes(
         Flags.setInConsecutiveRegsLast();
     }
 
-    Register PartReg =
-        MRI.createGenericVirtualRegister(getLLTForType(*SplitTy, DL));
-    SplitArgs.push_back(ArgInfo{PartReg, SplitTy, Flags, OrigArg.IsFixed});
-    PerformArgSplit(PartReg);
+    // FIXME: We also want to split SplitTy further.
+    Register PartReg = OrigArg.Regs[i];
+    SplitArgs.emplace_back(PartReg, SplitTy, Flags, OrigArg.IsFixed);
   }
 }
 
@@ -277,29 +249,17 @@ bool ARMCallLowering::lowerReturnVal(MachineIRBuilder &MIRBuilder,
   if (!isSupportedType(DL, TLI, Val->getType()))
     return false;
 
-  SmallVector<EVT, 4> SplitEVTs;
-  ComputeValueVTs(TLI, DL, Val->getType(), SplitEVTs);
-  assert(VRegs.size() == SplitEVTs.size() &&
-         "For each split Type there should be exactly one VReg.");
+  ArgInfo OrigRetInfo(VRegs, Val->getType());
+  setArgFlags(OrigRetInfo, AttributeList::ReturnIndex, DL, F);
 
-  SmallVector<ArgInfo, 4> SplitVTs;
-  LLVMContext &Ctx = Val->getType()->getContext();
-  for (unsigned i = 0; i < SplitEVTs.size(); ++i) {
-    ArgInfo CurArgInfo(VRegs[i], SplitEVTs[i].getTypeForEVT(Ctx));
-    setArgFlags(CurArgInfo, AttributeList::ReturnIndex, DL, F);
-
-    SmallVector<Register, 4> Regs;
-    splitToValueTypes(CurArgInfo, SplitVTs, MF,
-                      [&](Register Reg) { Regs.push_back(Reg); });
-    if (Regs.size() > 1)
-      MIRBuilder.buildUnmerge(Regs, VRegs[i]);
-  }
+  SmallVector<ArgInfo, 4> SplitRetInfos;
+  splitToValueTypes(OrigRetInfo, SplitRetInfos, MF);
 
   CCAssignFn *AssignFn =
       TLI.CCAssignFnForReturn(F.getCallingConv(), F.isVarArg());
 
   OutgoingValueHandler RetHandler(MIRBuilder, MF.getRegInfo(), Ret, AssignFn);
-  return handleAssignments(MIRBuilder, SplitVTs, RetHandler);
+  return handleAssignments(MIRBuilder, SplitRetInfos, RetHandler);
 }
 
 bool ARMCallLowering::lowerReturn(MachineIRBuilder &MIRBuilder,
@@ -327,7 +287,7 @@ struct IncomingValueHandler : public CallLowering::ValueHandler {
                        CCAssignFn AssignFn)
       : ValueHandler(MIRBuilder, MRI, AssignFn) {}
 
-  bool isArgumentHandler() const override { return true; }
+  bool isIncomingArgumentHandler() const override { return true; }
 
   Register getStackAddress(uint64_t Size, int64_t Offset,
                            MachinePointerInfo &MPO) override {
@@ -339,7 +299,7 @@ struct IncomingValueHandler : public CallLowering::ValueHandler {
     int FI = MFI.CreateFixedObject(Size, Offset, true);
     MPO = MachinePointerInfo::getFixedStack(MIRBuilder.getMF(), FI);
 
-    unsigned AddrReg =
+    Register AddrReg =
         MRI.createGenericVirtualRegister(LLT::pointer(MPO.getAddrSpace(), 32));
     MIRBuilder.buildFrameIndex(AddrReg, FI);
 
@@ -446,6 +406,7 @@ struct FormalArgHandler : public IncomingValueHandler {
       : IncomingValueHandler(MIRBuilder, MRI, AssignFn) {}
 
   void markPhysRegUsed(unsigned PhysReg) override {
+    MIRBuilder.getMRI()->addLiveIn(PhysReg);
     MIRBuilder.getMBB().addLiveIn(PhysReg);
   }
 };
@@ -489,11 +450,9 @@ bool ARMCallLowering::lowerFormalArguments(
   unsigned Idx = 0;
   for (auto &Arg : F.args()) {
     ArgInfo OrigArgInfo(VRegs[Idx], Arg.getType());
-    setArgFlags(OrigArgInfo, Idx + AttributeList::FirstArgIndex, DL, F);
 
-    splitToValueTypes(OrigArgInfo, SplitArgInfos, MF, [&](Register Reg) {
-      llvm_unreachable("Args should already be split");
-    });
+    setArgFlags(OrigArgInfo, Idx + AttributeList::FirstArgIndex, DL, F);
+    splitToValueTypes(OrigArgInfo, SplitArgInfos, MF);
 
     Idx++;
   }
@@ -541,11 +500,7 @@ unsigned getCallOpcode(const ARMSubtarget &STI, bool isDirect) {
 }
 } // end anonymous namespace
 
-bool ARMCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
-                                CallingConv::ID CallConv,
-                                const MachineOperand &Callee,
-                                const ArgInfo &OrigRet,
-                                ArrayRef<ArgInfo> OrigArgs) const {
+bool ARMCallLowering::lowerCall(MachineIRBuilder &MIRBuilder, CallLoweringInfo &Info) const {
   MachineFunction &MF = MIRBuilder.getMF();
   const auto &TLI = *getTLI<ARMTargetLowering>();
   const auto &DL = MF.getDataLayout();
@@ -563,7 +518,7 @@ bool ARMCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
 
   // Create the call instruction so we can add the implicit uses of arg
   // registers, but don't insert it yet.
-  bool IsDirect = !Callee.isReg();
+  bool IsDirect = !Info.Callee.isReg();
   auto CallOpcode = getCallOpcode(STI, IsDirect);
   auto MIB = MIRBuilder.buildInstrNoInsert(CallOpcode);
 
@@ -571,37 +526,35 @@ bool ARMCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   if (IsThumb)
     MIB.add(predOps(ARMCC::AL));
 
-  MIB.add(Callee);
+  MIB.add(Info.Callee);
   if (!IsDirect) {
-    auto CalleeReg = Callee.getReg();
-    if (CalleeReg && !TRI->isPhysicalRegister(CalleeReg)) {
+    auto CalleeReg = Info.Callee.getReg();
+    if (CalleeReg && !Register::isPhysicalRegister(CalleeReg)) {
       unsigned CalleeIdx = IsThumb ? 2 : 0;
       MIB->getOperand(CalleeIdx).setReg(constrainOperandRegClass(
           MF, *TRI, MRI, *STI.getInstrInfo(), *STI.getRegBankInfo(),
-          *MIB.getInstr(), MIB->getDesc(), Callee, CalleeIdx));
+          *MIB.getInstr(), MIB->getDesc(), Info.Callee, CalleeIdx));
     }
   }
 
-  MIB.addRegMask(TRI->getCallPreservedMask(MF, CallConv));
+  MIB.addRegMask(TRI->getCallPreservedMask(MF, Info.CallConv));
 
   bool IsVarArg = false;
   SmallVector<ArgInfo, 8> ArgInfos;
-  for (auto Arg : OrigArgs) {
+  for (auto Arg : Info.OrigArgs) {
     if (!isSupportedType(DL, TLI, Arg.Ty))
       return false;
 
     if (!Arg.IsFixed)
       IsVarArg = true;
 
-    if (Arg.Flags.isByVal())
+    if (Arg.Flags[0].isByVal())
       return false;
 
-    splitToValueTypes(Arg, ArgInfos, MF, [&](Register Reg) {
-      llvm_unreachable("Function args should already be split");
-    });
+    splitToValueTypes(Arg, ArgInfos, MF);
   }
 
-  auto ArgAssignFn = TLI.CCAssignFnForCall(CallConv, IsVarArg);
+  auto ArgAssignFn = TLI.CCAssignFnForCall(Info.CallConv, IsVarArg);
   OutgoingValueHandler ArgHandler(MIRBuilder, MRI, MIB, ArgAssignFn);
   if (!handleAssignments(MIRBuilder, ArgInfos, ArgHandler))
     return false;
@@ -609,16 +562,13 @@ bool ARMCallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
   // Now we can add the actual call instruction to the correct basic block.
   MIRBuilder.insertInstr(MIB);
 
-  if (!OrigRet.Ty->isVoidTy()) {
-    if (!isSupportedType(DL, TLI, OrigRet.Ty))
+  if (!Info.OrigRet.Ty->isVoidTy()) {
+    if (!isSupportedType(DL, TLI, Info.OrigRet.Ty))
       return false;
 
     ArgInfos.clear();
-    splitToValueTypes(OrigRet, ArgInfos, MF, [&](Register Reg) {
-      llvm_unreachable("Call results should already be split");
-    });
-
-    auto RetAssignFn = TLI.CCAssignFnForReturn(CallConv, IsVarArg);
+    splitToValueTypes(Info.OrigRet, ArgInfos, MF);
+    auto RetAssignFn = TLI.CCAssignFnForReturn(Info.CallConv, IsVarArg);
     CallReturnHandler RetHandler(MIRBuilder, MRI, MIB, RetAssignFn);
     if (!handleAssignments(MIRBuilder, ArgInfos, RetHandler))
       return false;

@@ -176,6 +176,10 @@ unsigned TargetTransformInfo::getInliningThresholdMultiplier() const {
   return TTIImpl->getInliningThresholdMultiplier();
 }
 
+int TargetTransformInfo::getInlinerVectorBonusPercent() const {
+  return TTIImpl->getInlinerVectorBonusPercent();
+}
+
 int TargetTransformInfo::getGEPCost(Type *PointeeType, const Value *Ptr,
                                     ArrayRef<const Value *> Operands) const {
   return TTIImpl->getGEPCost(PointeeType, Ptr, Operands);
@@ -221,6 +225,16 @@ bool llvm::TargetTransformInfo::isAlwaysUniform(const Value *V) const {
 
 unsigned TargetTransformInfo::getFlatAddressSpace() const {
   return TTIImpl->getFlatAddressSpace();
+}
+
+bool TargetTransformInfo::collectFlatAddressOperands(
+  SmallVectorImpl<int> &OpIndexes, Intrinsic::ID IID) const  {
+  return TTIImpl->collectFlatAddressOperands(OpIndexes, IID);
+}
+
+bool TargetTransformInfo::rewriteIntrinsicWithAddressSpace(
+  IntrinsicInst *II, Value *OldV, Value *NewV) const {
+  return TTIImpl->rewriteIntrinsicWithAddressSpace(II, OldV, NewV);
 }
 
 bool TargetTransformInfo::isLoweredToCall(const Function *F) const {
@@ -288,12 +302,12 @@ bool TargetTransformInfo::isLegalMaskedLoad(Type *DataType) const {
 }
 
 bool TargetTransformInfo::isLegalNTStore(Type *DataType,
-                                         unsigned Alignment) const {
+                                         llvm::Align Alignment) const {
   return TTIImpl->isLegalNTStore(DataType, Alignment);
 }
 
 bool TargetTransformInfo::isLegalNTLoad(Type *DataType,
-                                        unsigned Alignment) const {
+                                        llvm::Align Alignment) const {
   return TTIImpl->isLegalNTLoad(DataType, Alignment);
 }
 
@@ -1272,6 +1286,8 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
     return getVectorInstrCost(I->getOpcode(),
                                    IE->getType(), Idx);
   }
+  case Instruction::ExtractValue:
+    return 0; // Model all ExtractValue nodes as free.
   case Instruction::ShuffleVector: {
     const ShuffleVectorInst *Shuffle = cast<ShuffleVectorInst>(I);
     Type *Ty = Shuffle->getType();
