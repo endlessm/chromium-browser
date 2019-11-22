@@ -344,8 +344,12 @@ void TouchFactory::CacheTouchscreenIds(int device_id) {
                      return touchscreen.id == device_id;
                    });
   // Internal displays will have a vid and pid of 0. Ignore them.
-  if (it != touchscreens.end() && it->vendor_id && it->product_id)
+  if (it != touchscreens.end() && it->vendor_id && it->product_id) { 
     touchscreen_ids_.emplace(it->vendor_id, it->product_id);
+    VLOG(1) << "adding device id " << device_id << " to touchscreen list";
+  } else {
+    VLOG(1) << "NOT adding device id " << device_id << " to touchscreen list because it as a vid or pid zero";
+  }
 }
 
 }  // namespace ui
