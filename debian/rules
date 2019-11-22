@@ -317,6 +317,8 @@ override_dh_install-arch:
 	  fi; \
 	done
 
+	# ENDLESS: Install the appdata so that Chromium appears in the software center
+	install -D -m 644 chrome/installer/linux/common/chromium-browser/chromium-browser.appdata.xml debian/chromium-browser/usr/share/appdata/chromium-browser.appdata.xml
 
 	# Record files that were built, so we can compare later that we installed everything.
 	find debian/tmp debian/tmp-std debian/tmp-std -type f |cut -d/ -f3- >$(T)/unfiltered-built
@@ -502,6 +504,7 @@ PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/apport/package-hooks/chromium-browser
 #PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/.\*/buildinfo_.\*.gz$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/gnome-control-center/default-apps/chromium-browser.xml$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/.\*/chromium-browser.png$$
+PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/appdata/chromium-browser.appdata.xml$$
 #PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/.\*/copyright$$
 #PACKAGED_NOT_FROM_TREE_MATCH += ^usr/share/doc/.\*/changelog.Debian.gz$$
 PACKAGED_NOT_FROM_TREE_MATCH += ^usr/bin/chromium-browser$$
