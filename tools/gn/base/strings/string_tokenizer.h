@@ -7,7 +7,7 @@
 
 #include <algorithm>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 namespace base {
 
@@ -141,8 +141,8 @@ class StringTokenizerT {
   const_iterator token_begin() const { return token_begin_; }
   const_iterator token_end() const { return token_end_; }
   str token() const { return str(token_begin_, token_end_); }
-  std::basic_string_view<typename str::value_type> token_piece() const {
-    return std::basic_string_view<typename str::value_type>(
+  std::experimental::basic_string_view<typename str::value_type> token_piece() const {
+    return std::experimental::basic_string_view<typename str::value_type>(
         &*token_begin_, std::distance(token_begin_, token_end_));
   }
 

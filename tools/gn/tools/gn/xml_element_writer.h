@@ -8,7 +8,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <utility>
 #include <vector>
 
@@ -16,14 +16,14 @@
 
 // Vector of XML attribute key-value pairs.
 class XmlAttributes
-    : public std::vector<std::pair<std::string_view, std::string_view>> {
+    : public std::vector<std::pair<std::experimental::string_view, std::experimental::string_view>> {
  public:
   XmlAttributes();
-  XmlAttributes(const std::string_view& attr_key,
-                const std::string_view& attr_value);
+  XmlAttributes(const std::experimental::string_view& attr_key,
+                const std::experimental::string_view& attr_value);
 
-  XmlAttributes& add(const std::string_view& attr_key,
-                     const std::string_view& attr_value);
+  XmlAttributes& add(const std::experimental::string_view& attr_key,
+                     const std::experimental::string_view& attr_value);
 };
 
 // Helper class for writing XML elements. New XML element is started in
@@ -54,7 +54,7 @@ class XmlElementWriter {
   ~XmlElementWriter();
 
   // Writes arbitrary XML element text.
-  void Text(const std::string_view& content);
+  void Text(const std::experimental::string_view& content);
 
   // Starts new XML sub-element. Caller must ensure that parent element outlives
   // its children.

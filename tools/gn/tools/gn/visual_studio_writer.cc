@@ -175,13 +175,13 @@ void ParseLinkerOptions(const Target* target, LinkerOptions* options) {
 // Returns a string piece pointing into the input string identifying the parent
 // directory path, excluding the last slash. Note that the input pointer must
 // outlive the output.
-std::string_view FindParentDir(const std::string* path) {
+std::experimental::string_view FindParentDir(const std::string* path) {
   DCHECK(path && !path->empty());
   for (int i = static_cast<int>(path->size()) - 2; i >= 0; --i) {
     if (IsSlash((*path)[i]))
-      return std::string_view(path->data(), i);
+      return std::experimental::string_view(path->data(), i);
   }
-  return std::string_view();
+  return std::experimental::string_view();
 }
 
 bool FilterTargets(const BuildSettings* build_settings,
@@ -697,7 +697,7 @@ void VisualStudioWriter::WriteFiltersFileContents(
       filter_path_output.WriteFile(target_relative_out, *file_and_type.file);
       std::string target_relative_path = target_relative_out.str();
       ConvertPathToSystem(&target_relative_path);
-      std::string_view filter_path = FindParentDir(&target_relative_path);
+      std::experimental::string_view filter_path = FindParentDir(&target_relative_path);
 
       if (!filter_path.empty()) {
         std::string filter_path_str(filter_path);
@@ -806,9 +806,9 @@ void VisualStudioWriter::ResolveSolutionFolders() {
   root_folder_path_.clear();
 
   // Get all project directories. Create solution folder for each directory.
-  std::map<std::string_view, SolutionEntry*> processed_paths;
+  std::map<std::experimental::string_view, SolutionEntry*> processed_paths;
   for (const std::unique_ptr<SolutionProject>& project : projects_) {
-    std::string_view folder_path = project->label_dir_path;
+    std::experimental::string_view folder_path = project->label_dir_path;
     if (IsSlash(folder_path[folder_path.size() - 1]))
       folder_path = folder_path.substr(0, folder_path.size() - 1);
     auto it = processed_paths.find(folder_path);
@@ -856,7 +856,7 @@ void VisualStudioWriter::ResolveSolutionFolders() {
       continue;
 
     SolutionEntry* folder = solution_folder.get();
-    std::string_view parent_path;
+    std::experimental::string_view parent_path;
     while ((parent_path = FindParentDir(&folder->path)) != root_folder_path_) {
       auto it = processed_paths.find(parent_path);
       if (it != processed_paths.end()) {
