@@ -1,3 +1,59 @@
+chromium-browser (79.0.3945.79-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 79.0.3945.79
+    - CVE-2019-13725: Use after free in Bluetooth.
+    - CVE-2019-13726: Heap buffer overflow in password manager.
+    - CVE-2019-13727: Insufficient policy enforcement in WebSockets.
+    - CVE-2019-13728: Out of bounds write in V8.
+    - CVE-2019-13729: Use after free in WebSockets.
+    - CVE-2019-13730: Type Confusion in V8.
+    - CVE-2019-13732: Use after free in WebAudio.
+    - CVE-2019-13734: Out of bounds write in SQLite.
+    - CVE-2019-13735: Out of bounds write in V8.
+    - CVE-2019-13764: Type Confusion in V8.
+    - CVE-2019-13736: Integer overflow in PDFium.
+    - CVE-2019-13737: Insufficient policy enforcement in autocomplete.
+    - CVE-2019-13738: Insufficient policy enforcement in navigation.
+    - CVE-2019-13739: Incorrect security UI in Omnibox.
+    - CVE-2019-13740: Incorrect security UI in sharing.
+    - CVE-2019-13741: Insufficient validation of untrusted input in Blink.
+    - CVE-2019-13742: Incorrect security UI in Omnibox.
+    - CVE-2019-13743: Incorrect security UI in external protocol handling.
+    - CVE-2019-13744: Insufficient policy enforcement in cookies.
+    - CVE-2019-13745: Insufficient policy enforcement in audio.
+    - CVE-2019-13746: Insufficient policy enforcement in Omnibox.
+    - CVE-2019-13747: Uninitialized Use in rendering.
+    - CVE-2019-13748: Insufficient policy enforcement in developer tools.
+    - CVE-2019-13749: Incorrect security UI in Omnibox.
+    - CVE-2019-13750: Insufficient data validation in SQLite.
+    - CVE-2019-13751: Uninitialized Use in SQLite.
+    - CVE-2019-13752: Out of bounds read in SQLite.
+    - CVE-2019-13753: Out of bounds read in SQLite.
+    - CVE-2019-13754: Insufficient policy enforcement in extensions.
+    - CVE-2019-13755: Insufficient policy enforcement in extensions.
+    - CVE-2019-13756: Incorrect security UI in printing.
+    - CVE-2019-13757: Incorrect security UI in Omnibox.
+    - CVE-2019-13758: Insufficient policy enforcement in navigation.
+    - CVE-2019-13759: Incorrect security UI in interstitials.
+    - CVE-2019-13761: Incorrect security UI in Omnibox.
+    - CVE-2019-13762: Insufficient policy enforcement in downloads.
+    - CVE-2019-13763: Insufficient policy enforcement in payments.
+  * debian/patches/chromium_useragent.patch: refreshed
+  * debian/patches/configuration-directory.patch: refreshed
+  * debian/patches/default-allocator: refreshed
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/gn-experimental-string_view.patch: added
+  * debian/patches/relax-ninja-version-requirement.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/widevine-enable-version-string.patch: updated
+  * debian/patches/widevine-other-locations: updated
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 11 Dec 2019 07:37:22 +0100
+
 chromium-browser (78.0.3904.108-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 78.0.3904.108 (LP: #1853149)
