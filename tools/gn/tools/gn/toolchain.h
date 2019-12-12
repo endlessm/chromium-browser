@@ -6,7 +6,7 @@
 #define TOOLS_GN_TOOLCHAIN_H_
 
 #include <memory>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/logging.h"
 #include "tools/gn/item.h"

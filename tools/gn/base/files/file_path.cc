@@ -7,7 +7,7 @@
 #include <string.h>
 
 #include <algorithm>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/logging.h"
 #include "base/macros.h"
@@ -172,7 +172,7 @@ FilePath::FilePath(const FilePath& that) = default;
 FilePath::FilePath(FilePath&& that) noexcept = default;
 
 FilePath::FilePath(StringViewType path) {
-  path_.assign(path);
+  path_.assign(path.data(), path.size());
   StringType::size_type nul_pos = path_.find(kStringTerminator);
   if (nul_pos != StringType::npos)
     path_.erase(nul_pos, StringType::npos);
@@ -402,12 +402,12 @@ FilePath FilePath::InsertBeforeExtension(StringViewType suffix) const {
 
   StringType ext = Extension();
   StringType ret = RemoveExtension().value();
-  ret.append(suffix);
+  ret.append(suffix.data(), suffix.size());
   ret.append(ext);
   return FilePath(ret);
 }
 
-FilePath FilePath::InsertBeforeExtensionASCII(std::string_view suffix) const {
+FilePath FilePath::InsertBeforeExtensionASCII(std::experimental::string_view suffix) const {
   DCHECK(IsStringASCII(suffix));
 #if defined(OS_WIN)
   return InsertBeforeExtension(ASCIIToUTF16(suffix));
@@ -430,7 +430,7 @@ FilePath FilePath::AddExtension(StringViewType extension) const {
       *(str.end() - 1) != kExtensionSeparator) {
     str.append(1, kExtensionSeparator);
   }
-  str.append(extension);
+  str.append(extension.data(), extension.size());
   return FilePath(str);
 }
 
@@ -447,7 +447,7 @@ FilePath FilePath::ReplaceExtension(StringViewType extension) const {
   StringType str = no_ext.value();
   if (extension[0] != kExtensionSeparator)
     str.append(1, kExtensionSeparator);
-  str.append(extension);
+  str.append(extension.data(), extension.size());
   return FilePath(str);
 }
 
@@ -457,7 +457,7 @@ FilePath FilePath::Append(StringViewType component) const {
 
   StringType::size_type nul_pos = component.find(kStringTerminator);
   if (nul_pos != StringViewType::npos) {
-    without_nuls.assign(component.substr(0, nul_pos));
+    without_nuls.assign(component.substr(0, nul_pos).data(), nul_pos);
     appended = StringViewType(without_nuls);
   }
 
@@ -491,7 +491,7 @@ FilePath FilePath::Append(StringViewType component) const {
     }
   }
 
-  new_path.path_.append(appended);
+  new_path.path_.append(appended.data(), appended.size());
   return new_path;
 }
 
@@ -499,7 +499,7 @@ FilePath FilePath::Append(const FilePath& component) const {
   return Append(component.value());
 }
 
-FilePath FilePath::AppendASCII(std::string_view component) const {
+FilePath FilePath::AppendASCII(std::experimental::string_view component) const {
   DCHECK(base::IsStringASCII(component));
 #if defined(OS_WIN)
   return Append(ASCIIToUTF16(component));

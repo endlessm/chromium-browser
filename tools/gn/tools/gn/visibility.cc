@@ -5,7 +5,7 @@
 #include "tools/gn/visibility.h"
 
 #include <memory>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/strings/string_util.h"
 #include "base/values.h"

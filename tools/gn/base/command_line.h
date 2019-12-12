@@ -18,7 +18,7 @@
 #include <stddef.h>
 #include <map>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 #include "util/build_config.h"
@@ -163,16 +163,16 @@ class CommandLine {
   // Switch names must be lowercase.
   // The second override provides an optimized version to avoid inlining codegen
   // at every callsite to find the length of the constant and construct a
-  // std::string_view.
-  bool HasSwitch(const std::string_view& switch_string) const;
+  // std::experimental::string_view.
+  bool HasSwitch(const std::experimental::string_view& switch_string) const;
   bool HasSwitch(const char switch_constant[]) const;
 
   // Returns the value associated with the given switch. If the switch has no
   // value or isn't present, this method returns the empty string.
   // Switch names must be lowercase.
-  std::string GetSwitchValueASCII(const std::string_view& switch_string) const;
-  FilePath GetSwitchValuePath(const std::string_view& switch_string) const;
-  StringType GetSwitchValueNative(const std::string_view& switch_string) const;
+  std::string GetSwitchValueASCII(const std::experimental::string_view& switch_string) const;
+  FilePath GetSwitchValuePath(const std::experimental::string_view& switch_string) const;
+  StringType GetSwitchValueNative(const std::experimental::string_view& switch_string) const;
 
   // Get a copy of all switches, along with their values.
   const SwitchMap& GetSwitches() const { return switches_; }

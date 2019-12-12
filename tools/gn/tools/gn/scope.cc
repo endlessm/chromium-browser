@@ -21,7 +21,7 @@ const unsigned kProcessingImportFlag = 2;
 // Returns true if this variable name should be considered private. Private
 // values start with an underscore, and are not imported from "gni" files
 // when processing an import.
-bool IsPrivateVar(const std::string_view& name) {
+bool IsPrivateVar(const std::experimental::string_view& name) {
   return name.empty() || name[0] == '_';
 }
 
@@ -74,13 +74,13 @@ bool Scope::HasValues(SearchNested search_nested) const {
   return !values_.empty();
 }
 
-const Value* Scope::GetValue(const std::string_view& ident,
+const Value* Scope::GetValue(const std::experimental::string_view& ident,
                              bool counts_as_used) {
   const Scope* found_in_scope = nullptr;
   return GetValueWithScope(ident, counts_as_used, &found_in_scope);
 }
 
-const Value* Scope::GetValueWithScope(const std::string_view& ident,
+const Value* Scope::GetValueWithScope(const std::experimental::string_view& ident,
                                       bool counts_as_used,
                                       const Scope** found_in_scope) {
   // First check for programmatically-provided values.
@@ -110,7 +110,7 @@ const Value* Scope::GetValueWithScope(const std::string_view& ident,
   return nullptr;
 }
 
-Value* Scope::GetMutableValue(const std::string_view& ident,
+Value* Scope::GetMutableValue(const std::experimental::string_view& ident,
                               SearchNested search_mode,
                               bool counts_as_used) {
   // Don't do programmatic values, which are not mutable.
@@ -129,7 +129,7 @@ Value* Scope::GetMutableValue(const std::string_view& ident,
   return nullptr;
 }
 
-std::string_view Scope::GetStorageKey(const std::string_view& ident) const {
+std::experimental::string_view Scope::GetStorageKey(const std::experimental::string_view& ident) const {
   RecordMap::const_iterator found = values_.find(ident);
   if (found != values_.end())
     return found->first;
@@ -137,15 +137,15 @@ std::string_view Scope::GetStorageKey(const std::string_view& ident) const {
   // Search in parent scope.
   if (containing())
     return containing()->GetStorageKey(ident);
-  return std::string_view();
+  return std::experimental::string_view();
 }
 
-const Value* Scope::GetValue(const std::string_view& ident) const {
+const Value* Scope::GetValue(const std::experimental::string_view& ident) const {
   const Scope* found_in_scope = nullptr;
   return GetValueWithScope(ident, &found_in_scope);
 }
 
-const Value* Scope::GetValueWithScope(const std::string_view& ident,
+const Value* Scope::GetValueWithScope(const std::experimental::string_view& ident,
                                       const Scope** found_in_scope) const {
   RecordMap::const_iterator found = values_.find(ident);
   if (found != values_.end()) {
@@ -157,7 +157,7 @@ const Value* Scope::GetValueWithScope(const std::string_view& ident,
   return nullptr;
 }
 
-Value* Scope::SetValue(const std::string_view& ident,
+Value* Scope::SetValue(const std::experimental::string_view& ident,
                        Value v,
                        const ParseNode* set_node) {
   Record& r = values_[ident];  // Clears any existing value.
@@ -166,7 +166,7 @@ Value* Scope::SetValue(const std::string_view& ident,
   return &r.value;
 }
 
-void Scope::RemoveIdentifier(const std::string_view& ident) {
+void Scope::RemoveIdentifier(const std::experimental::string_view& ident) {
   RecordMap::iterator found = values_.find(ident);
   if (found != values_.end())
     values_.erase(found);
@@ -177,7 +177,7 @@ void Scope::RemovePrivateIdentifiers() {
   // currently backed by several different vendor-specific implementations and
   // I'm not sure if all of them support mutating while iterating. Since this
   // is not perf-critical, do the safe thing.
-  std::vector<std::string_view> to_remove;
+  std::vector<std::experimental::string_view> to_remove;
   for (const auto& cur : values_) {
     if (IsPrivateVar(cur.first))
       to_remove.push_back(cur.first);
@@ -203,7 +203,7 @@ const Template* Scope::GetTemplate(const std::string& name) const {
   return nullptr;
 }
 
-void Scope::MarkUsed(const std::string_view& ident) {
+void Scope::MarkUsed(const std::experimental::string_view& ident) {
   RecordMap::iterator found = values_.find(ident);
   if (found == values_.end()) {
     NOTREACHED();
@@ -227,7 +227,7 @@ void Scope::MarkAllUsed(const std::set<std::string>& excluded_values) {
   }
 }
 
-void Scope::MarkUnused(const std::string_view& ident) {
+void Scope::MarkUnused(const std::experimental::string_view& ident) {
   RecordMap::iterator found = values_.find(ident);
   if (found == values_.end()) {
     NOTREACHED();
@@ -236,7 +236,7 @@ void Scope::MarkUnused(const std::string_view& ident) {
   found->second.used = false;
 }
 
-bool Scope::IsSetButUnused(const std::string_view& ident) const {
+bool Scope::IsSetButUnused(const std::experimental::string_view& ident) const {
   RecordMap::const_iterator found = values_.find(ident);
   if (found != values_.end()) {
     if (!found->second.used) {
@@ -298,7 +298,7 @@ bool Scope::NonRecursiveMergeTo(Scope* dest,
                                 Err* err) const {
   // Values.
   for (const auto& pair : values_) {
-    const std::string_view& current_name = pair.first;
+    const std::experimental::string_view& current_name = pair.first;
     if (options.skip_private_vars && IsPrivateVar(current_name))
       continue;  // Skip this private var.
     if (!options.excluded_values.empty() &&

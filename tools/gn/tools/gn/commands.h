@@ -8,7 +8,7 @@
 #include <map>
 #include <set>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 #include "base/values.h"
@@ -102,7 +102,7 @@ struct CommandInfo {
   CommandRunner runner;
 };
 
-typedef std::map<std::string_view, CommandInfo> CommandInfoMap;
+typedef std::map<std::experimental::string_view, CommandInfo> CommandInfoMap;
 
 const CommandInfoMap& GetCommands();
 

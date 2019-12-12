@@ -38,7 +38,7 @@ class Template;
 // variables. So you should use a non-const containing scope whenever possible.
 class Scope {
  public:
-  using KeyValueMap = std::map<std::string_view, Value>;
+  using KeyValueMap = std::map<std::experimental::string_view, Value>;
   // Holds an owning list of Items.
   using ItemVector = std::vector<std::unique_ptr<Item>>;
 
@@ -59,7 +59,7 @@ class Scope {
     // Returns a non-null value if the given value can be programmatically
     // generated, or NULL if there is none.
     virtual const Value* GetProgrammaticValue(
-        const std::string_view& ident) = 0;
+        const std::experimental::string_view& ident) = 0;
 
    protected:
     Scope* scope_;
@@ -135,11 +135,11 @@ class Scope {
   // found_in_scope is set to the scope that contains the definition of the
   // ident. If the value was provided programmatically (like host_cpu),
   // found_in_scope will be set to null.
-  const Value* GetValue(const std::string_view& ident, bool counts_as_used);
-  const Value* GetValue(const std::string_view& ident) const;
-  const Value* GetValueWithScope(const std::string_view& ident,
+  const Value* GetValue(const std::experimental::string_view& ident, bool counts_as_used);
+  const Value* GetValue(const std::experimental::string_view& ident) const;
+  const Value* GetValueWithScope(const std::experimental::string_view& ident,
                                  const Scope** found_in_scope) const;
-  const Value* GetValueWithScope(const std::string_view& ident,
+  const Value* GetValueWithScope(const std::experimental::string_view& ident,
                                  bool counts_as_used,
                                  const Scope** found_in_scope);
 
@@ -165,28 +165,28 @@ class Scope {
   //    }
   // The 6 should get set on the nested scope rather than modify the value
   // in the outer one.
-  Value* GetMutableValue(const std::string_view& ident,
+  Value* GetMutableValue(const std::experimental::string_view& ident,
                          SearchNested search_mode,
                          bool counts_as_used);
 
-  // Returns the std::string_view used to identify the value. This string piece
+  // Returns the std::experimental::string_view used to identify the value. This string piece
   // will have the same contents as "ident" passed in, but may point to a
-  // different underlying buffer. This is useful because this std::string_view
+  // different underlying buffer. This is useful because this std::experimental::string_view
   // is static and won't be deleted for the life of the program, so it can be
   // used as keys in places that may outlive a temporary. It will return an
   // empty string for programmatic and nonexistant values.
-  std::string_view GetStorageKey(const std::string_view& ident) const;
+  std::experimental::string_view GetStorageKey(const std::experimental::string_view& ident) const;
 
   // The set_node indicates the statement that caused the set, for displaying
   // errors later. Returns a pointer to the value in the current scope (a copy
   // is made for storage).
-  Value* SetValue(const std::string_view& ident,
+  Value* SetValue(const std::experimental::string_view& ident,
                   Value v,
                   const ParseNode* set_node);
 
   // Removes the value with the given identifier if it exists on the current
   // scope. This does not search recursive scopes. Does nothing if not found.
-  void RemoveIdentifier(const std::string_view& ident);
+  void RemoveIdentifier(const std::experimental::string_view& ident);
 
   // Removes from this scope all identifiers and templates that are considered
   // private.
@@ -200,17 +200,17 @@ class Scope {
   const Template* GetTemplate(const std::string& name) const;
 
   // Marks the given identifier as (un)used in the current scope.
-  void MarkUsed(const std::string_view& ident);
+  void MarkUsed(const std::experimental::string_view& ident);
   void MarkAllUsed();
   void MarkAllUsed(const std::set<std::string>& excluded_values);
-  void MarkUnused(const std::string_view& ident);
+  void MarkUnused(const std::experimental::string_view& ident);
 
   // Checks to see if the scope has a var set that hasn't been used. This is
   // called before replacing the var with a different one. It does not check
   // containing scopes.
   //
   // If the identifier is present but hasnn't been used, return true.
-  bool IsSetButUnused(const std::string_view& ident) const;
+  bool IsSetButUnused(const std::experimental::string_view& ident) const;
 
   // Checks the scope to see if any values were set but not used, and fills in
   // the error and returns false if they were.
@@ -338,7 +338,7 @@ class Scope {
     Value value;
   };
 
-  using RecordMap = std::unordered_map<std::string_view, Record>;
+  using RecordMap = std::unordered_map<std::experimental::string_view, Record>;
 
   void AddProvider(ProgrammaticProvider* p);
   void RemoveProvider(ProgrammaticProvider* p);

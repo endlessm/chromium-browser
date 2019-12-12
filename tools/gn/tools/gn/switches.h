@@ -6,7 +6,7 @@
 #define TOOLS_GN_SWITCHES_H_
 
 #include <map>
-#include <string_view>
+#include <experimental/string_view>
 
 namespace switches {
 
@@ -18,7 +18,7 @@ struct SwitchInfo {
   const char* long_help;
 };
 
-typedef std::map<std::string_view, SwitchInfo> SwitchInfoMap;
+typedef std::map<std::experimental::string_view, SwitchInfo> SwitchInfoMap;
 
 // Returns the mapping of all global switches.
 const SwitchInfoMap& GetSwitches();

@@ -113,7 +113,7 @@ class ParseNode {
   // given type (and value).
   base::Value CreateJSONNode(const char* type) const;
   base::Value CreateJSONNode(const char* type,
-                             const std::string_view& value) const;
+                             const std::experimental::string_view& value) const;
 
  private:
   // Helper function for CreateJSONNode.

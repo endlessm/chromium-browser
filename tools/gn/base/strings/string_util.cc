@@ -89,7 +89,7 @@ namespace {
 
 template <typename StringType>
 StringType ToLowerASCIIImpl(
-    std::basic_string_view<typename StringType::value_type> str) {
+    std::experimental::basic_string_view<typename StringType::value_type> str) {
   StringType ret;
   ret.reserve(str.size());
   for (size_t i = 0; i < str.size(); i++)
@@ -99,7 +99,7 @@ StringType ToLowerASCIIImpl(
 
 template <typename StringType>
 StringType ToUpperASCIIImpl(
-    std::basic_string_view<typename StringType::value_type> str) {
+    std::experimental::basic_string_view<typename StringType::value_type> str) {
   StringType ret;
   ret.reserve(str.size());
   for (size_t i = 0; i < str.size(); i++)
@@ -109,26 +109,26 @@ StringType ToUpperASCIIImpl(
 
 }  // namespace
 
-std::string ToLowerASCII(std::string_view str) {
+std::string ToLowerASCII(std::experimental::string_view str) {
   return ToLowerASCIIImpl<std::string>(str);
 }
 
-std::u16string ToLowerASCII(std::u16string_view str) {
+std::u16string ToLowerASCII(std::experimental::u16string_view str) {
   return ToLowerASCIIImpl<std::u16string>(str);
 }
 
-std::string ToUpperASCII(std::string_view str) {
+std::string ToUpperASCII(std::experimental::string_view str) {
   return ToUpperASCIIImpl<std::string>(str);
 }
 
-std::u16string ToUpperASCII(std::u16string_view str) {
+std::u16string ToUpperASCII(std::experimental::u16string_view str) {
   return ToUpperASCIIImpl<std::u16string>(str);
 }
 
 template <class StringType>
 int CompareCaseInsensitiveASCIIT(
-    std::basic_string_view<typename StringType::value_type> a,
-    std::basic_string_view<typename StringType::value_type> b) {
+    std::experimental::basic_string_view<typename StringType::value_type> a,
+    std::experimental::basic_string_view<typename StringType::value_type> b) {
   // Find the first characters that aren't equal and compare them.  If the end
   // of one of the strings is found before a nonequal character, the lengths
   // of the strings are compared.
@@ -153,21 +153,21 @@ int CompareCaseInsensitiveASCIIT(
   return 1;
 }
 
-int CompareCaseInsensitiveASCII(std::string_view a, std::string_view b) {
+int CompareCaseInsensitiveASCII(std::experimental::string_view a, std::experimental::string_view b) {
   return CompareCaseInsensitiveASCIIT<std::string>(a, b);
 }
 
-int CompareCaseInsensitiveASCII(std::u16string_view a, std::u16string_view b) {
+int CompareCaseInsensitiveASCII(std::experimental::u16string_view a, std::experimental::u16string_view b) {
   return CompareCaseInsensitiveASCIIT<std::u16string>(a, b);
 }
 
-bool EqualsCaseInsensitiveASCII(std::string_view a, std::string_view b) {
+bool EqualsCaseInsensitiveASCII(std::experimental::string_view a, std::experimental::string_view b) {
   if (a.length() != b.length())
     return false;
   return CompareCaseInsensitiveASCIIT<std::string>(a, b) == 0;
 }
 
-bool EqualsCaseInsensitiveASCII(std::u16string_view a, std::u16string_view b) {
+bool EqualsCaseInsensitiveASCII(std::experimental::u16string_view a, std::experimental::u16string_view b) {
   if (a.length() != b.length())
     return false;
   return CompareCaseInsensitiveASCIIT<std::u16string>(a, b) == 0;
@@ -176,49 +176,49 @@ bool EqualsCaseInsensitiveASCII(std::u16string_view a, std::u16string_view b) {
 template <class StringType>
 bool ReplaceCharsT(
     const StringType& input,
-    std::basic_string_view<typename StringType::value_type> find_any_of_these,
-    std::basic_string_view<typename StringType::value_type> replace_with,
+    std::experimental::basic_string_view<typename StringType::value_type> find_any_of_these,
+    std::experimental::basic_string_view<typename StringType::value_type> replace_with,
     StringType* output);
 
 bool ReplaceChars(const std::u16string& input,
-                  std::u16string_view replace_chars,
+                  std::experimental::u16string_view replace_chars,
                   const std::u16string& replace_with,
                   std::u16string* output) {
-  return ReplaceCharsT(input, replace_chars, std::u16string_view(replace_with),
+  return ReplaceCharsT(input, replace_chars, std::experimental::u16string_view(replace_with),
                        output);
 }
 
 bool ReplaceChars(const std::string& input,
-                  std::string_view replace_chars,
+                  std::experimental::string_view replace_chars,
                   const std::string& replace_with,
                   std::string* output) {
-  return ReplaceCharsT(input, replace_chars, std::string_view(replace_with),
+  return ReplaceCharsT(input, replace_chars, std::experimental::string_view(replace_with),
                        output);
 }
 
 bool RemoveChars(const std::u16string& input,
-                 std::u16string_view remove_chars,
+                 std::experimental::u16string_view remove_chars,
                  std::u16string* output) {
-  return ReplaceCharsT(input, remove_chars, std::u16string_view(), output);
+  return ReplaceCharsT(input, remove_chars, std::experimental::u16string_view(), output);
 }
 
 bool RemoveChars(const std::string& input,
-                 std::string_view remove_chars,
+                 std::experimental::string_view remove_chars,
                  std::string* output) {
-  return ReplaceCharsT(input, remove_chars, std::string_view(), output);
+  return ReplaceCharsT(input, remove_chars, std::experimental::string_view(), output);
 }
 
 template <typename Str>
 TrimPositions TrimStringT(
     const Str& input,
-    std::basic_string_view<typename Str::value_type> trim_chars,
+    std::experimental::basic_string_view<typename Str::value_type> trim_chars,
     TrimPositions positions,
     Str* output) {
   // Find the edges of leading/trailing whitespace as desired. Need to use
-  // a std::string_view version of input to be able to call find* on it with the
-  // std::string_view version of trim_chars (normally the trim_chars will be a
+  // a std::experimental::string_view version of input to be able to call find* on it with the
+  // std::experimental::string_view version of trim_chars (normally the trim_chars will be a
   // constant so avoid making a copy).
-  std::basic_string_view<typename Str::value_type> input_piece(input);
+  std::experimental::basic_string_view<typename Str::value_type> input_piece(input);
   const size_t last_char = input.length() - 1;
   const size_t first_good_char = (positions & TRIM_LEADING)
                                      ? input_piece.find_first_not_of(trim_chars)
@@ -247,26 +247,26 @@ TrimPositions TrimStringT(
 }
 
 bool TrimString(const std::u16string& input,
-                std::u16string_view trim_chars,
+                std::experimental::u16string_view trim_chars,
                 std::u16string* output) {
   return TrimStringT(input, trim_chars, TRIM_ALL, output) != TRIM_NONE;
 }
 
 bool TrimString(const std::string& input,
-                std::string_view trim_chars,
+                std::experimental::string_view trim_chars,
                 std::string* output) {
   return TrimStringT(input, trim_chars, TRIM_ALL, output) != TRIM_NONE;
 }
 
 template <typename char_type>
-std::basic_string_view<char_type> TrimStringPieceT(
-    std::basic_string_view<char_type> input,
-    std::basic_string_view<char_type> trim_chars,
+std::experimental::basic_string_view<char_type> TrimStringPieceT(
+    std::experimental::basic_string_view<char_type> input,
+    std::experimental::basic_string_view<char_type> trim_chars,
     TrimPositions positions) {
   size_t begin =
       (positions & TRIM_LEADING) ? input.find_first_not_of(trim_chars) : 0;
-  if (begin == std::basic_string_view<char_type>::npos)
-    return std::basic_string_view<char_type>();  // All trimmed.
+  if (begin == std::experimental::basic_string_view<char_type>::npos)
+    return std::experimental::basic_string_view<char_type>();  // All trimmed.
 
   size_t end = (positions & TRIM_TRAILING)
                    ? input.find_last_not_of(trim_chars) + 1
@@ -274,14 +274,14 @@ std::basic_string_view<char_type> TrimStringPieceT(
   return input.substr(begin, end - begin);
 }
 
-std::u16string_view TrimString(std::u16string_view input,
-                               std::u16string_view trim_chars,
+std::experimental::u16string_view TrimString(std::experimental::u16string_view input,
+                               std::experimental::u16string_view trim_chars,
                                TrimPositions positions) {
   return TrimStringPieceT(input, trim_chars, positions);
 }
 
-std::string_view TrimString(std::string_view input,
-                            std::string_view trim_chars,
+std::experimental::string_view TrimString(std::experimental::string_view input,
+                            std::experimental::string_view trim_chars,
                             TrimPositions positions) {
   return TrimStringPieceT(input, trim_chars, positions);
 }
@@ -325,26 +325,26 @@ void TruncateUTF8ToByteSize(const std::string& input,
 TrimPositions TrimWhitespace(const std::u16string& input,
                              TrimPositions positions,
                              std::u16string* output) {
-  return TrimStringT(input, std::u16string_view(kWhitespaceUTF16), positions,
+  return TrimStringT(input, std::experimental::u16string_view(kWhitespaceUTF16), positions,
                      output);
 }
 
-std::u16string_view TrimWhitespace(std::u16string_view input,
+std::experimental::u16string_view TrimWhitespace(std::experimental::u16string_view input,
                                    TrimPositions positions) {
-  return TrimStringPieceT(input, std::u16string_view(kWhitespaceUTF16),
+  return TrimStringPieceT(input, std::experimental::u16string_view(kWhitespaceUTF16),
                           positions);
 }
 
 TrimPositions TrimWhitespaceASCII(const std::string& input,
                                   TrimPositions positions,
                                   std::string* output) {
-  return TrimStringT(input, std::string_view(kWhitespaceASCII), positions,
+  return TrimStringT(input, std::experimental::string_view(kWhitespaceASCII), positions,
                      output);
 }
 
-std::string_view TrimWhitespaceASCII(std::string_view input,
+std::experimental::string_view TrimWhitespaceASCII(std::experimental::string_view input,
                                      TrimPositions positions) {
-  return TrimStringPieceT(input, std::string_view(kWhitespaceASCII), positions);
+  return TrimStringPieceT(input, std::experimental::string_view(kWhitespaceASCII), positions);
 }
 
 template <typename STR>
@@ -398,13 +398,13 @@ std::string CollapseWhitespaceASCII(const std::string& text,
   return CollapseWhitespaceT(text, trim_sequences_with_line_breaks);
 }
 
-bool ContainsOnlyChars(std::string_view input, std::string_view characters) {
-  return input.find_first_not_of(characters) == std::string_view::npos;
+bool ContainsOnlyChars(std::experimental::string_view input, std::experimental::string_view characters) {
+  return input.find_first_not_of(characters) == std::experimental::string_view::npos;
 }
 
-bool ContainsOnlyChars(std::u16string_view input,
-                       std::u16string_view characters) {
-  return input.find_first_not_of(characters) == std::u16string_view::npos;
+bool ContainsOnlyChars(std::experimental::u16string_view input,
+                       std::experimental::u16string_view characters) {
+  return input.find_first_not_of(characters) == std::experimental::u16string_view::npos;
 }
 
 template <class Char>
@@ -437,15 +437,15 @@ inline bool DoIsStringASCII(const Char* characters, size_t length) {
   return !(all_char_bits & non_ascii_bit_mask);
 }
 
-bool IsStringASCII(std::string_view str) {
+bool IsStringASCII(std::experimental::string_view str) {
   return DoIsStringASCII(str.data(), str.length());
 }
 
-bool IsStringASCII(std::u16string_view str) {
+bool IsStringASCII(std::experimental::u16string_view str) {
   return DoIsStringASCII(str.data(), str.length());
 }
 
-bool IsStringUTF8(std::string_view str) {
+bool IsStringUTF8(std::experimental::string_view str) {
   const char* src = str.data();
   int32_t src_len = static_cast<int32_t>(str.length());
   int32_t char_index = 0;
@@ -460,7 +460,7 @@ bool IsStringUTF8(std::string_view str) {
 }
 
 // Implementation note: Normally this function will be called with a hardcoded
-// constant for the lowercase_ascii parameter. Constructing a std::string_view
+// constant for the lowercase_ascii parameter. Constructing a std::experimental::string_view
 // from a C constant requires running strlen, so the result will be two passes
 // through the buffers, one to file the length of lowercase_ascii, and one to
 // compare each letter.
@@ -473,11 +473,11 @@ bool IsStringUTF8(std::string_view str) {
 //
 // The hardcoded strings are typically very short so it doesn't matter, and the
 // string piece gives additional flexibility for the caller (doesn't have to be
-// null terminated) so we choose the std::string_view route.
+// null terminated) so we choose the std::experimental::string_view route.
 template <typename Str>
 static inline bool DoLowerCaseEqualsASCII(
-    std::basic_string_view<typename Str::value_type> str,
-    std::string_view lowercase_ascii) {
+    std::experimental::basic_string_view<typename Str::value_type> str,
+    std::experimental::string_view lowercase_ascii) {
   if (str.size() != lowercase_ascii.size())
     return false;
   for (size_t i = 0; i < str.size(); i++) {
@@ -487,30 +487,30 @@ static inline bool DoLowerCaseEqualsASCII(
   return true;
 }
 
-bool LowerCaseEqualsASCII(std::string_view str,
-                          std::string_view lowercase_ascii) {
+bool LowerCaseEqualsASCII(std::experimental::string_view str,
+                          std::experimental::string_view lowercase_ascii) {
   return DoLowerCaseEqualsASCII<std::string>(str, lowercase_ascii);
 }
 
-bool LowerCaseEqualsASCII(std::u16string_view str,
-                          std::string_view lowercase_ascii) {
+bool LowerCaseEqualsASCII(std::experimental::u16string_view str,
+                          std::experimental::string_view lowercase_ascii) {
   return DoLowerCaseEqualsASCII<std::u16string>(str, lowercase_ascii);
 }
 
-bool EqualsASCII(std::u16string_view str, std::string_view ascii) {
+bool EqualsASCII(std::experimental::u16string_view str, std::experimental::string_view ascii) {
   if (str.length() != ascii.length())
     return false;
   return std::equal(ascii.begin(), ascii.end(), str.begin());
 }
 
 template <typename char_type>
-bool StartsWithT(std::basic_string_view<char_type> str,
-                 std::basic_string_view<char_type> search_for,
+bool StartsWithT(std::experimental::basic_string_view<char_type> str,
+                 std::experimental::basic_string_view<char_type> search_for,
                  CompareCase case_sensitivity) {
   if (search_for.size() > str.size())
     return false;
 
-  std::basic_string_view<char_type> source = str.substr(0, search_for.size());
+  std::experimental::basic_string_view<char_type> source = str.substr(0, search_for.size());
 
   switch (case_sensitivity) {
     case CompareCase::SENSITIVE:
@@ -526,26 +526,26 @@ bool StartsWithT(std::basic_string_view<char_type> str,
   }
 }
 
-bool StartsWith(std::string_view str,
-                std::string_view search_for,
+bool StartsWith(std::experimental::string_view str,
+                std::experimental::string_view search_for,
                 CompareCase case_sensitivity) {
   return StartsWithT(str, search_for, case_sensitivity);
 }
 
-bool StartsWith(std::u16string_view str,
-                std::u16string_view search_for,
+bool StartsWith(std::experimental::u16string_view str,
+                std::experimental::u16string_view search_for,
                 CompareCase case_sensitivity) {
   return StartsWithT(str, search_for, case_sensitivity);
 }
 
 template <typename Str>
-bool EndsWithT(std::basic_string_view<typename Str::value_type> str,
-               std::basic_string_view<typename Str::value_type> search_for,
+bool EndsWithT(std::experimental::basic_string_view<typename Str::value_type> str,
+               std::experimental::basic_string_view<typename Str::value_type> search_for,
                CompareCase case_sensitivity) {
   if (search_for.size() > str.size())
     return false;
 
-  std::basic_string_view<typename Str::value_type> source =
+  std::experimental::basic_string_view<typename Str::value_type> source =
       str.substr(str.size() - search_for.size(), search_for.size());
 
   switch (case_sensitivity) {
@@ -563,14 +563,14 @@ bool EndsWithT(std::basic_string_view<typename Str::value_type> str,
   }
 }
 
-bool EndsWith(std::string_view str,
-              std::string_view search_for,
+bool EndsWith(std::experimental::string_view str,
+              std::experimental::string_view search_for,
               CompareCase case_sensitivity) {
   return EndsWithT<std::string>(str, search_for, case_sensitivity);
 }
 
-bool EndsWith(std::u16string_view str,
-              std::u16string_view search_for,
+bool EndsWith(std::experimental::u16string_view str,
+              std::experimental::u16string_view search_for,
               CompareCase case_sensitivity) {
   return EndsWithT<std::u16string>(str, search_for, case_sensitivity);
 }
@@ -623,7 +623,7 @@ std::u16string FormatBytesUnlocalized(int64_t bytes) {
 // A Matcher for DoReplaceMatchesAfterOffset() that matches substrings.
 template <class StringType>
 struct SubstringMatcher {
-  std::basic_string_view<typename StringType::value_type> find_this;
+  std::experimental::basic_string_view<typename StringType::value_type> find_this;
 
   size_t Find(const StringType& input, size_t pos) {
     return input.find(find_this.data(), pos, find_this.length());
@@ -634,7 +634,7 @@ struct SubstringMatcher {
 // A Matcher for DoReplaceMatchesAfterOffset() that matches single characters.
 template <class StringType>
 struct CharacterMatcher {
-  std::basic_string_view<typename StringType::value_type> find_any_of_these;
+  std::experimental::basic_string_view<typename StringType::value_type> find_any_of_these;
 
   size_t Find(const StringType& input, size_t pos) {
     return input.find_first_of(find_any_of_these.data(), pos,
@@ -655,7 +655,7 @@ bool DoReplaceMatchesAfterOffset(
     StringType* str,
     size_t initial_offset,
     Matcher matcher,
-    std::basic_string_view<typename StringType::value_type> replace_with,
+    std::experimental::basic_string_view<typename StringType::value_type> replace_with,
     ReplaceType replace_type) {
   using CharTraits = typename StringType::traits_type;
 
@@ -797,8 +797,8 @@ bool DoReplaceMatchesAfterOffset(
 template <class StringType>
 bool ReplaceCharsT(
     const StringType& input,
-    std::basic_string_view<typename StringType::value_type> find_any_of_these,
-    std::basic_string_view<typename StringType::value_type> replace_with,
+    std::experimental::basic_string_view<typename StringType::value_type> find_any_of_these,
+    std::experimental::basic_string_view<typename StringType::value_type> replace_with,
     StringType* output) {
   // Commonly, this is called with output and input being the same string; in
   // that case, this assignment is inexpensive.
@@ -811,8 +811,8 @@ bool ReplaceCharsT(
 
 void ReplaceFirstSubstringAfterOffset(std::u16string* str,
                                       size_t start_offset,
-                                      std::u16string_view find_this,
-                                      std::u16string_view replace_with) {
+                                      std::experimental::u16string_view find_this,
+                                      std::experimental::u16string_view replace_with) {
   DoReplaceMatchesAfterOffset(str, start_offset,
                               SubstringMatcher<std::u16string>{find_this},
                               replace_with, ReplaceType::REPLACE_FIRST);
@@ -820,8 +820,8 @@ void ReplaceFirstSubstringAfterOffset(std::u16string* str,
 
 void ReplaceFirstSubstringAfterOffset(std::string* str,
                                       size_t start_offset,
-                                      std::string_view find_this,
-                                      std::string_view replace_with) {
+                                      std::experimental::string_view find_this,
+                                      std::experimental::string_view replace_with) {
   DoReplaceMatchesAfterOffset(str, start_offset,
                               SubstringMatcher<std::string>{find_this},
                               replace_with, ReplaceType::REPLACE_FIRST);
@@ -829,8 +829,8 @@ void ReplaceFirstSubstringAfterOffset(std::string* str,
 
 void ReplaceSubstringsAfterOffset(std::u16string* str,
                                   size_t start_offset,
-                                  std::u16string_view find_this,
-                                  std::u16string_view replace_with) {
+                                  std::experimental::u16string_view find_this,
+                                  std::experimental::u16string_view replace_with) {
   DoReplaceMatchesAfterOffset(str, start_offset,
                               SubstringMatcher<std::u16string>{find_this},
                               replace_with, ReplaceType::REPLACE_ALL);
@@ -838,8 +838,8 @@ void ReplaceSubstringsAfterOffset(std::u16string* str,
 
 void ReplaceSubstringsAfterOffset(std::string* str,
                                   size_t start_offset,
-                                  std::string_view find_this,
-                                  std::string_view replace_with) {
+                                  std::experimental::string_view find_this,
+                                  std::experimental::string_view replace_with) {
   DoReplaceMatchesAfterOffset(str, start_offset,
                               SubstringMatcher<std::string>{find_this},
                               replace_with, ReplaceType::REPLACE_ALL);
@@ -872,7 +872,7 @@ char16_t* WriteInto(std::u16string* str, size_t length_with_null) {
 template <typename char_type, typename list_type>
 static std::basic_string<char_type> JoinStringT(
     const list_type& parts,
-    std::basic_string_view<char_type> sep) {
+    std::experimental::basic_string_view<char_type> sep) {
   if (parts.size() == 0)
     return std::basic_string<char_type>();
 
@@ -886,12 +886,12 @@ static std::basic_string<char_type> JoinStringT(
 
   auto iter = parts.begin();
   DCHECK(iter != parts.end());
-  result.append(*iter);
+  result.append(iter->data(), iter->size());
   ++iter;
 
   for (; iter != parts.end(); ++iter) {
-    result.append(sep);
-    result.append(*iter);
+    result.append(sep.data(), sep.size());
+    result.append(iter->data(), iter->size());
   }
 
   // Sanity-check that we pre-allocated correctly.
@@ -901,12 +901,12 @@ static std::basic_string<char_type> JoinStringT(
 }
 
 std::string JoinString(const std::vector<std::string>& parts,
-                       std::string_view separator) {
+                       std::experimental::string_view separator) {
   return JoinStringT(parts, separator);
 }
 
 std::u16string JoinString(const std::vector<std::u16string>& parts,
-                          std::u16string_view separator) {
+                          std::experimental::u16string_view separator) {
   return JoinStringT(parts, separator);
 }
 
@@ -915,23 +915,23 @@ std::u16string JoinString(const std::vector<std::u16string>& parts,
 #pragma optimize("", on)
 #endif
 
-std::string JoinString(const std::vector<std::string_view>& parts,
-                       std::string_view separator) {
+std::string JoinString(const std::vector<std::experimental::string_view>& parts,
+                       std::experimental::string_view separator) {
   return JoinStringT(parts, separator);
 }
 
-std::u16string JoinString(const std::vector<std::u16string_view>& parts,
-                          std::u16string_view separator) {
+std::u16string JoinString(const std::vector<std::experimental::u16string_view>& parts,
+                          std::experimental::u16string_view separator) {
   return JoinStringT(parts, separator);
 }
 
-std::string JoinString(std::initializer_list<std::string_view> parts,
-                       std::string_view separator) {
+std::string JoinString(std::initializer_list<std::experimental::string_view> parts,
+                       std::experimental::string_view separator) {
   return JoinStringT(parts, separator);
 }
 
-std::u16string JoinString(std::initializer_list<std::u16string_view> parts,
-                          std::u16string_view separator) {
+std::u16string JoinString(std::initializer_list<std::experimental::u16string_view> parts,
+                          std::experimental::u16string_view separator) {
   return JoinStringT(parts, separator);
 }
 
@@ -997,7 +997,7 @@ std::u16string ReplaceStringPlaceholders(
   return DoReplaceStringPlaceholders(format_string, subst, offsets);
 }
 
-std::string ReplaceStringPlaceholders(std::string_view format_string,
+std::string ReplaceStringPlaceholders(std::experimental::string_view format_string,
                                       const std::vector<std::string>& subst,
                                       std::vector<size_t>* offsets) {
   return DoReplaceStringPlaceholders(format_string, subst, offsets);
