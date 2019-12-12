@@ -42,11 +42,8 @@ config("inside_blink") {
   ]
   if (is_clang) {
     cflags += [
-      "-Wconversion",
       "-Wno-float-conversion",
       "-Wno-sign-conversion",
-      "-Wno-implicit-float-conversion",
-      "-Wno-implicit-int-conversion",
     ]
   }
 }
