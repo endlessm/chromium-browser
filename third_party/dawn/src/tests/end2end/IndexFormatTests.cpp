@@ -22,8 +22,8 @@ constexpr uint32_t kRTSize = 400;
 
 class IndexFormatTest : public DawnTest {
     protected:
-        void SetUp() override {
-            DawnTest::SetUp();
+        void TestSetUp() override {
+            DawnTest::TestSetUp();
 
             renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
         }
@@ -56,7 +56,7 @@ class IndexFormatTest : public DawnTest {
             descriptor.cVertexInput.cBuffers[0].stride = 4 * sizeof(float);
             descriptor.cVertexInput.cBuffers[0].attributeCount = 1;
             descriptor.cVertexInput.cAttributes[0].format = dawn::VertexFormat::Float4;
-            descriptor.cColorStates[0]->format = renderPass.colorFormat;
+            descriptor.cColorStates[0].format = renderPass.colorFormat;
 
             return device.CreateRenderPipeline(&descriptor);
         }
@@ -68,19 +68,18 @@ TEST_P(IndexFormatTest, Uint32) {
 
     dawn::Buffer vertexBuffer = utils::CreateBufferFromData<float>(
         device, dawn::BufferUsage::Vertex,
-        {-1.0f, 1.0f, 0.0f, 1.0f,  // Note Vertices[0] = Vertices[1]
-         -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f});
+        {-1.0f, -1.0f, 0.0f, 1.0f,  // Note Vertices[0] = Vertices[1]
+         -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f});
     // If this is interpreted as Uint16, then it would be 0, 1, 0, ... and would draw nothing.
     dawn::Buffer indexBuffer =
         utils::CreateBufferFromData<uint32_t>(device, dawn::BufferUsage::Index, {1, 2, 3});
 
-    uint64_t zeroOffset = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
-        pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
-        pass.SetIndexBuffer(indexBuffer, 0);
+        pass.SetVertexBuffer(0, vertexBuffer);
+        pass.SetIndexBuffer(indexBuffer);
         pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }
@@ -97,18 +96,17 @@ TEST_P(IndexFormatTest, Uint16) {
 
     dawn::Buffer vertexBuffer = utils::CreateBufferFromData<float>(
         device, dawn::BufferUsage::Vertex,
-        {-1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f});
+        {-1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f});
     // If this is interpreted as uint32, it will have index 1 and 2 be both 0 and render nothing
     dawn::Buffer indexBuffer =
         utils::CreateBufferFromData<uint16_t>(device, dawn::BufferUsage::Index, {1, 2, 0, 0, 0, 0});
 
-    uint64_t zeroOffset = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
-        pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
-        pass.SetIndexBuffer(indexBuffer, 0);
+        pass.SetVertexBuffer(0, vertexBuffer);
+        pass.SetIndexBuffer(indexBuffer);
         pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }
@@ -138,8 +136,8 @@ TEST_P(IndexFormatTest, Uint32PrimitiveRestart) {
     dawn::Buffer vertexBuffer = utils::CreateBufferFromData<float>(
         device, dawn::BufferUsage::Vertex,
         {
-            0.0f, 1.0f, 0.0f, 1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f, -1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f,
+            0.0f, -1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+            0.0f, 1.0f,  0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
         });
     dawn::Buffer indexBuffer =
         utils::CreateBufferFromData<uint32_t>(device, dawn::BufferUsage::Index,
@@ -153,13 +151,12 @@ TEST_P(IndexFormatTest, Uint32PrimitiveRestart) {
                                                   2,
                                               });
 
-    uint64_t zeroOffset = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
-        pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
-        pass.SetIndexBuffer(indexBuffer, 0);
+        pass.SetVertexBuffer(0, vertexBuffer);
+        pass.SetIndexBuffer(indexBuffer);
         pass.DrawIndexed(7, 1, 0, 0, 0);
         pass.EndPass();
     }
@@ -179,8 +176,8 @@ TEST_P(IndexFormatTest, Uint16PrimitiveRestart) {
     dawn::Buffer vertexBuffer = utils::CreateBufferFromData<float>(
         device, dawn::BufferUsage::Vertex,
         {
-            0.0f, 1.0f, 0.0f, 1.0f,  1.0f, 0.0f, 0.0f,  1.0f,  0.0f, 0.0f,
-            0.0f, 1.0f, 0.0f, -1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f,
+            0.0f, -1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+            0.0f, 1.0f,  0.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
         });
     dawn::Buffer indexBuffer =
         utils::CreateBufferFromData<uint16_t>(device, dawn::BufferUsage::Index,
@@ -196,13 +193,12 @@ TEST_P(IndexFormatTest, Uint16PrimitiveRestart) {
                                                   0xFFFFu,
                                               });
 
-    uint64_t zeroOffset = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
-        pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
-        pass.SetIndexBuffer(indexBuffer, 0);
+        pass.SetVertexBuffer(0, vertexBuffer);
+        pass.SetIndexBuffer(indexBuffer);
         pass.DrawIndexed(7, 1, 0, 0, 0);
         pass.EndPass();
     }
@@ -226,19 +222,18 @@ TEST_P(IndexFormatTest, ChangePipelineAfterSetIndexBuffer) {
 
     dawn::Buffer vertexBuffer = utils::CreateBufferFromData<float>(
         device, dawn::BufferUsage::Vertex,
-        {-1.0f, 1.0f, 0.0f, 1.0f,  // Note Vertices[0] = Vertices[1]
-         -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f});
+        {-1.0f, -1.0f, 0.0f, 1.0f,  // Note Vertices[0] = Vertices[1]
+         -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f});
     // If this is interpreted as Uint16, then it would be 0, 1, 0, ... and would draw nothing.
     dawn::Buffer indexBuffer =
         utils::CreateBufferFromData<uint32_t>(device, dawn::BufferUsage::Index, {1, 2, 3});
 
-    uint64_t zeroOffset = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline16);
-        pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
-        pass.SetIndexBuffer(indexBuffer, 0);
+        pass.SetVertexBuffer(0, vertexBuffer);
+        pass.SetIndexBuffer(indexBuffer);
         pass.SetPipeline(pipeline32);
         pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
@@ -260,17 +255,16 @@ TEST_P(IndexFormatTest, DISABLED_SetIndexBufferBeforeSetPipeline) {
 
     dawn::Buffer vertexBuffer = utils::CreateBufferFromData<float>(
         device, dawn::BufferUsage::Vertex,
-        {-1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f});
+        {-1.0f, -1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f});
     dawn::Buffer indexBuffer =
         utils::CreateBufferFromData<uint32_t>(device, dawn::BufferUsage::Index, {0, 1, 2});
 
-    uint64_t zeroOffset = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
-        pass.SetIndexBuffer(indexBuffer, 0);
+        pass.SetIndexBuffer(indexBuffer);
         pass.SetPipeline(pipeline);
-        pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
+        pass.SetVertexBuffer(0, vertexBuffer);
         pass.DrawIndexed(3, 1, 0, 0, 0);
         pass.EndPass();
     }

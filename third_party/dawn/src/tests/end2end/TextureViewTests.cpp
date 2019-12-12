@@ -78,16 +78,10 @@ protected:
         return static_cast<int>(level * 10) + static_cast<int>(layer + 1);
     }
 
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         mRenderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
-
-        mBindGroupLayout = utils::MakeBindGroupLayout(
-            device, {
-                        {0, dawn::ShaderStage::Fragment, dawn::BindingType::Sampler},
-                        {1, dawn::ShaderStage::Fragment, dawn::BindingType::SampledTexture},
-                    });
 
         dawn::FilterMode kFilterMode = dawn::FilterMode::Nearest;
         dawn::AddressMode kAddressMode = dawn::AddressMode::ClampToEdge;
@@ -103,8 +97,6 @@ protected:
         samplerDescriptor.lodMaxClamp = kLodMax;
         samplerDescriptor.compare = dawn::CompareFunction::Never;
         mSampler = device.CreateSampler(&samplerDescriptor);
-
-        mPipelineLayout = utils::MakeBasicPipelineLayout(device, &mBindGroupLayout);
 
         mVSModule = CreateDefaultVertexShaderModule(device);
     }
@@ -157,11 +149,19 @@ protected:
         queue.Submit(1, &copy);
     }
 
-    void Verify(const dawn::TextureView &textureView, const char* fragmentShader, int expected) {
-        dawn::BindGroup bindGroup = utils::MakeBindGroup(device, mBindGroupLayout, {
-            {0, mSampler},
-            {1, textureView}
-        });
+    void Verify(const dawn::TextureView& textureView,
+                dawn::TextureViewDimension dimension,
+                const char* fragmentShader,
+                int expected) {
+        dawn::BindGroupLayout bindGroupLayout = utils::MakeBindGroupLayout(
+            device, {
+                        {0, dawn::ShaderStage::Fragment, dawn::BindingType::Sampler},
+                        {1, dawn::ShaderStage::Fragment, dawn::BindingType::SampledTexture, false,
+                         false, dimension, dawn::TextureComponentType::Float},
+                    });
+
+        dawn::BindGroup bindGroup =
+            utils::MakeBindGroup(device, bindGroupLayout, {{0, mSampler}, {1, textureView}});
 
         dawn::ShaderModule fsModule =
             utils::CreateShaderModule(device, utils::SingleShaderStage::Fragment, fragmentShader);
@@ -169,8 +169,8 @@ protected:
         utils::ComboRenderPipelineDescriptor textureDescriptor(device);
         textureDescriptor.vertexStage.module = mVSModule;
         textureDescriptor.cFragmentStage.module = fsModule;
-        textureDescriptor.layout = mPipelineLayout;
-        textureDescriptor.cColorStates[0]->format = mRenderPass.colorFormat;
+        textureDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bindGroupLayout);
+        textureDescriptor.cColorStates[0].format = mRenderPass.colorFormat;
 
         dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&textureDescriptor);
 
@@ -178,7 +178,7 @@ protected:
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&mRenderPass.renderPassInfo);
             pass.SetPipeline(pipeline);
-            pass.SetBindGroup(0, bindGroup, 0, nullptr);
+            pass.SetBindGroup(0, bindGroup);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }
@@ -224,7 +224,7 @@ protected:
         )";
 
         const int expected = GenerateTestPixelValue(textureViewBaseLayer, textureViewBaseMipLevel);
-        Verify(textureView, fragmentShader, expected);
+        Verify(textureView, dawn::TextureViewDimension::e2D, fragmentShader, expected);
     }
 
     void Texture2DArrayViewTest(uint32_t textureArrayLayers,
@@ -268,7 +268,7 @@ protected:
         for (int i = 0; i < static_cast<int>(kTextureViewLayerCount); ++i) {
             expected += GenerateTestPixelValue(textureViewBaseLayer + i, textureViewBaseMipLevel);
         }
-        Verify(textureView, fragmentShader, expected);
+        Verify(textureView, dawn::TextureViewDimension::e2DArray, fragmentShader, expected);
     }
 
     std::string CreateFragmentShaderForCubeMapFace(uint32_t layer, bool isCubeMapArray) {
@@ -320,10 +320,12 @@ protected:
 
         ASSERT_TRUE((textureViewLayerCount == 6) ||
                     (isCubeMapArray && textureViewLayerCount % 6 == 0));
+        dawn::TextureViewDimension dimension = (isCubeMapArray)
+                                                   ? dawn::TextureViewDimension::CubeArray
+                                                   : dawn::TextureViewDimension::Cube;
 
         dawn::TextureViewDescriptor descriptor = mDefaultTextureViewDescriptor;
-        descriptor.dimension = (isCubeMapArray) ?
-            dawn::TextureViewDimension::CubeArray : dawn::TextureViewDimension::Cube;
+        descriptor.dimension = dimension;
         descriptor.baseArrayLayer = textureViewBaseLayer;
         descriptor.arrayLayerCount = textureViewLayerCount;
 
@@ -335,12 +337,10 @@ protected:
                 CreateFragmentShaderForCubeMapFace(layer, isCubeMapArray);
 
             int expected = GenerateTestPixelValue(textureViewBaseLayer + layer, 0);
-            Verify(cubeMapTextureView, fragmentShader.c_str(), expected);
+            Verify(cubeMapTextureView, dimension, fragmentShader.c_str(), expected);
         }
     }
 
-    dawn::BindGroupLayout mBindGroupLayout;
-    dawn::PipelineLayout mPipelineLayout;
     dawn::Sampler mSampler;
     dawn::Texture mTexture;
     dawn::TextureViewDescriptor mDefaultTextureViewDescriptor;
@@ -376,7 +376,7 @@ TEST_P(TextureViewSamplingTest, Default2DArrayTexture) {
 
     const int expected = GenerateTestPixelValue(0, 0) + GenerateTestPixelValue(1, 0) +
                          GenerateTestPixelValue(2, 0);
-    Verify(textureView, fragmentShader, expected);
+    Verify(textureView, dawn::TextureViewDimension::e2DArray, fragmentShader, expected);
 }
 
 // Test sampling from a 2D texture view created on a 2D array texture.
@@ -491,7 +491,7 @@ class TextureViewRenderingTest : public DawnTest {
 
         // Clear textureView with Red(255, 0, 0, 255) and render Green(0, 255, 0, 255) into it
         utils::ComboRenderPassDescriptor renderPassInfo({textureView});
-        renderPassInfo.cColorAttachmentsInfoPtr[0]->clearColor = {1.0f, 0.0f, 0.0f, 1.0f};
+        renderPassInfo.cColorAttachments[0].clearColor = {1.0f, 0.0f, 0.0f, 1.0f};
 
         const char* oneColorFragmentShader = R"(
             #version 450
@@ -507,7 +507,7 @@ class TextureViewRenderingTest : public DawnTest {
         utils::ComboRenderPipelineDescriptor pipelineDescriptor(device);
         pipelineDescriptor.vertexStage.module = vsModule;
         pipelineDescriptor.cFragmentStage.module = oneColorFsModule;
-        pipelineDescriptor.cColorStates[0]->format = kDefaultFormat;
+        pipelineDescriptor.cColorStates[0].format = kDefaultFormat;
 
         dawn::RenderPipeline oneColorPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 

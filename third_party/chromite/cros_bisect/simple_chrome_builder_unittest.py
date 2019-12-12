@@ -161,8 +161,8 @@ class TestSimpleChromeBuilder(cros_test_lib.MockTempDirTestCase):
     osutils.SafeMakedirs(os.path.join(self.default_repo_dir, '.git'))
 
     builder = self.GetBuilder(reuse_repo=False)
-    self.assertRaisesRegexp(Exception, 'Chromium repo exists.*',
-                            builder.SetUp)
+    self.assertRaisesRegex(Exception, 'Chromium repo exists.*',
+                           builder.SetUp)
 
     write_config_mock.assert_not_called()
     git_mock.assert_not_called()
@@ -202,7 +202,7 @@ class TestSimpleChromeBuilder(cros_test_lib.MockTempDirTestCase):
     self.assertEqual(archive_path, build_to_deploy)
 
   def _ChromeSdkRunSideEffect(self, *args, **unused_kwargs):
-    if len(args) > 0 and len(args[0]) == 3:
+    if args and len(args[0]) == 3:
       bash_command = args[0][2]
       if 'gn gen' in bash_command:
         build_dir = bash_command.split()[2]

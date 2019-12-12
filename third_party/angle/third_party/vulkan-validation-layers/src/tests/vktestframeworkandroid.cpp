@@ -26,6 +26,7 @@ VkTestFramework::~VkTestFramework() {}
 
 // Define static elements
 bool VkTestFramework::m_devsim_layer = false;
+ANativeWindow *VkTestFramework::window = nullptr;
 
 VkFormat VkTestFramework::GetFormat(VkInstance instance, vk_testing::Device *device) {
     VkFormatProperties format_props;
@@ -78,7 +79,7 @@ shaderc_shader_kind MapShadercType(VkShaderStageFlagBits vkShader) {
 // Compile a given string containing GLSL into SPIR-V
 // Return value of false means an error was encountered
 bool VkTestFramework::GLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, std::vector<unsigned int> &spirv,
-                                bool debug) {
+                                bool debug, uint32_t spirv_minor_version) {
     // On Android, use shaderc instead.
     shaderc::Compiler compiler;
     shaderc::CompileOptions options;
@@ -86,10 +87,30 @@ bool VkTestFramework::GLSLtoSPV(const VkShaderStageFlagBits shader_type, const c
         options.SetOptimizationLevel(shaderc_optimization_level_zero);
         options.SetGenerateDebugInfo();
     }
+
+    switch (spirv_minor_version) {
+        default:
+        case 0:
+            options.SetTargetSpirv(shaderc_spirv_version_1_0);
+            break;
+        case 1:
+            options.SetTargetSpirv(shaderc_spirv_version_1_1);
+            break;
+        case 2:
+            options.SetTargetSpirv(shaderc_spirv_version_1_2);
+            break;
+        case 3:
+            options.SetTargetSpirv(shaderc_spirv_version_1_3);
+            break;
+        case 4:
+            options.SetTargetSpirv(shaderc_spirv_version_1_4);
+            break;
+    }
+
     shaderc::SpvCompilationResult result =
         compiler.CompileGlslToSpv(pshader, strlen(pshader), MapShadercType(shader_type), "shader", options);
     if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-        __android_log_print(ANDROID_LOG_ERROR, "VkLayerValidationTest", "GLSLtoSPV compilation failed: %s",
+        __android_log_print(ANDROID_LOG_ERROR, "VkLayerValidationTests", "GLSLtoSPV compilation failed: %s",
                             result.GetErrorMessage().c_str());
         return false;
     }

@@ -20,8 +20,8 @@
 
 class MultisampledRenderingTest : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         InitTexturesForTest();
     }
@@ -112,7 +112,7 @@ class MultisampledRenderingTest : public DawnTest {
 
         dawn::RenderPassEncoder renderPassEncoder = commandEncoder.BeginRenderPass(&renderPass);
         renderPassEncoder.SetPipeline(pipeline);
-        renderPassEncoder.SetBindGroup(0, bindGroup, 0, nullptr);
+        renderPassEncoder.SetBindGroup(0, bindGroup);
         renderPassEncoder.Draw(3, 1, 0, 0);
         renderPassEncoder.EndPass();
     }
@@ -131,9 +131,9 @@ class MultisampledRenderingTest : public DawnTest {
         utils::ComboRenderPassDescriptor renderPass(colorViews);
         uint32_t i = 0;
         for (const dawn::TextureView& resolveTargetView : resolveTargetViews) {
-            renderPass.cColorAttachmentsInfoPtr[i]->loadOp = colorLoadOp;
-            renderPass.cColorAttachmentsInfoPtr[i]->clearColor = kClearColor;
-            renderPass.cColorAttachmentsInfoPtr[i]->resolveTarget = resolveTargetView;
+            renderPass.cColorAttachments[i].loadOp = colorLoadOp;
+            renderPass.cColorAttachments[i].clearColor = kClearColor;
+            renderPass.cColorAttachments[i].resolveTarget = resolveTargetView;
             ++i;
         }
 
@@ -221,7 +221,7 @@ class MultisampledRenderingTest : public DawnTest {
 
         pipelineDescriptor.colorStateCount = numColorAttachments;
         for (uint32_t i = 0; i < numColorAttachments; ++i) {
-            pipelineDescriptor.cColorStates[i]->format = kColorFormat;
+            pipelineDescriptor.cColorStates[i].format = kColorFormat;
         }
 
         return device.CreateRenderPipeline(&pipelineDescriptor);
@@ -255,11 +255,6 @@ TEST_P(MultisampledRenderingTest, ResolveInto2DTexture) {
 
 // Test multisampled rendering with depth test works correctly.
 TEST_P(MultisampledRenderingTest, MultisampledRenderingWithDepthTest) {
-    // TODO(hao.x.li@intel.com): Test failing on Metal with validation layer on, which blocks
-    // end2end tests run with validation layer in bots. Suppress this while we're fixing.
-    // See https://bugs.chromium.org/p/dawn/issues/detail?id=139
-    DAWN_SKIP_TEST_IF(IsMetal() && IsBackendValidationEnabled());
-
     constexpr bool kTestDepth = true;
     dawn::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     dawn::RenderPipeline pipeline = CreateRenderPipelineWithOneOutputForTest(kTestDepth);

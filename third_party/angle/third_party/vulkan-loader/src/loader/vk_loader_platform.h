@@ -25,7 +25,7 @@
 
 #if defined(_WIN32)
 // WinSock2.h must be included *BEFORE* windows.h
-#include <WinSock2.h>
+#include <winsock2.h>
 #endif  // _WIN32
 
 #include "vulkan/vk_platform.h"
@@ -217,9 +217,9 @@ static inline const char *LoaderPnpELayerRegistry() {
     IsWow64Process(GetCurrentProcess(), &is_wow);
     return is_wow ? (API_NAME "ExplicitLayersWow") : (API_NAME "ExplicitLayers");
 }
+
 // Get the key for the plug 'n play implicit layer registry
 // The string returned by this function should NOT be freed
-
 static inline const char *LoaderPnpILayerRegistry() {
     BOOL is_wow;
     IsWow64Process(GetCurrentProcess(), &is_wow);
@@ -319,7 +319,23 @@ static char *loader_platform_get_proc_address_error(const char *name) {
 
 // Threads:
 typedef HANDLE loader_platform_thread;
+
+// __declspec(thread) is not supported by MinGW compiler (ignored with warning or
+//                    cause erorr depending on compiler switches)
+//
+// __thread should be used instead
+//
+// __MINGW32__ defined for both 32 and 64 bit MinGW compilers, so it is enough to
+// detect any (32 or 64) flawor of MinGW compiler.
+//
+// @note __GNUC__ could be used as a more generic way to detect _any_
+//       GCC[-compitible] compiler on Windows, but this fix was tested
+//       only with MinGW, so keep it explicit at the moment.
+#if defined(__MINGW32__)
+#define THREAD_LOCAL_DECL __thread
+#else
 #define THREAD_LOCAL_DECL __declspec(thread)
+#endif
 
 // The once init functionality is not used when building a DLL on Windows. This is because there is no way to clean up the
 // resources allocated by anything allocated by once init. This isn't a problem for static libraries, but it is for dynamic

@@ -246,7 +246,7 @@ public:
       Status error;
       const int short_option = m_getopt_table[option_idx].val;
       switch (short_option) {
-        case 'r': {
+      case 'r': {
         int32_t offset = 0;
         if (option_arg.getAsInteger(0, offset) || offset == INT32_MIN) {
           error.SetErrorStringWithFormat("invalid frame offset argument '%s'",
@@ -263,8 +263,10 @@ public:
       return error;
     }
 
-    void OptionParsingStarting(ExecutionContext *execution_context) override {}
-    
+    void OptionParsingStarting(ExecutionContext *execution_context) override {
+      relative_frame_offset.reset();
+    }
+
     llvm::ArrayRef<OptionDefinition> GetDefinitions() override {
       return llvm::makeArrayRef(g_frame_select_options);
     }
@@ -314,7 +316,8 @@ protected:
         frame_idx = 0;
 
       if (*m_options.relative_frame_offset < 0) {
-        if (static_cast<int32_t>(frame_idx) >= -*m_options.relative_frame_offset)
+        if (static_cast<int32_t>(frame_idx) >=
+            -*m_options.relative_frame_offset)
           frame_idx += *m_options.relative_frame_offset;
         else {
           if (frame_idx == 0) {
@@ -358,7 +361,7 @@ protected:
       }
 
       if (command.GetArgumentCount() == 1) {
-        if (command[0].ref.getAsInteger(0, frame_idx)) {
+        if (command[0].ref().getAsInteger(0, frame_idx)) {
           result.AppendErrorWithFormat("invalid frame index argument '%s'.",
                                        command[0].c_str());
           result.SetStatus(eReturnStatusFailed);
@@ -527,7 +530,7 @@ protected:
         for (auto &entry : command) {
           if (m_option_variable.use_regex) {
             const size_t regex_start_index = regex_var_list.GetSize();
-            llvm::StringRef name_str = entry.ref;
+            llvm::StringRef name_str = entry.ref();
             RegularExpression regex(name_str);
             if (regex.IsValid()) {
               size_t num_matches = 0;
@@ -586,7 +589,7 @@ protected:
                 StackFrame::eExpressionPathOptionsInspectAnonymousUnions;
             lldb::VariableSP var_sp;
             valobj_sp = frame->GetValueForVariableExpressionPath(
-                entry.ref, m_varobj_options.use_dynamic, expr_path_options,
+                entry.ref(), m_varobj_options.use_dynamic, expr_path_options,
                 var_sp, error);
             if (valobj_sp) {
               std::string scope_string;

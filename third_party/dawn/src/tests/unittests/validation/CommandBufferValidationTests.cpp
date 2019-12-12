@@ -191,12 +191,11 @@ TEST_F(CommandBufferValidationTest, BufferWithMultipleReadUsage) {
     dawn::Buffer buffer = device.CreateBuffer(&bufferDescriptor);
 
     // Use the buffer as both index and vertex in the same pass
-    uint64_t zero = 0;
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     DummyRenderPass dummyRenderPass(device);
     dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
-    pass.SetIndexBuffer(buffer, 0);
-    pass.SetVertexBuffers(0, 1, &buffer, &zero);
+    pass.SetIndexBuffer(buffer);
+    pass.SetVertexBuffer(0, buffer);
     pass.EndPass();
     encoder.Finish();
 }
@@ -218,8 +217,8 @@ TEST_F(CommandBufferValidationTest, BufferWithReadAndWriteUsage) {
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     DummyRenderPass dummyRenderPass(device);
     dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&dummyRenderPass);
-    pass.SetIndexBuffer(buffer, 0);
-    pass.SetBindGroup(0, bg, 0, nullptr);
+    pass.SetIndexBuffer(buffer);
+    pass.SetBindGroup(0, bg);
     pass.EndPass();
     ASSERT_DEVICE_ERROR(encoder.Finish());
 }
@@ -249,7 +248,7 @@ TEST_F(CommandBufferValidationTest, TextureWithReadAndWriteUsage) {
     // Use the texture as both sampeld and output attachment in the same pass
     dawn::CommandEncoder encoder = device.CreateCommandEncoder();
     dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
-    pass.SetBindGroup(0, bg, 0, nullptr);
+    pass.SetBindGroup(0, bg);
     pass.EndPass();
     ASSERT_DEVICE_ERROR(encoder.Finish());
 }

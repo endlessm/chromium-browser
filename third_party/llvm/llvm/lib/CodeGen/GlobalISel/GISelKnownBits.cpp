@@ -119,7 +119,8 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
 
   switch (Opcode) {
   default:
-    TL.computeKnownBitsForTargetInstr(R, Known, DemandedElts, MRI, Depth);
+    TL.computeKnownBitsForTargetInstr(*this, R, Known, DemandedElts, MRI,
+                                      Depth);
     break;
   case TargetOpcode::COPY: {
     MachineOperand Dst = MI.getOperand(0);
@@ -140,6 +141,8 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
   }
   case TargetOpcode::G_CONSTANT: {
     auto CstVal = getConstantVRegVal(R, MRI);
+    if (!CstVal)
+      break;
     Known.One = *CstVal;
     Known.Zero = ~Known.One;
     break;

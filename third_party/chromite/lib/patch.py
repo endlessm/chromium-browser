@@ -195,7 +195,7 @@ class PatchException(Exception):
           % (type(patch), patch))
     Exception.__init__(self)
     self.patch = patch
-    self.message = message
+    self.msg = message
     self.args = (patch,)
     if message is not None:
       self.args += (message,)
@@ -207,7 +207,7 @@ class PatchException(Exception):
     starting with the CL number. This is useful for writing nice error
     messages about dependency errors.
     """
-    return 'failed: %s' % (self.message,)
+    return 'failed: %s' % (self.msg,)
 
   def __str__(self):
     return '%s %s' % (self.patch.PatchLink(), self.ShortExplanation())
@@ -244,8 +244,8 @@ class ApplyPatchException(PatchException):
     if self.files:
       s += ('\n\nThe conflicting files are amongst:\n\n'
             '%s' % (self._StringifyFilenames(),))
-    if self.message:
-      s += '\n\n%s' % (self.message,)
+    if self.msg:
+      s += '\n\n%s' % (self.msg,)
     return s
 
 
@@ -363,13 +363,12 @@ class BrokenChangeID(PatchException):
   """Raised if a patch has an invalid or missing Change-ID."""
 
   def __init__(self, patch, message, missing=False):
-    PatchException.__init__(self, patch)
-    self.message = message
+    PatchException.__init__(self, patch, message=message)
     self.missing = missing
-    self.args = (patch, message, missing)
+    self.args += (missing,)
 
   def ShortExplanation(self):
-    return 'has a broken ChangeId: %s' % (self.message,)
+    return 'has a broken ChangeId: %s' % (self.msg,)
 
 
 class ChangeMatchesMultipleCheckouts(PatchException):
@@ -908,16 +907,15 @@ class GitRepoPatch(PatchQuery):
       A 6-tuple of (sha1, tree_hash, commit subject, commit message,
       committer email, committer name).
     """
-    f = '%H%x00%T%x00%s%x00%B%x00%ce%x00%cn'
-    cmd = ['log', '--pretty=format:%s' % f, '-n1', rev]
-    ret = git.RunGit(git_repo, cmd, error_code_ok=True)
-    # TODO(phobbs): this should probably use a namedtuple...
-    if ret.returncode != 0:
-      return None, None, None, None, None, None
-    output = ret.output.split('\0')
+    fmt = 'format:%H%x00%T%x00%s%x00%B%x00%ce%x00%cn'
+    try:
+      log = git.Log(git_repo, format=fmt, max_count=1, rev=rev)
+    except cros_build_lib.RunCommandError as e:
+      raise git.GitException(e.result.stderr)
+    output = log.split('\0')
     if len(output) != 6:
-      return None, None, None, None, None, None
-    return [x.strip().decode('utf-8', 'replace') for x in output]
+      raise git.GitException('Git did not format log data in expected format.')
+    return [x.strip() for x in output]
 
   def UpdateMetadataFromRepo(self, git_repo, sha1):
     """Update this this object's metadata given a sha1.
@@ -972,7 +970,11 @@ class GitRepoPatch(PatchQuery):
 
     # See if we've already got the object.
     if self.sha1 is not None:
-      return self._PullData(self.sha1, git_repo)[0]
+      try:
+        sha1, _, _, _, _, _ = self._PullData(self.sha1, git_repo)
+      except git.GitException:
+        return None
+      return sha1
 
   def Fetch(self, git_repo):
     """Fetch this patch into the given git repository.
@@ -1591,10 +1593,9 @@ class LocalPatch(GitRepoPatch):
     fields = hash_fields + transfer_fields
 
     format_string = '%n'.join([code for _, code in fields] + ['%B'])
-    result = git.RunGit(self.project_url,
-                        ['log', '--format=%s' % format_string, '-n1',
-                         self.sha1])
-    lines = result.output.splitlines()
+    result = git.Log(self.project_url, format=format_string,
+                     max_count=1, rev=self.sha1)
+    lines = result.splitlines()
     field_value = dict(zip([name for name, _ in fields],
                            [line.strip() for line in lines]))
     commit_body = '\n'.join(lines[len(fields):])
@@ -1678,6 +1679,8 @@ class LocalPatch(GitRepoPatch):
       # remote:   https://chromium-review.googlesource.com/36756 Enforce a ...
       if 'New Changes:' in line:
         urls = []
+        # We're exiting the loop after this point.
+        # pylint: disable=redefined-outer-name
         for line in lines[num + 1:]:
           line = line.split()
           if len(line) < 2 or not line[1].startswith('http'):

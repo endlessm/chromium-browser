@@ -10,10 +10,8 @@ from telemetry.internal import story_runner
 from telemetry.internal.util import command_line
 from telemetry.page import legacy_page_test
 from telemetry.story import expectations as expectations_module
-from telemetry.story import typ_expectations
 from telemetry.web_perf import story_test
 from telemetry.web_perf import timeline_based_measurement
-from tracing.value.diagnostics import generic_set
 
 Info = decorators.Info
 
@@ -49,7 +47,6 @@ class Benchmark(command_line.Command):
       max_failures: The number of story run's failures before bailing
           from executing subsequent page runs. If None, we never bail.
     """
-    self._expectations = typ_expectations.StoryExpectations(self.Name())
     self._max_failures = max_failures
     # TODO: There should be an assertion here that checks that only one of
     # the following is true:
@@ -59,7 +56,20 @@ class Benchmark(command_line.Command):
     #   Benchmark.test set.
     # See https://github.com/catapult-project/catapult/issues/3708
 
-  def _CanRunOnPlatform(self, platform, finder_options):
+  def CanRunOnPlatform(self, platform, finder_options):
+    """Figures out if the benchmark is meant to support this platform.
+
+    This is based on the SUPPORTED_PLATFORMS class member of the benchmark.
+
+    This method should not be overriden or called outside of the Telemetry
+    framework.
+
+    Note that finder_options object in practice sometimes is actually not
+    a BrowserFinderOptions object but a PossibleBrowser object.
+    The key is that it can be passed to ShouldDisable, which only uses
+    finder_options.browser_type, which is available on both PossibleBrowser
+    and BrowserFinderOptions.
+    """
     for p in self.SUPPORTED_PLATFORMS:
       # This is reusing StoryExpectation code, so it is a bit unintuitive. We
       # are trying to detect the opposite of the usual case in StoryExpectations
@@ -120,58 +130,29 @@ class Benchmark(command_line.Command):
   def ProcessCommandLineArgs(cls, parser, args):
     pass
 
-  # pylint: disable=unused-argument
-  @classmethod
-  def ShouldAddValue(cls, name, from_first_story_run):
-    """Returns whether the named value should be added to PageTestResults.
-
-    Override this method to customize the logic of adding values to test
-    results.
-
-    Args:
-      name: The string name of a value being added.
-      from_first_story_run: True if the named value was produced during the
-          first run of the corresponding story.
-
-    Returns:
-      True if the value should be added to the test results, False otherwise.
-    """
-    return True
-
   def CustomizeOptions(self, finder_options):
     """Add options that are required by this benchmark."""
 
   def GetBugComponents(self):
-    """Returns a GenericSet Diagnostic containing the benchmark's Monorail
-       component.
-
-    Returns:
-      GenericSet Diagnostic with the benchmark's bug component name
-    """
-    benchmark_component = decorators.GetComponent(self)
-    component_diagnostic_value = (
-        [benchmark_component] if benchmark_component else [])
-    return generic_set.GenericSet(component_diagnostic_value)
+    """Return the benchmark's Monorail component as a string."""
+    return decorators.GetComponent(self)
 
   def GetOwners(self):
-    """Returns a Generic Diagnostic containing the benchmark's owners' emails
-       in a list.
+    """Return the benchmark's owners' emails in a list."""
+    return decorators.GetEmails(self)
+
+  def GetDocumentationLinks(self):
+    """Return the benchmark's documentation links.
 
     Returns:
-      Diagnostic with a list of the benchmark's owners' emails
+      A list of [title, url] pairs. This is the form that allows Dashboard
+      to display links properly.
     """
-    return generic_set.GenericSet(decorators.GetEmails(self) or [])
-
-  def GetDocumentationLink(self):
-    """Returns a Generic Diagnostic containing the benchmark's documentation
-       link in a string.
-
-    Returns:
-      Diagnostic with the link (string) to the benchmark documentation.
-    """
-    pair = ['Benchmark documentation link',
-            decorators.GetDocumentationLink(self)]
-    return generic_set.GenericSet([pair])
+    links = []
+    url = decorators.GetDocumentationLink(self)
+    if url is not None:
+      links.append(['Benchmark documentation link', url])
+    return links
 
   def CreateCoreTimelineBasedMeasurementOptions(self):
     """Return the base TimelineBasedMeasurementOptions for this Benchmark.
@@ -262,10 +243,3 @@ class Benchmark(command_line.Command):
     if not self.page_set:
       raise NotImplementedError('This test has no "page_set" attribute.')
     return self.page_set()  # pylint: disable=not-callable
-
-  def AugmentExpectationsWithFile(self, raw_data):
-    self._expectations.GetBenchmarkExpectationsFromParser(raw_data)
-
-  @property
-  def expectations(self):
-    return self._expectations

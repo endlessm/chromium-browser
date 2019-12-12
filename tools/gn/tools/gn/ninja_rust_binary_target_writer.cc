@@ -81,6 +81,10 @@ void WriteCrateVars(const Target* target,
   }
   WriteVar(kRustSubstitutionCrateType.ninja_name, crate_type, opts, out);
 
+  WriteVar(SubstitutionOutputDir.ninja_name,
+           SubstitutionWriter::GetLinkerSubstitution(target, tool,
+                                                     &SubstitutionOutputDir),
+           opts, out);
   if (!target->output_extension_set()) {
     DCHECK(tool->AsRust());
     WriteVar(kRustSubstitutionOutputExtension.ninja_name,
@@ -158,7 +162,12 @@ void NinjaRustBinaryTargetWriter::Run() {
         target_, tool_, tool_->outputs(), &tool_outputs);
     WriteCompilerBuildLine(target_->rust_values().crate_root(), deps.vector(),
                            order_only_deps, tool_->name(), tool_outputs);
-    WriteExterns();
+
+    std::vector<const Target*> extern_deps(linkable_deps.vector());
+    std::copy(non_linkable_deps.begin(), non_linkable_deps.end(),
+              std::back_inserter(extern_deps));
+    WriteExterns(extern_deps);
+
     WriteRustdeps(rustdeps, nonrustdeps);
     WriteEdition();
   }
@@ -181,11 +190,13 @@ void NinjaRustBinaryTargetWriter::WriteCompilerVars() {
   WriteSharedVars(subst);
 }
 
-void NinjaRustBinaryTargetWriter::WriteExterns() {
+void NinjaRustBinaryTargetWriter::WriteExterns(
+    const std::vector<const Target*>& deps) {
   std::vector<const Target*> externs;
-  for (const auto& pair : target_->GetDeps(Target::DEPS_LINKED)) {
-    if (pair.ptr->output_type() == Target::RUST_LIBRARY) {
-      externs.push_back(pair.ptr);
+  for (const Target* target : deps) {
+    if (target->output_type() == Target::RUST_LIBRARY ||
+        target->rust_values().crate_type() == RustValues::CRATE_PROC_MACRO) {
+      externs.push_back(target);
     }
   }
   if (externs.empty())
@@ -210,8 +221,9 @@ void NinjaRustBinaryTargetWriter::WriteExterns() {
 void NinjaRustBinaryTargetWriter::WriteRustdeps(
     const std::vector<OutputFile>& rustdeps,
     const std::vector<OutputFile>& nonrustdeps) {
-  if (rustdeps.empty())
+  if (rustdeps.empty() && nonrustdeps.empty())
     return;
+
   out_ << "  rustdeps =";
   for (const auto& rustdep : rustdeps) {
     out_ << " -Ldependency=";

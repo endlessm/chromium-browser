@@ -11,7 +11,6 @@ import glob
 import multiprocessing
 import os
 
-from chromite.cbuildbot import binhost
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -88,8 +87,6 @@ _CACHE_PATH = 'var/cache/edb/chromeos'
 _CHROMIUMOS_OVERLAY = '/usr/local/portage/chromiumos'
 _CHROMIUMOS_CONFIG = os.path.join(_CHROMIUMOS_OVERLAY, 'chromeos', 'config')
 _ECLASS_OVERLAY = '/usr/local/portage/eclass-overlay'
-
-_CHROME_BINHOST_SUFFIX = '-LATEST_RELEASE_CHROME_BINHOST.conf'
 
 _INTERNAL_BINHOST_DIR = os.path.join(
     constants.SOURCE_ROOT, 'src/private-overlays/chromeos-partner-overlay/'
@@ -191,8 +188,8 @@ def _CreateWrapper(wrapper_path, template, **kwargs):
   """
   osutils.WriteFile(wrapper_path, template.format(**kwargs), makedirs=True,
                     sudo=True)
-  cros_build_lib.SudoRunCommand(['chmod', '+x', wrapper_path], print_cmd=False,
-                                redirect_stderr=True)
+  cros_build_lib.sudo_run(['chmod', '+x', wrapper_path], print_cmd=False,
+                          redirect_stderr=True)
 
 
 def _NotEmpty(filepath):
@@ -453,7 +450,7 @@ class Sysroot(object):
     default_toolchains = toolchain.FilterToolchains(toolchains, 'default', True)
     if not default_toolchains:
       raise ConfigurationError('No default toolchain could be found.')
-    config['CHOST'] = default_toolchains.keys()[0]
+    config['CHOST'] = list(default_toolchains)[0]
     config['ARCH'] = toolchain.GetArchForTarget(config['CHOST'])
 
     config['BOARD_OVERLAY'] = '\n'.join(board_overlays)
@@ -549,7 +546,7 @@ class Sysroot(object):
         return ''
       # TODO(bsimonnet): Refactor cros_generate_local_binhosts into a function
       # here and remove the following call.
-      local_binhosts = cros_build_lib.RunCommand(
+      local_binhosts = cros_build_lib.run(
           [os.path.join(constants.CHROMITE_BIN_DIR,
                         'cros_generate_local_binhosts'), '--board=%s' % board],
           print_cmd=False, capture_output=True).output
@@ -557,7 +554,6 @@ class Sysroot(object):
                         'PORTAGE_BINHOST="$LOCAL_BINHOST"'])
 
     config = []
-    chrome_binhost = board and self._ChromeBinhost(board)
     postsubmit_binhost, postsubmit_binhost_internal = self._PostsubmitBinhosts(
         board)
     # TODO(crbug.com/965244) Remove when full post-submit swap has completed.
@@ -607,47 +603,7 @@ source %s
 PORTAGE_BINHOST="$PORTAGE_BINHOST $PARALLEL_POSTSUBMIT_BINHOST"
 """ % parallel_postsubmit_binhost_internal)
 
-    if chrome_binhost:
-      config.append("""
-# LATEST_RELEASE_CHROME_BINHOST provides prebuilts for chromeos-chrome only.
-source %s
-PORTAGE_BINHOST="$PORTAGE_BINHOST $LATEST_RELEASE_CHROME_BINHOST"
-""" % chrome_binhost)
-
-
     return '\n'.join(config)
-
-  def _ChromeBinhost(self, board):
-    """Gets the latest chrome binhost for |board|.
-
-    Args:
-      board (str): The board to use.
-    """
-    extra_useflags = os.environ.get('USE', '').split()
-    compat_id = binhost.CalculateCompatId(board, extra_useflags)
-    internal_config = binhost.PrebuiltMapping.GetFilename(
-        constants.SOURCE_ROOT, 'chrome')
-    external_config = binhost.PrebuiltMapping.GetFilename(
-        constants.SOURCE_ROOT, 'chromium', internal=False)
-    binhost_dirs = (_INTERNAL_BINHOST_DIR, _EXTERNAL_BINHOST_DIR)
-
-    if os.path.exists(internal_config):
-      pfq_configs = binhost.PrebuiltMapping.Load(internal_config)
-    elif os.path.exists(external_config):
-      pfq_configs = binhost.PrebuiltMapping.Load(external_config)
-    else:
-      return None
-
-    for key in pfq_configs.GetPrebuilts(compat_id):
-      for binhost_dir in binhost_dirs:
-        binhost_file = os.path.join(binhost_dir,
-                                    key.board + _CHROME_BINHOST_SUFFIX)
-        # Make sure the binhost file is not empty. We sometimes empty the file
-        # to force clients to use another binhost.
-        if _NotEmpty(binhost_file):
-          return binhost_file
-
-    return None
 
   def _PostsubmitBinhosts(self, board=None, binhost_type=None):
     """Returns the postsubmit binhost to use.
@@ -726,7 +682,7 @@ PORTAGE_BINHOST="$PORTAGE_BINHOST $LATEST_RELEASE_CHROME_BINHOST"
     try:
       toolchain.InstallToolchain(self)
     except toolchain.ToolchainInstallError as e:
-      raise ToolchainInstallError(e.message, e.result, exception=e.exception,
+      raise ToolchainInstallError(str(e), e.result, exception=e.exception,
                                   tc_info=e.failed_toolchain_info)
 
     if not self.IsToolchainInstalled():
@@ -738,12 +694,12 @@ PORTAGE_BINHOST="$PORTAGE_BINHOST $LATEST_RELEASE_CHROME_BINHOST"
         extra_env = {constants.CROS_METRICS_DIR_ENVVAR: tempdir}
 
         try:
-          cros_build_lib.SudoRunCommand(emerge, preserve_env=True,
-                                        extra_env=extra_env)
+          cros_build_lib.sudo_run(emerge, preserve_env=True,
+                                  extra_env=extra_env)
         except cros_build_lib.RunCommandError as e:
           # Include failed packages from the status file in the error.
           failed_pkgs = portage_util.ParseDieHookStatusFile(tempdir)
-          raise ToolchainInstallError(e.message, e.result, exception=e,
+          raise ToolchainInstallError(str(e), e.result, exception=e,
                                       tc_info=failed_pkgs)
 
       # Record we've installed them so we don't call emerge each time.
@@ -766,37 +722,37 @@ PORTAGE_BINHOST="$PORTAGE_BINHOST $LATEST_RELEASE_CHROME_BINHOST"
     """Check if the toolchain has been installed."""
     return self.GetCachedField(_IMPLICIT_SYSROOT_DEPS_KEY) == 'yes'
 
-  def Delete(self, async=False):
+  def Delete(self, background=False):
     """Delete the sysroot.
 
     Optionally run asynchronously. Async delete moves the sysroot into a temp
     directory and then deletes the tempdir with a background task.
 
     Args:
-      async (bool): Whether to run the delete as an async operation.
+      background (bool): Whether to run the delete as a background operation.
     """
     rm = ['rm', '-rf', '--one-file-system', '--']
-    if async:
+    if background:
       # Make the temporary directory in the same folder as the sysroot were
       # deleting to avoid crossing disks, mounts, etc. that'd cause us to
       # synchronously copy the entire thing before we delete it.
       cwd = os.path.normpath(self._Path('..'))
       try:
-        result = cros_build_lib.SudoRunCommand(['mktemp', '-d', '-p', cwd],
-                                               print_cmd=False,
-                                               redirect_stdout=True, cwd=cwd)
+        result = cros_build_lib.sudo_run(['mktemp', '-d', '-p', cwd],
+                                         print_cmd=False,
+                                         redirect_stdout=True, cwd=cwd)
       except cros_build_lib.RunCommandError:
         # Fall back to a synchronous delete just in case.
         logging.notice('Error deleting sysroot asynchronously. Deleting '
                        'synchronously instead. This may take a minute.')
-        return self.Delete(async=False)
+        return self.Delete(background=False)
 
       tempdir = result.output.strip()
-      cros_build_lib.SudoRunCommand(['mv', self.path, tempdir], quiet=True)
+      cros_build_lib.sudo_run(['mv', self.path, tempdir], quiet=True)
       if not os.fork():
         # Child process, just delete the sysroot root and _exit.
-        result = cros_build_lib.SudoRunCommand(rm + [tempdir], quiet=True,
-                                               error_code_ok=True)
+        result = cros_build_lib.sudo_run(rm + [tempdir], quiet=True,
+                                         error_code_ok=True)
         if result.returncode:
           # Log it so it can be handled manually.
           logging.warning('Unable to delete old sysroot now at %s: %s', tempdir,
@@ -804,4 +760,4 @@ PORTAGE_BINHOST="$PORTAGE_BINHOST $LATEST_RELEASE_CHROME_BINHOST"
         # pylint: disable=protected-access
         os._exit(result.returncode)
     else:
-      cros_build_lib.SudoRunCommand(rm + [self.path], quiet=True)
+      cros_build_lib.sudo_run(rm + [self.path], quiet=True)

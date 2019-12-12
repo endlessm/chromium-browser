@@ -34,8 +34,8 @@ struct CopyConfig {
 
 class CompressedTextureBCFormatTest : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
         mBindGroupLayout = utils::MakeBindGroupLayout(
             device, {{0, dawn::ShaderStage::Fragment, dawn::BindingType::Sampler},
                      {1, dawn::ShaderStage::Fragment, dawn::BindingType::SampledTexture}});
@@ -145,12 +145,12 @@ class CompressedTextureBCFormatTest : public DawnTest {
             layout(location=0) out vec2 texCoord;
             void main() {
                 const vec2 pos[3] = vec2[3](
-                    vec2(-3.0f, -1.0f),
-                    vec2( 3.0f, -1.0f),
-                    vec2( 0.0f,  2.0f)
+                    vec2(-3.0f,  1.0f),
+                    vec2( 3.0f,  1.0f),
+                    vec2( 0.0f, -2.0f)
                 );
                 gl_Position = vec4(pos[gl_VertexIndex], 0.0f, 1.0f);
-                texCoord = gl_Position.xy / 2.0f + vec2(0.5f);
+                texCoord = vec2(gl_Position.x / 2.0f, -gl_Position.y / 2.0f) + vec2(0.5f);
             })");
         dawn::ShaderModule fsModule =
             utils::CreateShaderModule(device, utils::SingleShaderStage::Fragment, R"(
@@ -166,7 +166,7 @@ class CompressedTextureBCFormatTest : public DawnTest {
         renderPipelineDescriptor.vertexStage.module = vsModule;
         renderPipelineDescriptor.cFragmentStage.module = fsModule;
         renderPipelineDescriptor.layout = pipelineLayout;
-        renderPipelineDescriptor.cColorStates[0]->format =
+        renderPipelineDescriptor.cColorStates[0].format =
             utils::BasicRenderPass::kDefaultColorFormat;
         return device.CreateRenderPipeline(&renderPipelineDescriptor);
     }
@@ -188,7 +188,7 @@ class CompressedTextureBCFormatTest : public DawnTest {
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
             pass.SetPipeline(renderPipeline);
-            pass.SetBindGroup(0, bindGroup, 0, nullptr);
+            pass.SetBindGroup(0, bindGroup);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }

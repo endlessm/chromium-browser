@@ -38,8 +38,8 @@ namespace {
 
 class SamplerTest : public DawnTest {
 protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
         mRenderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
         mBindGroupLayout = utils::MakeBindGroupLayout(
@@ -77,7 +77,7 @@ protected:
         pipelineDescriptor.layout = pipelineLayout;
         pipelineDescriptor.vertexStage.module = vsModule;
         pipelineDescriptor.cFragmentStage.module = fsModule;
-        pipelineDescriptor.cColorStates[0]->format = mRenderPass.colorFormat;
+        pipelineDescriptor.cColorStates[0].format = mRenderPass.colorFormat;
 
         mPipeline = device.CreateRenderPipeline(&pipelineDescriptor);
 
@@ -142,7 +142,7 @@ protected:
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&mRenderPass.renderPassInfo);
             pass.SetPipeline(mPipeline);
-            pass.SetBindGroup(0, bindGroup, 0, nullptr);
+            pass.SetBindGroup(0, bindGroup);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }

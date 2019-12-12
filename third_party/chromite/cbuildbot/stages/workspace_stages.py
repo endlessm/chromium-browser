@@ -66,8 +66,7 @@ def ChrootArgs(options):
     options: self._run.options
 
   Returns:
-    List of command line arguments, normally passed into RunCommand as
-    chroot_args.
+    List of command line arguments, normally passed into run as chroot_args.
   """
   chroot_args = ['--cache-dir', options.cache_dir]
   if options.chrome_root:
@@ -234,7 +233,7 @@ class SyncStage(WorkspaceStageBase):
         'Can\'t cherry-pick "%s" into an official version "%s."' %
         (patch_options, self.version))
 
-    cros_build_lib.RunCommand(cmd)
+    cros_build_lib.run(cmd)
 
 
 class WorkspaceSyncStage(WorkspaceStageBase):
@@ -298,7 +297,7 @@ class WorkspaceSyncChromeStage(WorkspaceStageBase):
     sync_chrome = os.path.join(
         self._orig_root, 'chromite', 'bin', 'sync_chrome')
     gclient = os.path.join(
-        self._build_root, 'chromium', 'tools', 'depot_tools', 'gclient')
+        self._build_root, constants.DEPOT_TOOLS_SUBPATH, 'gclient')
 
     # Branched gclient can use git-cache incompatibly, so use a temp one.
     with osutils.TempDir(prefix='dummy') as git_cache:
@@ -382,9 +381,9 @@ class WorkspaceScheduleChildrenStage(WorkspaceStageBase):
 
   def PerformStage(self):
     """Schedule child builds for this buildspec."""
-    #build_identifier, _ = self._run.GetCIDBHandle()
-    #build_id = build_identifier.cidb_id
-    #master_buildbucket_id = self._run.options.buildbucket_id
+    # build_identifier, _ = self._run.GetCIDBHandle()
+    # build_id = build_identifier.cidb_id
+    # master_buildbucket_id = self._run.options.buildbucket_id
     version_info = self.GetWorkspaceVersionInfo()
 
     extra_args = [
@@ -400,8 +399,8 @@ class WorkspaceScheduleChildrenStage(WorkspaceStageBase):
           build_config=child_name,
           # See crbug.com/940969. These id's get children killed during
           # multiple quick builds.
-          #master_cidb_id=build_id,
-          #master_buildbucket_id=master_buildbucket_id,
+          # master_cidb_id=build_id,
+          # master_buildbucket_id=master_buildbucket_id,
           extra_args=extra_args,
       )
       result = child.Submit(dryrun=self._run.options.debug)

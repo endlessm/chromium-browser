@@ -139,6 +139,12 @@ class FullComment;
 
 } // namespace comments
 
+namespace interp {
+
+class Context;
+
+} // namespace interp
+
 struct TypeInfo {
   uint64_t Width = 0;
   unsigned Align = 0;
@@ -564,6 +570,7 @@ private:
   const TargetInfo *Target = nullptr;
   const TargetInfo *AuxTarget = nullptr;
   clang::PrintingPolicy PrintingPolicy;
+  std::unique_ptr<interp::Context> InterpContext;
 
 public:
   IdentifierTable &Idents;
@@ -572,6 +579,9 @@ public:
   mutable DeclarationNameTable DeclarationNames;
   IntrusiveRefCntPtr<ExternalASTSource> ExternalSource;
   ASTMutationListener *Listener = nullptr;
+
+  /// Returns the clang bytecode interpreter context.
+  interp::Context &getInterpContext();
 
   /// Container for either a single DynTypedNode or for an ArrayRef to
   /// DynTypedNode. For use with ParentMap.
@@ -2045,6 +2055,11 @@ public:
   /// types.
   bool areCompatibleVectorTypes(QualType FirstVec, QualType SecondVec);
 
+  /// Return true if the type has been explicitly qualified with ObjC ownership.
+  /// A type may be implicitly qualified with ownership under ObjC ARC, and in
+  /// some cases the compiler treats these differently.
+  bool hasDirectOwnershipQualifier(QualType Ty) const;
+
   /// Return true if this is an \c NSObject object with its \c NSObject
   /// attribute set.
   static bool isObjCNSObjectType(QualType Ty) {
@@ -2568,10 +2583,12 @@ public:
     return T == getObjCSelType();
   }
 
-  bool ObjCQualifiedIdTypesAreCompatible(QualType LHS, QualType RHS,
+  bool ObjCQualifiedIdTypesAreCompatible(const ObjCObjectPointerType *LHS,
+                                         const ObjCObjectPointerType *RHS,
                                          bool ForCompare);
 
-  bool ObjCQualifiedClassTypesAreCompatible(QualType LHS, QualType RHS);
+  bool ObjCQualifiedClassTypesAreCompatible(const ObjCObjectPointerType *LHS,
+                                            const ObjCObjectPointerType *RHS);
 
   // Check the safety of assignment from LHS to RHS
   bool canAssignObjCInterfaces(const ObjCObjectPointerType *LHSOPT,

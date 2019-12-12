@@ -9,7 +9,6 @@ from __future__ import print_function
 
 import collections
 import contextlib
-import cStringIO
 import functools
 import os
 import re
@@ -19,6 +18,7 @@ import unittest
 
 import mock
 import six
+from six.moves import StringIO
 
 from chromite.lib import cache
 from chromite.lib import constants
@@ -185,8 +185,9 @@ def VerifyTarball(tarball, dir_struct):
     AssertionError when there is any divergence between the tarball and the
     structure specified by 'dir_struct'.
   """
-  contents = cros_build_lib.RunCommand(
-      ['tar', '-tf', tarball], capture_output=True).output.splitlines()
+  result = cros_build_lib.run(['tar', '-tf', tarball], capture_output=True,
+                              encoding='utf-8')
+  contents = result.stdout.splitlines()
   normalized = set()
   for p in contents:
     norm = os.path.normpath(p)
@@ -324,7 +325,7 @@ class TruthTable(object):
     for inputs in truth_table:
       a, b, c = inputs
       result = mod.Foo(a, b, c)
-      self.assertEquals(result, truth_table.GetOutput(inputs))
+      self.assertEqual(result, truth_table.GetOutput(inputs))
   """
 
   class TruthTableInputIterator(object):
@@ -462,7 +463,7 @@ class LogFilter(logging.Filter):
 
   def __init__(self):
     logging.Filter.__init__(self)
-    self.messages = cStringIO.StringIO()
+    self.messages = StringIO()
 
   def filter(self, record):
     self.messages.write(record.getMessage() + '\n')
@@ -679,9 +680,42 @@ class TestCase(unittest.TestCase):
     try:
       self.assertSequenceEqual(seq1, seq2)
     except AssertionError as ex:
-      return ex.message
+      return str(ex)
     else:
       return 'no differences'
+
+  # Upstream deprecated these in Python 3, but left them in Python 2.
+  # Deprecate them ourselves to help with migration.  We can delete these
+  # once upstream drops them.
+  def _disable(deprecated, replacement):  # pylint: disable=no-self-argument
+    def disable_func(*_args, **_kwargs):
+      raise RuntimeError('%s() is removed in Python 3; use %s() instead' %
+                         (deprecated, replacement))
+    return disable_func
+
+  assertEquals = _disable('assertEquals', 'assertEqual')
+  assertNotEquals = _disable('assertNotEquals', 'assertNotEqual')
+  assertAlmostEquals = _disable('assertAlmostEquals', 'assertAlmostEqual')
+  assertNotAlmostEquals = _disable('assertNotAlmostEquals',
+                                   'assertNotAlmostEqual')
+  assert_ = _disable('assert_', 'assertTrue')
+  failUnlessEqual = _disable('failUnlessEqual', 'assertEqual')
+  failIfEqual = _disable('failIfEqual', 'assertNotEqual')
+  failUnlessAlmostEqual = _disable('failUnlessAlmostEqual', 'assertAlmostEqual')
+  failIfAlmostEqual = _disable('failIfAlmostEqual', 'assertNotAlmostEqual')
+  failUnless = _disable('failUnless', 'assertTrue')
+  failUnlessRaises = _disable('failUnlessRaises', 'assertRaises')
+  failIf = _disable('failIf', 'assertFalse')
+
+  # Python 3 renamed these.
+  if sys.version_info.major < 3:
+    assertCountEqual = unittest.TestCase.assertItemsEqual
+    assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
+    assertRegex = unittest.TestCase.assertRegexpMatches
+
+  assertItemsEqual = _disable('assertItemsEqual', 'assertCountEqual')
+  assertRaisesRegexp = _disable('assertRaisesRegexp', 'assertRaisesRegex')
+  assertRegexpMatches = _disable('assertRegexpMatches', 'assertRegex')
 
 
 class LoggingTestCase(TestCase):
@@ -1048,7 +1082,7 @@ class LocalSqlServerTestCase(TempDirTestCase):
         '--basedir=/usr',
         '--ldata=%s' % self._mysqld_dir,
     ]
-    cros_build_lib.RunCommand(cmd, quiet=True)
+    cros_build_lib.run(cmd, quiet=True)
 
     self.mysqld_host = '127.0.0.1'
     self.mysqld_port = remote_access.GetUnusedPort()
@@ -1062,7 +1096,7 @@ class LocalSqlServerTestCase(TempDirTestCase):
         '--tmpdir', mysqld_tmp_dir,
     ]
     self._mysqld_runner = parallel.BackgroundTaskRunner(
-        cros_build_lib.RunCommand,
+        cros_build_lib.run,
         processes=1,
         halt_on_error=True)
     queue = self._mysqld_runner.__enter__()
@@ -1099,7 +1133,7 @@ class LocalSqlServerTestCase(TempDirTestCase):
           '-u', 'root',
           'shutdown',
       ]
-      cros_build_lib.RunCommand(cmd, quiet=True)
+      cros_build_lib.run(cmd, quiet=True)
     except cros_build_lib.RunCommandError as e:
       self._CleanupMysqld(
           failure='mysqladmin failed to shutdown mysqld: %s' % e)
@@ -1334,6 +1368,8 @@ class ProfileTestRunner(unittest.TextTestRunner):
   SORT_STATS_KEYS = ()
 
   def run(self, test):
+    # TODO(vapier): Drop this after we upgrade past pylint-1.7.
+    # pylint: disable=bad-python3-import
     import cProfile
     profiler = cProfile.Profile(**self.PROFILE_KWARGS)
     ret = profiler.runcall(unittest.TextTestRunner.run, self, test)
@@ -1498,9 +1534,9 @@ class TestProgram(unittest.TestProgram):
       ProfileTestRunner.SORT_STATS_KEYS = opts.profile_sort_keys.split(',')
 
     # Figure out which tests the user/unittest wants to run.
-    if len(opts.tests) == 0 and self.defaultTest is None:
+    if not opts.tests and self.defaultTest is None:
       self.testNames = None
-    elif len(opts.tests) > 0:
+    elif opts.tests:
       self.testNames = opts.tests
     else:
       self.testNames = (self.defaultTest,)
@@ -1546,8 +1582,17 @@ class PopenMock(partial_mock.PartialCmdMock):
     script = os.path.join(self.tempdir, 'mock_cmd.sh')
     stdout = os.path.join(self.tempdir, 'output')
     stderr = os.path.join(self.tempdir, 'error')
-    osutils.WriteFile(stdout, result.output)
-    osutils.WriteFile(stderr, result.error)
+    # This encoding handling might appear a bit wonky, but it's OK, I promise.
+    # The purpose of this mock is to stuff data into files so that we can run a
+    # fake script in place of the real command.  So any cros_build_lib.run()
+    # settings will still be fully checked including encoding.  This code just
+    # takes care of writing the data from AddCmdResult objects.  Those might be
+    # specified in strings or in bytes, but there's no value in forcing all code
+    # to use the same encoding with the mocks.
+    def _MaybeEncode(src):
+      return src.encode('utf-8') if isinstance(src, six.text_type) else src
+    osutils.WriteFile(stdout, _MaybeEncode(result.output), mode='wb')
+    osutils.WriteFile(stderr, _MaybeEncode(result.error), mode='wb')
     osutils.WriteFile(
         script,
         ['#!/bin/bash\n', 'cat %s\n' % stdout, 'cat %s >&2\n' % stderr,
@@ -1558,25 +1603,28 @@ class PopenMock(partial_mock.PartialCmdMock):
 
 
 class RunCommandMock(partial_mock.PartialCmdMock):
-  """Provides a context where all RunCommand invocations low-level mocked."""
+  """Provides a context where all run invocations low-level mocked."""
 
   TARGET = 'chromite.lib.cros_build_lib'
-  ATTRS = ('RunCommand',)
-  DEFAULT_ATTR = 'RunCommand'
+  ATTRS = ('run',)
+  DEFAULT_ATTR = 'run'
 
-  def RunCommand(self, cmd, *args, **kwargs):
-    result = self._results['RunCommand'].LookupResult(
+  def run(self, cmd, *args, **kwargs):
+    result = self._results['run'].LookupResult(
         (cmd,), kwargs=kwargs, hook_args=(cmd,) + args, hook_kwargs=kwargs)
 
     popen_mock = PopenMock()
     popen_mock.AddCmdResult(partial_mock.Ignore(), result.returncode,
                             result.output, result.error)
     with popen_mock:
-      return self.backup['RunCommand'](cmd, *args, **kwargs)
+      return self.backup['run'](cmd, *args, **kwargs)
+
+  # Backwards compat API.
+  RunCommand = run
 
 
 class RunCommandTestCase(MockTestCase):
-  """MockTestCase that mocks out RunCommand by default."""
+  """MockTestCase that mocks out run by default."""
 
   def setUp(self):
     self.rc = self.StartPatcher(RunCommandMock())
@@ -1584,7 +1632,7 @@ class RunCommandTestCase(MockTestCase):
     self.assertCommandCalled = self.rc.assertCommandCalled
     self.assertCommandContains = self.rc.assertCommandContains
 
-    # These ENV variables affect RunCommand behavior, hide them.
+    # These ENV variables affect run behavior, hide them.
     self._old_envs = {e: os.environ.pop(e) for e in constants.ENV_PASSTHRU
                       if e in os.environ}
 

@@ -2532,6 +2532,11 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
     return;
   }
 
+    // Check if this must be emitted as declare variant.
+  if (LangOpts.OpenMP && isa<FunctionDecl>(Global) && OpenMPRuntime &&
+      OpenMPRuntime->emitDeclareVariant(GD, /*IsForDefinition=*/false))
+    return;
+
   // If we're deferring emission of a C++ variable with an
   // initializer, remember the order in which it appeared in the file.
   if (getLangOpts().CPlusPlus && isa<VarDecl>(Global) &&
@@ -2836,11 +2841,13 @@ void CodeGenModule::emitMultiVersionFunctions() {
     llvm::Function *ResolverFunc;
     const TargetInfo &TI = getTarget();
 
-    if (TI.supportsIFunc() || FD->isTargetMultiVersion())
+    if (TI.supportsIFunc() || FD->isTargetMultiVersion()) {
       ResolverFunc = cast<llvm::Function>(
           GetGlobalValue((getMangledName(GD) + ".resolver").str()));
-    else
+      ResolverFunc->setLinkage(llvm::Function::WeakODRLinkage);
+    } else {
       ResolverFunc = cast<llvm::Function>(GetGlobalValue(getMangledName(GD)));
+    }
 
     if (supportsCOMDAT())
       ResolverFunc->setComdat(
@@ -2884,6 +2891,10 @@ void CodeGenModule::emitCPUDispatchDefinition(GlobalDecl GD) {
 
   auto *ResolverFunc = cast<llvm::Function>(GetOrCreateLLVMFunction(
       ResolverName, ResolverType, ResolverGD, /*ForVTable=*/false));
+  ResolverFunc->setLinkage(llvm::Function::WeakODRLinkage);
+  if (supportsCOMDAT())
+    ResolverFunc->setComdat(
+        getModule().getOrInsertComdat(ResolverFunc->getName()));
 
   SmallVector<CodeGenFunction::MultiVersionResolverOption, 10> Options;
   const TargetInfo &Target = getTarget();
@@ -2948,6 +2959,21 @@ void CodeGenModule::emitCPUDispatchDefinition(GlobalDecl GD) {
 
   CodeGenFunction CGF(*this);
   CGF.EmitMultiVersionResolver(ResolverFunc, Options);
+
+  if (getTarget().supportsIFunc()) {
+    std::string AliasName = getMangledNameImpl(
+        *this, GD, FD, /*OmitMultiVersionMangling=*/true);
+    llvm::Constant *AliasFunc = GetGlobalValue(AliasName);
+    if (!AliasFunc) {
+      auto *IFunc = cast<llvm::GlobalIFunc>(GetOrCreateLLVMFunction(
+          AliasName, DeclTy, GD, /*ForVTable=*/false, /*DontDefer=*/true,
+          /*IsThunk=*/false, llvm::AttributeList(), NotForDefinition));
+      auto *GA = llvm::GlobalAlias::create(
+         DeclTy, 0, getFunctionLinkage(GD), AliasName, IFunc, &getModule());
+      GA->setLinkage(llvm::Function::WeakODRLinkage);
+      SetCommonAttributes(GD, GA);
+    }
+  }
 }
 
 /// If a dispatcher for the specified mangled name is not in the module, create
@@ -2984,7 +3010,7 @@ llvm::Constant *CodeGenModule::GetOrCreateMultiVersionResolver(
         MangledName + ".resolver", ResolverType, GlobalDecl{},
         /*ForVTable=*/false);
     llvm::GlobalIFunc *GIF = llvm::GlobalIFunc::create(
-        DeclTy, 0, llvm::Function::ExternalLinkage, "", Resolver, &getModule());
+        DeclTy, 0, llvm::Function::WeakODRLinkage, "", Resolver, &getModule());
     GIF->setName(ResolverName);
     SetCommonAttributes(FD, GIF);
 
@@ -3030,6 +3056,10 @@ llvm::Constant *CodeGenModule::GetOrCreateLLVMFunction(
         EmitGlobal(GDDef);
       }
     }
+    // Check if this must be emitted as declare variant and emit reference to
+    // the the declare variant function.
+    if (LangOpts.OpenMP && OpenMPRuntime)
+      (void)OpenMPRuntime->emitDeclareVariant(GD, /*IsForDefinition=*/true);
 
     if (FD->isMultiVersion()) {
       const auto *TA = FD->getAttr<TargetAttr>();
@@ -3788,9 +3818,9 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D,
     return;
 
   llvm::Constant *Init = nullptr;
-  CXXRecordDecl *RD = ASTTy->getBaseElementTypeUnsafe()->getAsCXXRecordDecl();
   bool NeedsGlobalCtor = false;
-  bool NeedsGlobalDtor = RD && !RD->hasTrivialDestructor();
+  bool NeedsGlobalDtor =
+      D->needsDestruction(getContext()) == QualType::DK_cxx_destructor;
 
   const VarDecl *InitDecl;
   const Expr *InitExpr = D->getAnyInitializer(InitDecl);
@@ -4306,6 +4336,11 @@ void CodeGenModule::HandleCXXStaticMemberVarInstantiation(VarDecl *VD) {
 
 void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
                                                  llvm::GlobalValue *GV) {
+  // Check if this must be emitted as declare variant.
+  if (LangOpts.OpenMP && OpenMPRuntime &&
+      OpenMPRuntime->emitDeclareVariant(GD, /*IsForDefinition=*/true))
+    return;
+
   const auto *D = cast<FunctionDecl>(GD.getDecl());
 
   // Compute the function info and LLVM type.
@@ -5111,7 +5146,9 @@ void CodeGenModule::EmitObjCIvarInitializations(ObjCImplementationDecl *D) {
 // EmitLinkageSpec - Emit all declarations in a linkage spec.
 void CodeGenModule::EmitLinkageSpec(const LinkageSpecDecl *LSD) {
   if (LSD->getLanguage() != LinkageSpecDecl::lang_c &&
-      LSD->getLanguage() != LinkageSpecDecl::lang_cxx) {
+      LSD->getLanguage() != LinkageSpecDecl::lang_cxx &&
+      LSD->getLanguage() != LinkageSpecDecl::lang_cxx_11 &&
+      LSD->getLanguage() != LinkageSpecDecl::lang_cxx_14) {
     ErrorUnsupported(LSD, "linkage spec");
     return;
   }

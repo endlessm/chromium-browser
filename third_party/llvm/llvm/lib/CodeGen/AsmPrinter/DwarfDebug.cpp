@@ -198,54 +198,8 @@ bool DebugLocDwarfExpression::isFrameRegister(const TargetRegisterInfo &TRI,
   return false;
 }
 
-bool DbgVariable::isBlockByrefVariable() const {
-  assert(getVariable() && "Invalid complex DbgVariable!");
-  return getVariable()->getType()->isBlockByrefStruct();
-}
-
 const DIType *DbgVariable::getType() const {
-  DIType *Ty = getVariable()->getType();
-  // FIXME: isBlockByrefVariable should be reformulated in terms of complex
-  // addresses instead.
-  if (Ty->isBlockByrefStruct()) {
-    /* Byref variables, in Blocks, are declared by the programmer as
-       "SomeType VarName;", but the compiler creates a
-       __Block_byref_x_VarName struct, and gives the variable VarName
-       either the struct, or a pointer to the struct, as its type.  This
-       is necessary for various behind-the-scenes things the compiler
-       needs to do with by-reference variables in blocks.
-
-       However, as far as the original *programmer* is concerned, the
-       variable should still have type 'SomeType', as originally declared.
-
-       The following function dives into the __Block_byref_x_VarName
-       struct to find the original type of the variable.  This will be
-       passed back to the code generating the type for the Debug
-       Information Entry for the variable 'VarName'.  'VarName' will then
-       have the original type 'SomeType' in its debug information.
-
-       The original type 'SomeType' will be the type of the field named
-       'VarName' inside the __Block_byref_x_VarName struct.
-
-       NOTE: In order for this to not completely fail on the debugger
-       side, the Debug Information Entry for the variable VarName needs to
-       have a DW_AT_location that tells the debugger how to unwind through
-       the pointers and __Block_byref_x_VarName struct to find the actual
-       value of the variable.  The function addBlockByrefType does this.  */
-    DIType *subType = Ty;
-    uint16_t tag = Ty->getTag();
-
-    if (tag == dwarf::DW_TAG_pointer_type)
-      subType = cast<DIDerivedType>(Ty)->getBaseType();
-
-    auto Elements = cast<DICompositeType>(subType)->getElements();
-    for (unsigned i = 0, N = Elements.size(); i < N; ++i) {
-      auto *DT = cast<DIDerivedType>(Elements[i]);
-      if (getName() == DT->getName())
-        return DT->getBaseType();
-    }
-  }
-  return Ty;
+  return getVariable()->getType();
 }
 
 /// Get .debug_loc entry for the instruction range starting at MI.
@@ -596,12 +550,13 @@ static void collectCallSiteParameters(const MachineInstr *CallMI,
   bool ShouldTryEmitEntryVals = MBB->getIterator() == MF->begin();
   DenseMap<unsigned, unsigned> RegsForEntryValues;
 
-  // If the MI is an instruction defining a parameter's forwarding register,
-  // add it into the Defs. If the MI clobbers more then one register, we use
-  // the Defs in order to remove all the registers from
-  // the ForwardedRegWorklist, since we do not support such situations now.
+  // If the MI is an instruction defining one or more parameters' forwarding
+  // registers, add those defines. We can currently only describe forwarded
+  // registers that are explicitly defined, but keep track of implicit defines
+  // also to remove those registers from the work list.
   auto getForwardingRegsDefinedByMI = [&](const MachineInstr &MI,
-                                         SmallVectorImpl<unsigned> &Defs) {
+                                          SmallVectorImpl<unsigned> &Explicit,
+                                          SmallVectorImpl<unsigned> &Implicit) {
     if (MI.isDebugInstr())
       return;
 
@@ -610,7 +565,10 @@ static void collectCallSiteParameters(const MachineInstr *CallMI,
           Register::isPhysicalRegister(MO.getReg())) {
         for (auto FwdReg : ForwardedRegWorklist) {
           if (TRI->regsOverlap(FwdReg, MO.getReg())) {
-            Defs.push_back(FwdReg);
+            if (MO.isImplicit())
+              Implicit.push_back(FwdReg);
+            else
+              Explicit.push_back(FwdReg);
             break;
           }
         }
@@ -641,26 +599,32 @@ static void collectCallSiteParameters(const MachineInstr *CallMI,
     if (ForwardedRegWorklist.empty())
       return;
 
-    SmallVector<unsigned, 4> Defs;
-    getForwardingRegsDefinedByMI(*I, Defs);
-    if (Defs.empty())
+    SmallVector<unsigned, 4> ExplicitFwdRegDefs;
+    SmallVector<unsigned, 4> ImplicitFwdRegDefs;
+    getForwardingRegsDefinedByMI(*I, ExplicitFwdRegDefs, ImplicitFwdRegDefs);
+    if (ExplicitFwdRegDefs.empty() && ImplicitFwdRegDefs.empty())
       continue;
 
     // If the MI clobbers more then one forwarding register we must remove
     // all of them from the working list.
-    for (auto Reg : Defs)
+    for (auto Reg : concat<unsigned>(ExplicitFwdRegDefs, ImplicitFwdRegDefs))
       ForwardedRegWorklist.erase(Reg);
-    if (I->getNumDefs() != 1)
+
+    // The describeLoadedValue() hook currently does not have any information
+    // about which register it should describe in case of multiple defines, so
+    // for now we only handle instructions where a forwarded register is (at
+    // least partially) defined by the instruction's single explicit define.
+    if (I->getNumExplicitDefs() != 1 || ExplicitFwdRegDefs.empty())
       continue;
-    unsigned Reg = Defs[0];
+    unsigned Reg = ExplicitFwdRegDefs[0];
 
     if (auto ParamValue = TII->describeLoadedValue(*I)) {
-      if (ParamValue->first->isImm()) {
-        unsigned Val = ParamValue->first->getImm();
+      if (ParamValue->first.isImm()) {
+        unsigned Val = ParamValue->first.getImm();
         DbgValueLoc DbgLocVal(ParamValue->second, Val);
         finishCallSiteParam(DbgLocVal, Reg);
-      } else if (ParamValue->first->isReg()) {
-        Register RegLoc = ParamValue->first->getReg();
+      } else if (ParamValue->first.isReg()) {
+        Register RegLoc = ParamValue->first.getReg();
         unsigned SP = TLI->getStackPointerRegisterToSaveRestore();
         Register FP = TRI->getFrameRegister(*MF);
         bool IsSPorFP = (RegLoc == SP) || (RegLoc == FP);
@@ -780,9 +744,9 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
             CU.constructCallSiteEntryDIE(ScopeDIE, CalleeSP, IsTail, PCAddr,
                                          PCOffset, CallReg);
 
-      // For now only GDB supports call site parameter debug info.
+      // GDB and LLDB support call site parameter debug info.
       if (Asm->TM.Options.EnableDebugEntryValues &&
-          tuneForGDB()) {
+          (tuneForGDB() || tuneForLLDB())) {
         ParamSet Params;
         // Try to interpret values of call site parameters.
         collectCallSiteParameters(&MI, Params);
@@ -1793,6 +1757,9 @@ void DwarfDebug::beginFunctionImpl(const MachineFunction *MF) {
   if (SP->getUnit()->getEmissionKind() == DICompileUnit::NoDebug)
     return;
 
+  SectionLabels.insert(std::make_pair(&Asm->getFunctionBegin()->getSection(),
+                                      Asm->getFunctionBegin()));
+
   DwarfCompileUnit &CU = getOrCreateDwarfCompileUnit(SP->getUnit());
 
   // Set DwarfDwarfCompileUnitID in MCContext to the Compile Unit this function
@@ -2022,9 +1989,10 @@ static dwarf::PubIndexEntryDescriptor computeIndexValue(DwarfUnit *CU,
   case dwarf::DW_TAG_union_type:
   case dwarf::DW_TAG_enumeration_type:
     return dwarf::PubIndexEntryDescriptor(
-        dwarf::GIEK_TYPE, CU->getLanguage() != dwarf::DW_LANG_C_plus_plus
-                              ? dwarf::GIEL_STATIC
-                              : dwarf::GIEL_EXTERNAL);
+        dwarf::GIEK_TYPE,
+        dwarf::isCPlusPlus((dwarf::SourceLanguage)CU->getLanguage())
+            ? dwarf::GIEL_EXTERNAL
+            : dwarf::GIEL_STATIC);
   case dwarf::DW_TAG_typedef:
   case dwarf::DW_TAG_base_type:
   case dwarf::DW_TAG_subrange_type:
@@ -2546,7 +2514,7 @@ void DwarfDebug::emitDebugARanges() {
 
     // 7.20 in the Dwarf specs requires the table to be aligned to a tuple.
     unsigned Padding =
-        OffsetToAlignment(sizeof(int32_t) + ContentSize, TupleSize);
+        offsetToAlignment(sizeof(int32_t) + ContentSize, Align(TupleSize));
 
     ContentSize += Padding;
     ContentSize += (List.size() + 1) * TupleSize;
@@ -2618,11 +2586,8 @@ static void emitRangeList(DwarfDebug &DD, AsmPrinter *Asm,
     if (!Base && (P.second.size() > 1 || DwarfVersion < 5) &&
         (CU.getCUNode()->getRangesBaseAddress() || DwarfVersion >= 5)) {
       BaseIsSet = true;
-      // FIXME/use care: This may not be a useful base address if it's not
-      // the lowest address/range in this object.
-      Base = P.second.front()->getStart();
+      Base = DD.getSectionLabel(&P.second.front()->getStart()->getSection());
       if (DwarfVersion >= 5) {
-        Base = DD.getSectionLabel(&Base->getSection());
         Asm->OutStreamer->AddComment("DW_RLE_base_addressx");
         Asm->OutStreamer->EmitIntValue(dwarf::DW_RLE_base_addressx, 1);
         Asm->OutStreamer->AddComment("  base address index");
@@ -3063,10 +3028,6 @@ void DwarfDebug::addAccelType(const DICompileUnit &CU, StringRef Name,
 
 uint16_t DwarfDebug::getDwarfVersion() const {
   return Asm->OutStreamer->getContext().getDwarfVersion();
-}
-
-void DwarfDebug::addSectionLabel(const MCSymbol *Sym) {
-  SectionLabels.insert(std::make_pair(&Sym->getSection(), Sym));
 }
 
 const MCSymbol *DwarfDebug::getSectionLabel(const MCSection *S) {

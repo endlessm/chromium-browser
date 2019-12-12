@@ -7,6 +7,7 @@
 
 from __future__ import print_function
 
+from chromite.api import faux
 from chromite.api import validate
 from chromite.api.controller import controller_util
 from chromite.api.gen.chromite.api import binhost_pb2
@@ -25,6 +26,7 @@ _OVERLAY_TYPE_TO_NAME = {
 }
 
 
+@faux.all_empty
 @validate.require('overlay_type')
 @validate.is_in('overlay_type', _OVERLAY_TYPE_TO_NAME)
 @validate.validation_complete
@@ -41,12 +43,13 @@ def Uprev(input_proto, output_proto, _config):
                                             output_dir)
   except packages.Error as e:
     # Handle module errors nicely, let everything else bubble up.
-    cros_build_lib.Die(e.message)
+    cros_build_lib.Die(e)
 
   for path in uprevved:
     output_proto.modified_ebuilds.add().path = path
 
 
+@faux.all_empty
 @validate.require('versions')
 @validate.require('package_info.package_name', 'package_info.category')
 @validate.validation_complete
@@ -67,18 +70,21 @@ def UprevVersionedPackage(input_proto, output_proto, _config):
                                               chroot)
   except packages.Error as e:
     # Handle module errors nicely, let everything else bubble up.
-    cros_build_lib.Die(e.message)
+    cros_build_lib.Die(e)
 
   if not result.uprevved:
     # No uprevs executed, skip the output population.
     return
 
-  output_proto.version = result.new_version
-  for path in result.modified_ebuilds:
-    output_proto.modified_ebuilds.add().path = path
+  for modified in result.modified:
+    uprev_response = output_proto.responses.add()
+    uprev_response.version = modified.new_version
+    for path in modified.files:
+      uprev_response.modified_ebuilds.add().path = path
 
 
 
+@faux.all_empty
 @validate.require('atom')
 @validate.validation_complete
 def GetBestVisible(input_proto, output_proto, _config):
@@ -93,13 +99,63 @@ def GetBestVisible(input_proto, output_proto, _config):
   output_proto.package_info.CopyFrom(package_info)
 
 
+@faux.all_empty
 @validate.require('build_target.name')
 @validate.validation_complete
 def GetChromeVersion(input_proto, output_proto, _config):
   """Returns the chrome version."""
   build_target = controller_util.ParseBuildTarget(input_proto.build_target)
-  cpv = packages.get_best_visible(
-      constants.CHROME_CP, build_target=build_target)
+  output_proto.version = packages.determine_chrome_version(build_target)
 
-  # Something like 1.2.3.4_rc -> 1.2.3.4.
-  output_proto.version = cpv.version_no_rev.split('_')[0]
+
+def _HasChromePrebuiltSuccess(_input_proto, output_proto, _config):
+  """The mock success case for HasChromePrebuilt."""
+  output_proto.has_prebuilt = True
+
+
+@faux.all_empty
+@validate.require('build_target.name')
+@validate.validation_complete
+def GetTargetVersions(input_proto, output_proto, _config):
+  """Returns the target versions."""
+  build_target = controller_util.ParseBuildTarget(input_proto.build_target)
+  android_version = packages.determine_android_version([build_target])
+  if android_version:
+    output_proto.android_version = android_version
+  android_branch_version = packages.determine_android_branch(build_target)
+  if android_branch_version:
+    output_proto.android_branch_version = android_branch_version
+  android_target_version = packages.determine_android_target(build_target)
+  if android_target_version:
+    output_proto.android_target_version = android_target_version
+  output_proto.chrome_version = packages.determine_chrome_version(build_target)
+  # TODO(crbug.com/1004438): Implement remaining version fields.
+
+
+@faux.success(_HasChromePrebuiltSuccess)
+@faux.empty_error
+@validate.require('build_target.name')
+@validate.validation_complete
+def HasChromePrebuilt(input_proto, output_proto, _config):
+  """Checks if the most recent version of Chrome has a prebuilt."""
+  build_target = controller_util.ParseBuildTarget(input_proto.build_target)
+  exists = packages.has_prebuilt(constants.CHROME_CP, build_target=build_target)
+
+  output_proto.has_prebuilt = exists
+
+
+def _BuildsChromeSuccess(_input_proto, output_proto, _config):
+  """Mock success case for BuildsChrome."""
+  output_proto.builds_chrome = True
+
+
+@faux.success(_BuildsChromeSuccess)
+@faux.empty_error
+@validate.require('build_target.name')
+@validate.validation_complete
+def BuildsChrome(input_proto, output_proto, _config):
+  """Check if the board builds chrome."""
+  build_target = controller_util.ParseBuildTarget(input_proto.build_target)
+  cpvs = [controller_util.PackageInfoToCPV(pi) for pi in input_proto.packages]
+  builds_chrome = packages.builds(constants.CHROME_CP, build_target, cpvs)
+  output_proto.builds_chrome = builds_chrome

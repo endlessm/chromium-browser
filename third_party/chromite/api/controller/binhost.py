@@ -9,9 +9,11 @@ from __future__ import print_function
 
 import os
 import shutil
-import urlparse
+
+from six.moves import urllib
 
 from chromite.api import controller
+from chromite.api import faux
 from chromite.api import validate
 from chromite.api.controller import controller_util
 from chromite.api.gen.chromite.api import binhost_pb2
@@ -30,6 +32,7 @@ _OVERLAY_TYPE_TO_NAME = {
 }
 
 
+@faux.all_empty
 @validate.require('build_target.name')
 @validate.validation_complete
 def GetBinhosts(input_proto, output_proto, _config):
@@ -44,6 +47,7 @@ def GetBinhosts(input_proto, output_proto, _config):
     new_binhost.package_index = 'Packages'
 
 
+@faux.all_empty
 @validate.require('build_target.name')
 @validate.validation_complete
 def GetPrivatePrebuiltAclArgs(input_proto, output_proto, _config):
@@ -53,7 +57,7 @@ def GetPrivatePrebuiltAclArgs(input_proto, output_proto, _config):
   try:
     args = binhost.GetPrebuiltAclArgs(build_target)
   except binhost.Error as e:
-    cros_build_lib.Die(e.message)
+    cros_build_lib.Die(e)
 
   for arg, value in args:
     new_arg = output_proto.args.add()
@@ -61,6 +65,7 @@ def GetPrivatePrebuiltAclArgs(input_proto, output_proto, _config):
     new_arg.value = value
 
 
+@faux.all_empty
 @validate.require('uri')
 def PrepareBinhostUploads(input_proto, output_proto, config):
   """Return a list of files to uplooad to the binhost.
@@ -95,7 +100,7 @@ def PrepareBinhostUploads(input_proto, output_proto, config):
   if config.validate_only:
     return controller.RETURN_CODE_VALID_INPUT
 
-  parsed_uri = urlparse.urlparse(uri)
+  parsed_uri = urllib.parse.urlparse(uri)
   upload_uri = gs.GetGsURL(parsed_uri.netloc, for_gsutil=True).rstrip('/')
   upload_path = parsed_uri.path.lstrip('/')
 
@@ -113,6 +118,8 @@ def PrepareBinhostUploads(input_proto, output_proto, config):
   for upload_target in upload_targets:
     output_proto.upload_targets.add().path = upload_target.strip('/')
 
+
+@faux.all_empty
 @validate.require('uri', 'sysroot.path')
 @validate.exists('uploads_dir')
 def PrepareDevInstallBinhostUploads(input_proto, output_proto, config):
@@ -140,7 +147,7 @@ def PrepareDevInstallBinhostUploads(input_proto, output_proto, config):
   if config.validate_only:
     return controller.RETURN_CODE_VALID_INPUT
 
-  parsed_uri = urlparse.urlparse(uri)
+  parsed_uri = urllib.parse.urlparse(uri)
   upload_uri = gs.GetGsURL(parsed_uri.netloc, for_gsutil=True).rstrip('/')
   upload_path = parsed_uri.path.lstrip('/')
 
@@ -165,6 +172,8 @@ def PrepareDevInstallBinhostUploads(input_proto, output_proto, config):
     output_proto.upload_targets.add().path = upload_target
   output_proto.upload_targets.add().path = 'Packages'
 
+
+@faux.all_empty
 @validate.require('build_target.name', 'key', 'uri')
 @validate.validation_complete
 def SetBinhost(input_proto, output_proto, _config):
@@ -182,20 +191,11 @@ def SetBinhost(input_proto, output_proto, _config):
   uri = input_proto.uri
   private = input_proto.private
 
-  # Temporary measure to force the new parallel cq post submit builders to write
-  # to a different file than the old ones. Writing to the same file was causing
-  # them to fight over the new one's value and the old logic of clearing out
-  # the values for files it didn't update. Once we've done a full switch over,
-  # we can dump this logic and delete all of the PARALLEL_POSTSUBMIT_BINHOST
-  # configs.
-  # TODO(crbug.com/965244) remove this.
-  if key == 'POSTSUBMIT_BINHOST':
-    key = 'PARALLEL_POSTSUBMIT_BINHOST'
-
   output_proto.output_file = binhost.SetBinhost(target, key, uri,
                                                 private=private)
 
 
+@faux.all_empty
 @validate.require('overlay_type')
 @validate.is_in('overlay_type', _OVERLAY_TYPE_TO_NAME)
 @validate.validation_complete

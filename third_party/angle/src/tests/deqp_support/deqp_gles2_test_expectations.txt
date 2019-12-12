@@ -80,10 +80,6 @@
 3467 D3D11 : dEQP-GLES2.functional.attribute_location.bind_aliasing.cond* = FAIL
 3467 D3D11 : dEQP-GLES2.functional.attribute_location.bind_aliasing.max_cond* = FAIL
 
-// Half float OES either has an implementation bug or a dEQP bug.
-3283 : dEQP-GLES2.functional.fbo.completeness.renderable.texture.color0.rgba_half_float_oes = FAIL
-3283 : dEQP-GLES2.functional.fbo.completeness.renderable.texture.color0.rgb_half_float_oes = FAIL
-
 // Shader failures.
 3434 NEXUS5X GLES : dEQP-GLES2.functional.shaders.preprocessor.pragmas.pragma_* = FAIL
 
@@ -313,7 +309,6 @@
 2830 VULKAN ANDROID : dEQP-GLES2.functional.rasterization.primitives.line_loop = FAIL
 2830 VULKAN ANDROID : dEQP-GLES2.functional.rasterization.primitives.line_strip = FAIL
 2830 VULKAN ANDROID : dEQP-GLES2.functional.rasterization.primitives.lines = FAIL
-2830 VULKAN ANDROID : dEQP-GLES2.functional.clipping.line.long_line_clip = FAIL
 
 // Failing on the Pixel 2.
 2808 VULKAN ANDROID : dEQP-GLES2.functional.shaders.builtin_variable.fragcoord_w = FAIL

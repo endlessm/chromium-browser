@@ -20,6 +20,7 @@ import time
 from xml.etree import ElementTree
 from xml.dom import minidom
 
+from chromite.cbuildbot import commands
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import patch_series
@@ -259,7 +260,7 @@ class BootstrapStage(PatchChangesStage):
 
   @classmethod
   def FilterArgsForTargetCbuildbot(cls, buildroot, cbuildbot_path, options):
-    _, minor = cros_build_lib.GetTargetChromiteApiVersion(buildroot)
+    _, minor = commands.GetTargetChromiteApiVersion(buildroot)
     args = [cbuildbot_path]
     args.append(options.build_config_name)
     args.extend(cls._FilterArgsForApi(options.parsed_args, minor))
@@ -363,7 +364,7 @@ class BootstrapStage(PatchChangesStage):
         extra_params.extend(['--manifest-repo-url', manifest_dir])
 
     cmd += extra_params
-    result_obj = cros_build_lib.RunCommand(
+    result_obj = cros_build_lib.run(
         cmd, cwd=self.tempdir, kill_timeout=30, error_code_ok=True)
     self.returncode = result_obj.returncode
 
@@ -924,8 +925,9 @@ class MasterSlaveLKGMSyncStage(ManifestVersionedSyncStage):
         num_results=self.MAX_BUILD_HISTORY_LENGTH,
         ignore_build_id=buildbucket_id)
     full_versions = [b.get('full_version') for b in builds]
-    old_version = next(itertools.ifilter(bool, full_versions), None)
-    if old_version:
+    old_versions = [x for x in full_versions if x]
+    if old_versions:
+      old_version = old_versions[0]
       pattern = r'^R(\d+)-(\d+.\d+.\d+(-rc\d+)*)'
       m = re.match(pattern, old_version)
       if m:
@@ -1172,7 +1174,7 @@ class PreCQSyncStage(SyncStage):
         builder_run=self._run)
     self.pool.ApplyPoolIntoRepo()
 
-    if len(self.pool.applied) == 0 and self.patches:
+    if not self.pool.applied and self.patches:
       cros_build_lib.Die('No changes have been applied.')
 
     changes = self.pool.applied or self.patches
@@ -1191,7 +1193,7 @@ class PreCQLauncherStage(SyncStage):
   LAUNCH_DELAY = 2
 
   # The number of minutes we allow before considering an in-flight job failed.
-  INFLIGHT_TIMEOUT = 240
+  INFLIGHT_TIMEOUT = 720
 
   # The number of minutes we allow before expiring a pre-cq PASSED or
   # FULLY_VERIFIED status. After this timeout is hit, a CL's status will be
@@ -1464,7 +1466,7 @@ class PreCQLauncherStage(SyncStage):
     if self._run.options.debug:
       logging.debug('Would have launched tryjob with %s', cmd)
     else:
-      result = cros_build_lib.RunCommand(
+      result = cros_build_lib.run(
           cmd, cwd=self._build_root, capture_output=True)
       if result and result.output:
         logging.info('output: %s', result.output)

@@ -24,8 +24,8 @@ constexpr uint32_t kBindingSize = 8;
 
 class DynamicBufferOffsetTests : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         // Mix up dynamic and non dynamic resources in one bind group and using not continuous
         // binding number to cover more cases.
@@ -97,7 +97,7 @@ class DynamicBufferOffsetTests : public DawnTest {
             utils::CreateShaderModule(device, utils::SingleShaderStage::Vertex, R"(
                 #version 450
                 void main() {
-                    const vec2 pos[3] = vec2[3](vec2(-1.0f, 0.0f), vec2(-1.0f, -1.0f), vec2(0.0f, -1.0f));
+                    const vec2 pos[3] = vec2[3](vec2(-1.0f, 0.0f), vec2(-1.0f, 1.0f), vec2(0.0f, 1.0f));
                     gl_Position = vec4(pos[gl_VertexIndex], 0.0, 1.0);
                 })");
 
@@ -142,7 +142,7 @@ class DynamicBufferOffsetTests : public DawnTest {
         utils::ComboRenderPipelineDescriptor pipelineDescriptor(device);
         pipelineDescriptor.vertexStage.module = vsModule;
         pipelineDescriptor.cFragmentStage.module = fsModule;
-        pipelineDescriptor.cColorStates[0]->format = dawn::TextureFormat::RGBA8Unorm;
+        pipelineDescriptor.cColorStates[0].format = dawn::TextureFormat::RGBA8Unorm;
 
         dawn::PipelineLayoutDescriptor pipelineLayoutDescriptor;
         if (isInheritedPipeline) {
@@ -311,7 +311,7 @@ TEST_P(DynamicBufferOffsetTests, InheritDynamicOffestsRenderPipeline) {
     renderPassEncoder.SetBindGroup(0, mBindGroups[0], offsets.size(), offsets.data());
     renderPassEncoder.Draw(3, 1, 0, 0);
     renderPassEncoder.SetPipeline(testPipeline);
-    renderPassEncoder.SetBindGroup(1, mBindGroups[1], 0, nullptr);
+    renderPassEncoder.SetBindGroup(1, mBindGroups[1]);
     renderPassEncoder.Draw(3, 1, 0, 0);
     renderPassEncoder.EndPass();
     dawn::CommandBuffer commands = commandEncoder.Finish();
@@ -341,7 +341,7 @@ TEST_P(DynamicBufferOffsetTests, InheritDynamicOffestsComputePipeline) {
     computePassEncoder.SetBindGroup(0, mBindGroups[0], offsets.size(), offsets.data());
     computePassEncoder.Dispatch(1, 1, 1);
     computePassEncoder.SetPipeline(testPipeline);
-    computePassEncoder.SetBindGroup(1, mBindGroups[1], 0, nullptr);
+    computePassEncoder.SetBindGroup(1, mBindGroups[1]);
     computePassEncoder.Dispatch(1, 1, 1);
     computePassEncoder.EndPass();
     dawn::CommandBuffer commands = commandEncoder.Finish();

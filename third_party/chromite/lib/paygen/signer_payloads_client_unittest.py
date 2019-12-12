@@ -7,6 +7,7 @@
 
 from __future__ import print_function
 
+import base64
 import os
 import shutil
 import socket
@@ -75,11 +76,11 @@ class SignerPayloadsClientGoogleStorageTest(gs_unittest.AbstractGSContextTest,
 
     expected_build_uri = self.build_uri
 
-    self.assertEquals(
+    self.assertEqual(
         client.signing_base_dir,
         expected_build_uri)
 
-    self.assertEquals(
+    self.assertEqual(
         client.archive_uri,
         expected_build_uri + '/payload.hash.tar.bz2')
 
@@ -220,7 +221,7 @@ class SignerPayloadsClientGoogleStorageTest(gs_unittest.AbstractGSContextTest,
 
     expected_hash_names = self.hash_names
 
-    self.assertEquals(hash_names, expected_hash_names)
+    self.assertEqual(hash_names, expected_hash_names)
 
   def testCreateSignatureURIs(self):
     """Test that the expected signature URIs are generated."""
@@ -236,7 +237,7 @@ class SignerPayloadsClientGoogleStorageTest(gs_unittest.AbstractGSContextTest,
         self.build_uri + '/3.payload.hash.keyset_foo.signed.bin',
     ]
 
-    self.assertEquals(signature_uris, expected_signature_uris)
+    self.assertEqual(signature_uris, expected_signature_uris)
 
   def testCreateArchive(self):
     """Test that we can correctly archive up hash values for the signer."""
@@ -256,12 +257,12 @@ class SignerPayloadsClientGoogleStorageTest(gs_unittest.AbstractGSContextTest,
         tmp_dir = tempfile.mkdtemp()
 
         cmd = ['tar', '-xjf', archive_file.name]
-        cros_build_lib.RunCommand(
+        cros_build_lib.run(
             cmd, redirect_stdout=True, redirect_stderr=True, cwd=tmp_dir)
 
         # Check that the expected (and only the expected) contents are present
         extracted_file_names = os.listdir(tmp_dir)
-        self.assertEquals(len(extracted_file_names), len(self.hash_names))
+        self.assertEqual(len(extracted_file_names), len(self.hash_names))
         for name in self.hash_names:
           self.assertTrue(name in extracted_file_names)
 
@@ -308,7 +309,7 @@ versionrev = foo-version
                 '2.payload.hash',
                 '3.payload.hash'])
 
-    self.assertEquals(instructions, expected_instructions)
+    self.assertEqual(instructions, expected_instructions)
 
   def testSignerRequestUri(self):
     """Test that we can create signer request URI."""
@@ -322,7 +323,7 @@ versionrev = foo-version
                 'foo-version,payloads,signing,foo-unique,'
                 'foo_keyset.payload.signer.instructions')
 
-    self.assertEquals(signer_request_uri, expected)
+    self.assertEqual(signer_request_uri, expected)
 
   def testWaitForSignaturesInstant(self):
     """Test that we can correctly wait for a list of URIs to be created."""
@@ -371,7 +372,7 @@ class SignerPayloadsClientIntegrationTest(cros_test_lib.TempDirTestCase):
             'gs://chromeos-releases-test/sigining-test/bar']
 
     downloads = self.client._DownloadSignatures(uris)
-    self.assertEquals(downloads, ['FooSig\r\n\r', 'BarSig'])
+    self.assertEqual(downloads, ['FooSig\r\n\r', 'BarSig'])
 
   @cros_test_lib.NetworkTest()
   def testGetHashSignatures(self):
@@ -421,11 +422,12 @@ class SignerPayloadsClientIntegrationTest(cros_test_lib.TempDirTestCase):
            'c83702179f69f5c6eca4630807fbc4ab6241017e0942b15feada0b240e9729bf'
            '33bf456bd419da63302477e147963550a45c6cf60925ff48ad7b309fa158dcb2',))
 
-      expected_sigs = [[sig[0].decode('hex')] for sig in expected_sigs_hex]
+      expected_sigs = [[base64.b16decode(x[0], True)]
+                       for x in expected_sigs_hex]
 
       all_signatures = self.client.GetHashSignatures(hashes, keysets)
 
-      self.assertEquals(all_signatures, expected_sigs)
+      self.assertEqual(all_signatures, expected_sigs)
       self.assertRaises(gs.GSNoSuchKey, ctx.List, clean_uri)
 
     finally:

@@ -25,7 +25,7 @@ from chromite.lib import cros_logging as logging
 class GitMock(partial_mock.PartialCmdMock):
   """Mocks git.RunGit.
 
-  Usage:
+  Examples:
     mock = GitMock('/path/to/git_repository')
     mock.AddRunGitResult(git_command, output=...)
     # call git.RunGit(...)
@@ -48,7 +48,7 @@ class GitMock(partial_mock.PartialCmdMock):
     try:
       return self._results['RunGit'].LookupResult(args, kwargs=kwargs)
     except cros_build_lib.RunCommandError as e:
-      # Copy the logic of error_code_ok from RunCommand.
+      # Copy the logic of error_code_ok from run.
       if kwargs.get('error_code_ok'):
         return e.result
       raise e
@@ -57,7 +57,8 @@ class GitMock(partial_mock.PartialCmdMock):
                       kwargs=None, strict=False, side_effect=None):
     """Adds git command and results."""
     cwd = self.cwd if cwd is None else cwd
-    result = self.CmdResult(returncode, output, error)
+    result = cros_build_lib.CommandResult(
+        returncode=returncode, output=output, error=error)
     if returncode != 0 and not side_effect:
       side_effect = cros_build_lib.RunCommandError('non-zero returncode',
                                                    result)

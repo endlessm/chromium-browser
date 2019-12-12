@@ -61,6 +61,7 @@
 #include "chrome/browser/ui/signin_view_controller.h"
 #endif
 
+class BackgroundContents;
 class BrowserContentSettingBubbleModelDelegate;
 class BrowserInstantController;
 class BrowserSyncedWindowDelegate;
@@ -181,10 +182,6 @@ class Browser : public TabStripModelObserver,
   struct CreateParams {
     explicit CreateParams(Profile* profile, bool user_gesture);
     CreateParams(Type type, Profile* profile, bool user_gesture);
-    CreateParams(Type type,
-                 Profile* profile,
-                 bool user_gesture,
-                 bool in_tab_dragging);
     CreateParams(const CreateParams& other);
 
     static CreateParams CreateForApp(const std::string& app_name,
@@ -289,6 +286,7 @@ class Browser : public TabStripModelObserver,
 
   // Accessors ////////////////////////////////////////////////////////////////
 
+  const CreateParams& create_params() const { return create_params_; }
   Type type() const { return type_; }
   const std::string& app_name() const { return app_name_; }
   bool is_trusted_source() const { return is_trusted_source_; }
@@ -551,7 +549,7 @@ class Browser : public TabStripModelObserver,
   bool CanDragEnter(content::WebContents* source,
                     const content::DropData& data,
                     blink::WebDragOperationsMask operations_allowed) override;
-  blink::WebSecurityStyle GetSecurityStyle(
+  blink::SecurityStyle GetSecurityStyle(
       content::WebContents* web_contents,
       content::SecurityStyleExplanations* security_style_explanations) override;
   std::unique_ptr<content::BluetoothChooser> RunBluetoothChooser(
@@ -706,14 +704,16 @@ class Browser : public TabStripModelObserver,
                          bool* proceed_to_fire_unload) override;
   bool ShouldFocusLocationBarByDefault(content::WebContents* source) override;
   void ShowRepostFormWarningDialog(content::WebContents* source) override;
-  bool ShouldCreateWebContents(
-      content::WebContents* web_contents,
+  bool IsWebContentsCreationOverridden(
+      content::SiteInstance* source_site_instance,
+      content::mojom::WindowContainerType window_container_type,
+      const GURL& opener_url,
+      const std::string& frame_name,
+      const GURL& target_url) override;
+  content::WebContents* CreateCustomWebContents(
       content::RenderFrameHost* opener,
       content::SiteInstance* source_site_instance,
-      int32_t route_id,
-      int32_t main_frame_route_id,
-      int32_t main_frame_widget_route_id,
-      content::mojom::WindowContainerType window_container_type,
+      bool is_new_browsing_instance,
       const GURL& opener_url,
       const std::string& frame_name,
       const GURL& target_url,
@@ -754,11 +754,11 @@ class Browser : public TabStripModelObserver,
   void EnterFullscreenModeForTab(
       content::WebContents* web_contents,
       const GURL& origin,
-      const blink::WebFullscreenOptions& options) override;
+      const blink::mojom::FullscreenOptions& options) override;
   void ExitFullscreenModeForTab(content::WebContents* web_contents) override;
   bool IsFullscreenForTabOrPending(
       const content::WebContents* web_contents) override;
-  blink::WebDisplayMode GetDisplayMode(
+  blink::mojom::DisplayMode GetDisplayMode(
       const content::WebContents* web_contents) override;
   void RegisterProtocolHandler(content::WebContents* web_contents,
                                const std::string& protocol,
@@ -883,6 +883,11 @@ class Browser : public TabStripModelObserver,
   // Removes all entries from scheduled_updates_ whose source is contents.
   void RemoveScheduledUpdatesFor(content::WebContents* contents);
 
+  // Configures |nav_params| to create a new tab group with the source, if
+  // applicable.
+  void ConfigureTabGroupForNavigation(content::WebContents* source,
+                                      NavigateParams* nav_params);
+
   // Getters for UI ///////////////////////////////////////////////////////////
 
   // TODO(beng): remove, and provide AutomationProvider a better way to access
@@ -983,15 +988,20 @@ class Browser : public TabStripModelObserver,
   // the last browser window is being closed.
   bool ShouldStartShutdown() const;
 
-  // Creates a BackgroundContents if appropriate; return true if one was
-  // created.
-  bool MaybeCreateBackgroundContents(
+  // Returns true if a BackgroundContents should be created in response to a
+  // WebContents::CreateNewWindow() call.
+  bool ShouldCreateBackgroundContents(
+      content::SiteInstance* source_site_instance,
+      const GURL& opener_url,
+      const std::string& frame_name);
+
+  // Creates a BackgroundContents. This should only be called when
+  // ShouldCreateBackgroundContents() is true.
+  BackgroundContents* CreateBackgroundContents(
       content::SiteInstance* source_site_instance,
       content::RenderFrameHost* opener,
       const GURL& opener_url,
-      int32_t route_id,
-      int32_t main_frame_route_id,
-      int32_t main_frame_widget_route_id,
+      bool is_new_browsing_instance,
       const std::string& frame_name,
       const GURL& target_url,
       const std::string& partition_id,
@@ -1004,6 +1014,9 @@ class Browser : public TabStripModelObserver,
   content::NotificationRegistrar registrar_;
 
   PrefChangeRegistrar profile_pref_registrar_;
+
+  // This Browser's create params.
+  const CreateParams create_params_;
 
   // This Browser's type.
   const Type type_;

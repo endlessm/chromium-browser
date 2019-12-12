@@ -40,7 +40,7 @@ const char kSwitchShort[] = "short";
 const char kSwitchOverridesOnly[] = "overrides-only";
 const char kSwitchJson[] = "json";
 
-bool DoesLineBeginWithComment(const base::StringPiece& line) {
+bool DoesLineBeginWithComment(const std::string_view& line) {
   // Skip whitespace.
   size_t i = 0;
   while (i < line.size() && base::IsAsciiWhitespace(line[i]))
@@ -67,12 +67,12 @@ size_t BackUpToLineBegin(const std::string& data, size_t offset) {
 
 // Assumes DoesLineBeginWithComment(), this strips the # character from the
 // beginning and normalizes preceding whitespace.
-std::string StripHashFromLine(const base::StringPiece& line, bool pad) {
+std::string StripHashFromLine(const std::string_view& line, bool pad) {
   // Replace the # sign and everything before it with 3 spaces, so that a
   // normal comment that has a space after the # will be indented 4 spaces
   // (which makes our formatting come out nicely). If the comment is indented
   // from there, we want to preserve that indenting.
-  std::string line_stripped = line.substr(line.find('#') + 1).as_string();
+  std::string line_stripped(line.substr(line.find('#') + 1));
   if (pad)
     return "   " + line_stripped;
 
@@ -104,8 +104,8 @@ void GetContextForValue(const Value& value,
     line_off -= 2;  // Back up to end of previous line.
     size_t previous_line_offset = BackUpToLineBegin(data, line_off);
 
-    base::StringPiece line(&data[previous_line_offset],
-                           line_off - previous_line_offset + 1);
+    std::string_view line(&data[previous_line_offset],
+                          line_off - previous_line_offset + 1);
     if (!DoesLineBeginWithComment(line))
       break;
 
@@ -120,7 +120,7 @@ void GetContextForValue(const Value& value,
 // is a bit different.
 //
 // The default value also contains the docstring.
-void PrintDefaultValueInfo(base::StringPiece name, const Value& value) {
+void PrintDefaultValueInfo(std::string_view name, const Value& value) {
   OutputString(value.ToString(true) + "\n");
   if (value.origin()) {
     int line_no;
@@ -131,15 +131,15 @@ void PrintDefaultValueInfo(base::StringPiece name, const Value& value) {
     if (!comment.empty())
       OutputString("\n" + comment);
   } else {
-    OutputString("      (Internally set; try `gn help " + name.as_string() +
+    OutputString("      (Internally set; try `gn help " + std::string(name) +
                  "`.)\n");
   }
 }
 
 // Override value is null if there is no override.
-void PrintArgHelp(const base::StringPiece& name,
+void PrintArgHelp(const std::string_view& name,
                   const Args::ValueWithOverride& val) {
-  OutputString(name.as_string(), DECORATION_YELLOW);
+  OutputString(std::string(name), DECORATION_YELLOW);
   OutputString("\n");
 
   if (val.has_override) {
@@ -163,7 +163,7 @@ void PrintArgHelp(const base::StringPiece& name,
 }
 
 void BuildArgJson(base::Value& dict,
-                  const base::StringPiece& name,
+                  const std::string_view& name,
                   const Args::ValueWithOverride& arg,
                   bool short_only) {
   assert(dict.is_dict());
@@ -259,7 +259,7 @@ int ListArgs(const std::string& build_dir) {
     for (const auto& arg : args) {
       if (overrides_only && !arg.second.has_override)
         continue;
-      OutputString(arg.first.as_string());
+      OutputString(std::string(arg.first));
       OutputString(" = ");
       if (arg.second.has_override)
         OutputString(arg.second.override_value.ToString(true));
@@ -288,7 +288,7 @@ bool RunEditor(const base::FilePath& file_to_edit) {
   memset(&info, 0, sizeof(info));
   info.cbSize = sizeof(info);
   info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_CLASSNAME;
-  info.lpFile = file_to_edit.value().c_str();
+  info.lpFile = reinterpret_cast<LPCWSTR>(file_to_edit.value().c_str());
   info.nShow = SW_SHOW;
   info.lpClass = L".txt";
   if (!::ShellExecuteEx(&info)) {

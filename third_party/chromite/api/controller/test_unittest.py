@@ -23,6 +23,7 @@ from chromite.lib import osutils
 from chromite.lib import portage_util
 from chromite.scripts import cros_set_lsb_release
 from chromite.service import test as test_service
+from chromite.utils import key_value_store
 
 
 class BuildTargetUnitTestTest(cros_test_lib.MockTempDirTestCase,
@@ -105,7 +106,7 @@ class BuildTargetUnitTestTest(cros_test_lib.MockTempDirTestCase,
     failed = []
     for pi in output_msg.failed_packages:
       failed.append((pi.category, pi.package_name))
-    self.assertItemsEqual(expected, failed)
+    self.assertCountEqual(expected, failed)
 
   def testOtherBuildScriptFailure(self):
     """Test build script failure due to non-package emerge error."""
@@ -136,6 +137,75 @@ class CrosSigningTestTest(cros_test_lib.RunCommandTestCase,
     """Sanity check that a validate only call does not execute any logic."""
     test_controller.CrosSigningTest(None, None, self.validate_only_config)
     self.assertFalse(self.rc.call_count)
+
+
+class SimpleChromeWorkflowTestTest(cros_test_lib.MockTestCase,
+                                   api_config.ApiConfigMixin):
+  """Test the SimpleChromeWorkflowTest endpoint."""
+
+  @staticmethod
+  def _Output():
+    return test_pb2.SimpleChromeWorkflowTestResponse()
+
+  def _Input(self, sysroot_path=None, build_target=None, chrome_root=None,
+             goma_config=None):
+    proto = test_pb2.SimpleChromeWorkflowTestRequest()
+    if sysroot_path:
+      proto.sysroot.path = sysroot_path
+    if build_target:
+      proto.sysroot.build_target.name = build_target
+    if chrome_root:
+      proto.chrome_root = chrome_root
+    if goma_config:
+      proto.goma_config = goma_config
+    return proto
+
+  def setUp(self):
+    self.chrome_path = 'path/to/chrome'
+    self.sysroot_dir = 'build/board'
+    self.build_target = 'amd64'
+    self.mock_simple_chrome_workflow_test = self.PatchObject(
+        test_service, 'SimpleChromeWorkflowTest')
+
+  def testMissingBuildTarget(self):
+    """Test VmTest dies when build_target not set."""
+    input_proto = self._Input(build_target=None, sysroot_path='/sysroot/dir',
+                              chrome_root='/chrome/path')
+    with self.assertRaises(cros_build_lib.DieSystemExit):
+      test_controller.SimpleChromeWorkflowTest(input_proto, None,
+                                               self.api_config)
+
+  def testMissingSysrootPath(self):
+    """Test VmTest dies when build_target not set."""
+    input_proto = self._Input(build_target='board', sysroot_path=None,
+                              chrome_root='/chrome/path')
+    with self.assertRaises(cros_build_lib.DieSystemExit):
+      test_controller.SimpleChromeWorkflowTest(input_proto, None,
+                                               self.api_config)
+
+  def testMissingChromeRoot(self):
+    """Test VmTest dies when build_target not set."""
+    input_proto = self._Input(build_target='board', sysroot_path='/sysroot/dir',
+                              chrome_root=None)
+    with self.assertRaises(cros_build_lib.DieSystemExit):
+      test_controller.SimpleChromeWorkflowTest(input_proto, None,
+                                               self.api_config)
+
+  def testSimpleChromeWorkflowTest(self):
+    """Call SimpleChromeWorkflowTest with valid args and temp dir."""
+    request = self._Input(sysroot_path='sysroot_path', build_target='board',
+                          chrome_root='/path/to/chrome')
+    response = self._Output()
+
+    test_controller.SimpleChromeWorkflowTest(request, response, self.api_config)
+    self.mock_simple_chrome_workflow_test.assert_called()
+
+  def testValidateOnly(self):
+    request = self._Input(sysroot_path='sysroot_path', build_target='board',
+                          chrome_root='/path/to/chrome')
+    test_controller.SimpleChromeWorkflowTest(request, self._Output(),
+                                             self.validate_only_config)
+    self.mock_simple_chrome_workflow_test.assert_not_called()
 
 
 class VmTestTest(cros_test_lib.RunCommandTestCase, api_config.ApiConfigMixin):
@@ -271,7 +341,7 @@ class MoblabVmTestTest(cros_test_lib.MockTestCase, api_config.ApiConfigMixin):
     response = self._Output()
 
     self.PatchObject(
-        cros_build_lib, 'LoadKeyValueFile',
+        key_value_store, 'LoadFile',
         return_value={cros_set_lsb_release.LSB_KEY_BUILDER_PATH: self.builder})
 
     test_controller.MoblabVmTest(request, response, self.api_config)
@@ -295,7 +365,7 @@ class MoblabVmTestTest(cros_test_lib.MockTestCase, api_config.ApiConfigMixin):
     request = self._Input()
     response = self._Output()
 
-    self.PatchObject(cros_build_lib, 'LoadKeyValueFile', return_value={})
+    self.PatchObject(key_value_store, 'LoadFile', return_value={})
 
     with self.assertRaises(cros_build_lib.DieSystemExit):
       test_controller.MoblabVmTest(request, response, self.api_config)

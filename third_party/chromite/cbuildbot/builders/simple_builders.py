@@ -198,8 +198,11 @@ class SimpleBuilder(generic_builders.Builder):
     # gather output manually, early slow stages will prevent any output from
     # later stages showing up until it finishes.
     changes = self._GetChangesUnderTest()
-    stage_list = [
+
+    early_stage_list = [
         [test_stages.UnitTestStage, board],
+    ]
+    stage_list = [
         [test_stages.DebugInfoTestStage, board],
     ]
 
@@ -207,7 +210,8 @@ class SimpleBuilder(generic_builders.Builder):
     if builder_run.config.compilecheck or builder_run.options.compilecheck:
       board_runattrs = builder_run.GetBoardRunAttrs(board)
       board_runattrs.SetParallel('test_artifacts_uploaded', False)
-      for x in stage_list:
+      stages = early_stage_list + stage_list
+      for x in stages:
         self._RunStage(*x, builder_run=builder_run)
       return
 
@@ -235,6 +239,8 @@ class SimpleBuilder(generic_builders.Builder):
     if config.kernel_afdo_verify:
       stage_list += [[afdo_stages.UploadVettedKernelAFDOStage, board]]
 
+    if config.chrome_afdo_verify:
+      stage_list += [[afdo_stages.UploadVettedChromeAFDOStage, board]]
 
     stage_list += [
         [release_stages.SignerTestStage, board, archive_stage],
@@ -251,15 +257,27 @@ class SimpleBuilder(generic_builders.Builder):
     if config.run_build_configs_export:
       stage_list += [[artifact_stages.BuildConfigsExportStage, board]]
 
-    stage_list += [[artifact_stages.UploadTestArtifactsStage, board]]
+    early_stage_list += [[artifact_stages.UploadTestArtifactsStage, board]]
 
-    stage_objs = [self._GetStageInstance(*x, builder_run=builder_run)
-                  for x in stage_list]
+    early_stage_objs = [
+        self._GetStageInstance(*x, builder_run=builder_run)
+        for x in early_stage_list
+    ]
+
+    stage_objs = [
+        self._GetStageInstance(*x, builder_run=builder_run) for x in stage_list
+    ]
 
     # Build the image first before running the steps.
     with self._build_image_lock:
       self._RunStage(build_stages.BuildImageStage, board,
                      builder_run=builder_run, afdo_use=config.afdo_use)
+
+    # Run UnitTestStage & UploadTestArtifactsStage in a separate pass before
+    # any of the other parallel stages to prevent races with the image
+    # construction in the ArchiveStage.
+    # http://crbug.com/1000374
+    self._RunParallelStages(early_stage_objs)
 
     parallel.RunParallelSteps([
         lambda: self._RunParallelStages(stage_objs + [archive_stage]),
@@ -292,7 +310,9 @@ class SimpleBuilder(generic_builders.Builder):
     self._RunStage(android_stages.AndroidMetadataStage)
     if self._run.config.build_type == constants.PALADIN_TYPE:
       self._RunStage(build_stages.RegenPortageCacheStage)
-    self._RunStage(test_stages.BinhostTestStage)
+    if self._run.config.build_type in [constants.ANDROID_PFQ_TYPE,
+                                       constants.CHROME_PFQ_TYPE]:
+      self._RunStage(test_stages.BinhostTestStage)
 
   def RunEarlySyncAndSetupStages(self):
     """Runs through the early sync and board setup stages."""
@@ -373,6 +393,16 @@ class SimpleBuilder(generic_builders.Builder):
               target='kernel_afdo'):
             continue
           self._RunStage(afdo_stages.KernelAFDOUpdateEbuildStage,
+                         board, builder_run=builder_run)
+
+        if builder_run.config.chrome_afdo_verify:
+          # Skip verifying Chrome AFDO if both benchmark and CWP are verified.
+          if toolchain_util.CheckAFDOArtifactExists(
+              buildroot=builder_run.buildroot,
+              board=board,
+              target='chrome_afdo'):
+            continue
+          self._RunStage(afdo_stages.ChromeAFDOUpdateEbuildStage,
                          board, builder_run=builder_run)
 
         # Run BuildPackages in the foreground, generating or using AFDO data
@@ -559,17 +589,21 @@ class DistributedBuilder(SimpleBuilder):
     finally:
       if self._run.config.master:
         self._RunStage(report_stages.SlaveFailureSummaryStage)
+
+      is_master_release = config_lib.IsCanaryMaster(self._run.config)
+      if is_master_release:
+        if build_finished:
+          self._RunStage(completion_stages.UpdateChromeosLKGMStage)
+        else:
+          logging.info(
+              'Skipping UpdateChromeosLKGMStage, '
+              'build_successful=%d completion_successful=%d '
+              'build_finished=%d', was_build_successful, completion_successful,
+              build_finished)
+
       if self._run.config.push_overlays:
         publish = (was_build_successful and completion_successful and
                    build_finished)
-        if is_master_chrome_pfq:
-          if publish:
-            self._RunStage(completion_stages.UpdateChromeosLKGMStage)
-          else:
-            logging.info('Skipping UpdateChromeosLKGMStage, '
-                         'build_successful=%d completion_successful=%d '
-                         'build_finished=%d', was_build_successful,
-                         completion_successful, build_finished)
         # If this build is master chrome pfq, completion_stage failed,
         # AFDOUpdateChromeEbuildStage passed, and the necessary build stages
         # passed, it means publish is False and we need to stage the
@@ -580,9 +614,13 @@ class DistributedBuilder(SimpleBuilder):
                       was_build_successful and
                       build_finished)
 
-        # CQ no longer publishes uprevs. There is no easy way to disable this
-        # in ChromeOS config, so hack the check here.
-        if not config_lib.IsCQType(self._run.config.build_type):
+        # CQ and Master Chrome PFQ no longer publish uprevs. For Master Chrome
+        # PFQ this is because this duty is being transitioned to the Chrome
+        # PUpr in the PCQ world. See http://go/pupr.
+        # There is no easy way to disable this in ChromeOS config,
+        # so hack the check here.
+        if (not config_lib.IsCQType(self._run.config.build_type) and
+            not is_master_chrome_pfq):
           self._RunStage(completion_stages.PublishUprevChangesStage,
                          self.sync_stage, publish, stage_push)
 

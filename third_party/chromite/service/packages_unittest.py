@@ -9,6 +9,7 @@ from __future__ import print_function
 
 from chromite.lib import build_target_util
 from chromite.lib import cros_test_lib
+from chromite.lib import osutils
 from chromite.lib import portage_util
 from chromite.lib.chroot_lib import Chroot
 from chromite.service import packages
@@ -86,9 +87,85 @@ class UprevsVersionedPackageTest(cros_test_lib.MockTestCase):
       packages.uprev_versioned_package(cpv, [], [], Chroot())
 
 
-class GetBestVisibleTest(cros_test_lib.MockTestCase):
+class GetBestVisibleTest(cros_test_lib.TestCase):
   """get_best_visible tests."""
 
   def test_empty_atom_fails(self):
     with self.assertRaises(AssertionError):
       packages.get_best_visible('')
+
+
+class HasPrebuiltTest(cros_test_lib.TestCase):
+  """has_prebuilt tests."""
+
+  def test_empty_atom_fails(self):
+    with self.assertRaises(AssertionError):
+      packages.has_prebuilt('')
+
+
+class AndroidVersionsTest(cros_test_lib.MockTestCase):
+  """Tests getting android versions."""
+  def setUp(self):
+    package_result = [
+        'chromeos-base/android-container-nyc-4717008-r1',
+        'chromeos-base/update_engine-0.0.3-r3408']
+    self.PatchObject(portage_util, 'GetPackageDependencies',
+                     return_value=package_result)
+    self.board = 'board'
+    self.PatchObject(portage_util, 'FindEbuildForBoardPackage',
+                     return_value='chromeos-base/android-container-nyc')
+    FakeEnvironment = {
+        'ARM_TARGET': '3-linux-target'
+    }
+    self.PatchObject(osutils, 'SourceEnvironment',
+                     return_value=FakeEnvironment)
+
+  def test_determine_android_version(self):
+    version = packages.determine_android_version(self.board)
+    self.assertEqual(version, '4717008')
+
+  def test_determine_android_version_when_not_present(self):
+    package_result = ['chromeos-base/update_engine-0.0.3-r3408']
+    self.PatchObject(portage_util, 'GetPackageDependencies',
+                     return_value=package_result)
+    version = packages.determine_android_version(self.board)
+    self.assertEqual(version, None)
+
+  def test_determine_android_branch(self):
+    branch = packages.determine_android_branch(self.board)
+    self.assertEqual(branch, '3')
+
+  def test_determine_android_branch_when_not_present(self):
+    package_result = ['chromeos-base/update_engine-0.0.3-r3408']
+    self.PatchObject(portage_util, 'GetPackageDependencies',
+                     return_value=package_result)
+    branch = packages.determine_android_branch(self.board)
+    self.assertEqual(branch, None)
+
+  def test_determine_android_target(self):
+    target = packages.determine_android_target(self.board)
+    self.assertEqual(target, 'cheets')
+
+  def test_determine_android_target_when_not_present(self):
+    package_result = ['chromeos-base/update_engine-0.0.3-r3408']
+    self.PatchObject(portage_util, 'GetPackageDependencies',
+                     return_value=package_result)
+    target = packages.determine_android_target(self.board)
+    self.assertEqual(target, None)
+
+class ChromeVersionsTest(cros_test_lib.MockTestCase):
+  """Tests getting chrome version."""
+  def setUp(self):
+    self.build_target = build_target_util.BuildTarget('board')
+
+  def test_determine_chrome_version(self):
+    # Mock PortageqBestVisible to return a valid chrome version string.
+    r1_cpf = 'chromeos-base/chromeos-chrome-78.0.3900.0_rc-r1'
+    r1_cpv = portage_util.SplitCPV(r1_cpf)
+    self.PatchObject(portage_util, 'PortageqBestVisible',
+                     return_value=r1_cpv)
+
+    chrome_version = packages.determine_chrome_version(self.build_target)
+    version_numbers = chrome_version.split('.')
+    self.assertEqual(len(version_numbers), 4)
+    self.assertEqual(int(version_numbers[0]), 78)

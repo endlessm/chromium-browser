@@ -735,9 +735,13 @@ Sema::BuildDependentDeclRefExpr(const CXXScopeSpec &SS,
                                 SourceLocation TemplateKWLoc,
                                 const DeclarationNameInfo &NameInfo,
                                 const TemplateArgumentListInfo *TemplateArgs) {
+  // DependentScopeDeclRefExpr::Create requires a valid QualifierLoc
+  NestedNameSpecifierLoc QualifierLoc = SS.getWithLocInContext(Context);
+  if (!QualifierLoc)
+    return ExprError();
+
   return DependentScopeDeclRefExpr::Create(
-      Context, SS.getWithLocInContext(Context), TemplateKWLoc, NameInfo,
-      TemplateArgs);
+      Context, QualifierLoc, TemplateKWLoc, NameInfo, TemplateArgs);
 }
 
 
@@ -845,15 +849,14 @@ bool Sema::DiagnoseUninstantiableTemplate(SourceLocation PointOfInstantiation,
 void Sema::DiagnoseTemplateParameterShadow(SourceLocation Loc, Decl *PrevDecl) {
   assert(PrevDecl->isTemplateParameter() && "Not a template parameter");
 
-  // Microsoft Visual C++ permits template parameters to be shadowed.
-  if (getLangOpts().MicrosoftExt)
-    return;
-
   // C++ [temp.local]p4:
   //   A template-parameter shall not be redeclared within its
   //   scope (including nested scopes).
-  Diag(Loc, diag::err_template_param_shadow)
-    << cast<NamedDecl>(PrevDecl)->getDeclName();
+  //
+  // Make this a warning when MSVC compatibility is requested.
+  unsigned DiagId = getLangOpts().MSVCCompat ? diag::ext_template_param_shadow
+                                             : diag::err_template_param_shadow;
+  Diag(Loc, DiagId) << cast<NamedDecl>(PrevDecl)->getDeclName();
   Diag(PrevDecl->getLocation(), diag::note_template_param_here);
 }
 
@@ -1002,15 +1005,10 @@ NamedDecl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
   assert(S->isTemplateParamScope() &&
          "Template type parameter not in template parameter scope!");
 
-  SourceLocation Loc = ParamNameLoc;
-  if (!ParamName)
-    Loc = KeyLoc;
-
   bool IsParameterPack = EllipsisLoc.isValid();
-  TemplateTypeParmDecl *Param
-    = TemplateTypeParmDecl::Create(Context, Context.getTranslationUnitDecl(),
-                                   KeyLoc, Loc, Depth, Position, ParamName,
-                                   Typename, IsParameterPack);
+  TemplateTypeParmDecl *Param = TemplateTypeParmDecl::Create(
+      Context, Context.getTranslationUnitDecl(), KeyLoc, ParamNameLoc, Depth,
+      Position, ParamName, Typename, IsParameterPack);
   Param->setAccess(AS_public);
 
   if (Param->isParameterPack())
@@ -1041,7 +1039,7 @@ NamedDecl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
     assert(DefaultTInfo && "expected source information for type");
 
     // Check for unexpanded parameter packs.
-    if (DiagnoseUnexpandedParameterPack(Loc, DefaultTInfo,
+    if (DiagnoseUnexpandedParameterPack(ParamNameLoc, DefaultTInfo,
                                         UPPC_DefaultArgument))
       return Param;
 
@@ -6428,8 +6426,11 @@ ExprResult Sema::CheckTemplateArgument(NonTypeTemplateParmDecl *Param,
   }
 
   // If either the parameter has a dependent type or the argument is
-  // type-dependent, there's nothing we can check now.
-  if (ParamType->isDependentType() || Arg->isTypeDependent()) {
+  // type-dependent, there's nothing we can check now. The argument only
+  // contains an unexpanded pack during partial ordering, and there's
+  // nothing more we can check in that case.
+  if (ParamType->isDependentType() || Arg->isTypeDependent() ||
+      Arg->containsUnexpandedParameterPack()) {
     // Force the argument to the type of the parameter to maintain invariants.
     auto *PE = dyn_cast<PackExpansionExpr>(Arg);
     if (PE)

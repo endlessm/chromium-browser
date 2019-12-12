@@ -101,7 +101,7 @@ bool ValueDestination::Init(Scope* exec_scope,
   }
 
   // Known to be an accessor.
-  base::StringPiece base_str = dest_accessor->base().value();
+  std::string_view base_str = dest_accessor->base().value();
   Value* base =
       exec_scope->GetMutableValue(base_str, Scope::SEARCH_CURRENT, false);
   if (!base) {
@@ -118,7 +118,7 @@ bool ValueDestination::Init(Scope* exec_scope,
           "\n"
           "If you really wanted to do this, do:\n"
           "  " +
-              base_str.as_string() + " = " + base_str.as_string() +
+              std::string(base_str) + " = " + std::string(base_str) +
               "\n"
               "to copy it into the current scope before doing this operation.");
     } else {
@@ -246,7 +246,7 @@ Err MakeIncompatibleTypeError(const BinaryOpNode* op_node,
                               const Value& right) {
   std::string msg = std::string("You can't do <") +
                     Value::DescribeType(left.type()) + "> " +
-                    op_node->op().value().as_string() + " <" +
+                    std::string(op_node->op().value()) + " <" +
                     Value::DescribeType(right.type()) + ">.";
   if (left.type() == Value::LIST) {
     // Append extra hint for list stuff.
@@ -350,7 +350,7 @@ Value ExecuteEquals(Scope* exec_scope,
 
   // Optionally apply the assignment filter in-place.
   const PatternList* filter = dest->GetAssignmentFilter(exec_scope);
-  if (filter) {
+  if (filter && written_value->type() == Value::LIST) {
     std::vector<Value>& list_value = written_value->list_value();
     auto first_deleted = std::remove_if(
         list_value.begin(), list_value.end(),

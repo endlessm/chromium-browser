@@ -468,6 +468,8 @@ static void initTargetOptions(llvm::TargetOptions &Options,
     Options.ExceptionModel = llvm::ExceptionHandling::WinEH;
   if (LangOpts.DWARFExceptions)
     Options.ExceptionModel = llvm::ExceptionHandling::DwarfCFI;
+  if (LangOpts.WasmExceptions)
+    Options.ExceptionModel = llvm::ExceptionHandling::Wasm;
 
   Options.NoInfsFPMath = CodeGenOpts.NoInfsFPMath;
   Options.NoNaNsFPMath = CodeGenOpts.NoNaNsFPMath;
@@ -893,6 +895,7 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
 
   {
     PrettyStackTraceString CrashInfo("Per-function optimization");
+    llvm::TimeTraceScope TimeScope("PerFunctionPasses", StringRef(""));
 
     PerFunctionPasses.doInitialization();
     for (Function &F : *TheModule)
@@ -903,11 +906,13 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action,
 
   {
     PrettyStackTraceString CrashInfo("Per-module optimization passes");
+    llvm::TimeTraceScope TimeScope("PerModulePasses", StringRef(""));
     PerModulePasses.run(*TheModule);
   }
 
   {
     PrettyStackTraceString CrashInfo("Code generation");
+    llvm::TimeTraceScope TimeScope("CodeGenPasses", StringRef(""));
     CodeGenPasses.run(*TheModule);
   }
 
@@ -1093,7 +1098,6 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
   std::unique_ptr<TargetLibraryInfoImpl> TLII(
       createTLII(TargetTriple, CodeGenOpts));
   FAM.registerPass([&] { return TargetLibraryAnalysis(*TLII); });
-  MAM.registerPass([&] { return TargetLibraryAnalysis(*TLII); });
 
   // Register all the basic analyses with the managers.
   PB.registerModuleAnalyses(MAM);
@@ -1149,16 +1153,6 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
         MPM.addPass(createModuleToFunctionPassAdaptor(
             EntryExitInstrumenterPass(/*PostInlining=*/false)));
       });
-
-      if (CodeGenOpts.SanitizeCoverageType ||
-          CodeGenOpts.SanitizeCoverageIndirectCalls ||
-          CodeGenOpts.SanitizeCoverageTraceCmp) {
-        auto SancovOpts = getSancovOptsFromCGOpts(CodeGenOpts);
-        PB.registerPipelineStartEPCallback(
-            [SancovOpts](ModulePassManager &MPM) {
-              MPM.addPass(ModuleSanitizerCoveragePass(SancovOpts));
-            });
-      }
 
       // Register callbacks to schedule sanitizer passes at the appropriate part of
       // the pipeline.
@@ -1227,6 +1221,13 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
       }
     }
 
+    if (CodeGenOpts.SanitizeCoverageType ||
+        CodeGenOpts.SanitizeCoverageIndirectCalls ||
+        CodeGenOpts.SanitizeCoverageTraceCmp) {
+      auto SancovOpts = getSancovOptsFromCGOpts(CodeGenOpts);
+      MPM.addPass(ModuleSanitizerCoveragePass(SancovOpts));
+    }
+
     if (LangOpts.Sanitize.has(SanitizerKind::HWAddress)) {
       bool Recover = CodeGenOpts.SanitizeRecover.has(SanitizerKind::HWAddress);
       MPM.addPass(HWAddressSanitizerPass(
@@ -1238,13 +1239,6 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
     }
 
     if (CodeGenOpts.OptimizationLevel == 0) {
-      if (CodeGenOpts.SanitizeCoverageType ||
-          CodeGenOpts.SanitizeCoverageIndirectCalls ||
-          CodeGenOpts.SanitizeCoverageTraceCmp) {
-        auto SancovOpts = getSancovOptsFromCGOpts(CodeGenOpts);
-        MPM.addPass(ModuleSanitizerCoveragePass(SancovOpts));
-      }
-
       addSanitizersAtO0(MPM, TargetTriple, LangOpts, CodeGenOpts);
     }
   }

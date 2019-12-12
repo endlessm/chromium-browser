@@ -7,9 +7,13 @@
 
 import optparse
 import os
-import Queue
+
+try:
+  import Queue as queue
+except ImportError:  # For Py3 compatibility
+  import queue
+
 import shutil
-import StringIO
 import sys
 import tarfile
 import tempfile
@@ -21,6 +25,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import upload_to_google_storage
 from download_from_google_storage_unittest import GsutilMock
 from download_from_google_storage_unittest import ChangedWorkingDirectory
+from third_party import six
+
+if six.PY2:
+  from cStringIO import StringIO
+else:
+  from io import StringIO
+
 
 # ../third_party/gsutil/gsutil
 GSUTIL_DEFAULT_PATH = os.path.join(
@@ -37,8 +48,8 @@ class UploadTests(unittest.TestCase):
     shutil.copytree(os.path.join(TEST_DIR, 'gstools'), self.base_path)
     self.base_url = 'gs://sometesturl'
     self.parser = optparse.OptionParser()
-    self.ret_codes = Queue.Queue()
-    self.stdout_queue = Queue.Queue()
+    self.ret_codes = queue.Queue()
+    self.stdout_queue = queue.Queue()
     self.lorem_ipsum = os.path.join(self.base_path, 'lorem_ipsum.txt')
     self.lorem_ipsum_sha1 = '7871c8e24da15bad8b0be2c36edc9dc77e37727f'
 
@@ -60,7 +71,7 @@ class UploadTests(unittest.TestCase):
            '%s/%s' % (self.base_url, self.lorem_ipsum_sha1)))])
     self.assertTrue(os.path.exists(output_filename))
     self.assertEqual(
-        open(output_filename, 'rb').read(),
+        open(output_filename, 'rb').read().decode(),
         '7871c8e24da15bad8b0be2c36edc9dc77e37727f')
     os.remove(output_filename)
     self.assertEqual(code, 0)
@@ -92,9 +103,9 @@ class UploadTests(unittest.TestCase):
   def test_upload_single_file_remote_exists(self):
     filenames = [self.lorem_ipsum]
     output_filename = '%s.sha1'  % self.lorem_ipsum
-    etag_string = 'ETag: 634d7c1ed3545383837428f031840a1e'
-    self.gsutil.add_expected(0, '', '')
-    self.gsutil.add_expected(0, etag_string, '')
+    etag_string = b'ETag: 634d7c1ed3545383837428f031840a1e'
+    self.gsutil.add_expected(0, b'', b'')
+    self.gsutil.add_expected(0, etag_string, b'')
     code = upload_to_google_storage.upload_to_google_storage(
         filenames, self.base_url, self.gsutil, False, False, 1, False, None)
     self.assertEqual(
@@ -105,13 +116,13 @@ class UploadTests(unittest.TestCase):
           ('ls', '-L', '%s/%s' % (self.base_url, self.lorem_ipsum_sha1)))])
     self.assertTrue(os.path.exists(output_filename))
     self.assertEqual(
-        open(output_filename, 'rb').read(),
+        open(output_filename, 'rb').read().decode(),
         '7871c8e24da15bad8b0be2c36edc9dc77e37727f')
     os.remove(output_filename)
     self.assertEqual(code, 0)
 
   def test_upload_worker_errors(self):
-    work_queue = Queue.Queue()
+    work_queue = queue.Queue()
     work_queue.put((self.lorem_ipsum, self.lorem_ipsum_sha1))
     work_queue.put((None, None))
     self.gsutil.add_expected(1, '', '')  # For the first ls call.
@@ -139,7 +150,7 @@ class UploadTests(unittest.TestCase):
     output_filename = '%s.sha1' % self.lorem_ipsum
     fake_hash = '6871c8e24da15bad8b0be2c36edc9dc77e37727f'
     with open(output_filename, 'wb') as f:
-      f.write(fake_hash)  # Fake hash.
+      f.write(fake_hash.encode())  # Fake hash.
     code = upload_to_google_storage.upload_to_google_storage(
         filenames, self.base_url, self.gsutil, False, False, 1, True, None)
     self.assertEqual(
@@ -151,7 +162,7 @@ class UploadTests(unittest.TestCase):
          ('check_call',
           ('cp', filenames[0], '%s/%s' % (self.base_url, fake_hash)))])
     self.assertEqual(
-        open(output_filename, 'rb').read(), fake_hash)
+        open(output_filename, 'rb').read().decode(), fake_hash)
     os.remove(output_filename)
     self.assertEqual(code, 0)
 
@@ -171,7 +182,7 @@ class UploadTests(unittest.TestCase):
 
   def test_get_targets_multiple_stdin(self):
     inputs = ['a', 'b', 'c', 'd', 'e']
-    sys.stdin = StringIO.StringIO(os.linesep.join(inputs))
+    sys.stdin = StringIO(os.linesep.join(inputs))
     result = upload_to_google_storage.get_targets(
         ['-'],
         self.parser,
@@ -180,7 +191,7 @@ class UploadTests(unittest.TestCase):
 
   def test_get_targets_multiple_stdin_null(self):
     inputs = ['a', 'b', 'c', 'd', 'e']
-    sys.stdin = StringIO.StringIO('\0'.join(inputs))
+    sys.stdin = StringIO('\0'.join(inputs))
     result = upload_to_google_storage.get_targets(
         ['-'],
         self.parser,

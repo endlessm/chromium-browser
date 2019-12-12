@@ -24,11 +24,9 @@ from telemetry.internal.results import results_processor
 from telemetry.internal.util import exception_formatter
 from telemetry import page
 from telemetry.page import legacy_page_test
-from telemetry import story as story_module
+from telemetry.story import story_filter as story_filter_module
 from telemetry.util import wpr_modes
 from telemetry.web_perf import story_test
-from tracing.value.diagnostics import generic_set
-from tracing.value.diagnostics import reserved_infos
 
 
 # Allowed stages to pause for user interaction at.
@@ -47,7 +45,7 @@ class ArchiveError(Exception):
 
 
 def AddCommandLineArgs(parser):
-  story_module.StoryFilter.AddCommandLineArgs(parser)
+  story_filter_module.StoryFilterFactory.AddCommandLineArgs(parser)
 
   group = optparse.OptionGroup(parser, 'Story runner options')
   # Note that the default for pageset-repeat is 1 unless the benchmark
@@ -72,6 +70,9 @@ def AddCommandLineArgs(parser):
   group.add_option('--suppress-gtest-report', action='store_true',
                    help='Suppress gtest style report of progress as stories '
                    'are being run.')
+  group.add_option('--skip-typ-expectations-tags-validation',
+                   action='store_true',
+                   help='Suppress typ expectation tags validation errors.')
   parser.add_option_group(group)
 
   group = optparse.OptionGroup(parser, 'Web Page Replay options')
@@ -81,10 +82,6 @@ def AddCommandLineArgs(parser):
       help='Run against live sites and ignore the Web Page Replay archives.')
   parser.add_option_group(group)
 
-  parser.add_option('-d', '--also-run-disabled-tests',
-                    dest='run_disabled_tests',
-                    action='store_true', default=False,
-                    help='Ignore expectations.config disabling.')
   parser.add_option('-p', '--print-only', dest='print_only',
                     choices=['stories', 'tags', 'both'], default=None)
   parser.add_option('-w', '--wait-for-cpu-temp',
@@ -94,6 +91,7 @@ def AddCommandLineArgs(parser):
                     'until the device CPU has cooled down. If '
                     'not specified, this wait is disabled. '
                     'Device must be supported. ')
+  # TODO(crbug.com/985103): Move this to story_filter.py.
   parser.add_option('--run-full-story-set', action='store_true', default=False,
                     help='Whether to run the complete set of stories instead '
                     'of an abridged version. Note that if the story set '
@@ -101,8 +99,9 @@ def AddCommandLineArgs(parser):
                     'then this argument will have no impact.')
 
 
-def ProcessCommandLineArgs(parser, args):
-  story_module.StoryFilter.ProcessCommandLineArgs(parser, args)
+def ProcessCommandLineArgs(parser, args, environment=None):
+  story_filter_module.StoryFilterFactory.ProcessCommandLineArgs(
+      parser, args, environment)
 
   if args.pageset_repeat < 1:
     parser.error('--pageset-repeat must be a positive integer.')
@@ -159,7 +158,7 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
     except Exception as exc:  # pylint: disable=broad-except
       ProcessError(exc, log_message=('Possibly handleable error. '
                                      'Will try to restart shared state'))
-      # The caller (|Run| function) will catch this exception, destory and
+      # The caller, RunStorySet, will catch this exception, destory and
       # create a new shared state.
       raise
     finally:
@@ -200,20 +199,40 @@ def _GetPossibleBrowser(finder_options):
   return possible_browser
 
 
-def Run(test, story_set, finder_options, results, max_failures=None,
-        expectations=None, max_num_values=sys.maxint):
-  """Runs a given test against a given page_set with the given options.
+def RunStorySet(test, story_set, finder_options, results, max_failures=None,
+                max_num_values=sys.maxint):
+  """Runs a test against a story_set with the given options.
 
-  Stop execution for unexpected exceptions such as KeyboardInterrupt.
-  We "white list" certain exceptions for which the story runner
-  can continue running the remaining stories.
+  Stop execution for unexpected exceptions such as KeyboardInterrupt. Some
+  other exceptions are handled and recorded before allowing the remaining
+  stories to run.
+
+  Args:
+    test: Either a StoryTest or a LegacyPageTest instance.
+    story_set: A StorySet instance with the set of stories to run.
+    finder_options: The parsed command line options to customize the run.
+    results: A PageTestResults object used to collect results and artifacts.
+    max_failures: Max number of story run failures allowed before aborting
+      the entire story run. It's overriden by finder_options.max_failures
+      if given.
+    expectations: Benchmark expectations used to determine disabled stories.
+    max_num_values: Max number of legacy values allowed before aborting the
+      story run.
   """
   stories = story_set.stories
   for s in stories:
     ValidateStory(s)
 
-  # Filter page set based on options.
-  stories = story_module.StoryFilter.FilterStories(stories)
+  # TODO(crbug.com/1013630): A possible_browser object was already created in
+  # Run() method, so instead of creating a new one here we should be
+  # using that one.
+  possible_browser = _GetPossibleBrowser(finder_options)
+  platform_tags = possible_browser.GetTypExpectationsTags()
+  logging.info('The following expectations condition tags were generated %s',
+               str(platform_tags))
+  story_filter = story_filter_module.StoryFilterFactory.BuildStoryFilter(
+      results.benchmark_name, platform_tags)
+  stories = story_filter.FilterStories(stories)
   wpr_archive_info = story_set.wpr_archive_info
   # Sort the stories based on the archive name, to minimize how often the
   # network replay-server needs to be restarted.
@@ -259,8 +278,6 @@ def Run(test, story_set, finder_options, results, max_failures=None,
   if effective_max_failures is None:
     effective_max_failures = max_failures
 
-  possible_browser = _GetPossibleBrowser(finder_options)
-
   if not finder_options.run_full_story_set:
     tag_filter = story_set.GetAbridgedStorySetTagFilter()
     if tag_filter:
@@ -287,16 +304,11 @@ def Run(test, story_set, finder_options, results, max_failures=None,
 
         results.WillRunPage(story, storyset_repeat_counter)
 
-        if expectations:
-          disabled = expectations.IsStoryDisabled(story)
-          if disabled:
-            if finder_options.run_disabled_tests:
-              logging.warning('Force running a disabled story: %s' %
-                              story.name)
-            else:
-              results.Skip(disabled)
-              results.DidRunPage(story)
-              continue
+        skip_reason = story_filter.ShouldSkip(story)
+        if skip_reason:
+          results.Skip(skip_reason)
+          results.DidRunPage(story)
+          continue
 
         if results.benchmark_interrupted:
           results.Skip(results.benchmark_interruption, is_expected=False)
@@ -355,9 +367,7 @@ def Run(test, story_set, finder_options, results, max_failures=None,
   finally:
     results_processor.ComputeTimelineBasedMetrics(results)
     results.PopulateHistogramSet()
-
-    for name, diag in device_info_diags.iteritems():
-      results.AddSharedDiagnosticToAllHistograms(name, diag)
+    results.AddSharedDiagnostics(**device_info_diags)
 
     if state:
       has_existing_exception = sys.exc_info() != (None, None, None)
@@ -381,7 +391,7 @@ def ValidateStory(story):
 def _ShouldRunBenchmark(benchmark, possible_browser, finder_options):
   if finder_options.print_only:
     return True  # Should always run on print-only mode.
-  if benchmark._CanRunOnPlatform(possible_browser.platform, finder_options):
+  if benchmark.CanRunOnPlatform(possible_browser.platform, finder_options):
     return True
   print ('Benchmark "%s" is not supported on the current platform. If this '
          "is in error please add it to the benchmark's SUPPORTED_PLATFORMS."
@@ -403,34 +413,29 @@ def RunBenchmark(benchmark, finder_options):
       finder_options,
       benchmark_name=benchmark.Name(),
       benchmark_description=benchmark.Description(),
-      report_progress=not finder_options.suppress_gtest_report,
-      should_add_value=benchmark.ShouldAddValue) as results:
+      report_progress=not finder_options.suppress_gtest_report) as results:
 
     possible_browser = browser_finder.FindBrowser(finder_options)
     if not possible_browser:
       print ('No browser of type "%s" found for running benchmark "%s".' % (
           finder_options.browser_options.browser_type, benchmark.Name()))
       return -1
-    typ_expectation_tags = possible_browser.GetTypExpectationsTags()
-    logging.info('The following expectations condition tags were generated %s',
-                 str(typ_expectation_tags))
-    benchmark.expectations.SetTags(typ_expectation_tags)
     if not _ShouldRunBenchmark(benchmark, possible_browser, finder_options):
       return -1
 
-    pt = benchmark.CreatePageTest(finder_options)
-    pt.__name__ = benchmark.__class__.__name__
+    test = benchmark.CreatePageTest(finder_options)
+    test.__name__ = benchmark.__class__.__name__
 
     story_set = benchmark.CreateStorySet(finder_options)
 
-    if isinstance(pt, legacy_page_test.LegacyPageTest):
+    if isinstance(test, legacy_page_test.LegacyPageTest):
       if any(not isinstance(p, page.Page) for p in story_set.stories):
         raise Exception(
             'PageTest must be used with StorySet containing only '
             'telemetry.page.Page stories.')
     try:
-      Run(pt, story_set, finder_options, results, benchmark.max_failures,
-          expectations=benchmark.expectations,
+      RunStorySet(
+          test, story_set, finder_options, results, benchmark.max_failures,
           max_num_values=benchmark.MAX_NUM_VALUES)
       if results.benchmark_interrupted:
         return_code = 2
@@ -446,21 +451,13 @@ def RunBenchmark(benchmark, finder_options):
       exception_formatter.PrintFormattedException()
       return_code = 2
 
-    benchmark_owners = benchmark.GetOwners()
-    benchmark_component = benchmark.GetBugComponents()
-    benchmark_documentation_url = benchmark.GetDocumentationLink()
-
-    if benchmark_owners:
-      results.AddSharedDiagnosticToAllHistograms(
-          reserved_infos.OWNERS.name, benchmark_owners)
-
-    if benchmark_component:
-      results.AddSharedDiagnosticToAllHistograms(
-          reserved_infos.BUG_COMPONENTS.name, benchmark_component)
-
-    if benchmark_documentation_url:
-      results.AddSharedDiagnosticToAllHistograms(
-          reserved_infos.DOCUMENTATION_URLS.name, benchmark_documentation_url)
+    # TODO(crbug.com/981349): merge two calls to AddSharedDiagnostics
+    # (see RunStorySet() method for the second one).
+    results.AddSharedDiagnostics(
+        owners=benchmark.GetOwners(),
+        bug_components=benchmark.GetBugComponents(),
+        documentation_urls=benchmark.GetDocumentationLinks(),
+    )
 
     if finder_options.upload_results:
       results_processor.UploadArtifactsToCloud(results)
@@ -556,22 +553,12 @@ def _MakeDeviceInfoDiagnostics(state):
   if not state or not state.platform:
     return {}
 
-  device_info_data = {
-      reserved_infos.ARCHITECTURES.name: state.platform.GetArchName(),
-      reserved_infos.DEVICE_IDS.name: state.platform.GetDeviceId(),
-      # This is not consistent and caused dashboard upload failure
-      # TODO(crbug.com/854676): reenable this later if this is proved to be
-      # useful
-      # reserved_infos.MEMORY_AMOUNTS.name:
-      #    state.platform.GetSystemTotalPhysicalMemory(),
-      reserved_infos.OS_NAMES.name: state.platform.GetOSName(),
-      reserved_infos.OS_VERSIONS.name: state.platform.GetOSVersionName(),
+  # This used to include data for reserved_infos.MEMORY_AMOUNTS, but it was
+  # found that platform.GetSystemTotalPhysicalMemory() does not give
+  # consistent results. See crbug.com/854676 for details.
+  return {
+      'architecture': state.platform.GetArchName(),
+      'device_id': state.platform.GetDeviceId(),
+      'os_name': state.platform.GetOSName(),
+      'os_version': state.platform.GetOSVersionName(),
   }
-
-  device_info_diangostics = {}
-
-  for name, value in device_info_data.iteritems():
-    if not value:
-      continue
-    device_info_diangostics[name] = generic_set.GenericSet([value])
-  return device_info_diangostics

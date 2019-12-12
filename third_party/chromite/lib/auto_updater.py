@@ -13,34 +13,20 @@ TODO(xixuan): Make this lib support other update logics, including:
   install firmware images with FAFT
   install android/brillo
 
-TODO(xixuan): crbugs.com/631837, re-consider the structure of this file,
-like merging check functions into one class.
+ChromiumOSUpdater includes:
+  ----Check-----
+  * Check functions, including kernel/version/cgpt check.
 
-Currently, this lib supports ChromiumOSFlashUpdater and ChromiumOSUpdater.
-
-    ---------------
-    | BaseUpdater | : Updater
-    ---------------
-           |
-           |
-     -------------------------
-     | ChromiumOSFlashUpdater | : Chromium OS Updater by cros flash
-     -------------------------
-                 |
-                 |
-            ---------------------
-            | ChromiumOSUpdater | : Chromium OS Updater by cros flash
-            ---------------------   with more checks
-
-ChromiumOSFlashUpdater includes:
   ----Precheck---
   * Pre-check payload's existence before auto-update.
-  * Pre-check if the device can run its devserver.
+  * Pre-check if the device can run its nebraska.
+  * Pre-check for stateful/rootfs update/whole update.
 
   ----Tranfer----
-  * Transfer devserver package at first.
+  * Transfer update-utils (nebraska, et. al.) package at first.
   * Transfer rootfs update files if rootfs update is required.
   * Transfer stateful update files if stateful update is required.
+  * @retry to all transfer functions.
 
   ----Auto-Update---
   * Do rootfs partition update if it's required.
@@ -50,24 +36,12 @@ ChromiumOSFlashUpdater includes:
   ----Verify----
   * Do verification if it's required.
   * Disable rootfs verification in device if it's required.
-
-ChromiumOSUpdater adds:
-  ----Check-----
-  * Check functions, including kernel/version/cgpt check.
-
-  ----Precheck---
-  * Pre-check for stateful/rootfs update/whole update.
-
-  ----Tranfer----
-  * Add @retry to all transfer functions.
-
-  ----Verify----
   * Post-check stateful/rootfs update/whole update.
 """
 
 from __future__ import print_function
 
-import cStringIO
+import glob
 import json
 import os
 import re
@@ -77,16 +51,18 @@ import time
 
 from chromite.cli import command
 from chromite.lib import auto_update_util
-from chromite.lib import constants
+from chromite.lib import auto_updater_transfer
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import dev_server_wrapper as ds_wrapper
+from chromite.lib import nebraska_wrapper
 from chromite.lib import operation
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import remote_access
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
+
+from chromite.utils import key_value_store
 
 # Naming conventions for global variables:
 #   File on remote host without slash: REMOTE_XXX_FILENAME
@@ -102,29 +78,13 @@ UPDATE_STATUS_DOWNLOADING = 'UPDATE_STATUS_DOWNLOADING'
 UPDATE_STATUS_FINALIZING = 'UPDATE_STATUS_FINALIZING'
 UPDATE_STATUS_UPDATED_NEED_REBOOT = 'UPDATE_STATUS_UPDATED_NEED_REBOOT'
 
-# Error msg in loading shared libraries when running python command.
-ERROR_MSG_IN_LOADING_LIB = ': error while loading shared libraries'
-
 # Max number of the times for retry:
 # 1. for transfer functions to be retried.
 # 2. for some retriable commands to be retried.
 MAX_RETRY = 5
 
-# Number of times to retry update_engine_client --status. See crbug.com/744212.
-UPDATE_ENGINE_STATUS_RETRY = 30
-
 # The delay between retriable tasks.
 DELAY_SEC_FOR_RETRY = 5
-
-# Third-party package directory on devserver
-THIRD_PARTY_PKG_DIR = '/usr/lib/python2.7/dist-packages/'
-
-# Third-party package list
-THIRD_PARTY_PKG_LIST = ['cherrypy', 'google/protobuf']
-
-# update_payload path from update_engine.
-UPDATE_PAYLOAD_DIR = os.path.join(
-    constants.UPDATE_ENGINE_SCRIPTS_PATH, 'update_payload')
 
 # Number of seconds to wait for the post check version to settle.
 POST_CHECK_SETTLE_SECONDS = 15
@@ -153,10 +113,6 @@ class AutoUpdateVerifyError(ChromiumOSUpdateError):
   """Raised for verification failures after auto-update."""
 
 
-class DevserverCannotStartError(ChromiumOSUpdateError):
-  """Raised when devserver cannot restart after stateful update."""
-
-
 class RebootVerificationError(ChromiumOSUpdateError):
   """Raised for failing to reboot errors."""
 
@@ -169,28 +125,27 @@ class BaseUpdater(object):
     self.payload_dir = payload_dir
 
 
-class ChromiumOSFlashUpdater(BaseUpdater):
+class ChromiumOSUpdater(BaseUpdater):
   """Used to update DUT with image."""
-  # stateful update files
+  # Stateful update files.
   LOCAL_STATEFUL_UPDATE_FILENAME = 'stateful_update'
   LOCAL_CHROOT_STATEFUL_UPDATE_PATH = '/usr/bin/stateful_update'
   REMOTE_STATEFUL_UPDATE_PATH = '/usr/local/bin/stateful_update'
 
-  # devserver files
-  LOCAL_DEVSERVER_LOG_FILENAME = 'target_devserver.log'
-  REMOTE_DEVSERVER_FILENAME = 'devserver.py'
+  # Nebraska files.
+  LOCAL_NEBRASKA_LOG_FILENAME = 'nebraska.log'
+  REMOTE_NEBRASKA_FILENAME = 'nebraska.py'
 
-  # rootfs update files
+  # rootfs update files.
   REMOTE_UPDATE_ENGINE_BIN_FILENAME = 'update_engine_client'
   REMOTE_UPDATE_ENGINE_LOGFILE_PATH = '/var/log/update_engine.log'
   REMOTE_PROVISION_FAILED_FILE_PATH = '/var/tmp/provision_failed'
-  REMOTE_HOSTLOG_FILE_PATH = '/var/log/devserver_hostlog'
   REMOTE_QUICK_PROVISION_LOGFILE_PATH = '/var/log/quick-provision.log'
 
   UPDATE_CHECK_INTERVAL_PROGRESSBAR = 0.5
   UPDATE_CHECK_INTERVAL_NORMAL = 10
 
-  # Update engine perf files
+  # Update engine perf files.
   REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH = \
       '/mnt/stateful_partition/unencrypted/preserve/' \
       'update_engine_performance_monitor.py'
@@ -204,21 +159,35 @@ class ChromiumOSFlashUpdater(BaseUpdater):
   # return from reboot' bug is solved.
   REBOOT_TIMEOUT = 480
 
-  def __init__(self, device, payload_dir, dev_dir='', tempdir=None,
-               original_payload_dir=None, do_rootfs_update=True,
-               do_stateful_update=True, reboot=True, disable_verification=False,
-               clobber_stateful=False, yes=False, payload_filename=None,
-               send_payload_in_parallel=False, experimental_au=False):
-    """Initialize a ChromiumOSFlashUpdater for auto-update a chromium OS device.
+  REMOTE_STATEFUL_PATH_TO_CHECK = ('/var', '/home', '/mnt/stateful_partition')
+  REMOTE_STATEFUL_TEST_FILENAME = '.test_file_to_be_deleted'
+  REMOTE_UPDATED_MARKERFILE_PATH = '/run/update_engine_autoupdate_completed'
+  REMOTE_LAB_MACHINE_FILE_PATH = '/mnt/stateful_partition/.labmachine'
+  KERNEL_A = {'name': 'KERN-A', 'kernel': 2, 'root': 3}
+  KERNEL_B = {'name': 'KERN-B', 'kernel': 4, 'root': 5}
+  KERNEL_UPDATE_TIMEOUT = 180
+
+  PAYLOAD_DIR_NAME = 'payloads'
+
+  def __init__(self, device, build_name, payload_dir, dev_dir='',
+               log_file=None, tempdir=None, original_payload_dir=None,
+               clobber_stateful=True, local_devserver=False, yes=False,
+               do_rootfs_update=True, do_stateful_update=True,
+               reboot=True, disable_verification=False,
+               send_payload_in_parallel=False,
+               payload_filename=None, experimental_au=False):
+    """Initialize a ChromiumOSUpdater for auto-update a chromium OS device.
 
     Args:
       device: the ChromiumOSDevice to be updated.
+      build_name: the target update version for the device.
       payload_dir: the directory of payload(s).
-      dev_dir: the directory of the devserver that runs the CrOS auto-update.
+      dev_dir: the directory of the nebraska that runs the CrOS auto-update.
+      log_file: The file to save running logs.
       tempdir: the temp directory in caller, not in the device. For example,
           the tempdir for cros flash is /tmp/cros-flash****/, used to
-          temporarily keep files when transferring devserver package, and
-          reserve devserver and update engine logs.
+          temporarily keep files when transferring update-utils package, and
+          reserve nebraska and update engine logs.
       original_payload_dir: The directory containing payloads whose version is
           the same as current host's rootfs partition. If it's None, will first
           try installing the matched stateful.tgz with the host's rootfs
@@ -233,6 +202,8 @@ class ChromiumOSFlashUpdater(BaseUpdater):
           device. The default is False.
       clobber_stateful: whether to do a clean stateful update. The default is
           False.
+      local_devserver: Indicate whether users use their local devserver.
+          Default: False.
       yes: Assume "yes" (True) for any prompt. The default is False. However,
           it should be set as True if we want to disable all the prompts for
           auto-update.
@@ -244,11 +215,12 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       experimental_au: Use experimental features of auto updater instead. It
           should be deprecated once crbug.com/872441 is fixed.
     """
-    super(ChromiumOSFlashUpdater, self).__init__(device, payload_dir)
-    if tempdir is not None:
-      self.tempdir = tempdir
-    else:
-      self.tempdir = tempfile.mkdtemp(prefix='cros-update')
+    super(ChromiumOSUpdater, self).__init__(device, payload_dir)
+
+    self.tempdir = (tempdir if tempdir is not None
+                    else tempfile.mkdtemp(prefix='cros-update'))
+    self.inactive_kernel = None
+    self.update_version = None if local_devserver else build_name
 
     self.dev_dir = dev_dir
     self.original_payload_dir = original_payload_dir
@@ -264,7 +236,8 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     self._yes = yes
     # Device's directories
     self.device_dev_dir = os.path.join(self.device.work_dir, 'src')
-    self.device_static_dir = os.path.join(self.device.work_dir, 'static')
+    self.device_payload_dir = os.path.join(self.device.work_dir,
+                                           self.PAYLOAD_DIR_NAME)
     self.device_restore_dir = os.path.join(self.device.work_dir, 'old')
     self.stateful_update_bin = None
     # autoupdate_EndToEndTest uses exact payload filename for update
@@ -276,9 +249,23 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     self.perf_id = None
     self.experimental_au = experimental_au
 
+    if log_file:
+      log_kwargs = {
+          'log_stdout_to_file': log_file,
+          'append_to_file': True,
+          'combine_stdout_stderr': True,
+      }
+      self._cmd_kwargs.update(log_kwargs)
+      self._cmd_kwargs_omit_error.update(log_kwargs)
+
+
   @property
   def is_au_endtoendtest(self):
     return self.payload_filename is not None
+
+  def GetPayloadPropertiesFileName(self, payload):
+    """Returns the payload properties file given the path to the payload."""
+    return payload + '.json'
 
   def CheckPayloads(self):
     """Verify that all required payloads are in |self.payload_dir|."""
@@ -286,9 +273,13 @@ class ChromiumOSFlashUpdater(BaseUpdater):
                   self.payload_dir)
     filenames = []
     payload_name = self._GetRootFsPayloadFileName()
-    filenames += [payload_name] if self._do_rootfs_update else []
+
+    if self._do_rootfs_update:
+      filenames += [payload_name,
+                    self.GetPayloadPropertiesFileName(payload_name)]
+
     if self._do_stateful_update:
-      filenames += [ds_wrapper.STATEFUL_FILENAME]
+      filenames += [auto_updater_transfer.STATEFUL_FILENAME]
 
     for fname in filenames:
       payload = os.path.join(self.payload_dir, fname)
@@ -300,11 +291,11 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     logging.debug('Checking whether to restore stateful...')
     restore_stateful = False
     try:
-      self._CheckDevserverCanRun()
+      self._CheckNebraskaCanRun()
       return restore_stateful
-    except DevserverCannotStartError as e:
+    except nebraska_wrapper.NebraskaStartupError as e:
       if self._do_rootfs_update:
-        msg = ('Cannot start devserver! The stateful partition may be '
+        msg = ('Cannot start nebraska! The stateful partition may be '
                'corrupted: %s' % e)
         prompt = 'Attempt to restore the stateful partition?'
         restore_stateful = self._yes or cros_build_lib.BooleanPrompt(
@@ -317,49 +308,14 @@ class ChromiumOSFlashUpdater(BaseUpdater):
                   ('' if restore_stateful else ' not'))
     return restore_stateful
 
-  def _CheckDevserverCanRun(self):
-    """We can run devserver on |device|.
+  def _CheckNebraskaCanRun(self):
+    """We can run Nebraska on |device|."""
+    nebraska_bin = os.path.join(self.device_dev_dir,
+                                self.REMOTE_NEBRASKA_FILENAME)
+    nebraska = nebraska_wrapper.RemoteNebraskaWrapper(
+        self.device, nebraska_bin=nebraska_bin)
+    nebraska.CheckNebraskaCanRun()
 
-    If the stateful partition is corrupted, Python or other packages
-    (e.g. cherrypy) needed for rootfs update may be missing on |device|.
-
-    This will also use `ldconfig` to update library paths on the target
-    device if it looks like that's causing problems, which is necessary
-    for base images.
-
-    Raise DevserverCannotStartError if devserver cannot start.
-    """
-    # Try to capture the output from the command so we can dump it in the case
-    # of errors. Note that this will not work if we were requested to redirect
-    # logs to a |log_file|.
-    cmd_kwargs = dict(self._cmd_kwargs)
-    cmd_kwargs['capture_output'] = True
-    cmd_kwargs['combine_stdout_stderr'] = False
-    logging.info('Checking if we can run devserver on the device...')
-    devserver_bin = os.path.join(self.device_dev_dir,
-                                 self.REMOTE_DEVSERVER_FILENAME)
-    devserver_check_command = ['python', devserver_bin, '--help']
-    try:
-      self.device.RunCommand(devserver_check_command, **cmd_kwargs)
-    except cros_build_lib.RunCommandError as e:
-      logging.warning('Cannot start devserver:')
-      logging.warning(e.result.error)
-      if ERROR_MSG_IN_LOADING_LIB in str(e):
-        logging.info('Attempting to correct device library paths...')
-        try:
-          self.device.RunCommand(['ldconfig', '-r', '/'], **cmd_kwargs)
-          self.device.RunCommand(devserver_check_command,
-                                 **cmd_kwargs)
-          logging.info('Library path correction successful.')
-          return
-        except cros_build_lib.RunCommandError as e2:
-          logging.warning('Library path correction failed:')
-          logging.warning(e2.result.error)
-
-      error_msg = e.result.error.splitlines()[-1]
-      raise DevserverCannotStartError(error_msg)
-
-  # pylint: disable=unbalanced-tuple-unpacking
   @classmethod
   def GetUpdateStatus(cls, device, keys=None):
     """Returns the status of the update engine on the |device|.
@@ -384,8 +340,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       raise Exception('Cannot get update status')
 
     try:
-      status = cros_build_lib.LoadKeyValueFile(
-          cStringIO.StringIO(result.output))
+      status = key_value_store.LoadData(result.output)
     except ValueError:
       raise ValueError('Cannot parse update status')
 
@@ -464,11 +419,11 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     """Makes sure |device| is ready for rootfs update."""
     logging.info('Checking if update engine is idle...')
     self._StartUpdateEngineIfNotRunning(self.device)
-    status, = self.GetUpdateStatus(self.device)
+    status = self.GetUpdateStatus(self.device)[0]
     if status == UPDATE_STATUS_UPDATED_NEED_REBOOT:
       logging.info('Device needs to reboot before updating...')
       self._Reboot('setup of Rootfs Update')
-      status, = self.GetUpdateStatus(self.device)
+      status = self.GetUpdateStatus(self.device)[0]
 
     if status != UPDATE_STATUS_IDLE:
       raise RootfsUpdateError('Update engine is not idle. Status: %s' % status)
@@ -496,53 +451,6 @@ class ChromiumOSFlashUpdater(BaseUpdater):
 
     return third_party_host_dir
 
-  def _CopyPythonFilesToTemp(self, source_python_dir, dest_temp_dir,
-                             extra_ignore_patterns=None):
-    """Copy filtered python files to tempdir.
-
-    Args;
-      source_python_dir: The source python directory that is used to copy from.
-      dest_temp_dir: The dest temp directory that is used to copy to.
-      extra_ignore_patterns: A list of extra ignore patterns in addition to
-        default patterns.
-    """
-    logging.debug('Copy from %s to %s', source_python_dir, dest_temp_dir)
-    default_ignore_patterns = ['*.pyc', 'tmp*', '.*', 'static', '*~']
-    if extra_ignore_patterns:
-      default_ignore_patterns.extend(extra_ignore_patterns)
-    shutil.copytree(
-        source_python_dir, dest_temp_dir,
-        ignore=shutil.ignore_patterns(*default_ignore_patterns),
-        symlinks=True)
-
-  def _TransferRequiredPackage(self):
-    """Transfer third-party packages related to devserver package."""
-    logging.info('Copying third-party packages to device...')
-
-    try:
-      # Copy third-party packages to pythonX.X/site(dist)-packages
-      third_party_host_dir = self._FindDevicePythonPackagesDir()
-      package_dir = os.path.join(self.tempdir, 'third_party')
-      osutils.RmDir(package_dir, ignore_missing=True)
-      for package in THIRD_PARTY_PKG_LIST:
-        # Filter python files from (binary) garbage.
-        self._CopyPythonFilesToTemp(
-            os.path.join(THIRD_PARTY_PKG_DIR, package),
-            os.path.join(package_dir, package))
-
-        # Python packages are plain text files so we chose rsync --compress.
-        self.device.CopyToDevice(
-            os.path.join(package_dir, os.path.split(package)[0]),
-            third_party_host_dir, mode='rsync', log_output=True,
-            **self._cmd_kwargs)
-    except cros_build_lib.RunCommandError as e:
-      # There's a chance that the DUT doesn't have any basic lib before
-      # provisioning, like python. These commands will fail first, but succeed
-      # after stateful partition is restored. So we choose not to raise error
-      # here.
-      logging.debug(
-          'Cannot transfer third-party packages to host due to: %s', e)
-
   def _EnsureDeviceDirectory(self, directory):
     """Mkdir the directory no matther whether this directory exists on host.
 
@@ -560,63 +468,41 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     if self.is_au_endtoendtest:
       return self.payload_filename
     else:
-      return ds_wrapper.ROOTFS_FILENAME
+      return auto_updater_transfer.ROOTFS_FILENAME
 
-  def TransferDevServerPackage(self):
-    """Transfer devserver package to work directory of the remote device."""
-    logging.info('Copying devserver package to device...')
-    src_dir = os.path.join(self.tempdir, 'src')
-    osutils.RmDir(src_dir, ignore_missing=True)
-    # Filter python files from (binary) garbage.
-    # Also filter out directories including symlink to chromite.
-    self._CopyPythonFilesToTemp(ds_wrapper.DEVSERVER_PKG_DIR, src_dir,
-                                extra_ignore_patterns=['venv', 'gs_cache'])
-    # Copy update_payload from update_engine repository.
-    update_payload_dir = os.path.join(src_dir, 'update_payload')
-    self._CopyPythonFilesToTemp(UPDATE_PAYLOAD_DIR, update_payload_dir)
+  def _TransferUpdateUtilsPackage(self):
+    """Transfer update-utils package to work directory of the remote device."""
+    files_to_copy = (nebraska_wrapper.NEBRASKA_SOURCE_FILE,)
+    logging.info('Copying these files to device: %s', files_to_copy)
+    source_dir = os.path.join(self.tempdir, 'src')
+    osutils.SafeMakedirs(source_dir)
+    for f in files_to_copy:
+      shutil.copy2(f, source_dir)
+
     # Make sure the device.work_dir exist after any installation and reboot.
     self._EnsureDeviceDirectory(self.device.work_dir)
     # Python packages are plain text files so we chose rsync --compress.
-    self.device.CopyToWorkDir(src_dir, mode='rsync', log_output=True,
+    self.device.CopyToWorkDir(source_dir, mode='rsync', log_output=True,
                               **self._cmd_kwargs)
 
-    if self.original_payload_dir:
-      self._TransferRequiredPackage()
-
-  def TransferRootfsUpdate(self):
+  def _TransferRootfsUpdate(self):
     """Transfer files for rootfs update.
 
     Copy the update payload to the remote device for rootfs update.
     """
-    device_payload_dir = os.path.join(self.device_static_dir, 'pregenerated')
-    self._EnsureDeviceDirectory(device_payload_dir)
+    self._EnsureDeviceDirectory(self.device_payload_dir)
     logging.info('Copying rootfs payload to device...')
     payload_name = self._GetRootFsPayloadFileName()
     payload = os.path.join(self.payload_dir, payload_name)
-    self.device.CopyToDevice(payload, device_payload_dir,
-                             mode=self.payload_mode,
-                             log_output=True, **self._cmd_kwargs)
+    self.device.CopyToWorkDir(payload, self.PAYLOAD_DIR_NAME,
+                              mode=self.payload_mode,
+                              log_output=True, **self._cmd_kwargs)
+    payload_properties_path = self.GetPayloadPropertiesFileName(payload)
+    self.device.CopyToWorkDir(payload_properties_path, self.PAYLOAD_DIR_NAME,
+                              mode=self.payload_mode,
+                              log_output=True, **self._cmd_kwargs)
 
-    if self.is_au_endtoendtest:
-      self.RenameRootfsPayloadForAUTest(device_payload_dir, payload_name)
-
-  def RenameRootfsPayloadForAUTest(self, payload_dir, payload_name):
-    """Rename the payload supplied by autoupdate_EndToEndTest on the DUT.
-
-    The au test takes in a payload that we want to update to. In order not
-    to break the devservers update handling we rename this payload to
-    update.gz after we copy it to the DUT.
-    """
-    expected_path = os.path.join(payload_dir, ds_wrapper.ROOTFS_FILENAME)
-
-    # Strip any partial paths from the filename e.g payloads/payload.bin
-    payload_name = payload_name.rpartition('/')[2]
-    current_path = os.path.join(payload_dir, payload_name)
-    # Rename the payload on the DUT so we don't break the current
-    # devserver staging. Rename to update.gz so DUTs devserver can respond.
-    self.device.RunCommand(['mv', current_path, expected_path])
-
-  def TransferStatefulUpdate(self):
+  def _TransferStatefulUpdate(self):
     """Transfer files for stateful update.
 
     The stateful update bin and the corresponding payloads are copied to the
@@ -626,7 +512,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
                   'transferred to device...')
     need_transfer, stateful_update_bin = self._GetStatefulUpdateScript()
     if need_transfer:
-      logging.info('Copying stateful_update_bin to device...')
+      logging.info('Copying stateful_update binary to device...')
       # stateful_update is a tiny uncompressed text file, so use rsync.
       self.device.CopyToWorkDir(stateful_update_bin, mode='rsync',
                                 log_output=True, **self._cmd_kwargs)
@@ -639,28 +525,17 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     if self.original_payload_dir:
       logging.info('Copying original stateful payload to device...')
       original_payload = os.path.join(
-          self.original_payload_dir, ds_wrapper.STATEFUL_FILENAME)
+          self.original_payload_dir, auto_updater_transfer.STATEFUL_FILENAME)
       self._EnsureDeviceDirectory(self.device_restore_dir)
       self.device.CopyToDevice(original_payload, self.device_restore_dir,
                                mode=self.payload_mode, log_output=True,
                                **self._cmd_kwargs)
 
     logging.info('Copying target stateful payload to device...')
-    payload = os.path.join(self.payload_dir, ds_wrapper.STATEFUL_FILENAME)
+    payload = os.path.join(self.payload_dir,
+                           auto_updater_transfer.STATEFUL_FILENAME)
     self.device.CopyToWorkDir(payload, mode=self.payload_mode,
                               log_output=True, **self._cmd_kwargs)
-
-  def RestoreStateful(self):
-    """Restore stateful partition for device."""
-    logging.warning('Restoring the stateful partition')
-    self.RunUpdateStateful()
-    self._Reboot('stateful partition restoration')
-    try:
-      self._CheckDevserverCanRun()
-      logging.info('Stateful partition restored.')
-    except DevserverCannotStartError as e:
-      raise ChromiumOSUpdateError(
-          'Unable to restore stateful partition: %s', e)
 
   def ResetStatefulPartition(self):
     """Clear any pending stateful update request."""
@@ -673,12 +548,12 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       if self.is_au_endtoendtest and not self.device.HasRsync():
         # If we have updated backwards from a build with ext4 crytpo to a
         # build without ext4 crypto the DUT gets powerwashed. So the stateful
-        # bin, payloads, and devserver files are no longer accessible.
+        # bin, payloads, and nebraska files are no longer accessible.
         # See crbug.com/689105. Rsync will no longer be available either so we
         # will need to use scp for the rest of the update.
         logging.warning('Exception while resetting stateful: %s', e)
         if self.CheckRestoreStateful():
-          logging.info('Stateful files and devserver code now back on '
+          logging.info('Stateful files and nebraska code now back on '
                        'the device. Trying to reset stateful again.')
           self.device.RunCommand(['sh', self.stateful_update_bin,
                                   '--stateful_change=reset'],
@@ -697,25 +572,24 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       logging.warning('Reverting the boot partition failed: %s', e)
 
   def UpdateRootfs(self):
-    """Update the rootfs partition of the device."""
-    logging.info('Updating rootfs partition')
-    devserver_bin = os.path.join(self.device_dev_dir,
-                                 self.REMOTE_DEVSERVER_FILENAME)
-    ds = ds_wrapper.RemoteDevServerWrapper(
-        self.device, devserver_bin, self.is_au_endtoendtest,
-        static_dir=self.device_static_dir,
-        log_dir=self.device.work_dir)
-    try:
-      ds.Start()
-      logging.debug('Successfully started devserver on the device on port '
-                    '%d.', ds.port)
+    """Update the rootfs partition of the device (utilizing nebraska)."""
+    logging.info('Updating rootfs partition with Nebraska.')
+    nebraska_bin = os.path.join(self.device_dev_dir,
+                                self.REMOTE_NEBRASKA_FILENAME)
 
-      # Use the localhost IP address to ensure that update engine
-      # client can connect to the devserver.
-      omaha_url = ds.GetDevServerURL(
-          ip='127.0.0.1', port=ds.port, sub_dir='update/pregenerated')
-      cmd = [self.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '-check_for_update',
-             '-omaha_url=%s' % omaha_url]
+    nebraska = nebraska_wrapper.RemoteNebraskaWrapper(
+        self.device, nebraska_bin=nebraska_bin,
+        update_payloads_address='file://' + self.device_payload_dir,
+        update_metadata_dir=self.device_payload_dir)
+
+    try:
+      nebraska.Start()
+
+      # Use the localhost IP address (default) to ensure that update engine
+      # client can connect to the nebraska.
+      nebraska_url = nebraska.GetURL(critical_update=True)
+      cmd = [self.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '--check_for_update',
+             '--omaha_url="%s"' % nebraska_url]
 
       self._StartPerformanceMonitoringForAUTest()
       self.device.RunCommand(cmd, **self._cmd_kwargs)
@@ -731,14 +605,16 @@ class ChromiumOSFlashUpdater(BaseUpdater):
 
       # Loop until update is complete.
       while True:
-
-        #TODO(dhaddock): Remove retry when M61 is stable. See crbug.com/744212.
-        op, progress = retry_util.RetryException(cros_build_lib.RunCommandError,
-                                                 UPDATE_ENGINE_STATUS_RETRY,
-                                                 self.GetUpdateStatus,
-                                                 self.device,
-                                                 ['CURRENT_OP', 'PROGRESS'],
-                                                 delay_sec=DELAY_SEC_FOR_RETRY)
+        # Number of times to retry `update_engine_client --status`. See
+        # crbug.com/744212.
+        update_engine_status_retry = 30
+        op, progress = retry_util.RetryException(
+            cros_build_lib.RunCommandError,
+            update_engine_status_retry,
+            self.GetUpdateStatus,
+            self.device,
+            ['CURRENT_OP', 'PROGRESS'],
+            delay_sec=DELAY_SEC_FOR_RETRY)[0:2]
         logging.info('Waiting for update...status: %s at progress %s',
                      op, progress)
 
@@ -769,23 +645,20 @@ class ChromiumOSFlashUpdater(BaseUpdater):
             end_message_not_printed = False
 
         time.sleep(update_check_interval)
-
-      # Write the hostlog to a file before shutting off devserver.
-      self._CollectDevServerHostLog(ds)
-      ds.Stop()
+    # TODO(ahassani): Scope the Exception to finer levels. For example we don't
+    # need to revert the boot partition if the Nebraska fails to start, etc.
     except Exception as e:
-      logging.error('Rootfs update failed.')
+      logging.error('Rootfs update failed %s', e)
       self.RevertBootPartition()
-      logging.warning(ds.TailLog() or 'No devserver log is available.')
-      raise RootfsUpdateError(str(e))
+      logging.warning(nebraska.PrintLog() or 'No nebraska log is available.')
+      raise RootfsUpdateError('Failed to perform rootfs update: %r' % e)
     finally:
-      if ds.is_alive():
-        self._CollectDevServerHostLog(ds)
-      ds.Stop()
-      self.device.CopyFromDevice(
-          ds.log_file,
-          os.path.join(self.tempdir, self.LOCAL_DEVSERVER_LOG_FILENAME),
-          **self._cmd_kwargs_omit_error)
+      self._CopyHostLogFromDevice(nebraska, 'rootfs')
+      nebraska.Stop()
+
+      nebraska.CollectLogs(os.path.join(self.tempdir,
+                                        self.LOCAL_NEBRASKA_LOG_FILENAME))
+
       self.device.CopyFromDevice(
           self.REMOTE_UPDATE_ENGINE_LOGFILE_PATH,
           os.path.join(self.tempdir, os.path.basename(
@@ -799,7 +672,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
           follow_symlinks=True,
           ignore_failures=True,
           **self._cmd_kwargs_omit_error)
-      self._CopyHostLogFromDevice('rootfs')
+
       self._StopPerformanceMonitoringForAUTest()
 
   def UpdateStateful(self, use_original_build=False):
@@ -816,7 +689,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       payload_dir = self.device.work_dir
     cmd = ['sh',
            self.stateful_update_bin,
-           os.path.join(payload_dir, ds_wrapper.STATEFUL_FILENAME)]
+           os.path.join(payload_dir, auto_updater_transfer.STATEFUL_FILENAME)]
 
     if self._clobber_stateful:
       cmd.append('--stateful_change=clean')
@@ -830,16 +703,57 @@ class ChromiumOSFlashUpdater(BaseUpdater):
       self.ResetStatefulPartition()
       raise StatefulUpdateError('Stateful partition update failed.')
 
+  def _FixPayloadPropertiesFile(self):
+    """Fix the update payload properties file so nebraska can use it.
+
+    Update the payload properties file for end-to-end tests to make sure
+    nebraska can use it. The reason is that very old payloads are still being
+    used for provisioning the AU tests, but those properties files are not
+    compatible with recent nebraska protocols.
+
+    TODO(ahassani): Once we only test delta or full payload with
+    source image of M77 or higher, this function can be deprecated.
+
+    TODO(ahassani): Merge this somehow with ResolveAPPIDMismatchIfAny().
+    """
+    logging.info('Fixing payload properties file.')
+    payload_name = self._GetRootFsPayloadFileName()
+    payload_path = os.path.join(self.payload_dir, payload_name)
+    payload_properties_path = self.GetPayloadPropertiesFileName(payload_path)
+    props = json.loads(osutils.ReadFile(payload_properties_path))
+
+    full_exp = r'payloads/chromeos_(?P<image_version>[^_]+)_.*'
+    m = re.match(full_exp, payload_name)
+    if not m:
+      raise ValueError(
+          'Regular expression %r did not match the payload file name %s' %
+          (full_exp, payload_name))
+    values = m.groupdict()
+
+    # TODO(ahassani): Use the keys form nebraska.py once it is moved to
+    # chromite.
+    valid_entries = {
+        'appid': '',
+        # Since only old payloads don't have this and they are only used for
+        # provisioning, they will be full payloads.
+        'is_delta': False,
+        'size': os.path.getsize(payload_path),
+        'target_version': values['image_version'],
+    }
+
+    for key, value in valid_entries.items():
+      if props.get(key) is None:
+        props[key] = value
+
+    with open(payload_properties_path, 'w') as fp:
+      json.dump(props, fp)
+
   def RunUpdateRootfs(self):
     """Run all processes needed by updating rootfs.
 
     1. Check device's status to make sure it can be updated.
     2. Copy files to remote device needed for rootfs update.
     3. Do root updating.
-    TODO(ihf): Change this to:
-    2. Unpack rootfs here on server.
-    3. rsync from server rootfs to device rootfs to perform update
-       (do not use --compress).
     """
     self.SetupRootfsUpdate()
     # Copy payload for rootfs update.
@@ -851,10 +765,6 @@ class ChromiumOSFlashUpdater(BaseUpdater):
 
     1. Copy files to remote device needed by stateful update.
     2. Do stateful update.
-    TODO(ihf): Change this to:
-    1. Unpack stateful here on server.
-    2. rsync from server stateful to device stateful to update (do not
-       use --compress).
     """
     self.TransferStatefulUpdate()
     self.UpdateStateful()
@@ -877,7 +787,7 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     old_root_dev = self.GetRootDev(self.device)
     self.device.Reboot()
     if self._clobber_stateful:
-      self.device.BaseRunCommand(['mkdir', '-p', self.device.work_dir])
+      self.device.RunCommand(['mkdir', '-p', self.device.work_dir])
 
     if self._do_rootfs_update:
       logging.notice('Verifying that the device has been updated...')
@@ -896,9 +806,39 @@ class ChromiumOSFlashUpdater(BaseUpdater):
             'signing problem, or an automated rollback occurred because '
             'your new image failed to boot.')
 
+  def ResolveAPPIDMismatchIfAny(self):
+    """Resolves and APP ID mismatch between the payload and device.
+
+    If the APP ID of the payload is different than the device, then the nebraska
+    will fail. We empty the payload's AppID so nebraska can do partial APP ID
+    matching.
+    """
+    if not self.device.app_id:
+      logging.warn('Device does not a propper APP ID!')
+      return
+
+    # Just catch the first json file and assume it is a payload property file.
+    prop_file = glob.glob(os.path.join(self.payload_dir, '*.json'))[0]
+    prop_file = os.path.join(self.payload_dir, prop_file)
+
+    content = json.loads(osutils.ReadFile(prop_file))
+    payload_app_id = content.get('appid', '')
+    if not payload_app_id:
+      # Payload's App ID is empty, we don't care, it is already partial match.
+      return
+
+    if self.device.app_id != payload_app_id:
+      logging.warn('You are installing an image with a different release '
+                   'App ID than the device (%s vs %s), we are forcing the '
+                   'install!', payload_app_id, self.device.app_id)
+      # Override the properties file with the new empty APP ID.
+      content['appid'] = ''
+      osutils.WriteFile(prop_file, json.dumps(content))
+
   def RunUpdate(self):
     """Update the device with image of specific version."""
-    self.TransferDevServerPackage()
+    self.TransferUpdateUtilsPackage()
+
     restore_stateful = self.CheckRestoreStateful()
     if restore_stateful:
       self.RestoreStateful()
@@ -918,49 +858,6 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     if self._disable_verification:
       logging.info('Disabling rootfs verification on the device...')
       self.device.DisableRootfsVerification()
-
-  def _CollectDevServerHostLog(self, devserver):
-    """Write the host_log events from the remote DUTs devserver to a file.
-
-    The hostlog is needed for analysis by autoupdate_EndToEndTest only.
-    We retry several times as some DUTs are slow immediately after
-    starting up a devserver and return no hostlog on the first call(s).
-
-    Args:
-      devserver: The remote devserver wrapper for the running devserver.
-    """
-    if not self.is_au_endtoendtest:
-      return
-
-    for _ in range(0, MAX_RETRY):
-      try:
-        host_log_url = devserver.GetDevServerHostLogURL(ip='127.0.0.1',
-                                                        port=devserver.port,
-                                                        host='127.0.0.1')
-
-        # Save the hostlog.
-        self.device.RunCommand(['curl', host_log_url, '-o',
-                                self.REMOTE_HOSTLOG_FILE_PATH],
-                               **self._cmd_kwargs)
-
-        # Copy it back.
-        tmphostlog = os.path.join(self.tempdir, 'hostlog')
-        self.device.CopyFromDevice(self.REMOTE_HOSTLOG_FILE_PATH, tmphostlog,
-                                   **self._cmd_kwargs_omit_error)
-
-        # Check that it is not empty.
-        with open(tmphostlog, 'r') as out_log:
-          hostlog_data = json.loads(out_log.read())
-
-        if not hostlog_data:
-          logging.info('Hostlog empty. Trying again...')
-          time.sleep(DELAY_SEC_FOR_RETRY)
-        else:
-          break
-
-      except cros_build_lib.RunCommandError as e:
-        logging.debug('Exception raised while trying to write the hostlog: '
-                      '%s', e)
 
   def _StartPerformanceMonitoringForAUTest(self):
     """Start update_engine performance monitoring script in rootfs update.
@@ -991,14 +888,20 @@ class ChromiumOSFlashUpdater(BaseUpdater):
     except cros_build_lib.RunCommandError as e:
       logging.debug('Could not stop performance monitoring process: %s', e)
 
-  def _CopyHostLogFromDevice(self, partial_filename):
-    """Copy the hostlog file generated by the devserver from the device."""
-    if self.is_au_endtoendtest:
-      self.device.CopyFromDevice(
-          self.REMOTE_HOSTLOG_FILE_PATH,
-          os.path.join(self.tempdir, '_'.join([os.path.basename(
-              self.REMOTE_HOSTLOG_FILE_PATH), partial_filename])),
-          **self._cmd_kwargs_omit_error)
+  def _CopyHostLogFromDevice(self, nebraska, partial_filename):
+    """Copy the hostlog file generated by the nebraska from the device.
+
+    Args:
+      nebraska: The nebraska_wrapper.RemoteNebraskawrapper instance.
+      partial_filename: A string that will be appended to
+        'devserver_hostlog_'. This is to handle current autotests.
+    """
+    if not self.is_au_endtoendtest:
+      return
+
+    nebraska_hostlog_file = os.path.join(
+        self.tempdir, 'devserver_hostlog_' + partial_filename)
+    nebraska.CollectRequestLogs(nebraska_hostlog_file)
 
   def _Reboot(self, error_stage, timeout=None):
     try:
@@ -1010,78 +913,6 @@ class ChromiumOSFlashUpdater(BaseUpdater):
                                   error_stage)
     except remote_access.SSHConnectionError:
       raise ChromiumOSUpdateError('Failed to connect at %s' % error_stage)
-
-
-class ChromiumOSUpdater(ChromiumOSFlashUpdater):
-  """Used to auto-update Cros DUT with image.
-
-  Different from ChromiumOSFlashUpdater, which only contains cros-flash
-  related auto-update methods, ChromiumOSUpdater includes pre-setup and
-  post-check methods for both rootfs and stateful update. It also contains
-  various single check functions, like CheckVersion() and _ResetUpdateEngine().
-
-  Furthermore, this class adds retry to package transfer-related functions.
-  """
-  REMOTE_STATEFUL_PATH_TO_CHECK = ['/var', '/home', '/mnt/stateful_partition']
-  REMOTE_STATEFUL_TEST_FILENAME = '.test_file_to_be_deleted'
-  REMOTE_UPDATED_MARKERFILE_PATH = '/run/update_engine_autoupdate_completed'
-  REMOTE_LAB_MACHINE_FILE_PATH = '/mnt/stateful_partition/.labmachine'
-  KERNEL_A = {'name': 'KERN-A', 'kernel': 2, 'root': 3}
-  KERNEL_B = {'name': 'KERN-B', 'kernel': 4, 'root': 5}
-  KERNEL_UPDATE_TIMEOUT = 180
-
-  def __init__(self, device, build_name, payload_dir, dev_dir='',
-               log_file=None, tempdir=None, original_payload_dir=None,
-               clobber_stateful=True, local_devserver=False, yes=False,
-               payload_filename=None, experimental_au=False):
-    """Initialize a ChromiumOSUpdater for auto-update a chromium OS device.
-
-    Args:
-      device: the ChromiumOSDevice to be updated.
-      build_name: the target update version for the device.
-      payload_dir: the directory of payload(s).
-      dev_dir: the directory of the devserver that runs the CrOS auto-update.
-      log_file: The file to save running logs.
-      tempdir: the temp directory in caller, not in the device. For example,
-          the tempdir for cros flash is /tmp/cros-flash****/, used to
-          temporarily keep files when transferring devserver package, and
-          reserve devserver and update engine logs.
-      original_payload_dir: The directory containing payloads whose version is
-          the same as current host's rootfs partition. If it's None, will first
-          try installing the matched stateful.tgz with the host's rootfs
-          Partition when restoring stateful. Otherwise, install the target
-          stateful.tgz.
-      clobber_stateful: whether to do a clean stateful update. The default is
-          True for CrOS update.
-      local_devserver: Indicate whether users use their local devserver.
-          Default: False.
-      yes: Assume "yes" (True) for any prompt. The default is False. However,
-          it should be set as True if we want to disable all the prompts for
-          auto-update.
-      payload_filename: Filename of exact payload file to use for
-          update instead of the default: update.gz.
-      experimental_au: Use experimental features of auto updater instead. It
-          should be deprecated once crbug.com/872441 is fixed.
-    """
-    super(ChromiumOSUpdater, self).__init__(
-        device, payload_dir, dev_dir=dev_dir, tempdir=tempdir,
-        original_payload_dir=original_payload_dir,
-        clobber_stateful=clobber_stateful, yes=yes,
-        payload_filename=payload_filename, experimental_au=experimental_au)
-
-    if log_file:
-      self._cmd_kwargs['log_stdout_to_file'] = log_file
-      self._cmd_kwargs['append_to_file'] = True
-      self._cmd_kwargs['combine_stdout_stderr'] = True
-      self._cmd_kwargs_omit_error['log_stdout_to_file'] = log_file
-      self._cmd_kwargs_omit_error['append_to_file'] = True
-      self._cmd_kwargs_omit_error['combine_stdout_stderr'] = True
-
-    self.inactive_kernel = None
-    if local_devserver:
-      self.update_version = None
-    else:
-      self.update_version = build_name
 
   def _cgpt(self, flag, kernel, dev='$(rootdev -s -d)'):
     """Return numeric cgpt value for the specified flag, kernel, device."""
@@ -1169,13 +1000,8 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                        **self._cmd_kwargs_omit_error)
     self._RetryCommand(['start', 'update-engine'], **self._cmd_kwargs)
 
-    status = retry_util.RetryException(
-        Exception,
-        MAX_RETRY,
-        self.GetUpdateStatus, self.device,
-        delay_sec=DELAY_SEC_FOR_RETRY)
-
-    if status[0] != UPDATE_STATUS_IDLE:
+    op = self.GetUpdateStatus(self.device)[0]
+    if op != UPDATE_STATUS_IDLE:
       raise PreSetupUpdateError('%s is not in an installable state' %
                                 self.device.hostname)
 
@@ -1228,12 +1054,10 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
           'within %d seconds' % (event, self.KERNEL_UPDATE_TIMEOUT))
 
   def _CheckVersionToConfirmInstall(self):
-    # In the local_devserver case, we can't know the expected
-    # build, so just pass.
     logging.debug('Checking whether the new build is successfully installed...')
     if not self.update_version:
       logging.debug('No update_version is provided if test is executed with'
-                    'local devserver.')
+                    'local nebraska.')
       return True
 
     # Always try the default check_version method first, this prevents
@@ -1260,12 +1084,20 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
         self.device.RunCommand,
         cmd, delay_sec=DELAY_SEC_FOR_RETRY, **kwargs)
 
+  # TODO(crbug.com/872441): cros_autoupdate in platform/dev-utils package still
+  # calls this function, but in fact it needs to call
+  # TransferUpdateUtilsPackage() instead. So delete this function once all the
+  # callers have been moved.
   def TransferDevServerPackage(self):
-    """Transfer devserver package to work directory of the remote device."""
+    """DEPRECATED."""
+    self.TransferUpdateUtilsPackage()
+
+  def TransferUpdateUtilsPackage(self):
+    """Transfer update-utils package to work directory of the remote device."""
     retry_util.RetryException(
         cros_build_lib.RunCommandError,
         MAX_RETRY,
-        super(ChromiumOSUpdater, self).TransferDevServerPackage,
+        self._TransferUpdateUtilsPackage,
         delay_sec=DELAY_SEC_FOR_RETRY)
 
   def TransferRootfsUpdate(self):
@@ -1274,10 +1106,16 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
     The corresponding payload are copied to the remote device for rootfs
     update.
     """
+    # TODO(ahassani): This is not the ideal place to do this, but since any
+    # changes to this needs to be reflected in cros_update.py too, just do it
+    # for now here.
+    if self.is_au_endtoendtest:
+      self._FixPayloadPropertiesFile()
+
     retry_util.RetryException(
         cros_build_lib.RunCommandError,
         MAX_RETRY,
-        super(ChromiumOSUpdater, self).TransferRootfsUpdate,
+        self._TransferRootfsUpdate,
         delay_sec=DELAY_SEC_FOR_RETRY)
 
   def TransferStatefulUpdate(self):
@@ -1289,7 +1127,7 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
     retry_util.RetryException(
         cros_build_lib.RunCommandError,
         MAX_RETRY,
-        super(ChromiumOSUpdater, self).TransferStatefulUpdate,
+        self._TransferStatefulUpdate,
         delay_sec=DELAY_SEC_FOR_RETRY)
 
   def PreSetupCrOSUpdate(self):
@@ -1327,7 +1165,6 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
         self._RetryCommand(['touch', touch_path], **self._cmd_kwargs)
 
     self._ResetUpdateEngine()
-    self.ResetStatefulPartition()
 
   def PostCheckStatefulUpdate(self):
     """Post-check for stateful update for CrOS host."""
@@ -1350,46 +1187,55 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
                        **self._cmd_kwargs_omit_error)
     self._ResetUpdateEngine()
 
-  def _IfDevserverPackageInstalled(self):
-    """Check whether devserver package is well installed.
+  def _IsUpdateUtilsPackageInstalled(self):
+    """Check whether update-utils package is well installed.
 
-    There's a chance that devserver package is removed in the middle of
+    There's a chance that nebraska package is removed in the middle of
     auto-update process. This function double check it and transfer it if it's
     removed.
     """
-    logging.info('Checking whether devserver files are still on the device...')
+    logging.info('Checking whether nebraska files are still on the device...')
     try:
-      devserver_bin = os.path.join(self.device_dev_dir,
-                                   self.REMOTE_DEVSERVER_FILENAME)
+      nebraska_bin = os.path.join(self.device_dev_dir,
+                                  self.REMOTE_NEBRASKA_FILENAME)
       if not self.device.IfFileExists(
-          devserver_bin, **self._cmd_kwargs_omit_error):
-        logging.info('Devserver files not found on device. Resending them...')
-        self.TransferDevServerPackage()
-        self.TransferStatefulUpdate()
+          nebraska_bin, **self._cmd_kwargs_omit_error):
+        logging.info('Nebraska files not found on device. Resending them...')
+        self.TransferUpdateUtilsPackage()
 
       return True
     except cros_build_lib.RunCommandError as e:
       logging.warning('Failed to verify whether packages still exist: %s', e)
       return False
 
-  def _CheckDevserverCanRun(self):
-    """Check if devserver can successfully run for ChromiumOSUpdater."""
-    self._IfDevserverPackageInstalled()
-    super(ChromiumOSUpdater, self)._CheckDevserverCanRun()
-
+  # TODO(crbug.com/872441): cros_autoupdate in platform/dev-utils package still
+  # calls this function, but in fact it needs to call CheckNebrskaCanRun()
+  # instead. So delete this function once all the callers have been moved.
   def CheckDevserverRun(self):
-    """Check whether devserver can start."""
-    self._CheckDevserverCanRun()
-    logging.info('Devserver successfully start.')
+    """DEPRECATED"""
+    self.CheckNebraskaCanRun()
+
+  def CheckNebraskaCanRun(self):
+    """Check if nebraska can successfully run for ChromiumOSUpdater."""
+    self._IsUpdateUtilsPackageInstalled()
+    self._CheckNebraskaCanRun()
 
   def RestoreStateful(self):
     """Restore stateful partition for device."""
-    logging.warning('Restoring the stateful partition')
+    logging.warning('Restoring the stateful partition.')
     self.PreSetupStatefulUpdate()
+    self.TransferStatefulUpdate()
+    self.ResetStatefulPartition()
     use_original_build = bool(self.original_payload_dir)
     self.UpdateStateful(use_original_build=use_original_build)
     self.PostCheckStatefulUpdate()
-    self.CheckDevserverRun()
+    self._Reboot('stateful partition restoration')
+    try:
+      self.CheckNebraskaCanRun()
+      logging.info('Stateful partition restored.')
+    except nebraska_wrapper.NebraskaStartupError as e:
+      raise ChromiumOSUpdateError(
+          'Unable to restore stateful partition: %s' % e)
 
   def PostCheckRootfsUpdate(self):
     """Post-check for rootfs update for CrOS host."""
@@ -1472,36 +1318,27 @@ class ChromiumOSUpdater(ChromiumOSFlashUpdater):
     This is only done with autoupdate_EndToEndTest.
     """
     logging.debug('Doing one final update check to get post update hostlog.')
-    devserver_bin = os.path.join(self.device_dev_dir,
-                                 self.REMOTE_DEVSERVER_FILENAME)
-    ds = ds_wrapper.RemoteDevServerWrapper(
-        self.device, devserver_bin, self.is_au_endtoendtest,
-        static_dir=self.device_static_dir,
-        log_dir=self.device.work_dir)
+    nebraska_bin = os.path.join(self.device_dev_dir,
+                                self.REMOTE_NEBRASKA_FILENAME)
+    nebraska = nebraska_wrapper.RemoteNebraskaWrapper(
+        self.device, nebraska_bin=nebraska_bin,
+        update_metadata_dir=self.device_payload_dir)
 
     try:
-      ds.Start()
-      logging.debug('Successfully started devserver on the device on port '
-                    '%d.', ds.port)
+      nebraska.Start()
 
-      omaha_url = ds.GetDevServerURL(ip='127.0.0.1', port=ds.port,
-                                     sub_dir='update')
-      cmd = [self.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '-check_for_update',
-             '-omaha_url=%s' % omaha_url]
+      nebraska_url = nebraska.GetURL(critical_update=True, no_update=True)
+      cmd = [self.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '--check_for_update',
+             '--omaha_url="%s"' % nebraska_url]
       self.device.RunCommand(cmd, **self._cmd_kwargs)
-      op = self.GetUpdateStatus(self.device)
+      op = self.GetUpdateStatus(self.device)[0]
       logging.info('Post update check status: %s', op)
-
-      self._CollectDevServerHostLog(ds)
-      ds.Stop()
-    except Exception:
-      logging.error('Post reboot update check failed.')
-      logging.warning(ds.TailLog() or 'No devserver log is available.')
+    except Exception as err:
+      logging.error('Post reboot update check failed: %s', str(err))
+      logging.warning(nebraska.PrintLog() or 'No nebraska log is available.')
     finally:
-      if ds.is_alive():
-        self._CollectDevServerHostLog(ds)
-      ds.Stop()
-      self._CopyHostLogFromDevice('reboot')
+      self._CopyHostLogFromDevice(nebraska, 'reboot')
+      nebraska.Stop()
 
   def AwaitReboot(self, old_boot_id):
     """Await a reboot, ensuring that it is no longer running old_boot_id.

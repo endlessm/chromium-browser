@@ -58,7 +58,6 @@
 
 #ifdef _WIN32
 
-#define snprintf _snprintf
 #define strdup _strdup
 
 // Returns nonzero if the console is used only for this process. Will return
@@ -112,11 +111,17 @@ struct LayerExtensionList {
     VkExtensionProperties *extension_properties;
 };
 
-struct SurfaceNameWHandle {
+struct AppInstance;
+
+struct SurfaceExtensionNode {
+    struct SurfaceExtensionNode *next;
+
     const char *name;
+    void (*create_window)(struct AppInstance *);
+    VkSurfaceKHR (*create_surface)(struct AppInstance *);
+    void (*destroy_window)(struct AppInstance *);
     VkSurfaceKHR surface;
-    struct SurfaceNameWHandle *pNextSurface;
-    VkBool32 present_support;
+    VkBool32 supports_present;
 };
 
 struct AppInstance {
@@ -148,13 +153,8 @@ struct AppInstance {
     PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR vkGetPhysicalDeviceSurfaceCapabilities2KHR;
     PFN_vkGetPhysicalDeviceSurfaceCapabilities2EXT vkGetPhysicalDeviceSurfaceCapabilities2EXT;
 
-    VkSurfaceCapabilitiesKHR surface_capabilities;
-    VkSurfaceCapabilities2KHR surface_capabilities2;
-    VkSharedPresentSurfaceCapabilitiesKHR shared_surface_capabilities;
-    VkSurfaceCapabilities2EXT surface_capabilities2_ext;
+    struct SurfaceExtensionNode *surface_ext_infos_root;
 
-    struct SurfaceNameWHandle *surface_chain;
-    VkSurfaceKHR surface;
     int width, height;
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -182,6 +182,15 @@ struct AppInstance {
 #endif
 };
 
+struct MemResSupport {
+    struct MemImageSupport {
+        bool regular_supported, sparse_supported, transient_supported;
+        VkFormat format;
+        uint32_t regular_memtypes, sparse_memtypes, transient_memtypes;
+    } image[2][1 + 7];
+    // TODO: buffers
+};
+
 struct AppGpu {
     uint32_t id;
     VkPhysicalDevice obj;
@@ -199,12 +208,17 @@ struct AppGpu {
     VkPhysicalDeviceMemoryProperties memory_props;
     VkPhysicalDeviceMemoryProperties2KHR memory_props2;
 
+    struct MemResSupport mem_type_res_support;
+
     VkPhysicalDeviceFeatures features;
     VkPhysicalDeviceFeatures2KHR features2;
     VkPhysicalDevice limits;
 
     uint32_t device_extension_count;
     VkExtensionProperties *device_extensions;
+
+    VkDevice dev;
+    VkPhysicalDeviceFeatures enabled_features;
 };
 
 // return most severe flag only
@@ -290,6 +304,47 @@ static const char *VkPhysicalDeviceTypeString(VkPhysicalDeviceType type) {
 #undef STR
         default:
             return "UNKNOWN_DEVICE";
+    }
+}
+
+static const char *VkTilingString(const VkImageTiling tiling) {
+    switch (tiling) {
+#define STR(r)                \
+    case VK_IMAGE_TILING_##r: \
+        return #r
+        STR(OPTIMAL);
+        STR(LINEAR);
+        STR(DRM_FORMAT_MODIFIER_EXT);
+#undef STR
+        default:
+            return "UNKNOWN_TILING";
+    }
+}
+
+static const char *VkColorSpaceString(VkColorSpaceKHR cs) {
+    switch (cs) {
+#define STR(r)               \
+    case VK_COLOR_SPACE_##r: \
+        return #r
+        STR(SRGB_NONLINEAR_KHR);
+        STR(DISPLAY_P3_NONLINEAR_EXT);
+        STR(EXTENDED_SRGB_LINEAR_EXT);
+        STR(DISPLAY_P3_LINEAR_EXT);
+        STR(DCI_P3_NONLINEAR_EXT);
+        STR(BT709_LINEAR_EXT);
+        STR(BT709_NONLINEAR_EXT);
+        STR(BT2020_LINEAR_EXT);
+        STR(HDR10_ST2084_EXT);
+        STR(DOLBYVISION_EXT);
+        STR(HDR10_HLG_EXT);
+        STR(ADOBERGB_LINEAR_EXT);
+        STR(ADOBERGB_NONLINEAR_EXT);
+        STR(PASS_THROUGH_EXT);
+        STR(EXTENDED_SRGB_NONLINEAR_EXT);
+        STR(DISPLAY_NATIVE_AMD);
+#undef STR
+        default:
+            return "UNKNOWN_COLOR_SPACE";
     }
 }
 
@@ -530,6 +585,7 @@ static const char *VkFormatString(VkFormat fmt) {
             return "UNKNOWN_FORMAT";
     }
 }
+
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_WIN32_KHR) || \
     defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
 static const char *VkPresentModeString(VkPresentModeKHR mode) {
@@ -550,9 +606,23 @@ static const char *VkPresentModeString(VkPresentModeKHR mode) {
 }
 #endif
 
+static const char *VkShaderFloatControlsIndependenceString(const VkShaderFloatControlsIndependenceKHR indep) {
+    switch (indep) {
+#define STR(r)                                      \
+    case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_##r: \
+        return #r
+        STR(32_BIT_ONLY_KHR);
+        STR(ALL_KHR);
+        STR(NONE_KHR);
+#undef STR
+        default:
+            return "UNKNOWN_INDEPENDENCE";
+    }
+}
+
 static bool CheckExtensionEnabled(const char *extension_to_check, const char **extension_list, uint32_t extension_count) {
     for (uint32_t i = 0; i < extension_count; ++i) {
-        if (!strcmp(extension_to_check, extension_list[i])) {
+        if (!strncmp(extension_to_check, extension_list[i], VK_MAX_EXTENSION_NAME_SIZE)) {
             return true;
         }
     }
@@ -562,7 +632,7 @@ static bool CheckExtensionEnabled(const char *extension_to_check, const char **e
 static bool CheckPhysicalDeviceExtensionIncluded(const char *extension_to_check, VkExtensionProperties *extension_list,
                                                  uint32_t extension_count) {
     for (uint32_t i = 0; i < extension_count; ++i) {
-        if (!strcmp(extension_to_check, extension_list[i].extensionName)) {
+        if (!strncmp(extension_to_check, extension_list[i].extensionName, VK_MAX_EXTENSION_NAME_SIZE)) {
             return true;
         }
     }
@@ -703,10 +773,10 @@ static void AppGetInstanceExtensions(struct AppInstance *inst) {
 // Prints opening code for html output file
 void PrintHtmlHeader(FILE *out) {
     fprintf(out, "<!doctype html>\n");
-    fprintf(out, "<html>\n");
+    fprintf(out, "<html lang='en'>\n");
     fprintf(out, "\t<head>\n");
     fprintf(out, "\t\t<title>vulkaninfo</title>\n");
-    fprintf(out, "\t\t<style type='text/css'>\n");
+    fprintf(out, "\t\t<style>\n");
     fprintf(out, "\t\thtml {\n");
     fprintf(out, "\t\t\tbackground-color: #0b1e48;\n");
     fprintf(out, "\t\t\tbackground-image: url(\"https://vulkan.lunarg.com/img/bg-starfield.jpg\");\n");
@@ -868,8 +938,6 @@ static void AppCreateInstance(struct AppInstance *inst) {
     inst->vulkan_minor = VK_VERSION_MINOR(inst->instance_version);
     inst->vulkan_patch = VK_VERSION_PATCH(VK_HEADER_VERSION);
 
-    inst->surface_chain = NULL;
-
     AppGetInstanceExtensions(inst);
 
     const VkDebugReportCallbackCreateInfoEXT dbg_info = {.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT,
@@ -891,12 +959,17 @@ static void AppCreateInstance(struct AppInstance *inst) {
     VkResult err = vkCreateInstance(&inst_info, NULL, &inst->instance);
     if (err == VK_ERROR_INCOMPATIBLE_DRIVER) {
         fprintf(stderr, "Cannot create Vulkan instance.\n");
+        fprintf(stderr,
+                "This problem is often caused by a faulty installation of the Vulkan driver or attempting to use a GPU that does "
+                "not support Vulkan.\n");
         ERR_EXIT(err);
     } else if (err) {
         ERR_EXIT(err);
     }
 
     AppLoadInstanceCommands(inst);
+
+    inst->surface_ext_infos_root = NULL;
 }
 
 static void AppDestroyInstance(struct AppInstance *inst) {
@@ -945,7 +1018,15 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
             {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT,
              .mem_size = sizeof(VkPhysicalDeviceTransformFeedbackPropertiesEXT)},
             {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_PROPERTIES_EXT,
-             .mem_size = sizeof(VkPhysicalDeviceFragmentDensityMapPropertiesEXT)}};
+             .mem_size = sizeof(VkPhysicalDeviceFragmentDensityMapPropertiesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceDescriptorIndexingPropertiesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceDepthStencilResolvePropertiesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceSubgroupSizeControlPropertiesEXT)}};
 
         uint32_t chain_info_len = ARRAY_SIZE(chain_info);
 
@@ -1026,8 +1107,14 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
 
     if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                               gpu->inst->inst_extensions_count)) {
+        struct pNextChainBuildingBlockInfo mem_prop_chain_info[] = {
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceMemoryBudgetPropertiesEXT)}};
+
+        uint32_t mem_prop_chain_info_len = ARRAY_SIZE(mem_prop_chain_info);
+
         gpu->memory_props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2_KHR;
-        gpu->memory_props2.pNext = NULL;
+        buildpNextChain((struct VkStructureHeader *)&gpu->memory_props2, mem_prop_chain_info, mem_prop_chain_info_len);
 
         inst->vkGetPhysicalDeviceMemoryProperties2KHR(gpu->obj, &gpu->memory_props2);
 
@@ -1053,7 +1140,29 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
             {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT,
              .mem_size = sizeof(VkPhysicalDeviceScalarBlockLayoutFeaturesEXT)},
             {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT,
-             .mem_size = sizeof(VkPhysicalDeviceFragmentDensityMapFeaturesEXT)}};
+             .mem_size = sizeof(VkPhysicalDeviceFragmentDensityMapFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceMemoryPriorityFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_ADDRESS_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceBufferAddressFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceDescriptorIndexingFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_YCBCR_IMAGE_ARRAYS_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceYcbcrImageArraysFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceHostQueryResetFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES_KHR,
+             .mem_size = sizeof(VkPhysicalDeviceImagelessFramebufferFeaturesKHR)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT)},
+            {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_EXT,
+             .mem_size = sizeof(VkPhysicalDeviceIndexTypeUint8FeaturesEXT)}};
 
         uint32_t chain_info_len = ARRAY_SIZE(chain_info);
 
@@ -1064,9 +1173,127 @@ static void AppGpuInit(struct AppGpu *gpu, struct AppInstance *inst, uint32_t id
     }
 
     AppGetPhysicalDeviceLayerExtensions(gpu, NULL, &gpu->device_extension_count, &gpu->device_extensions);
+
+    const float queue_priority = 1.0f;
+    const VkDeviceQueueCreateInfo q_ci = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                                          .queueFamilyIndex = 0,  // just pick the first one and hope for the best
+                                          .queueCount = 1,
+                                          .pQueuePriorities = &queue_priority};
+    VkPhysicalDeviceFeatures features = {0};
+    // if (gpu->features.sparseBinding ) features.sparseBinding = VK_TRUE;
+    gpu->enabled_features = features;
+    const VkDeviceCreateInfo device_ci = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+                                          .queueCreateInfoCount = 1,
+                                          .pQueueCreateInfos = &q_ci,
+                                          // TODO: relevant extensions
+                                          .pEnabledFeatures = &gpu->enabled_features};
+
+    VkResult err = vkCreateDevice(gpu->obj, &device_ci, NULL, &gpu->dev);
+    if (err) ERR_EXIT(err);
+
+    const VkFormat color_format = VK_FORMAT_R8G8B8A8_UNORM;
+    const VkFormat formats[] = {
+        color_format,      VK_FORMAT_D16_UNORM,         VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT,   VK_FORMAT_D32_SFLOAT_S8_UINT};
+    assert(ARRAY_SIZE(gpu->mem_type_res_support.image[0]) == ARRAY_SIZE(formats));
+    const VkImageUsageFlags usages[] = {0, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT};
+    const VkImageCreateFlags flagss[] = {0, VK_IMAGE_CREATE_SPARSE_BINDING_BIT};
+
+    for (size_t fmt_i = 0; fmt_i < ARRAY_SIZE(formats); ++fmt_i) {
+        for (VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL; tiling <= VK_IMAGE_TILING_LINEAR; ++tiling) {
+            gpu->mem_type_res_support.image[tiling][fmt_i].format = formats[fmt_i];
+            gpu->mem_type_res_support.image[tiling][fmt_i].regular_supported = true;
+            gpu->mem_type_res_support.image[tiling][fmt_i].sparse_supported = true;
+            gpu->mem_type_res_support.image[tiling][fmt_i].transient_supported = true;
+
+            VkFormatProperties fmt_props;
+            vkGetPhysicalDeviceFormatProperties(gpu->obj, formats[fmt_i], &fmt_props);
+            if ((tiling == VK_IMAGE_TILING_OPTIMAL && fmt_props.optimalTilingFeatures == 0) ||
+                (tiling == VK_IMAGE_TILING_LINEAR && fmt_props.linearTilingFeatures == 0)) {
+                gpu->mem_type_res_support.image[tiling][fmt_i].regular_supported = false;
+                gpu->mem_type_res_support.image[tiling][fmt_i].sparse_supported = false;
+                gpu->mem_type_res_support.image[tiling][fmt_i].transient_supported = false;
+                continue;
+            }
+
+            for (size_t u_i = 0; u_i < ARRAY_SIZE(usages); ++u_i) {
+                for (size_t flg_i = 0; flg_i < ARRAY_SIZE(flagss); ++flg_i) {
+                    VkImageCreateInfo image_ci = {
+                        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                        .flags = flagss[flg_i],
+                        .imageType = VK_IMAGE_TYPE_2D,
+                        .format = formats[fmt_i],
+                        .extent = {8, 8, 1},
+                        .mipLevels = 1,
+                        .arrayLayers = 1,
+                        .samples = VK_SAMPLE_COUNT_1_BIT,
+                        .tiling = tiling,
+                        .usage = usages[u_i],
+                    };
+
+                    if ((image_ci.flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT) &&
+                        (image_ci.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)) {
+                        continue;
+                    }
+
+                    if (image_ci.usage == 0 || (image_ci.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)) {
+                        if (image_ci.format == color_format)
+                            image_ci.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+                        else
+                            image_ci.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+                    }
+
+                    if (!gpu->enabled_features.sparseBinding && (image_ci.flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT)) {
+                        gpu->mem_type_res_support.image[tiling][fmt_i].sparse_supported = false;
+                        continue;
+                    }
+
+                    VkImageFormatProperties img_props;
+                    err = vkGetPhysicalDeviceImageFormatProperties(gpu->obj, image_ci.format, image_ci.imageType, image_ci.tiling,
+                                                                   image_ci.usage, image_ci.flags, &img_props);
+
+                    uint32_t *memtypes;
+                    bool *support;
+
+                    if (image_ci.flags == 0 && !(image_ci.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)) {
+                        memtypes = &gpu->mem_type_res_support.image[tiling][fmt_i].regular_memtypes;
+                        support = &gpu->mem_type_res_support.image[tiling][fmt_i].regular_supported;
+                    } else if ((image_ci.flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT) &&
+                               !(image_ci.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)) {
+                        memtypes = &gpu->mem_type_res_support.image[tiling][fmt_i].sparse_memtypes;
+                        support = &gpu->mem_type_res_support.image[tiling][fmt_i].sparse_supported;
+                    } else if (image_ci.flags == 0 && (image_ci.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT)) {
+                        memtypes = &gpu->mem_type_res_support.image[tiling][fmt_i].transient_memtypes;
+                        support = &gpu->mem_type_res_support.image[tiling][fmt_i].transient_supported;
+                    } else {
+                        assert(false);
+                    }
+
+                    if (err == VK_ERROR_FORMAT_NOT_SUPPORTED) {
+                        *support = false;
+                    } else {
+                        if (err) ERR_EXIT(err);
+
+                        VkImage dummy_img;
+                        err = vkCreateImage(gpu->dev, &image_ci, NULL, &dummy_img);
+                        if (err) ERR_EXIT(err);
+
+                        VkMemoryRequirements mem_req;
+                        vkGetImageMemoryRequirements(gpu->dev, dummy_img, &mem_req);
+                        *memtypes = mem_req.memoryTypeBits;
+
+                        vkDestroyImage(gpu->dev, dummy_img, NULL);
+                    }
+                }
+            }
+        }
+    }
+    // TODO buffer - memory type compatibility
 }
 
 static void AppGpuDestroy(struct AppGpu *gpu) {
+    vkDestroyDevice(gpu->dev, NULL);
+
     free(gpu->device_extensions);
 
     if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
@@ -1085,6 +1312,7 @@ static void AppGpuDestroy(struct AppGpu *gpu) {
         free(gpu->queue_props2);
 
         freepNextChain(gpu->props2.pNext);
+        freepNextChain(gpu->memory_props2.pNext);
     }
 }
 
@@ -1143,15 +1371,18 @@ static void AppCreateWin32Window(struct AppInstance *inst) {
     }
 }
 
-static void AppCreateWin32Surface(struct AppInstance *inst) {
+static VkSurfaceKHR AppCreateWin32Surface(struct AppInstance *inst) {
     VkWin32SurfaceCreateInfoKHR createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
     createInfo.hinstance = inst->h_instance;
     createInfo.hwnd = inst->h_wnd;
-    VkResult err = vkCreateWin32SurfaceKHR(inst->instance, &createInfo, NULL, &inst->surface);
+
+    VkSurfaceKHR surface;
+    VkResult err = vkCreateWin32SurfaceKHR(inst->instance, &createInfo, NULL, &surface);
     if (err) ERR_EXIT(err);
+    return surface;
 }
 
 static void AppDestroyWin32Window(struct AppInstance *inst) { DestroyWindow(inst->h_wnd); }
@@ -1160,15 +1391,8 @@ static void AppDestroyWin32Window(struct AppInstance *inst) { DestroyWindow(inst
 
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_WIN32_KHR) || \
     defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_WAYLAND_KHR) || defined(VK_USE_PLATFORM_ANDROID_KHR)
-static void AppDestroySurface(struct AppInstance *inst) {  // same for all platforms
-    vkDestroySurfaceKHR(inst->instance, inst->surface, NULL);
-}
-
-static void AppDestroySurfaceChain(struct AppInstance *inst) {  // same for all platforms
-    for (struct SurfaceNameWHandle *surface_stuff = inst->surface_chain; surface_stuff != NULL;
-         surface_stuff = surface_stuff->pNextSurface) {
-        vkDestroySurfaceKHR(inst->instance, surface_stuff->surface, NULL);
-    }
+static void AppDestroySurface(struct AppInstance *inst, VkSurfaceKHR surface) {  // same for all platforms
+    vkDestroySurfaceKHR(inst->instance, surface, NULL);
 }
 #endif
 
@@ -1208,9 +1432,9 @@ static void AppCreateXcbWindow(struct AppInstance *inst) {
     free(reply);
 }
 
-static void AppCreateXcbSurface(struct AppInstance *inst) {
+static VkSurfaceKHR AppCreateXcbSurface(struct AppInstance *inst) {
     if (!inst->xcb_connection) {
-        return;
+        ERR_EXIT(VK_ERROR_INITIALIZATION_FAILED);
     }
 
     VkXcbSurfaceCreateInfoKHR xcb_createInfo;
@@ -1219,8 +1443,11 @@ static void AppCreateXcbSurface(struct AppInstance *inst) {
     xcb_createInfo.flags = 0;
     xcb_createInfo.connection = inst->xcb_connection;
     xcb_createInfo.window = inst->xcb_window;
-    VkResult err = vkCreateXcbSurfaceKHR(inst->instance, &xcb_createInfo, NULL, &inst->surface);
+
+    VkSurfaceKHR surface;
+    VkResult err = vkCreateXcbSurfaceKHR(inst->instance, &xcb_createInfo, NULL, &surface);
     if (err) ERR_EXIT(err);
+    return surface;
 }
 
 static void AppDestroyXcbWindow(struct AppInstance *inst) {
@@ -1256,15 +1483,18 @@ static void AppCreateXlibWindow(struct AppInstance *inst) {
     XFree(visualInfo);
 }
 
-static void AppCreateXlibSurface(struct AppInstance *inst) {
+static VkSurfaceKHR AppCreateXlibSurface(struct AppInstance *inst) {
     VkXlibSurfaceCreateInfoKHR createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
     createInfo.dpy = inst->xlib_display;
     createInfo.window = inst->xlib_window;
-    VkResult err = vkCreateXlibSurfaceKHR(inst->instance, &createInfo, NULL, &inst->surface);
+
+    VkSurfaceKHR surface;
+    VkResult err = vkCreateXlibSurfaceKHR(inst->instance, &createInfo, NULL, &surface);
     if (err) ERR_EXIT(err);
+    return surface;
 }
 
 static void AppDestroyXlibWindow(struct AppInstance *inst) {
@@ -1284,15 +1514,17 @@ static void AppCreateMacOSWindow(struct AppInstance *inst) {
     }
 }
 
-static void AppCreateMacOSSurface(struct AppInstance *inst) {
-    VkMacOSSurfaceCreateInfoMVK surface;
-    surface.sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK;
-    surface.pNext = NULL;
-    surface.flags = 0;
-    surface.pView = inst->window;
+static VkSurfaceKHR AppCreateMacOSSurface(struct AppInstance *inst) {
+    VkMacOSSurfaceCreateInfoMVK createInfo;
+    createInfo.sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK;
+    createInfo.pNext = NULL;
+    createInfo.flags = 0;
+    createInfo.pView = inst->window;
 
-    VkResult err = vkCreateMacOSSurfaceMVK(inst->instance, &surface, NULL, &inst->surface);
+    VkSurfaceKHR surface;
+    VkResult err = vkCreateMacOSSurfaceMVK(inst->instance, &createInfo, NULL, &surface);
     if (err) ERR_EXIT(err);
+    return surface;
 }
 
 static void AppDestroyMacOSWindow(struct AppInstance *inst) { DestroyMetalView(inst->window); }
@@ -1320,15 +1552,18 @@ static void AppCreateWaylandWindow(struct AppInstance *inst) {
     wl_registry_destroy(registry);
 }
 
-static void AppCreateWaylandSurface(struct AppInstance *inst) {
+static VkSurfaceKHR AppCreateWaylandSurface(struct AppInstance *inst) {
     VkWaylandSurfaceCreateInfoKHR createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
     createInfo.pNext = NULL;
     createInfo.flags = 0;
     createInfo.display = inst->wayland_display;
     createInfo.surface = inst->wayland_surface;
-    VkResult err = vkCreateWaylandSurfaceKHR(inst->instance, &createInfo, NULL, &inst->surface);
+
+    VkSurfaceKHR surface;
+    VkResult err = vkCreateWaylandSurfaceKHR(inst->instance, &createInfo, NULL, &surface);
     if (err) ERR_EXIT(err);
+    return surface;
 }
 
 static void AppDestroyWaylandWindow(struct AppInstance *inst) { wl_display_disconnect(inst->wayland_display); }
@@ -1336,7 +1571,7 @@ static void AppDestroyWaylandWindow(struct AppInstance *inst) { wl_display_disco
 
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_WIN32_KHR) || \
     defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
-static int AppDumpSurfaceFormats(struct AppInstance *inst, struct AppGpu *gpu, FILE *out) {
+static int AppDumpSurfaceFormats(struct AppInstance *inst, struct AppGpu *gpu, VkSurfaceKHR surface, FILE *out) {
     // Get the list of VkFormat's that are supported
     VkResult err;
     uint32_t format_count = 0;
@@ -1344,7 +1579,7 @@ static int AppDumpSurfaceFormats(struct AppInstance *inst, struct AppGpu *gpu, F
     VkSurfaceFormat2KHR *surf_formats2 = NULL;
 
     const VkPhysicalDeviceSurfaceInfo2KHR surface_info2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR,
-                                                           .surface = inst->surface};
+                                                           .surface = surface};
 
     if (CheckExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                               gpu->inst->inst_extensions_count)) {
@@ -1359,16 +1594,16 @@ static int AppDumpSurfaceFormats(struct AppInstance *inst, struct AppGpu *gpu, F
         err = inst->vkGetPhysicalDeviceSurfaceFormats2KHR(gpu->obj, &surface_info2, &format_count, surf_formats2);
         if (err) ERR_EXIT(err);
     } else {
-        err = inst->vkGetPhysicalDeviceSurfaceFormatsKHR(gpu->obj, inst->surface, &format_count, NULL);
+        err = inst->vkGetPhysicalDeviceSurfaceFormatsKHR(gpu->obj, surface, &format_count, NULL);
         if (err) ERR_EXIT(err);
         surf_formats = (VkSurfaceFormatKHR *)malloc(format_count * sizeof(VkSurfaceFormatKHR));
         if (!surf_formats) ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
-        err = inst->vkGetPhysicalDeviceSurfaceFormatsKHR(gpu->obj, inst->surface, &format_count, surf_formats);
+        err = inst->vkGetPhysicalDeviceSurfaceFormatsKHR(gpu->obj, surface, &format_count, surf_formats);
         if (err) ERR_EXIT(err);
     }
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t<details><summary>Formats: count = <div class='val'>%d</div></summary>", format_count);
+        fprintf(out, "\t\t\t\t\t<details><summary>Formats: count = <span class='val'>%d</span></summary>", format_count);
         if (format_count > 0) {
             fprintf(out, "\n");
         } else {
@@ -1379,20 +1614,29 @@ static int AppDumpSurfaceFormats(struct AppInstance *inst, struct AppGpu *gpu, F
     }
     for (uint32_t i = 0; i < format_count; ++i) {
         if (html_output) {
+            fprintf(out, "\t\t\t\t\t\t<details><summary>SurfaceFormat[%d]:</summary>\n", i);
             if (CheckExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                                       gpu->inst->inst_extensions_count)) {
-                fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>%s</div></summary></details>\n",
+                fprintf(out, "\t\t\t\t\t\t\t<details><summary>format = <span class='type'>%s</span></summary></details>\n",
                         VkFormatString(surf_formats2[i].surfaceFormat.format));
+                fprintf(out, "\t\t\t\t\t\t\t<details><summary>colorSpace = <span class='type'>%s</span></summary></details>\n",
+                        VkColorSpaceString(surf_formats2[i].surfaceFormat.colorSpace));
             } else {
-                fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>%s</div></summary></details>\n",
+                fprintf(out, "\t\t\t\t\t\t\t<details><summary>format = <span class='type'>%s</span></summary></details>\n",
                         VkFormatString(surf_formats[i].format));
+                fprintf(out, "\t\t\t\t\t\t\t<details><summary>colorSpace = <span class='type'>%s</span></summary></details>\n",
+                        VkColorSpaceString(surf_formats[i].colorSpace));
             }
+            fprintf(out, "\t\t\t\t\t\t</details>\n");
         } else if (human_readable_output) {
+            printf("\tSurfaceFormats[%d]\n", i);
             if (CheckExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                                       gpu->inst->inst_extensions_count)) {
-                printf("\t%s\n", VkFormatString(surf_formats2[i].surfaceFormat.format));
+                printf("\t\tformat = %s\n", VkFormatString(surf_formats2[i].surfaceFormat.format));
+                printf("\t\tcolorSpace = %s\n", VkColorSpaceString(surf_formats2[i].surfaceFormat.colorSpace));
             } else {
-                printf("\t%s\n", VkFormatString(surf_formats[i].format));
+                printf("\t\tformat = %s\n", VkFormatString(surf_formats[i].format));
+                printf("\t\tcolorSpace = %s\n", VkColorSpaceString(surf_formats[i].colorSpace));
             }
         }
     }
@@ -1412,20 +1656,21 @@ static int AppDumpSurfaceFormats(struct AppInstance *inst, struct AppGpu *gpu, F
     return format_count;
 }
 
-static int AppDumpSurfacePresentModes(struct AppInstance *inst, struct AppGpu *gpu, FILE *out) {
+static int AppDumpSurfacePresentModes(struct AppInstance *inst, struct AppGpu *gpu, VkSurfaceKHR surface, FILE *out) {
     // Get the list of VkPresentMode's that are supported:
     VkResult err;
     uint32_t present_mode_count = 0;
-    err = inst->vkGetPhysicalDeviceSurfacePresentModesKHR(gpu->obj, inst->surface, &present_mode_count, NULL);
+    err = inst->vkGetPhysicalDeviceSurfacePresentModesKHR(gpu->obj, surface, &present_mode_count, NULL);
     if (err) ERR_EXIT(err);
 
-    VkPresentModeKHR *surf_present_modes = (VkPresentModeKHR *)malloc(present_mode_count * sizeof(VkPresentInfoKHR));
+    VkPresentModeKHR *surf_present_modes = (VkPresentModeKHR *)malloc(present_mode_count * sizeof(VkPresentModeKHR));
     if (!surf_present_modes) ERR_EXIT(VK_ERROR_OUT_OF_HOST_MEMORY);
-    err = inst->vkGetPhysicalDeviceSurfacePresentModesKHR(gpu->obj, inst->surface, &present_mode_count, surf_present_modes);
+    err = inst->vkGetPhysicalDeviceSurfacePresentModesKHR(gpu->obj, surface, &present_mode_count, surf_present_modes);
     if (err) ERR_EXIT(err);
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t<details><summary>Present Modes: count = <div class='val'>%d</div></summary>", present_mode_count);
+        fprintf(out, "\t\t\t\t\t<details><summary>Present Modes: count = <span class='val'>%d</span></summary>",
+                present_mode_count);
         if (present_mode_count > 0) {
             fprintf(out, "\n");
         } else {
@@ -1436,7 +1681,7 @@ static int AppDumpSurfacePresentModes(struct AppInstance *inst, struct AppGpu *g
     }
     for (uint32_t i = 0; i < present_mode_count; ++i) {
         if (html_output) {
-            fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>%s</div></summary></details>\n",
+            fprintf(out, "\t\t\t\t\t\t<details><summary><span class='type'>%s</span></summary></details>\n",
                     VkPresentModeString(surf_present_modes[i]));
         } else if (human_readable_output) {
             printf("\t%s\n", VkPresentModeString(surf_present_modes[i]));
@@ -1453,308 +1698,311 @@ static int AppDumpSurfacePresentModes(struct AppInstance *inst, struct AppGpu *g
     return present_mode_count;
 }
 
-static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *gpu, FILE *out) {
+static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *gpu, VkSurfaceKHR surface, FILE *out) {
     if (CheckExtensionEnabled(VK_KHR_SURFACE_EXTENSION_NAME, gpu->inst->inst_extensions, gpu->inst->inst_extensions_count)) {
+        VkSurfaceCapabilitiesKHR surface_capabilities;
         VkResult err;
-        err = inst->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu->obj, inst->surface, &inst->surface_capabilities);
+        err = inst->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu->obj, surface, &surface_capabilities);
         if (err) ERR_EXIT(err);
 
         if (html_output) {
             fprintf(out, "\t\t\t\t\t<details><summary>VkSurfaceCapabilitiesKHR</summary>\n");
-            fprintf(out, "\t\t\t\t\t\t<details><summary>minImageCount = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.minImageCount);
-            fprintf(out, "\t\t\t\t\t\t<details><summary>maxImageCount = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.maxImageCount);
+            fprintf(out, "\t\t\t\t\t\t<details><summary>minImageCount = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.minImageCount);
+            fprintf(out, "\t\t\t\t\t\t<details><summary>maxImageCount = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.maxImageCount);
             fprintf(out, "\t\t\t\t\t\t<details><summary>currentExtent</summary>\n");
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>width = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.currentExtent.width);
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>height = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.currentExtent.height);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>width = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.currentExtent.width);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>height = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.currentExtent.height);
             fprintf(out, "\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t<details><summary>minImageExtent</summary>\n");
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>width = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.minImageExtent.width);
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>height = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.minImageExtent.height);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>width = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.minImageExtent.width);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>height = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.minImageExtent.height);
             fprintf(out, "\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t<details><summary>maxImageExtent</summary>\n");
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>width = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.maxImageExtent.width);
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>height = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.maxImageExtent.height);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>width = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.maxImageExtent.width);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>height = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.maxImageExtent.height);
             fprintf(out, "\t\t\t\t\t\t</details>\n");
-            fprintf(out, "\t\t\t\t\t\t<details><summary>maxImageArrayLayers = <div class='val'>%u</div></summary></details>\n",
-                    inst->surface_capabilities.maxImageArrayLayers);
+            fprintf(out, "\t\t\t\t\t\t<details><summary>maxImageArrayLayers = <span class='val'>%u</span></summary></details>\n",
+                    surface_capabilities.maxImageArrayLayers);
             fprintf(out, "\t\t\t\t\t\t<details><summary>supportedTransform</summary>\n");
-            if (inst->surface_capabilities.supportedTransforms == 0) {
+            if (surface_capabilities.supportedTransforms == 0) {
                 fprintf(out, "\t\t\t\t\t\t\t<details><summary>None</summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR</span></summary></details>\n");
             }
             fprintf(out, "\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t<details><summary>currentTransform</summary>\n");
-            if (inst->surface_capabilities.currentTransform == 0) {
+            if (surface_capabilities.currentTransform == 0) {
                 fprintf(out, "\t\t\t\t\t\t\t<details><summary>None</summary></details>\n");
             }
-            if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+                        "\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR</div></summary></details>\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR</span></summary></details>\n");
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR</span></summary></details>\n");
             }
             fprintf(out, "\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t<details><summary>supportedCompositeAlpha</summary>\n");
-            if (inst->surface_capabilities.supportedCompositeAlpha == 0) {
+            if (surface_capabilities.supportedCompositeAlpha == 0) {
                 fprintf(out, "\t\t\t\t\t\t\t<details><summary>None</summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR</span></summary></details>\n");
             }
             fprintf(out, "\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t<details><summary>supportedUsageFlags</summary>\n");
-            if (inst->surface_capabilities.supportedUsageFlags == 0) {
+            if (surface_capabilities.supportedUsageFlags == 0) {
                 fprintf(out, "\t\t\t\t\t\t\t<details><summary>None</summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_IMAGE_USAGE_TRANSFER_SRC_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_IMAGE_USAGE_TRANSFER_SRC_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_IMAGE_USAGE_TRANSFER_DST_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_IMAGE_USAGE_TRANSFER_DST_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) {
-                fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div class='type'>VK_IMAGE_USAGE_SAMPLED_BIT</div></summary></details>\n");
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) {
+                fprintf(
+                    out,
+                    "\t\t\t\t\t\t\t<details><summary><span class='type'>VK_IMAGE_USAGE_SAMPLED_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT) {
-                fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div class='type'>VK_IMAGE_USAGE_STORAGE_BIT</div></summary></details>\n");
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT) {
+                fprintf(
+                    out,
+                    "\t\t\t\t\t\t\t<details><summary><span class='type'>VK_IMAGE_USAGE_STORAGE_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT</span></summary></details>\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) {
                 fprintf(out,
-                        "\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT</span></summary></details>\n");
             }
             fprintf(out, "\t\t\t\t\t\t</details>\n");
         } else if (human_readable_output) {
             printf("VkSurfaceCapabilitiesKHR:\n");
-            printf("\tminImageCount       = %u\n", inst->surface_capabilities.minImageCount);
-            printf("\tmaxImageCount       = %u\n", inst->surface_capabilities.maxImageCount);
+            printf("\tminImageCount       = %u\n", surface_capabilities.minImageCount);
+            printf("\tmaxImageCount       = %u\n", surface_capabilities.maxImageCount);
             printf("\tcurrentExtent:\n");
-            printf("\t\twidth       = %u\n", inst->surface_capabilities.currentExtent.width);
-            printf("\t\theight      = %u\n", inst->surface_capabilities.currentExtent.height);
+            printf("\t\twidth       = %u\n", surface_capabilities.currentExtent.width);
+            printf("\t\theight      = %u\n", surface_capabilities.currentExtent.height);
             printf("\tminImageExtent:\n");
-            printf("\t\twidth       = %u\n", inst->surface_capabilities.minImageExtent.width);
-            printf("\t\theight      = %u\n", inst->surface_capabilities.minImageExtent.height);
+            printf("\t\twidth       = %u\n", surface_capabilities.minImageExtent.width);
+            printf("\t\theight      = %u\n", surface_capabilities.minImageExtent.height);
             printf("\tmaxImageExtent:\n");
-            printf("\t\twidth       = %u\n", inst->surface_capabilities.maxImageExtent.width);
-            printf("\t\theight      = %u\n", inst->surface_capabilities.maxImageExtent.height);
-            printf("\tmaxImageArrayLayers = %u\n", inst->surface_capabilities.maxImageArrayLayers);
+            printf("\t\twidth       = %u\n", surface_capabilities.maxImageExtent.width);
+            printf("\t\theight      = %u\n", surface_capabilities.maxImageExtent.height);
+            printf("\tmaxImageArrayLayers = %u\n", surface_capabilities.maxImageArrayLayers);
             printf("\tsupportedTransform:\n");
-            if (inst->surface_capabilities.supportedTransforms == 0) {
+            if (surface_capabilities.supportedTransforms == 0) {
                 printf("\t\tNone\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+            if (surface_capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_INHERIT_BIT_KHR\n");
             }
             printf("\tcurrentTransform:\n");
-            if (inst->surface_capabilities.currentTransform == 0) {
+            if (surface_capabilities.currentTransform == 0) {
                 printf("\t\tNone\n");
             }
-            if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_90_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR\n");
-            } else if (inst->surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
+            } else if (surface_capabilities.currentTransform & VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR) {
                 printf("\t\tVK_SURFACE_TRANSFORM_INHERIT_BIT_KHR\n");
             }
             printf("\tsupportedCompositeAlpha:\n");
-            if (inst->surface_capabilities.supportedCompositeAlpha == 0) {
+            if (surface_capabilities.supportedCompositeAlpha == 0) {
                 printf("\t\tNone\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
                 printf("\t\tVK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
                 printf("\t\tVK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) {
                 printf("\t\tVK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR\n");
             }
-            if (inst->surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+            if (surface_capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
                 printf("\t\tVK_COMPOSITE_ALPHA_INHERIT_BIT_KHR\n");
             }
             printf("\tsupportedUsageFlags:\n");
-            if (inst->surface_capabilities.supportedUsageFlags == 0) {
+            if (surface_capabilities.supportedUsageFlags == 0) {
                 printf("\t\tNone\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_TRANSFER_SRC_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_TRANSFER_DST_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_SAMPLED_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_STORAGE_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT\n");
             }
-            if (inst->surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) {
+            if (surface_capabilities.supportedUsageFlags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) {
                 printf("\t\tVK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT\n");
             }
         }
@@ -1762,33 +2010,31 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
         // Get additional surface capability information from vkGetPhysicalDeviceSurfaceCapabilities2EXT
         if (CheckExtensionEnabled(VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME, gpu->inst->inst_extensions,
                                   gpu->inst->inst_extensions_count)) {
-            memset(&inst->surface_capabilities2_ext, 0, sizeof(VkSurfaceCapabilities2EXT));
-            inst->surface_capabilities2_ext.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_EXT;
-            inst->surface_capabilities2_ext.pNext = NULL;
+            VkSurfaceCapabilities2EXT surface_capabilities2_ext = {VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_EXT};
 
-            err = inst->vkGetPhysicalDeviceSurfaceCapabilities2EXT(gpu->obj, inst->surface, &inst->surface_capabilities2_ext);
+            err = inst->vkGetPhysicalDeviceSurfaceCapabilities2EXT(gpu->obj, surface, &surface_capabilities2_ext);
             if (err) ERR_EXIT(err);
 
             if (html_output) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary>VkSurfaceCapabilities2EXT</summary>\n");
                 fprintf(out, "\t\t\t\t\t\t\t<details><summary>supportedSurfaceCounters</summary>\n");
-                if (inst->surface_capabilities2_ext.supportedSurfaceCounters == 0) {
+                if (surface_capabilities2_ext.supportedSurfaceCounters == 0) {
                     fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>None</summary></details>\n");
                 }
-                if (inst->surface_capabilities2_ext.supportedSurfaceCounters & VK_SURFACE_COUNTER_VBLANK_EXT) {
+                if (surface_capabilities2_ext.supportedSurfaceCounters & VK_SURFACE_COUNTER_VBLANK_EXT) {
                     fprintf(out,
-                            "\t\t\t\t\t\t\t\t<details><summary><div "
-                            "class='type'>VK_SURFACE_COUNTER_VBLANK_EXT</div></summary></details>\n");
+                            "\t\t\t\t\t\t\t\t<details><summary><span "
+                            "class='type'>VK_SURFACE_COUNTER_VBLANK_EXT</span></summary></details>\n");
                 }
                 fprintf(out, "\t\t\t\t\t\t\t</details>\n");
                 fprintf(out, "\t\t\t\t\t\t</details>\n");
             } else if (human_readable_output) {
                 printf("VkSurfaceCapabilities2EXT:\n");
                 printf("\tsupportedSurfaceCounters:\n");
-                if (inst->surface_capabilities2_ext.supportedSurfaceCounters == 0) {
+                if (surface_capabilities2_ext.supportedSurfaceCounters == 0) {
                     printf("\t\tNone\n");
                 }
-                if (inst->surface_capabilities2_ext.supportedSurfaceCounters & VK_SURFACE_COUNTER_VBLANK_EXT) {
+                if (surface_capabilities2_ext.supportedSurfaceCounters & VK_SURFACE_COUNTER_VBLANK_EXT) {
                     printf("\t\tVK_SURFACE_COUNTER_VBLANK_EXT\n");
                 }
             }
@@ -1797,29 +2043,39 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
         // Get additional surface capability information from vkGetPhysicalDeviceSurfaceCapabilities2KHR
         if (CheckExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                                   gpu->inst->inst_extensions_count)) {
-            if (CheckExtensionEnabled(VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME, gpu->inst->inst_extensions,
-                                      gpu->inst->inst_extensions_count)) {
-                inst->shared_surface_capabilities.sType = VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR;
-                inst->shared_surface_capabilities.pNext = NULL;
-                inst->surface_capabilities2.pNext = &inst->shared_surface_capabilities;
-            } else {
-                inst->surface_capabilities2.pNext = NULL;
-            }
+            VkSurfaceCapabilities2KHR surface_capabilities2;
 
-            inst->surface_capabilities2.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+            struct pNextChainBuildingBlockInfo sur_cap2_chain_info[] = {
+                {.sType = VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR,
+                 .mem_size = sizeof(VkSharedPresentSurfaceCapabilitiesKHR)},
+                {.sType = VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR,
+                 .mem_size = sizeof(VkSurfaceProtectedCapabilitiesKHR)}
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+                ,
+                {.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_FULL_SCREEN_EXCLUSIVE_EXT,
+                 .mem_size = sizeof(VkSurfaceCapabilitiesFullScreenExclusiveEXT)}
+#endif
+            };
+
+            uint32_t sur_cap2_chain_info_len = ARRAY_SIZE(sur_cap2_chain_info);
+
+            surface_capabilities2.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+            buildpNextChain((struct VkStructureHeader *)&surface_capabilities2, sur_cap2_chain_info, sur_cap2_chain_info_len);
 
             VkPhysicalDeviceSurfaceInfo2KHR surface_info;
             surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
             surface_info.pNext = NULL;
-            surface_info.surface = inst->surface;
+            surface_info.surface = surface;
 
-            err = inst->vkGetPhysicalDeviceSurfaceCapabilities2KHR(gpu->obj, &surface_info, &inst->surface_capabilities2);
+            err = inst->vkGetPhysicalDeviceSurfaceCapabilities2KHR(gpu->obj, &surface_info, &surface_capabilities2);
             if (err) ERR_EXIT(err);
 
-            void *place = inst->surface_capabilities2.pNext;
+            void *place = surface_capabilities2.pNext;
             while (place) {
                 struct VkStructureHeader *work = (struct VkStructureHeader *)place;
-                if (work->sType == VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR) {
+                if (work->sType == VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR &&
+                    CheckExtensionEnabled(VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME, gpu->inst->inst_extensions,
+                                          gpu->inst->inst_extensions_count)) {
                     VkSharedPresentSurfaceCapabilitiesKHR *shared_surface_capabilities =
                         (VkSharedPresentSurfaceCapabilitiesKHR *)place;
                     if (html_output) {
@@ -1830,45 +2086,45 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_TRANSFER_SRC_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_TRANSFER_SRC_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_TRANSFER_DST_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_TRANSFER_DST_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags & VK_IMAGE_USAGE_SAMPLED_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_SAMPLED_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_SAMPLED_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags & VK_IMAGE_USAGE_STORAGE_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_STORAGE_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_STORAGE_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags &
                             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags &
                             VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT</span></summary></details>\n");
                         }
                         if (shared_surface_capabilities->sharedPresentSupportedUsageFlags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) {
                             fprintf(out,
-                                    "\t\t\t\t\t\t\t\t<details><summary><div "
-                                    "class='type'>VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT</div></summary></details>\n");
+                                    "\t\t\t\t\t\t\t\t<details><summary><span "
+                                    "class='type'>VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT</span></summary></details>\n");
                         }
                         fprintf(out, "\t\t\t\t\t\t\t</details>\n");
                         fprintf(out, "\t\t\t\t\t\t</details>\n");
@@ -1905,9 +2161,44 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
                             printf("\t\tVK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT\n");
                         }
                     }
+                } else if (work->sType == VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR &&
+                           CheckExtensionEnabled(VK_KHR_SURFACE_PROTECTED_CAPABILITIES_EXTENSION_NAME, gpu->inst->inst_extensions,
+                                                 gpu->inst->inst_extensions_count)) {
+                    VkSurfaceProtectedCapabilitiesKHR *protected_surface_capabilities = (VkSurfaceProtectedCapabilitiesKHR *)place;
+                    if (html_output) {
+                        fprintf(out, "\t\t\t\t\t\t<details><summary>VkSurfaceProtectedCapabilities</summary>\n");
+                        fprintf(out,
+                                "\t\t\t\t\t\t\t<details><summary>supportsProtected = <span class='val'>%" PRIuLEAST32
+                                "</span></summary></details>\n",
+                                protected_surface_capabilities->supportsProtected);
+                        fprintf(out, "\t\t\t\t\t\t</details>\n");
+                    } else if (human_readable_output) {
+                        printf("VkSurfaceProtectedCapabilities\n");
+                        printf("\tsupportsProtected = %" PRIuLEAST32 "\n", protected_surface_capabilities->supportsProtected);
+                    }
                 }
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+                else if (work->sType == VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_FULL_SCREEN_EXCLUSIVE_EXT &&
+                         CheckPhysicalDeviceExtensionIncluded(VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME, gpu->device_extensions,
+                                                              gpu->device_extension_count)) {
+                    VkSurfaceCapabilitiesFullScreenExclusiveEXT *full_screen_exclusive =
+                        (VkSurfaceCapabilitiesFullScreenExclusiveEXT *)place;
+                    if (html_output) {
+                        fprintf(out, "\t\t\t\t\t\t<details><summary>VkSurfaceCapabilitiesFullScreenExclusiveEXT</summary>\n");
+                        fprintf(out,
+                                "\t\t\t\t\t\t\t<details><summary>fullScreenExclusive = <span class='val'>%" PRIuLEAST32
+                                "</span></summary></details>\n",
+                                full_screen_exclusive->fullScreenExclusiveSupported);
+                        fprintf(out, "\t\t\t\t\t\t</details>\n");
+                    } else if (human_readable_output) {
+                        printf("VkSurfaceCapabilitiesFullScreenExclusiveEXT\n");
+                        printf("\tfullScreenExclusive = %" PRIuLEAST32 "\n", full_screen_exclusive->fullScreenExclusiveSupported);
+                    }
+                }
+#endif
                 place = work->pNext;
             }
+            freepNextChain(surface_capabilities2.pNext);
         }
         if (html_output) {
             fprintf(out, "\t\t\t\t\t</details>\n");
@@ -1915,55 +2206,26 @@ static void AppDumpSurfaceCapabilities(struct AppInstance *inst, struct AppGpu *
     }
 }
 
-struct SurfaceExtensionInfo {
-    const char *name;
-    void (*create_window)(struct AppInstance *);
-    void (*create_surface)(struct AppInstance *);
-    void (*destroy_window)(struct AppInstance *);
-};
-
 static void AppDumpSurfaceExtension(struct AppInstance *inst, struct AppGpu *gpus, uint32_t gpu_count,
-                                    struct SurfaceExtensionInfo *surface_extension, int *format_count, int *present_mode_count,
+                                    struct SurfaceExtensionNode *surface_extension, int *format_count, int *present_mode_count,
                                     FILE *out) {
     if (!CheckExtensionEnabled(surface_extension->name, inst->inst_extensions, inst->inst_extensions_count)) {
         return;
     }
 
-    if (inst->surface) {
-        AppDestroySurface(inst);
-    }
-
-    surface_extension->create_window(inst);
-    surface_extension->create_surface(inst);
-
-    struct SurfaceNameWHandle *cur = inst->surface_chain;
-    if (cur == NULL) {
-        cur = (struct SurfaceNameWHandle *)malloc(sizeof(struct SurfaceNameWHandle));
-        inst->surface_chain = cur;
-    } else {
-        for (; cur->pNextSurface != NULL; cur = cur->pNextSurface) {
-        }
-        cur->pNextSurface = (struct SurfaceNameWHandle *)malloc(sizeof(struct SurfaceNameWHandle));
-        cur = cur->pNextSurface;
-    }
-    cur->name = surface_extension->name;
-    cur->surface = inst->surface;
-    cur->pNextSurface = NULL;
-    cur->present_support = VK_FALSE;
-
     for (uint32_t i = 0; i < gpu_count; ++i) {
         if (html_output) {
-            fprintf(out, "\t\t\t\t<details><summary>GPU id : <div class='val'>%u</div> (%s)</summary>\n", i,
+            fprintf(out, "\t\t\t\t<details><summary>GPU id : <span class='val'>%u</span> (%s)</summary>\n", i,
                     gpus[i].props.deviceName);
-            fprintf(out, "\t\t\t\t\t<details><summary>Surface type : <div class='type'>%s</div></summary></details>\n",
+            fprintf(out, "\t\t\t\t\t<details><summary>Surface type : <span class='type'>%s</span></summary></details>\n",
                     surface_extension->name);
         } else if (human_readable_output) {
             printf("GPU id       : %u (%s)\n", i, gpus[i].props.deviceName);
             printf("Surface type : %s\n", surface_extension->name);
         }
-        *format_count += AppDumpSurfaceFormats(inst, &gpus[i], out);
-        *present_mode_count += AppDumpSurfacePresentModes(inst, &gpus[i], out);
-        AppDumpSurfaceCapabilities(inst, &gpus[i], out);
+        *format_count += AppDumpSurfaceFormats(inst, &gpus[i], surface_extension->surface, out);
+        *present_mode_count += AppDumpSurfacePresentModes(inst, &gpus[i], surface_extension->surface, out);
+        AppDumpSurfaceCapabilities(inst, &gpus[i], surface_extension->surface, out);
 
         if (html_output) {
             fprintf(out, "\t\t\t\t</details>\n");
@@ -1971,8 +2233,6 @@ static void AppDumpSurfaceExtension(struct AppInstance *inst, struct AppGpu *gpu
             printf("\n");
         }
     }
-    inst->surface = VK_NULL_HANDLE;
-    surface_extension->destroy_window(inst);
 }
 
 #endif
@@ -1993,7 +2253,7 @@ static void AppDevDumpFormatProps(const struct AppGpu *gpu, VkFormat fmt, bool *
     features[2].flags = props.bufferFeatures;
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t\t<details><summary><div class='type'>FORMAT_%s</div></summary>\n", VkFormatString(fmt));
+        fprintf(out, "\t\t\t\t\t\t<details><summary><span class='type'>FORMAT_%s</span></summary>\n", VkFormatString(fmt));
     } else if (human_readable_output) {
         printf("\nFORMAT_%s:", VkFormatString(fmt));
     }
@@ -2003,71 +2263,72 @@ static void AppDevDumpFormatProps(const struct AppGpu *gpu, VkFormat fmt, bool *
             if (features[i].flags == 0) {
                 fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>None</summary></details>\n");
             } else {
-                fprintf(out, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-                        ((features[i].flags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                     "class='type'>VK_FORMAT_FEATURE_SAMPLED_IMAGE_"
-                                                                                     "BIT</div></summary></details>\n"
-                                                                                   : ""),  // 0x0001
-                        ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                     "class='type'>VK_FORMAT_FEATURE_STORAGE_IMAGE_"
-                                                                                     "BIT</div></summary></details>\n"
-                                                                                   : ""),  // 0x0002
-                        ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT</div></summary></details>\n"
-                             : ""),  // 0x0004
-                        ((features[i].flags & VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT</div></summary></details>\n"
-                             : ""),  // 0x0008
-                        ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT</div></summary></details>\n"
-                             : ""),  // 0x0010
-                        ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT</div></summary></details>\n"
-                             : ""),  // 0x0020
-                        ((features[i].flags & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                     "class='type'>VK_FORMAT_FEATURE_VERTEX_BUFFER_"
-                                                                                     "BIT</div></summary></details>\n"
-                                                                                   : ""),  // 0x0040
-                        ((features[i].flags & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                        "class='type'>VK_FORMAT_FEATURE_COLOR_"
-                                                                                        "ATTACHMENT_BIT</div></summary></details>\n"
-                                                                                      : ""),  // 0x0080
-                        ((features[i].flags & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT</div></summary></details>\n"
-                             : ""),  // 0x0100
-                        ((features[i].flags & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT</div></summary></details>\n"
-                             : ""),  // 0x0200
-                        ((features[i].flags & VK_FORMAT_FEATURE_BLIT_SRC_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                "class='type'>VK_FORMAT_FEATURE_BLIT_SRC_BIT</"
-                                                                                "div></summary></details>\n"
-                                                                              : ""),  // 0x0400
-                        ((features[i].flags & VK_FORMAT_FEATURE_BLIT_DST_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                "class='type'>VK_FORMAT_FEATURE_BLIT_DST_BIT</"
-                                                                                "div></summary></details>\n"
-                                                                              : ""),  // 0x0800
-                        ((features[i].flags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT</div></summary></details>\n"
-                             : ""),  // 0x1000
-                        ((features[i].flags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG)
-                             ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                               "class='type'>VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG</div></summary></details>\n"
-                             : ""),  // 0x2000
-                        ((features[i].flags & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT_KHR) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                        "class='type'>VK_FORMAT_FEATURE_TRANSFER_"
-                                                                                        "SRC_BIT_KHR</div></summary></details>\n"
-                                                                                      : ""),  // 0x4000
-                        ((features[i].flags & VK_FORMAT_FEATURE_TRANSFER_DST_BIT_KHR) ? "\t\t\t\t\t\t\t\t<details><summary><div "
-                                                                                        "class='type'>VK_FORMAT_FEATURE_TRANSFER_"
-                                                                                        "DST_BIT_KHR</div></summary></details>\n"
-                                                                                      : ""));  // 0x8000
+                fprintf(
+                    out, "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+                    ((features[i].flags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                                 "class='type'>VK_FORMAT_FEATURE_SAMPLED_IMAGE_"
+                                                                                 "BIT</span></summary></details>\n"
+                                                                               : ""),  // 0x0001
+                    ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                                 "class='type'>VK_FORMAT_FEATURE_STORAGE_IMAGE_"
+                                                                                 "BIT</span></summary></details>\n"
+                                                                               : ""),  // 0x0002
+                    ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT</span></summary></details>\n"
+                         : ""),  // 0x0004
+                    ((features[i].flags & VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT</span></summary></details>\n"
+                         : ""),  // 0x0008
+                    ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT</span></summary></details>\n"
+                         : ""),  // 0x0010
+                    ((features[i].flags & VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT</span></summary></details>\n"
+                         : ""),  // 0x0020
+                    ((features[i].flags & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                                 "class='type'>VK_FORMAT_FEATURE_VERTEX_BUFFER_"
+                                                                                 "BIT</span></summary></details>\n"
+                                                                               : ""),  // 0x0040
+                    ((features[i].flags & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                                    "class='type'>VK_FORMAT_FEATURE_COLOR_"
+                                                                                    "ATTACHMENT_BIT</span></summary></details>\n"
+                                                                                  : ""),  // 0x0080
+                    ((features[i].flags & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT</span></summary></details>\n"
+                         : ""),  // 0x0100
+                    ((features[i].flags & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT</span></summary></details>\n"
+                         : ""),  // 0x0200
+                    ((features[i].flags & VK_FORMAT_FEATURE_BLIT_SRC_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                            "class='type'>VK_FORMAT_FEATURE_BLIT_SRC_BIT</"
+                                                                            "span></summary></details>\n"
+                                                                          : ""),  // 0x0400
+                    ((features[i].flags & VK_FORMAT_FEATURE_BLIT_DST_BIT) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                            "class='type'>VK_FORMAT_FEATURE_BLIT_DST_BIT</"
+                                                                            "span></summary></details>\n"
+                                                                          : ""),  // 0x0800
+                    ((features[i].flags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT</span></summary></details>\n"
+                         : ""),  // 0x1000
+                    ((features[i].flags & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG)
+                         ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                           "class='type'>VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG</span></summary></details>\n"
+                         : ""),  // 0x2000
+                    ((features[i].flags & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT_KHR) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                                    "class='type'>VK_FORMAT_FEATURE_TRANSFER_"
+                                                                                    "SRC_BIT_KHR</span></summary></details>\n"
+                                                                                  : ""),  // 0x4000
+                    ((features[i].flags & VK_FORMAT_FEATURE_TRANSFER_DST_BIT_KHR) ? "\t\t\t\t\t\t\t\t<details><summary><span "
+                                                                                    "class='type'>VK_FORMAT_FEATURE_TRANSFER_"
+                                                                                    "DST_BIT_KHR</span></summary></details>\n"
+                                                                                  : ""));  // 0x8000
             }
             fprintf(out, "\t\t\t\t\t\t\t</details>\n");
         } else if (human_readable_output) {
@@ -2415,224 +2676,224 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceFeatures</summary>\n");
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>robustBufferAccess                      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>robustBufferAccess                      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.robustBufferAccess);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>fullDrawIndexUint32                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>fullDrawIndexUint32                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.fullDrawIndexUint32);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>imageCubeArray                          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>imageCubeArray                          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.imageCubeArray);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>independentBlend                        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>independentBlend                        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.independentBlend);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>geometryShader                          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>geometryShader                          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.geometryShader);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>tessellationShader                      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>tessellationShader                      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.tessellationShader);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sampleRateShading                       = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sampleRateShading                       = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sampleRateShading);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>dualSrcBlend                            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>dualSrcBlend                            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.dualSrcBlend);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>logicOp                                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>logicOp                                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.logicOp);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>multiDrawIndirect                       = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>multiDrawIndirect                       = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.multiDrawIndirect);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>drawIndirectFirstInstance               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>drawIndirectFirstInstance               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.drawIndirectFirstInstance);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>depthClamp                              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>depthClamp                              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.depthClamp);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>depthBiasClamp                          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>depthBiasClamp                          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.depthBiasClamp);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>fillModeNonSolid                        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>fillModeNonSolid                        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.fillModeNonSolid);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>depthBounds                             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>depthBounds                             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.depthBounds);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>wideLines                               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>wideLines                               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.wideLines);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>largePoints                             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>largePoints                             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.largePoints);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>alphaToOne                              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>alphaToOne                              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.alphaToOne);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>multiViewport                           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>multiViewport                           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.multiViewport);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>samplerAnisotropy                       = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>samplerAnisotropy                       = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.samplerAnisotropy);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>textureCompressionETC2                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>textureCompressionETC2                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.textureCompressionETC2);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>textureCompressionASTC_LDR              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>textureCompressionASTC_LDR              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.textureCompressionASTC_LDR);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>textureCompressionBC                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>textureCompressionBC                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.textureCompressionBC);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>occlusionQueryPrecise                   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>occlusionQueryPrecise                   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.occlusionQueryPrecise);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>pipelineStatisticsQuery                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>pipelineStatisticsQuery                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.pipelineStatisticsQuery);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>vertexPipelineStoresAndAtomics          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>vertexPipelineStoresAndAtomics          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.vertexPipelineStoresAndAtomics);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>fragmentStoresAndAtomics                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>fragmentStoresAndAtomics                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.fragmentStoresAndAtomics);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderTessellationAndGeometryPointSize  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderTessellationAndGeometryPointSize  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderTessellationAndGeometryPointSize);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderImageGatherExtended               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderImageGatherExtended               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderImageGatherExtended);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderStorageImageExtendedFormats       = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderStorageImageExtendedFormats       = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderStorageImageExtendedFormats);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderStorageImageMultisample           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderStorageImageMultisample           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderStorageImageMultisample);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderStorageImageReadWithoutFormat     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderStorageImageReadWithoutFormat     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderStorageImageReadWithoutFormat);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderStorageImageWriteWithoutFormat    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderStorageImageWriteWithoutFormat    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderStorageImageWriteWithoutFormat);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderUniformBufferArrayDynamicIndexing = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderUniformBufferArrayDynamicIndexing = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderUniformBufferArrayDynamicIndexing);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderSampledImageArrayDynamicIndexing  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderSampledImageArrayDynamicIndexing  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderSampledImageArrayDynamicIndexing);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderStorageBufferArrayDynamicIndexing = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderStorageBufferArrayDynamicIndexing = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderStorageBufferArrayDynamicIndexing);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderStorageImageArrayDynamicIndexing  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderStorageImageArrayDynamicIndexing  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderStorageImageArrayDynamicIndexing);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderClipDistance                      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderClipDistance                      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderClipDistance);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderCullDistance                      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderCullDistance                      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderCullDistance);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderFloat64                           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderFloat64                           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderFloat64);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderInt64                             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderInt64                             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderInt64);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderInt16                             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderInt16                             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderInt16);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderResourceResidency                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderResourceResidency                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderResourceResidency);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>shaderResourceMinLod                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>shaderResourceMinLod                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.shaderResourceMinLod);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseBinding                           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseBinding                           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseBinding);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidencyBuffer                   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidencyBuffer                   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidencyBuffer);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidencyImage2D                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidencyImage2D                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidencyImage2D);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidencyImage3D                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidencyImage3D                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidencyImage3D);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidency2Samples                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidency2Samples                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidency2Samples);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidency4Samples                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidency4Samples                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidency4Samples);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidency8Samples                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidency8Samples                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidency8Samples);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidency16Samples                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidency16Samples                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidency16Samples);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseResidencyAliased                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseResidencyAliased                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.sparseResidencyAliased);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>variableMultisampleRate                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>variableMultisampleRate                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.variableMultisampleRate);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>inheritedQueries                        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>inheritedQueries                        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 features.inheritedQueries);
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
@@ -2767,16 +3028,16 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDevice8BitStorageFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>storageBuffer8BitAccess           = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>storageBuffer8BitAccess           = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b8_store_features->storageBuffer8BitAccess);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>uniformAndStorageBuffer8BitAccess = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>uniformAndStorageBuffer8BitAccess = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b8_store_features->uniformAndStorageBuffer8BitAccess);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>storagePushConstant8              = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>storagePushConstant8              = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b8_store_features->storagePushConstant8);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2793,20 +3054,20 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDevice16BitStorageFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>storageBuffer16BitAccess           = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>storageBuffer16BitAccess           = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b16_store_features->storageBuffer16BitAccess);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>uniformAndStorageBuffer16BitAccess = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>uniformAndStorageBuffer16BitAccess = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b16_store_features->uniformAndStorageBuffer16BitAccess);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>storagePushConstant16              = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>storagePushConstant16              = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b16_store_features->storagePushConstant16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>storageInputOutput16               = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>storageInputOutput16               = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             b16_store_features->storageInputOutput16);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2826,7 +3087,7 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceSamplerYcbcrConversionFeatures</summary>\n");
                     fprintf(
                         out,
-                        "\t\t\t\t\t\t<details><summary>samplerYcbcrConversion = <div class='val'>%u</div></summary></details>\n",
+                        "\t\t\t\t\t\t<details><summary>samplerYcbcrConversion = <span class='val'>%u</span></summary></details>\n",
                         sampler_ycbcr_features->samplerYcbcrConversion);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2842,12 +3103,12 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceVariablePointerFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>variablePointersStorageBuffer = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>variablePointersStorageBuffer = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             var_pointer_features->variablePointersStorageBuffer);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>variablePointers              = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>variablePointers              = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             var_pointer_features->variablePointers);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2864,8 +3125,8 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceBlendOperationAdvancedFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendCoherentOperations = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendCoherentOperations = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_features->advancedBlendCoherentOperations);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2880,16 +3141,16 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceMultiviewFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>multiview                   = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>multiview                   = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             multiview_features->multiview);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>multiviewGeometryShader     = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>multiviewGeometryShader     = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             multiview_features->multiviewGeometryShader);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>multiviewTessellationShader = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>multiviewTessellationShader = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             multiview_features->multiviewTessellationShader);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2906,12 +3167,12 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceFloat16Int8Features</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderFloat16 = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderFloat16 = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_int_features->shaderFloat16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderInt8    = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderInt8    = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_int_features->shaderInt8);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2928,12 +3189,12 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceShaderAtomicInt64Features</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderBufferInt64Atomics = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderBufferInt64Atomics = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             shader_atomic_int64_features->shaderBufferInt64Atomics);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderSharedInt64Atomics = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderSharedInt64Atomics = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             shader_atomic_int64_features->shaderSharedInt64Atomics);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2952,12 +3213,12 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceTransformFeedbackFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>transformFeedback = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>transformFeedback = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             transform_feedback_features->transformFeedback);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>geometryStreams   = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>geometryStreams   = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             transform_feedback_features->geometryStreams);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2974,8 +3235,8 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceScalarBlockLayoutFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>scalarBlockLayout = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>scalarBlockLayout = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             scalar_block_layout_features->scalarBlockLayout);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -2991,16 +3252,16 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceFragmentDensityMapFeatures</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>fragmentDensityMap                    = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>fragmentDensityMap                    = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_features->fragmentDensityMap);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>fragmentDensityMapDynamic             = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>fragmentDensityMapDynamic             = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_features->fragmentDensityMapDynamic);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>fragmentDensityMapNonSubsampledImages = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>fragmentDensityMapNonSubsampledImages = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_features->fragmentDensityMapNonSubsampledImages);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -3013,6 +3274,334 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu, FILE *out) {
                     printf("\tfragmentDensityMapNonSubsampledImages = %" PRIuLEAST32 "\n",
                            fragment_density_map_features->fragmentDensityMapNonSubsampledImages);
                 }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceMemoryPriorityFeaturesEXT *memory_priority_features =
+                    (VkPhysicalDeviceMemoryPriorityFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceMemoryPriorityFeatures</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>memoryPriority = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            memory_priority_features->memoryPriority);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceMemoryPriorityFeatures:\n");
+                    printf("======================================\n");
+                    printf("\tmemoryPriority = %" PRIuLEAST32 "\n", memory_priority_features->memoryPriority);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_ADDRESS_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceBufferAddressFeaturesEXT *buffer_address_features =
+                    (VkPhysicalDeviceBufferAddressFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceBufferAddressFeatures</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>bufferDeviceAddress = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            buffer_address_features->bufferDeviceAddress);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>bufferDeviceAddressCaptureReplay = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            buffer_address_features->bufferDeviceAddressCaptureReplay);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>bufferDeviceAddressMultiDevice = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            buffer_address_features->bufferDeviceAddressMultiDevice);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceBufferAddressFeatures:\n");
+                    printf("======================================\n");
+                    printf("\tbufferDeviceAddress = %" PRIuLEAST32 "\n", buffer_address_features->bufferDeviceAddress);
+                    printf("\tbufferDeviceAddressCaptureReplay = %" PRIuLEAST32 "\n",
+                           buffer_address_features->bufferDeviceAddressCaptureReplay);
+                    printf("\tbufferDeviceAddressMultiDevice = %" PRIuLEAST32 "\n",
+                           buffer_address_features->bufferDeviceAddressMultiDevice);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_YCBCR_IMAGE_ARRAYS_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_YCBCR_IMAGE_ARRAYS_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceYcbcrImageArraysFeaturesEXT *ycbcr_image_arrays_features =
+                    (VkPhysicalDeviceYcbcrImageArraysFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceYcbcrImageArraysFeatures</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>ycbcrImageArrays = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            ycbcr_image_arrays_features->ycbcrImageArrays);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceYcbcrImageArraysFeatures:\n");
+                    printf("=========================================\n");
+                    printf("\tycbcrImageArrays = %" PRIuLEAST32 "\n", ycbcr_image_arrays_features->ycbcrImageArrays);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceHostQueryResetFeaturesEXT *host_query_reset_features =
+                    (VkPhysicalDeviceHostQueryResetFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceHostQueryResetFeatures</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>hostQueryReset = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            host_query_reset_features->hostQueryReset);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceHostQueryResetFeatures:\n");
+                    printf("=======================================\n");
+                    printf("\thostQueryReset = %" PRIuLEAST32 "\n", host_query_reset_features->hostQueryReset);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceDescriptorIndexingFeaturesEXT *indexing_features =
+                    (VkPhysicalDeviceDescriptorIndexingFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceDescriptorIndexingFeatures</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderInputAttachmentArrayDynamicIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderInputAttachmentArrayDynamicIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderUniformTexelBufferArrayDynamicIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderUniformTexelBufferArrayDynamicIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderStorageTexelBufferArrayDynamicIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderStorageTexelBufferArrayDynamicIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderUniformBufferArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderUniformBufferArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderSampledImageArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderSampledImageArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderStorageBufferArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderStorageBufferArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderStorageImageArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderStorageImageArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderInputAttachmentArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderInputAttachmentArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderUniformTexelBufferArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderUniformTexelBufferArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderStorageTexelBufferArrayNonUniformIndexing    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->shaderStorageTexelBufferArrayNonUniformIndexing);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingUniformBufferUpdateAfterBind    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingUniformBufferUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingSampledImageUpdateAfterBind    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingSampledImageUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingStorageImageUpdateAfterBind    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingStorageImageUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingStorageBufferUpdateAfterBind    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingStorageBufferUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingUniformTexelBufferUpdateAfterBind    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingUniformTexelBufferUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingStorageTexelBufferUpdateAfterBind    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingStorageTexelBufferUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingUpdateUnusedWhilePending    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingUpdateUnusedWhilePending);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingPartiallyBound    = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            indexing_features->descriptorBindingPartiallyBound);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>descriptorBindingVariableDescriptorCount    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_features->descriptorBindingVariableDescriptorCount);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>runtimeDescriptorArray    = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            indexing_features->runtimeDescriptorArray);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceDescriptorIndexingFeatures:\n");
+                    printf("=======================================\n");
+                    printf("\tshaderInputAttachmentArrayDynamicIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderInputAttachmentArrayDynamicIndexing);
+                    printf("\tshaderUniformTexelBufferArrayDynamicIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderUniformTexelBufferArrayDynamicIndexing);
+                    printf("\tshaderStorageTexelBufferArrayDynamicIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderStorageTexelBufferArrayDynamicIndexing);
+                    printf("\tshaderUniformBufferArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderUniformBufferArrayNonUniformIndexing);
+                    printf("\tshaderSampledImageArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderSampledImageArrayNonUniformIndexing);
+                    printf("\tshaderStorageBufferArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderStorageBufferArrayNonUniformIndexing);
+                    printf("\tshaderStorageImageArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderStorageImageArrayNonUniformIndexing);
+                    printf("\tshaderInputAttachmentArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderInputAttachmentArrayNonUniformIndexing);
+                    printf("\tshaderUniformTexelBufferArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderUniformTexelBufferArrayNonUniformIndexing);
+                    printf("\tshaderStorageTexelBufferArrayNonUniformIndexing = %" PRIuLEAST32 "\n",
+                           indexing_features->shaderStorageTexelBufferArrayNonUniformIndexing);
+                    printf("\tdescriptorBindingUniformBufferUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingUniformBufferUpdateAfterBind);
+                    printf("\tdescriptorBindingSampledImageUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingSampledImageUpdateAfterBind);
+                    printf("\tdescriptorBindingStorageImageUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingStorageImageUpdateAfterBind);
+                    printf("\tdescriptorBindingStorageBufferUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingStorageBufferUpdateAfterBind);
+                    printf("\tdescriptorBindingUniformTexelBufferUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingUniformTexelBufferUpdateAfterBind);
+                    printf("\tdescriptorBindingStorageTexelBufferUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingStorageTexelBufferUpdateAfterBind);
+                    printf("\tdescriptorBindingUpdateUnusedWhilePending = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingUpdateUnusedWhilePending);
+                    printf("\tdescriptorBindingPartiallyBound = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingPartiallyBound);
+                    printf("\tdescriptorBindingVariableDescriptorCount = %" PRIuLEAST32 "\n",
+                           indexing_features->descriptorBindingVariableDescriptorCount);
+                    printf("\truntimeDescriptorArray = %" PRIuLEAST32 "\n", indexing_features->runtimeDescriptorArray);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES_KHR &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME,
+                                                            gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR *standard_features =
+                    (VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR *)structure;
+                if (html_output) {
+                    fprintf(out,
+                            "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>uniformBufferStandardLayout = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            standard_features->uniformBufferStandardLayout);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR:\n");
+                    printf("=======================================================\n");
+                    printf("\tuniformBufferStandardLayout = %" PRIuLEAST32 "\n", standard_features->uniformBufferStandardLayout);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT *fragment_shader_features =
+                    (VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>fragmentShaderPixelInterlock    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            fragment_shader_features->fragmentShaderPixelInterlock);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>fragmentShaderSampleInterlock    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            fragment_shader_features->fragmentShaderSampleInterlock);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>fragmentShaderShadingRateInterlock    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            fragment_shader_features->fragmentShaderShadingRateInterlock);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceFragmentShaderInterlockFeaturesEXT:\n");
+                    printf("===================================================\n");
+                    printf("\tfragmentShaderPixelInterlock = %" PRIuLEAST32 "\n",
+                           fragment_shader_features->fragmentShaderPixelInterlock);
+                    printf("\tfragmentShaderSampleInterlock = %" PRIuLEAST32 "\n",
+                           fragment_shader_features->fragmentShaderSampleInterlock);
+                    printf("\tfragmentShaderShadingRateInterlock = %" PRIuLEAST32 "\n",
+                           fragment_shader_features->fragmentShaderShadingRateInterlock);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES_KHR &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceImagelessFramebufferFeaturesKHR *imageless_framebuffer =
+                    (VkPhysicalDeviceImagelessFramebufferFeaturesKHR *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceImagelessFramebufferFeaturesKHR</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>imagelessFramebuffer = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            imageless_framebuffer->imagelessFramebuffer);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceImagelessFramebufferFeaturesKHR:\n");
+                    printf("================================================\n");
+                    printf("\timagelessFramebuffer = %" PRIuLEAST32 "\n", imageless_framebuffer->imagelessFramebuffer);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_TEXEL_BUFFER_ALIGNMENT_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *texel_buffer_alignment =
+                    (VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>texelBufferAlignment = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            texel_buffer_alignment->texelBufferAlignment);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceTexelBufferAlignmentFeaturesEXT:\n");
+                    printf("================================================\n");
+                    printf("\ttexelBufferAlignment = %" PRIuLEAST32 "\n", texel_buffer_alignment->texelBufferAlignment);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION_EXTENSION_NAME,
+                                                            gpu->device_extensions, gpu->device_extension_count)) {
+                VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *shader_helper =
+                    (VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out,
+                            "\t\t\t\t\t<details><summary>VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>shaderDemoteToHelperInvocation    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            shader_helper->shaderDemoteToHelperInvocation);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT:\n");
+                    printf("===================================================\n");
+                    printf("\tshaderDemoteToHelperInvocation = %" PRIuLEAST32 "\n", shader_helper->shaderDemoteToHelperInvocation);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceIndexTypeUint8FeaturesEXT *index_type_uint8_features =
+                    (VkPhysicalDeviceIndexTypeUint8FeaturesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceIndexTypeUint8FeaturesEXT</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>indexTypeUint8    = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            index_type_uint8_features->indexTypeUint8);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceIndexTypeUint8FeaturesEXT:\n");
+                    printf("===================================================\n");
+                    printf("\tindexTypeUint8 = %" PRIuLEAST32 "\n", index_type_uint8_features->indexTypeUint8);
+                }
             }
             place = structure->pNext;
         }
@@ -3023,24 +3612,24 @@ static void AppDumpSparseProps(const VkPhysicalDeviceSparseProperties *sparse_pr
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceSparseProperties</summary>\n");
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>residencyStandard2DBlockShape            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>residencyStandard2DBlockShape            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 sparse_props->residencyStandard2DBlockShape);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>residencyStandard2DMultisampleBlockShape = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>residencyStandard2DMultisampleBlockShape = <span "
+                "class='val'>%u</span></summary></details>\n",
                 sparse_props->residencyStandard2DMultisampleBlockShape);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>residencyStandard3DBlockShape            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>residencyStandard3DBlockShape            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 sparse_props->residencyStandard3DBlockShape);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>residencyAlignedMipSize                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>residencyAlignedMipSize                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 sparse_props->residencyAlignedMipSize);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>residencyNonResidentStrict               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>residencyNonResidentStrict               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 sparse_props->residencyNonResidentStrict);
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
@@ -3068,460 +3657,460 @@ static void AppDumpLimits(const VkPhysicalDeviceLimits *limits, FILE *out) {
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceLimits</summary>\n");
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxImageDimension1D                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxImageDimension1D                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxImageDimension1D);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxImageDimension2D                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxImageDimension2D                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxImageDimension2D);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxImageDimension3D                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxImageDimension3D                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxImageDimension3D);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxImageDimensionCube                   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxImageDimensionCube                   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxImageDimensionCube);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxImageArrayLayers                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxImageArrayLayers                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxImageArrayLayers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTexelBufferElements                  = <div class='val'>0x%" PRIxLEAST32
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTexelBufferElements                  = <span class='val'>0x%" PRIxLEAST32
+                "</span></summary></details>\n",
                 limits->maxTexelBufferElements);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxUniformBufferRange                   = <div class='val'>0x%" PRIxLEAST32
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxUniformBufferRange                   = <span class='val'>0x%" PRIxLEAST32
+                "</span></summary></details>\n",
                 limits->maxUniformBufferRange);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxStorageBufferRange                   = <div class='val'>0x%" PRIxLEAST32
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxStorageBufferRange                   = <span class='val'>0x%" PRIxLEAST32
+                "</span></summary></details>\n",
                 limits->maxStorageBufferRange);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPushConstantsSize                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPushConstantsSize                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPushConstantsSize);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxMemoryAllocationCount                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxMemoryAllocationCount                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxMemoryAllocationCount);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxSamplerAllocationCount               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxSamplerAllocationCount               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxSamplerAllocationCount);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>bufferImageGranularity                  = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>bufferImageGranularity                  = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->bufferImageGranularity);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sparseAddressSpaceSize                  = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sparseAddressSpaceSize                  = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->sparseAddressSpaceSize);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxBoundDescriptorSets                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxBoundDescriptorSets                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxBoundDescriptorSets);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorSamplers           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorSamplers           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageDescriptorSamplers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUniformBuffers     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUniformBuffers     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageDescriptorUniformBuffers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorStorageBuffers     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorStorageBuffers     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageDescriptorStorageBuffers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorSampledImages      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorSampledImages      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageDescriptorSampledImages);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorStorageImages      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorStorageImages      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageDescriptorStorageImages);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorInputAttachments   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageDescriptorInputAttachments   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageDescriptorInputAttachments);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxPerStageResources                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxPerStageResources                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxPerStageResources);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetSamplers                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetSamplers                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetSamplers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetUniformBuffers          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetUniformBuffers          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetUniformBuffers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetUniformBuffersDynamic   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetUniformBuffersDynamic   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetUniformBuffersDynamic);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetStorageBuffers          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetStorageBuffers          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetStorageBuffers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetStorageBuffersDynamic   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetStorageBuffersDynamic   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetStorageBuffersDynamic);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetSampledImages           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetSampledImages           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetSampledImages);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetStorageImages           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetStorageImages           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetStorageImages);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDescriptorSetInputAttachments        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDescriptorSetInputAttachments        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDescriptorSetInputAttachments);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxVertexInputAttributes                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxVertexInputAttributes                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxVertexInputAttributes);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxVertexInputBindings                  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxVertexInputBindings                  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxVertexInputBindings);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxVertexInputAttributeOffset           = <div class='val'>0x%" PRIxLEAST32
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxVertexInputAttributeOffset           = <span class='val'>0x%" PRIxLEAST32
+                "</span></summary></details>\n",
                 limits->maxVertexInputAttributeOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxVertexInputBindingStride             = <div class='val'>0x%" PRIxLEAST32
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxVertexInputBindingStride             = <span class='val'>0x%" PRIxLEAST32
+                "</span></summary></details>\n",
                 limits->maxVertexInputBindingStride);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxVertexOutputComponents               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxVertexOutputComponents               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxVertexOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationGenerationLevel          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationGenerationLevel          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationGenerationLevel);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationPatchSize                        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationPatchSize                        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationPatchSize);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationControlPerVertexInputComponents  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationControlPerVertexInputComponents  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationControlPerVertexInputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationControlPerVertexOutputComponents = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationControlPerVertexOutputComponents = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationControlPerVertexOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationControlPerPatchOutputComponents  = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationControlPerPatchOutputComponents  = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationControlPerPatchOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationControlTotalOutputComponents     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationControlTotalOutputComponents     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationControlTotalOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationEvaluationInputComponents        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationEvaluationInputComponents        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationEvaluationInputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTessellationEvaluationOutputComponents       = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTessellationEvaluationOutputComponents       = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxTessellationEvaluationOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxGeometryShaderInvocations            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxGeometryShaderInvocations            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxGeometryShaderInvocations);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxGeometryInputComponents              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxGeometryInputComponents              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxGeometryInputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxGeometryOutputComponents             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxGeometryOutputComponents             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxGeometryOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxGeometryOutputVertices               = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxGeometryOutputVertices               = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxGeometryOutputVertices);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxGeometryTotalOutputComponents        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxGeometryTotalOutputComponents        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxGeometryTotalOutputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFragmentInputComponents              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFragmentInputComponents              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFragmentInputComponents);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFragmentOutputAttachments            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFragmentOutputAttachments            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFragmentOutputAttachments);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFragmentDualSrcAttachments           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFragmentDualSrcAttachments           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFragmentDualSrcAttachments);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFragmentCombinedOutputResources      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFragmentCombinedOutputResources      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFragmentCombinedOutputResources);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeSharedMemorySize              = <div class='val'>0x%" PRIxLEAST32
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeSharedMemorySize              = <span class='val'>%" PRIuLEAST32
+                "</span></summary></details>\n",
                 limits->maxComputeSharedMemorySize);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupCount[0]             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupCount[0]             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupCount[0]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupCount[1]             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupCount[1]             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupCount[1]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupCount[2]             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupCount[2]             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupCount[2]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupInvocations          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupInvocations          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupInvocations);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupSize[0]              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupSize[0]              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupSize[0]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupSize[1]              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupSize[1]              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupSize[1]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupSize[2]              = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxComputeWorkGroupSize[2]              = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxComputeWorkGroupSize[2]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>subPixelPrecisionBits                   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>subPixelPrecisionBits                   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->subPixelPrecisionBits);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>subTexelPrecisionBits                   = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>subTexelPrecisionBits                   = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->subTexelPrecisionBits);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>mipmapPrecisionBits                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>mipmapPrecisionBits                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->mipmapPrecisionBits);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDrawIndexedIndexValue                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDrawIndexedIndexValue                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDrawIndexedIndexValue);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxDrawIndirectCount                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxDrawIndirectCount                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxDrawIndirectCount);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxSamplerLodBias                       = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxSamplerLodBias                       = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->maxSamplerLodBias);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxSamplerAnisotropy                    = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxSamplerAnisotropy                    = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->maxSamplerAnisotropy);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxViewports                            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxViewports                            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxViewports);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxViewportDimensions[0]                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxViewportDimensions[0]                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxViewportDimensions[0]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxViewportDimensions[1]                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxViewportDimensions[1]                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxViewportDimensions[1]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>viewportBoundsRange[0]                  = <div "
-                "class='val'>%13f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>viewportBoundsRange[0]                  = <span "
+                "class='val'>%13f</span></summary></details>\n",
                 limits->viewportBoundsRange[0]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>viewportBoundsRange[1]                  = <div "
-                "class='val'>%13f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>viewportBoundsRange[1]                  = <span "
+                "class='val'>%13f</span></summary></details>\n",
                 limits->viewportBoundsRange[1]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>viewportSubPixelBits                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>viewportSubPixelBits                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->viewportSubPixelBits);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minMemoryMapAlignment                   = <div class='val'>" PRINTF_SIZE_T_SPECIFIER
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minMemoryMapAlignment                   = <span class='val'>" PRINTF_SIZE_T_SPECIFIER
+                "</span></summary></details>\n",
                 limits->minMemoryMapAlignment);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minTexelBufferOffsetAlignment           = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minTexelBufferOffsetAlignment           = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->minTexelBufferOffsetAlignment);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minUniformBufferOffsetAlignment         = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minUniformBufferOffsetAlignment         = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->minUniformBufferOffsetAlignment);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minStorageBufferOffsetAlignment         = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minStorageBufferOffsetAlignment         = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->minStorageBufferOffsetAlignment);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minTexelOffset                          = <div "
-                "class='val'>%3d</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minTexelOffset                          = <span "
+                "class='val'>%3d</span></summary></details>\n",
                 limits->minTexelOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTexelOffset                          = <div "
-                "class='val'>%3d</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTexelOffset                          = <span "
+                "class='val'>%3d</span></summary></details>\n",
                 limits->maxTexelOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minTexelGatherOffset                    = <div "
-                "class='val'>%3d</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minTexelGatherOffset                    = <span "
+                "class='val'>%3d</span></summary></details>\n",
                 limits->minTexelGatherOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxTexelGatherOffset                    = <div "
-                "class='val'>%3d</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxTexelGatherOffset                    = <span "
+                "class='val'>%3d</span></summary></details>\n",
                 limits->maxTexelGatherOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minInterpolationOffset                  = <div "
-                "class='val'>%9f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minInterpolationOffset                  = <span "
+                "class='val'>%9f</span></summary></details>\n",
                 limits->minInterpolationOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxInterpolationOffset                  = <div "
-                "class='val'>%9f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxInterpolationOffset                  = <span "
+                "class='val'>%9f</span></summary></details>\n",
                 limits->maxInterpolationOffset);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>subPixelInterpolationOffsetBits         = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>subPixelInterpolationOffsetBits         = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->subPixelInterpolationOffsetBits);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFramebufferWidth                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFramebufferWidth                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFramebufferWidth);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFramebufferHeight                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFramebufferHeight                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFramebufferHeight);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxFramebufferLayers                    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxFramebufferLayers                    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxFramebufferLayers);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>framebufferColorSampleCounts            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>framebufferColorSampleCounts            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->framebufferColorSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>framebufferDepthSampleCounts            = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>framebufferDepthSampleCounts            = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->framebufferDepthSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>framebufferStencilSampleCounts          = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>framebufferStencilSampleCounts          = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->framebufferStencilSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>framebufferNoAttachmentsSampleCounts    = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>framebufferNoAttachmentsSampleCounts    = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->framebufferNoAttachmentsSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxColorAttachments                     = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxColorAttachments                     = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxColorAttachments);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sampledImageColorSampleCounts           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sampledImageColorSampleCounts           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->sampledImageColorSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sampledImageDepthSampleCounts           = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sampledImageDepthSampleCounts           = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->sampledImageDepthSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sampledImageStencilSampleCounts         = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sampledImageStencilSampleCounts         = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->sampledImageStencilSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>sampledImageIntegerSampleCounts         = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>sampledImageIntegerSampleCounts         = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->sampledImageIntegerSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>storageImageSampleCounts                = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>storageImageSampleCounts                = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->storageImageSampleCounts);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxSampleMaskWords                      = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxSampleMaskWords                      = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxSampleMaskWords);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>timestampComputeAndGraphics             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>timestampComputeAndGraphics             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->timestampComputeAndGraphics);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>timestampPeriod                         = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>timestampPeriod                         = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->timestampPeriod);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxClipDistances                        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxClipDistances                        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxClipDistances);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxCullDistances                        = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxCullDistances                        = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxCullDistances);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>maxCombinedClipAndCullDistances         = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>maxCombinedClipAndCullDistances         = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->maxCombinedClipAndCullDistances);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>discreteQueuePriorities                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>discreteQueuePriorities                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->discreteQueuePriorities);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>pointSizeRange[0]                       = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>pointSizeRange[0]                       = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->pointSizeRange[0]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>pointSizeRange[1]                       = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>pointSizeRange[1]                       = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->pointSizeRange[1]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>lineWidthRange[0]                       = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>lineWidthRange[0]                       = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->lineWidthRange[0]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>lineWidthRange[1]                       = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>lineWidthRange[1]                       = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->lineWidthRange[1]);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>pointSizeGranularity                    = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>pointSizeGranularity                    = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->pointSizeGranularity);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>lineWidthGranularity                    = <div "
-                "class='val'>%f</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>lineWidthGranularity                    = <span "
+                "class='val'>%f</span></summary></details>\n",
                 limits->lineWidthGranularity);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>strictLines                             = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>strictLines                             = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->strictLines);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>standardSampleLocations                 = <div "
-                "class='val'>%u</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>standardSampleLocations                 = <span "
+                "class='val'>%u</span></summary></details>\n",
                 limits->standardSampleLocations);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>optimalBufferCopyOffsetAlignment        = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>optimalBufferCopyOffsetAlignment        = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->optimalBufferCopyOffsetAlignment);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>optimalBufferCopyRowPitchAlignment      = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>optimalBufferCopyRowPitchAlignment      = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->optimalBufferCopyRowPitchAlignment);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>nonCoherentAtomSize                     = <div class='val'>0x%" PRIxLEAST64
-                "</div></summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>nonCoherentAtomSize                     = <span class='val'>0x%" PRIxLEAST64
+                "</span></summary></details>\n",
                 limits->nonCoherentAtomSize);
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
@@ -3581,7 +4170,7 @@ static void AppDumpLimits(const VkPhysicalDeviceLimits *limits, FILE *out) {
         printf("\t\tmaxFragmentOutputAttachments            = %u\n", limits->maxFragmentOutputAttachments);
         printf("\t\tmaxFragmentDualSrcAttachments           = %u\n", limits->maxFragmentDualSrcAttachments);
         printf("\t\tmaxFragmentCombinedOutputResources      = %u\n", limits->maxFragmentCombinedOutputResources);
-        printf("\t\tmaxComputeSharedMemorySize              = 0x%" PRIxLEAST32 "\n", limits->maxComputeSharedMemorySize);
+        printf("\t\tmaxComputeSharedMemorySize              = %" PRIuLEAST32 "\n", limits->maxComputeSharedMemorySize);
         printf("\t\tmaxComputeWorkGroupCount[0]             = %u\n", limits->maxComputeWorkGroupCount[0]);
         printf("\t\tmaxComputeWorkGroupCount[1]             = %u\n", limits->maxComputeWorkGroupCount[1]);
         printf("\t\tmaxComputeWorkGroupCount[2]             = %u\n", limits->maxComputeWorkGroupCount[2]);
@@ -3801,16 +4390,16 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceProperties</summary>\n");
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>apiVersion = <div class='val'>0x%" PRIxLEAST32
-                "</div>  (<div class='val'>%d.%d.%d</div>)</summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>apiVersion = <span class='val'>0x%" PRIxLEAST32
+                "</span>  (<span class='val'>%d.%d.%d</span>)</summary></details>\n",
                 apiVersion, major, minor, patch);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>driverVersion = <div class='val'>%u</div> (<div class='val'>0x%" PRIxLEAST32
-                "</div>)</summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>driverVersion = <span class='val'>%u</span> (<span class='val'>0x%" PRIxLEAST32
+                "</span>)</summary></details>\n",
                 props.driverVersion, props.driverVersion);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>vendorID = <div class='val'>0x%04x</div></summary></details>\n",
+        fprintf(out, "\t\t\t\t\t\t<details><summary>vendorID = <span class='val'>0x%04x</span></summary></details>\n",
                 props.vendorID);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceID = <div class='val'>0x%04x</div></summary></details>\n",
+        fprintf(out, "\t\t\t\t\t\t<details><summary>deviceID = <span class='val'>0x%04x</span></summary></details>\n",
                 props.deviceID);
         fprintf(out, "\t\t\t\t\t\t<details><summary>deviceType = %s</summary></details>\n",
                 VkPhysicalDeviceTypeString(props.deviceType));
@@ -3878,28 +4467,28 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceBlendOperationAdvancedProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendMaxColorAttachments                = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendMaxColorAttachments                = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_props->advancedBlendMaxColorAttachments);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendIndependentBlend                   = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendIndependentBlend                   = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_props->advancedBlendIndependentBlend);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendNonPremultipliedSrcColor           = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendNonPremultipliedSrcColor           = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_props->advancedBlendNonPremultipliedSrcColor);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendNonPremultipliedDstColor           = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendNonPremultipliedDstColor           = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_props->advancedBlendNonPremultipliedDstColor);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendCorrelatedOverlap                  = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendCorrelatedOverlap                  = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_props->advancedBlendCorrelatedOverlap);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>advancedBlendAllOperations                      = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>advancedBlendAllOperations                      = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             blend_op_adv_props->advancedBlendAllOperations);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -3925,8 +4514,8 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDevicePointClippingProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>pointClippingBehavior               = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>pointClippingBehavior               = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             pt_clip_props->pointClippingBehavior);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -3942,8 +4531,8 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDevicePushDescriptorProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>maxPushDescriptors                = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>maxPushDescriptors                = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             push_desc_props->maxPushDescriptors);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -3959,8 +4548,8 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceDiscardRectangleProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>maxDiscardRectangles               = <div "
-                            "class='val'>%u</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>maxDiscardRectangles               = <span "
+                            "class='val'>%u</span></summary></details>\n",
                             discard_rect_props->maxDiscardRectangles);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -3974,14 +4563,14 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 VkPhysicalDeviceMultiviewPropertiesKHR *multiview_props = (VkPhysicalDeviceMultiviewPropertiesKHR *)structure;
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceMultiviewProperties</summary>\n");
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxMultiviewViewCount     = <div class='val'>%u</div></summary></details>\n",
-                        multiview_props->maxMultiviewViewCount);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxMultiviewInstanceIndex = <div class='val'>%u</div></summary></details>\n",
-                        multiview_props->maxMultiviewInstanceIndex);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxMultiviewViewCount     = <span "
+                            "class='val'>%u</span></summary></details>\n",
+                            multiview_props->maxMultiviewViewCount);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxMultiviewInstanceIndex = <span "
+                            "class='val'>%u</span></summary></details>\n",
+                            multiview_props->maxMultiviewInstanceIndex);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
                     printf("\nVkPhysicalDeviceMultiviewProperties:\n");
@@ -3995,12 +4584,12 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceMaintenance3Properties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>maxPerSetDescriptors    = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>maxPerSetDescriptors    = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             maintenance3_props->maxPerSetDescriptors);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>maxMemoryAllocationSize = <div class='val'>%" PRIuLEAST64
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>maxMemoryAllocationSize = <span class='val'>%" PRIuLEAST64
+                            "</span></summary></details>\n",
                             maintenance3_props->maxMemoryAllocationSize);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -4017,8 +4606,8 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                     // length modifier so cast the operands and use field width
                     // "2" to fake it.
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>deviceUUID      = <div "
-                            "class='val'>%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x</div></summary></"
+                            "\t\t\t\t\t\t<details><summary>deviceUUID      = <span "
+                            "class='val'>%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x</span></summary></"
                             "details>\n",
                             (uint32_t)id_props->deviceUUID[0], (uint32_t)id_props->deviceUUID[1], (uint32_t)id_props->deviceUUID[2],
                             (uint32_t)id_props->deviceUUID[3], (uint32_t)id_props->deviceUUID[4], (uint32_t)id_props->deviceUUID[5],
@@ -4028,8 +4617,8 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                             (uint32_t)id_props->deviceUUID[13], (uint32_t)id_props->deviceUUID[14],
                             (uint32_t)id_props->deviceUUID[15]);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>driverUUID      = <div "
-                            "class='val'>%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x</div></summary></"
+                            "\t\t\t\t\t\t<details><summary>driverUUID      = <span "
+                            "class='val'>%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x</span></summary></"
                             "details>\n",
                             (uint32_t)id_props->driverUUID[0], (uint32_t)id_props->driverUUID[1], (uint32_t)id_props->driverUUID[2],
                             (uint32_t)id_props->driverUUID[3], (uint32_t)id_props->driverUUID[4], (uint32_t)id_props->driverUUID[5],
@@ -4038,20 +4627,21 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                             (uint32_t)id_props->driverUUID[11], (uint32_t)id_props->driverUUID[12],
                             (uint32_t)id_props->driverUUID[13], (uint32_t)id_props->driverUUID[14],
                             (uint32_t)id_props->driverUUID[15]);
-                    fprintf(out, "\t\t\t\t\t\t<details><summary>deviceLUIDValid = <div class='val'>%s</div></summary></details>\n",
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>deviceLUIDValid = <span class='val'>%s</span></summary></details>\n",
                             id_props->deviceLUIDValid ? "true" : "false");
                     if (id_props->deviceLUIDValid) {
                         fprintf(out,
-                                "\t\t\t\t\t\t<details><summary>deviceLUID      = <div "
-                                "class='val'>%02x%02x%02x%02x-%02x%02x%02x%02x</div></summary></details>\n",
+                                "\t\t\t\t\t\t<details><summary>deviceLUID      = <span "
+                                "class='val'>%02x%02x%02x%02x-%02x%02x%02x%02x</span></summary></details>\n",
                                 (uint32_t)id_props->deviceLUID[0], (uint32_t)id_props->deviceLUID[1],
                                 (uint32_t)id_props->deviceLUID[2], (uint32_t)id_props->deviceLUID[3],
                                 (uint32_t)id_props->deviceLUID[4], (uint32_t)id_props->deviceLUID[5],
                                 (uint32_t)id_props->deviceLUID[6], (uint32_t)id_props->deviceLUID[7]);
-                        fprintf(
-                            out,
-                            "\t\t\t\t\t\t<details><summary>deviceNodeMask  = <div class='val'>0x%08x</div></summary></details>\n",
-                            id_props->deviceNodeMask);
+                        fprintf(out,
+                                "\t\t\t\t\t\t<details><summary>deviceNodeMask  = <span "
+                                "class='val'>0x%08x</span></summary></details>\n",
+                                id_props->deviceNodeMask);
                     }
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -4090,27 +4680,27 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceDriverProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>driverID   = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>driverID   = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             driver_props->driverID);
                     fprintf(out, "\t\t\t\t\t\t<details><summary>driverName = %s</summary></details>\n", driver_props->driverName);
                     fprintf(out, "\t\t\t\t\t\t<details><summary>driverInfo = %s</summary></details>\n", driver_props->driverInfo);
                     fprintf(out, "\t\t\t\t\t\t<details><summary>conformanceVersion:</summary></details>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>major    = <div class='val'>%" PRIuLEAST8
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>major    = <span class='val'>%" PRIuLEAST8
+                            "</span></summary></details>\n",
                             driver_props->conformanceVersion.major);
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>minor    = <div class='val'>%" PRIuLEAST8
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>minor    = <span class='val'>%" PRIuLEAST8
+                            "</span></summary></details>\n",
                             driver_props->conformanceVersion.minor);
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>subminor = <div class='val'>%" PRIuLEAST8
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>subminor = <span class='val'>%" PRIuLEAST8
+                            "</span></summary></details>\n",
                             driver_props->conformanceVersion.subminor);
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>patch    = <div class='val'>%" PRIuLEAST8
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>patch    = <span class='val'>%" PRIuLEAST8
+                            "</span></summary></details>\n",
                             driver_props->conformanceVersion.patch);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
@@ -4133,87 +4723,88 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceFloatControlsProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>separateDenormSettings       = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
-                            float_control_props->separateDenormSettings);
+                            "\t\t\t\t\t\t<details><summary>denormBehaviorIndependence            = <span "
+                            "class='val'>%s</span></summary></details>\n",
+                            VkShaderFloatControlsIndependenceString(float_control_props->denormBehaviorIndependence));
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>separateRoundingModeSettings = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
-                            float_control_props->separateRoundingModeSettings);
+                            "\t\t\t\t\t\t<details><summary>roundingModeIndependence              = <span "
+                            "class='val'>%s</span></summary></details>\n",
+                            VkShaderFloatControlsIndependenceString(float_control_props->roundingModeIndependence));
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderSignedZeroInfNanPreserveFloat16 = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderSignedZeroInfNanPreserveFloat16 = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderSignedZeroInfNanPreserveFloat16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderSignedZeroInfNanPreserveFloat32 = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderSignedZeroInfNanPreserveFloat32 = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderSignedZeroInfNanPreserveFloat32);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderSignedZeroInfNanPreserveFloat64 = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderSignedZeroInfNanPreserveFloat64 = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderSignedZeroInfNanPreserveFloat64);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderDenormPreserveFloat16           = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderDenormPreserveFloat16           = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderDenormPreserveFloat16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderDenormPreserveFloat32           = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderDenormPreserveFloat32           = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderDenormPreserveFloat32);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderDenormPreserveFloat64           = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderDenormPreserveFloat64           = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderDenormPreserveFloat64);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderDenormFlushToZeroFloat16        = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderDenormFlushToZeroFloat16        = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderDenormFlushToZeroFloat16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderDenormFlushToZeroFloat32        = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderDenormFlushToZeroFloat32        = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderDenormFlushToZeroFloat32);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderDenormFlushToZeroFloat64        = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderDenormFlushToZeroFloat64        = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderDenormFlushToZeroFloat64);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTEFloat16          = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTEFloat16          = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderRoundingModeRTEFloat16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTEFloat32          = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTEFloat32          = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderRoundingModeRTEFloat32);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTEFloat64          = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTEFloat64          = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderRoundingModeRTEFloat64);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTZFloat16          = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTZFloat16          = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderRoundingModeRTZFloat16);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTZFloat32          = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTZFloat32          = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderRoundingModeRTZFloat32);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTZFloat64          = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>shaderRoundingModeRTZFloat64          = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             float_control_props->shaderRoundingModeRTZFloat64);
                     fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
                     printf("\nVkPhysicalDeviceFloatControlsProperties:\n");
                     printf("========================================\n");
-                    printf("\tseparateDenormSettings       = %" PRIuLEAST32 "\n", float_control_props->separateDenormSettings);
-                    printf("\tseparateRoundingModeSettings = %" PRIuLEAST32 "\n",
-                           float_control_props->separateRoundingModeSettings);
+                    printf("\tdenormBehaviorIndependence            = %s\n",
+                           VkShaderFloatControlsIndependenceString(float_control_props->denormBehaviorIndependence));
+                    printf("\troundingModeIndependence              = %s\n",
+                           VkShaderFloatControlsIndependenceString(float_control_props->roundingModeIndependence));
                     printf("\tshaderSignedZeroInfNanPreserveFloat16 = %" PRIuLEAST32 "\n",
                            float_control_props->shaderSignedZeroInfNanPreserveFloat16);
                     printf("\tshaderSignedZeroInfNanPreserveFloat32 = %" PRIuLEAST32 "\n",
                            float_control_props->shaderSignedZeroInfNanPreserveFloat32);
                     printf("\tshaderSignedZeroInfNanPreserveFloat64 = %" PRIuLEAST32 "\n",
                            float_control_props->shaderSignedZeroInfNanPreserveFloat64);
-                    printf("\tshaderDenormPreserveFloat16          = %" PRIuLEAST32 "\n",
+                    printf("\tshaderDenormPreserveFloat16           = %" PRIuLEAST32 "\n",
                            float_control_props->shaderDenormPreserveFloat16);
                     printf("\tshaderDenormPreserveFloat32           = %" PRIuLEAST32 "\n",
                            float_control_props->shaderDenormPreserveFloat32);
@@ -4229,7 +4820,7 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                            float_control_props->shaderRoundingModeRTEFloat16);
                     printf("\tshaderRoundingModeRTEFloat32          = %" PRIuLEAST32 "\n",
                            float_control_props->shaderRoundingModeRTEFloat32);
-                    printf("\tshaderRoundingModeRTEFloat64         = %" PRIuLEAST32 "\n",
+                    printf("\tshaderRoundingModeRTEFloat64          = %" PRIuLEAST32 "\n",
                            float_control_props->shaderRoundingModeRTEFloat64);
                     printf("\tshaderRoundingModeRTZFloat16          = %" PRIuLEAST32 "\n",
                            float_control_props->shaderRoundingModeRTZFloat16);
@@ -4245,21 +4836,23 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDevicePCIBusInfoProperties</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>pciDomain   = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>pciDomain   = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             pci_bus_properties->pciDomain);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>pciBus      = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>pciBus      = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             pci_bus_properties->pciBus);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>pciDevice   = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>pciDevice   = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             pci_bus_properties->pciDevice);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>pciFunction = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>pciFunction = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             pci_bus_properties->pciFunction);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+
                 } else if (human_readable_output) {
                     printf("\nVkPhysicalDevicePCIBusInfoProperties\n");
                     printf("====================================\n");
@@ -4275,56 +4868,47 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                     (VkPhysicalDeviceTransformFeedbackPropertiesEXT *)structure;
                 if (html_output) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceTransformFeedbackProperties</summary>\n");
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxTransformFeedbackStreams                = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->maxTransformFeedbackStreams);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBuffers                = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->maxTransformFeedbackBuffers);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBufferSize             = <div class='val'>%" PRIuLEAST64
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->maxTransformFeedbackBufferSize);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxTransformFeedbackStreamDataSize         = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->maxTransformFeedbackStreamDataSize);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBufferDataSize         = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->maxTransformFeedbackBufferDataSize);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBufferDataStride       = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->maxTransformFeedbackBufferDataStride);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>transformFeedbackQueries                   = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->transformFeedbackQueries);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>transformFeedbackStreamsLinesTriangles     = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->transformFeedbackStreamsLinesTriangles);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>transformFeedbackRasterizationStreamSelect = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->transformFeedbackRasterizationStreamSelect);
-                    fprintf(
-                        out,
-                        "\t\t\t\t\t\t<details><summary>transformFeedbackDraw                      = <div class='val'>%" PRIuLEAST32
-                        "</div></summary></details>\n",
-                        transform_feedback_properties->transformFeedbackDraw);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxTransformFeedbackStreams                = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->maxTransformFeedbackStreams);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBuffers                = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->maxTransformFeedbackBuffers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBufferSize             = <span "
+                            "class='val'>%" PRIuLEAST64 "</span></summary></details>\n",
+                            transform_feedback_properties->maxTransformFeedbackBufferSize);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxTransformFeedbackStreamDataSize         = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->maxTransformFeedbackStreamDataSize);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBufferDataSize         = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->maxTransformFeedbackBufferDataSize);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>maxTransformFeedbackBufferDataStride       = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->maxTransformFeedbackBufferDataStride);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>transformFeedbackQueries                   = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->transformFeedbackQueries);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>transformFeedbackStreamsLinesTriangles     = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->transformFeedbackStreamsLinesTriangles);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>transformFeedbackRasterizationStreamSelect = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->transformFeedbackRasterizationStreamSelect);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>transformFeedbackDraw                      = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            transform_feedback_properties->transformFeedbackDraw);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
                     printf("\nVkPhysicalDeviceTransformFeedbackProperties\n");
                     printf("===========================================\n");
@@ -4358,24 +4942,27 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                     fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceFragmentDensityMapProperties</summary>\n");
                     fprintf(out, "\t\t\t\t\t\t<details><summary>minFragmentDensityTexelSize</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>width = <div class='val'>%" PRIuLEAST32 "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>width = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_properties->minFragmentDensityTexelSize.width);
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>height = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>height = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_properties->minFragmentDensityTexelSize.height);
                     fprintf(out, "\t\t\t\t\t\t<details><summary>maxFragmentDensityTexelSize</summary>\n");
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>width = <div class='val'>%" PRIuLEAST32 "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>width = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_properties->maxFragmentDensityTexelSize.width);
                     fprintf(out,
-                            "\t\t\t\t\t\t\t<details><summary>height = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t\t<details><summary>height = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_properties->maxFragmentDensityTexelSize.height);
                     fprintf(out,
-                            "\t\t\t\t\t\t<details><summary>fragmentDensityInvocations = <div class='val'>%" PRIuLEAST32
-                            "</div></summary></details>\n",
+                            "\t\t\t\t\t\t<details><summary>fragmentDensityInvocations = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
                             fragment_density_map_properties->fragmentDensityInvocations);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
                 } else if (human_readable_output) {
                     printf("\nVkPhysicalDeviceFragmentDensityMapProperties\n");
                     printf("============================================\n");
@@ -4388,15 +4975,326 @@ static void AppGpuDumpProps(const struct AppGpu *gpu, FILE *out) {
                     printf("\tfragmentDensityInvocations = %" PRIuLEAST32 "\n",
                            fragment_density_map_properties->fragmentDensityInvocations);
                 }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES_KHR &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceDepthStencilResolvePropertiesKHR *depth_stencil_resolve_properties =
+                    (VkPhysicalDeviceDepthStencilResolvePropertiesKHR *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceDepthStencilResolveProperties</summary>\n");
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>supportedDepthResolveModes</summary></details>\n");
+                    if (depth_stencil_resolve_properties->supportedDepthResolveModes == 0) {
+                        fprintf(out,
+                                "\t\t\t\t\t\t<details><summary><span "
+                                "class='val'>VK_RESOLVE_MODE_NONE_KHR</span></summary></details>\n");
+                    } else {
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR</span></summary></details>\n");
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_AVERAGE_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_AVERAGE_BIT_KHR</span></summary></details>\n");
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_MIN_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_MIN_BIT_KHR</span></summary></details>\n");
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_MAX_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_MAX_BIT_KHR</span></summary></details>\n");
+                    }
+                    fprintf(out, "\t\t\t\t\t\t<details><summary>supportedStencilResolveModes</summary></details>\n");
+                    if (depth_stencil_resolve_properties->supportedStencilResolveModes == 0) {
+                        fprintf(out,
+                                "\t\t\t\t\t\t<details><summary><span "
+                                "class='val'>VK_RESOLVE_MODE_NONE_KHR</span></summary></details>\n");
+                    } else {
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR</span></summary></details>\n");
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_AVERAGE_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_AVERAGE_BIT_KHR</span></summary></details>\n");
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_MIN_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_MIN_BIT_KHR</span></summary></details>\n");
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_MAX_BIT_KHR)
+                            fprintf(out,
+                                    "\t\t\t\t\t\t<details><summary><span "
+                                    "class='val'>VK_RESOLVE_MODE_MAX_BIT_KHR</span></summary></details>\n");
+                    }
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>independentResolveNone = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            depth_stencil_resolve_properties->independentResolveNone);
+                    fprintf(out,
+                            "\t\t\t\t\t\t<details><summary>independentResolve = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            depth_stencil_resolve_properties->independentResolve);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceDepthStencilResolveProperties\n");
+                    printf("============================================\n");
+                    printf("\tsupportedDepthResolveModes:\n");
+                    if (depth_stencil_resolve_properties->supportedDepthResolveModes == 0) {
+                        printf("\t\tVK_RESOLVE_MODE_NONE_KHR\n");
+                    } else {
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR\n");
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_AVERAGE_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_AVERAGE_BIT_KHR\n");
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_MIN_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_MIN_BIT_KHR\n");
+                        if (depth_stencil_resolve_properties->supportedDepthResolveModes & VK_RESOLVE_MODE_MAX_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_MAX_BIT_KHR\n");
+                    }
+                    printf("\tsupportedStencilResolveModes:\n");
+                    if (depth_stencil_resolve_properties->supportedStencilResolveModes == 0) {
+                        printf("\t\tVK_RESOLVE_MODE_NONE_KHR\n");
+                    } else {
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_SAMPLE_ZERO_BIT_KHR\n");
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_AVERAGE_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_AVERAGE_BIT_KHR\n");
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_MIN_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_MIN_BIT_KHR\n");
+                        if (depth_stencil_resolve_properties->supportedStencilResolveModes & VK_RESOLVE_MODE_MAX_BIT_KHR)
+                            printf("\t\tVK_RESOLVE_MODE_MAX_BIT_KHR\n");
+                    }
+                    printf("\tindependentResolveNone = %" PRIuLEAST32 "\n",
+                           depth_stencil_resolve_properties->independentResolveNone);
+                    printf("\tindependentResolve     = %" PRIuLEAST32 "\n", depth_stencil_resolve_properties->independentResolve);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceDescriptorIndexingPropertiesEXT *indexing_properties =
+                    (VkPhysicalDeviceDescriptorIndexingPropertiesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceDescriptorIndexingProperties</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxUpdateAfterBindDescriptorsInAllPools = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxUpdateAfterBindDescriptorsInAllPools);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>shaderUniformBufferArrayNonUniformIndexingNative = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->shaderUniformBufferArrayNonUniformIndexingNative);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>shaderSampledImageArrayNonUniformIndexingNative = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->shaderSampledImageArrayNonUniformIndexingNative);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>shaderStorageBufferArrayNonUniformIndexingNative = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->shaderStorageBufferArrayNonUniformIndexingNative);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>shaderStorageImageArrayNonUniformIndexingNative = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->shaderStorageImageArrayNonUniformIndexingNative);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>shaderInputAttachmentArrayNonUniformIndexingNative = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->shaderInputAttachmentArrayNonUniformIndexingNative);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>robustBufferAccessUpdateAfterBind = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            indexing_properties->robustBufferAccessUpdateAfterBind);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>quadDivergentImplicitLod = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            indexing_properties->quadDivergentImplicitLod);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUpdateAfterBindSamplers = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxPerStageDescriptorUpdateAfterBindSamplers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUpdateAfterBindUniformBuffers = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxPerStageDescriptorUpdateAfterBindUniformBuffers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUpdateAfterBindStorageBuffers = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxPerStageDescriptorUpdateAfterBindStorageBuffers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUpdateAfterBindSampledImages = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxPerStageDescriptorUpdateAfterBindSampledImages);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUpdateAfterBindStorageImages = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxPerStageDescriptorUpdateAfterBindStorageImages);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageDescriptorUpdateAfterBindInputAttachments = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxPerStageDescriptorUpdateAfterBindInputAttachments);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxPerStageUpdateAfterBindResources = <span class='val'>%" PRIuLEAST32
+                            "</span></summary></details>\n",
+                            indexing_properties->maxPerStageUpdateAfterBindResources);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindSamplers = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindSamplers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindUniformBuffers = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindUniformBuffers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindUniformBuffersDynamic = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindStorageBuffers = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindStorageBuffers);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindStorageBuffersDynamic = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindSampledImages = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindSampledImages);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindStorageImages = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindStorageImages);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxDescriptorSetUpdateAfterBindInputAttachments = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            indexing_properties->maxDescriptorSetUpdateAfterBindInputAttachments);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceDescriptorIndexingProperties\n");
+                    printf("============================================\n");
+                    printf("\tmaxUpdateAfterBindDescriptorsInAllPools = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxUpdateAfterBindDescriptorsInAllPools);
+                    printf("\tshaderUniformBufferArrayNonUniformIndexingNative = %" PRIuLEAST32 "\n",
+                           indexing_properties->shaderUniformBufferArrayNonUniformIndexingNative);
+                    printf("\tshaderSampledImageArrayNonUniformIndexingNative = %" PRIuLEAST32 "\n",
+                           indexing_properties->shaderSampledImageArrayNonUniformIndexingNative);
+                    printf("\tshaderStorageBufferArrayNonUniformIndexingNative = %" PRIuLEAST32 "\n",
+                           indexing_properties->shaderStorageBufferArrayNonUniformIndexingNative);
+                    printf("\tshaderStorageImageArrayNonUniformIndexingNative = %" PRIuLEAST32 "\n",
+                           indexing_properties->shaderStorageImageArrayNonUniformIndexingNative);
+                    printf("\tshaderInputAttachmentArrayNonUniformIndexingNative = %" PRIuLEAST32 "\n",
+                           indexing_properties->shaderInputAttachmentArrayNonUniformIndexingNative);
+                    printf("\trobustBufferAccessUpdateAfterBind = %" PRIuLEAST32 "\n",
+                           indexing_properties->robustBufferAccessUpdateAfterBind);
+                    printf("\tquadDivergentImplicitLod = %" PRIuLEAST32 "\n", indexing_properties->quadDivergentImplicitLod);
+                    printf("\tmaxPerStageDescriptorUpdateAfterBindSamplers = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageDescriptorUpdateAfterBindSamplers);
+                    printf("\tmaxPerStageDescriptorUpdateAfterBindUniformBuffers = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageDescriptorUpdateAfterBindUniformBuffers);
+                    printf("\tmaxPerStageDescriptorUpdateAfterBindStorageBuffers = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageDescriptorUpdateAfterBindStorageBuffers);
+                    printf("\tmaxPerStageDescriptorUpdateAfterBindSampledImages = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageDescriptorUpdateAfterBindSampledImages);
+                    printf("\tmaxPerStageDescriptorUpdateAfterBindStorageImages = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageDescriptorUpdateAfterBindStorageImages);
+                    printf("\tmaxPerStageDescriptorUpdateAfterBindInputAttachments = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageDescriptorUpdateAfterBindInputAttachments);
+                    printf("\tmaxPerStageUpdateAfterBindResources = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxPerStageUpdateAfterBindResources);
+                    printf("\tmaxDescriptorSetUpdateAfterBindSamplers = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindSamplers);
+                    printf("\tmaxDescriptorSetUpdateAfterBindUniformBuffers = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindUniformBuffers);
+                    printf("\tmaxDescriptorSetUpdateAfterBindUniformBuffersDynamic = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindUniformBuffersDynamic);
+                    printf("\tmaxDescriptorSetUpdateAfterBindStorageBuffer = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindStorageBuffers);
+                    printf("\tmaxDescriptorSetUpdateAfterBindStorageBuffersDynamic = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindStorageBuffersDynamic);
+                    printf("\tmaxDescriptorSetUpdateAfterBindSampledImages = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindSampledImages);
+                    printf("\tmaxDescriptorSetUpdateAfterBindStorageImages = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindStorageImages);
+                    printf("\tmaxDescriptorSetUpdateAfterBindInputAttachments = %" PRIuLEAST32 "\n",
+                           indexing_properties->maxDescriptorSetUpdateAfterBindInputAttachments);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_TEXEL_BUFFER_ALIGNMENT_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *texel_buffer_alignment =
+                    (VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>storageTexelBufferOffsetAlignmentBytes = <span "
+                            "class='val'>%" PRIuLEAST64 "</span></summary></details>\n",
+                            texel_buffer_alignment->storageTexelBufferOffsetAlignmentBytes);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>storageTexelBufferOffsetSingleTexelAlignment = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            texel_buffer_alignment->storageTexelBufferOffsetSingleTexelAlignment);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>uniformTexelBufferOffsetAlignmentBytes = <span "
+                            "class='val'>%" PRIuLEAST64 "</span></summary></details>\n",
+                            texel_buffer_alignment->uniformTexelBufferOffsetAlignmentBytes);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>uniformTexelBufferOffsetSingleTexelAlignment = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            texel_buffer_alignment->uniformTexelBufferOffsetSingleTexelAlignment);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceTexelBufferAlignmentPropertiesEXT\n");
+                    printf("=================================================\n");
+                    printf("\t\tstorageTexelBufferOffsetAlignmentBytes = %" PRIuLEAST64 "\n",
+                           texel_buffer_alignment->storageTexelBufferOffsetAlignmentBytes);
+                    printf("\t\tstorageTexelBufferOffsetSingleTexelAlignment = %" PRIuLEAST32 "\n",
+                           texel_buffer_alignment->storageTexelBufferOffsetSingleTexelAlignment);
+                    printf("\t\tuniformTexelBufferOffsetAlignmentBytes = %" PRIuLEAST64 "\n",
+                           texel_buffer_alignment->uniformTexelBufferOffsetAlignmentBytes);
+                    printf("\t\tuniformTexelBufferOffsetSingleTexelAlignment = %" PRIuLEAST32 "\n",
+                           texel_buffer_alignment->uniformTexelBufferOffsetSingleTexelAlignment);
+                }
+            } else if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES_EXT &&
+                       CheckPhysicalDeviceExtensionIncluded(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, gpu->device_extensions,
+                                                            gpu->device_extension_count)) {
+                VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *subgroup_properties =
+                    (VkPhysicalDeviceSubgroupSizeControlPropertiesEXT *)structure;
+                if (html_output) {
+                    fprintf(out, "\n\t\t\t\t\t<details><summary>VkPhysicalDeviceSubgroupSizeControlPropertiesEXT</summary>\n");
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>minSubgroupSize = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            subgroup_properties->minSubgroupSize);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxSubgroupSize = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            subgroup_properties->maxSubgroupSize);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>maxComputeWorkgroupSubgroups = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            subgroup_properties->maxComputeWorkgroupSubgroups);
+                    fprintf(out,
+                            "\t\t\t\t\t\t\t<details><summary>requiredSubgroupSizeStages = <span "
+                            "class='val'>%" PRIuLEAST32 "</span></summary></details>\n",
+                            subgroup_properties->requiredSubgroupSizeStages);
+                    fprintf(out, "\t\t\t\t\t</details>\n");
+                } else if (human_readable_output) {
+                    printf("\nVkPhysicalDeviceSubgroupSizeControlPropertiesEXT\n");
+                    printf("=================================================\n");
+                    printf("\tminSubgroupSize = %" PRIuLEAST32 "\n", subgroup_properties->minSubgroupSize);
+                    printf("\tmaxSubgroupSize = %" PRIuLEAST32 "\n", subgroup_properties->maxSubgroupSize);
+                    printf("\tmaxComputeWorkgroupSubgroups = %" PRIuLEAST32 "\n",
+                           subgroup_properties->maxComputeWorkgroupSubgroups);
+                    printf("\trequiredSubgroupSizeStages = %" PRIuLEAST32 "\n", subgroup_properties->requiredSubgroupSizeStages);
+                }
             }
             place = structure->pNext;
         }
     }
-
     fflush(out);
     fflush(stdout);
 }
-
 // Compare function for sorting extensions by name
 static int CompareExtensionName(const void *a, const void *b) {
     const char *this = ((const VkExtensionProperties *)a)->extensionName;
@@ -4430,7 +5328,7 @@ static void AppDumpExtensions(const char *indent, const char *layer_name, const 
         }
     }
     if (html_output) {
-        fprintf(out, "\tcount = <div class='val'>%d</div></summary>", extension_count);
+        fprintf(out, "\tcount = <span class='val'>%d</span></summary>", extension_count);
         if (extension_count > 0) {
             fprintf(out, "\n");
         }
@@ -4438,7 +5336,7 @@ static void AppDumpExtensions(const char *indent, const char *layer_name, const 
         printf("\tcount = %d\n", extension_count);
     }
 
-    const bool is_device_type = strcmp(layer_name, "Device") == 0;
+    const bool is_device_type = layer_name && (strcmp(layer_name, "Device") == 0);
     if (is_device_type && json_output) {
         printf(",\n");
         printf("\t\"ArrayOfVkExtensionProperties\": [");
@@ -4450,7 +5348,7 @@ static void AppDumpExtensions(const char *indent, const char *layer_name, const 
         VkExtensionProperties const *ext_prop = &extension_properties[i];
         if (html_output) {
             fprintf(out, "\t\t\t\t%s<details><summary>", indent);
-            fprintf(out, "<div class='type'>%s</div>: extension revision <div class='val'>%d</div>", ext_prop->extensionName,
+            fprintf(out, "<span class='type'>%s</span>: extension revision <span class='val'>%d</span>", ext_prop->extensionName,
                     ext_prop->specVersion);
             fprintf(out, "</summary></details>\n");
         } else if (human_readable_output) {
@@ -4498,14 +5396,19 @@ static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id, FILE *ou
         props = *props_const;
     }
 
-    for (struct SurfaceNameWHandle *surface_stuff = gpu->inst->surface_chain; surface_stuff != NULL;
-         surface_stuff = surface_stuff->pNextSurface) {
-        VkResult err = vkGetPhysicalDeviceSurfaceSupportKHR(gpu->obj, id, surface_stuff->surface, &surface_stuff->present_support);
+    bool is_present_platform_agnostic = true;
+    VkBool32 platforms_support_present = VK_FALSE;
+    for (struct SurfaceExtensionNode *sen = gpu->inst->surface_ext_infos_root; sen != NULL; sen = sen->next) {
+        VkResult err = vkGetPhysicalDeviceSurfaceSupportKHR(gpu->obj, id, sen->surface, &sen->supports_present);
         if (err) ERR_EXIT(err);
+
+        const bool first = (sen == gpu->inst->surface_ext_infos_root);
+        if (!first && platforms_support_present != sen->supports_present) is_present_platform_agnostic = false;
+        platforms_support_present = sen->supports_present;
     }
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t<details><summary>VkQueueFamilyProperties[<div class='val'>%d</div>]</summary>\n", id);
+        fprintf(out, "\t\t\t\t\t<details><summary>VkQueueFamilyProperties[<span class='val'>%d</span>]</summary>\n", id);
         fprintf(out, "\t\t\t\t\t\t<details><summary>queueFlags = ");
     } else if (human_readable_output) {
         printf("VkQueueFamilyProperties[%d]:\n", id);
@@ -4533,22 +5436,26 @@ static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id, FILE *ou
 
     if (html_output) {
         fprintf(out, "</summary></details>\n");
-        fprintf(out, "\t\t\t\t\t\t<details><summary>queueCount         = <div class='val'>%u</div></summary></details>\n",
+        fprintf(out, "\t\t\t\t\t\t<details><summary>queueCount         = <span class='val'>%u</span></summary></details>\n",
                 props.queueCount);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>timestampValidBits = <div class='val'>%u</div></summary></details>\n",
+        fprintf(out, "\t\t\t\t\t\t<details><summary>timestampValidBits = <span class='val'>%u</span></summary></details>\n",
                 props.timestampValidBits);
         fprintf(out,
-                "\t\t\t\t\t\t<details><summary>minImageTransferGranularity = (<div class='val'>%d</div>, <div "
-                "class='val'>%d</div>, <div class='val'>%d</div>)</summary></details>\n",
+                "\t\t\t\t\t\t<details><summary>minImageTransferGranularity = (<span class='val'>%d</span>, <span "
+                "class='val'>%d</span>, <span class='val'>%d</span>)</summary></details>\n",
                 props.minImageTransferGranularity.width, props.minImageTransferGranularity.height,
                 props.minImageTransferGranularity.depth);
-        fprintf(out, "\t\t\t\t\t\t<details><summary>present support</summary>\n");
-        for (struct SurfaceNameWHandle *surface_stuff = gpu->inst->surface_chain; surface_stuff != NULL;
-             surface_stuff = surface_stuff->pNextSurface) {
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>%s = <div class='val'>%s</div></summary></details>\n",
-                    surface_stuff->name, surface_stuff->present_support ? "true" : "false");
+        if (is_present_platform_agnostic) {
+            fprintf(out, "\t\t\t\t\t\t<details><summary>present support = <span class='val'>%s</span></summary></details>\n",
+                    platforms_support_present ? "true" : "false");
+        } else {
+            fprintf(out, "\t\t\t\t\t\t<details open><summary>present support</summary>\n");
+            for (struct SurfaceExtensionNode *sen = gpu->inst->surface_ext_infos_root; sen != NULL; sen = sen->next) {
+                fprintf(out, "\t\t\t\t\t\t\t<details><summary>%s = <span class='val'>%s</span></summary></details>\n", sen->name,
+                        sen->supports_present ? "true" : "false");
+            }
+            fprintf(out, "\t\t\t\t\t\t</details>\n");
         }
-        fprintf(out, "\t\t\t\t\t\t</details>\n");
         fprintf(out, "\t\t\t\t\t</details>\n");
     } else if (human_readable_output) {
         printf("\n");
@@ -4556,10 +5463,13 @@ static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id, FILE *ou
         printf("\ttimestampValidBits = %u\n", props.timestampValidBits);
         printf("\tminImageTransferGranularity = (%d, %d, %d)\n", props.minImageTransferGranularity.width,
                props.minImageTransferGranularity.height, props.minImageTransferGranularity.depth);
-        printf("\tpresent support:\n");
-        for (struct SurfaceNameWHandle *surface_stuff = gpu->inst->surface_chain; surface_stuff != NULL;
-             surface_stuff = surface_stuff->pNextSurface) {
-            printf("\t\t%s = %s\n", surface_stuff->name, surface_stuff->present_support ? "true" : "false");
+        if (is_present_platform_agnostic) {
+            printf("\tpresent support    = %s\n", platforms_support_present ? "true" : "false");
+        } else {
+            printf("\tpresent support:\n");
+            for (struct SurfaceExtensionNode *sen = gpu->inst->surface_ext_infos_root; sen != NULL; sen = sen->next) {
+                printf("\t\t%s = %s\n", sen->name, sen->supports_present ? "true" : "false");
+            }
         }
     }
     if (json_output) {
@@ -4571,17 +5481,7 @@ static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id, FILE *ou
         printf("\t\t\t},\n");
         printf("\t\t\t\"queueCount\": %u,\n", props.queueCount);
         printf("\t\t\t\"queueFlags\": %u,\n", props.queueFlags);
-        printf("\t\t\t\"timestampValidBits\": %u,\n", props.timestampValidBits);
-        printf("\t\t\t\"present_support\": {\n");
-        for (struct SurfaceNameWHandle *surface_stuff = gpu->inst->surface_chain; surface_stuff != NULL;
-             surface_stuff = surface_stuff->pNextSurface) {
-            if (surface_stuff->pNextSurface) {
-                printf("\t\t\t\t\"%s\" : %u,\n", surface_stuff->name, surface_stuff->present_support);
-            } else {
-                printf("\t\t\t\t\"%s\" : %u\n", surface_stuff->name, surface_stuff->present_support);
-            }
-        }
-        printf("\t\t\t}\n");
+        printf("\t\t\t\"timestampValidBits\": %u\n", props.timestampValidBits);
         printf("\t\t}");
     }
 
@@ -4608,25 +5508,47 @@ static char *HumanReadable(const size_t sz) {
     if (which >= 0) {
         unit[0] = prefixes[which];
     }
+#ifdef _WIN32
+    _snprintf_s(buf, kBufferSize * sizeof(char), kBufferSize, "%.2f %sB", result, unit);
+#else
     snprintf(buf, kBufferSize, "%.2f %sB", result, unit);
+#endif
     return strndup(buf, kBufferSize);
 }
 
 static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
     VkPhysicalDeviceMemoryProperties props;
+    struct VkStructureHeader *structure = NULL;
+
+    VkDeviceSize *heapBudget = NULL;
+    VkDeviceSize *heapUsage = NULL;
 
     if (CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, gpu->inst->inst_extensions,
                               gpu->inst->inst_extensions_count)) {
         const VkPhysicalDeviceMemoryProperties *props2_const = &gpu->memory_props2.memoryProperties;
         props = *props2_const;
+        structure = (struct VkStructureHeader *)gpu->memory_props2.pNext;
     } else {
         const VkPhysicalDeviceMemoryProperties *props_const = &gpu->memory_props;
         props = *props_const;
     }
 
+    while (structure) {
+        if (structure->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT &&
+            CheckPhysicalDeviceExtensionIncluded(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME, gpu->device_extensions,
+                                                 gpu->device_extension_count)) {
+            VkPhysicalDeviceMemoryBudgetPropertiesEXT *mem_budget_props = (VkPhysicalDeviceMemoryBudgetPropertiesEXT *)structure;
+            heapBudget = mem_budget_props->heapBudget;
+            heapUsage = mem_budget_props->heapUsage;
+        }
+
+        structure = (struct VkStructureHeader *)structure->pNext;
+    }
+
     if (html_output) {
         fprintf(out, "\t\t\t\t\t<details><summary>VkPhysicalDeviceMemoryProperties</summary>\n");
-        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryHeapCount = <div class='val'>%u</div></summary>", props.memoryHeapCount);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryHeapCount = <span class='val'>%u</span></summary>",
+                props.memoryHeapCount);
         if (props.memoryHeapCount > 0) {
             fprintf(out, "\n");
         }
@@ -4645,15 +5567,28 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
         char *mem_size_human_readable = HumanReadable((const size_t)memSize);
 
         if (html_output) {
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>memoryHeaps[<div class='val'>%u</div>]</summary>\n", i);
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>memoryHeaps[<span class='val'>%u</span>]</summary>\n", i);
             fprintf(out,
-                    "\t\t\t\t\t\t\t\t<details><summary>size = <div class='val'>" PRINTF_SIZE_T_SPECIFIER
-                    "</div> (<div class='val'>0x%" PRIxLEAST64 "</div>) (<div class='val'>%s</div>)</summary></details>\n",
+                    "\t\t\t\t\t\t\t\t<details><summary>size = <span class='val'>" PRINTF_SIZE_T_SPECIFIER
+                    "</span> (<span class='val'>0x%" PRIxLEAST64 "</span>) (<span class='val'>%s</span>)</summary></details>\n",
                     (size_t)memSize, memSize, mem_size_human_readable);
+            if (heapBudget != NULL) {
+                fprintf(out,
+                        "\t\t\t\t\t\t\t\t<details><summary>budget = <span class='val'>%" PRIuLEAST64
+                        "</span></summary></details>\n",
+                        heapBudget[i]);
+                fprintf(out,
+                        "\t\t\t\t\t\t\t\t<details><summary>usage = <span class='val'>%" PRIuLEAST64 "</span></summary></details>\n",
+                        heapUsage[i]);
+            }
         } else if (human_readable_output) {
             printf("\tmemoryHeaps[%u] :\n", i);
             printf("\t\tsize          = " PRINTF_SIZE_T_SPECIFIER " (0x%" PRIxLEAST64 ") (%s)\n", (size_t)memSize, memSize,
                    mem_size_human_readable);
+            if (heapBudget != NULL) {
+                fprintf(out, "\t\tbudget        = %" PRIuLEAST64 "\n", heapBudget[i]);
+                fprintf(out, "\t\tusage         = %" PRIuLEAST64 "\n", heapUsage[i]);
+            }
         }
         free(mem_size_human_readable);
 
@@ -4661,8 +5596,9 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
         if (html_output) {
             fprintf(out, "\t\t\t\t\t\t\t\t<details open><summary>flags</summary>\n");
             fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary>");
-            fprintf(out, (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? "<div class='type'>VK_MEMORY_HEAP_DEVICE_LOCAL_BIT</div>"
-                                                                        : "None");
+            fprintf(out, (heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                             ? "<span class='type'>VK_MEMORY_HEAP_DEVICE_LOCAL_BIT</span>"
+                             : "None");
             fprintf(out, "</summary></details>\n");
             fprintf(out, "\t\t\t\t\t\t\t\t</details>\n");
             fprintf(out, "\t\t\t\t\t\t\t</details>\n");
@@ -4695,7 +5631,8 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
     }
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryTypeCount = <div class='val'>%u</div></summary>", props.memoryTypeCount);
+        fprintf(out, "\t\t\t\t\t\t<details><summary>memoryTypeCount = <span class='val'>%u</span></summary>",
+                props.memoryTypeCount);
         if (props.memoryTypeCount > 0) {
             fprintf(out, "\n");
         }
@@ -4708,11 +5645,11 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
     }
     for (uint32_t i = 0; i < props.memoryTypeCount; ++i) {
         if (html_output) {
-            fprintf(out, "\t\t\t\t\t\t\t<details><summary>memoryTypes[<div class='val'>%u</div>]</summary>\n", i);
-            fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>heapIndex = <div class='val'>%u</div></summary></details>\n",
+            fprintf(out, "\t\t\t\t\t\t\t<details><summary>memoryTypes[<span class='val'>%u</span>]</summary>\n", i);
+            fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>heapIndex = <span class='val'>%u</span></summary></details>\n",
                     props.memoryTypes[i].heapIndex);
             fprintf(out,
-                    "\t\t\t\t\t\t\t\t<details open><summary>propertyFlags = <div class='val'>0x%" PRIxLEAST32 "</div></summary>",
+                    "\t\t\t\t\t\t\t\t<details open><summary>propertyFlags = <span class='val'>0x%" PRIxLEAST32 "</span></summary>",
                     props.memoryTypes[i].propertyFlags);
             if (props.memoryTypes[i].propertyFlags == 0) {
                 fprintf(out, "</details>\n");
@@ -4740,30 +5677,29 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
         if (html_output) {
             if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT</span></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT</span></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_MEMORY_PROPERTY_HOST_COHERENT_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_MEMORY_PROPERTY_HOST_COHERENT_BIT</span></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_MEMORY_PROPERTY_HOST_CACHED_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_MEMORY_PROPERTY_HOST_CACHED_BIT</span></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT</span></summary></details>\n");
             if (flags & VK_MEMORY_PROPERTY_PROTECTED_BIT)
                 fprintf(out,
-                        "\t\t\t\t\t\t\t\t\t<details><summary><div "
-                        "class='type'>VK_MEMORY_PROPERTY_PROTECTED_BIT</div></summary></details>\n");
+                        "\t\t\t\t\t\t\t\t\t<details><summary><span "
+                        "class='type'>VK_MEMORY_PROPERTY_PROTECTED_BIT</span></summary></details>\n");
             if (props.memoryTypes[i].propertyFlags > 0) fprintf(out, "\t\t\t\t\t\t\t\t</details>\n");
-            fprintf(out, "\t\t\t\t\t\t\t</details>\n");
         } else if (human_readable_output) {
             if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) printf("\t\t\tVK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT\n");
             if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) printf("\t\t\tVK_MEMORY_PROPERTY_HOST_VISIBLE_BIT\n");
@@ -4772,7 +5708,114 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu, FILE *out) {
             if (flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) printf("\t\t\tVK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT\n");
             if (flags & VK_MEMORY_PROPERTY_PROTECTED_BIT) printf("\t\t\tVK_MEMORY_PROPERTY_PROTECTED_BIT\n");
         }
+
+        if (human_readable_output) {
+            printf("\t\tusable for:\n");
+            const uint32_t memtype_bit = 1 << i;
+
+            for (VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL; tiling < ARRAY_SIZE(gpu->mem_type_res_support.image); ++tiling) {
+                printf("\t\t\t%s: ", VkTilingString(tiling));
+
+                bool first = true;
+                for (size_t fmt_i = 0; fmt_i < ARRAY_SIZE(gpu->mem_type_res_support.image[tiling]); ++fmt_i) {
+                    const struct MemImageSupport *image_support = &gpu->mem_type_res_support.image[tiling][fmt_i];
+                    const bool regular_compatible =
+                        image_support->regular_supported && (image_support->regular_memtypes & memtype_bit);
+                    const bool sparse_compatible =
+                        image_support->sparse_supported && (image_support->sparse_memtypes & memtype_bit);
+                    const bool transient_compatible =
+                        image_support->transient_supported && (image_support->transient_memtypes & memtype_bit);
+
+                    if (regular_compatible || sparse_compatible || transient_compatible) {
+                        if (!first) printf(", ");
+                        first = false;
+
+                        if (fmt_i == 0) {
+                            printf("color images");
+                        } else {
+                            printf("%s", VkFormatString(gpu->mem_type_res_support.image[tiling][fmt_i].format));
+                        }
+
+                        if (regular_compatible && !sparse_compatible && !transient_compatible && image_support->sparse_supported &&
+                            image_support->transient_supported) {
+                            printf("(non-sparse, non-transient)");
+                        } else if (regular_compatible && !sparse_compatible && image_support->sparse_supported) {
+                            if (image_support->sparse_supported) printf("(non-sparse)");
+                        } else if (regular_compatible && !transient_compatible && image_support->transient_supported) {
+                            if (image_support->transient_supported) printf("(non-transient)");
+                        } else if (!regular_compatible && sparse_compatible && !transient_compatible &&
+                                   image_support->sparse_supported) {
+                            if (image_support->sparse_supported) printf("(sparse only)");
+                        } else if (!regular_compatible && !sparse_compatible && transient_compatible &&
+                                   image_support->transient_supported) {
+                            if (image_support->transient_supported) printf("(transient only)");
+                        } else if (!regular_compatible && sparse_compatible && transient_compatible &&
+                                   image_support->sparse_supported && image_support->transient_supported) {
+                            printf("(sparse and transient only)");
+                        }
+                    }
+                }
+
+                if (first) printf("None");
+
+                printf("\n");
+            }
+        } else if (html_output) {
+            fprintf(out, "\t\t\t\t\t\t\t\t<details><summary>usable for</summary>\n");
+            const uint32_t memtype_bit = 1 << i;
+
+            for (VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL; tiling < ARRAY_SIZE(gpu->mem_type_res_support.image); ++tiling) {
+                fprintf(out, "\t\t\t\t\t\t\t\t\t<details><summary>%s</summary>\n", VkTilingString(tiling));
+
+                bool first = true;
+                for (size_t fmt_i = 0; fmt_i < ARRAY_SIZE(gpu->mem_type_res_support.image[tiling]); ++fmt_i) {
+                    const struct MemImageSupport *image_support = &gpu->mem_type_res_support.image[tiling][fmt_i];
+                    const bool regular_compatible =
+                        image_support->regular_supported && (image_support->regular_memtypes & memtype_bit);
+                    const bool sparse_compatible =
+                        image_support->sparse_supported && (image_support->sparse_memtypes & memtype_bit);
+                    const bool transient_compatible =
+                        image_support->transient_supported && (image_support->transient_memtypes & memtype_bit);
+
+                    if (regular_compatible || sparse_compatible || transient_compatible) {
+                        first = false;
+
+                        if (fmt_i == 0) {
+                            fprintf(out, "\t\t\t\t\t\t\t\t\t\t<details><summary>color images</summary>\n");
+                        } else {
+                            fprintf(out, "\t\t\t\t\t\t\t\t\t\t<details><summary>%s</summary>\n",
+                                    VkFormatString(gpu->mem_type_res_support.image[tiling][fmt_i].format));
+                        }
+
+                        fprintf(out,
+                                "\t\t\t\t\t\t\t\t\t\t\t<details><summary><span class=\"type\">regular image</span> = <span "
+                                "class=\"val\">%s</span></summary></details>\n",
+                                regular_compatible ? "supported" : "not supported");
+                        fprintf(out,
+                                "\t\t\t\t\t\t\t\t\t\t\t<details><summary><span "
+                                "class=\"type\">VK_IMAGE_CREATE_SPARSE_BINDING_BIT</span> "
+                                "= <span class=\"val\">%s</span></summary></details>\n",
+                                sparse_compatible ? "supported" : "not supported");
+                        fprintf(out,
+                                "\t\t\t\t\t\t\t\t\t\t\t<details><summary><span "
+                                "class=\"type\">VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT</span> = <span "
+                                "class=\"val\">%s</span></summary></details>\n",
+                                transient_compatible ? "supported" : "not supported");
+
+                        fprintf(out, "\t\t\t\t\t\t\t\t\t\t</details>\n");
+                    }
+                }
+
+                if (first) fprintf(out, "<details><summary><span class=\"type\">None</span></summary></details>");
+
+                fprintf(out, "\t\t\t\t\t\t\t\t\t</details>\n");
+            }
+
+            fprintf(out, "\t\t\t\t\t\t\t\t</details>\n");
+            fprintf(out, "\t\t\t\t\t\t\t</details>\n");
+        }
     }
+
     if (html_output) {
         if (props.memoryTypeCount > 0) {
             fprintf(out, "\t\t\t\t\t\t");
@@ -4853,7 +5896,7 @@ static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uin
                          FILE *out) {
     if (html_output) {
         fprintf(out, "\t\t\t\t<details><summary>Device Group Properties (Group %u)</summary>\n", id);
-        fprintf(out, "\t\t\t\t\t<details><summary>physicalDeviceCount = <div class='val'>%u</div></summary>\n",
+        fprintf(out, "\t\t\t\t\t<details><summary>physicalDeviceCount = <span class='val'>%u</span></summary>\n",
                 group->physicalDeviceCount);
     } else if (human_readable_output) {
         printf("\tDevice Group Properties (Group %u) :\n", id);
@@ -4872,7 +5915,7 @@ static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uin
     // Output information to the user.
     for (uint32_t i = 0; i < group->physicalDeviceCount; ++i) {
         if (html_output) {
-            fprintf(out, "\t\t\t\t\t\t<details><summary>%s (ID: <div class='val'>%d</div>)</summary></details>\n",
+            fprintf(out, "\t\t\t\t\t\t<details><summary>%s (ID: <span class='val'>%d</span>)</summary></details>\n",
                     props[i].deviceName, i);
         } else if (human_readable_output) {
             printf("\n\t\t\t%s (ID: %d)\n", props[i].deviceName, i);
@@ -4884,7 +5927,7 @@ static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uin
     }
 
     if (html_output) {
-        fprintf(out, "\t\t\t\t\t<details><summary>subsetAllocation = <div class='val'>%u</div></summary></details>\n",
+        fprintf(out, "\t\t\t\t\t<details><summary>subsetAllocation = <span class='val'>%u</span></summary></details>\n",
                 group->subsetAllocation);
     } else if (human_readable_output) {
         printf("\n\t\tsubsetAllocation = %u\n", group->subsetAllocation);
@@ -4932,8 +5975,8 @@ static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uin
         VkDeviceGroupPresentCapabilitiesKHR group_capabilities = {.sType = VK_STRUCTURE_TYPE_DEVICE_GROUP_PRESENT_CAPABILITIES_KHR,
                                                                   .pNext = NULL};
 
-        // If the KHR_device_group extension is present, write the capabilities of the logical device into a struct for later output
-        // to user.
+        // If the KHR_device_group extension is present, write the capabilities of the logical device into a struct for
+        // later output to user.
         PFN_vkGetDeviceGroupPresentCapabilitiesKHR vkGetDeviceGroupPresentCapabilitiesKHR =
             (PFN_vkGetDeviceGroupPresentCapabilitiesKHR)vkGetInstanceProcAddr(inst->instance,
                                                                               "vkGetDeviceGroupPresentCapabilitiesKHR");
@@ -4942,14 +5985,14 @@ static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uin
 
         for (uint32_t i = 0; i < group->physicalDeviceCount; i++) {
             if (html_output) {
-                fprintf(out, "\t\t\t\t\t<details><summary>%s (ID: <div class='val'>%d</div>)</summary></details>\n",
+                fprintf(out, "\t\t\t\t\t<details><summary>%s (ID: <span class='val'>%d</span>)</summary></details>\n",
                         props[i].deviceName, i);
                 fprintf(out, "\t\t\t\t\t<details><summary>Can present images from the following devices:</summary>\n");
                 if (group_capabilities.presentMask[i] != 0) {
                     for (uint32_t j = 0; j < group->physicalDeviceCount; ++j) {
                         uint32_t mask = 1 << j;
                         if (group_capabilities.presentMask[i] & mask) {
-                            fprintf(out, "\t\t\t\t\t\t<details><summary>%s (ID: <div class='val'>%d</div>)</summary></details>\n",
+                            fprintf(out, "\t\t\t\t\t\t<details><summary>%s (ID: <span class='val'>%d</span>)</summary></details>\n",
                                     props[j].deviceName, j);
                         }
                     }
@@ -4983,9 +6026,9 @@ static void AppGroupDump(const VkPhysicalDeviceGroupProperties *group, const uin
             if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR)
                 fprintf(out, "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_SUM_BIT_KHR</summary></details>\n");
             if (group_capabilities.modes & VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR)
-                fprintf(
-                    out,
-                    "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR</summary></details>\n");
+                fprintf(out,
+                        "\t\t\t\t\t\t<details><summary>VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_MULTI_DEVICE_BIT_KHR</summary></"
+                        "details>\n");
             fprintf(out, "\t\t\t\t\t</details>\n");
         } else if (human_readable_output) {
             printf("\t\tPresent modes:\n");
@@ -5080,7 +6123,15 @@ int main(int argc, char **argv) {
     AppCreateInstance(&inst);
 
     if (html_output) {
+#ifdef _WIN32
+        if (fopen_s(&out, "vulkaninfo.html", "w") != 0) out = NULL;
+#else
         out = fopen("vulkaninfo.html", "w");
+#endif
+        if (!out) {
+            printf("Unable to open vulkaninfo.html for writing\n");
+            return 1;
+        }
         PrintHtmlHeader(out);
         fprintf(out, "\t\t\t<details><summary>");
     } else if (human_readable_output) {
@@ -5092,7 +6143,7 @@ int main(int argc, char **argv) {
         fprintf(out, "Vulkan Instance Version: ");
     }
     if (html_output) {
-        fprintf(out, "<div class='val'>%d.%d.%d</div></summary></details>\n", inst.vulkan_major, inst.vulkan_minor,
+        fprintf(out, "<span class='val'>%d.%d.%d</span></summary></details>\n", inst.vulkan_major, inst.vulkan_minor,
                 inst.vulkan_patch);
         fprintf(out, "\t\t\t<br />\n");
     } else if (human_readable_output) {
@@ -5142,7 +6193,7 @@ int main(int argc, char **argv) {
 
     //---Layer-Device-Extensions---
     if (html_output) {
-        fprintf(out, "\t\t\t<details><summary>Layers: count = <div class='val'>%d</div></summary>", inst.global_layer_count);
+        fprintf(out, "\t\t\t<details><summary>Layers: count = <span class='val'>%d</span></summary>", inst.global_layer_count);
         if (inst.global_layer_count > 0) {
             fprintf(out, "\n");
         }
@@ -5163,14 +6214,19 @@ int main(int argc, char **argv) {
         VkLayerProperties const *layer_prop = &inst.global_layers[i].layer_properties;
 
         ExtractVersion(layer_prop->specVersion, &layer_major, &layer_minor, &layer_patch);
+#ifdef _WIN32
+        _snprintf_s(spec_version, sizeof(spec_version), 64, "%d.%d.%d", layer_major, layer_minor, layer_patch);
+        _snprintf_s(layer_version, sizeof(layer_version), 64, "%d", layer_prop->implementationVersion);
+#else
         snprintf(spec_version, sizeof(spec_version), "%d.%d.%d", layer_major, layer_minor, layer_patch);
         snprintf(layer_version, sizeof(layer_version), "%d", layer_prop->implementationVersion);
+#endif
 
         if (html_output) {
             fprintf(out, "\t\t\t\t<details><summary>");
-            fprintf(out, "<div class='type'>%s</div> (%s) Vulkan version <div class='val'>%s</div>, ", layer_prop->layerName,
+            fprintf(out, "<span class='type'>%s</span> (%s) Vulkan version <span class='val'>%s</span>, ", layer_prop->layerName,
                     (char *)layer_prop->description, spec_version);
-            fprintf(out, "layer version <div class='val'>%s</div></summary>\n", layer_version);
+            fprintf(out, "layer version <span class='val'>%s</span></summary>\n", layer_version);
             AppDumpExtensions("\t\t", "Layer", inst.global_layers[i].extension_count, inst.global_layers[i].extension_properties,
                               out);
         } else if (human_readable_output) {
@@ -5193,7 +6249,7 @@ int main(int argc, char **argv) {
         }
 
         if (html_output) {
-            fprintf(out, "\t\t\t\t\t<details><summary>Devices count = <div class='val'>%d</div></summary>\n", gpu_count);
+            fprintf(out, "\t\t\t\t\t<details><summary>Devices count = <span class='val'>%d</span></summary>\n", gpu_count);
         } else if (human_readable_output) {
             printf("\tDevices \tcount = %d\n", gpu_count);
         }
@@ -5203,7 +6259,7 @@ int main(int argc, char **argv) {
         for (uint32_t j = 0; j < gpu_count; ++j) {
             if (html_output) {
                 fprintf(out, "\t\t\t\t\t\t<details><summary>");
-                fprintf(out, "GPU id: <div class='val'>%u</div> (%s)</summary></details>\n", j, gpus[j].props.deviceName);
+                fprintf(out, "GPU id: <span class='val'>%u</span> (%s)</summary></details>\n", j, gpus[j].props.deviceName);
             } else if (human_readable_output) {
                 printf("\t\tGPU id       : %u (%s)\n", j, gpus[j].props.deviceName);
             }
@@ -5274,58 +6330,81 @@ int main(int argc, char **argv) {
 
 //--WIN32--
 #ifdef VK_USE_PLATFORM_WIN32_KHR
-    struct SurfaceExtensionInfo surface_ext_win32;
-    surface_ext_win32.name = VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
-    surface_ext_win32.create_window = AppCreateWin32Window;
-    surface_ext_win32.create_surface = AppCreateWin32Surface;
-    surface_ext_win32.destroy_window = AppDestroyWin32Window;
-    AppDumpSurfaceExtension(&inst, gpus, gpu_count, &surface_ext_win32, &format_count, &present_mode_count, out);
+    struct SurfaceExtensionNode surface_ext_win32;
+    if (CheckExtensionEnabled(VK_KHR_WIN32_SURFACE_EXTENSION_NAME, inst.inst_extensions, inst.inst_extensions_count)) {
+        surface_ext_win32.name = VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+        surface_ext_win32.create_window = AppCreateWin32Window;
+        surface_ext_win32.create_surface = AppCreateWin32Surface;
+        surface_ext_win32.destroy_window = AppDestroyWin32Window;
+
+        surface_ext_win32.next = inst.surface_ext_infos_root;
+        inst.surface_ext_infos_root = &surface_ext_win32;
+    }
 #endif
 //--XCB--
 #ifdef VK_USE_PLATFORM_XCB_KHR
-    struct SurfaceExtensionInfo surface_ext_xcb;
-    surface_ext_xcb.name = VK_KHR_XCB_SURFACE_EXTENSION_NAME;
-    surface_ext_xcb.create_window = AppCreateXcbWindow;
-    surface_ext_xcb.create_surface = AppCreateXcbSurface;
-    surface_ext_xcb.destroy_window = AppDestroyXcbWindow;
-    if (has_display) {
-        AppDumpSurfaceExtension(&inst, gpus, gpu_count, &surface_ext_xcb, &format_count, &present_mode_count, out);
+    struct SurfaceExtensionNode surface_ext_xcb;
+    if (CheckExtensionEnabled(VK_KHR_XCB_SURFACE_EXTENSION_NAME, inst.inst_extensions, inst.inst_extensions_count)) {
+        surface_ext_xcb.name = VK_KHR_XCB_SURFACE_EXTENSION_NAME;
+        surface_ext_xcb.create_window = AppCreateXcbWindow;
+        surface_ext_xcb.create_surface = AppCreateXcbSurface;
+        surface_ext_xcb.destroy_window = AppDestroyXcbWindow;
+        if (has_display) {
+            surface_ext_xcb.next = inst.surface_ext_infos_root;
+            inst.surface_ext_infos_root = &surface_ext_xcb;
+        }
     }
 #endif
 //--XLIB--
 #ifdef VK_USE_PLATFORM_XLIB_KHR
-    struct SurfaceExtensionInfo surface_ext_xlib;
-    surface_ext_xlib.name = VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
-    surface_ext_xlib.create_window = AppCreateXlibWindow;
-    surface_ext_xlib.create_surface = AppCreateXlibSurface;
-    surface_ext_xlib.destroy_window = AppDestroyXlibWindow;
-    if (has_display) {
-        AppDumpSurfaceExtension(&inst, gpus, gpu_count, &surface_ext_xlib, &format_count, &present_mode_count, out);
+    struct SurfaceExtensionNode surface_ext_xlib;
+    if (CheckExtensionEnabled(VK_KHR_XLIB_SURFACE_EXTENSION_NAME, inst.inst_extensions, inst.inst_extensions_count)) {
+        surface_ext_xlib.name = VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+        surface_ext_xlib.create_window = AppCreateXlibWindow;
+        surface_ext_xlib.create_surface = AppCreateXlibSurface;
+        surface_ext_xlib.destroy_window = AppDestroyXlibWindow;
+        if (has_display) {
+            surface_ext_xlib.next = inst.surface_ext_infos_root;
+            inst.surface_ext_infos_root = &surface_ext_xlib;
+        }
     }
 #endif
 //--MACOS--
 #ifdef VK_USE_PLATFORM_MACOS_MVK
-    struct SurfaceExtensionInfo surface_ext_macos;
-    surface_ext_macos.name = VK_MVK_MACOS_SURFACE_EXTENSION_NAME;
-    surface_ext_macos.create_window = AppCreateMacOSWindow;
-    surface_ext_macos.create_surface = AppCreateMacOSSurface;
-    surface_ext_macos.destroy_window = AppDestroyMacOSWindow;
-    AppDumpSurfaceExtension(&inst, gpus, gpu_count, &surface_ext_macos, &format_count, &present_mode_count, out);
+    struct SurfaceExtensionNode surface_ext_macos;
+    if (CheckExtensionEnabled(VK_MVK_MACOS_SURFACE_EXTENSION_NAME, inst.inst_extensions, inst.inst_extensions_count)) {
+        surface_ext_macos.name = VK_MVK_MACOS_SURFACE_EXTENSION_NAME;
+        surface_ext_macos.create_window = AppCreateMacOSWindow;
+        surface_ext_macos.create_surface = AppCreateMacOSSurface;
+        surface_ext_macos.destroy_window = AppDestroyMacOSWindow;
+
+        surface_ext_macos.next = inst.surface_ext_infos_root;
+        inst.surface_ext_infos_root = &surface_ext_macos;
+    }
 #endif
 //--WAYLAND--
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
-    struct SurfaceExtensionInfo surface_ext_wayland;
-    surface_ext_wayland.name = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
-    surface_ext_wayland.create_window = AppCreateWaylandWindow;
-    surface_ext_wayland.create_surface = AppCreateWaylandSurface;
-    surface_ext_wayland.destroy_window = AppDestroyWaylandWindow;
-    if (has_wayland_display) {
-        AppDumpSurfaceExtension(&inst, gpus, gpu_count, &surface_ext_wayland, &format_count, &present_mode_count, out);
+    struct SurfaceExtensionNode surface_ext_wayland;
+    if (CheckExtensionEnabled(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME, inst.inst_extensions, inst.inst_extensions_count)) {
+        surface_ext_wayland.name = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+        surface_ext_wayland.create_window = AppCreateWaylandWindow;
+        surface_ext_wayland.create_surface = AppCreateWaylandSurface;
+        surface_ext_wayland.destroy_window = AppDestroyWaylandWindow;
+        if (has_wayland_display) {
+            surface_ext_wayland.next = inst.surface_ext_infos_root;
+            inst.surface_ext_infos_root = &surface_ext_wayland;
+        }
     }
 #endif
-
     // TODO: Android
-    if (!format_count && !present_mode_count) {
+
+    for (struct SurfaceExtensionNode *sen = inst.surface_ext_infos_root; sen != NULL; sen = sen->next) {
+        sen->create_window(&inst);
+        sen->surface = sen->create_surface(&inst);
+        AppDumpSurfaceExtension(&inst, gpus, gpu_count, sen, &format_count, &present_mode_count, out);
+    }
+
+    if (!inst.surface_ext_infos_root) {
         if (html_output) {
             fprintf(out, "\t\t\t\t<details><summary>None found</summary></details>\n");
         } else if (human_readable_output) {
@@ -5407,7 +6486,11 @@ int main(int argc, char **argv) {
     free(gpus);
     free(objs);
 
-    AppDestroySurfaceChain(&inst);
+    for (struct SurfaceExtensionNode *sen = inst.surface_ext_infos_root; sen != NULL; sen = sen->next) {
+        AppDestroySurface(&inst, sen->surface);
+        sen->destroy_window(&inst);
+    }
+
     AppDestroyInstance(&inst);
 
     if (html_output) {

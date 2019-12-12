@@ -28,9 +28,9 @@ from chromite.lib.paygen import paygen_stateful_payload_lib
 
 class RemoteDeviceUpdaterMock(partial_mock.PartialCmdMock):
   """Mock out RemoteDeviceUpdater."""
-  TARGET = 'chromite.lib.auto_updater.ChromiumOSFlashUpdater'
+  TARGET = 'chromite.lib.auto_updater.ChromiumOSUpdater'
   ATTRS = ('UpdateStateful', 'UpdateRootfs', 'SetupRootfsUpdate',
-           'RebootAndVerify')
+           'RebootAndVerify', 'ResolveAPPIDMismatchIfAny')
 
   def __init__(self):
     partial_mock.PartialCmdMock.__init__(self)
@@ -46,6 +46,9 @@ class RemoteDeviceUpdaterMock(partial_mock.PartialCmdMock):
 
   def RebootAndVerify(self, _inst, *_args, **_kwargs):
     """Mock out RebootAndVerify."""
+
+  def ResolveAPPIDMismatchIfAny(self, _inst, *_args, **_kwargs):
+    """Mock out ResolveAPPIDMismatchIfAny."""
 
 
 class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
@@ -94,6 +97,43 @@ class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
     with mock.patch('os.path.exists', return_value=False):
       self.assertRaises(auto_updater.ChromiumOSUpdateError, flash.Flash,
                         self.DEVICE, self.IMAGE)
+
+  def testFullPayload(self):
+    """Tests that we download full_payload and stateful using xBuddy."""
+    with mock.patch.object(
+        dev_server_wrapper,
+        'GetImagePathWithXbuddy',
+        return_value=('translated/xbuddy/path',
+                      'resolved/xbuddy/path')) as mock_xbuddy:
+      with mock.patch('os.path.exists', return_value=True):
+        flash.Flash(self.DEVICE, self.IMAGE)
+
+      # Call to download full_payload and stateful. No other calls.
+      mock_xbuddy.assert_has_calls(
+          [mock.call('/path/to/image/full_payload', mock.ANY,
+                     static_dir=flash.DEVSERVER_STATIC_DIR),
+           mock.call('/path/to/image/stateful', mock.ANY,
+                     static_dir=flash.DEVSERVER_STATIC_DIR)])
+      self.assertEqual(mock_xbuddy.call_count, 2)
+
+  def testTestImage(self):
+    """Tests that we download the test image when the full payload fails."""
+    with mock.patch.object(
+        dev_server_wrapper,
+        'GetImagePathWithXbuddy',
+        side_effect=(dev_server_wrapper.ImagePathError,
+                     ('translated/xbuddy/path',
+                      'resolved/xbuddy/path'))) as mock_xbuddy:
+      with mock.patch('os.path.exists', return_value=True):
+        flash.Flash(self.DEVICE, self.IMAGE)
+
+      # Call to download full_payload and image. No other calls.
+      mock_xbuddy.assert_has_calls(
+          [mock.call('/path/to/image/full_payload', mock.ANY,
+                     static_dir=flash.DEVSERVER_STATIC_DIR),
+           mock.call('/path/to/image', mock.ANY,
+                     static_dir=flash.DEVSERVER_STATIC_DIR)])
+      self.assertEqual(mock_xbuddy.call_count, 2)
 
 
 class USBImagerMock(partial_mock.PartialCmdMock):
@@ -208,7 +248,7 @@ class UsbImagerOperationTest(cros_test_lib.RunCommandTestCase):
   def testUsbImagerOperationCalled(self):
     """Test that flash.UsbImagerOperation is called when log level <= NOTICE."""
     expected_cmd = ['dd', 'if=foo', 'of=bar', 'bs=4M', 'iflag=fullblock',
-                    'oflag=sync']
+                    'oflag=direct', 'conv=fdatasync']
     usb_imager = flash.USBImager('dummy_device', 'board', 'foo')
     run_mock = self.PatchObject(flash.UsbImagerOperation, 'Run')
     self.PatchObject(logging.Logger, 'getEffectiveLevel',
@@ -216,31 +256,31 @@ class UsbImagerOperationTest(cros_test_lib.RunCommandTestCase):
     usb_imager.CopyImageToDevice('foo', 'bar')
 
     # Check that flash.UsbImagerOperation.Run() is called correctly.
-    run_mock.assert_called_with(cros_build_lib.SudoRunCommand, expected_cmd,
+    run_mock.assert_called_with(cros_build_lib.sudo_run, expected_cmd,
                                 debug_level=logging.NOTICE, update_period=0.5)
 
   def testSudoRunCommandCalled(self):
-    """Test that SudoRunCommand is called when log level > NOTICE."""
+    """Test that sudo_run is called when log level > NOTICE."""
     expected_cmd = ['dd', 'if=foo', 'of=bar', 'bs=4M', 'iflag=fullblock',
-                    'oflag=sync']
+                    'oflag=direct', 'conv=fdatasync']
     usb_imager = flash.USBImager('dummy_device', 'board', 'foo')
-    run_mock = self.PatchObject(cros_build_lib, 'SudoRunCommand')
+    run_mock = self.PatchObject(cros_build_lib, 'sudo_run')
     self.PatchObject(logging.Logger, 'getEffectiveLevel',
                      return_value=logging.WARNING)
     usb_imager.CopyImageToDevice('foo', 'bar')
 
-    # Check that SudoRunCommand() is called correctly.
+    # Check that sudo_run() is called correctly.
     run_mock.assert_any_call(expected_cmd, debug_level=logging.NOTICE,
                              print_cmd=False)
 
   def testPingDD(self):
     """Test that UsbImagerOperation._PingDD() sends the correct signal."""
     expected_cmd = ['kill', '-USR1', '5']
-    run_mock = self.PatchObject(cros_build_lib, 'SudoRunCommand')
+    run_mock = self.PatchObject(cros_build_lib, 'sudo_run')
     op = flash.UsbImagerOperation('foo')
     op._PingDD(5)
 
-    # Check that SudoRunCommand was called correctly.
+    # Check that sudo_run was called correctly.
     run_mock.assert_called_with(expected_cmd, print_cmd=False)
 
   def testGetDDPidFound(self):

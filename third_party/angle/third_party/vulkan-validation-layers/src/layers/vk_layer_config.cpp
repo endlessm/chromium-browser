@@ -1,7 +1,8 @@
 /**************************************************************************
  *
- * Copyright 2014 Valve Software
- * Copyright 2015 Google Inc.
+ * Copyright 2014-2019 Valve Software
+ * Copyright 2015-2019 Google Inc.
+ * Copyright 2019 LunarG, Inc.
  * All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +23,7 @@
  * Author: Mark Lobodzinski <mark@lunarg.com>
  **************************************************************************/
 #include "vk_layer_config.h"
+
 #include "vulkan/vk_sdk_platform.h"
 #include <fstream>
 #include <iostream>
@@ -39,14 +41,15 @@
 #define MAX_CHARS_PER_LINE 4096
 
 class ConfigFile {
-   public:
+  public:
     ConfigFile();
     ~ConfigFile();
 
     const char *getOption(const std::string &_option);
     void setOption(const std::string &_option, const std::string &_val);
+    std::string vk_layer_disables_env_var{};
 
-   private:
+  private:
     bool m_fileIsParsed;
     std::map<std::string, std::string> m_valueMap;
 
@@ -76,6 +79,10 @@ std::string getEnvironment(const char *variable) {
 }
 
 VK_LAYER_EXPORT const char *getLayerOption(const char *_option) { return g_configFileObj.getOption(_option); }
+VK_LAYER_EXPORT const char *GetLayerEnvVar(const char *_option) {
+    g_configFileObj.vk_layer_disables_env_var = getEnvironment(_option);
+    return g_configFileObj.vk_layer_disables_env_var.c_str();
+}
 
 // If option is NULL or stdout, return stdout, otherwise try to open option
 // as a filename. If successful, return file handle, otherwise stdout
@@ -139,37 +146,16 @@ VK_LAYER_EXPORT void setLayerOption(const char *_option, const char *_val) { g_c
 // Constructor for ConfigFile. Initialize layers to log error messages to stdout by default. If a vk_layer_settings file is present,
 // its settings will override the defaults.
 ConfigFile::ConfigFile() : m_fileIsParsed(false) {
-    m_valueMap["lunarg_core_validation.report_flags"] = "error";
-    m_valueMap["lunarg_object_tracker.report_flags"] = "error";
-    m_valueMap["lunarg_parameter_validation.report_flags"] = "error";
-    m_valueMap["google_threading.report_flags"] = "error";
-    m_valueMap["google_unique_objects.report_flags"] = "error";
+    m_valueMap["khronos_validation.report_flags"] = "error";
 
 #ifdef WIN32
     // For Windows, enable message logging AND OutputDebugString
-    m_valueMap["lunarg_core_validation.debug_action"] =
-        "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_DEBUG_OUTPUT";
-    m_valueMap["lunarg_object_tracker.debug_action"] =
-        "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_DEBUG_OUTPUT";
-    m_valueMap["lunarg_parameter_validation.debug_action"] =
-        "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_DEBUG_OUTPUT";
-    m_valueMap["google_threading.debug_action"] =
-        "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_DEBUG_OUTPUT";
-    m_valueMap["google_unique_objects.debug_action"] =
+    m_valueMap["khronos_validation.debug_action"] =
         "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_DEBUG_OUTPUT";
 #else   // WIN32
-    m_valueMap["lunarg_core_validation.debug_action"] = "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG";
-    m_valueMap["lunarg_object_tracker.debug_action"] = "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG";
-    m_valueMap["lunarg_parameter_validation.debug_action"] = "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG";
-    m_valueMap["google_threading.debug_action"] = "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG";
-    m_valueMap["google_unique_objects.debug_action"] = "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG";
+    m_valueMap["khronos_validation.debug_action"] = "VK_DBG_LAYER_ACTION_DEFAULT,VK_DBG_LAYER_ACTION_LOG_MSG";
 #endif  // WIN32
-
-    m_valueMap["lunarg_core_validation.log_filename"] = "stdout";
-    m_valueMap["lunarg_object_tracker.log_filename"] = "stdout";
-    m_valueMap["lunarg_parameter_validation.log_filename"] = "stdout";
-    m_valueMap["google_threading.log_filename"] = "stdout";
-    m_valueMap["google_unique_objects.log_filename"] = "stdout";
+    m_valueMap["khronos_validation.log_filename"] = "stdout";
 }
 
 ConfigFile::~ConfigFile() {}
@@ -352,12 +338,12 @@ VK_LAYER_EXPORT void PrintMessageType(VkFlags vk_flags, char *msg_flags) {
         separator = true;
     }
     if (vk_flags & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) {
+        if (separator) strcat(msg_flags, ",");
         strcat(msg_flags, "SPEC");
         separator = true;
     }
     if (vk_flags & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) {
         if (separator) strcat(msg_flags, ",");
         strcat(msg_flags, "PERF");
-        separator = true;
     }
 }

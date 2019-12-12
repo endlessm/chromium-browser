@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import json
 import os
 import unittest
 
@@ -21,8 +22,8 @@ def _abs_join(*args):
   return ROOT_CHAR + os.path.join(*args)
 
 
-def TestStory(name):
-  return story_module.Story(shared_state.SharedState, name=name)
+def TestStory(name, **kwargs):
+  return story_module.Story(shared_state.SharedState, name=name, **kwargs)
 
 
 class StoryRunTest(unittest.TestCase):
@@ -83,7 +84,8 @@ class StoryRunTest(unittest.TestCase):
                                     1234567900.987]
     with tempfile_ext.NamedTemporaryDirectory() as tempdir:
       run = story_run.StoryRun(
-          story=TestStory(name='http://example.com'), test_prefix='benchmark',
+          story=TestStory(name='http://example.com', tags=['tag1', 'tag2']),
+          test_prefix='benchmark',
           intermediate_dir=tempdir)
       with run.CreateArtifact('logs.txt') as log_file:
         log_file.write('hello\n')
@@ -99,7 +101,7 @@ class StoryRunTest(unittest.TestCase):
                   'isExpected': True,
                   'startTime': '2009-02-13T23:31:30.987000Z',
                   'runDuration': '10.00s',
-                  'artifacts': {
+                  'outputArtifacts': {
                       'logs.txt' : {
                           'filePath': mock.ANY,
                           'contentType': 'text/plain'
@@ -108,18 +110,70 @@ class StoryRunTest(unittest.TestCase):
                   'tags': [
                       {'key': 'tbmv2', 'value': 'metric1'},
                       {'key': 'tbmv2', 'value': 'metric2'},
-                      {'key': 'shard', 'value': '7'}
+                      {'key': 'shard', 'value': '7'},
+                      {'key': 'story_tag', 'value': 'tag1'},
+                      {'key': 'story_tag', 'value': 'tag2'},
                   ],
               }
           }
       )
       # Log file is in the {intermediate_dir}/ directory, and file name
       # extension is preserved.
-      logs_file = entry['testResult']['artifacts']['logs.txt']['filePath']
+      logs_file = entry['testResult']['outputArtifacts']['logs.txt']['filePath']
       intermediate_dir = os.path.join(tempdir, '')
       self.assertTrue(logs_file.startswith(intermediate_dir))
       self.assertTrue(logs_file.endswith('.txt'))
 
+  def testAddMeasurements(self):
+    with tempfile_ext.NamedTemporaryDirectory() as tempdir:
+      run = story_run.StoryRun(self.story, intermediate_dir=tempdir)
+      run.AddMeasurement('run_time', 'ms', [1, 2, 3])
+      run.AddMeasurement('foo_bars', 'count', 4,
+                         description='number of foo_bars found')
+      run.Finish()
+
+      artifact = run.GetArtifact(story_run.MEASUREMENTS_NAME)
+      with open(artifact.local_path) as f:
+        measurements = json.load(f)
+
+      self.assertEqual(measurements, {
+          'measurements': {
+              'run_time': {
+                  'unit': 'ms',
+                  'samples': [1, 2, 3],
+              },
+              'foo_bars' : {
+                  'unit': 'count',
+                  'samples': [4],
+                  'description': 'number of foo_bars found'
+              }
+          }
+      })
+
+  def testAddMeasurementValidation(self):
+    run = story_run.StoryRun(self.story)
+    with self.assertRaises(TypeError):
+      run.AddMeasurement(name=None, unit='ms', samples=[1, 2, 3])
+    with self.assertRaises(TypeError):
+      run.AddMeasurement(name='run_time', unit=7, samples=[1, 2, 3])
+    with self.assertRaises(TypeError):
+      run.AddMeasurement(name='run_time', unit='ms', samples=[1, None, 3])
+    with self.assertRaises(TypeError):
+      run.AddMeasurement(name='run_time', unit='ms', samples=[1, 2, 3],
+                         description=['not', 'a', 'string'])
+
+  def testAddMeasurementRaisesAfterFinish(self):
+    run = story_run.StoryRun(self.story)
+    run.AddMeasurement('run_time', 'ms', [1, 2, 3])
+    run.Finish()
+    with self.assertRaises(AssertionError):
+      run.AddMeasurement('foo_bars', 'count', 4)
+
+  def testAddMeasurementTwiceRaises(self):
+    run = story_run.StoryRun(self.story)
+    run.AddMeasurement('foo_bars', 'ms', [1])
+    with self.assertRaises(AssertionError):
+      run.AddMeasurement('foo_bars', 'ms', [2])
 
   def testCreateArtifact(self):
     with tempfile_ext.NamedTemporaryDirectory() as tempdir:

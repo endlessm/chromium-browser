@@ -261,7 +261,7 @@ class CrosCheckout(object):
       cmd += ['--repo-url', self.repo_url]
     if self.manifest_url:
       cmd += ['--manifest-url', self.manifest_url]
-    cros_build_lib.RunCommand(cmd, print_cmd=True)
+    cros_build_lib.run(cmd, print_cmd=True)
     self.manifest = repo_util.Repository(self.root).Manifest()
 
   def SyncBranch(self, branch):
@@ -300,7 +300,7 @@ class CrosCheckout(object):
     # repo_sync_manifest sometimes corrupts .repo/manifest.xml when
     # syncing to a file. See crbug.com/973106.
     cmd = ['repo', 'sync', '--manifest-name', os.path.abspath(path)]
-    cros_build_lib.RunCommand(cmd, cwd=self.root, print_cmd=True)
+    cros_build_lib.run(cmd, cwd=self.root, print_cmd=True)
     self.manifest = repo_util.Repository(self.root).Manifest()
 
   def ReadVersion(self, **kwargs):
@@ -589,9 +589,18 @@ class Branch(object):
     # In reality, this whole tool is being deleted pretty soon.
     if self.__class__.__name__ != 'ReleaseBranch':
       source_version = 'branch' if which_version == 'patch' else 'build'
+      # Use the default node's revision if it exists. We stopped writing this
+      # for new branches in 2019 though, so this won't be true for newer
+      # branches.
+      source_ref = self.checkout.manifest.Default().revision
+      if not source_ref:
+        # Otherwise, use the source version's upstream,
+        # e.g. refs/heads/release-R77-12371.B
+        source_ref = self.checkout.manifest.GetUniqueProject(
+            'chromeos/manifest-internal').upstream
       self.checkout.BumpVersion(
           source_version,
-          git.StripRefs(self.checkout.manifest.Default().revision),
+          git.StripRefs(source_ref),
           'Bump %s number for source branch after creating branch %s' %
           (source_version, self.name),
           dry_run=not push)

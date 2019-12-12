@@ -27,7 +27,7 @@ TEST_P(ViewportOrientationTests, OriginAt0x0) {
         utils::CreateShaderModule(device, utils::SingleShaderStage::Vertex, R"(
         #version 450
         void main() {
-            gl_Position = vec4(-0.5f, -0.5f, 0.0f, 1.0f);
+            gl_Position = vec4(-0.5f, 0.5f, 0.0f, 1.0f);
             gl_PointSize = 1.0;
         })");
 
@@ -43,7 +43,7 @@ TEST_P(ViewportOrientationTests, OriginAt0x0) {
     descriptor.vertexStage.module = vsModule;
     descriptor.cFragmentStage.module = fsModule;
     descriptor.primitiveTopology = dawn::PrimitiveTopology::PointList;
-    descriptor.cColorStates[0]->format = renderPass.colorFormat;
+    descriptor.cColorStates[0].format = renderPass.colorFormat;
 
     dawn::RenderPipeline pipeline = device.CreateRenderPipeline(&descriptor);
 

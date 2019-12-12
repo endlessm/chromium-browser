@@ -49,7 +49,16 @@ _ARCH_TO_STACK_TOOL_ARCH = {
     'armeabi-v7a': 'arm',
     'arm64-v8a': 'arm64',
 }
-_MAP_TO_USER_FRIENDLY_NAMES = {
+_MAP_TO_USER_FRIENDLY_OS_NAMES = {
+    'l': 'lollipop',
+    'm': 'marshmallow',
+    'n': 'nougat',
+    'o': 'oreo',
+    'p': 'pie',
+    'q': '10',
+    'k': 'kitkat'
+}
+_MAP_TO_USER_FRIENDLY_DEVICE_NAMES = {
     'gobo': 'go',
     'W6210': 'one',
     'AOSP on Shamu': 'nexus 6',
@@ -274,10 +283,13 @@ class AndroidPlatformBackend(
   def GetTypExpectationsTags(self):
     # telemetry benchmark's expectations need to know the model name
     # and if it is a low end device
-    tags = super(AndroidPlatformBackend, self).GetTypExpectationsTags()
+    os_version = self.GetOSVersionName().lower()
+    os_version = _MAP_TO_USER_FRIENDLY_OS_NAMES.get(os_version, os_version)
+    tags = test_utils.sanitizeTypExpectationsTags(
+        [self.GetOSName(), 'android-' + os_version])
     device_type_name = self.GetDeviceTypeName()
     tags += test_utils.sanitizeTypExpectationsTags(
-        ['android-' + _MAP_TO_USER_FRIENDLY_NAMES.get(
+        ['android-' + _MAP_TO_USER_FRIENDLY_DEVICE_NAMES.get(
             device_type_name, device_type_name)])
     if self.IsLowEnd():
       tags.append('android-low-end')
@@ -499,6 +511,10 @@ class AndroidPlatformBackend(
     else:
       return '/data/local/tmp/%s/' % package
 
+  def GetDumpLocation(self):
+    """Returns the location where crash dumps should be written to."""
+    return '/sdcard/telemetry_crashpad_dumps'
+
   def SetDebugApp(self, package):
     """Set application to debugging.
 
@@ -596,11 +612,7 @@ class AndroidPlatformBackend(
           '--device', self._device.adb.GetDeviceSerial(),
           '--adb-path', self._device.adb.GetAdbPath(),
           '--build-path', build_path,
-          '--chrome-cache-path',
-          os.path.join(
-              self.GetProfileDir(
-                  self._ExtractLastNativeCrashPackageFromLogcat(logcat)),
-              'cache'),
+          '--chrome-cache-path', self.GetDumpLocation(),
       ]
       ret += Decorate('Crashpad stackwalk',
                       subprocess.Popen(crashpad_cmd,

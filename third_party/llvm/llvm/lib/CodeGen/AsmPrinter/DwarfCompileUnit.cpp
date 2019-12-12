@@ -329,7 +329,6 @@ void DwarfCompileUnit::addRange(RangeSpan Range) {
       (&CURanges.back().getEnd()->getSection() !=
        &Range.getEnd()->getSection())) {
     CURanges.push_back(Range);
-    DD->addSectionLabel(Range.getStart());
     return;
   }
 
@@ -647,8 +646,7 @@ DIE *DwarfCompileUnit::constructVariableDIEImpl(const DbgVariable &DV,
     int Offset = TFI->getFrameIndexReference(*Asm->MF, Fragment.FI, FrameReg);
     DwarfExpr.addFragmentOffset(Expr);
     SmallVector<uint64_t, 8> Ops;
-    Ops.push_back(dwarf::DW_OP_plus_uconst);
-    Ops.push_back(Offset);
+    DIExpression::appendOffset(Ops, Offset);
     // According to
     // https://docs.nvidia.com/cuda/archive/10.0/ptx-writers-guide-to-interoperability/index.html#cuda-specific-dwarf
     // cuda-gdb requires DW_AT_address_class for all variables to be able to
@@ -1166,16 +1164,8 @@ void DwarfCompileUnit::addGlobalTypeUnitType(const DIType *Ty,
   GlobalTypes.insert(std::make_pair(std::move(FullName), &getUnitDie()));
 }
 
-/// addVariableAddress - Add DW_AT_location attribute for a
-/// DbgVariable based on provided MachineLocation.
 void DwarfCompileUnit::addVariableAddress(const DbgVariable &DV, DIE &Die,
                                           MachineLocation Location) {
-  // addBlockByrefAddress is obsolete and will be removed soon.
-  // The clang frontend always generates block byref variables with a
-  // complex expression that encodes exactly what addBlockByrefAddress
-  // would do.
-  assert((!DV.isBlockByrefVariable() || DV.hasComplexAddress()) &&
-         "block byref variable without a complex expression");
   if (DV.hasComplexAddress())
     addComplexAddress(DV, Die, dwarf::DW_AT_location, Location);
   else

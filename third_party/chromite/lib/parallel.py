@@ -17,7 +17,6 @@ from multiprocessing.managers import SyncManager
 import os
 import signal
 import sys
-import tempfile
 import time
 import traceback
 
@@ -191,7 +190,7 @@ class _BackgroundTask(multiprocessing.Process):
 
   @classmethod
   def _DebugRunCommand(cls, cmd, **kwargs):
-    """Swallow any exception RunCommand raises.
+    """Swallow any exception run raises.
 
     Since these commands are for purely informational purposes, we don't
     random issues causing the bot to die.
@@ -202,7 +201,7 @@ class _BackgroundTask(multiprocessing.Process):
     log_level = kwargs['debug_level']
     try:
       with timeout_util.Timeout(cls.DEBUG_CMD_TIMEOUT):
-        return cros_build_lib.RunCommand(cmd, **kwargs).output
+        return cros_build_lib.run(cmd, **kwargs).output
     except (cros_build_lib.RunCommandError, timeout_util.TimeoutError) as e:
       logging.log(log_level, 'Running %s failed: %s', cmd[0], str(e))
       return ''
@@ -334,7 +333,7 @@ class _BackgroundTask(multiprocessing.Process):
           output.seek(pos)
           buf = output.read(_BUFSIZE)
 
-          if len(buf) > 0:
+          if buf:
             silent_death_time = time.time() + self.SILENT_TIMEOUT
           elif running and time.time() > silent_death_time:
             msg = ('No output from %r for %r seconds' %
@@ -349,7 +348,7 @@ class _BackgroundTask(multiprocessing.Process):
             running = False
 
           # Print output so far.
-          while len(buf) > 0:
+          while buf:
             sys.stdout.write(buf)
             pos += len(buf)
             if len(buf) < _BUFSIZE:
@@ -385,9 +384,8 @@ class _BackgroundTask(multiprocessing.Process):
     sys.stderr.flush()
     tmp_dir = '/tmp/chromite.parallel'
     osutils.SafeMakedirs(tmp_dir)
-    self._output = tempfile.NamedTemporaryFile(delete=False, bufsize=0,
-                                               dir=tmp_dir,
-                                               prefix='chromite-parallel-')
+    self._output = cros_build_lib.UnbufferedNamedTemporaryFile(
+        delete=False, dir=tmp_dir, prefix='chromite-parallel-')
     self._parent_pid = os.getpid()
     return multiprocessing.Process.start(self)
 

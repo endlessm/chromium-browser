@@ -13,7 +13,8 @@ import multiprocessing
 import os
 import re
 import sys
-import urllib
+
+from six.moves import urllib
 
 from chromite.lib import constants
 from chromite.cli import command
@@ -109,9 +110,9 @@ SHLINT_OUTPUT_FORMAT_MAP = {
 
 
 def _LinterRunCommand(cmd, debug, **kwargs):
-  """Run the linter with common RunCommand args set as higher levels expect."""
-  return cros_build_lib.RunCommand(cmd, error_code_ok=True, print_cmd=debug,
-                                   debug_level=logging.NOTICE, **kwargs)
+  """Run the linter with common run args set as higher levels expect."""
+  return cros_build_lib.run(cmd, error_code_ok=True, print_cmd=debug,
+                            debug_level=logging.NOTICE, **kwargs)
 
 
 def _WhiteSpaceLintData(path, data):
@@ -158,13 +159,17 @@ def _CpplintFile(path, output_format, debug):
 
 def _PylintFile(path, output_format, debug):
   """Returns result of running pylint on |path|."""
-  pylint = os.path.join(constants.DEPOT_TOOLS_DIR, 'pylint-1.6')
+  pylint = os.path.join(constants.DEPOT_TOOLS_DIR, 'pylint-1.7')
   pylintrc = _GetPylintrc(path)
   cmd = [pylint, '--rcfile=%s' % pylintrc]
   if output_format != 'default':
     cmd.append('--output-format=%s' % output_format)
   cmd.append(path)
-  extra_env = {'PYTHONPATH': ':'.join(_GetPythonPath([path]))}
+  extra_env = {
+      # TODO(crbug.com/984182): Drop EPYTHON setting if they ever finish.
+      'EPYTHON': 'python2',
+      'PYTHONPATH': ':'.join(_GetPythonPath([path])),
+  }
   return _LinterRunCommand(cmd, debug, extra_env=extra_env)
 
 
@@ -188,8 +193,8 @@ def _JsonLintFile(path, _output_format, _debug):
   data = osutils.ReadFile(path)
 
   # Strip off leading UTF-8 BOM if it exists.
-  if data.startswith(b'\xef\xbb\xbf'):
-    data = data[3:]
+  if data.startswith(u'\ufeff'):
+    data = data[1:]
 
   # Strip out comments for JSON parsing.
   stripped_data = re.sub(r'^\s*#.*', '', data, flags=re.M)
@@ -223,22 +228,47 @@ def _MarkdownLintFile(path, _output_format, _debug):
 
 
 def _ShellLintFile(path, output_format, debug, gentoo_format=False):
-  """Returns result of running lint checks on |path|."""
+  """Returns result of running lint checks on |path|.
+
+  Args:
+    path: The path to the script on which to run the linter.
+    output_format: The format of the output that the linter should emit. See
+                   |SHLINT_OUTPUT_FORMAT_MAP|.
+    debug: Whether to print out the linter command.
+    gentoo_format: Whether to treat this file as an ebuild style script.
+
+  Returns:
+    A CommandResult object.
+  """
   # TODO: Try using `checkbashisms`.
   syntax_check = _LinterRunCommand(['bash', '-n', path], debug)
   if syntax_check.returncode != 0:
     return syntax_check
 
-  # Try using shellcheck if it exists.
-  shellcheck = osutils.Which('shellcheck')
+  # Try using shellcheck if it exists, with a preference towards finding it
+  # inside the chroot. This is OK as it is statically linked.
+  shellcheck = (
+      osutils.Which('shellcheck', path='/usr/bin',
+                    root=os.path.join(constants.SOURCE_ROOT, 'chroot'))
+      or osutils.Which('shellcheck'))
+
   if not shellcheck:
     logging.notice('Install shellcheck for additional shell linting.')
     return syntax_check
 
-  (dir_name, file_name) = os.path.split(path)
-  pwd = os.getcwd()
+  # Instruct shellcheck to run itself from the shell script's dir. Note that
+  # 'SCRIPTDIR' is a special string that shellcheck rewrites to the dirname of
+  # the given path.
+  extra_checks = [
+      'avoid-nullary-conditions',     # SC2244
+      'check-unassigned-uppercase',   # Include uppercase in SC2154
+      'require-variable-braces',      # SC2250
+  ]
+  if not gentoo_format:
+    extra_checks.append('quote-safe-variables')  # SC2248
 
-  cmd = [shellcheck]
+  cmd = [shellcheck, '--source-path=SCRIPTDIR',
+         '--enable=%s' % ','.join(extra_checks)]
   if output_format != 'default':
     cmd.extend(SHLINT_OUTPUT_FORMAT_MAP[output_format])
   cmd.append('-x')
@@ -247,19 +277,16 @@ def _ShellLintFile(path, output_format, debug, gentoo_format=False):
     cmd.append('--exclude=SC2148')
     # ebuilds always use bash.
     cmd.append('--shell=bash')
-  cmd.append(file_name)
+  cmd.append(path)
 
-  # TODO(crbug.com/969045): Remove chdir once -P is available in shellcheck.
-  os.chdir(dir_name)
   lint_result = _LinterRunCommand(cmd, debug)
-  os.chdir(pwd)
 
   # During testing, we don't want to fail the linter for shellcheck errors,
   # so override the return code.
   if lint_result.returncode != 0:
     bug_url = (
         'https://bugs.chromium.org/p/chromium/issues/entry?' +
-        urllib.urlencode({
+        urllib.parse.urlencode({
             'template':
                 'Defect report from Developer',
             'summary':
@@ -409,8 +436,8 @@ run other checks (e.g. pyflakes, etc.)
                                    self.options.output, self.options.debug)
 
     # Special case one file as it's common -- faster to avoid parallel startup.
-    if sum([len(x) for _, x in linter_map.items()]) == 1:
-      linter, files = linter_map.items()[0]
+    if sum(len(x) for x in linter_map.values()) == 1:
+      linter, files = next(iter(linter_map.items()))
       dispatcher(linter, files[0])
     else:
       # Run the linter in parallel on the files.

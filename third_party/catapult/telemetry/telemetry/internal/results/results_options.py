@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import codecs
+import json
 import os
 import sys
 
@@ -10,7 +11,6 @@ from telemetry.internal.results import chart_json_output_formatter
 from telemetry.internal.results import csv_output_formatter
 from telemetry.internal.results import histogram_set_json_output_formatter
 from telemetry.internal.results import html_output_formatter
-from telemetry.internal.results import json_3_output_formatter
 from telemetry.internal.results import page_test_results
 
 
@@ -22,7 +22,6 @@ LEGACY_OUTPUT_FORMATS = (
     'csv',
     'histograms',
     'html',
-    'json-test-results',
     'none')
 
 
@@ -32,7 +31,6 @@ _OUTPUT_FILENAME_LOOKUP = {
     'csv': 'results.csv',
     'histograms': 'histograms.json',
     'html': 'results.html',
-    'json-test-results': 'test-results.json',
 }
 
 
@@ -50,7 +48,7 @@ def _GetOutputStream(output_format, output_dir):
 
 
 def CreateResults(options, benchmark_name=None, benchmark_description=None,
-                  report_progress=False, should_add_value=None):
+                  report_progress=False):
   """
   Args:
     options: Contains the options specified in AddResultsOptions.
@@ -59,10 +57,6 @@ def CreateResults(options, benchmark_name=None, benchmark_description=None,
         running benchmark.
     report_progress: A boolean indicating whether to emit gtest style
         report of progress as story runs are being recorded.
-    should_add_value: A function that takes two arguments: a value name and
-        a boolean (True when the value belongs to the first run of the
-        corresponding story). It returns True if the value should be added
-        to the test results and False otherwise.
 
   Returns:
     A PageTestResults object.
@@ -86,9 +80,6 @@ def CreateResults(options, benchmark_name=None, benchmark_description=None,
     if output_format == 'html':
       output_formatters.append(html_output_formatter.HtmlOutputFormatter(
           output_stream, options.reset_results, options.upload_bucket))
-    elif output_format == 'json-test-results':
-      output_formatters.append(json_3_output_formatter.JsonOutputFormatter(
-          output_stream))
     elif output_format == 'chartjson':
       output_formatters.append(
           chart_json_output_formatter.ChartJsonOutputFormatter(output_stream))
@@ -109,8 +100,31 @@ def CreateResults(options, benchmark_name=None, benchmark_description=None,
       progress_stream=sys.stdout if report_progress else None,
       output_dir=options.output_dir,
       intermediate_dir=options.intermediate_dir,
-      should_add_value=should_add_value,
       benchmark_name=benchmark_name,
       benchmark_description=benchmark_description,
       upload_bucket=options.upload_bucket,
       results_label=options.results_label)
+
+
+def ReadIntermediateResults(intermediate_dir):
+  """Read results from an intermediate_dir into a single dict."""
+  results = {'benchmarkRun': {}, 'testResults': []}
+  with open(os.path.join(
+      intermediate_dir, page_test_results.TELEMETRY_RESULTS)) as f:
+    for line in f:
+      record = json.loads(line)
+      if 'benchmarkRun' in record:
+        results['benchmarkRun'].update(record['benchmarkRun'])
+      if 'testResult' in record:
+        results['testResults'].append(record['testResult'])
+  return results
+
+
+def ReadMeasurements(test_result):
+  """Read ad hoc measurements recorded on a test result."""
+  try:
+    artifact = test_result['outputArtifacts']['measurements.json']
+  except KeyError:
+    return {}
+  with open(artifact['filePath']) as f:
+    return json.load(f)['measurements']

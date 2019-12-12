@@ -35,8 +35,8 @@ constexpr static unsigned int kRTCellSize = 100;
 
 class VertexInputTest : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
     }
@@ -87,7 +87,8 @@ class VertexInputTest : public DawnTest {
               "0.0f));\n";
         vs << "    vec2 offset = vec2(float(gl_VertexIndex / 3), float(gl_InstanceIndex));\n";
         vs << "    vec2 worldPos = pos[gl_VertexIndex % 3] + offset;\n";
-        vs << "    gl_Position = vec4(worldPos / 2 - vec2(1.0f), 0.0f, 1.0f);\n";
+        vs << "    vec4 position = vec4(worldPos / 2 - vec2(1.0f), 0.0f, 1.0f);\n";
+        vs << "    gl_Position = vec4(position.x, -position.y, position.z, position.w);\n";
 
         // Perform the checks by successively ANDing a boolean
         vs << "    bool success = true;\n";
@@ -131,7 +132,7 @@ class VertexInputTest : public DawnTest {
         descriptor.vertexStage.module = vsModule;
         descriptor.cFragmentStage.module = fsModule;
         descriptor.vertexInput = &vertexInput;
-        descriptor.cColorStates[0]->format = renderPass.colorFormat;
+        descriptor.cColorStates[0].format = renderPass.colorFormat;
 
         return device.CreateRenderPipeline(&descriptor);
     }
@@ -198,9 +199,8 @@ class VertexInputTest : public DawnTest {
         dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
 
-        uint64_t zeroOffset = 0;
-        for (const auto& buffer : vertexBuffers) {
-            pass.SetVertexBuffers(buffer.location, 1, buffer.buffer, &zeroOffset);
+        for (const DrawVertexBuffer& buffer : vertexBuffers) {
+            pass.SetVertexBuffer(buffer.location, *buffer.buffer);
         }
 
         pass.Draw(triangles * 3, instances, 0, 0);
@@ -425,9 +425,8 @@ TEST_P(VertexInputTest, UnusedVertexSlot) {
 
     dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
 
-    uint64_t zeroOffset = 0;
-    pass.SetVertexBuffers(0, 1, &buffer, &zeroOffset);
-    pass.SetVertexBuffers(1, 1, &buffer, &zeroOffset);
+    pass.SetVertexBuffer(0, buffer);
+    pass.SetVertexBuffer(1, buffer);
 
     pass.SetPipeline(instancePipeline);
     pass.Draw(1 * 3, 4, 0, 0);
@@ -441,9 +440,9 @@ TEST_P(VertexInputTest, UnusedVertexSlot) {
 }
 
 // Test setting a different pipeline with a different input state.
-// This was a problem with the D3D12 backend where SetVertexBuffers
+// This was a problem with the D3D12 backend where SetVertexBuffer
 // was getting the input from the last set pipeline, not the current.
-// SetVertexBuffers should be reapplied when the input state changes.
+// SetVertexBuffer should be reapplied when the input state changes.
 TEST_P(VertexInputTest, MultiplePipelinesMixedVertexInput) {
     // Basic input state, using slot 0
     utils::ComboVertexInputDescriptor vertexVertexInput = MakeVertexInput(
@@ -469,9 +468,8 @@ TEST_P(VertexInputTest, MultiplePipelinesMixedVertexInput) {
 
     dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
 
-    uint64_t zeroOffset = 0;
-    pass.SetVertexBuffers(0, 1, &buffer, &zeroOffset);
-    pass.SetVertexBuffers(1, 1, &buffer, &zeroOffset);
+    pass.SetVertexBuffer(0, buffer);
+    pass.SetVertexBuffer(1, buffer);
 
     pass.SetPipeline(vertexPipeline);
     pass.Draw(1 * 3, 1, 0, 0);
@@ -530,6 +528,7 @@ TEST_P(OptionalVertexInputTest, Basic) {
             #version 450
             void main() {
                 gl_Position = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                gl_PointSize = 1.0;
             })");
 
     dawn::ShaderModule fsModule =

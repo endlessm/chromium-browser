@@ -28,6 +28,10 @@ from chromite.lib import parallel
 from chromite.lib import patch_unittest
 
 
+# Hopefully cidb will be deleted soon (before Python 3 finalizes), so we don't
+# have to fully port this module.
+# pylint: disable=long-suffix
+
 # pylint: disable=protected-access
 
 # Used to ensure that all build_number values we use are unique.
@@ -141,7 +145,7 @@ class SchemaDumpTest(CIDBIntegrationTest):
         # '--skip-comments',  # Required to avoid dumping a timestamp.
         'cidb',
     ]
-    result = cros_build_lib.RunCommand(cmd, capture_output=True, quiet=True)
+    result = cros_build_lib.run(cmd, capture_output=True, quiet=True)
 
     # Strip out comment lines, to avoid dumping a problematic timestamp.
     lines = [l for l in result.output.splitlines() if not l.startswith('--')]
@@ -408,14 +412,14 @@ class DataSeries0Test(CIDBIntegrationTest):
     self._cl_action_checks(readonly_db)
     self._last_updated_time_checks(readonly_db)
 
-    #| Test get build_status from -- here's the relevant data from
+    # | Test get build_status from -- here's the relevant data from
     # master-paladin
-    #|          id | status |
-    #|         601 | pass   |
-    #|         571 | pass   |
-    #|         541 | fail   |
-    #|         511 | pass   |
-    #|         481 | pass   |
+    # |          id | status |
+    # |         601 | pass   |
+    # |         571 | pass   |
+    # |         541 | fail   |
+    # |         511 | pass   |
+    # |         481 | pass   |
     # From 1929 because we always go back one build first.
     last_status = readonly_db.GetBuildHistory('master-paladin', 1)
     self.assertEqual(len(last_status), 1)
@@ -869,18 +873,18 @@ class HWTestResultTableTest(CIDBIntegrationTest):
         HWTestResult(1, b_id_1, 'test_a', 'pass'),
         HWTestResult(2, b_id_1, 'test_b', 'fail'),
         HWTestResult(3, b_id_1, 'test_c', 'abort')]
-    self.assertItemsEqual(bot_db.GetHWTestResultsForBuilds([b_id_1]),
+    self.assertCountEqual(bot_db.GetHWTestResultsForBuilds([b_id_1]),
                           expected_result_1)
 
     expected_result_2 = [HWTestResult(4, b_id_2, 'test_d', 'other')]
-    self.assertItemsEqual(bot_db.GetHWTestResultsForBuilds([b_id_2]),
+    self.assertCountEqual(bot_db.GetHWTestResultsForBuilds([b_id_2]),
                           expected_result_2)
 
     expected_result_3 = expected_result_1 + expected_result_2
-    self.assertItemsEqual(bot_db.GetHWTestResultsForBuilds([b_id_1, b_id_2]),
+    self.assertCountEqual(bot_db.GetHWTestResultsForBuilds([b_id_1, b_id_2]),
                           expected_result_3)
 
-    self.assertItemsEqual(bot_db.GetHWTestResultsForBuilds([3]), [])
+    self.assertCountEqual(bot_db.GetHWTestResultsForBuilds([3]), [])
 
     with self.assertRaises(AssertionError):
       bot_db.GetHWTestResultsForBuilds([])
@@ -1025,18 +1029,18 @@ class BuildRequestTableTest(CIDBIntegrationTest):
 
     requests = bot_db.GetBuildRequestsForBuildConfigs(
         ['test_pre_cq_1', 'test_pre_cq_2'], num_results=10)
-    self.assertItemsEqual([r.request_buildbucket_id for r in requests],
+    self.assertCountEqual([r.request_buildbucket_id for r in requests],
                           ['test_bb_id_1', 'test_bb_id_2', 'test_bb_id_3'])
 
     requests = bot_db.GetBuildRequestsForBuildConfigs(
         ['test_pre_cq_1', 'test_pre_cq_2'], start_time=start_timestamp,
         num_results=10)
-    self.assertItemsEqual([r.request_buildbucket_id for r in requests],
+    self.assertCountEqual([r.request_buildbucket_id for r in requests],
                           ['test_bb_id_2', 'test_bb_id_3'])
 
     requests = bot_db.GetBuildRequestsForBuildConfigs(
         ['test1-paladin', 'test2-paladin', 'test3-paladin'])
-    self.assertItemsEqual([r.request_buildbucket_id for r in requests],
+    self.assertCountEqual([r.request_buildbucket_id for r in requests],
                           ['test_bb_id_1', 'test_bb_id_2', 'test_bb_id_3'])
 
   def testGetBuildRequestsForRequesterBuild(self):
@@ -1072,17 +1076,17 @@ class BuildRequestTableTest(CIDBIntegrationTest):
     bot_db.InsertBuildRequests([build_req_1, build_req_2, build_req_3])
 
     requests = bot_db.GetBuildRequestsForRequesterBuild(b_id_1)
-    self.assertItemsEqual([r.request_build_config for r in requests],
+    self.assertCountEqual([r.request_build_config for r in requests],
                           ['test1-paladin', 'test2-paladin', 'test3-paladin'])
 
     requests = bot_db.GetBuildRequestsForRequesterBuild(
         b_id_1, request_reason=build_requests.REASON_IMPORTANT_CQ_SLAVE)
-    self.assertItemsEqual([r.request_build_config for r in requests],
+    self.assertCountEqual([r.request_build_config for r in requests],
                           ['test1-paladin', 'test2-paladin'])
 
     requests = bot_db.GetBuildRequestsForRequesterBuild(
         b_id_1, request_reason=build_requests.REASON_EXPERIMENTAL_CQ_SLAVE)
-    self.assertItemsEqual([r.request_build_config for r in requests],
+    self.assertCountEqual([r.request_build_config for r in requests],
                           ['test3-paladin'])
 
 

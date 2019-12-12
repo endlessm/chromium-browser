@@ -120,8 +120,10 @@ bool FriendMatches(const Target* annotation_on,
 HeaderChecker::HeaderChecker(const BuildSettings* build_settings,
                              const std::vector<const Target*>& targets,
                              bool check_generated)
-    : build_settings_(build_settings), check_generated_(check_generated),
-      lock_(), task_count_cv_() {
+    : build_settings_(build_settings),
+      check_generated_(check_generated),
+      lock_(),
+      task_count_cv_() {
   for (auto* target : targets)
     AddTargetToFileMap(target, &file_map_);
 }
@@ -242,14 +244,14 @@ bool HeaderChecker::IsFileInOuputDir(const SourceFile& file) const {
 }
 
 SourceFile HeaderChecker::SourceFileForInclude(
-    const base::StringPiece& relative_file_path,
+    const std::string_view& relative_file_path,
     const std::vector<SourceDir>& include_dirs,
     const InputFile& source_file,
     const LocationRange& range,
     Err* err) const {
   using base::FilePath;
 
-  Value relative_file_value(nullptr, relative_file_path.as_string());
+  Value relative_file_value(nullptr, std::string(relative_file_path));
   auto it = std::find_if(
       include_dirs.begin(), include_dirs.end(),
       [relative_file_value, err, this](const SourceDir& dir) -> bool {
@@ -306,7 +308,7 @@ bool HeaderChecker::CheckFile(const Target* from_target,
 
   size_t error_count_before = errors->size();
   CIncludeIterator iter(&input_file);
-  base::StringPiece current_include;
+  std::string_view current_include;
   LocationRange range;
 
   std::set<std::pair<const Target*, const Target*>> no_dependency_cache;

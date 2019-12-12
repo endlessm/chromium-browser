@@ -44,12 +44,6 @@
 #include <windows.h>
 #endif
 
-#if defined(NDEBUG) && defined(__GNUC__)
-#define U_ASSERT_ONLY __attribute__((unused))
-#else
-#define U_ASSERT_ONLY
-#endif
-
 // Can be used by tests to record additional details / description of test
 #define TEST_DESCRIPTION(desc) RecordProperty("description", desc)
 
@@ -58,17 +52,14 @@ using namespace std;
 class VkImageObj;
 
 class VkTestFramework : public ::testing::Test {
-   public:
-    VkTestFramework();
-    ~VkTestFramework();
-
+  public:
     VkFormat GetFormat(VkInstance instance, vk_testing::Device *device);
     static bool optionMatch(const char *option, char *optionLine);
     static void InitArgs(int *argc, char *argv[]);
     static void Finish();
 
-    bool GLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, std::vector<unsigned int> &spv,
-                   bool debug = false);
+    bool GLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, std::vector<unsigned int> &spv, bool debug = false,
+                   uint32_t spirv_minor_version = 0);
     bool ASMtoSPV(const spv_target_env target_env, const uint32_t options, const char *pasm, std::vector<unsigned int> &spv);
     static bool m_canonicalize_spv;
     static bool m_strip_spv;
@@ -78,7 +69,11 @@ class VkTestFramework : public ::testing::Test {
     char **ReadFileData(const char *fileName);
     void FreeFileData(char **data);
 
-   private:
+  protected:
+    VkTestFramework();
+    virtual ~VkTestFramework() = 0;
+
+  private:
     int m_compile_options;
     int m_num_shader_strings;
     TBuiltInResource Resources;
@@ -94,7 +89,7 @@ class VkTestFramework : public ::testing::Test {
 };
 
 class TestEnvironment : public ::testing::Environment {
-   public:
+  public:
     void SetUp();
 
     void TearDown();

@@ -244,11 +244,20 @@ static void skipToNewlineRaw(const char *&First, const char *const End) {
   }
 }
 
-static const char *reverseOverSpaces(const char *First, const char *Last) {
+static const char *findLastNonSpace(const char *First, const char *Last) {
   assert(First <= Last);
   while (First != Last && isHorizontalWhitespace(Last[-1]))
     --Last;
   return Last;
+}
+
+static const char *findFirstTrailingSpace(const char *First,
+                                          const char *Last) {
+  const char *LastNonSpace = findLastNonSpace(First, Last);
+  if (Last == LastNonSpace)
+    return Last;
+  assert(isHorizontalWhitespace(LastNonSpace[0]));
+  return LastNonSpace + 1;
 }
 
 static void skipLineComment(const char *&First, const char *const End) {
@@ -382,7 +391,7 @@ void Minimizer::printToNewline(const char *&First, const char *const End) {
       }
 
       // Deal with "//..." and "/*...*/".
-      append(First, reverseOverSpaces(First, Last));
+      append(First, findFirstTrailingSpace(First, Last));
       First = Last;
 
       if (Last[1] == '/') {
@@ -397,15 +406,20 @@ void Minimizer::printToNewline(const char *&First, const char *const End) {
     } while (Last != End && !isVerticalWhitespace(*Last));
 
     // Print out the string.
-    if (Last == End || Last == First || Last[-1] != '\\') {
-      append(First, reverseOverSpaces(First, Last));
+    const char *LastBeforeTrailingSpace = findLastNonSpace(First, Last);
+    if (Last == End || LastBeforeTrailingSpace == First ||
+        LastBeforeTrailingSpace[-1] != '\\') {
+      append(First, LastBeforeTrailingSpace);
       First = Last;
       skipNewline(First, End);
       return;
     }
 
-    // Print up to the backslash, backing up over spaces.
-    append(First, reverseOverSpaces(First, Last - 1));
+    // Print up to the backslash, backing up over spaces. Preserve at least one
+    // space, as the space matters when tokens are separated by a line
+    // continuation.
+    append(First, findFirstTrailingSpace(
+                      First, LastBeforeTrailingSpace - 1));
 
     First = Last;
     skipNewline(First, End);
@@ -863,6 +877,54 @@ bool Minimizer::minimize() {
   Out.push_back(0);
   Out.pop_back();
   return Error;
+}
+
+bool clang::minimize_source_to_dependency_directives::computeSkippedRanges(
+    ArrayRef<Token> Input, llvm::SmallVectorImpl<SkippedRange> &Range) {
+  struct Directive {
+    enum DirectiveKind {
+      If,  // if/ifdef/ifndef
+      Else // elif,else
+    };
+    int Offset;
+    DirectiveKind Kind;
+  };
+  llvm::SmallVector<Directive, 32> Offsets;
+  for (const Token &T : Input) {
+    switch (T.K) {
+    case pp_if:
+    case pp_ifdef:
+    case pp_ifndef:
+      Offsets.push_back({T.Offset, Directive::If});
+      break;
+
+    case pp_elif:
+    case pp_else: {
+      if (Offsets.empty())
+        return true;
+      int PreviousOffset = Offsets.back().Offset;
+      Range.push_back({PreviousOffset, T.Offset - PreviousOffset});
+      Offsets.push_back({T.Offset, Directive::Else});
+      break;
+    }
+
+    case pp_endif: {
+      if (Offsets.empty())
+        return true;
+      int PreviousOffset = Offsets.back().Offset;
+      Range.push_back({PreviousOffset, T.Offset - PreviousOffset});
+      do {
+        Directive::DirectiveKind Kind = Offsets.pop_back_val().Kind;
+        if (Kind == Directive::If)
+          break;
+      } while (!Offsets.empty());
+      break;
+    }
+    default:
+      break;
+    }
+  }
+  return false;
 }
 
 bool clang::minimizeSourceToDependencyDirectives(

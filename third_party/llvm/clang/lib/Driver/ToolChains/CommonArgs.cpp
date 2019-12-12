@@ -500,29 +500,40 @@ void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
 }
 
 bool tools::addOpenMPRuntime(ArgStringList &CmdArgs, const ToolChain &TC,
-                             const ArgList &Args, bool IsOffloadingHost,
-                             bool GompNeedsRT) {
+                             const ArgList &Args, bool ForceStaticHostRuntime,
+                             bool IsOffloadingHost, bool GompNeedsRT) {
   if (!Args.hasFlag(options::OPT_fopenmp, options::OPT_fopenmp_EQ,
                     options::OPT_fno_openmp, false))
     return false;
 
-  switch (TC.getDriver().getOpenMPRuntime(Args)) {
+  Driver::OpenMPRuntimeKind RTKind = TC.getDriver().getOpenMPRuntime(Args);
+
+  if (RTKind == Driver::OMPRT_Unknown)
+    // Already diagnosed.
+    return false;
+
+  if (ForceStaticHostRuntime)
+    CmdArgs.push_back("-Bstatic");
+
+  switch (RTKind) {
   case Driver::OMPRT_OMP:
     CmdArgs.push_back("-lomp");
     break;
   case Driver::OMPRT_GOMP:
     CmdArgs.push_back("-lgomp");
-
-    if (GompNeedsRT)
-      CmdArgs.push_back("-lrt");
     break;
   case Driver::OMPRT_IOMP5:
     CmdArgs.push_back("-liomp5");
     break;
   case Driver::OMPRT_Unknown:
-    // Already diagnosed.
-    return false;
+    break;
   }
+
+  if (ForceStaticHostRuntime)
+    CmdArgs.push_back("-Bdynamic");
+
+  if (RTKind == Driver::OMPRT_GOMP && GompNeedsRT)
+      CmdArgs.push_back("-lrt");
 
   if (IsOffloadingHost)
     CmdArgs.push_back("-lomptarget");
@@ -1323,17 +1334,6 @@ void tools::AddOpenMPLinkerScript(const ToolChain &TC, Compilation &C,
     LksStream << "  }\n";
   }
 
-  // Add commands to define host entries begin and end. We use 1-byte subalign
-  // so that the linker does not add any padding and the elements in this
-  // section form an array.
-  LksStream << "  .omp_offloading.entries :\n";
-  LksStream << "  ALIGN(0x10)\n";
-  LksStream << "  SUBALIGN(0x01)\n";
-  LksStream << "  {\n";
-  LksStream << "    PROVIDE_HIDDEN(.omp_offloading.entries_begin = .);\n";
-  LksStream << "    *(.omp_offloading.entries)\n";
-  LksStream << "    PROVIDE_HIDDEN(.omp_offloading.entries_end = .);\n";
-  LksStream << "  }\n";
   LksStream << "}\n";
   LksStream << "INSERT BEFORE .data\n";
   LksStream.flush();

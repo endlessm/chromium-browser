@@ -14,7 +14,10 @@ import os
 import random
 import re
 
+# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
+# pylint: disable=no-name-in-module
 import google.protobuf.internal.well_known_types as types
+# pylint: enable=no-name-in-module
 from infra_libs import ts_mon
 
 from chromite.lib import cros_logging as log
@@ -25,7 +28,8 @@ from chromite.lib import structured
 SPANS_LOG = '/var/log/trace/{pid}-{span_id}.json'
 _SPAN_COUNT_METRIC = 'chromeos/trace/client/logged_count'
 
-#--- Code for logging spans to a file for later processing. --------------------
+
+# --- Code for logging spans to a file for later processing. -------------------
 def GetSpanLogFilePath(span):
   """Gets the path to write a span to.
 
@@ -70,7 +74,8 @@ def _RecordSpanMetrics(span):
       field_spec=[ts_mon.StringField('name')])
   m.increment(fields={'name': span.name})
 
-#-- User-facing API ------------------------------------------------------------
+
+# -- User-facing API -----------------------------------------------------------
 class Span(structured.Structured):
   """An object corresponding to a cloud trace Span."""
 

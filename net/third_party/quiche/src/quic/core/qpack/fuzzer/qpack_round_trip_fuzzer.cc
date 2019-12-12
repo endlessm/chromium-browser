@@ -18,7 +18,6 @@
 #include "net/third_party/quiche/src/quic/core/qpack/value_splitting_header_list.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_fuzzed_data_provider.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/test_tools/qpack_encoder_peer.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 
@@ -55,7 +54,7 @@ class EncodingEndpoint {
 
   std::string EncodeHeaderList(QuicStreamId stream_id,
                                const spdy::SpdyHeaderBlock& header_list) {
-    return encoder_.EncodeHeaderList(stream_id, header_list);
+    return encoder_.EncodeHeaderList(stream_id, header_list, nullptr);
   }
 
  private:
@@ -369,7 +368,7 @@ class DecodingEndpoint : public DelayedHeaderBlockTransmitter::Visitor,
       expected_header_lists_.erase(it);
     }
 
-    auto verifying_decoder = QuicMakeUnique<VerifyingDecoder>(
+    auto verifying_decoder = std::make_unique<VerifyingDecoder>(
         stream_id, this, &decoder_, std::move(expected_header_list));
     auto result =
         verifying_decoders_.insert({stream_id, std::move(verifying_decoder)});

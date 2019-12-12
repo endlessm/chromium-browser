@@ -166,15 +166,14 @@ TEST_F(WireArgumentTests, CStringArgument) {
     pipelineDescriptor.vertexStage.module = vsModule;
     pipelineDescriptor.vertexStage.entryPoint = "main";
 
-    DawnPipelineStageDescriptor fragmentStage;
+    DawnProgrammableStageDescriptor fragmentStage;
     fragmentStage.nextInChain = nullptr;
     fragmentStage.module = vsModule;
     fragmentStage.entryPoint = "main";
     pipelineDescriptor.fragmentStage = &fragmentStage;
 
     pipelineDescriptor.colorStateCount = 1;
-    DawnColorStateDescriptor* colorStatesPtr[] = {&colorStateDescriptor};
-    pipelineDescriptor.colorStates = colorStatesPtr;
+    pipelineDescriptor.colorStates = &colorStateDescriptor;
 
     pipelineDescriptor.sampleCount = 1;
     pipelineDescriptor.sampleMask = 0xFFFFFFFF;
@@ -331,11 +330,12 @@ TEST_F(WireArgumentTests, StructureOfStructureArrayArgument) {
     static constexpr int NUM_BINDINGS = 3;
     DawnBindGroupLayoutBinding bindings[NUM_BINDINGS]{
         {0, DAWN_SHADER_STAGE_VERTEX, DAWN_BINDING_TYPE_SAMPLER, false, false,
-         DAWN_TEXTURE_COMPONENT_TYPE_FLOAT},
+         DAWN_TEXTURE_VIEW_DIMENSION_2D, DAWN_TEXTURE_COMPONENT_TYPE_FLOAT},
         {1, DAWN_SHADER_STAGE_VERTEX, DAWN_BINDING_TYPE_SAMPLED_TEXTURE, false, false,
-         DAWN_TEXTURE_COMPONENT_TYPE_FLOAT},
+         DAWN_TEXTURE_VIEW_DIMENSION_2D, DAWN_TEXTURE_COMPONENT_TYPE_FLOAT},
         {2, static_cast<DawnShaderStage>(DAWN_SHADER_STAGE_VERTEX | DAWN_SHADER_STAGE_FRAGMENT),
-         DAWN_BINDING_TYPE_UNIFORM_BUFFER, false, false, DAWN_TEXTURE_COMPONENT_TYPE_FLOAT},
+         DAWN_BINDING_TYPE_UNIFORM_BUFFER, false, false, DAWN_TEXTURE_VIEW_DIMENSION_2D,
+         DAWN_TEXTURE_COMPONENT_TYPE_FLOAT},
     };
     DawnBindGroupLayoutDescriptor bglDescriptor;
     bglDescriptor.bindingCount = NUM_BINDINGS;

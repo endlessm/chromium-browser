@@ -23,7 +23,6 @@ import collections
 import ctypes
 import multiprocessing
 import os
-import tempfile
 
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
@@ -91,9 +90,9 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
 
   def _DumpIt(cmd_args):
     if needs_sudo:
-      run_command = cros_build_lib.SudoRunCommand
+      run_command = cros_build_lib.sudo_run
     else:
-      run_command = cros_build_lib.RunCommand
+      run_command = cros_build_lib.run
     return run_command(
         cmd_base + cmd_args, redirect_stderr=True, log_stdout_to_file=temp.name,
         error_code_ok=True, debug_level=logging.DEBUG)
@@ -105,7 +104,7 @@ def GenerateBreakpadSymbol(elf_file, debug_file=None, breakpad_dir=None,
                       signals.StrSignal(-ret), msg)
 
   osutils.SafeMakedirs(breakpad_dir)
-  with tempfile.NamedTemporaryFile(dir=breakpad_dir, bufsize=0) as temp:
+  with cros_build_lib.UnbufferedNamedTemporaryFile(dir=breakpad_dir) as temp:
     if debug_file:
       # Try to dump the symbols using the debug file like normal.
       cmd_args = [elf_file, os.path.dirname(debug_file)]
@@ -195,8 +194,7 @@ def GenerateBreakpadSymbols(board, breakpad_dir=None, strip_cfi=False,
   # Make sure non-root can write out symbols as needed.
   osutils.SafeMakedirs(breakpad_dir, sudo=True)
   if not os.access(breakpad_dir, os.W_OK):
-    cros_build_lib.SudoRunCommand(['chown', '-R', str(os.getuid()),
-                                   breakpad_dir])
+    cros_build_lib.sudo_run(['chown', '-R', str(os.getuid()), breakpad_dir])
   debug_dir = FindDebugDir(board, sysroot=sysroot)
   exclude_paths = [os.path.join(debug_dir, x) for x in exclude_dirs]
   if file_list is None:

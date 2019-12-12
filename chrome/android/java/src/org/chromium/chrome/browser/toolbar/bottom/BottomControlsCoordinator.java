@@ -4,11 +4,13 @@
 
 package org.chromium.chrome.browser.toolbar.bottom;
 
-import android.support.annotation.Nullable;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.View.OnLongClickListener;
 import android.view.ViewGroup;
 import android.view.ViewStub;
+
+import androidx.annotation.Nullable;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ActivityTabProvider;
@@ -69,6 +71,7 @@ public class BottomControlsCoordinator {
     public BottomControlsCoordinator(ChromeFullscreenManager fullscreenManager, ViewStub stub,
             ActivityTabProvider tabProvider, OnClickListener homeButtonListener,
             OnClickListener searchAcceleratorListener, OnClickListener shareButtonListener,
+            OnLongClickListener tabSwitcherLongClickListener,
             ThemeColorProvider themeColorProvider) {
         final ScrollingBottomViewResourceFrameLayout root =
                 (ScrollingBottomViewResourceFrameLayout) stub.inflate();
@@ -97,13 +100,16 @@ public class BottomControlsCoordinator {
                 root.getResources().getDimensionPixelOffset(bottomToolbarHeightWithShadowId));
 
         if (TabManagementModuleProvider.getDelegate() != null
-                && FeatureUtilities.isTabGroupsAndroidEnabled()) {
+                && FeatureUtilities.isTabGroupsAndroidEnabled()
+                && !(FeatureUtilities.isDuetTabStripIntegrationAndroidEnabled()
+                && FeatureUtilities.isBottomToolbarEnabled())) {
             mTabGroupUi = TabManagementModuleProvider.getDelegate().createTabGroupUi(
                     root.findViewById(R.id.bottom_container_slot), themeColorProvider);
         } else {
             mBottomToolbarCoordinator = new BottomToolbarCoordinator(
                     root.findViewById(R.id.bottom_toolbar_stub), tabProvider, homeButtonListener,
-                    searchAcceleratorListener, shareButtonListener, themeColorProvider);
+                    searchAcceleratorListener, shareButtonListener, tabSwitcherLongClickListener,
+                    themeColorProvider);
         }
     }
 

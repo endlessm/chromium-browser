@@ -27,13 +27,13 @@ std::string ExtractGNBuildCommands(const base::FilePath& build_ninja_file) {
   if (!base::ReadFileToString(build_ninja_file, &file_contents))
     return std::string();
 
-  std::vector<base::StringPiece> lines = base::SplitStringPiece(
+  std::vector<std::string_view> lines = base::SplitStringPiece(
       file_contents, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
 
   std::string result;
   int num_blank_lines = 0;
   for (const auto& line : lines) {
-    line.AppendToString(&result);
+    result.append(line);
     result.push_back('\n');
     if (line.empty())
       ++num_blank_lines;

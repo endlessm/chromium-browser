@@ -9,9 +9,12 @@ from __future__ import print_function
 
 from datetime import datetime, date
 
+# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
+# pylint: disable=no-name-in-module
 from google.protobuf import field_mask_pb2
 from google.protobuf.struct_pb2 import Struct, Value
 from google.protobuf.timestamp_pb2 import Timestamp
+# pylint: enable=no-name-in-module
 
 from chromite.lib import buildbucket_v2
 from chromite.lib import constants
@@ -138,7 +141,7 @@ class BuildbucketV2Test(cros_test_lib.MockTestCase):
         'milestone_version': '74',
         'full_version': 'R74-11721.0.0-b3457724',
         'important': 1,
-        'buildbucket_id': 1234L,
+        'buildbucket_id': 1234,
         'summary': None,
         'master_build_id': 4321,
         'bot_hostname': 'swarm-cros-34',

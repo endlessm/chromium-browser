@@ -98,16 +98,16 @@ std::string GetWindowsKitsIncludeDirs(const std::string& win_kit) {
   std::string kits_path;
 
 #if defined(OS_WIN)
-  const base::char16* const subkeys[] = {
-      L"SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots",
-      L"SOFTWARE\\Wow6432Node\\Microsoft\\Windows Kits\\Installed Roots"};
+  const char16_t* const subkeys[] = {
+      u"SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots",
+      u"SOFTWARE\\Wow6432Node\\Microsoft\\Windows Kits\\Installed Roots"};
 
-  base::string16 value_name =
+  std::u16string value_name =
       base::ASCIIToUTF16("KitsRoot") + base::ASCIIToUTF16(kWindowsKitsVersion);
 
-  for (const base::char16* subkey : subkeys) {
+  for (const char16_t* subkey : subkeys) {
     base::win::RegKey key(HKEY_LOCAL_MACHINE, subkey, KEY_READ);
-    base::string16 value;
+    std::u16string value;
     if (key.ReadValue(value_name.c_str(), &value) == ERROR_SUCCESS) {
       kits_path = base::UTF16ToUTF8(value);
       break;
@@ -175,13 +175,13 @@ void ParseLinkerOptions(const Target* target, LinkerOptions* options) {
 // Returns a string piece pointing into the input string identifying the parent
 // directory path, excluding the last slash. Note that the input pointer must
 // outlive the output.
-base::StringPiece FindParentDir(const std::string* path) {
+std::string_view FindParentDir(const std::string* path) {
   DCHECK(path && !path->empty());
   for (int i = static_cast<int>(path->size()) - 2; i >= 0; --i) {
     if (IsSlash((*path)[i]))
-      return base::StringPiece(path->data(), i);
+      return std::string_view(path->data(), i);
   }
-  return base::StringPiece();
+  return std::string_view();
 }
 
 bool FilterTargets(const BuildSettings* build_settings,
@@ -697,10 +697,10 @@ void VisualStudioWriter::WriteFiltersFileContents(
       filter_path_output.WriteFile(target_relative_out, *file_and_type.file);
       std::string target_relative_path = target_relative_out.str();
       ConvertPathToSystem(&target_relative_path);
-      base::StringPiece filter_path = FindParentDir(&target_relative_path);
+      std::string_view filter_path = FindParentDir(&target_relative_path);
 
       if (!filter_path.empty()) {
-        std::string filter_path_str = filter_path.as_string();
+        std::string filter_path_str(filter_path);
         while (processed_filters.find(filter_path_str) ==
                processed_filters.end()) {
           auto it = processed_filters.insert(filter_path_str).first;
@@ -708,7 +708,7 @@ void VisualStudioWriter::WriteFiltersFileContents(
               ->SubElement("Filter", XmlAttributes("Include", filter_path_str))
               ->SubElement("UniqueIdentifier")
               ->Text(MakeGuid(filter_path_str, kGuidSeedFilter));
-          filter_path_str = FindParentDir(&(*it)).as_string();
+          filter_path_str = std::string(FindParentDir(&(*it)));
           if (filter_path_str.empty())
             break;
         }
@@ -806,18 +806,19 @@ void VisualStudioWriter::ResolveSolutionFolders() {
   root_folder_path_.clear();
 
   // Get all project directories. Create solution folder for each directory.
-  std::map<base::StringPiece, SolutionEntry*> processed_paths;
+  std::map<std::string_view, SolutionEntry*> processed_paths;
   for (const std::unique_ptr<SolutionProject>& project : projects_) {
-    base::StringPiece folder_path = project->label_dir_path;
+    std::string_view folder_path = project->label_dir_path;
     if (IsSlash(folder_path[folder_path.size() - 1]))
       folder_path = folder_path.substr(0, folder_path.size() - 1);
     auto it = processed_paths.find(folder_path);
     if (it != processed_paths.end()) {
       project->parent_folder = it->second;
     } else {
-      std::string folder_path_str = folder_path.as_string();
+      std::string folder_path_str(folder_path);
       std::unique_ptr<SolutionEntry> folder = std::make_unique<SolutionEntry>(
-          FindLastDirComponent(SourceDir(std::string(folder_path))).as_string(),
+          std::string(
+              FindLastDirComponent(SourceDir(std::string(folder_path)))),
           folder_path_str, MakeGuid(folder_path_str, kGuidSeedFolder));
       project->parent_folder = folder.get();
       processed_paths[folder_path] = folder.get();
@@ -855,7 +856,7 @@ void VisualStudioWriter::ResolveSolutionFolders() {
       continue;
 
     SolutionEntry* folder = solution_folder.get();
-    base::StringPiece parent_path;
+    std::string_view parent_path;
     while ((parent_path = FindParentDir(&folder->path)) != root_folder_path_) {
       auto it = processed_paths.find(parent_path);
       if (it != processed_paths.end()) {
@@ -863,10 +864,10 @@ void VisualStudioWriter::ResolveSolutionFolders() {
       } else {
         std::unique_ptr<SolutionEntry> new_folder =
             std::make_unique<SolutionEntry>(
-                FindLastDirComponent(SourceDir(std::string(parent_path)))
-                    .as_string(),
-                parent_path.as_string(),
-                MakeGuid(parent_path.as_string(), kGuidSeedFolder));
+                std::string(
+                    FindLastDirComponent(SourceDir(std::string(parent_path)))),
+                std::string(parent_path),
+                MakeGuid(std::string(parent_path), kGuidSeedFolder));
         processed_paths[parent_path] = new_folder.get();
         folder = new_folder.get();
         additional_folders.push_back(std::move(new_folder));

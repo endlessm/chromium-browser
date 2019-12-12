@@ -175,6 +175,7 @@ def int_amdgcn_implicit_buffer_ptr :
 
 // Set EXEC to the 64-bit value given.
 // This is always moved to the beginning of the basic block.
+// FIXME: Should be mangled for wave size.
 def int_amdgcn_init_exec : Intrinsic<[],
   [llvm_i64_ty],      // 64-bit literal constant
   [IntrConvergent, ImmArg<0>]>;
@@ -185,7 +186,7 @@ def int_amdgcn_init_exec : Intrinsic<[],
 def int_amdgcn_init_exec_from_input : Intrinsic<[],
   [llvm_i32_ty,       // 32-bit SGPR input
    llvm_i32_ty],      // bit offset of the thread count
-  [IntrConvergent]>;
+  [IntrConvergent, ImmArg<1>]>;
 
 def int_amdgcn_wavefrontsize :
   GCCBuiltin<"__builtin_amdgcn_wavefrontsize">,

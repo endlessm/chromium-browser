@@ -25,7 +25,7 @@ def _FindSourceRoot():
 SOURCE_ROOT = _FindSourceRoot()
 CHROOT_SOURCE_ROOT = '/mnt/host/source'
 CHROOT_CACHE_ROOT = '/var/cache/chromeos-cache'
-DEPOT_TOOLS_SUBPATH = 'chromium/tools/depot_tools'
+DEPOT_TOOLS_SUBPATH = 'src/chromium/depot_tools'
 
 CROSUTILS_DIR = os.path.join(SOURCE_ROOT, 'src/scripts')
 CHROMITE_DIR = os.path.realpath(os.path.join(
@@ -63,7 +63,9 @@ SDK_OVERLAYS_OUTPUT = 'tmp/sdk-overlays'
 
 AUTOTEST_BUILD_PATH = 'usr/local/build/autotest'
 UNITTEST_PKG_PATH = 'test-packages'
-GUEST_IMAGES_PINS_PATH = 'opt/google/containers/pins'
+
+# Only used for testing pinned images on test images.
+GUEST_IMAGES_PINS_PATH = 'usr/local/opt/google/containers/pins'
 PIN_KEY_FILENAME = 'filename'
 PIN_KEY_GSURI = 'gsuri'
 
@@ -658,16 +660,14 @@ VALID_BUILD_TYPES = (
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
     # Betty is the designated board to run vmtest on N.
-    # betty-arcnext is disabled pending https://crbug.com/977232
+    # betty-arcnext is disabled pending decreasing its runtime
     # 'betty-arcnext-pre-cq',           # vm board    arcnext
-    # betty is disabled due to https://crbug.com/984316
-    # 'betty-pre-cq',                   # vm board    vmtest
+    'betty-pre-cq',                   # vm board    vmtest
     'eve-no-vmtest-pre-cq',           # kabylake    cheets_64 vulkan(Intel)
     'fizz-no-vmtest-pre-cq',          # kabylake
     'grunt-no-vmtest-pre-cq',         # stoneyridge vulkan(AMD)
     'kevin-arcnext-no-vmtest-pre-cq', # arm64       arcnext
     'lakitu-no-vmtest-pre-cq',        # container
-    'nyan_blaze-no-vmtest-pre-cq',    # arm32
     'whirlwind-no-vmtest-pre-cq',     # brillo
 ]
 
@@ -742,7 +742,6 @@ HWTEST_MOBLAB_SUITE = 'moblab'
 HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
 HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
-HWTEST_PROVISION_SUITE = 'provision'
 HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
 HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
 # Non-blocking informational hardware tests for Chrome, run throughout the
@@ -840,21 +839,26 @@ JOB_KEYVAL_BRANCH = 'branch'
 # How many total test retries should be done for a suite.
 VM_TEST_MAX_RETRIES = 5
 # Defines VM Test types.
-FULL_AU_TEST_TYPE = 'full_suite'
 SIMPLE_AU_TEST_TYPE = 'pfq_suite'
 VM_SUITE_TEST_TYPE = 'vm_suite'
 GCE_SUITE_TEST_TYPE = 'gce_suite'
 CROS_VM_TEST_TYPE = 'cros_vm_test'
 DEV_MODE_TEST_TYPE = 'dev_mode_test'
-VALID_VM_TEST_TYPES = [FULL_AU_TEST_TYPE, SIMPLE_AU_TEST_TYPE,
-                       VM_SUITE_TEST_TYPE, GCE_SUITE_TEST_TYPE,
-                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE]
+VALID_VM_TEST_TYPES = [
+    SIMPLE_AU_TEST_TYPE,
+    VM_SUITE_TEST_TYPE,
+    GCE_SUITE_TEST_TYPE,
+    CROS_VM_TEST_TYPE,
+    DEV_MODE_TEST_TYPE
+]
 VALID_GCE_TEST_SUITES = ['gce-smoke', 'gce-sanity']
 # MoblabVM tests are suites of tests used to validate a moblab image via
 # VMTests.
 MOBLAB_VM_SMOKE_TEST_TYPE = 'moblab_smoke_test'
 
 CHROMIUMOS_OVERLAY_DIR = 'src/third_party/chromiumos-overlay'
+PORTAGE_STABLE_OVERLAY_DIR = 'src/third_party/portage-stable'
+ECLASS_OVERLAY_DIR = 'src/third_party/eclass-overlay'
 CHROMEOS_PARTNER_OVERLAY_DIR = 'src/private-overlays/chromeos-partner-overlay/'
 PUBLIC_BINHOST_CONF_DIR = os.path.join(CHROMIUMOS_OVERLAY_DIR,
                                        'chromeos/binhost')
@@ -1056,7 +1060,7 @@ CQ = 'cq'
 PRE_CQ = 'pre-cq'
 
 # Environment variables that should be exposed to all children processes
-# invoked via cros_build_lib.RunCommand.
+# invoked via cros_build_lib.run.
 ENV_PASSTHRU = ('CROS_SUDO_KEEP_ALIVE', SHARED_CACHE_ENVVAR,
                 PARALLEL_EMERGE_STATUS_FILE_ENVVAR)
 
@@ -1154,6 +1158,8 @@ IMAGE_TYPE_NV_LP0_FIRMWARE = 'nv_lp0_firmware'
 IMAGE_TYPE_ACCESSORY_USBPD = 'accessory_usbpd'
 # Standalone accessory microcontroller firmware (e.g. wireless keyboard).
 IMAGE_TYPE_ACCESSORY_RWSIG = 'accessory_rwsig'
+# Cr50 Firmware.
+IMAGE_TYPE_CR50_FIRMWARE = 'cr50_firmware'
 
 IMAGE_TYPE_TO_NAME = {
     IMAGE_TYPE_BASE: BASE_IMAGE_BIN,
@@ -1183,10 +1189,9 @@ LAB_STATUS_URL = 'http://chromiumos-lab.appspot.com/current?format=json'
 GOLO_SMTP_SERVER = 'mail.golo.chromium.org'
 
 CHROME_GARDENER = 'chrome'
-# URL to retrieve gardener names from the waterfall.
-CHROME_GARDENER_URL = (
-    'https://rota-ng.appspot.com/legacy/sheriff_cr_cros_gardeners.json'
-)
+# Email alias to add as reviewer in Gerrit, which GWSQ will then automatically
+# assign to the current gardener.
+CHROME_GARDENER_REVIEW_EMAIL = 'chrome-os-gardeners@google.com'
 
 # Useful config targets.
 CQ_MASTER = 'master-paladin'
@@ -1220,7 +1225,7 @@ EXTRA_BUCKETS_FILES_BLACKLIST = [
 
 # AFDO common constants.
 # How long does the AFDO_record autotest have to generate the AFDO perf data.
-AFDO_GENERATE_TIMEOUT = 100 * 60
+AFDO_GENERATE_TIMEOUT = 120 * 60
 
 # Manual Uprev PFQ constants.
 STAGING_PFQ_BRANCH_PREFIX = 'staging_pfq_branch_'
@@ -1269,10 +1274,6 @@ SELF_DESTRUCTED_BUILD = 'self_destructed_build'
 # Metadata key to indicate whether a build is self-destructed with success.
 SELF_DESTRUCTED_WITH_SUCCESS_BUILD = 'self_destructed_with_success_build'
 
-# The path to update_payload in the update_engine.
-UPDATE_ENGINE_SCRIPTS_PATH = os.path.join(SOURCE_ROOT, 'src', 'aosp', 'system',
-                                          'update_engine', 'scripts')
-
 # Chroot snapshot names
 CHROOT_SNAPSHOT_CLEAN = 'clean-chroot'
 
@@ -1304,3 +1305,6 @@ TOPOLOGY_DICT = {
     '/swarming_proxy/host':
         'chromeos-proxy.appspot.com',
 }
+
+# Percentage of child builders that need to complete to update LKGM
+LKGM_THRESHOLD = 80

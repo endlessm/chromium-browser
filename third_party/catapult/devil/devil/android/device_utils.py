@@ -42,7 +42,6 @@ from devil.android import md5sum
 from devil.android.sdk import adb_wrapper
 from devil.android.sdk import intent
 from devil.android.sdk import keyevent
-from devil.android.sdk import split_select
 from devil.android.sdk import version_codes
 from devil.utils import host_utils
 from devil.utils import parallelizer
@@ -656,6 +655,23 @@ class DeviceUtils(object):
     raise device_errors.CommandFailedError('Unable to fetch IMEI.')
 
   @decorators.WithTimeoutAndRetriesFromInstance()
+  def IsApplicationInstalled(self, package, timeout=None, retries=None):
+    """Determines whether a particular package is installed on the device.
+
+    Args:
+      package: Name of the package.
+
+    Returns:
+      True if the application is installed, False otherwise.
+    """
+    # `pm list packages` allows matching substrings, but we want exact matches
+    # only.
+    matching_packages = self.RunShellCommand(
+        ['pm', 'list', 'packages', package], check_return=True)
+    desired_line = 'package:' + package
+    return desired_line in matching_packages
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
   def GetApplicationPaths(self, package, timeout=None, retries=None):
     """Get the paths of the installed apks on the device for the given package.
 
@@ -888,11 +904,13 @@ class DeviceUtils(object):
       self.WaitUntilFullyBooted(wifi=wifi)
 
   INSTALL_DEFAULT_TIMEOUT = 8 * _DEFAULT_TIMEOUT
+  MODULES_SRC_DIRECTORY_PATH = '/data/local/tmp/modules'
 
   @decorators.WithTimeoutAndRetriesFromInstance(
       min_default_timeout=INSTALL_DEFAULT_TIMEOUT)
   def Install(self, apk, allow_downgrade=False, reinstall=False,
-              permissions=None, timeout=None, retries=None, modules=None):
+              permissions=None, timeout=None, retries=None, modules=None,
+              fake_modules=None):
     """Install an APK or app bundle.
 
     Noop if an identical APK is already installed. If installing a bundle, the
@@ -911,15 +929,71 @@ class DeviceUtils(object):
       retries: number of retries
       modules: An iterable containing specific bundle modules to install.
           Error if set and |apk| points to an APK instead of a bundle.
+      fake_modules: An iterable containing specific bundle modules that
+          should have their apks copied to |MODULES_SRC_DIRECTORY_PATH| rather
+          than installed. Thus the app can emulate SplitCompat while running.
+          This should not have any overlap with |modules|.
 
     Raises:
       CommandFailedError if the installation fails.
       CommandTimeoutError if the installation times out.
       DeviceUnreachableError on missing device.
     """
-    self._InstallInternal(apk, None, allow_downgrade=allow_downgrade,
-                          reinstall=reinstall, permissions=permissions,
-                          modules=modules)
+    apk = apk_helper.ToHelper(apk)
+    modules_set = set(modules or [])
+    fake_modules_set = set(fake_modules or [])
+    assert modules_set.isdisjoint(fake_modules_set), (
+        'These modules overlap: %s' % (modules_set & fake_modules_set))
+    all_modules = modules_set | fake_modules_set
+    with apk.GetApkPaths(self, modules=all_modules) as apk_paths:
+      fake_apk_paths = self._GetFakeInstallPaths(apk_paths, fake_modules)
+      apk_paths_to_install = [p for p in apk_paths if p not in fake_apk_paths]
+      self._FakeInstall(fake_apk_paths, fake_modules)
+      self._InstallInternal(
+          apk,
+          apk_paths_to_install,
+          allow_downgrade=allow_downgrade,
+          reinstall=reinstall,
+          permissions=permissions)
+
+  @staticmethod
+  def _GetFakeInstallPaths(apk_paths, fake_modules):
+    def IsFakeModulePath(path):
+      filename = os.path.basename(path)
+      return any(filename.startswith(f + '-') for f in fake_modules)
+
+    if not fake_modules:
+      return set()
+    return set(p for p in apk_paths if IsFakeModulePath(p))
+
+  def _FakeInstall(self, fake_apk_paths, fake_modules):
+    with tempfile_ext.NamedTemporaryDirectory() as modules_dir:
+      if not fake_modules:
+        # Push empty module dir to clear device dir and update the cache.
+        self.PushChangedFiles([(modules_dir, self.MODULES_SRC_DIRECTORY_PATH)],
+                              delete_device_stale=True)
+        return
+
+      still_need_master = set(fake_modules)
+      for path in fake_apk_paths:
+        filename = os.path.basename(path)
+        # Example names: base-en.apk, test_dummy-master.apk.
+        module_name, suffix = filename.split('-', 1)
+        if 'master' in suffix:
+          assert module_name in still_need_master, (
+              'Duplicate master apk file for %s' % module_name)
+          still_need_master.remove(module_name)
+          new_filename = '%s.apk' % module_name
+        else:
+          # |suffix| includes .apk extension.
+          new_filename = '%s.config.%s' % (module_name, suffix)
+        new_path = os.path.join(modules_dir, new_filename)
+        os.rename(path, new_path)
+
+      assert not still_need_master, (
+          'Missing master apk file for %s' % still_need_master)
+      self.PushChangedFiles([(modules_dir, self.MODULES_SRC_DIRECTORY_PATH)],
+                            delete_device_stale=True)
 
   @decorators.WithTimeoutAndRetriesFromInstance(
       min_default_timeout=INSTALL_DEFAULT_TIMEOUT)
@@ -948,73 +1022,57 @@ class DeviceUtils(object):
       DeviceUnreachableError on missing device.
       DeviceVersionError if device SDK is less than Android L.
     """
-    self._InstallInternal(base_apk, split_apks, reinstall=reinstall,
-                          allow_cached_props=allow_cached_props,
-                          permissions=permissions,
-                          allow_downgrade=allow_downgrade)
+    apk = apk_helper.ToSplitHelper(base_apk, split_apks)
+    with apk.GetApkPaths(
+        self, allow_cached_props=allow_cached_props) as apk_paths:
+      self._InstallInternal(
+          apk,
+          apk_paths,
+          reinstall=reinstall,
+          permissions=permissions,
+          allow_downgrade=allow_downgrade)
 
-  def _InstallInternal(self, base_apk, split_apks, allow_downgrade=False,
-                       reinstall=False, allow_cached_props=False,
-                       permissions=None, modules=None):
-    base_apk = apk_helper.ToHelper(base_apk)
-    if base_apk.is_bundle:
-      if split_apks:
-        raise device_errors.CommandFailedError(
-            'Attempted to install a bundle {} while specifying split apks'
-            .format(base_apk))
-      if allow_downgrade:
-        logging.warning('Installation of a bundle requested with '
-                        'allow_downgrade=False. This is not possible with '
-                        'bundletools, no downgrading is possible. This '
-                        'flag will be ignored and installation will proceed.')
-      # |allow_cached_props| is unused and ignored for bundles.
-      self._InstallBundleInternal(base_apk, permissions, modules)
-      return
+  def _InstallInternal(self,
+                       apk,
+                       apk_paths,
+                       allow_downgrade=False,
+                       reinstall=False,
+                       permissions=None):
+    if not apk_paths:
+      raise device_errors.CommandFailedError('Did not get any APKs to install')
 
-    if modules:
-      raise device_errors.CommandFailedError(
-          'Attempted to specify modules to install when providing an APK')
-
-    if split_apks:
+    if len(apk_paths) > 1:
       self._CheckSdkLevel(version_codes.LOLLIPOP)
 
-    all_apks = [base_apk.path]
-    if split_apks:
-      all_apks += split_select.SelectSplits(
-        self, base_apk.path, split_apks, allow_cached_props=allow_cached_props)
-      if len(all_apks) == 1:
-        logger.warning('split-select did not select any from %s', split_apks)
-
-    missing_apks = [apk for apk in all_apks if not os.path.exists(apk)]
+    missing_apks = [a for a in apk_paths if not os.path.exists(a)]
     if missing_apks:
       raise device_errors.CommandFailedError(
           'Attempted to install non-existent apks: %s'
               % pprint.pformat(missing_apks))
 
-    package_name = base_apk.GetPackageName()
+    package_name = apk.GetPackageName()
     device_apk_paths = self._GetApplicationPathsInternal(package_name)
 
-    apks_to_install = None
     host_checksums = None
     if not device_apk_paths:
-      apks_to_install = all_apks
-    elif len(device_apk_paths) > 1 and not split_apks:
+      apks_to_install = apk_paths
+    elif len(device_apk_paths) > 1 and len(apk_paths) == 1:
       logger.warning(
           'Installing non-split APK when split APK was previously installed')
-      apks_to_install = all_apks
-    elif len(device_apk_paths) == 1 and split_apks:
+      apks_to_install = apk_paths
+    elif len(device_apk_paths) == 1 and len(apk_paths) > 1:
       logger.warning(
           'Installing split APK when non-split APK was previously installed')
-      apks_to_install = all_apks
+      apks_to_install = apk_paths
     else:
       try:
         apks_to_install, host_checksums = (
-            self._ComputeStaleApks(package_name, all_apks))
+            self._ComputeStaleApks(package_name, apk_paths))
       except EnvironmentError as e:
         logger.warning('Error calculating md5: %s', e)
-        apks_to_install, host_checksums = all_apks, None
+        apks_to_install, host_checksums = apk_paths, None
       if apks_to_install and not reinstall:
-        apks_to_install = all_apks
+        apks_to_install = apk_paths
 
     if device_apk_paths and apks_to_install and not reinstall:
       self.Uninstall(package_name)
@@ -1023,14 +1081,16 @@ class DeviceUtils(object):
       # Assume that we won't know the resulting device state.
       self._cache['package_apk_paths'].pop(package_name, 0)
       self._cache['package_apk_checksums'].pop(package_name, 0)
-      if split_apks:
-        partial = package_name if len(apks_to_install) < len(all_apks) else None
+      partial = package_name if len(apks_to_install) < len(apk_paths) else None
+      if len(apks_to_install) > 1 or partial:
         self.adb.InstallMultiple(
             apks_to_install, partial=partial, reinstall=reinstall,
             allow_downgrade=allow_downgrade)
       else:
         self.adb.Install(
-            base_apk.path, reinstall=reinstall, allow_downgrade=allow_downgrade)
+            apks_to_install[0],
+            reinstall=reinstall,
+            allow_downgrade=allow_downgrade)
     else:
       # Running adb install terminates running instances of the app, so to be
       # consistent, we explicitly terminate it when skipping the install.
@@ -1038,25 +1098,12 @@ class DeviceUtils(object):
 
     if (permissions is None
         and self.build_version_sdk >= version_codes.MARSHMALLOW):
-      permissions = base_apk.GetPermissions()
+      permissions = apk.GetPermissions()
     self.GrantPermissions(package_name, permissions)
     # Upon success, we know the device checksums, but not their paths.
     if host_checksums is not None:
       self._cache['package_apk_checksums'][package_name] = host_checksums
 
-  def _InstallBundleInternal(self, bundle, permissions, modules):
-    cmd = [bundle.path, 'install', '--device', self.serial]
-    if modules:
-      for m in modules:
-        cmd.extend(['-m', m])
-    status = cmd_helper.RunCmd(cmd)
-    if status != 0:
-      raise device_errors.CommandFailedError('Cound not install {}'.format(
-          bundle.path))
-    if (permissions is None
-        and self.build_version_sdk >= version_codes.MARSHMALLOW):
-      permissions = bundle.GetPermissions()
-    self.GrantPermissions(bundle.GetPackageName(), permissions)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def Uninstall(self, package_name, keep_data=False, timeout=None,
@@ -2435,6 +2482,11 @@ class DeviceUtils(object):
     return self.GetProp('ro.product.cpu.abi', cache=True)
 
   @property
+  def product_cpu_abis(self):
+    """Returns all product cpu abi of the device."""
+    return self.GetProp('ro.product.cpu.abilist', cache=True).split(',')
+
+  @property
   def product_model(self):
     """Returns the name of the product model (e.g. 'Nexus 7')."""
     return self.GetProp('ro.product.model', cache=True)
@@ -2564,6 +2616,12 @@ class DeviceUtils(object):
       CommandTimeoutError on timeout.
     """
     return self.GetProp('ro.product.cpu.abi', cache=True)
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
+  def GetFeatures(self, timeout=None, retries=None):
+    """Returns the features supported on the device."""
+    lines = self.RunShellCommand(['pm', 'list', 'features'], check_return=True)
+    return [f[8:] for f in lines if f.startswith('feature:')]
 
   def _GetPsOutput(self, pattern):
     """Runs |ps| command on the device and returns its output,
@@ -2832,8 +2890,7 @@ class DeviceUtils(object):
       CommandTimeoutError on timeout.
       DeviceUnreachableError on missing device.
     """
-    installed = self.GetApplicationPaths(package_name)
-    if not installed:
+    if not self.IsApplicationInstalled(package_name):
       raise device_errors.CommandFailedError(
           '%s is not installed' % package_name, str(self))
     output = self.RunShellCommand(

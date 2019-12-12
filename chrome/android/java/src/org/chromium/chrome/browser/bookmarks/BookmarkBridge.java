@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.bookmarks;
 
 import android.os.SystemClock;
+import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.util.Pair;
 
@@ -16,9 +17,11 @@ import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksShim;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.url_formatter.UrlFormatter;
+import org.chromium.content_public.browser.WebContents;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +39,25 @@ public class BookmarkBridge {
             new ArrayList<DelayedBookmarkCallback>();
     private final ObserverList<BookmarkModelObserver> mObservers =
             new ObserverList<BookmarkModelObserver>();
+
+    /**
+     * @param tab Tab whose current URL is checked against.
+     * @return {@code true} if the current Tab URL has a bookmark associated with it.
+     */
+    public static boolean hasBookmarkIdForTab(Tab tab) {
+        if (tab.isFrozen()) return false;
+        return BookmarkBridgeJni.get().getBookmarkIdForWebContents(tab.getWebContents(), false)
+                != BookmarkId.INVALID_ID;
+    }
+
+    /**
+     * @param tab Tab whose current URL is checked against.
+     * @return ser-editable bookmark ID.
+     */
+    public static long getUserBookmarkIdForTab(Tab tab) {
+        if (tab.isFrozen()) return BookmarkId.INVALID_ID;
+        return BookmarkBridgeJni.get().getBookmarkIdForWebContents(tab.getWebContents(), true);
+    }
 
     /**
      * Interface for callback object for fetching bookmarks and folder hierarchy.
@@ -175,6 +197,7 @@ public class BookmarkBridge {
         private final BookmarkId mParentId;
         private final boolean mIsEditable;
         private final boolean mIsManaged;
+        private boolean mForceEditableForTesting;
 
         private BookmarkItem(BookmarkId id, String title, String url, boolean isFolder,
                 BookmarkId parentId, boolean isEditable, boolean isManaged) {
@@ -214,7 +237,7 @@ public class BookmarkBridge {
 
         /** @return Whether this bookmark can be edited. */
         public boolean isEditable() {
-            return mIsEditable;
+            return mForceEditableForTesting || mIsEditable;
         }
 
         /**@return Whether this bookmark's URL can be edited */
@@ -234,6 +257,11 @@ public class BookmarkBridge {
 
         public BookmarkId getId() {
             return mId;
+        }
+
+        // TODO(https://crbug.com/1019217): Remove when BookmarkModel is stubbed in tests instead.
+        void forceEditableForTesting() {
+            mForceEditableForTesting = true;
         }
     }
 
@@ -340,6 +368,7 @@ public class BookmarkBridge {
      * @return A BookmarkItem instance for the given BookmarkId.
      *         <code>null</code> if it doesn't exist.
      */
+    @Nullable
     public BookmarkItem getBookmarkById(BookmarkId id) {
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getBookmarkByID(
@@ -659,7 +688,7 @@ public class BookmarkBridge {
      * Add a new folder to the given parent folder
      *
      * @param parent Folder where to add. Must be a normal editable folder, instead of a partner
-     *               bookmark folder or a managed bookomark folder or root node of the entire
+     *               bookmark folder or a managed bookmark folder or root node of the entire
      *               bookmark model.
      * @param index The position to locate the new folder
      * @param title The title text of the new folder
@@ -679,7 +708,7 @@ public class BookmarkBridge {
      * Add a new bookmark to a specific position below parent
      *
      * @param parent Folder where to add. Must be a normal editable folder, instead of a partner
-     *               bookmark folder or a managed bookomark folder or root node of the entire
+     *               bookmark folder or a managed bookmark folder or root node of the entire
      *               bookmark model.
      * @param index The position where the bookmark will be placed in parent folder
      * @param title Title of the new bookmark. If empty, the URL will be used as the title.
@@ -733,7 +762,8 @@ public class BookmarkBridge {
     /**
      * Notifies the observer that bookmark model has been loaded.
      */
-    protected void notifyBookmarkModelLoaded() {
+    @VisibleForTesting
+    public void notifyBookmarkModelLoaded() {
         // Call isBookmarkModelLoaded() to do the check since it could be overridden by the child
         // class to add the addition logic.
         if (isBookmarkModelLoaded()) {
@@ -752,6 +782,13 @@ public class BookmarkBridge {
     public void reorderBookmarks(BookmarkId parent, long[] newOrder) {
         BookmarkBridgeJni.get().reorderChildren(
                 mNativeBookmarkBridge, BookmarkBridge.this, parent, newOrder);
+    }
+
+    @VisibleForTesting
+    BookmarkId getPartnerFolderId() {
+        assert mIsNativeBookmarkModelLoaded;
+        return BookmarkBridgeJni.get().getPartnerFolderId(
+                mNativeBookmarkBridge, BookmarkBridge.this);
     }
 
     @CalledByNative
@@ -926,6 +963,7 @@ public class BookmarkBridge {
 
     @NativeMethods
     interface Natives {
+        long getBookmarkIdForWebContents(WebContents webContents, boolean onlyEditable);
         BookmarkItem getBookmarkByID(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
         void getPermanentNodeIDs(
@@ -940,6 +978,7 @@ public class BookmarkBridge {
         BookmarkId getMobileFolderId(long nativeBookmarkBridge, BookmarkBridge caller);
         BookmarkId getOtherFolderId(long nativeBookmarkBridge, BookmarkBridge caller);
         BookmarkId getDesktopFolderId(long nativeBookmarkBridge, BookmarkBridge caller);
+        BookmarkId getPartnerFolderId(long nativeBookmarkBridge, BookmarkBridge caller);
         int getChildCount(long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
         void getChildIDs(long nativeBookmarkBridge, BookmarkBridge caller, long id, int type,
                 boolean getFolders, boolean getBookmarks, List<BookmarkId> bookmarksList);

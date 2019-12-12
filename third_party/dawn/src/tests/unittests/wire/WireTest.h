@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "gtest/gtest.h"
-#include "mock/mock_dawn.h"
+#include "dawn/mock_dawn.h"
 
 #include <memory>
 
@@ -64,6 +64,35 @@ class LambdaMatcherImpl : public testing::MatcherInterface<Arg> {
 template <typename Lambda>
 inline testing::Matcher<MatcherLambdaArgument<Lambda>> MatchesLambda(Lambda lambda) {
     return MakeMatcher(new LambdaMatcherImpl<Lambda, MatcherLambdaArgument<Lambda>>(lambda));
+}
+
+class StringMessageMatcher : public testing::MatcherInterface<const char*> {
+  public:
+    explicit StringMessageMatcher() {}
+
+    bool MatchAndExplain(const char* message, testing::MatchResultListener* listener) const override {
+        if (message == nullptr) {
+            *listener << "missing error message";
+            return false;
+        }
+        if (std::strlen(message) <= 1) {
+            *listener << "message is truncated";
+            return false;
+        }
+        return true;
+    }
+
+    void DescribeTo(std::ostream* os) const override {
+      *os << "valid error message";
+    }
+
+    void DescribeNegationTo(std::ostream* os) const override {
+      *os << "invalid error message";
+    }
+};
+
+inline testing::Matcher<const char*> ValidStringMessage() {
+    return MakeMatcher(new StringMessageMatcher());
 }
 
 namespace dawn_wire {

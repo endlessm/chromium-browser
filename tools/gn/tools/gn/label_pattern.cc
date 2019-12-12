@@ -53,11 +53,9 @@ LabelPattern::LabelPattern() : type_(MATCH) {}
 
 LabelPattern::LabelPattern(Type type,
                            const SourceDir& dir,
-                           const base::StringPiece& name,
+                           const std::string_view& name,
                            const Label& toolchain_label)
-    : toolchain_(toolchain_label), type_(type), dir_(dir) {
-  name.CopyToString(&name_);
-}
+    : toolchain_(toolchain_label), type_(type), dir_(dir), name_(name) {}
 
 LabelPattern::LabelPattern(const LabelPattern& other) = default;
 
@@ -70,7 +68,7 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
   if (!value.VerifyTypeIs(Value::STRING, err))
     return LabelPattern();
 
-  base::StringPiece str(value.string_value());
+  std::string_view str(value.string_value());
   if (str.empty()) {
     *err = Err(value, "Label pattern must not be empty.");
     return LabelPattern();
@@ -103,8 +101,8 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
       return LabelPattern();
     }
 
-    std::string toolchain_string =
-        str.substr(open_paren + 1, close_paren - open_paren - 1).as_string();
+    std::string toolchain_string(
+        str.substr(open_paren + 1, close_paren - open_paren - 1));
     if (toolchain_string.find('*') != std::string::npos) {
       *err = Err(value, "Can't have a wildcard in the toolchain.");
       return LabelPattern();
@@ -122,8 +120,8 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
   }
 
   // Extract path and name.
-  base::StringPiece path;
-  base::StringPiece name;
+  std::string_view path;
+  std::string_view name;
   size_t offset = 0;
 #if defined(OS_WIN)
   if (IsPathAbsolute(str)) {
@@ -138,7 +136,7 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
 #endif
   size_t colon = str.find(':', offset);
   if (colon == std::string::npos) {
-    path = base::StringPiece(str);
+    path = std::string_view(str);
   } else {
     path = str.substr(0, colon);
     name = str.substr(colon + 1);
@@ -175,7 +173,7 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
   // Resolve the part of the path that's not the wildcard.
   if (!path.empty()) {
     // The non-wildcard stuff better not have a wildcard.
-    if (path.find('*') != base::StringPiece::npos) {
+    if (path.find('*') != std::string_view::npos) {
       *err = Err(value, "Label patterns only support wildcard suffixes.",
                  "The pattern contained a '*' that wasn't at the end.");
       return LabelPattern();
@@ -209,7 +207,7 @@ LabelPattern LabelPattern::GetPattern(const SourceDir& current_dir,
   }
 
   // When we're doing wildcard matching, the name is always empty.
-  return LabelPattern(type, dir, base::StringPiece(), toolchain_label);
+  return LabelPattern(type, dir, std::string_view(), toolchain_label);
 }
 
 bool LabelPattern::HasWildcard(const std::string& str) {

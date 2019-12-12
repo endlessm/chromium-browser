@@ -27,12 +27,12 @@ class ClipSpaceTest : public DawnTest {
         // 2. The depth value of the bottom-right one is <= 0.5
         const char* vs =
             R"(#version 450
-            const vec3 pos[6] = vec3[6](vec3(-1.0f, -1.0f, 1.0f),
-                                    vec3(-1.0f,  1.0f, 0.5f),
-                                    vec3( 1.0f, -1.0f, 0.5f),
-                                    vec3( 1.0f, -1.0f, 0.5f),
-                                    vec3(-1.0f,  1.0f, 0.5f),
-                                    vec3( 1.0f,  1.0f, 0.0f));
+            const vec3 pos[6] = vec3[6](vec3(-1.0f,  1.0f, 1.0f),
+                                        vec3(-1.0f, -1.0f, 0.5f),
+                                        vec3( 1.0f,  1.0f, 0.5f),
+                                        vec3( 1.0f,  1.0f, 0.5f),
+                                        vec3(-1.0f, -1.0f, 0.5f),
+                                        vec3( 1.0f, -1.0f, 0.0f));
             void main() {
                 gl_Position = vec4(pos[gl_VertexIndex], 1.0);
             })";
@@ -78,8 +78,8 @@ TEST_P(ClipSpaceTest, ClipSpace) {
 
     utils::ComboRenderPassDescriptor renderPassDescriptor({colorTexture.CreateView()},
                                                           depthStencilTexture.CreateView());
-    renderPassDescriptor.cColorAttachmentsInfoPtr[0]->clearColor = {0.0, 1.0, 0.0, 1.0};
-    renderPassDescriptor.cColorAttachmentsInfoPtr[0]->loadOp = dawn::LoadOp::Clear;
+    renderPassDescriptor.cColorAttachments[0].clearColor = {0.0, 1.0, 0.0, 1.0};
+    renderPassDescriptor.cColorAttachments[0].loadOp = dawn::LoadOp::Clear;
 
     // Clear the depth stencil attachment to 0.5f, so only the bottom-right triangle should be
     // drawn.

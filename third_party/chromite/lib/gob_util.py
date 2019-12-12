@@ -10,21 +10,15 @@ https://gerrit-review.googlesource.com/Documentation/rest-api.html
 
 from __future__ import print_function
 
-import HTMLParser
 import base64
-import cookielib
 import datetime
-import httplib
 import json
 import netrc
 import os
 import re
 import socket
 import sys
-import urllib
-import urlparse
 import warnings
-from cStringIO import StringIO
 
 import httplib2
 try:
@@ -33,6 +27,11 @@ except ImportError:  # Newer oauth2client versions put it in .contrib
   # pylint: disable=import-error,no-name-in-module
   from oauth2client.contrib import gce
 import six
+from six.moves import html_parser as HTMLParser
+from six.moves import http_client as httplib
+from six.moves import http_cookiejar as cookielib
+from six.moves import StringIO
+from six.moves import urllib
 
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
@@ -140,15 +139,20 @@ GOB_ERROR_REASON_CLOSED_CHANGE = 'CLOSED CHANGE'
 
 class GOBError(Exception):
   """Exception class for errors commuicating with the gerrit-on-borg service."""
-  def __init__(self, *args, **kwargs):
-    super(GOBError, self).__init__(*args)
-    self.http_status = kwargs.pop('http_status', None)
-    self.reason = kwargs.pop('reason', None)
+  def __init__(self, http_status=None, reason=None):
+    self.http_status = http_status
+    self.reason = reason
 
-    if self.http_status is not None:
-      self.message += '(http_status): %d' % self.http_status
-    if self.reason is not None:
-      self.message += '(reason): %s' % self.reason
+    message = ''
+    if http_status is not None:
+      message += '(http_status): %d' % (http_status,)
+    if reason is not None:
+      message += '(reason): %s' % (reason,)
+    if not message:
+      message = 'Unknown error'
+
+    super(GOBError, self).__init__(message)
+
 
 class InternalGOBError(GOBError):
   """Exception class for GOB errors with status >= 500"""
@@ -159,7 +163,7 @@ def _QueryString(param_dict, first_param=None):
 
   https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#list-changes
   """
-  q = [urllib.quote(first_param)] if first_param else []
+  q = [urllib.parse.quote(first_param)] if first_param else []
   q.extend(['%s:%s' % (key, val) for key, val in param_dict.items()])
   return '+'.join(q)
 
@@ -218,7 +222,7 @@ def CreateHttpConn(host, path, reqtype='GET', headers=None, body=None):
     except httplib2.ServerNotFoundError as e:
       pass
 
-  if not 'Authorization' in headers:
+  if 'Authorization' not in headers:
     logging.debug('No netrc file or Appengine credentials found.')
   if 'Cookie' not in headers:
     cookies = GetCookies(host, path)
@@ -432,7 +436,7 @@ def MultiQueryChanges(host, param_dict, change_list, limit=None, o_params=None,
   if not change_list:
     raise RuntimeError(
         "MultiQueryChanges requires a list of change numbers/id's")
-  q = ['q=%s' % '+OR+'.join([urllib.quote(str(x)) for x in change_list])]
+  q = ['q=%s' % '+OR+'.join(urllib.parse.quote(str(x)) for x in change_list)]
   if param_dict:
     q.append(_QueryString(param_dict))
   if limit:
@@ -445,7 +449,7 @@ def MultiQueryChanges(host, param_dict, change_list, limit=None, o_params=None,
   try:
     result = FetchUrlJson(host, path, ignore_404=False)
   except GOBError as e:
-    msg = '%s:\n%s' % (e.message, path)
+    msg = '%s:\n%s' % (e, path)
     raise GOBError(http_status=e.http_status, reason=msg)
   return result
 
@@ -794,7 +798,7 @@ def ResetReviewLabels(host, change, label, value='0', revision=None,
 
 def GetTipOfTrunkRevision(git_url):
   """Returns the current git revision on the master branch."""
-  parsed_url = urlparse.urlparse(git_url)
+  parsed_url = urllib.parse.urlparse(git_url)
   path = parsed_url[2].rstrip('/') + '/+log/master?n=1&format=JSON'
   j = FetchUrlJson(parsed_url[1], path, ignore_404=False)
   if not j:
@@ -821,7 +825,7 @@ def GetCommitDate(git_url, commit):
   Returns:
     A datetime object.
   """
-  parsed_url = urlparse.urlparse(git_url)
+  parsed_url = urllib.parse.urlparse(git_url)
   path = '%s/+log/%s?n=1&format=JSON' % (parsed_url.path.rstrip('/'), commit)
   j = FetchUrlJson(parsed_url.netloc, path, ignore_404=False)
   if not j:

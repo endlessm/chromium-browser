@@ -3,7 +3,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Validation helpers for simple input validation in the API."""
+"""Validation helpers for simple input validation in the API.
+
+Note: Every validator MUST respect config.do_validation. This is an internally
+set config option that allows the mock call decorators to be placed before or
+after the validation decorators, rather than forcing an ordering that could then
+produce incorrect outputs if missed.
+"""
 
 from __future__ import print_function
 
@@ -13,7 +19,10 @@ import os
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 
+# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
+# pylint: disable=no-name-in-module
 from google.protobuf import message as protobuf_message
+# pylint: enable=no-name-in-module
 
 
 def _value(field, message):
@@ -35,12 +44,12 @@ def _value(field, message):
     try:
       value = getattr(value, part)
     except AttributeError as e:
-      cros_build_lib.Die('Invalid field: %s', e.message)
+      cros_build_lib.Die('Invalid field: %s', e)
 
   return value
 
 
-#pylint: disable=docstring-misnamed-args
+# pylint: disable=docstring-misnamed-args
 def exists(*fields):
   """Validate that the paths in |fields| exist.
 
@@ -52,15 +61,16 @@ def exists(*fields):
 
   def decorator(func):
     @functools.wraps(func)
-    def _exists(input_proto, *args, **kwargs):
-      for field in fields:
-        logging.debug('Validating %s exists.', field)
+    def _exists(input_proto, output_proto, config, *args, **kwargs):
+      if config.do_validation:
+        for field in fields:
+          logging.debug('Validating %s exists.', field)
 
-        value = _value(field, input_proto)
-        if not value or not os.path.exists(value):
-          cros_build_lib.Die('%s path does not exist: %s' % (field, value))
+          value = _value(field, input_proto)
+          if not value or not os.path.exists(value):
+            cros_build_lib.Die('%s path does not exist: %s' % (field, value))
 
-      return func(input_proto, *args, **kwargs)
+      return func(input_proto, output_proto, config, *args, **kwargs)
 
     return _exists
 
@@ -79,21 +89,22 @@ def is_in(field, values):
 
   def decorator(func):
     @functools.wraps(func)
-    def _is_in(input_proto, *args, **kwargs):
-      logging.debug('Validating %s is in %r', field, values)
-      value = _value(field, input_proto)
+    def _is_in(input_proto, output_proto, config, *args, **kwargs):
+      if config.do_validation:
+        logging.debug('Validating %s is in %r', field, values)
+        value = _value(field, input_proto)
 
-      if value not in values:
-        cros_build_lib.Die('%s (%r) must be in %r', field, value, values)
+        if value not in values:
+          cros_build_lib.Die('%s (%r) must be in %r', field, value, values)
 
-      return func(input_proto, *args, **kwargs)
+      return func(input_proto, output_proto, config, *args, **kwargs)
 
     return _is_in
 
   return decorator
 
 
-#pylint: disable=docstring-misnamed-args
+# pylint: disable=docstring-misnamed-args
 def require(*fields):
   """Verify |fields| have all been set.
 
@@ -104,15 +115,16 @@ def require(*fields):
 
   def decorator(func):
     @functools.wraps(func)
-    def _require(input_proto, *args, **kwargs):
-      for field in fields:
-        logging.debug('Validating %s is set.', field)
+    def _require(input_proto, output_proto, config, *args, **kwargs):
+      if config.do_validation:
+        for field in fields:
+          logging.debug('Validating %s is set.', field)
 
-        value = _value(field, input_proto)
-        if not value:
-          cros_build_lib.Die('%s is required.', field)
+          value = _value(field, input_proto)
+          if not value:
+            cros_build_lib.Die('%s is required.', field)
 
-      return func(input_proto, *args, **kwargs)
+      return func(input_proto, output_proto, config, *args, **kwargs)
 
     return _require
 

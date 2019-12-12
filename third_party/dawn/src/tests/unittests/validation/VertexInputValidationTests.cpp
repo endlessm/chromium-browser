@@ -37,7 +37,7 @@ class VertexInputTest : public ValidationTest {
         descriptor.vertexStage.module = vsModule;
         descriptor.cFragmentStage.module = fsModule;
         descriptor.vertexInput = &state;
-        descriptor.cColorStates[0]->format = dawn::TextureFormat::RGBA8Unorm;
+        descriptor.cColorStates[0].format = dawn::TextureFormat::RGBA8Unorm;
 
         if (!success) {
             ASSERT_DEVICE_ERROR(device.CreateRenderPipeline(&descriptor));
@@ -410,6 +410,30 @@ TEST_F(VertexInputTest, SetAttributeOffsetOutOfBounds) {
 
     // Test attribute offset out of bounds
     state.cAttributes[0].offset = kMaxVertexAttributeEnd - 1;
+    CreatePipeline(false, state, R"(
+        #version 450
+        void main() {
+            gl_Position = vec4(0.0);
+        }
+    )");
+}
+
+// Check multiple of 4 bytes constraint on offset
+TEST_F(VertexInputTest, SetOffsetNotAligned) {
+    // Control case, setting offset 4 bytes.
+    utils::ComboVertexInputDescriptor state;
+    state.bufferCount = 1;
+    state.cBuffers[0].attributeCount = 1;
+    state.cAttributes[0].offset = 4;
+    CreatePipeline(true, state, R"(
+        #version 450
+        void main() {
+            gl_Position = vec4(0.0);
+        }
+    )");
+
+    // Test offset not multiple of 4 bytes
+    state.cAttributes[0].offset = 2;
     CreatePipeline(false, state, R"(
         #version 450
         void main() {

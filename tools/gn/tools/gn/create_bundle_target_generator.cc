@@ -73,7 +73,7 @@ void CreateBundleTargetGenerator::DoRun() {
 
 bool CreateBundleTargetGenerator::FillBundleDir(
     const SourceDir& bundle_root_dir,
-    const base::StringPiece& name,
+    const std::string_view& name,
     SourceDir* bundle_dir) {
   // All bundle_foo_dir properties are optional. They are only required if they
   // are used in an expansion. The check is performed there.
@@ -125,7 +125,7 @@ bool CreateBundleTargetGenerator::FillXcodeExtraAttributes() {
       return false;
 
     xcode_extra_attributes.insert(
-        std::make_pair(iter.first.as_string(), iter.second.string_value()));
+        std::make_pair(std::string(iter.first), iter.second.string_value()));
   }
 
   target_->bundle_data().xcode_extra_attributes() =

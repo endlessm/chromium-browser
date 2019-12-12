@@ -134,7 +134,7 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
     setLoadExtAction(ISD::EXTLOAD, VT, MVT::i32, Expand);
   }
 
-  for (MVT VT : MVT::integer_vector_valuetypes()) {
+  for (MVT VT : MVT::integer_fixedlen_vector_valuetypes()) {
     setLoadExtAction(ISD::EXTLOAD, VT, MVT::v2i8, Expand);
     setLoadExtAction(ISD::SEXTLOAD, VT, MVT::v2i8, Expand);
     setLoadExtAction(ISD::ZEXTLOAD, VT, MVT::v2i8, Expand);
@@ -681,8 +681,9 @@ bool AMDGPUTargetLowering::isLoadBitCastBeneficial(EVT LoadTy, EVT CastTy,
     return false;
 
   bool Fast = false;
-  return allowsMemoryAccess(*DAG.getContext(), DAG.getDataLayout(), CastTy,
-                            MMO, &Fast) && Fast;
+  return allowsMemoryAccessForAlignment(*DAG.getContext(), DAG.getDataLayout(),
+                                        CastTy, MMO, &Fast) &&
+         Fast;
 }
 
 // SI+ has instructions for cttz / ctlz for 32-bit values. This is probably also
@@ -718,9 +719,8 @@ bool AMDGPUTargetLowering::isSDNodeAlwaysUniform(const SDNode * N) const {
     break;
     case ISD::LOAD:
     {
-      const LoadSDNode * L = dyn_cast<LoadSDNode>(N);
-      if (L->getMemOperand()->getAddrSpace()
-      == AMDGPUAS::CONSTANT_ADDRESS_32BIT)
+      if (cast<LoadSDNode>(N)->getMemOperand()->getAddrSpace() ==
+          AMDGPUAS::CONSTANT_ADDRESS_32BIT)
         return true;
       return false;
     }
@@ -1172,7 +1172,7 @@ void AMDGPUTargetLowering::ReplaceNodeResults(SDNode *N,
   }
 }
 
-static bool hasDefinedInitializer(const GlobalValue *GV) {
+bool AMDGPUTargetLowering::hasDefinedInitializer(const GlobalValue *GV) {
   const GlobalVariable *GVar = dyn_cast<GlobalVariable>(GV);
   if (!GVar || !GVar->hasInitializer())
     return false;
@@ -4351,8 +4351,6 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(KILL)
   NODE_NAME_CASE(DUMMY_CHAIN)
   case AMDGPUISD::FIRST_MEM_OPCODE_NUMBER: break;
-  NODE_NAME_CASE(INIT_EXEC)
-  NODE_NAME_CASE(INIT_EXEC_FROM_INPUT)
   NODE_NAME_CASE(INTERP_MOV)
   NODE_NAME_CASE(INTERP_P1)
   NODE_NAME_CASE(INTERP_P2)

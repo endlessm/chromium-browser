@@ -187,6 +187,12 @@ class LLVMVectorElementType<int num> : LLVMMatchType<num>;
 // vector type, but change the element count to be half as many
 class LLVMHalfElementsVectorType<int num> : LLVMMatchType<num>;
 
+// Match the type of another intrinsic parameter that is expected to be a
+// vector type (i.e. <N x iM>) but with each element subdivided to
+// form a vector with more elements that are smaller than the original.
+class LLVMSubdivide2VectorType<int num> : LLVMMatchType<num>;
+class LLVMSubdivide4VectorType<int num> : LLVMMatchType<num>;
+
 def llvm_void_ty       : LLVMType<isVoid>;
 let isAny = 1 in {
   def llvm_any_ty        : LLVMType<Any>;
@@ -895,6 +901,9 @@ def int_umul_fix : Intrinsic<[llvm_anyint_ty],
 def int_smul_fix_sat : Intrinsic<[llvm_anyint_ty],
                                  [LLVMMatchType<0>, LLVMMatchType<0>, llvm_i32_ty],
                                  [IntrNoMem, IntrSpeculatable, IntrWillReturn, Commutative, ImmArg<2>]>;
+def int_umul_fix_sat : Intrinsic<[llvm_anyint_ty],
+                                 [LLVMMatchType<0>, LLVMMatchType<0>, llvm_i32_ty],
+                                 [IntrNoMem, IntrSpeculatable, IntrWillReturn, Commutative, ImmArg<2>]>;
 
 //===------------------------- Memory Use Markers -------------------------===//
 //
@@ -1126,6 +1135,8 @@ def int_load_relative: Intrinsic<[llvm_ptr_ty], [llvm_ptr_ty, llvm_anyint_ty],
                                  [IntrReadMem, IntrArgMemOnly]>;
 
 def int_hwasan_check_memaccess :
+  Intrinsic<[], [llvm_ptr_ty, llvm_ptr_ty, llvm_i32_ty], [IntrInaccessibleMemOnly, ImmArg<2>]>;
+def int_hwasan_check_memaccess_shortgranules :
   Intrinsic<[], [llvm_ptr_ty, llvm_ptr_ty, llvm_i32_ty], [IntrInaccessibleMemOnly, ImmArg<2>]>;
 
 // Xray intrinsics

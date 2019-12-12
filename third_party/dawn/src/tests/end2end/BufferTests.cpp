@@ -217,6 +217,9 @@ TEST_P(BufferSetSubDataTests, ManySetSubData) {
 
     // TODO (jiawei.shao@intel.com): find out why this test fails on Intel Vulkan Linux bots.
     DAWN_SKIP_TEST_IF(IsIntel() && IsVulkan() && IsLinux());
+    // TODO(https://bugs.chromium.org/p/dawn/issues/detail?id=228): Re-enable
+    // once the issue with Metal on 10.14.6 is fixed.
+    DAWN_SKIP_TEST_IF(IsMacOS() && IsIntel() && IsMetal());
 
     constexpr uint64_t kSize = 4000 * 1000;
     constexpr uint32_t kElements = 500 * 500;
@@ -625,6 +628,22 @@ TEST_P(CreateBufferMappedTests, CreateThenMapBeforeUnmapFailureAsync) {
     // CreateBufferMappedAsync is unaffected by the MapWrite error.
     result.buffer.Unmap();
     EXPECT_BUFFER_U32_EQ(myData, result.buffer, 0);
+}
+
+// Test that creating a very large buffers fails gracefully.
+TEST_P(CreateBufferMappedTests, LargeBufferFails) {
+    // TODO(http://crbug.com/dawn/27): Missing support.
+    DAWN_SKIP_TEST_IF(IsMetal() || IsOpenGL());
+
+    // TODO(http://crbug.com/dawn/241): Fails on NVIDIA cards when Vulkan validation layers are
+    // enabled becuase the maximum size of a single allocation cannot be larger than or equal to
+    // 4G on some platforms.
+    DAWN_SKIP_TEST_IF(IsVulkan() && IsNvidia() && IsBackendValidationEnabled());
+
+    dawn::BufferDescriptor descriptor;
+    descriptor.size = std::numeric_limits<uint64_t>::max();
+    descriptor.usage = dawn::BufferUsage::MapRead | dawn::BufferUsage::CopyDst;
+    ASSERT_DEVICE_ERROR(device.CreateBuffer(&descriptor));
 }
 
 DAWN_INSTANTIATE_TEST(CreateBufferMappedTests,

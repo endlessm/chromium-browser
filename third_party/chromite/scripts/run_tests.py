@@ -14,6 +14,7 @@ You can add a .testignore file to a dir to disable scanning it.
 from __future__ import print_function
 
 import errno
+import glob
 import json
 import multiprocessing
 import os
@@ -86,7 +87,7 @@ SPECIAL_TESTS = {
     'scripts/cros_extract_deps_unittest': INSIDE,
     'scripts/cros_generate_update_payload_unittest': INSIDE,
     'scripts/cros_mark_android_as_stable_unittest': INSIDE,
-    'scripts/cros_oobe_autoconfig_unittest': INSIDE,
+    'scripts/cros_oobe_autoconfig_unittest': SKIP, # https://crbug.com/1000761
     'scripts/cros_install_debug_syms_unittest': INSIDE,
     'scripts/cros_list_modified_packages_unittest': INSIDE,
     'scripts/cros_mark_as_stable_unittest': INSIDE,
@@ -116,7 +117,7 @@ SPECIAL_TESTS = {
 
     # Tests that take >2 minutes to run.  All the slow tests are
     # disabled atm though ...
-    #'scripts/cros_portage_upgrade_unittest': SKIP,
+    # 'scripts/cros_portage_upgrade_unittest': SKIP,
 }
 
 SLOW_TESTS = {
@@ -134,12 +135,142 @@ SLOW_TESTS = {
     'cli/cros/cros_branch_unittest': SKIP,
 }
 
+# These are tests that are safe to run under Python 3 too.  Add to this list to
+# prevent regressions with Python 3.
+PYTHON3_TESTS = {
+    'api/api_config_unittest',
+    'api/controller/api_unittest',
+    'api/controller/artifacts_unittest',
+    'api/controller/binhost_unittest',
+    'api/controller/controller_util_unittest',
+    'api/controller/dependency_unittest',
+    'api/controller/image_unittest',
+    'api/controller/sdk_unittest',
+    'api/controller/sysroot_unittest',
+    'api/controller/test_unittest',
+    'api/controller/toolchain_unittest',
+    'api/faux_unittest',
+    'api/field_handler_unittest',
+    'api/metrics_unittest',
+    'api/proto_compiled_unittest',
+    'api/router_unittest',
+    'api/validate_unittest',
+    'cbuildbot/goma_util_unittest',
+    'cbuildbot/swarming_lib_unittest',
+    'cbuildbot/topology_unittest',
+    'cli/cros/cros_bisect_unittest',
+    'cli/cros/cros_build_unittest',
+    'cli/cros/cros_chroot_unittest',
+    'cli/cros/cros_debug_unittest',
+    'cli/cros/cros_deploy_unittest',
+    'cli/cros/cros_flash_unittest',
+    'cli/cros/cros_stage_unittest',
+    'cli/cros/cros_tryjob_unittest',
+    'cli/cros/lint_autotest_unittest',
+    'cli/cros/lint_unittest',
+    'config/config_skew_unittest',
+    'cros_bisect/manual_evaluator_unittest',
+    'lib/accounts_lib_unittest',
+    'lib/androidbuild_unittest',
+    'lib/auth_unittest',
+    'lib/auto_update_util_unittest',
+    'lib/autotest_util_unittest',
+    'lib/boto_compat_unittest',
+    'lib/build_failure_message_unittest',
+    'lib/build_summary_unittest',
+    'lib/build_target_util_unittest',
+    'lib/buildbot_annotations_unittest',
+    'lib/buildbucket_lib_unittest',
+    'lib/chrome_committer_unittest',
+    'lib/chrome_util_unittest',
+    'lib/chroot_lib_unittest',
+    'lib/chroot_util_unittest',
+    'lib/cipd_unittest',
+    'lib/cl_messages_unittest',
+    'lib/commandline_unittest',
+    'lib/cq_config_unittest',
+    'lib/cros_build_lib_unittest',
+    'lib/cros_collections_unittest',
+    'lib/cros_event_unittest',
+    'lib/cros_import_unittest',
+    'lib/cros_logging_unittest',
+    'lib/cros_test_lib_unittest',
+    'lib/cts_helper_unittest',
+    'lib/factory_unittest',
+    'lib/failures_lib_unittest',
+    'lib/gce_unittest',
+    'lib/gclient_unittest',
+    'lib/hwtest_results_unittest',
+    'lib/iter_utils_unittest',
+    'lib/json_lib_unittest',
+    'lib/launch_control/processed_builds_unittest',
+    'lib/luci/net_unittest',
+    'lib/luci/utils_unittest',
+    'lib/moblab_vm_unittest',
+    'lib/namespaces_unittest',
+    'lib/nebraska_wrapper_unittest',
+    'lib/parseelf_unittest',
+    'lib/parser/elog_unittest',
+    'lib/partial_mock_unittest',
+    'lib/path_util_unittest',
+    'lib/paygen/download_cache_unittest',
+    'lib/paygen/gslock_unittest',
+    'lib/paygen/partition_lib_unittest',
+    'lib/paygen/paygen_payload_lib_unittest',
+    'lib/paygen/paygen_stateful_payload_lib_unittest',
+    'lib/paygen/urilib_unittest',
+    'lib/paygen/utils_unittest',
+    'lib/process_util_unittest',
+    'lib/prpc_unittest',
+    'lib/repo_util_unittest',
+    'lib/request_build_unittest',
+    'lib/retry_stats_unittest',
+    'lib/retry_util_unittest',
+    'lib/signing_unittest',
+    'lib/som_unittest',
+    'lib/table_unittest',
+    'lib/triage_lib_unittest',
+    'lib/upgrade_table_unittest',
+    'lib/uri_lib_unittest',
+    'lib/user_db_unittest',
+    'lib/vm_unittest',
+    'scripts/build_dlc_unittest',
+    'scripts/cros_extract_deps_unittest',
+    'scripts/cros_fuzz_unittest',
+    'scripts/cros_generate_android_breakpad_symbols_unittest',
+    'scripts/cros_generate_os_release_unittest',
+    'scripts/cros_generate_sysroot_unittest',
+    'scripts/cros_generate_update_payload_unittest',
+    'scripts/cros_install_debug_syms_unittest',
+    'scripts/cros_list_overlays_unittest',
+    'scripts/cros_run_unit_tests_unittest',
+    'scripts/cros_show_waterfall_layout_unittest',
+    'scripts/cros_unittest',
+    'scripts/gconv_strip_unittest',
+    'scripts/gen_luci_scheduler_unittest',
+    'scripts/security_test_image_unittest',
+    'scripts/trigger_cr50_signing_unittest',
+    'service/binhost_unittest',
+    'service/dependency_unittest',
+    'service/image_unittest',
+    'service/sdk_unittest',
+    'service/test_unittest',
+    'signing/bin/dump_image_config_unittest',
+    'signing/bin/sign_image_unittest',
+    'signing/bin/update_release_keys_unittest',
+    'utils/attrs_freezer_unittest',
+    'utils/key_value_store_unittest',
+    'utils/matching_unittest',
+    'utils/metrics_unittest',
+}
 
-def RunTest(test, cmd, tmpfile, finished, total):
+
+def RunTest(test, interp, cmd, tmpfile, finished, total):
   """Run |test| with the |cmd| line and save output to |tmpfile|.
 
   Args:
     test: The human readable name for this test.
+    interp: Which Python version to use.
     cmd: The full command line to run the test.
     tmpfile: File to write test output to.
     finished: Counter to update when this test finishes running.
@@ -148,10 +279,10 @@ def RunTest(test, cmd, tmpfile, finished, total):
   Returns:
     The exit code of the test.
   """
-  logging.info('Starting %s', test)
+  logging.info('Starting %s %s', interp, test)
 
   with cros_build_lib.TimedSection() as timer:
-    ret = cros_build_lib.RunCommand(
+    ret = cros_build_lib.run(
         cmd, capture_output=True, error_code_ok=True,
         combine_stdout_stderr=True, debug_level=logging.DEBUG,
         int_timeout=SIGINT_TIMEOUT)
@@ -164,7 +295,8 @@ def RunTest(test, cmd, tmpfile, finished, total):
     else:
       func = logging.info
       msg = 'Finished'
-    func('%s [%i/%i] %s (%s)', msg, finished.value, total, test, timer.delta)
+    func('%s [%i/%i] %s %s (%s)', msg, finished.value, total, interp, test,
+         timer.delta)
 
     # Save the timing for this test run for future usage.
     seconds = timer.delta.total_seconds()
@@ -248,7 +380,8 @@ def SortTests(tests, jobs=1, timing_cache_file=None):
   return ret
 
 
-def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1):
+def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1,
+                  pyver=None):
   """Build the tests to execute.
 
   Take care of special test handling like whether it needs to be inside or
@@ -260,13 +393,23 @@ def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1):
     network: Whether to execute network tests.
     config_skew: Whether to execute config skew tests.
     jobs: How many jobs will we run in parallel.
+    pyver: Which versions of Python to test against.
 
   Returns:
     List of tests to execute and their full command line.
   """
   testsets = []
-  for test in SortTests(tests, jobs=jobs):
-    cmd = [test]
+
+  def PythonWrappers(tests):
+    for test in tests:
+      if pyver is None or pyver == 'py2':
+        yield (test, 'python2')
+      if pyver is None or pyver == 'py3':
+        if test in PYTHON3_TESTS:
+          yield (test, 'python3')
+
+  for (test, interp) in PythonWrappers(SortTests(tests, jobs=jobs)):
+    cmd = [interp, test]
 
     # See if this test requires special consideration.
     status = SPECIAL_TESTS.get(test)
@@ -278,7 +421,8 @@ def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1):
         if not chroot_available:
           logging.info('Skipping %s: chroot not available', test)
           continue
-        cmd = ['cros_sdk', '--', os.path.join('..', '..', 'chromite', test)]
+        cmd = ['cros_sdk', '--', interp,
+               os.path.join('..', '..', 'chromite', test)]
     elif status is OUTSIDE:
       if cros_build_lib.IsInsideChroot():
         logging.info('Skipping %s: must be outside the chroot', test)
@@ -302,13 +446,13 @@ def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1):
     cmd = ['timeout', '--preserve-status', '-k', '%sm' % TEST_SIG_TIMEOUT,
            '%sm' % TEST_TIMEOUT] + cmd
 
-    testsets.append((test, cmd, tempfile.TemporaryFile()))
+    testsets.append((test, interp, cmd, tempfile.TemporaryFile()))
 
   return testsets
 
 
 def RunTests(tests, jobs=1, chroot_available=True, network=False,
-             config_skew=False, dryrun=False, failfast=False):
+             config_skew=False, dryrun=False, failfast=False, pyver=None):
   """Execute |paths| with |jobs| in parallel (including |network| tests).
 
   Args:
@@ -319,6 +463,7 @@ def RunTests(tests, jobs=1, chroot_available=True, network=False,
     config_skew: Whether to run config skew tests.
     dryrun: Do everything but execute the test.
     failfast: Stop on first failure
+    pyver: Which versions of Python to test against.
 
   Returns:
     True if all tests pass, else False.
@@ -337,10 +482,10 @@ def RunTests(tests, jobs=1, chroot_available=True, network=False,
   try:
     # Build up the testsets.
     testsets = BuildTestSets(tests, chroot_available, network,
-                             config_skew, jobs=jobs)
+                             config_skew, jobs=jobs, pyver=pyver)
 
     # Fork each test and add it to the list.
-    for test, cmd, tmpfile in testsets:
+    for test, interp, cmd, tmpfile in testsets:
       if failed and failfast:
         logging.error('failure detected; stopping new tests')
         break
@@ -357,7 +502,7 @@ def RunTests(tests, jobs=1, chroot_available=True, network=False,
             logging.info('Would have run: %s', cros_build_lib.CmdToStr(cmd))
             ret = 0
           else:
-            ret = RunTest(test, cmd, tmpfile, finished, len(testsets))
+            ret = RunTest(test, interp, cmd, tmpfile, finished, len(testsets))
         except KeyboardInterrupt:
           pass
         except BaseException:
@@ -379,14 +524,21 @@ def RunTests(tests, jobs=1, chroot_available=True, network=False,
     CleanupChildren(pids)
 
   # Walk through the results.
+  passed_tests = []
   failed_tests = []
-  for test, cmd, tmpfile in testsets:
+  for test, interp, cmd, tmpfile in testsets:
     tmpfile.seek(0)
     output = tmpfile.read()
+    desc = '[%s] %s' % (interp, test)
     if output:
-      failed_tests.append(test)
-      logging.error('### LOG: %s\n%s\n', test, output.rstrip())
+      failed_tests.append(desc)
+      logging.error('### LOG: %s\n%s\n', desc, output.rstrip())
+    else:
+      passed_tests.append(desc)
 
+  if passed_tests:
+    logging.debug('The following %i tests passed:\n  %s', len(passed_tests),
+                  '\n  '.join(sorted(passed_tests)))
   if failed_tests:
     logging.error('The following %i tests failed:\n  %s', len(failed_tests),
                   '\n  '.join(sorted(failed_tests)))
@@ -464,6 +616,22 @@ def FindTests(search_paths=('.',)):
           yield test
 
 
+def ClearPythonCacheFiles():
+  """Clear cache files in the chromite repo.
+
+  When switching branches, modules can be deleted or renamed, but the old pyc
+  files stick around and confuse Python.  This is a bit of a hack, but should
+  be good enough for now.
+  """
+  result = cros_build_lib.dbg_run(
+      ['git', 'ls-tree', '-r', '-z', '--name-only', 'HEAD'], encoding='utf-8',
+      capture_output=True)
+  for subdir in set(os.path.dirname(x) for x in result.stdout.split('\0')):
+    for path in glob.glob(os.path.join(subdir, '*.pyc')):
+      osutils.SafeUnlink(path)
+    osutils.RmDir(os.path.join(subdir, '__pycache__'), ignore_missing=True)
+
+
 def ChrootAvailable():
   """See if `cros_sdk` will work at all.
 
@@ -512,6 +680,10 @@ def GetParser():
   parser.add_argument('--config_skew', default=False, action='store_true',
                       help='Run tests that check if new config matches legacy '
                            'config')
+  parser.add_argument('--py2', dest='pyver', action='store_const', const='py2',
+                      help='Only run Python 2 unittests.')
+  parser.add_argument('--py3', dest='pyver', action='store_const', const='py3',
+                      help='Only run Python 3 unittests.')
   parser.add_argument('tests', nargs='*', default=None, help='Tests to run')
   return parser
 
@@ -532,7 +704,7 @@ def main(argv):
   if (not os.path.exists(chroot) and
       ChrootAvailable() and
       not cros_build_lib.IsInsideChroot()):
-    cros_build_lib.RunCommand(['cros_sdk', '--create'])
+    cros_build_lib.run(['cros_sdk', '--create'])
 
   # This is a cheesy hack to make sure gsutil is populated in the cache before
   # we run tests. This is a partial workaround for crbug.com/468838.
@@ -544,6 +716,10 @@ def main(argv):
   # Make them happy.
   os.chdir(constants.CHROMITE_DIR)
   tests = opts.tests or FindTests()
+
+  # Clear python caches now that we're root, in the right dir, but before we
+  # run any tests.
+  ClearPythonCacheFiles()
 
   if opts.quick:
     SPECIAL_TESTS.update(SLOW_TESTS)
@@ -568,7 +744,7 @@ def main(argv):
       result = RunTests(
           tests, jobs=jobs, chroot_available=ChrootAvailable(),
           network=opts.network, config_skew=opts.config_skew,
-          dryrun=opts.dryrun, failfast=opts.failfast)
+          dryrun=opts.dryrun, failfast=opts.failfast, pyver=opts.pyver)
 
     if result:
       logging.info('All tests succeeded! (%s total)', timer.delta)

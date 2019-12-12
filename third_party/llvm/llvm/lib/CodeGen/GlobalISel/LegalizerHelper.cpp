@@ -327,6 +327,35 @@ static RTLIB::Libcall getRTLibDesc(unsigned Opcode, unsigned Size) {
   llvm_unreachable("Unknown libcall function");
 }
 
+/// True if an instruction is in tail position in its caller. Intended for
+/// legalizing libcalls as tail calls when possible.
+static bool isLibCallInTailPosition(MachineInstr &MI) {
+  const Function &F = MI.getParent()->getParent()->getFunction();
+
+  // Conservatively require the attributes of the call to match those of
+  // the return. Ignore NoAlias and NonNull because they don't affect the
+  // call sequence.
+  AttributeList CallerAttrs = F.getAttributes();
+  if (AttrBuilder(CallerAttrs, AttributeList::ReturnIndex)
+          .removeAttribute(Attribute::NoAlias)
+          .removeAttribute(Attribute::NonNull)
+          .hasAttributes())
+    return false;
+
+  // It's not safe to eliminate the sign / zero extension of the return value.
+  if (CallerAttrs.hasAttribute(AttributeList::ReturnIndex, Attribute::ZExt) ||
+      CallerAttrs.hasAttribute(AttributeList::ReturnIndex, Attribute::SExt))
+    return false;
+
+  // Only tail call if the following instruction is a standard return.
+  auto &TII = *MI.getMF()->getSubtarget().getInstrInfo();
+  MachineInstr *Next = MI.getNextNode();
+  if (!Next || TII.isTailCall(*Next) || !Next->isReturn())
+    return false;
+
+  return true;
+}
+
 LegalizerHelper::LegalizeResult
 llvm::createLibcall(MachineIRBuilder &MIRBuilder, RTLIB::Libcall Libcall,
                     const CallLowering::ArgInfo &Result,
@@ -334,8 +363,6 @@ llvm::createLibcall(MachineIRBuilder &MIRBuilder, RTLIB::Libcall Libcall,
   auto &CLI = *MIRBuilder.getMF().getSubtarget().getCallLowering();
   auto &TLI = *MIRBuilder.getMF().getSubtarget().getTargetLowering();
   const char *Name = TLI.getLibcallName(Libcall);
-
-  MIRBuilder.getMF().getFrameInfo().setHasCalls(true);
 
   CallLowering::CallLoweringInfo Info;
   Info.CallConv = TLI.getLibcallCallingConv(Libcall);
@@ -368,7 +395,8 @@ llvm::createMemLibcall(MachineIRBuilder &MIRBuilder, MachineRegisterInfo &MRI,
   auto &Ctx = MIRBuilder.getMF().getFunction().getContext();
 
   SmallVector<CallLowering::ArgInfo, 3> Args;
-  for (unsigned i = 1; i < MI.getNumOperands(); i++) {
+  // Add all the args, except for the last which is an imm denoting 'tail'.
+  for (unsigned i = 1; i < MI.getNumOperands() - 1; i++) {
     Register Reg = MI.getOperand(i).getReg();
 
     // Need derive an IR type for call lowering.
@@ -401,15 +429,29 @@ llvm::createMemLibcall(MachineIRBuilder &MIRBuilder, MachineRegisterInfo &MRI,
   const char *Name = TLI.getLibcallName(RTLibcall);
 
   MIRBuilder.setInstr(MI);
-  MIRBuilder.getMF().getFrameInfo().setHasCalls(true);
 
   CallLowering::CallLoweringInfo Info;
   Info.CallConv = TLI.getLibcallCallingConv(RTLibcall);
   Info.Callee = MachineOperand::CreateES(Name);
   Info.OrigRet = CallLowering::ArgInfo({0}, Type::getVoidTy(Ctx));
+  Info.IsTailCall = MI.getOperand(MI.getNumOperands() - 1).getImm() == 1 &&
+                    isLibCallInTailPosition(MI);
+
   std::copy(Args.begin(), Args.end(), std::back_inserter(Info.OrigArgs));
   if (!CLI.lowerCall(MIRBuilder, Info))
     return LegalizerHelper::UnableToLegalize;
+
+  if (Info.LoweredTailCall) {
+    assert(Info.IsTailCall && "Lowered tail call when it wasn't a tail call?");
+    // We must have a return following the call to get past
+    // isLibCallInTailPosition.
+    assert(MI.getNextNode() && MI.getNextNode()->isReturn() &&
+           "Expected instr following MI to be a return?");
+
+    // We lowered a tail call, so the call is now the return from the block.
+    // Delete the old return.
+    MI.getNextNode()->eraseFromParent();
+  }
 
   return LegalizerHelper::Legalized;
 }
@@ -888,7 +930,7 @@ LegalizerHelper::LegalizeResult LegalizerHelper::narrowScalar(MachineInstr &MI,
       for (unsigned j = 1; j < MI.getNumOperands(); j += 2)
         MIB.addUse(SrcRegs[j / 2][i]).add(MI.getOperand(j + 1));
     }
-    MIRBuilder.setInsertPt(MBB, --MBB.getFirstNonPHI());
+    MIRBuilder.setInsertPt(MBB, MBB.getFirstNonPHI());
     MIRBuilder.buildMerge(MI.getOperand(0).getReg(), DstRegs);
     Observer.changedInstr(MI);
     MI.eraseFromParent();
@@ -1580,13 +1622,15 @@ LegalizerHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx, LLT WideTy) {
 
   case TargetOpcode::G_FPTOSI:
   case TargetOpcode::G_FPTOUI:
-    if (TypeIdx != 0)
-      return UnableToLegalize;
     Observer.changingInstr(MI);
-    widenScalarDst(MI, WideTy);
+
+    if (TypeIdx == 0)
+      widenScalarDst(MI, WideTy);
+    else
+      widenScalarSrc(MI, WideTy, 1, TargetOpcode::G_FPEXT);
+
     Observer.changedInstr(MI);
     return Legalized;
-
   case TargetOpcode::G_SITOFP:
     if (TypeIdx != 1)
       return UnableToLegalize;
@@ -1753,6 +1797,7 @@ LegalizerHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx, LLT WideTy) {
   case TargetOpcode::G_FMUL:
   case TargetOpcode::G_FSUB:
   case TargetOpcode::G_FMA:
+  case TargetOpcode::G_FMAD:
   case TargetOpcode::G_FNEG:
   case TargetOpcode::G_FABS:
   case TargetOpcode::G_FCANONICALIZE:
@@ -1948,6 +1993,8 @@ LegalizerHelper::lower(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
     MI.eraseFromParent();
     return Legalized;
   }
+  case TargetOpcode::G_FMAD:
+    return lowerFMad(MI);
   case TargetOpcode::G_ATOMIC_CMPXCHG_WITH_SUCCESS: {
     Register OldValRes = MI.getOperand(0).getReg();
     Register SuccessRes = MI.getOperand(1).getReg();
@@ -2828,6 +2875,7 @@ LegalizerHelper::fewerElementsVector(MachineInstr &MI, unsigned TypeIdx,
   case G_FDIV:
   case G_FREM:
   case G_FMA:
+  case G_FMAD:
   case G_FPOW:
   case G_FEXP:
   case G_FEXP2:
@@ -3908,6 +3956,19 @@ LegalizerHelper::lowerFMinNumMaxNum(MachineInstr &MI) {
   // If there are no nans, it's safe to simply replace this with the non-IEEE
   // version.
   MIRBuilder.buildInstr(NewOp, {Dst}, {Src0, Src1}, MI.getFlags());
+  MI.eraseFromParent();
+  return Legalized;
+}
+
+LegalizerHelper::LegalizeResult LegalizerHelper::lowerFMad(MachineInstr &MI) {
+  // Expand G_FMAD a, b, c -> G_FADD (G_FMUL a, b), c
+  Register DstReg = MI.getOperand(0).getReg();
+  LLT Ty = MRI.getType(DstReg);
+  unsigned Flags = MI.getFlags();
+
+  auto Mul = MIRBuilder.buildFMul(Ty, MI.getOperand(1), MI.getOperand(2),
+                                  Flags);
+  MIRBuilder.buildFAdd(DstReg, Mul, MI.getOperand(3), Flags);
   MI.eraseFromParent();
   return Legalized;
 }

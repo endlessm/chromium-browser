@@ -129,8 +129,10 @@ class HWTestList(object):
       *kwargs: overrides for the configs
     """
     afdo_dict = dict(pool=constants.HWTEST_SUITES_POOL,
-                     timeout=120 * 60, async=True, retry=False,
+                     timeout=120 * 60, retry=False,
                      max_retries=None)
+    # Python 3.7+ made async a reserved keyword.
+    afdo_dict['async'] = True
     afdo_dict.update(kwargs)
     return [config_lib.HWTestConfig('perf_v2', **afdo_dict)]
 
@@ -144,11 +146,6 @@ class HWTestList(object):
     # entries in _paladin_hwtest_assignments, below.  If you change the
     # ordering here you must also change the ordering there.
     return [
-        config_lib.HWTestConfig(
-            constants.HWTEST_PROVISION_SUITE,
-            blocking=True,
-            suite_args={'num_required': 1},
-            **kwargs),
         config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
                                 **kwargs),
         config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
@@ -164,7 +161,7 @@ class HWTestList(object):
     """
     default_dict = dict(pool=constants.HWTEST_QUOTA_POOL,
                         timeout=config_lib.HWTestConfig.PALADIN_HW_TEST_TIMEOUT,
-                        file_bugs=False, priority=constants.HWTEST_CQ_PRIORITY,
+                        file_bugs=False, quota_account='cq',
                         minimum_duts=4)
     # Allows kwargs overrides to default_dict for cq.
     default_dict.update(kwargs)
@@ -193,49 +190,15 @@ class HWTestList(object):
                                       **default_dict))
     return suite_list
 
-  def SharedPoolPFQ(self):
-    """Return a list of HWTestConfigs for Chrome PFQ which uses a shared pool.
-
-    The returned suites will run in pool:critical by default, which is
-    shared with other types of builders (canaries, cq). The first suite in the
-    list is a blocking sanity suite that verifies the build will not break dut.
-    """
-    sanity_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                       file_bugs=True,
-                       priority=constants.HWTEST_PFQ_PRIORITY,
-                       minimum_duts=1,
-                       suite_min_duts=1,
-                       blocking=True)
-
-    default_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                        file_bugs=True,
-                        priority=constants.HWTEST_PFQ_PRIORITY,
-                        minimum_duts=4,
-                        suite_min_duts=3)
-
-    suite_list = [config_lib.HWTestConfig(constants.HWTEST_SANITY_SUITE,
-                                          **sanity_dict),
-                  config_lib.HWTestConfig(
-                      constants.HWTEST_PROVISION_SUITE,
-                      blocking=True,
-                      suite_args={'num_required': 1},
-                      **default_dict),
-                  config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
-                                          **default_dict),
-                  config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
-                                          **default_dict),
-                  self.TastConfig(constants.HWTEST_TAST_CHROME_PFQ_SUITE,
-                                  **default_dict)]
-
-    return suite_list
-
-  def DefaultListAndroidPFQ(self, **kwargs):
-    """Return a default list of HWTestConfig's for an ARC PFQ build.
+  def DefaultListPFQ(self, **kwargs):
+    """Return a default list of HWTestConfig's for a PFQ build.
 
     Optional arguments may be overridden in `kwargs`, except that
     the `blocking` setting cannot be provided.
     """
     default_dict = dict(file_bugs=True,
+                        pool=constants.HWTEST_QUOTA_POOL,
+                        quota_account='pfq',
                         timeout=config_lib.HWTestConfig.ASYNC_HW_TEST_TIMEOUT,
                         priority=constants.HWTEST_PFQ_PRIORITY, minimum_duts=3)
     # Allows kwargs overrides to default_dict for pfq.
@@ -243,21 +206,20 @@ class HWTestList(object):
 
     return [
         config_lib.HWTestConfig(constants.HWTEST_ARC_COMMIT_SUITE,
-                                pool=constants.HWTEST_MACH_POOL,
                                 **default_dict),
         self.TastConfig(constants.HWTEST_TAST_ANDROID_PFQ_SUITE,
-                        pool=constants.HWTEST_MACH_POOL, **default_dict),
+                        **default_dict),
     ]
 
-  def SharedPoolAndroidPFQ(self, **kwargs):
-    """Return a list of HWTestConfigs for ARC PFQ which uses a shared pool.
+  def SharedPoolPFQ(self, **kwargs):
+    """Return a list of HWTestConfigs for PFQ which uses a shared pool.
 
-    The returned suites will run in pool:critical by default, which is
+    The returned suites will run in quotascheduler by default, which is
     shared with other types of builders (canaries, cq). The first suite in the
     list is a blocking sanity suite that verifies the build will not break dut.
     """
-    sanity_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                       file_bugs=True, priority=constants.HWTEST_PFQ_PRIORITY)
+    sanity_dict = dict(pool=constants.HWTEST_QUOTA_POOL,
+                       file_bugs=True, quota_account='pfq')
     sanity_dict.update(kwargs)
     sanity_dict.update(dict(minimum_duts=1, suite_min_duts=1,
                             blocking=True))
@@ -265,7 +227,7 @@ class HWTestList(object):
     default_dict.update(kwargs)
     suite_list = [config_lib.HWTestConfig(constants.HWTEST_SANITY_SUITE,
                                           **sanity_dict)]
-    suite_list.extend(self.DefaultListAndroidPFQ(**default_dict))
+    suite_list.extend(self.DefaultListPFQ(**default_dict))
     return suite_list
 
   def SharedPoolCQ(self, **kwargs):
@@ -299,7 +261,7 @@ class HWTestList(object):
     sanity_dict = dict(pool=constants.HWTEST_MACH_POOL, file_bugs=True)
     sanity_dict.update(kwargs)
     sanity_dict.update(dict(minimum_duts=1, suite_min_duts=1,
-                            blocking=True))
+                            blocking=True, quota_account='bvt-sync'))
     default_dict = dict(pool=constants.HWTEST_MACH_POOL,
                         suite_min_duts=6)
     default_dict.update(kwargs)
@@ -309,8 +271,9 @@ class HWTestList(object):
     return suite_list
 
   def AFDORecordTest(self, **kwargs):
-    default_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                        warn_only=True, file_bugs=True,
+    default_dict = dict(pool=constants.HWTEST_QUOTA_POOL,
+                        quota_account='toolchain',
+                        file_bugs=True,
                         timeout=constants.AFDO_GENERATE_TIMEOUT,
                         priority=constants.HWTEST_PFQ_PRIORITY)
     # Allows kwargs overrides to default_dict for cq.
@@ -349,9 +312,11 @@ class HWTestList(object):
 
   def ToolchainTestFull(self, machine_pool, **kwargs):
     """Return full set of HWTESTConfigs to run toolchain correctness tests."""
-    default_dict = dict(pool=machine_pool, async=False,
+    default_dict = dict(pool=machine_pool,
                         file_bugs=False,
                         priority=constants.HWTEST_DEFAULT_PRIORITY)
+    # Python 3.7+ made async a reserved keyword.
+    default_dict['async'] = False
     default_dict.update(kwargs)
     return [config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
                                     **default_dict),
@@ -372,9 +337,11 @@ class HWTestList(object):
     Since the kernel is not built with LLVM, it makes no sense for the
     toolchain to run kernel tests on LLVM builds.
     """
-    default_dict = dict(pool=machine_pool, async=False,
+    default_dict = dict(pool=machine_pool,
                         file_bugs=False,
                         priority=constants.HWTEST_DEFAULT_PRIORITY)
+    # Python 3.7+ made async a reserved keyword.
+    default_dict['async'] = False
     default_dict.update(kwargs)
     return [config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
                                     **default_dict),
@@ -392,16 +359,18 @@ class HWTestList(object):
         pool=constants.HWTEST_CTS_POOL,
         timeout=config_lib.HWTestConfig.CTS_QUAL_HW_TEST_TIMEOUT,
         priority=constants.HWTEST_CTS_PRIORITY,
-        async=True,
         enable_skylab=False)
+    # Python 3.7+ made async a reserved keyword.
+    cts_config['async'] = True
     cts_config.update(kwargs)
 
     gts_config = dict(
         pool=constants.HWTEST_GTS_POOL,
         timeout=config_lib.HWTestConfig.GTS_QUAL_HW_TEST_TIMEOUT,
         priority=constants.HWTEST_GTS_PRIORITY,
-        async=True,
         enable_skylab=False)
+    # Python 3.7+ made async a reserved keyword.
+    gts_config['async'] = True
     gts_config.update(kwargs)
 
     return [config_lib.HWTestConfig(constants.HWTEST_CTS_QUAL_SUITE,
@@ -544,7 +513,7 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           'hw_tests': [],
           # 'hwqual':False,
           'image_test':False,
-          #'images':['test'],
+          # 'images':['test'],
           'signer_tests':False,
           'vm_tests':[],
       },
@@ -556,20 +525,16 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           'vm_tests':[],
       },
 
-      'chell-chrome-pfq': {
-          'hw_tests': [hw_test_list.AFDORecordTest()]
-      },
-
       'cyan-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'grunt-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'kevin-arcnext-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'moblab-generic-vm-paladin': config_lib.BuildConfig().apply(
@@ -583,11 +548,11 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       # ),
 
       'reef-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'veyron_minnie-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolAndroidPFQ(),
+          'hw_tests': hw_test_list.SharedPoolPFQ(),
       },
 
       'amd64-generic-paladin': site_config.templates.tast_vm_paladin_tests,
@@ -620,9 +585,7 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       'amd64-generic-full': site_config.templates.tast_vm_canary_tests,
       'betty-arc64-release': site_config.templates.tast_vm_canary_tests,
       'betty-arcnext-release': site_config.templates.tast_vm_canary_tests,
-      # TODO(crbug.com/988493): Re-enable once TastVMTest starts passing on
-      # betty-arcnext-release.
-      #'betty-pi-arc-release': site_config.templates.tast_vm_canary_tests,
+      'betty-pi-arc-release': site_config.templates.tast_vm_canary_tests,
       'betty-release': site_config.templates.tast_vm_canary_tests,
 
       'kumo-pre-cq': {
@@ -805,8 +768,8 @@ def GeneralTemplates(site_config, ge_build_config):
 
   site_config.templates.chrome_pfq_cheets_informational.apply(
       site_config.templates.default_hw_tests_override,
-      hw_tests=hw_test_list.SharedPoolAndroidPFQ(),
-      hw_tests_override=hw_test_list.SharedPoolAndroidPFQ(),
+      hw_tests=hw_test_list.SharedPoolPFQ(),
+      hw_tests_override=hw_test_list.SharedPoolPFQ(),
   )
 
   site_config.templates.chrome_pfq_informational.apply(
@@ -904,10 +867,11 @@ def GeneralTemplates(site_config, ge_build_config):
 
   site_config.templates.release_afdo_generate.apply(
       site_config.templates.default_hw_tests_override,
-      hw_tests=[hw_test_list.AFDORecordTest()],
+      hw_tests=[hw_test_list.AFDORecordTest(warn_only=True)],
       hw_tests_override=[hw_test_list.AFDORecordTest(
           pool=constants.HWTEST_TRYBOT_POOL,
           file_bugs=False,
+          warn_only=True,
           priority=constants.HWTEST_DEFAULT_PRIORITY,
       )],
   )
@@ -933,7 +897,7 @@ def GeneralTemplates(site_config, ge_build_config):
       site_config.templates.no_vmtest_builder,
       site_config.templates.no_hwtest_builder,
   )
-  #END Termina
+  # END Termina
 
   # BEGIN Unittest Stress
   site_config.templates.unittest_stress.apply(

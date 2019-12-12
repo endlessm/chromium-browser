@@ -1133,12 +1133,6 @@ public:
   };
 
   /// Check if this is a non-trivial type that would cause a C struct
-  /// transitively containing this type to be non-trivial. This function can be
-  /// used to determine whether a field of this type can be declared inside a C
-  /// union.
-  bool isNonTrivialPrimitiveCType(const ASTContext &Ctx) const;
-
-  /// Check if this is a non-trivial type that would cause a C struct
   /// transitively containing this type to be non-trivial to copy and return the
   /// kind.
   PrimitiveCopyKind isNonTrivialToPrimitiveCopy() const;
@@ -1166,6 +1160,22 @@ public:
   DestructionKind isDestructedType() const {
     return isDestructedTypeImpl(*this);
   }
+
+  /// Check if this is or contains a C union that is non-trivial to
+  /// default-initialize, which is a union that has a member that is non-trivial
+  /// to default-initialize. If this returns true,
+  /// isNonTrivialToPrimitiveDefaultInitialize returns PDIK_Struct.
+  bool hasNonTrivialToPrimitiveDefaultInitializeCUnion() const;
+
+  /// Check if this is or contains a C union that is non-trivial to destruct,
+  /// which is a union that has a member that is non-trivial to destruct. If
+  /// this returns true, isDestructedType returns DK_nontrivial_c_struct.
+  bool hasNonTrivialToPrimitiveDestructCUnion() const;
+
+  /// Check if this is or contains a C union that is non-trivial to copy, which
+  /// is a union that has a member that is non-trivial to copy. If this returns
+  /// true, isNonTrivialToPrimitiveCopy returns PCK_Struct.
+  bool hasNonTrivialToPrimitiveCopyCUnion() const;
 
   /// Determine whether expressions of the given type are forbidden
   /// from being lvalues in C.
@@ -1239,6 +1249,11 @@ private:
                                                  const ASTContext &C);
   static QualType IgnoreParens(QualType T);
   static DestructionKind isDestructedTypeImpl(QualType type);
+
+  /// Check if \param RD is or contains a non-trivial C union.
+  static bool hasNonTrivialToPrimitiveDefaultInitializeCUnion(const RecordDecl *RD);
+  static bool hasNonTrivialToPrimitiveDestructCUnion(const RecordDecl *RD);
+  static bool hasNonTrivialToPrimitiveCopyCUnion(const RecordDecl *RD);
 };
 
 } // namespace clang
@@ -1422,10 +1437,9 @@ class alignas(8) Type : public ExtQualsTypeCommonBase {
 public:
   enum TypeClass {
 #define TYPE(Class, Base) Class,
-#define LAST_TYPE(Class) TypeLast = Class,
+#define LAST_TYPE(Class) TypeLast = Class
 #define ABSTRACT_TYPE(Class, Base)
 #include "clang/AST/TypeNodes.def"
-    TagFirst = Record, TagLast = Enum
   };
 
 private:
@@ -2041,6 +2055,7 @@ public:
   bool isCARCBridgableType() const;
   bool isTemplateTypeParmType() const;          // C++ template type parameter
   bool isNullPtrType() const;                   // C++11 std::nullptr_t
+  bool isNothrowT() const;                      // C++   std::nothrow_t
   bool isAlignValT() const;                     // C++17 std::align_val_t
   bool isStdByteType() const;                   // C++17 std::byte
   bool isAtomicType() const;                    // C11 _Atomic()
@@ -4420,7 +4435,7 @@ public:
   bool isBeingDefined() const;
 
   static bool classof(const Type *T) {
-    return T->getTypeClass() >= TagFirst && T->getTypeClass() <= TagLast;
+    return T->getTypeClass() == Enum || T->getTypeClass() == Record;
   }
 };
 
@@ -6255,6 +6270,24 @@ inline Qualifiers::GC QualType::getObjCGCAttr() const {
   return getQualifiers().getObjCGCAttr();
 }
 
+inline bool QualType::hasNonTrivialToPrimitiveDefaultInitializeCUnion() const {
+  if (auto *RD = getTypePtr()->getBaseElementTypeUnsafe()->getAsRecordDecl())
+    return hasNonTrivialToPrimitiveDefaultInitializeCUnion(RD);
+  return false;
+}
+
+inline bool QualType::hasNonTrivialToPrimitiveDestructCUnion() const {
+  if (auto *RD = getTypePtr()->getBaseElementTypeUnsafe()->getAsRecordDecl())
+    return hasNonTrivialToPrimitiveDestructCUnion(RD);
+  return false;
+}
+
+inline bool QualType::hasNonTrivialToPrimitiveCopyCUnion() const {
+  if (auto *RD = getTypePtr()->getBaseElementTypeUnsafe()->getAsRecordDecl())
+    return hasNonTrivialToPrimitiveCopyCUnion(RD);
+  return false;
+}
+
 inline FunctionType::ExtInfo getFunctionExtInfo(const Type &t) {
   if (const auto *PT = t.getAs<PointerType>()) {
     if (const auto *FT = PT->getPointeeType()->getAs<FunctionType>())
@@ -6320,6 +6353,7 @@ inline bool QualType::isCForbiddenLValueType() const {
 /// \returns True for types specified in C++0x [basic.fundamental].
 inline bool Type::isFundamentalType() const {
   return isVoidType() ||
+         isNullPtrType() ||
          // FIXME: It's really annoying that we don't have an
          // 'isArithmeticType()' which agrees with the standard definition.
          (isArithmeticType() && !isEnumeralType());

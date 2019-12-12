@@ -21,6 +21,7 @@
 #include "tools/gn/scheduler.h"
 #include "tools/gn/setup.h"
 #include "tools/gn/source_file.h"
+#include "tools/gn/switches.h"
 #include "tools/gn/tokenizer.h"
 
 namespace commands {
@@ -126,7 +127,7 @@ class Printer {
   };
 
   // Add to output.
-  void Print(base::StringPiece str);
+  void Print(std::string_view str);
 
   // Add the current margin (as spaces) to the output.
   void PrintMargin();
@@ -237,7 +238,7 @@ class Printer {
   std::vector<IndentState> stack_;
 
   // Gives the precedence for operators in a BinaryOpNode.
-  std::map<base::StringPiece, Precedence> precedence_;
+  std::map<std::string_view, Precedence> precedence_;
 
   DISALLOW_COPY_AND_ASSIGN(Printer);
 };
@@ -263,8 +264,8 @@ Printer::Printer() : penalty_depth_(0) {
 
 Printer::~Printer() = default;
 
-void Printer::Print(base::StringPiece str) {
-  str.AppendToString(&output_);
+void Printer::Print(std::string_view str) {
+  output_.append(str);
 }
 
 void Printer::PrintMargin() {
@@ -273,7 +274,7 @@ void Printer::PrintMargin() {
 
 void Printer::TrimAndPrintToken(const Token& token) {
   std::string trimmed;
-  TrimWhitespaceASCII(token.value().as_string(), base::TRIM_ALL, &trimmed);
+  TrimWhitespaceASCII(std::string(token.value()), base::TRIM_ALL, &trimmed);
   Print(trimmed);
 }
 
@@ -322,7 +323,7 @@ void Printer::AnnotatePreferredMultilineAssignment(const BinaryOpNode* binop) {
   // This is somewhat arbitrary, but we include the 'deps'- and 'sources'-like
   // things, but not flags things.
   if (binop->op().value() == "=" && ident && list) {
-    const base::StringPiece lhs = ident->value().value();
+    const std::string_view lhs = ident->value().value();
     if (lhs == "data" || lhs == "datadeps" || lhs == "data_deps" ||
         lhs == "deps" || lhs == "inputs" || lhs == "outputs" ||
         lhs == "public" || lhs == "public_deps" || lhs == "sources") {
@@ -334,9 +335,8 @@ void Printer::AnnotatePreferredMultilineAssignment(const BinaryOpNode* binop) {
 void Printer::SortIfSourcesOrDeps(const BinaryOpNode* binop) {
   if (const Comments* comments = binop->comments()) {
     const std::vector<Token>& before = comments->before();
-    if (!before.empty() &&
-        (before.front().value().as_string() == "# NOSORT" ||
-         before.back().value().as_string() == "# NOSORT")) {
+    if (!before.empty() && (before.front().value() == "# NOSORT" ||
+                            before.back().value() == "# NOSORT")) {
       // Allow disabling of sort for specific actions that might be
       // order-sensitive.
       return;
@@ -347,7 +347,7 @@ void Printer::SortIfSourcesOrDeps(const BinaryOpNode* binop) {
   if ((binop->op().value() == "=" || binop->op().value() == "+=" ||
        binop->op().value() == "-=") &&
       ident && list) {
-    const base::StringPiece lhs = ident->value().value();
+    const std::string_view lhs = ident->value().value();
     if (lhs == "public" || lhs == "sources")
       const_cast<ListNode*>(list)->SortAsStringsList();
     else if (lhs == "deps" || lhs == "public_deps")
@@ -389,14 +389,14 @@ void Printer::SortImports(std::vector<std::unique_ptr<PARSENODE>>& statements) {
                     const std::unique_ptr<PARSENODE>& b) const {
       const auto& a_args = a->AsFunctionCall()->args()->contents();
       const auto& b_args = b->AsFunctionCall()->args()->contents();
-      base::StringPiece a_name;
-      base::StringPiece b_name;
+      std::string_view a_name;
+      std::string_view b_name;
       if (!a_args.empty())
         a_name = a_args[0]->AsLiteral()->value().value();
       if (!b_args.empty())
         b_name = b_args[0]->AsLiteral()->value().value();
 
-      auto is_absolute = [](base::StringPiece import) {
+      auto is_absolute = [](std::string_view import) {
         return import.size() >= 3 && import[0] == '"' && import[1] == '/' &&
                import[2] == '/';
       };
@@ -644,7 +644,7 @@ int Printer::Expr(const ParseNode* root,
     Printer sub_left;
     InitializeSub(&sub_left);
     sub_left.Expr(binop->left(), prec_left,
-                  std::string(" ") + binop->op().value().as_string());
+                  std::string(" ") + std::string(binop->op().value()));
     bool left_is_multiline = CountLines(sub_left.String()) > 1;
     // Avoid walking the whole left redundantly times (see timing of Format.046)
     // so pull the output and comments from subprinter.
@@ -1062,7 +1062,8 @@ bool Printer::ListWillBeMultiline(
   return false;
 }
 
-void DoFormat(const ParseNode* root, TreeDumpMode dump_tree,
+void DoFormat(const ParseNode* root,
+              TreeDumpMode dump_tree,
               std::string* output) {
   if (dump_tree == TreeDumpMode::kPlainText) {
     std::ostringstream os;
@@ -1070,8 +1071,8 @@ void DoFormat(const ParseNode* root, TreeDumpMode dump_tree,
     fprintf(stderr, "%s", os.str().c_str());
   } else if (dump_tree == TreeDumpMode::kJSON) {
     std::string os;
-    base::JSONWriter::WriteWithOptions(root->GetJSONNode(),
-        base::JSONWriter::OPTIONS_PRETTY_PRINT, &os);
+    base::JSONWriter::WriteWithOptions(
+        root->GetJSONNode(), base::JSONWriter::OPTIONS_PRETTY_PRINT, &os);
     fprintf(stderr, "%s", os.c_str());
   }
 
@@ -1145,17 +1146,19 @@ int RunFormat(const std::vector<std::string>& args) {
       base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchDryRun);
   TreeDumpMode dump_tree = TreeDumpMode::kInactive;
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(kSwitchDumpTree)) {
-    std::string tree_type = base::CommandLine::ForCurrentProcess()->
-        GetSwitchValueASCII(kSwitchDumpTree);
+    std::string tree_type =
+        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+            kSwitchDumpTree);
     if (tree_type == kSwitchDumpTreeJSON) {
       dump_tree = TreeDumpMode::kJSON;
     } else if (tree_type.empty() || tree_type == kSwitchDumpTreeText) {
       dump_tree = TreeDumpMode::kPlainText;
     } else {
-      Err(Location(),
-          tree_type + " is an invalid value for --dump-tree. Specify "
-          "\"" + kSwitchDumpTreeText + "\" or \"" + kSwitchDumpTreeJSON +
-          "\".\n")
+      Err(Location(), tree_type +
+                          " is an invalid value for --dump-tree. Specify "
+                          "\"" +
+                          kSwitchDumpTreeText + "\" or \"" +
+                          kSwitchDumpTreeJSON + "\".\n")
           .PrintToStdout();
       return 1;
     }
@@ -1167,6 +1170,9 @@ int RunFormat(const std::vector<std::string>& args) {
     // --dry-run only works with an actual file to compare to.
     from_stdin = false;
   }
+
+  bool quiet =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kQuiet);
 
   if (from_stdin) {
     if (args.size() != 0) {
@@ -1196,8 +1202,7 @@ int RunFormat(const std::vector<std::string>& args) {
   // parallel.
   for (const auto& arg : args) {
     Err err;
-    SourceFile file =
-        source_dir.ResolveRelativeFile(Value(nullptr, arg), &err);
+    SourceFile file = source_dir.ResolveRelativeFile(Value(nullptr, arg), &err);
     if (err.has_error()) {
       err.PrintToStdout();
       return 1;
@@ -1227,7 +1232,10 @@ int RunFormat(const std::vector<std::string>& args) {
                 .PrintToStdout();
             return 1;
           }
-          printf("Wrote formatted to '%s'.\n", FilePathToUTF8(to_write).c_str());
+          if (!quiet) {
+            printf("Wrote formatted to '%s'.\n",
+                   FilePathToUTF8(to_write).c_str());
+          }
         }
       }
     }

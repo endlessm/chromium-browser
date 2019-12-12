@@ -8,9 +8,8 @@
 from __future__ import print_function
 
 import collections
-import contextlib
+import functools
 import copy
-import httplib
 import itertools
 import os
 import pickle
@@ -18,6 +17,7 @@ import tempfile
 import time
 
 import mock
+from six.moves import http_client as httplib
 
 from chromite.cbuildbot import patch_series
 from chromite.cbuildbot import repository
@@ -44,7 +44,7 @@ from chromite.lib import timeout_util
 from chromite.lib import triage_lib
 
 
-_GetNumber = iter(itertools.count()).next
+_GetNumber = functools.partial(next, itertools.count())
 # Without this some lambda's defined in constants will not be the same as
 # constants defined in this module. For comparisons, lambdas must be the same
 # function.
@@ -574,13 +574,10 @@ class TestCoreLogic(_Base):
 
     self.PatchObject(cros_patch.GitRepoPatch, 'IsMerge', return_value=False)
 
-    context = contextlib.nested(
-        mock.patch.object(git, 'SyncPushBranch'),
-        mock.patch.object(git, 'GitPush'),
-        mock.patch.object(git, 'GetTrackingBranch',
-                          new=lambda _: tracking_branch))
-
-    with context as (sync_func, push_func, _):
+    with mock.patch.object(git, 'SyncPushBranch') as sync_func, \
+         mock.patch.object(git, 'GitPush') as push_func, \
+         mock.patch.object(git, 'GetTrackingBranch',
+                           new=lambda _: tracking_branch):
       errors = pool.PushRepoBranch(repo, set(patches), 'from_branch')
       self.assertEqual({}, errors)
       self.assertEqual(1, sync_func.call_count)
@@ -611,7 +608,7 @@ class TestCoreLogic(_Base):
     pool = self.MakePool()
     pool.filtered_set = set(self.GetPatches(4))
     result = pool._FilterDependencyErrors(failures)
-    self.assertEquals(set(failures[:-1]), set(result))
+    self.assertEqual(set(failures[:-1]), set(result))
 
   def testFilterSpeculativeErrors(self):
     """Filter out dependency errors for speculative patches."""
@@ -622,7 +619,7 @@ class TestCoreLogic(_Base):
     pool = self.MakePool()
     pool.filtered_set = set(self.GetPatches(2))
     result = pool._FilterDependencyErrors(failures)
-    self.assertEquals(set(failures[:-1]), set(result))
+    self.assertEqual(set(failures[:-1]), set(result))
 
   def testFilterDependencyErrorsOnFilteredChanges(self):
     """Test FilterDependencyErrors on filtered changes."""
@@ -637,14 +634,15 @@ class TestCoreLogic(_Base):
     pool.filtered_set = set([p_1])
 
     result = pool._FilterDependencyErrors(errors)
-    self.assertItemsEqual(result, [e_4])
+    self.assertCountEqual(result, [e_4])
 
   def testFilterNonLcqProjects(self):
     """Runs through a filter of own manifest and fake changes.
 
     This test should filter out the tacos/chromite project as its not real.
     """
-    base_func = itertools.cycle(['chromiumos', 'chromeos']).next
+    base_func = functools.partial(next,
+                                  itertools.cycle(['chromiumos', 'chromeos']))
     patches = self.GetPatches(10)
     for patch in patches:
       patch.project = '%s/%i' % (base_func(), _GetNumber())
@@ -1091,13 +1089,13 @@ sys.stdout.write(validation_pool_unittest.TestPickling.%s)
 """
 
     # Verify ToT can take our pickle.
-    cros_build_lib.RunCommand(
+    cros_build_lib.run(
         ['python2', '-c', code % '_CheckTestData(sys.stdin.read())'],
         cwd=self.tempdir, print_cmd=False, capture_output=True,
         input=self._GetTestData())
 
     # Verify we can handle ToT's pickle.
-    ret = cros_build_lib.RunCommand(
+    ret = cros_build_lib.run(
         ['python2', '-c', code % '_GetTestData()'],
         cwd=self.tempdir, print_cmd=False, capture_output=True)
 
@@ -1171,9 +1169,9 @@ class TestCreateDisjointTransactions(_Base):
     self.patch_mock = self.StartPatcher(MockPatchSeries())
     self._patch_factory = patch_unittest.MockPatchFactory(self.patch_mock)
 
-  def GetPatches(self, how_many, **kwargs):
+  def GetPatches(self, *args, **kwargs):
     return super(TestCreateDisjointTransactions, self).GetPatches(
-        how_many, always_use_list=True, **kwargs)
+        *args, always_use_list=True, **kwargs)
 
   def verifyTransactions(self, txns, max_txn_length=None, circular=False):
     """Verify the specified list of transactions are processed correctly.
@@ -1351,7 +1349,7 @@ class BaseSubmitPoolTestCase(_Base):
         _, actually_rejected = pool.SubmitChanges(verified_cls)
 
     # Check that the right patches were submitted and rejected.
-    self.assertItemsEqual([str(x) for x in rejected],
+    self.assertCountEqual([str(x) for x in rejected],
                           [str(x) for x in actually_rejected])
     actually_submitted = self.pool_mock.GetSubmittedChanges()
     self.assertEqual([str(x) for x in submitted],

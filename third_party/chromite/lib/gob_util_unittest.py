@@ -7,9 +7,10 @@
 
 from __future__ import print_function
 
-import httplib
 import tempfile
 import time
+
+from six.moves import http_client as httplib
 
 from chromite.lib import config_lib
 from chromite.lib import cros_test_lib
@@ -122,14 +123,14 @@ Too bad..."""
     ep = gob_util.ErrorParser()
     ep.feed(html_data)
     ep.close()
-    self.assertEquals(expected_parsed_data, ep.ParsedDiv())
+    self.assertEqual(expected_parsed_data, ep.ParsedDiv())
 
 
 class GetCookieTests(cros_test_lib.TestCase):
   """Unittests for GetCookies()"""
 
   def testSimple(self):
-    f = tempfile.NamedTemporaryFile()
+    f = tempfile.NamedTemporaryFile(mode='w+')
     f.write('.googlesource.com\tTRUE\t/f\tTRUE\t2147483647\to\tfoo=bar')
     f.flush()
     cookies = gob_util.GetCookies('foo.googlesource.com', '/foo', [f.name])
@@ -159,17 +160,6 @@ class NetworkGobTest(cros_test_lib.TestCase):
                             'foo/bar/baz', ignore_404=False)
     self.assertEqual(ex.exception.http_status, 404)
 
-  def test409Exception(self):
-    """Test FetchUrlJson raises 409 errors with response body message."""
-    with self.assertRaises(gob_util.GOBError) as ex:
-      gob_util.FetchUrlJson(
-          config_lib.GetSiteParams().EXTERNAL_GERRIT_HOST,
-          'changes/422652/revisions/901b4ee349a9395ba23a7a1e8597a35050f741e4/'
-          'review', reqtype='POST', body={'labels': {'Commit-Ready': '+1'}})
-
-    self.assertEqual(ex.exception.http_status, 409)
-    self.assertEqual(ex.exception.reason,
-                     gob_util.GOB_ERROR_REASON_CLOSED_CHANGE)
 
 def main(_argv):
   gob_util.TRY_LIMIT = 1

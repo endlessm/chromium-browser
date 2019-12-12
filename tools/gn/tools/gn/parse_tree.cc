@@ -13,6 +13,7 @@
 #include "base/json/string_escape.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "tools/gn/functions.h"
 #include "tools/gn/operators.h"
 #include "tools/gn/scope.h"
@@ -35,7 +36,7 @@ enum DepsCategory {
   DEPS_CATEGORY_OTHER,
 };
 
-DepsCategory GetDepsCategory(base::StringPiece deps) {
+DepsCategory GetDepsCategory(std::string_view deps) {
   if (deps.length() < 2 || deps[0] != '"' || deps[deps.size() - 1] != '"')
     return DEPS_CATEGORY_OTHER;
 
@@ -48,18 +49,19 @@ DepsCategory GetDepsCategory(base::StringPiece deps) {
   return DEPS_CATEGORY_RELATIVE;
 }
 
-std::tuple<base::StringPiece, base::StringPiece> SplitAtFirst(
-    base::StringPiece str,
+std::tuple<std::string_view, std::string_view> SplitAtFirst(
+    std::string_view str,
     char c) {
-  if (!str.starts_with("\"") || !str.ends_with("\""))
-    return std::make_tuple(str, base::StringPiece());
+  if (!base::StartsWith(str, "\"", base::CompareCase::SENSITIVE) ||
+      !base::EndsWith(str, "\"", base::CompareCase::SENSITIVE))
+    return std::make_tuple(str, std::string_view());
 
   str = str.substr(1, str.length() - 2);
   size_t index_of_first = str.find(c);
   return std::make_tuple(str.substr(0, index_of_first),
-                         index_of_first != base::StringPiece::npos
+                         index_of_first != std::string_view::npos
                              ? str.substr(index_of_first + 1)
-                             : base::StringPiece());
+                             : std::string_view());
 }
 
 bool IsSortRangeSeparator(const ParseNode* node, const ParseNode* prev) {
@@ -72,7 +74,7 @@ bool IsSortRangeSeparator(const ParseNode* node, const ParseNode* prev) {
                static_cast<int>(node->comments()->before().size() + 1)));
 }
 
-base::StringPiece GetStringRepresentation(const ParseNode* node) {
+std::string_view GetStringRepresentation(const ParseNode* node) {
   DCHECK(node->AsLiteral() || node->AsIdentifier() || node->AsAccessor());
   if (node->AsLiteral())
     return node->AsLiteral()->value().value();
@@ -80,7 +82,7 @@ base::StringPiece GetStringRepresentation(const ParseNode* node) {
     return node->AsIdentifier()->value().value();
   else if (node->AsAccessor())
     return node->AsAccessor()->base().value();
-  return base::StringPiece();
+  return std::string_view();
 }
 
 }  // namespace
@@ -146,7 +148,7 @@ base::Value ParseNode::CreateJSONNode(const char* type) const {
 }
 
 base::Value ParseNode::CreateJSONNode(const char* type,
-    const base::StringPiece& value) const {
+                                      const std::string_view& value) const {
   base::Value dict(base::Value::Type::DICTIONARY);
   dict.SetKey(kJsonNodeType, base::Value(type));
   dict.SetKey(kJsonNodeValue, base::Value(value));
@@ -305,7 +307,7 @@ bool AccessorNode::ComputeAndValidateListIndex(Scope* scope,
   if (max_len == 0) {
     *err = Err(index_->GetRange(), "Array subscript out of range.",
                "You gave me " + base::Int64ToString(index_int) + " but the " +
-               "array has no elements.");
+                   "array has no elements.");
     return false;
   }
   size_t index_sizet = static_cast<size_t>(index_int);
@@ -710,8 +712,8 @@ void ListNode::SortList(Comparator comparator) {
 void ListNode::SortAsStringsList() {
   // Sorts alphabetically.
   SortList([](const ParseNode* a, const ParseNode* b) {
-    base::StringPiece astr = GetStringRepresentation(a);
-    base::StringPiece bstr = GetStringRepresentation(b);
+    std::string_view astr = GetStringRepresentation(a);
+    std::string_view bstr = GetStringRepresentation(b);
     return astr < bstr;
   });
 }
@@ -720,8 +722,8 @@ void ListNode::SortAsDepsList() {
   // Sorts first relative targets, then absolute, each group is sorted
   // alphabetically.
   SortList([](const ParseNode* a, const ParseNode* b) {
-    base::StringPiece astr = GetStringRepresentation(a);
-    base::StringPiece bstr = GetStringRepresentation(b);
+    std::string_view astr = GetStringRepresentation(a);
+    std::string_view bstr = GetStringRepresentation(b);
     return std::make_pair(GetDepsCategory(astr), SplitAtFirst(astr, ':')) <
            std::make_pair(GetDepsCategory(bstr), SplitAtFirst(bstr, ':'));
   });
@@ -805,8 +807,10 @@ Value LiteralNode::Execute(Scope* scope, Err* err) const {
     case Token::FALSE_TOKEN:
       return Value(this, false);
     case Token::INTEGER: {
-      base::StringPiece s = value_.value();
-      if ((s.starts_with("0") && s.size() > 1) || s.starts_with("-0")) {
+      std::string_view s = value_.value();
+      if ((base::StartsWith(s, "0", base::CompareCase::SENSITIVE) &&
+           s.size() > 1) ||
+          base::StartsWith(s, "-0", base::CompareCase::SENSITIVE)) {
         if (s == "-0")
           *err = MakeErrorDescribing("Negative zero doesn't make sense");
         else
@@ -909,7 +913,7 @@ Err BlockCommentNode::MakeErrorDescribing(const std::string& msg,
 
 base::Value BlockCommentNode::GetJSONNode() const {
   std::string escaped;
-  base::EscapeJSONString(comment_.value().as_string(), false, &escaped);
+  base::EscapeJSONString(std::string(comment_.value()), false, &escaped);
   return CreateJSONNode("BLOCK_COMMENT", escaped);
 }
 

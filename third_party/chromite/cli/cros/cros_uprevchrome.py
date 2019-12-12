@@ -64,9 +64,8 @@ class UprevChromeCommand(command.CliCommand):
   CLs to Gerrit.
 
   Examples:
-
-  cros uprevchrome --pfq-build XXXX --bug='chromium:XXXXX'
-      [--dry-run] [--debug] [--nowipe] [--draft]
+    cros uprevchrome --pfq-build XXXX --bug='chromium:XXXXX'
+        [--dry-run] [--debug] [--nowipe] [--draft]
 
   After successfully executing this tool, review and submit CLs from Gerrit.
   https://chromium-review.googlesource.com
@@ -96,9 +95,6 @@ class UprevChromeCommand(command.CliCommand):
   """
 
   NUM_RESULTS_LIMIT = 100
-
-  def __init__(self, options):
-    super(UprevChromeCommand, self).__init__(options)
 
   @classmethod
   def AddParser(cls, parser):

@@ -125,7 +125,7 @@ class TestFindSuspects(cros_test_lib.MockTestCase):
     results = triage_lib.CalculateSuspects.FindSuspects(
         patches, [message], lab_fail=lab_fail, infra_fail=infra_fail,
         sanity=sanity)
-    self.assertItemsEqual(suspects, results.keys())
+    self.assertCountEqual(suspects, results.keys())
 
   def testFailSameProject(self):
     """Patches to the package that failed should be marked as failing."""
@@ -188,11 +188,11 @@ class TestFindSuspects(cros_test_lib.MockTestCase):
     """If a message is just 'None', it should cause all patches to fail."""
     patches = [self.kernel_patch, self.power_manager_patch, self.secret_patch]
     results = triage_lib.CalculateSuspects.FindSuspects(patches, [None])
-    self.assertItemsEqual(results.keys(), patches)
+    self.assertCountEqual(results.keys(), patches)
 
     results = triage_lib.CalculateSuspects.FindSuspects(
         patches, [None], sanity=False)
-    self.assertItemsEqual(results.keys(), [])
+    self.assertCountEqual(results.keys(), [])
 
   def testFailNoExceptions(self):
     """If there are no exceptions, all patches should be failed."""
@@ -340,11 +340,11 @@ class TestFindSuspects(cros_test_lib.MockTestCase):
 
     suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
         self.changes, messages, build_root, failed_hwtests, False)
-    self.assertItemsEqual(suspects.keys(), self.changes[0:1])
+    self.assertCountEqual(suspects.keys(), self.changes[0:1])
 
     suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
         self.changes, messages, build_root, failed_hwtests, True)
-    self.assertItemsEqual(suspects.keys(), self.changes[0:1])
+    self.assertCountEqual(suspects.keys(), self.changes[0:1])
 
     for index in range(0, 3):
       messages[index].FindSuspectedChanges.called_once_with(
@@ -360,11 +360,11 @@ class TestFindSuspects(cros_test_lib.MockTestCase):
 
     suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
         self.changes, messages, build_root, failed_hwtests, False)
-    self.assertItemsEqual(suspects.keys(), set())
+    self.assertCountEqual(suspects.keys(), set())
 
     suspects = triage_lib.CalculateSuspects.FindSuspectsForFailures(
         self.changes, messages, build_root, failed_hwtests, True)
-    self.assertItemsEqual(suspects.keys(), self.changes)
+    self.assertCountEqual(suspects.keys(), self.changes)
 
 
 class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
@@ -385,7 +385,7 @@ class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
         self.changes, changes_by_config, {}, failing,
         inflight, no_stat, messages, self.build_root)
     verified_changes = set(verified_results.keys())
-    self.assertEquals(verified_changes, set(self.changes))
+    self.assertEqual(verified_changes, set(self.changes))
 
   def testChangesOnNotCompletedBuilds(self):
     """Test changes on not completed builds."""
@@ -400,7 +400,7 @@ class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
         self.changes, changes_by_config, {}, failing,
         inflight, no_stat, messages, self.build_root)
     verified_changes = set(verified_results.keys())
-    self.assertEquals(verified_changes, set(self.changes[2:-2]))
+    self.assertEqual(verified_changes, set(self.changes[2:-2]))
 
   def testChangesOnNotCompletedBuildsWithCQHistory(self):
     """Tests changes on not completed builds with builds passed in history."""
@@ -419,7 +419,7 @@ class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
         self.changes, changes_by_config, passed_slave_by_change,
         failing, inflight, no_stat, messages, self.build_root)
     verified_changes = set(verified_results.keys())
-    self.assertEquals(verified_changes, set(self.changes[1:-1]))
+    self.assertEqual(verified_changes, set(self.changes[1:-1]))
 
   def testChangesNotVerifiedOnFailures(self):
     """Tests that changes are not verified if failures cannot be ignored."""
@@ -435,7 +435,7 @@ class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
         self.changes, changes_by_config, {}, failing,
         inflight, no_stat, messages, self.build_root)
     verified_changes = set(verified_results.keys())
-    self.assertEquals(verified_changes, set(self.changes[2:]))
+    self.assertEqual(verified_changes, set(self.changes[2:]))
 
   def testChangesNotVerifiedOnFailuresWithCQHistory(self):
     """Tests on not ignorable faiulres with CQ history."""
@@ -454,7 +454,7 @@ class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
         self.changes, changes_by_config, passed_slave_by_change, failing,
         inflight, no_stat, messages, self.build_root)
     verified_changes = set(verified_results.keys())
-    self.assertEquals(verified_changes, set(self.changes[1:]))
+    self.assertEqual(verified_changes, set(self.changes[1:]))
 
   def testChangesVerifiedWhenFailuresCanBeIgnored(self):
     """Tests that changes are verified if failures can be ignored."""
@@ -470,7 +470,7 @@ class TestGetFullyVerifiedChanges(cros_test_lib.MockTestCase):
         self.changes, changes_by_config, {}, failing,
         inflight, no_stat, messages, self.build_root)
     verified_changes = set(verified_results.keys())
-    self.assertEquals(verified_changes, set(self.changes))
+    self.assertEqual(verified_changes, set(self.changes))
 
   def testCanIgnoreFailures(self):
     """Tests CanIgnoreFailures()."""

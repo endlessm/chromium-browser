@@ -18,6 +18,7 @@
 #include "common/Constants.h"
 #include "common/Math.h"
 #include "common/Platform.h"
+#include "dawn/dawn_proc.h"
 #include "dawn_native/DawnNative.h"
 #include "dawn_wire/WireClient.h"
 #include "dawn_wire/WireServer.h"
@@ -164,20 +165,8 @@ void DawnTestEnvironment::SetUp() {
     mInstance->EnableBackendValidation(mEnableBackendValidation);
     mInstance->EnableBeginCaptureOnStartup(mBeginCaptureOnStartup);
 
-    static constexpr dawn_native::BackendType kWindowlessBackends[] = {
-        dawn_native::BackendType::D3D12,
-        dawn_native::BackendType::Metal,
-        dawn_native::BackendType::Vulkan,
-    };
-    for (dawn_native::BackendType backend : kWindowlessBackends) {
-        if (detail::IsBackendAvailable(backend)) {
-            mInstance.get()->DiscoverDefaultAdapters();
-        }
-    }
-
-    if (detail::IsBackendAvailable(dawn_native::BackendType::OpenGL)) {
-        DiscoverOpenGLAdapter();
-    }
+    mInstance.get()->DiscoverDefaultAdapters();
+    DiscoverOpenGLAdapter();
 
     std::cout << "Testing configuration\n"
                  "---------------------\n"
@@ -238,7 +227,9 @@ uint32_t DawnTestEnvironment::GetVendorIdFilter() const {
 
 void DawnTestEnvironment::DiscoverOpenGLAdapter() {
 #ifdef DAWN_ENABLE_BACKEND_OPENGL
-    ASSERT_TRUE(glfwInit());
+    if (!glfwInit()) {
+        return;
+    }
     glfwDefaultWindowHints();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
@@ -272,7 +263,7 @@ DawnTestBase::~DawnTestBase() {
         backendProcs.deviceRelease(backendDevice);
     }
 
-    dawnSetProcs(nullptr);
+    dawnProcSetProcs(nullptr);
 }
 
 bool DawnTestBase::IsD3D12() const {
@@ -387,27 +378,30 @@ void DawnTestBase::SetUp() {
 
         for (const dawn_native::Adapter& adapter : adapters) {
             if (adapter.GetBackendType() == backendType) {
+                if (adapter.GetDeviceType() == dawn_native::DeviceType::CPU) {
+                    continue;
+                }
+
+                // Filter adapter by vendor id
                 if (HasVendorIdFilter()) {
                     if (adapter.GetPCIInfo().vendorId == GetVendorIdFilter()) {
                         mBackendAdapter = adapter;
                         break;
                     }
-                } else {
-                    mBackendAdapter = adapter;
+                    continue;
+                }
 
-                    // On Metal, select the last adapter so that the discrete GPU is tested on
-                    // multi-GPU systems.
-                    // TODO(cwallez@chromium.org): Replace this with command line arguments
-                    // requesting a specific device / vendor ID once the macOS 10.13 SDK is rolled
-                    // and correct PCI info collection is implemented on Metal.
-                    if (backendType != dawn_native::BackendType::Metal) {
-                        break;
-                    }
+                // Prefer discrete GPU on multi-GPU systems, otherwise get integrated GPU.
+                mBackendAdapter = adapter;
+                if (mBackendAdapter.GetDeviceType() == dawn_native::DeviceType::DiscreteGPU) {
+                    break;
                 }
             }
         }
 
-        ASSERT(mBackendAdapter);
+        if (!mBackendAdapter) {
+            return;
+        }
     }
 
     mPCIInfo = mBackendAdapter.GetPCIInfo();
@@ -460,7 +454,7 @@ void DawnTestBase::SetUp() {
 
     // Set up the device and queue because all tests need them, and DawnTestBase needs them too for
     // the deferred expectations.
-    dawnSetProcs(&procs);
+    dawnProcSetProcs(&procs);
     device = dawn::Device::Acquire(cDevice);
     queue = device.CreateQueue();
 
@@ -478,6 +472,10 @@ void DawnTestBase::TearDown() {
     }
 }
 
+bool DawnTestBase::HasAdapter() const {
+    return !!mBackendAdapter;
+}
+
 void DawnTestBase::StartExpectDeviceError() {
     mExpectError = true;
     mError = false;
@@ -485,6 +483,10 @@ void DawnTestBase::StartExpectDeviceError() {
 bool DawnTestBase::EndExpectDeviceError() {
     mExpectError = false;
     return mError;
+}
+
+dawn_native::PCIInfo DawnTestBase::GetPCIInfo() const {
+    return mPCIInfo;
 }
 
 // static

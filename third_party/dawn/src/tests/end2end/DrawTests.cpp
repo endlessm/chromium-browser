@@ -21,8 +21,8 @@ constexpr uint32_t kRTSize = 4;
 
 class DrawTest : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
@@ -50,17 +50,17 @@ class DrawTest : public DawnTest {
         descriptor.cVertexInput.cBuffers[0].stride = 4 * sizeof(float);
         descriptor.cVertexInput.cBuffers[0].attributeCount = 1;
         descriptor.cVertexInput.cAttributes[0].format = dawn::VertexFormat::Float4;
-        descriptor.cColorStates[0]->format = renderPass.colorFormat;
+        descriptor.cColorStates[0].format = renderPass.colorFormat;
 
         pipeline = device.CreateRenderPipeline(&descriptor);
 
         vertexBuffer = utils::CreateBufferFromData<float>(
             device, dawn::BufferUsage::Vertex,
             {// The bottom left triangle
-             -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
+             -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f,
 
              // The top right triangle
-             -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f});
+             -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f});
     }
 
     utils::BasicRenderPass renderPass;
@@ -73,12 +73,11 @@ class DrawTest : public DawnTest {
               uint32_t firstInstance,
               RGBA8 bottomLeftExpected,
               RGBA8 topRightExpected) {
-        uint64_t zeroOffset = 0;
         dawn::CommandEncoder encoder = device.CreateCommandEncoder();
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
             pass.SetPipeline(pipeline);
-            pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
+            pass.SetVertexBuffer(0, vertexBuffer);
             pass.Draw(vertexCount, instanceCount, firstIndex, firstInstance);
             pass.EndPass();
         }

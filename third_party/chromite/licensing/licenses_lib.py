@@ -15,7 +15,6 @@ import cgi
 import codecs
 import os
 import re
-import tempfile
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -239,7 +238,7 @@ inherit() {
       'overlay_list': ' '.join(overlays),
   }
 
-  with tempfile.NamedTemporaryFile(bufsize=0) as f:
+  with cros_build_lib.UnbufferedNamedTemporaryFile() as f:
     osutils.WriteFile(f.name, ebuild_env_tmpl % tmpl_env)
     env = osutils.SourceEnvironment(
         f.name, whitelist=['LICENSE'], ifs=' ', multiline=True)
@@ -354,7 +353,7 @@ class PackageInfo(object):
     """
     ebuild_cmd = cros_build_lib.GetSysrootToolPath(
         cros_build_lib.GetSysroot(self.board), 'ebuild')
-    return cros_build_lib.RunCommand(
+    return cros_build_lib.run(
         [ebuild_cmd, ebuild_path] + phases, print_cmd=debug,
         redirect_stdout=True)
 
@@ -462,8 +461,8 @@ class PackageInfo(object):
     # to find the MIT license:
     # dev-libs/libatomic_ops-7.2d/work/gc-7.2/libatomic_ops/doc/LICENSING.txt
     args = ['find', src_dir, '-type', 'f']
-    result = cros_build_lib.RunCommand(args, print_cmd=debug,
-                                       redirect_stdout=True).output.splitlines()
+    result = cros_build_lib.run(args, print_cmd=debug,
+                                redirect_stdout=True).output.splitlines()
     # Truncate results to look like this: swig-2.0.4/COPYRIGHT
     files = [x[len(src_dir):].lstrip('/') for x in result]
     license_files = []
@@ -569,8 +568,8 @@ being scraped currently).""",
         cros_build_lib.GetSysroot(self.board), 'equery')
     args = [equery_cmd, '-q', '-C', 'which', self.fullnamerev]
     try:
-      path = cros_build_lib.RunCommand(args, print_cmd=True,
-                                       redirect_stdout=True).output.strip()
+      path = cros_build_lib.run(args, print_cmd=True,
+                                redirect_stdout=True).output.strip()
     except cros_build_lib.RunCommandError:
       path = None
 
@@ -817,7 +816,7 @@ class Licensing(object):
 
   @property
   def sorted_licenses(self):
-    return sorted(self.licenses.keys(), key=str.lower)
+    return sorted(self.licenses.keys(), key=lambda x: x.lower)
 
   def _LoadLicenseDump(self, pkg):
     save_file = pkg.license_dump_path
@@ -1119,9 +1118,8 @@ def ListInstalledPackages(board, all_packages=False):
     equery_cmd = cros_build_lib.GetSysrootToolPath(
         cros_build_lib.GetSysroot(board), 'equery')
     args = [equery_cmd, 'list', '*']
-    packages = cros_build_lib.RunCommand(args, print_cmd=debug,
-                                         redirect_stdout=True
-                                        ).output.splitlines()
+    packages = cros_build_lib.run(args, print_cmd=debug,
+                                  redirect_stdout=True).output.splitlines()
   else:
     # The following returns all packages that were part of the build tree
     # (many get built or used during the build, but do not get shipped).
@@ -1131,8 +1129,8 @@ def ListInstalledPackages(board, all_packages=False):
         cros_build_lib.GetSysroot(board), 'emerge')
     args = [emerge_cmd, '--with-bdeps=y', '--usepkgonly',
             '--emptytree', '--pretend', '--color=n', 'virtual/target-os']
-    emerge = cros_build_lib.RunCommand(args, print_cmd=debug,
-                                       redirect_stdout=True).output.splitlines()
+    emerge = cros_build_lib.run(args, print_cmd=debug,
+                                redirect_stdout=True).output.splitlines()
     # Another option which we've decided not to use, is bdeps=n.  This outputs
     # just the packages we ship, but does not packages that were used to build
     # them, including a package like flex which generates a .a that is included
@@ -1190,6 +1188,11 @@ def ReadUnknownEncodedFile(file_path, logging_text=None):
   # XML 1.0 acceptable character range:
   # Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | \
   #          [#x10000-#x10FFFF]
+
+  # Strip out common/OK values silently.
+  silent_chars_re = re.compile(u'[\x0c]')
+  file_txt = silent_chars_re.sub('', file_txt)
+
   illegal_chars_re = re.compile(
       u'[\x00-\x08\x0b\x0c\x0e-\x1F\uD800-\uDFFF\uFFFE\uFFFF]')
 

@@ -2,7 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Provide a TestCase base class for PageTest subclasses' unittests."""
+"""Provide a TestCase base class for PageTest subclasses' unittests.
+
+DEPRECATED.
+
+TODO(crbug.com/921000): Remove this file when all clients are migrated away
+from it.
+"""
 
 import unittest
 
@@ -31,7 +37,7 @@ class BasicTestPage(page_module.Page):
 
 
 class PageTestTestCase(unittest.TestCase):
-  """A base class to simplify writing unit tests for PageTest subclasses."""
+  """DEPRECATED: Clients should migrate to LegacyPageTestCase instead."""
 
   def CreateStorySetFromFileInUnittestDataDir(self, test_filename):
     ps = self.CreateEmptyPageSet()
@@ -59,5 +65,5 @@ class PageTestTestCase(unittest.TestCase):
       measurement.CustomizeBrowserOptions(run_options.browser_options)
     with results_options.CreateResults(
         run_options, benchmark_name=BENCHMARK_NAME) as results:
-      story_runner.Run(measurement, story_set, run_options, results)
+      story_runner.RunStorySet(measurement, story_set, run_options, results)
     return results

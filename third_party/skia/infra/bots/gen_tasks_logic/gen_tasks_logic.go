@@ -33,7 +33,7 @@ const (
 	ISOLATE_GCLOUD_LINUX_NAME  = "Housekeeper-PerCommit-IsolateGCloudLinux"
 	ISOLATE_SKIMAGE_NAME       = "Housekeeper-PerCommit-IsolateSkImage"
 	ISOLATE_SKP_NAME           = "Housekeeper-PerCommit-IsolateSKP"
-	ISOLATE_MSKP_NAME           = "Housekeeper-PerCommit-IsolateMSKP"
+	ISOLATE_MSKP_NAME          = "Housekeeper-PerCommit-IsolateMSKP"
 	ISOLATE_SVG_NAME           = "Housekeeper-PerCommit-IsolateSVG"
 	ISOLATE_NDK_LINUX_NAME     = "Housekeeper-PerCommit-IsolateAndroidNDKLinux"
 	ISOLATE_SDK_LINUX_NAME     = "Housekeeper-PerCommit-IsolateAndroidSDKLinux"
@@ -41,7 +41,7 @@ const (
 
 	DEFAULT_OS_DEBIAN    = "Debian-9.4"
 	DEFAULT_OS_LINUX_GCE = "Debian-9.8"
-	DEFAULT_OS_MAC       = "Mac-10.13.6"
+	DEFAULT_OS_MAC       = "Mac-10.14.6"
 	DEFAULT_OS_WIN       = "Windows-Server-14393"
 
 	// Small is a 2-core machine.
@@ -177,10 +177,10 @@ var (
 	// used where necessary.
 	EXTRA_PROPS = map[string]string{
 		"buildbucket_build_id": specs.PLACEHOLDER_BUILDBUCKET_BUILD_ID,
-		"patch_issue":          specs.PLACEHOLDER_ISSUE,
+		"patch_issue":          specs.PLACEHOLDER_ISSUE_INT,
 		"patch_ref":            specs.PLACEHOLDER_PATCH_REF,
 		"patch_repo":           specs.PLACEHOLDER_PATCH_REPO,
-		"patch_set":            specs.PLACEHOLDER_PATCHSET,
+		"patch_set":            specs.PLACEHOLDER_PATCHSET_INT,
 		"patch_storage":        specs.PLACEHOLDER_PATCH_STORAGE,
 		"repository":           specs.PLACEHOLDER_REPO,
 		"revision":             specs.PLACEHOLDER_REVISION,
@@ -305,10 +305,10 @@ func CheckoutRoot() string {
 func LoadJson(filename string, dest interface{}) {
 	b, err := ioutil.ReadFile(filename)
 	if err != nil {
-		glog.Fatal(err)
+		glog.Fatalf("Unable to read %q: %s", filename, err)
 	}
 	if err := json.Unmarshal(b, dest); err != nil {
-		glog.Fatal(err)
+		glog.Fatalf("Unable to parse %q: %s", filename, err)
 	}
 }
 
@@ -598,12 +598,12 @@ func (b *builder) defaultSwarmDimensions(parts map[string]string) []string {
 			"ChromeOS":   "ChromeOS",
 			"Debian9":    DEFAULT_OS_DEBIAN,
 			"Mac":        DEFAULT_OS_MAC,
-			"Mac10.13":   DEFAULT_OS_MAC,
+			"Mac10.13":   "Mac-10.13.6",
 			"Mac10.14":   "Mac-10.14.3",
 			"Mac10.15":   "Mac-10.15.1",
 			"Ubuntu18":   "Ubuntu-18.04",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-18362",
+			"Win10":      "Windows-10-18363",
 			"Win2016":    DEFAULT_OS_WIN,
 			"Win7":       "Windows-7-SP1",
 			"Win8":       "Windows-8.1-SP0",
@@ -618,7 +618,7 @@ func (b *builder) defaultSwarmDimensions(parts map[string]string) []string {
 		}
 		if os == "Mac10.14" && parts["model"] == "VMware7.1" {
 			// ChOps VMs are at a newer version of MacOS.
-			d["os"] = "Mac-10.14.4"
+			d["os"] = "Mac-10.14.6"
 		}
 		if d["os"] == DEFAULT_OS_WIN {
 			// Upgrades result in a new image but not a new OS version.
@@ -650,6 +650,7 @@ func (b *builder) defaultSwarmDimensions(parts map[string]string) []string {
 				"Pixel":           {"sailfish", "PPR1.180610.009"},
 				"Pixel2XL":        {"taimen", "PPR1.180610.009"},
 				"Pixel3":          {"blueline", "PQ1A.190105.004"},
+				"Pixel3a":         {"sargo", "QP1A.190711.020"},
 				"TecnoSpark3Pro":  {"TECNO-KB8", "PPR1.180610.011"},
 			}[parts["model"]]
 			if !ok {
@@ -662,12 +663,13 @@ func (b *builder) defaultSwarmDimensions(parts map[string]string) []string {
 				"iPadMini4": "iPad5,1",
 				"iPhone6":   "iPhone7,2",
 				"iPhone7":   "iPhone9,1",
+				"iPhone8":   "iPhone10,1",
 				"iPadPro":   "iPad6,3",
 			}[parts["model"]]
 			if !ok {
 				glog.Fatalf("Entry %q not found in iOS mapping.", parts["model"])
 			}
-			d["device"] = device
+			d["device_type"] = device
 		} else if strings.Contains(parts["extra_config"], "SwiftShader") {
 			if parts["model"] != "GCE" || d["os"] != DEFAULT_OS_DEBIAN || parts["cpu_or_gpu_value"] != "SwiftShader" {
 				glog.Fatalf("Please update defaultSwarmDimensions for SwiftShader %s %s %s.", parts["os"], parts["model"], parts["cpu_or_gpu_value"])
@@ -730,14 +732,14 @@ func (b *builder) defaultSwarmDimensions(parts map[string]string) []string {
 					// At some point this might use the device ID, but for now it's like Chromebooks.
 					"Adreno630":     "Adreno630",
 					"GT610":         "10de:104a-23.21.13.9101",
-					"GTX660":        "10de:11c0-25.21.14.1634",
-					"GTX960":        "10de:1401-25.21.14.1634",
+					"GTX660":        "10de:11c0-26.21.14.4120",
+					"GTX960":        "10de:1401-26.21.14.4120",
 					"IntelHD4400":   "8086:0a16-20.19.15.4963",
-					"IntelIris540":  "8086:1926-25.20.100.6519",
+					"IntelIris540":  "8086:1926-26.20.100.7463",
 					"IntelIris6100": "8086:162b-20.19.15.4963",
-					"IntelIris655":  "8086:3ea5-25.20.100.6519",
-					"RadeonHD7770":  "1002:683d-24.20.13001.1010",
-					"RadeonR9M470X": "1002:6646-24.20.13001.1010",
+					"IntelIris655":  "8086:3ea5-26.20.100.7463",
+					"RadeonHD7770":  "1002:683d-26.20.13031.18002",
+					"RadeonR9M470X": "1002:6646-26.20.13031.18002",
 					"QuadroP400":    "10de:1cb3-25.21.14.1678",
 				}[parts["cpu_or_gpu_value"]]
 				if !ok {
@@ -1096,6 +1098,9 @@ func (b *builder) compile(name string, parts map[string]string) string {
 		if strings.Contains(name, "MoltenVK") {
 			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("moltenvk"))
 		}
+		if strings.Contains(name, "iOS") {
+			task.CipdPackages = append(task.CipdPackages, b.MustGetCipdPackageFromAsset("provisioning_profile_ios"))
+		}
 	}
 
 	// Add the task.
@@ -1105,19 +1110,6 @@ func (b *builder) compile(name string, parts map[string]string) string {
 	// is listed in jobs.
 	if !util.In(name, b.jobs) {
 		glog.Fatalf("Job %q is missing from the jobs list!", name)
-	}
-
-	// Upload the skiaserve binary only for Linux Android compile bots.
-	// See skbug.com/7399 for context.
-	if parts["configuration"] == "Release" &&
-		parts["extra_config"] == "Android" &&
-		!strings.Contains(parts["os"], "Win") &&
-		!strings.Contains(parts["os"], "Mac") {
-		uploadName := fmt.Sprintf("%s%s%s", PREFIX_UPLOAD, b.jobNameSchema.Sep, name)
-		task := b.kitchenTask(uploadName, "upload_skiaserve", "swarm_recipe.isolate", b.cfg.ServiceAccountUploadBinary, b.linuxGceDimensions(MACHINE_TYPE_SMALL), EXTRA_PROPS, OUTPUT_NONE)
-		task.Dependencies = append(task.Dependencies, name)
-		b.MustAddTask(uploadName, task)
-		return uploadName
 	}
 
 	return name

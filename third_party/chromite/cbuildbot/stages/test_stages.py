@@ -314,54 +314,19 @@ class SkylabHWTestStage(HWTestStage):
   def _SetBranchedSuiteConfig(self, suite_config):
     suite_config.SetBranchedValuesForSkylab()
 
-  # Temporary hack during skylab and quotascheduler migration, to override
-  # certain builders' pool config values.
-  def _PoolHack(self, pool):
-    # Override the pool for all pfqs (except those also running release in
-    # Skylab) to use the quotascheduler pool. See crbug.com/950017
-    blacklist = ('asuka', 'coral', 'nyan_blaze', 'reef')
-    build_type = self._run.config.build_type
-    if config_lib.IsPFQType(build_type) and self._board_name not in blacklist:
-      pool = constants.HWTEST_QUOTA_POOL
-
-    # Retain all moblab boards on cq pool, until it is able
-    # to migrate to Skylab. See crbug.com/949217
-    if self._IsMoblabCQ():
-      pool = constants.HWTEST_PALADIN_POOL
-
-    return pool
-
-  # Temporary measure during skylab and quotascheduler migration, because
-  # quota_account is not yet correctly specified in most HWTestConfig entries.
-  def _InferQuotaAccount(self):
-    """Attempt to infer quota account to use for this test, if applicable."""
-    build_type = self._run.config.build_type
-    # The order of checks matters here.
-    # CQ builds are considered to be PFQ type as well.
-    if self._IsMoblabCQ():
-      return None
-    if config_lib.IsCQType(build_type):
-      return 'cq'
-    if config_lib.IsPFQType(build_type):
-      return 'pfq'
-    return None
-
-  def _IsMoblabCQ(self):
-    return ('moblab' in self._board_name
-            and config_lib.IsCQType(self._run.config.build_type))
-
   def PerformStage(self):
-    build = '/'.join([self._bot_id, self.version])
+    if not self.TestsEnabled(self._run):
+      logging.info('Skipping SkylabHWTestStage because HWTests are disabled.')
+      return
 
-    pool = self._PoolHack(self.suite_config.pool)
-    quota_account = self.suite_config.quota_account or self._InferQuotaAccount()
+    build = '/'.join([self._bot_id, self.version])
 
     cmd_result = commands.RunSkylabHWTestSuite(
         build,
         self.suite_config.suite,
         self._board_name,
         model=self._model,
-        pool=pool,
+        pool=self.suite_config.pool,
         wait_for_results=self.wait_for_results,
         priority=self.suite_config.priority,
         timeout_mins=self.suite_config.timeout_mins,
@@ -369,7 +334,7 @@ class SkylabHWTestStage(HWTestStage):
         max_retries=self.suite_config.max_retries,
         suite_args=self.suite_config.suite_args,
         job_keyvals=self.GetJobKeyvals(),
-        quota_account=quota_account)
+        quota_account=self.suite_config.quota_account)
 
     if cmd_result.to_raise:
       raise cmd_result.to_raise
@@ -409,9 +374,6 @@ class ImageTestStage(generic_stages.BoardSpecificBuilderStage,
   # Give the tests 60 minutes to run. Image tests should be really quick but
   # the umount/rmdir bug (see osutils.UmountDir) may take a long time.
   IMAGE_TEST_TIMEOUT = 60 * 60
-
-  def __init__(self, *args, **kwargs):
-    super(ImageTestStage, self).__init__(*args, **kwargs)
 
   def PerformStage(self):
     test_results_dir = commands.CreateTestRoot(self._build_root)
@@ -491,8 +453,18 @@ class CrosSigningTestStage(generic_stages.BuilderStage):
   category = constants.CI_INFRA_STAGE
 
   def PerformStage(self):
-    """Run the cros-signing unittests."""
-    commands.RunCrosSigningTests(self._build_root)
+    """Run the cros-signing unittests on each distinct branch.
+
+    This runs the cros-signing unittests for each distinct branch in set of
+    changes.
+    """
+    # The branch for the changes is buried in the metadata for the build.
+    changes = self._run.attrs.metadata.GetDict().get('changes', [])
+    branches = set()
+    for change in changes:
+      if change['project'] == 'chromeos/cros-signing':
+        branches.add(change['branch'])
+    commands.RunCrosSigningTests(self._build_root, branches=branches)
 
 
 class UnexpectedTryjobResult(Exception):
@@ -622,7 +594,7 @@ class ChromiteTestStage(generic_stages.BuilderStage):
     ]
     # TODO: Remove enter_chroot=True when we have virtualenv support.
     # Until then, we skip all chromite tests outside the chroot.
-    cros_build_lib.RunCommand(cmd, enter_chroot=True)
+    cros_build_lib.run(cmd, enter_chroot=True)
 
 
 class CidbIntegrationTestStage(generic_stages.BuilderStage):
@@ -640,7 +612,7 @@ class CidbIntegrationTestStage(generic_stages.BuilderStage):
         '-v',
         # '--network'  Doesn't work in a build, yet.
     ]
-    cros_build_lib.RunCommand(cmd, enter_chroot=True)
+    cros_build_lib.run(cmd, enter_chroot=True)
 
 
 class DebugInfoTestStage(generic_stages.BoardSpecificBuilderStage,
@@ -663,16 +635,11 @@ class DebugInfoTestStage(generic_stages.BoardSpecificBuilderStage,
             cros_build_lib.GetSysroot(board=self._current_board),
             'usr/lib/debug')
     ]
-    cros_build_lib.RunCommand(cmd, enter_chroot=True)
+    cros_build_lib.run(cmd, enter_chroot=True)
 
 
 class TestPlanStage(generic_stages.BoardSpecificBuilderStage):
   """Stage that constructs test plans."""
-
-  def __init__(self, builder_run, buildstore, board, **kwargs):
-
-    super(TestPlanStage, self).__init__(builder_run, buildstore, board,
-                                        **kwargs)
 
   def WaitUntilReady(self):
     config = self._run.config
@@ -739,7 +706,8 @@ class TestPlanStage(generic_stages.BoardSpecificBuilderStage):
     # Whereas, an empty array will act as a comprehensive filter.
     if model.test_suites is None or suite_config.suite in model.test_suites:
       stage_class = None
-      if suite_config.async:
+      # Python 3.7+ made async a reserved keyword.
+      if getattr(suite_config, 'async'):
         stage_class = ASyncSkylabHWTestStage
       else:
         stage_class = SkylabHWTestStage

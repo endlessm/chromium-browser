@@ -111,8 +111,8 @@ class ExpectFloat16 : public detail::Expectation {
 
 class TextureFormatTest : public DawnTest {
   protected:
-    void SetUp() {
-        DawnTest::SetUp();
+    void TestSetUp() {
+        DawnTest::TestSetUp();
     }
 
     // Structure containing all the information that tests need to know about the format.
@@ -219,7 +219,7 @@ class TextureFormatTest : public DawnTest {
         desc.vertexStage.module = vsModule;
         desc.cFragmentStage.module = fsModule;
         desc.layout = utils::MakeBasicPipelineLayout(device, &bgl);
-        desc.cColorStates[0]->format = renderFormatInfo.format;
+        desc.cColorStates[0].format = renderFormatInfo.format;
 
         return device.CreateRenderPipeline(&desc);
     }
@@ -273,7 +273,7 @@ class TextureFormatTest : public DawnTest {
         dawn::BindGroupLayout bgl = utils::MakeBindGroupLayout(
             device, {{0, dawn::ShaderStage::Fragment, dawn::BindingType::Sampler},
                      {1, dawn::ShaderStage::Fragment, dawn::BindingType::SampledTexture, false,
-                      false, sampleFormatInfo.type}});
+                      false, dawn::TextureViewDimension::e2D, sampleFormatInfo.type}});
 
         // Prepare objects needed to sample from texture in the renderpass
         dawn::RenderPipeline pipeline =
@@ -298,7 +298,7 @@ class TextureFormatTest : public DawnTest {
         utils::ComboRenderPassDescriptor renderPassDesc({renderTarget.CreateView()});
         dawn::RenderPassEncoder renderPass = encoder.BeginRenderPass(&renderPassDesc);
         renderPass.SetPipeline(pipeline);
-        renderPass.SetBindGroup(0, bindGroup, 0, nullptr);
+        renderPass.SetBindGroup(0, bindGroup);
         renderPass.Draw(3, 1, 0, 0);
         renderPass.EndPass();
 

@@ -10,7 +10,6 @@ from __future__ import print_function
 import base64
 import datetime
 import json
-import multiprocessing
 import os
 import shutil
 import tempfile
@@ -19,6 +18,7 @@ from chromite.lib import chroot_util
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import image_lib
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib.paygen import download_cache
@@ -35,8 +35,14 @@ from chromite.scripts import cros_set_lsb_release
 
 DESCRIPTION_FILE_VERSION = 2
 
-# Only two parallel paygen for now.
-_semaphore = multiprocessing.Semaphore(2)
+# See class docs for functionality information. Configured to reserve 6GB and
+# consider each individual task as consuming 6GB. Therefore we won't start a
+# new task unless available memory is about 12GB (including base utilization).
+_mem_semaphore = utils.MemoryConsumptionSemaphore(
+    system_available_buffer_bytes=2**31 + 2**32,  # 6 GB
+    single_proc_max_bytes=2**31 + 2**32,  # 6 GB
+    quiescence_time_seconds=60.0,
+    unchecked_acquires=4)
 
 
 class Error(Exception):
@@ -65,7 +71,7 @@ class PaygenPayload(object):
   PAYLOAD_SIGNATURE_SIZES_BYTES = (2048 // 8,)  # aka 2048 bits in bytes.
 
   TEST_IMAGE_NAME = 'chromiumos_test_image.bin'
-  RECOVERY_IMAGE_NAME = 'chromiumos_recovery_image.bin'
+  RECOVERY_IMAGE_NAME = 'recovery_image.bin'
   BASE_IMAGE_NAME = 'chromiumos_base_image.bin'
 
   _KERNEL = 'kernel'
@@ -257,8 +263,8 @@ class PaygenPayload(object):
     # TODO(crbug.com/925203): Replace this with image_lib.LoopbackPartition()
     # once the mentioned bug is resolved.
     with osutils.TempDir(base_dir=self.work_dir) as mount_point:
-      with osutils.MountImageContext(image, mount_point,
-                                     (constants.PART_ROOT_A,)):
+      with image_lib.LoopbackPartitions(image, destination=mount_point,
+                                        part_ids=(constants.PART_ROOT_A,)):
         sysroot_dir = os.path.join(mount_point,
                                    'dir-%s' % constants.PART_ROOT_A)
         lsb_release = utils.ReadLsbRelease(sysroot_dir)
@@ -325,7 +331,7 @@ class PaygenPayload(object):
       raise Error('Invalid image type %s' % tgt_image_type)
 
   def _RunGeneratorCmd(self, cmd):
-    """Wrapper for RunCommand in chroot.
+    """Wrapper for run in chroot.
 
     Run the given command inside the chroot. It will automatically log the
     command output. Note that the command's stdout and stderr are combined into
@@ -340,7 +346,7 @@ class PaygenPayload(object):
 
     try:
       # Run the command.
-      result = cros_build_lib.RunCommand(
+      result = cros_build_lib.run(
           cmd,
           redirect_stdout=True,
           enter_chroot=True,
@@ -351,8 +357,8 @@ class PaygenPayload(object):
                     e.result.returncode, e.result.output)
       raise
 
-    self._StoreLog('Output of command: ' + ' '.join(cmd))
-    self._StoreLog(result.output)
+    self._StoreLog('Output of command: ' + result.cmdstr)
+    self._StoreLog(result.output.decode('utf-8', 'replace'))
 
   @staticmethod
   def _BuildArg(flag, dict_obj, key, default=None):
@@ -425,7 +431,7 @@ class PaygenPayload(object):
     # If we downloaded an archive, extract the image file from it.
     if extract_file:
       cmd = ['tar', '-xJf', download_file, extract_file]
-      cros_build_lib.RunCommand(cmd, cwd=self.work_dir)
+      cros_build_lib.run(cmd, cwd=self.work_dir)
 
       # Rename it into the desired image name.
       shutil.move(os.path.join(self.work_dir, extract_file), image_file)
@@ -503,19 +509,27 @@ class PaygenPayload(object):
                     default='test' if src_image.build.channel else '')]
 
     # Run delta_generator for the purpose of generating an unsigned payload with
-    # smaller number of parallel processes as it already has full internal
-    # parallelism. Sometimes if a process cannot acquire the lock for a long
-    # period of time, the builder kills the process for not outputing any
+    # considerations for available memory. This is an adaption of the previous
+    # version which used a simple semaphore. This was highly limiting because
+    # while delta_generator is parallel there are single threaded portions
+    # of it that were taking a very long time (i.e. long poles).
+    #
+    # Sometimes if a process cannot acquire the lock for a long
+    # period of time, the builder kills the process for not outputting any
     # logs. So here we try to acquire the lock with a timeout of ten minutes in
     # a loop and log some output so not to be killed by the builder.
-    while not _semaphore.acquire(timeout=self._SEMAPHORE_TIMEOUT):
-      logging.info('Failed to acquire the lock in 10 minutes, trying again ...')
-
-    logging.info('Successfully acquired the lock.')
+    while True:
+      acq_result = _mem_semaphore.acquire(timeout=self._SEMAPHORE_TIMEOUT)
+      if acq_result.result:
+        logging.info('Acquired lock (reason: %s)', acq_result.reason)
+        break
+      else:
+        logging.info('Failed to acquire the lock in 10 minutes (reason: %s)'
+                     ', trying again ...', acq_result.reason)
     try:
       self._RunGeneratorCmd(cmd)
     finally:
-      _semaphore.release()
+      _mem_semaphore.release()
 
   def _GenerateHashes(self):
     """Generate a payload hash and a metadata hash.
@@ -540,8 +554,8 @@ class PaygenPayload(object):
 
     self._RunGeneratorCmd(cmd)
 
-    return (osutils.ReadFile(self.payload_hash_file),
-            osutils.ReadFile(self.metadata_hash_file))
+    return (osutils.ReadFile(self.payload_hash_file, mode='rb'),
+            osutils.ReadFile(self.metadata_hash_file, mode='rb'))
 
   def _GenerateSignerResultsError(self, format_str, *args):
     """Helper for reporting errors with signer results."""
@@ -659,7 +673,7 @@ class PaygenPayload(object):
 
     encoded_signature = base64.b64encode(signatures[0])
 
-    with open(self.metadata_signature_file, 'w+') as f:
+    with open(self.metadata_signature_file, 'w+b') as f:
       f.write(encoded_signature)
 
   def GetPayloadPropertiesMap(self, payload_path):
@@ -672,8 +686,6 @@ class PaygenPayload(object):
 
     In addition we add the following three keys to description file:
 
-    "sha1_hex": Payload sha1 hash as a hex encoded string.
-    "md5_hex": Payload md5 hash as a hex encoded string.
     "appid": The APP ID associated with this payload.
     "public_key": The public key the payload was signed with.
 
@@ -714,14 +726,7 @@ class PaygenPayload(object):
     # Add the public key if it exists.
     if self._public_key:
       props_map['public_key'] = base64.b64encode(
-          osutils.ReadFile(self._public_key))
-
-    # TODO(b/131762584): Remove these completely once they are deprecated from
-    # the Goldeneye. The client doesn't even check for these, so there is no
-    # point in calculating and sending them over. Better keep them like this so
-    # someone in the future hopefully fully deprecate them.
-    props_map['md5_hex'] = 'deprecated'
-    props_map['sha1_hex'] = 'deprecated'
+          osutils.ReadFile(self._public_key, mode='rb')).decode('utf-8')
 
     # We need the metadata size later for payload verification. Just grab it
     # from the properties file.
@@ -878,8 +883,6 @@ class PaygenPayload(object):
     # Deliver the payload to the final location.
     if self.signer:
       urilib.Copy(self.signed_payload_file, self.payload.uri)
-      urilib.Copy(self.metadata_signature_file,
-                  self._MetadataUri(self.payload.uri))
     else:
       urilib.Copy(self.payload_file, self.payload.uri)
 

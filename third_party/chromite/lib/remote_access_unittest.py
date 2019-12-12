@@ -104,12 +104,12 @@ class RemoteShMock(partial_mock.PartialCmdMock):
 
     Returns:
       A CommandResult object with an additional member |rc_mock| to
-      enable examination of the underlying RunCommand() function call.
+      enable examination of the underlying run() function call.
     """
     result = self._results['RemoteSh'].LookupResult(
         (cmd,), hook_args=(inst, cmd,) + args, hook_kwargs=kwargs)
 
-    # Run the real RemoteSh with RunCommand mocked out.
+    # Run the real RemoteSh with run mocked out.
     rc_mock = cros_test_lib.RunCommandMock()
     rc_mock.AddCmdResult(
         partial_mock.Ignore(), result.returncode, result.output, result.error)
@@ -164,9 +164,9 @@ class RemoteShTest(RemoteAccessTest):
     """Test normal functionality."""
     self.SetRemoteShResult()
     result = self.host.RemoteSh(self.TEST_CMD)
-    self.assertEquals(result.returncode, self.RETURN_CODE)
-    self.assertEquals(result.output.strip(), self.OUTPUT)
-    self.assertEquals(result.error.strip(), self.ERROR)
+    self.assertEqual(result.returncode, self.RETURN_CODE)
+    self.assertEqual(result.output.strip(), self.OUTPUT)
+    self.assertEqual(result.error.strip(), self.ERROR)
 
   def testRemoteCmdFailure(self):
     """Test failure in remote cmd."""

@@ -44,9 +44,6 @@ class Build(utils.RestrictedAttrDict):
   _slots = ('board', 'version', 'channel', 'bucket', 'uri')
   _name = 'Build definition'
 
-  def __init__(self, *args, **kwargs):
-    super(Build, self).__init__(*args, **kwargs)
-
   @staticmethod
   def BuildValuesFromUri(uri_re, uri):
     """Builds a dictionary from a URI using a regular expression.
@@ -101,6 +98,9 @@ class Image(utils.RestrictedAttrDict):
   def __init__(self, *args, **kwargs):
     super(Image, self).__init__(*args, **kwargs)
 
+    # Pylint isn't able to follow utils.RestrictedAttrDict & _slots trickery.
+    # pylint: disable=access-member-before-definition
+
     # If these match defaults, set to None.
     if self.build:
       self._clear_if_default('image_channel', self.build.channel)
@@ -133,9 +133,6 @@ class DLCImage(Image):
   """
   _name = 'DLC Image definition'
   _slots = Image._slots + ('dlc_id', 'dlc_package', 'dlc_image')
-
-  def __init__(self, *args, **kwargs):
-    super(DLCImage, self).__init__(*args, **kwargs)
 
   def __str__(self):
     if self.uri:
@@ -191,6 +188,9 @@ class Payload(utils.RestrictedAttrDict):
   def __init__(self, exists=False, *args, **kwargs):
     kwargs.update(exists=exists)
     super(Payload, self).__init__(*args, **kwargs)
+
+    # Pylint isn't able to follow utils.RestrictedAttrDict & _slots trickery.
+    # pylint: disable=access-member-before-definition
 
     # If there was no build passed, set the target image's build as the default.
     if not self.build and self.tgt_image.build:

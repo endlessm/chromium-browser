@@ -14,7 +14,6 @@ from telemetry.internal.results import chart_json_output_formatter
 from telemetry.internal.results import page_test_results
 from telemetry.internal.results import results_processor
 from telemetry import page as page_module
-from telemetry.value import list_of_scalar_values
 
 
 def _MakeStorySet():
@@ -93,8 +92,7 @@ class ChartJsonTest(unittest.TestCase):
     self._story_set[0].grouping_keys['temperature'] = 'cold'
     with _MakePageTestResults() as results:
       results.WillRunPage(self._story_set[0])
-      results.AddMeasurement('foo', 'seconds', 3)
-      results.AddMeasurement('foo', 'seconds', 4)
+      results.AddMeasurement('foo', 'seconds', [3, 4])
       results.DidRunPage(self._story_set[0])
       d = chart_json_output_formatter.ResultsAsChartDict(results)
 
@@ -105,8 +103,7 @@ class ChartJsonTest(unittest.TestCase):
   def testAsChartDictPageSpecificValuesSamePageWithoutGroupingLabel(self):
     with _MakePageTestResults() as results:
       results.WillRunPage(self._story_set[0])
-      results.AddMeasurement('foo', 'seconds', 3)
-      results.AddMeasurement('foo', 'seconds', 4)
+      results.AddMeasurement('foo', 'seconds', [3, 4])
       results.DidRunPage(self._story_set[0])
       d = chart_json_output_formatter.ResultsAsChartDict(results)
 
@@ -146,26 +143,6 @@ class ChartJsonTest(unittest.TestCase):
     self.assertIn('summary', d['charts']['foo'])
     self.assertTrue(d['enabled'])
 
-  def testAsChartDictSummaryValueWithTraceName(self):
-    v0 = list_of_scalar_values.ListOfScalarValues(
-        None, 'foo.bar', 'seconds', [3, 4])
-    with _MakePageTestResults() as results:
-      results.AddSummaryValue(v0)
-      d = chart_json_output_formatter.ResultsAsChartDict(results)
-
-    self.assertIn('bar', d['charts']['foo'])
-    self.assertTrue(d['enabled'])
-
-  def testAsChartDictSummaryValueWithoutTraceName(self):
-    v0 = list_of_scalar_values.ListOfScalarValues(
-        None, 'foo', 'seconds', [3, 4])
-    with _MakePageTestResults() as results:
-      results.AddSummaryValue(v0)
-      d = chart_json_output_formatter.ResultsAsChartDict(results)
-
-    self.assertIn('summary', d['charts']['foo'])
-    self.assertTrue(d['enabled'])
-
   def testAsChartDictWithTracesInArtifacts(self):
     with tempfile_ext.NamedTemporaryDirectory() as tempdir:
       with _MakePageTestResults(output_dir=tempdir) as results:
@@ -179,12 +156,3 @@ class ChartJsonTest(unittest.TestCase):
       self.assertIn('trace', d['charts'])
       self.assertIn('http://www.foo.com/', d['charts']['trace'])
       self.assertTrue(d['enabled'])
-
-  def testAsChartDictValueSmokeTest(self):
-    v0 = list_of_scalar_values.ListOfScalarValues(
-        None, 'foo.bar', 'seconds', [3, 4])
-    with _MakePageTestResults() as results:
-      results.AddSummaryValue(v0)
-      d = chart_json_output_formatter.ResultsAsChartDict(results)
-
-    self.assertEquals(d['charts']['foo']['bar']['values'], [3, 4])

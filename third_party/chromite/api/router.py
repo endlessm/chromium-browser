@@ -14,8 +14,11 @@ from __future__ import print_function
 import importlib
 import os
 
+# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
+# pylint: disable=no-name-in-module
 from google.protobuf import json_format
 from google.protobuf import symbol_database
+# pylint: enable=no-name-in-module
 
 from chromite.api import controller
 from chromite.api import field_handler
@@ -147,7 +150,7 @@ class Router(object):
     try:
       input_json = osutils.ReadFile(input_path).strip()
     except IOError as e:
-      raise InvalidInputFileError('Unable to read input file: %s' % e.message)
+      raise InvalidInputFileError('Unable to read input file: %s' % e)
 
     try:
       svc, module_name = self._services[service_name]
@@ -166,8 +169,7 @@ class Router(object):
     try:
       json_format.Parse(input_json, input_msg, ignore_unknown_fields=True)
     except json_format.ParseError as e:
-      raise InvalidInputFormatError(
-          'Unable to parse the input json: %s' % e.message)
+      raise InvalidInputFormatError('Unable to parse the input json: %s' % e)
 
     # Get an empty output message instance.
     output_msg = self._sym_db.GetPrototype(method_desc.output_type)()
@@ -198,7 +200,7 @@ class Router(object):
     try:
       osutils.WriteFile(output_path, json_format.MessageToJson(output_msg))
     except IOError as e:
-      raise InvalidOutputFileError('Cannot write output file: %s' % e.message)
+      raise InvalidOutputFileError('Cannot write output file: %s' % e)
 
     return return_code
 
@@ -264,10 +266,12 @@ class Router(object):
           cmd.append('--validate-only')
 
         try:
-          result = cros_build_lib.RunCommand(cmd, enter_chroot=True,
-                                             chroot_args=chroot.GetEnterArgs(),
-                                             error_code_ok=True,
-                                             extra_env=chroot.env)
+          result = cros_build_lib.run(
+              cmd,
+              enter_chroot=True,
+              chroot_args=chroot.get_enter_args(),
+              error_code_ok=True,
+              extra_env=chroot.env)
         except cros_build_lib.RunCommandError:
           # A non-zero return code will not result in an error, but one is still
           # thrown when the command cannot be run in the first place. This is
@@ -305,11 +309,11 @@ class Router(object):
     try:
       module = importlib.import_module(controller.IMPORT_PATTERN % module_name)
     except ImportError as e:
-      raise ServiceControllerNotFoundError(e.message)
+      raise ServiceControllerNotFoundError(str(e))
     try:
       return getattr(module, method_name)
     except AttributeError as e:
-      raise MethodNotFoundError(e.message)
+      raise MethodNotFoundError(str(e))
 
 
 def RegisterServices(router):

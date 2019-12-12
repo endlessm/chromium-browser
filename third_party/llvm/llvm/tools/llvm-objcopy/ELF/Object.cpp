@@ -397,7 +397,7 @@ void SectionWriter::visit(const OwnedDataSection &Sec) {
   llvm::copy(Sec.Data, Out.getBufferStart() + Sec.Offset);
 }
 
-static constexpr std::array<uint8_t, 4> ZlibGnuMagic = {'Z', 'L', 'I', 'B'};
+static constexpr std::array<uint8_t, 4> ZlibGnuMagic = {{'Z', 'L', 'I', 'B'}};
 
 static bool isDataGnuCompressed(ArrayRef<uint8_t> Data) {
   return Data.size() > ZlibGnuMagic.size() &&
@@ -1112,7 +1112,7 @@ void BasicELFBuilder::initFileHeader() {
   Obj->OSABI = ELFOSABI_NONE;
   Obj->ABIVersion = 0;
   Obj->Entry = 0x0;
-  Obj->Machine = EMachine;
+  Obj->Machine = EM_NONE;
   Obj->Version = 1;
 }
 
@@ -1606,7 +1606,7 @@ Writer::~Writer() {}
 Reader::~Reader() {}
 
 std::unique_ptr<Object> BinaryReader::create() const {
-  return BinaryELFBuilder(MInfo.EMachine, MemBuf, NewSymbolVisibility).build();
+  return BinaryELFBuilder(MemBuf, NewSymbolVisibility).build();
 }
 
 Expected<std::vector<IHexRecord>> IHexReader::parse() const {
@@ -1689,7 +1689,7 @@ template <class ELFT> void ELFWriter<ELFT>::writeEhdr() {
   Ehdr.e_ehsize = sizeof(Elf_Ehdr);
   if (WriteSectionHeaders && Obj.sections().size() != 0) {
     Ehdr.e_shentsize = sizeof(Elf_Shdr);
-    Ehdr.e_shoff = Obj.SHOffset;
+    Ehdr.e_shoff = Obj.SHOff;
     // """
     // If the number of sections is greater than or equal to
     // SHN_LORESERVE (0xff00), this member has the value zero and the actual
@@ -1728,7 +1728,7 @@ template <class ELFT> void ELFWriter<ELFT>::writeShdrs() {
   // This reference serves to write the dummy section header at the begining
   // of the file. It is not used for anything else
   Elf_Shdr &Shdr =
-      *reinterpret_cast<Elf_Shdr *>(Buf.getBufferStart() + Obj.SHOffset);
+      *reinterpret_cast<Elf_Shdr *>(Buf.getBufferStart() + Obj.SHOff);
   Shdr.sh_name = 0;
   Shdr.sh_type = SHT_NULL;
   Shdr.sh_flags = 0;
@@ -1954,16 +1954,16 @@ template <class ELFT> void ELFWriter<ELFT>::assignOffsets() {
   // Offset so that SHOffset is valid.
   if (WriteSectionHeaders)
     Offset = alignTo(Offset, sizeof(Elf_Addr));
-  Obj.SHOffset = Offset;
+  Obj.SHOff = Offset;
 }
 
 template <class ELFT> size_t ELFWriter<ELFT>::totalSize() const {
   // We already have the section header offset so we can calculate the total
   // size by just adding up the size of each section header.
   if (!WriteSectionHeaders)
-    return Obj.SHOffset;
+    return Obj.SHOff;
   size_t ShdrCount = Obj.sections().size() + 1; // Includes null shdr.
-  return Obj.SHOffset + ShdrCount * sizeof(Elf_Shdr);
+  return Obj.SHOff + ShdrCount * sizeof(Elf_Shdr);
 }
 
 template <class ELFT> Error ELFWriter<ELFT>::write() {
@@ -2085,7 +2085,7 @@ template <class ELFT> Error ELFWriter<ELFT>::finalize() {
 
   // Finally now that all offsets and indexes have been set we can finalize any
   // remaining issues.
-  uint64_t Offset = Obj.SHOffset + sizeof(Elf_Shdr);
+  uint64_t Offset = Obj.SHOff + sizeof(Elf_Shdr);
   for (SectionBase &Sec : Obj.sections()) {
     Sec.HeaderOffset = Offset;
     Offset += sizeof(Elf_Shdr);

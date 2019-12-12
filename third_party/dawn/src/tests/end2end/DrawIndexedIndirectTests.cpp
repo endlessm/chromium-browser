@@ -21,8 +21,8 @@ constexpr uint32_t kRTSize = 4;
 
 class DrawIndexedIndirectTest : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
@@ -50,18 +50,18 @@ class DrawIndexedIndirectTest : public DawnTest {
         descriptor.cVertexInput.cBuffers[0].stride = 4 * sizeof(float);
         descriptor.cVertexInput.cBuffers[0].attributeCount = 1;
         descriptor.cVertexInput.cAttributes[0].format = dawn::VertexFormat::Float4;
-        descriptor.cColorStates[0]->format = renderPass.colorFormat;
+        descriptor.cColorStates[0].format = renderPass.colorFormat;
 
         pipeline = device.CreateRenderPipeline(&descriptor);
 
         vertexBuffer = utils::CreateBufferFromData<float>(
             device, dawn::BufferUsage::Vertex,
             {// First quad: the first 3 vertices represent the bottom left triangle
-             -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f,
+             -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
              0.0f, 1.0f,
 
              // Second quad: the first 3 vertices represent the top right triangle
-             -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 1.0f,
+             -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, -1.0f, -1.0f,
              0.0f, 1.0f});
         indexBuffer = utils::CreateBufferFromData<uint32_t>(
             device, dawn::BufferUsage::Index,
@@ -83,12 +83,11 @@ class DrawIndexedIndirectTest : public DawnTest {
         dawn::Buffer indirectBuffer =
             utils::CreateBufferFromData<uint32_t>(device, dawn::BufferUsage::Indirect, bufferList);
 
-        uint64_t zeroOffset = 0;
         dawn::CommandEncoder encoder = device.CreateCommandEncoder();
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
             pass.SetPipeline(pipeline);
-            pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
+            pass.SetVertexBuffer(0, vertexBuffer);
             pass.SetIndexBuffer(indexBuffer, indexOffset);
             pass.DrawIndexedIndirect(indirectBuffer, indirectOffset);
             pass.EndPass();

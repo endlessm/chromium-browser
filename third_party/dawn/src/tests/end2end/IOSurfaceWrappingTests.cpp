@@ -306,7 +306,7 @@ class IOSurfaceUsageTests : public IOSurfaceTestBase {
             descriptor.vertexStage.module = vs;
             descriptor.cFragmentStage.module = fs;
             descriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
-            descriptor.cColorStates[0]->format = dawn::TextureFormat::RGBA8Unorm;
+            descriptor.cColorStates[0].format = dawn::TextureFormat::RGBA8Unorm;
 
             pipeline = device.CreateRenderPipeline(&descriptor);
         }
@@ -317,7 +317,7 @@ class IOSurfaceUsageTests : public IOSurfaceTestBase {
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
             pass.SetPipeline(pipeline);
-            pass.SetBindGroup(0, bindGroup, 0, nullptr);
+            pass.SetBindGroup(0, bindGroup);
             pass.Draw(6, 1, 0, 0);
             pass.EndPass();
         }
@@ -347,8 +347,8 @@ class IOSurfaceUsageTests : public IOSurfaceTestBase {
         dawn::TextureView ioSurfaceView = ioSurfaceTexture.CreateView();
 
         utils::ComboRenderPassDescriptor renderPassDescriptor({ioSurfaceView}, {});
-        renderPassDescriptor.cColorAttachmentsInfoPtr[0]->clearColor = {1 / 255.0f, 2 / 255.0f,
-                                                                        3 / 255.0f, 4 / 255.0f};
+        renderPassDescriptor.cColorAttachments[0].clearColor = {1 / 255.0f, 2 / 255.0f, 3 / 255.0f,
+                                                                4 / 255.0f};
 
         // Execute commands to clear the ioSurface
         dawn::CommandEncoder encoder = device.CreateCommandEncoder();

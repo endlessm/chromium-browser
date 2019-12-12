@@ -26,7 +26,6 @@ def startTimer(timeit):
 
 def endTimer(timeit, msg):
     global startTime
-    endTime = time.clock()
     if timeit:
         endTime = time.process_time()
         write(msg, endTime - startTime, file=sys.stderr)
@@ -34,7 +33,7 @@ def endTimer(timeit, msg):
 
 # Turn a list of strings into a regexp string matching exactly those strings
 def makeREstring(list, default = None):
-    if len(list) > 0 or default == None:
+    if len(list) > 0 or default is None:
         return '^(' + '|'.join(list) + ')$'
     else:
         return default
@@ -112,10 +111,14 @@ def makeGenOpts(args):
     # Defaults for generating re-inclusion protection wrappers (or not)
     protectFeature = protect
 
+    # An API style conventions object
+    conventions = VulkanConventions()
+
     # Helper file generator options for typemap_helper.h
     genOpts['vk_typemap_helper.h'] = [
           HelperFileOutputGenerator,
           HelperFileOutputGeneratorOptions(
+            conventions       = conventions,
             filename          = 'vk_typemap_helper.h',
             directory         = directory,
             apiname           = 'vulkan',
@@ -140,6 +143,7 @@ def makeGenOpts(args):
     genOpts['mock_icd.h'] = [
           MockICDOutputGenerator,
           MockICDGeneratorOptions(
+            conventions       = conventions,
             filename          = 'mock_icd.h',
             directory         = directory,
             apiname           = 'vulkan',
@@ -164,6 +168,7 @@ def makeGenOpts(args):
     genOpts['mock_icd.cpp'] = [
           MockICDOutputGenerator,
           MockICDGeneratorOptions(
+            conventions       = conventions,
             filename          = 'mock_icd.cpp',
             directory         = directory,
             apiname           = 'vulkan',
@@ -285,6 +290,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    # default scripts path to be same as registry
+    if not args.scripts:
+        args.scripts = os.path.dirname(args.registry)
+
     scripts_directory_path = os.path.dirname(os.path.abspath(__file__))
     registry_headers_path = os.path.join(scripts_directory_path, args.scripts)
     sys.path.insert(0, registry_headers_path)
@@ -296,6 +305,9 @@ if __name__ == '__main__':
     # Generator Modifications
     from mock_icd_generator import MockICDGeneratorOptions, MockICDOutputGenerator
     from vulkan_tools_helper_file_generator import HelperFileOutputGenerator, HelperFileOutputGeneratorOptions
+    # Temporary workaround for vkconventions python2 compatibility
+    import abc; abc.ABC = abc.ABCMeta('ABC', (object,), {})
+    from vkconventions import VulkanConventions
 
     # This splits arguments which are space-separated lists
     args.feature = [name for arg in args.feature for name in arg.split()]

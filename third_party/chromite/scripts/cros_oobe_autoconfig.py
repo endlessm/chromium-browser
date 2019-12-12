@@ -26,6 +26,7 @@ from chromite.lib import commandline
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import image_lib
 from chromite.lib import osutils
 
 
@@ -124,18 +125,18 @@ def GetConfigContent(opts):
   return json.dumps(conf)
 
 
-def PrepareImage(image, content, domain=None):
+def PrepareImage(path, content, domain=None):
   """Prepares a recovery image for OOBE autoconfiguration.
 
   Args:
-    image: Path to the recovery image.
+    path: Path to the recovery image.
     content: The content of the OOBE autoconfiguration.
     domain: Which domain to enroll to.
   """
   with osutils.TempDir() as tmp, \
-     osutils.MountImageContext(image, tmp, (constants.CROS_PART_STATEFUL,),
-                               ('rw',)) as _:
-    stateful_mnt = os.path.join(tmp, 'dir-%s' % constants.CROS_PART_STATEFUL)
+    image_lib.LoopbackPartitions(path, tmp) as image:
+    stateful_mnt = image.Mount((constants.CROS_PART_STATEFUL,),
+                               mount_opts=('rw',))[0]
 
     # /stateful/unencrypted may not exist at this point in time on the
     # recovery image, so create it root-owned here.
@@ -151,13 +152,13 @@ def PrepareImage(image, content, domain=None):
     # given data into it.
     config = os.path.join(oobe_autoconf, _CONFIG_PATH)
     osutils.WriteFile(config, content, sudo=True)
-    cros_build_lib.SudoRunCommand(['chown', 'chronos:chronos', config])
+    cros_build_lib.sudo_run(['chown', 'chronos:chronos', config])
 
     # If we have a plaintext domain name, write it.
     if domain:
       domain_path = os.path.join(oobe_autoconf, _DOMAIN_PATH)
       osutils.WriteFile(domain_path, SanitizeDomain(domain), sudo=True)
-      cros_build_lib.SudoRunCommand(['chown', 'chronos:chronos', domain_path])
+      cros_build_lib.sudo_run(['chown', 'chronos:chronos', domain_path])
 
 
 def ParseArguments(argv):

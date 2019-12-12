@@ -95,6 +95,9 @@ def main(argv):
                     help='The path to generate the build files in.')
   parser.add_option('--no-strip', action='store_true',
                     help='Don\'t strip release build. Useful for profiling.')
+  parser.add_option('--no-static-libstdc++', action='store_true',
+                    default=False, dest='no_static_libstdcpp',
+                    help='Don\'t link libstdc++ statically')
   options, args = parser.parse_args(argv)
 
   if args:
@@ -321,13 +324,14 @@ def WriteGNNinja(path, platform, host, options):
         '-fno-rtti',
         '-fdiagnostics-color',
     ])
-    cflags_cc.extend(['-std=c++14', '-Wno-c++11-narrowing'])
+    cflags_cc.extend(['-std=c++17'])
 
     if platform.is_linux():
-      ldflags.extend([
-          '-static-libstdc++',
-          '-Wl,--as-needed',
-      ])
+      ldflags.append('-Wl,--as-needed')
+
+      if not options.no_static_libstdcpp:
+        ldflags.append('-static-libstdc++')
+
       # This is needed by libc++.
       libs.append('-ldl')
     elif platform.is_darwin():
@@ -374,6 +378,7 @@ def WriteGNNinja(path, platform, host, options):
         '/wd4996',
     ])
     cflags_cc.extend([
+        '/std:c++17',
         '/GR-',
         '/D_HAS_EXCEPTIONS=0',
     ])
@@ -402,7 +407,6 @@ def WriteGNNinja(path, platform, host, options):
         'base/memory/weak_ptr.cc',
         'base/sha1.cc',
         'base/strings/string_number_conversions.cc',
-        'base/strings/string_piece.cc',
         'base/strings/string_split.cc',
         'base/strings/string_util.cc',
         'base/strings/string_util_constants.cc',
@@ -650,7 +654,6 @@ def WriteGNNinja(path, platform, host, options):
         'base/files/file_util_posix.cc',
         'base/posix/file_descriptor_shuffle.cc',
         'base/posix/safe_strerror.cc',
-        'base/strings/string16.cc',
     ])
 
   if platform.is_windows():

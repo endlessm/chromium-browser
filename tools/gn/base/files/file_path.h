@@ -9,7 +9,7 @@
 //
 //                   POSIX            Windows
 //                   ---------------  ----------------------------------
-// Fundamental type  char[]           wchar_t[]
+// Fundamental type  char[]           char16_t[]
 // Encoding          unspecified*     UTF-16
 // Separator         /                \, tolerant of /
 // Drive letters     no               case-insensitive A-Z followed by :
@@ -50,7 +50,7 @@
 //
 // To aid in initialization of FilePath objects from string literals, a
 // FILE_PATH_LITERAL macro is provided, which accounts for the difference
-// between char[]-based pathnames on POSIX systems and wchar_t[]-based
+// between char[]-based pathnames on POSIX systems and char16_t[]-based
 // pathnames on Windows.
 //
 // As a precaution against premature truncation, paths can't contain NULs.
@@ -106,12 +106,11 @@
 
 #include <iosfwd>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
-#include "base/strings/string_piece.h"
 #include "util/build_config.h"
 
 // Windows-style drive letter support and pathname separator characters can be
@@ -142,9 +141,9 @@ class PickleIterator;
 class FilePath {
  public:
 #if defined(OS_WIN)
-  // On Windows, for Unicode-aware applications, native pathnames are wchar_t
+  // On Windows, for Unicode-aware applications, native pathnames are char16_t
   // arrays encoded in UTF-16.
-  typedef std::wstring StringType;
+  typedef std::u16string StringType;
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // On most platforms, native pathnames are char arrays, and the encoding
   // may or may not be specified.  On Mac OS X, native pathnames are encoded
@@ -152,8 +151,8 @@ class FilePath {
   typedef std::string StringType;
 #endif  // OS_WIN
 
-  typedef BasicStringPiece<StringType> StringPieceType;
-  typedef StringType::value_type CharType;
+  using CharType = StringType::value_type;
+  using StringViewType = std::basic_string_view<CharType>;
 
   // Null-terminated array of separators used to separate components in
   // hierarchical paths.  Each character in this array is a valid separator,
@@ -175,7 +174,7 @@ class FilePath {
 
   FilePath();
   FilePath(const FilePath& that);
-  explicit FilePath(StringPieceType path);
+  explicit FilePath(StringViewType path);
   ~FilePath();
   FilePath& operator=(const FilePath& that);
 
@@ -282,20 +281,20 @@ class FilePath {
   // path == "jojo.jpg"         suffix == " (1)", returns "jojo (1).jpg"
   // path == "C:\pics\jojo"     suffix == " (1)", returns "C:\pics\jojo (1)"
   // path == "C:\pics.old\jojo" suffix == " (1)", returns "C:\pics.old\jojo (1)"
-  FilePath InsertBeforeExtension(StringPieceType suffix) const
+  FilePath InsertBeforeExtension(StringViewType suffix) const
       WARN_UNUSED_RESULT;
-  FilePath InsertBeforeExtensionASCII(StringPiece suffix) const
+  FilePath InsertBeforeExtensionASCII(std::string_view suffix) const
       WARN_UNUSED_RESULT;
 
   // Adds |extension| to |file_name|. Returns the current FilePath if
   // |extension| is empty. Returns "" if BaseName() == "." or "..".
-  FilePath AddExtension(StringPieceType extension) const WARN_UNUSED_RESULT;
+  FilePath AddExtension(StringViewType extension) const WARN_UNUSED_RESULT;
 
   // Replaces the extension of |file_name| with |extension|.  If |file_name|
   // does not have an extension, then |extension| is added.  If |extension| is
   // empty, then the extension is removed from |file_name|.
   // Returns "" if BaseName() == "." or "..".
-  FilePath ReplaceExtension(StringPieceType extension) const WARN_UNUSED_RESULT;
+  FilePath ReplaceExtension(StringViewType extension) const WARN_UNUSED_RESULT;
 
   // Returns a FilePath by appending a separator and the supplied path
   // component to this object's path.  Append takes care to avoid adding
@@ -303,16 +302,16 @@ class FilePath {
   // If this object's path is kCurrentDirectory, a new FilePath corresponding
   // only to |component| is returned.  |component| must be a relative path;
   // it is an error to pass an absolute path.
-  FilePath Append(StringPieceType component) const WARN_UNUSED_RESULT;
+  FilePath Append(StringViewType component) const WARN_UNUSED_RESULT;
   FilePath Append(const FilePath& component) const WARN_UNUSED_RESULT;
 
-  // Although Windows StringType is std::wstring, since the encoding it uses for
-  // paths is well defined, it can handle ASCII path components as well.
-  // Mac uses UTF8, and since ASCII is a subset of that, it works there as well.
-  // On Linux, although it can use any 8-bit encoding for paths, we assume that
+  // Although Windows StringType is std::u16string, since the encoding it uses
+  // for paths is well defined, it can handle ASCII path components as well. Mac
+  // uses UTF8, and since ASCII is a subset of that, it works there as well. On
+  // Linux, although it can use any 8-bit encoding for paths, we assume that
   // ASCII is a valid subset, regardless of the encoding, since many operating
   // system paths will always be ASCII.
-  FilePath AppendASCII(StringPiece component) const WARN_UNUSED_RESULT;
+  FilePath AppendASCII(std::string_view component) const WARN_UNUSED_RESULT;
 
   // Returns true if this FilePath contains an absolute path.  On Windows, an
   // absolute path begins with either a drive letter specification followed by
@@ -338,44 +337,16 @@ class FilePath {
   // Return a Unicode human-readable version of this path.
   // Warning: you can *not*, in general, go from a display name back to a real
   // path.  Only use this when displaying paths to users, not just when you
-  // want to stuff a string16 into some other API.
-  string16 LossyDisplayName() const;
+  // want to stuff a std::u16string into some other API.
+  std::u16string LossyDisplayName() const;
 
   // Return the path as ASCII, or the empty string if the path is not ASCII.
   // This should only be used for cases where the FilePath is representing a
   // known-ASCII filename.
   std::string MaybeAsASCII() const;
 
-  // Return the path as UTF-8.
-  //
-  // This function is *unsafe* as there is no way to tell what encoding is
-  // used in file names on POSIX systems other than Mac and Chrome OS,
-  // although UTF-8 is practically used everywhere these days. To mitigate
-  // the encoding issue, this function internally calls
-  // SysNativeMBToWide() on POSIX systems other than Mac and Chrome OS,
-  // per assumption that the current locale's encoding is used in file
-  // names, but this isn't a perfect solution.
-  //
-  // Once it becomes safe to to stop caring about non-UTF-8 file names,
-  // the SysNativeMBToWide() hack will be removed from the code, along
-  // with "Unsafe" in the function name.
-  std::string AsUTF8Unsafe() const;
-
-  // Similar to AsUTF8Unsafe, but returns UTF-16 instead.
-  string16 AsUTF16Unsafe() const;
-
-  // Returns a FilePath object from a path name in UTF-8. This function
-  // should only be used for cases where you are sure that the input
-  // string is UTF-8.
-  //
-  // Like AsUTF8Unsafe(), this function is unsafe. This function
-  // internally calls SysWideToNativeMB() on POSIX systems other than Mac
-  // and Chrome OS, to mitigate the encoding issue. See the comment at
-  // AsUTF8Unsafe() for details.
-  static FilePath FromUTF8Unsafe(StringPiece utf8);
-
-  // Similar to FromUTF8Unsafe, but accepts UTF-16 instead.
-  static FilePath FromUTF16Unsafe(StringPiece16 utf16);
+  // Return the path as 8-bit. On Linux this isn't guaranteed to be UTF-8.
+  std::string As8Bit() const;
 
   // Normalize all path separators to backslash on Windows
   // (if FILE_PATH_USES_WIN_SEPARATORS is true), or do nothing on POSIX systems.
@@ -396,18 +367,13 @@ class FilePath {
   StringType path_;
 };
 
-std::ostream& operator<<(std::ostream& out, const FilePath& file_path);
-
 }  // namespace base
 
-// Macros for string literal initialization of FilePath::CharType[], and for
-// using a FilePath::CharType[] in a printf-style format string.
+// Macros for string literal initialization of FilePath::CharType[].
 #if defined(OS_WIN)
-#define FILE_PATH_LITERAL(x) L##x
-#define PRFilePath "ls"
+#define FILE_PATH_LITERAL(x) u##x
 #elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #define FILE_PATH_LITERAL(x) x
-#define PRFilePath "s"
 #endif  // OS_WIN
 
 namespace std {

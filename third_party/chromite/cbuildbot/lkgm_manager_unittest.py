@@ -358,7 +358,7 @@ Commit: Gerrit <chrome-bot@chromium.org>
         'revision': '1234567890',
     }
     self.manager.incr_type = 'build'
-    self.PatchObject(cros_build_lib, 'RunCommand', side_effect=Exception())
+    self.PatchObject(cros_build_lib, 'run', side_effect=Exception())
     exists_mock, link_mock = self._MockParseGitLog(fake_git_log, project)
     self.manager.GenerateBlameListSinceLKGM()
 
@@ -595,7 +595,7 @@ Commit: Gerrit <chrome-bot@chromium.org>
           1,
           1,
           3,
-          #Invalid tokens
+          # Invalid tokens
           '…')
 
       mock_pool = self._MockValidationPool([gerrit_patch])

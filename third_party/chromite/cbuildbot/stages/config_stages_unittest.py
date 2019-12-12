@@ -61,7 +61,7 @@ class CheckTemplateStageTest(generic_stages_unittest.AbstractStageTestCase):
     stage.ctx.LS.return_value = ['template.json']
 
     gs_paths = stage._ListTemplates()
-    self.assertItemsEqual(gs_paths, ['R_template.json', 'template.json'])
+    self.assertCountEqual(gs_paths, ['R_template.json', 'template.json'])
 
   def test_ListTemplatesWithNoSuchKeyError(self):
     """Test _ListTemplates with NoSuchKeyError."""
@@ -104,7 +104,7 @@ class UpdateConfigStageTest(generic_stages_unittest.AbstractStageTestCase):
     self.PatchObject(git, 'PushBranch')
     self.PatchObject(git, 'RunGit')
     self.PatchObject(repository, 'CloneWorkingRepo')
-    self.PatchObject(cros_build_lib, 'RunCommand')
+    self.PatchObject(cros_build_lib, 'run')
 
     self.project = 'chromite'
     self.chromite_dir = config_stages.GetProjectRepoDir('chromite',

@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2015-2016 The Khronos Group Inc.
- * Copyright (c) 2015-2016 Valve Corporation
- * Copyright (c) 2015-2016 LunarG, Inc.
+ * Copyright (c) 2015-2019 The Khronos Group Inc.
+ * Copyright (c) 2015-2019 Valve Corporation
+ * Copyright (c) 2015-2019 LunarG, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,10 +30,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <csignal>
+#include <iostream>
+#include <sstream>
 #include <memory>
 
 #define VULKAN_HPP_NO_SMART_HANDLE
 #define VULKAN_HPP_NO_EXCEPTIONS
+#define VULKAN_HPP_TYPESAFE_CONVERSION
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vk_sdk_platform.h>
 
@@ -239,6 +242,7 @@ struct Demo {
     void prepare_textures();
 
     void resize();
+    void create_surface();
     void set_image_layout(vk::Image, vk::ImageAspectFlags, vk::ImageLayout, vk::ImageLayout, vk::AccessFlags,
                           vk::PipelineStageFlags, vk::PipelineStageFlags);
     void update_data_buffer();
@@ -537,6 +541,7 @@ Demo::Demo()
       width{0},
       height{0},
       swapchainImageCount{0},
+      presentMode{vk::PresentModeKHR::eFifo},
       frame_index{0},
       spin_angle{0.0f},
       spin_increment{0.0f},
@@ -727,6 +732,10 @@ void Demo::draw() {
             // swapchain is not as optimal as it could be, but the platform's
             // presentation engine will still present the image correctly.
             break;
+        } else if (result == vk::Result::eErrorSurfaceLostKHR) {
+            inst.destroySurfaceKHR(surface, nullptr);
+            create_surface();
+            resize();
         } else {
             VERIFY(result == vk::Result::eSuccess);
         }
@@ -789,6 +798,10 @@ void Demo::draw() {
     } else if (result == vk::Result::eSuboptimalKHR) {
         // swapchain is not as optimal as it could be, but the platform's
         // presentation engine will still present the image correctly.
+    } else if (result == vk::Result::eErrorSurfaceLostKHR) {
+        inst.destroySurfaceKHR(surface, nullptr);
+        create_surface();
+        resize();
     } else {
         VERIFY(result == vk::Result::eSuccess);
     }
@@ -896,6 +909,12 @@ void Demo::init(int argc, char **argv) {
     frameCount = UINT32_MAX;
     use_xlib = false;
 
+#if defined(VK_USE_PLATFORM_MACOS_MVK)
+    // MoltenVK may not allow host coherent mapping to linear tiled images
+    // Force the use of a staging buffer to be safe
+    use_staging_buffer = true;
+#endif
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--use_staging") == 0) {
             use_staging_buffer = true;
@@ -928,18 +947,22 @@ void Demo::init(int argc, char **argv) {
             continue;
         }
 
-        fprintf(stderr,
-                "Usage:\n  %s [--use_staging] [--validate] [--break] [--c <framecount>] \n"
-                "       [--suppress_popups] [--present_mode {0,1,2,3}]\n"
-                "\n"
-                "Options for --present_mode:\n"
-                "  %d: VK_PRESENT_MODE_IMMEDIATE_KHR\n"
-                "  %d: VK_PRESENT_MODE_MAILBOX_KHR\n"
-                "  %d: VK_PRESENT_MODE_FIFO_KHR (default)\n"
-                "  %d: VK_PRESENT_MODE_FIFO_RELAXED_KHR\n",
-                APP_SHORT_NAME, VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_FIFO_KHR,
-                VK_PRESENT_MODE_FIFO_RELAXED_KHR);
-        fflush(stderr);
+        std::stringstream usage;
+        usage << "Usage:\n  " << APP_SHORT_NAME << "\t[--use_staging] [--validate]\n"
+              << "\t[--break] [--c <framecount>] [--suppress_popups]\n"
+              << "\t[--present_mode <present mode enum>]\n"
+              << "\t<present_mode_enum>\n"
+              << "\t\tVK_PRESENT_MODE_IMMEDIATE_KHR = " << VK_PRESENT_MODE_IMMEDIATE_KHR << "\n"
+              << "\t\tVK_PRESENT_MODE_MAILBOX_KHR = " << VK_PRESENT_MODE_MAILBOX_KHR << "\n"
+              << "\t\tVK_PRESENT_MODE_FIFO_KHR = " << VK_PRESENT_MODE_FIFO_KHR << "\n"
+              << "\t\tVK_PRESENT_MODE_FIFO_RELAXED_KHR = " << VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+
+#if defined(_WIN32)
+        if (!suppress_popups) MessageBox(NULL, usage.str().c_str(), "Usage Error", MB_OK);
+#else
+        std::cerr << usage.str();
+        std::cerr.flush();
+#endif
         exit(1);
     }
 
@@ -1008,16 +1031,9 @@ void Demo::init_connection() {
 void Demo::init_vk() {
     uint32_t instance_extension_count = 0;
     uint32_t instance_layer_count = 0;
-    uint32_t validation_layer_count = 0;
-    char const *const *instance_validation_layers = nullptr;
+    char const *const instance_validation_layers[] = {"VK_LAYER_KHRONOS_validation"};
     enabled_extension_count = 0;
     enabled_layer_count = 0;
-
-    char const *const instance_validation_layers_alt1[] = {"VK_LAYER_LUNARG_standard_validation"};
-
-    char const *const instance_validation_layers_alt2[] = {"VK_LAYER_GOOGLE_threading", "VK_LAYER_LUNARG_parameter_validation",
-                                                           "VK_LAYER_LUNARG_object_tracker", "VK_LAYER_LUNARG_core_validation",
-                                                           "VK_LAYER_GOOGLE_unique_objects"};
 
     // Look for validation layers
     vk::Bool32 validation_found = VK_FALSE;
@@ -1025,28 +1041,16 @@ void Demo::init_vk() {
         auto result = vk::enumerateInstanceLayerProperties(&instance_layer_count, static_cast<vk::LayerProperties *>(nullptr));
         VERIFY(result == vk::Result::eSuccess);
 
-        instance_validation_layers = instance_validation_layers_alt1;
         if (instance_layer_count > 0) {
             std::unique_ptr<vk::LayerProperties[]> instance_layers(new vk::LayerProperties[instance_layer_count]);
             result = vk::enumerateInstanceLayerProperties(&instance_layer_count, instance_layers.get());
             VERIFY(result == vk::Result::eSuccess);
 
-            validation_found = check_layers(ARRAY_SIZE(instance_validation_layers_alt1), instance_validation_layers,
+            validation_found = check_layers(ARRAY_SIZE(instance_validation_layers), instance_validation_layers,
                                             instance_layer_count, instance_layers.get());
             if (validation_found) {
-                enabled_layer_count = ARRAY_SIZE(instance_validation_layers_alt1);
-                enabled_layers[0] = "VK_LAYER_LUNARG_standard_validation";
-                validation_layer_count = 1;
-            } else {
-                // use alternative set of validation layers
-                instance_validation_layers = instance_validation_layers_alt2;
-                enabled_layer_count = ARRAY_SIZE(instance_validation_layers_alt2);
-                validation_found = check_layers(ARRAY_SIZE(instance_validation_layers_alt2), instance_validation_layers,
-                                                instance_layer_count, instance_layers.get());
-                validation_layer_count = ARRAY_SIZE(instance_validation_layers_alt2);
-                for (uint32_t i = 0; i < validation_layer_count; i++) {
-                    enabled_layers[i] = instance_validation_layers[i];
-                }
+                enabled_layer_count = ARRAY_SIZE(instance_validation_layers);
+                enabled_layers[0] = "VK_LAYER_KHRONOS_validation";
             }
         }
 
@@ -1272,7 +1276,7 @@ void Demo::init_vk() {
     gpu.getFeatures(&physDevFeatures);
 }
 
-void Demo::init_vk_swapchain() {
+void Demo::create_surface() {
 // Create a WSI surface for the window:
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
     {
@@ -1322,6 +1326,10 @@ void Demo::init_vk_swapchain() {
         VERIFY(result == vk::Result::eSuccess);
     }
 #endif
+}
+
+void Demo::init_vk_swapchain() {
+    create_surface();
     // Iterate over each queue to learn whether it supports presenting:
     std::unique_ptr<vk::Bool32[]> supportsPresent(new vk::Bool32[queue_family_count]);
     for (uint32_t i = 0; i < queue_family_count; i++) {
@@ -1986,13 +1994,33 @@ void Demo::prepare_render_pass() {
                              .setPreserveAttachmentCount(0)
                              .setPPreserveAttachments(nullptr);
 
+    vk::PipelineStageFlags stages = vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
+    vk::SubpassDependency const dependencies[2] = {
+        vk::SubpassDependency()  // Depth buffer is shared between swapchain images
+            .setSrcSubpass(VK_SUBPASS_EXTERNAL)
+            .setDstSubpass(0)
+            .setSrcStageMask(stages)
+            .setDstStageMask(stages)
+            .setSrcAccessMask(vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+            .setDstAccessMask(vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite)
+            .setDependencyFlags(vk::DependencyFlags()),
+        vk::SubpassDependency()  // Image layout transition
+            .setSrcSubpass(VK_SUBPASS_EXTERNAL)
+            .setDstSubpass(0)
+            .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+            .setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+            .setSrcAccessMask(vk::AccessFlagBits())
+            .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eColorAttachmentRead)
+            .setDependencyFlags(vk::DependencyFlags()),
+    };
+
     auto const rp_info = vk::RenderPassCreateInfo()
                              .setAttachmentCount(2)
                              .setPAttachments(attachments)
                              .setSubpassCount(1)
                              .setPSubpasses(&subpass)
-                             .setDependencyCount(0)
-                             .setPDependencies(nullptr);
+                             .setDependencyCount(2)
+                             .setPDependencies(dependencies);
 
     auto result = device.createRenderPass(&rp_info, nullptr, &render_pass);
     VERIFY(result == vk::Result::eSuccess);
@@ -3025,7 +3053,6 @@ int main(int argc, char **argv) {
 
 // Global function invoked from NS or UI views and controllers to create demo
 static void demo_main(struct Demo &demo, void *view, int argc, const char *argv[]) {
-
     demo.init(argc, (char **)argv);
     demo.window = view;
     demo.init_vk_swapchain();

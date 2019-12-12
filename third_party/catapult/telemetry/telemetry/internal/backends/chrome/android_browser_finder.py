@@ -7,6 +7,7 @@
 import contextlib
 import logging
 import os
+import posixpath
 import shutil
 import subprocess
 
@@ -93,8 +94,9 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
     # At this point the local_apk, if any, must exist.
     assert self._local_apk is None or os.path.exists(self._local_apk)
 
-    if self._local_apk and apk_helper.ToHelper(self._local_apk).is_bundle:
-      self._modules_to_install = set(finder_options.modules_to_install)
+    if finder_options.modules_to_install:
+      self._modules_to_install = set(['base'] +
+                                     finder_options.modules_to_install)
 
     self._embedder_apk = None
     if self._backend_settings.requires_embedder:
@@ -205,6 +207,10 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
     self._platform_backend.StopApplication(self._backend_settings.package)
     self._SetupProfile()
 
+    # Remove any old crash dumps
+    self._platform_backend.device.RemovePath(
+        self._platform_backend.GetDumpLocation(), recursive=True, force=True)
+
   def _TearDownEnvironment(self):
     self._RestoreCommandLineFlags()
 
@@ -261,6 +267,13 @@ class PossibleAndroidBrowser(possible_browser.PossibleBrowser):
     # --ignore-certificate-errors-spki-list to work.
     startup_args.append('--user-data-dir=' + self.profile_directory)
 
+    # Needed so that non-browser-process crashes avoid automatic dump upload
+    # and subsequent deletion. The extra "Crashpad" is necessary because
+    # crashpad_stackwalker.py is hard-coded to look for a "Crashpad" directory
+    # in the dump directory that it is provided.
+    startup_args.append('--breakpad-dump-location=' + posixpath.join(
+        self._platform_backend.GetDumpLocation(), 'Crashpad'))
+
     return startup_args
 
   def SupportsOptions(self, browser_options):
@@ -315,10 +328,11 @@ def CanFindAvailableBrowsers():
 def _CanPossiblyHandlePath(apk_path):
   if not apk_path:
     return False
-  _, ext = os.path.splitext(apk_path)
-  if ext.lower() == '.apk':
+  try:
+    apk_helper.ToHelper(apk_path)
     return True
-  return apk_helper.ToHelper(apk_path).is_bundle
+  except apk_helper.ApkHelperError:
+    return False
 
 
 def FindAllBrowserTypes():

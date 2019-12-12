@@ -135,7 +135,7 @@ bool FillTargetBlockScope(const Scope* scope,
 
   // Set the target name variable to the current target, and mark it used
   // because we don't want to issue an error if the script ignores it.
-  const base::StringPiece target_name(variables::kTargetName);
+  const std::string_view target_name(variables::kTargetName);
   block_scope->SetValue(target_name, Value(function, args[0].string_value()),
                         function);
   block_scope->MarkUsed(target_name);
@@ -911,7 +911,7 @@ Example
   toolchain("toolchain") {
     tool("link") {
       command = "..."
-      pool = ":link_pool($default_toolchain)")
+      pool = ":link_pool($default_toolchain)"
     }
   }
 )*";
@@ -1175,7 +1175,7 @@ Value RunStringReplace(Scope* scope,
   int64_t n = 0;
   std::string val(str);
   size_t start_pos = 0;
-  while((start_pos = val.find(old, start_pos)) != std::string::npos) {
+  while ((start_pos = val.find(old, start_pos)) != std::string::npos) {
     val.replace(start_pos, old.length(), new_);
     start_pos += new_.length();
     if (++n >= max)
@@ -1315,7 +1315,7 @@ Value RunFunction(Scope* scope,
                   Err* err) {
   const Token& name = function->function();
 
-  std::string template_name = function->function().value().as_string();
+  std::string template_name(function->function().value());
   const Template* templ = scope->GetTemplate(template_name);
   if (templ) {
     Value args = args_list->Execute(scope, err);

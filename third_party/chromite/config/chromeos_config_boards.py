@@ -63,6 +63,7 @@ arm_internal_release_boards = frozenset([
     'veyron_speedy',
     'veyron_tiger',
     'viking',
+    'viking-poc2',
     'whirlwind',
     'wooten',
 ])
@@ -101,6 +102,8 @@ x86_internal_release_boards = frozenset([
     'eve',
     'eve-arcnext',
     'eve-arcvm',
+    'eve-arcvm-mesa-virgl-next',
+    'excelsior',
     'expresso',
     'falco_li',
     'fizz',
@@ -139,6 +142,7 @@ x86_internal_release_boards = frozenset([
     'octopus',
     'orco',
     'poppy',
+    'puff',
     'pyro',
     'rammus',
     'reef',
@@ -224,6 +228,7 @@ loonix_boards = frozenset([
 wshwos_boards = frozenset([
     'littlejoe',
     'viking',
+    'viking-poc2',
 ])
 
 moblab_boards = frozenset([

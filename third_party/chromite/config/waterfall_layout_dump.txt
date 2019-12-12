@@ -27,7 +27,7 @@
     hana-chrome-pfq
     kevin64-chrome-pfq
     nocturne-chrome-pfq
-    nyan_big-chrome-pfq
+    nyan_kitty-chrome-pfq
     reef-chrome-pfq
     scarlet-chromium-pfq
     terra-chrome-pfq
@@ -38,22 +38,31 @@
 == cq ==
   master-paladin
     amd64-generic-paladin
+    arkham-paladin
     arm-generic-paladin
     arm64-generic-paladin
+    asuka-paladin
     atlas-paladin
     auron_paine-paladin
     auron_yuna-paladin
+    banjo-paladin
+    banon-paladin
     beaglebone-paladin
+    beaglebone_servo-paladin
     betty-arc64-paladin
     betty-arcnext-paladin
+    betty-kernelnext-paladin
     betty-paladin
     betty-pi-arc-paladin
     bob-paladin
     bubs-paladin
+    buddy-paladin
+    candy-paladin
     capri-paladin
     capri-zfpga-paladin
     caroline-paladin
     cave-paladin
+    celes-paladin
     chell-nowithdebug-paladin
     chell-paladin
     cheza-paladin
@@ -63,8 +72,13 @@
     drallion-paladin
     edgar-paladin
     elm-paladin
+    enguarde-paladin
     eve-arcnext-paladin
+    eve-arcvm-mesa-virgl-next-paladin
+    eve-arcvm-paladin
     eve-paladin
+    expresso-paladin
+    falco_li-paladin
     fizz-accelerator-paladin
     fizz-moblab-paladin
     fizz-paladin
@@ -72,17 +86,21 @@
     gale-paladin
     gandof-paladin
     glados-paladin
+    gnawty-paladin
     gonzo-paladin
+    grunt-kernelnext-paladin
     grunt-paladin
     grunt-unittest-only-paladin
     guado-accelerator-paladin
     guado-paladin
     hana-paladin
     hatch-paladin
-    incremental-paladin
+    heli-paladin
     jacuzzi-paladin
     kalista-paladin
     kefka-kernelnext-paladin
+    kefka-paladin
+    kevin-arc64-paladin
     kevin-arcnext-paladin
     kevin-paladin
     kevin64-paladin
@@ -92,35 +110,54 @@
     lakitu-gpu-paladin
     lakitu-paladin
     lakitu-st-paladin
+    lars-paladin
     lasilla-ground-paladin
     littlejoe-paladin
+    lulu-paladin
     mistral-paladin
     moblab-generic-vm-paladin
     monroe-paladin
     nami-paladin
+    nautilus-paladin
+    ninja-paladin
     nocturne-paladin
-    nyan_big-paladin
-    nyan_blaze-paladin
+    novato-arc64-paladin
+    novato-paladin
     nyan_kitty-full-compile-paladin
     nyan_kitty-paladin
     octavius-paladin
     octopus-paladin
+    orco-paladin
+    puff-paladin
+    pyro-paladin
     rammus-paladin
     reef-paladin
+    reks-paladin
+    relm-paladin
+    rikku-paladin
     romer-paladin
     samus-kernelnext-paladin
     samus-paladin
+    sand-paladin
     sarien-paladin
     scarlet-paladin
     sentry-paladin
+    setzer-paladin
     sludge-paladin
+    snappy-paladin
+    soraka-paladin
+    sumo-paladin
+    swanky-paladin
     tael-paladin
     tatl-paladin
     terra-paladin
     tidus-paladin
+    ultima-paladin
+    veyron_fievel-paladin
     veyron_jaq-paladin
     veyron_jerry-kernelnext-paladin
     veyron_jerry-paladin
+    veyron_mickey-paladin
     veyron_mighty-paladin
     veyron_minnie-kernelnext-paladin
     veyron_minnie-paladin
@@ -128,6 +165,7 @@
     veyron_speedy-paladin
     veyron_tiger-paladin
     viking-paladin
+    viking-poc2-paladin
     volteer-paladin
     whirlwind-paladin
     winky-paladin
@@ -143,12 +181,10 @@
     auron_yuna-factory-auron-6459.B-factorybranch
     buddy-factory-auron-6459.B-factorybranch
     gandof-factory-auron-6459.B-factorybranch
-    jecht-factory-auron-6459.B-factorybranch
     lulu-factory-auron-6459.B-factorybranch
   factory-auron-6772.B-buildspec
     buddy-factory-auron-6772.B-factorybranch
     guado-factory-auron-6772.B-factorybranch
-    jecht-factory-auron-6772.B-factorybranch
     rikku-factory-auron-6772.B-factorybranch
     tidus-factory-auron-6772.B-factorybranch
   factory-coral-10122.B-buildspec
@@ -256,16 +292,14 @@
 
 == firmware ==
   firmware-atlas-11827.B-firmwarebranch
-  firmware-auron-6301.B-firmwarebranch
   firmware-banjo-5216.334.B-firmwarebranch
   firmware-buddy-6301.202.B-firmwarebranch
   firmware-candy-5216.310.B-firmwarebranch
   firmware-celes-7287.92.B-firmwarebranch
   firmware-coral-10068.B-firmwarebranch
-  firmware-cr50-9308.24.B-firmwarebranch
   firmware-cr50-9308.B-firmwarebranch
+  firmware-cr50-guc-factory-9308.26.B-firmwarebranch
   firmware-cr50-mp-release-9308.87.B-firmwarebranch
-  firmware-cr50-release-9308.25.B-firmwarebranch
   firmware-cyan-7287.57.B-firmwarebranch
   firmware-edgar-7287.167.B-firmwarebranch
   firmware-enguarde-5216.201.B-firmwarebranch
@@ -284,6 +318,7 @@
   firmware-kalista-11343.B-firmwarebranch
   firmware-kip-5216.227.B-firmwarebranch
   firmware-kitty-5771.61.B-firmwarebranch
+  firmware-kukui-12573.B-firmwarebranch
   firmware-lulu-6301.136.B-firmwarebranch
   firmware-mistral-12422.B-firmwarebranch
   firmware-monroe-4921.B-firmwarebranch
@@ -356,7 +391,7 @@
     betty-arc64-nyc-android-pfq
     betty-nyc-android-pfq
     gandof-nyc-android-pfq
-    veyron_jerry-nyc-android-pfq
+    veyron_mighty-nyc-android-pfq
     veyron_tiger-nyc-android-pfq
 
 == pi_android_pfq ==
@@ -395,7 +430,7 @@
     betty-arc64-release
     betty-arcmaster-release
     betty-arcnext-release
-    betty-nyc-arc-release
+    betty-kernelnext-release
     betty-pi-arc-release
     betty-qt-arc-release
     betty-release
@@ -414,15 +449,18 @@
     chell-release
     cheza-freedreno-release
     cheza-release
+    cheza64-freedreno-release
     cheza64-release
     cobblepot-release
     coral-release
+    cyan-kernelnext-release
     cyan-release
     drallion-release
     edgar-release
     elm-release
     enguarde-release
     eve-arcnext-release
+    eve-arcvm-mesa-virgl-next-release
     eve-arcvm-release
     eve-arm64-release
     eve-campfire-release
@@ -430,6 +468,7 @@
     eve-release
     eve-swap-release
     eve-userdebug-release
+    excelsior-release
     expresso-release
     falco_li-release
     fizz-accelerator-release
@@ -442,6 +481,7 @@
     gandof-release
     gnawty-release
     gonzo-release
+    grunt-kernelnext-release
     grunt-release
     guado-cfm-release
     guado-kernelnext-release
@@ -452,6 +492,7 @@
     hatch-release
     heli-release
     jacuzzi-release
+    kalista-cfm-release
     kalista-release
     kefka-kernelnext-release
     kefka-release
@@ -485,11 +526,13 @@
     octavius-release
     octopus-release
     orco-release
+    puff-release
     pyro-release
     rammus-release
     reef-release
     reks-release
     relm-release
+    rikku-cfm-release
     rikku-release
     romer-release
     samus-kernelnext-release
@@ -532,6 +575,7 @@
   arm-pgo-generate-llvm-next-toolchain
   arm64-pgo-generate-llvm-next-toolchain
   benchmark-afdo-generate
+  chrome-release-afdo-verify
   kernel-3_14-release-afdo-verify
   kernel-3_18-release-afdo-verify
   kernel-4_4-release-afdo-verify
@@ -551,6 +595,7 @@
 
 == vmpi_android_pfq ==
   master-vmpi-android-pfq
+    eve-arcvm-mesa-virgl-next-vmpi-android-pfq
     eve-arcvm-vmpi-android-pfq
 
 == tryjob ==
@@ -588,7 +633,6 @@
   amd64-generic-linux-v4_4-pre-cq
   amd64-generic-llvm-next-toolchain-tryjob
   amd64-generic-llvm-toolchain-tryjob
-  amd64-generic-llvm-tot-toolchain-tryjob
   amd64-generic-msan-fuzzer-tryjob
   amd64-generic-no-vmtest-pre-cq
   amd64-generic-nowithdebug-paladin-tryjob
@@ -624,7 +668,6 @@
   arm-generic-linux-v4_4-pre-cq
   arm-generic-llvm-next-toolchain-tryjob
   arm-generic-llvm-toolchain-tryjob
-  arm-generic-llvm-tot-toolchain-tryjob
   arm-generic-no-vmtest-pre-cq
   arm-generic-paladin-tryjob
   arm-generic-pre-cq
@@ -644,7 +687,6 @@
   arm64-generic-linux-v4_4-pre-cq
   arm64-generic-llvm-next-toolchain-tryjob
   arm64-generic-llvm-toolchain-tryjob
-  arm64-generic-llvm-tot-toolchain-tryjob
   arm64-generic-no-vmtest-pre-cq
   arm64-generic-paladin-tryjob
   arm64-generic-pre-cq
@@ -858,21 +900,21 @@
   betty-compile-only-pre-cq
   betty-full-tryjob
   betty-incremental-tryjob
+  betty-kernelnext-chromium-pfq-tryjob
+  betty-kernelnext-compile-only-pre-cq
+  betty-kernelnext-full-tryjob
+  betty-kernelnext-llvm-next-toolchain-tryjob
+  betty-kernelnext-llvm-toolchain-tryjob
+  betty-kernelnext-no-vmtest-pre-cq
+  betty-kernelnext-paladin-tryjob
+  betty-kernelnext-pre-cq
+  betty-kernelnext-release-tryjob
+  betty-kernelnext-tot-chromium-pfq-informational-tryjob
+  betty-kernelnext-unittest-stress
   betty-llvm-next-toolchain-tryjob
   betty-llvm-toolchain-tryjob
   betty-no-vmtest-pre-cq
   betty-nyc-android-pfq-tryjob
-  betty-nyc-arc-chromium-pfq-tryjob
-  betty-nyc-arc-compile-only-pre-cq
-  betty-nyc-arc-full-tryjob
-  betty-nyc-arc-llvm-next-toolchain-tryjob
-  betty-nyc-arc-llvm-toolchain-tryjob
-  betty-nyc-arc-no-vmtest-pre-cq
-  betty-nyc-arc-paladin-tryjob
-  betty-nyc-arc-pre-cq
-  betty-nyc-arc-release-tryjob
-  betty-nyc-arc-tot-chromium-pfq-informational-tryjob
-  betty-nyc-arc-unittest-stress
   betty-paladin-tryjob
   betty-payloads-tryjob
   betty-pi-arc-chrome-pfq-tryjob
@@ -924,7 +966,6 @@
   betty-unittest-stress
   betty-vmtest-informational-tryjob
   binhost-pre-cq
-  bluestreak-pre-cq
   bob-chrome-pfq-tryjob
   bob-chromium-pfq-tryjob
   bob-compile-only-pre-cq
@@ -1116,6 +1157,7 @@
   celes-tot-chromium-pfq-informational-tryjob
   celes-unittest-stress
   chell-chrome-pfq-tryjob
+  chell-chrome-pre-flight-branch-tryjob
   chell-chromium-pfq-tryjob
   chell-compile-only-pre-cq
   chell-factory-glados-7657.B-factorybranch-tryjob
@@ -1167,6 +1209,17 @@
   cheza64-chrome-pfq-tryjob
   cheza64-chromium-pfq-tryjob
   cheza64-compile-only-pre-cq
+  cheza64-freedreno-chromium-pfq-tryjob
+  cheza64-freedreno-compile-only-pre-cq
+  cheza64-freedreno-full-tryjob
+  cheza64-freedreno-llvm-next-toolchain-tryjob
+  cheza64-freedreno-llvm-toolchain-tryjob
+  cheza64-freedreno-no-vmtest-pre-cq
+  cheza64-freedreno-paladin-tryjob
+  cheza64-freedreno-pre-cq
+  cheza64-freedreno-release-tryjob
+  cheza64-freedreno-tot-chromium-pfq-informational-tryjob
+  cheza64-freedreno-unittest-stress
   cheza64-full-tryjob
   cheza64-llvm-next-toolchain-tryjob
   cheza64-llvm-toolchain-tryjob
@@ -1223,6 +1276,17 @@
   cyan-compile-only-pre-cq
   cyan-factory-strago-7458.B-factorybranch-tryjob
   cyan-full-tryjob
+  cyan-kernelnext-chromium-pfq-tryjob
+  cyan-kernelnext-compile-only-pre-cq
+  cyan-kernelnext-full-tryjob
+  cyan-kernelnext-llvm-next-toolchain-tryjob
+  cyan-kernelnext-llvm-toolchain-tryjob
+  cyan-kernelnext-no-vmtest-pre-cq
+  cyan-kernelnext-paladin-tryjob
+  cyan-kernelnext-pre-cq
+  cyan-kernelnext-release-tryjob
+  cyan-kernelnext-tot-chromium-pfq-informational-tryjob
+  cyan-kernelnext-unittest-stress
   cyan-llvm-next-toolchain-tryjob
   cyan-llvm-toolchain-tryjob
   cyan-no-vmtest-pre-cq
@@ -1334,6 +1398,24 @@
   eve-arcvm-full-tryjob
   eve-arcvm-llvm-next-toolchain-tryjob
   eve-arcvm-llvm-toolchain-tryjob
+  eve-arcvm-mesa-virgl-next-chrome-pfq-tryjob
+  eve-arcvm-mesa-virgl-next-chromium-pfq-tryjob
+  eve-arcvm-mesa-virgl-next-compile-only-pre-cq
+  eve-arcvm-mesa-virgl-next-full-tryjob
+  eve-arcvm-mesa-virgl-next-llvm-next-toolchain-tryjob
+  eve-arcvm-mesa-virgl-next-llvm-toolchain-tryjob
+  eve-arcvm-mesa-virgl-next-no-vmtest-pre-cq
+  eve-arcvm-mesa-virgl-next-paladin-tryjob
+  eve-arcvm-mesa-virgl-next-payloads-tryjob
+  eve-arcvm-mesa-virgl-next-pre-cq
+  eve-arcvm-mesa-virgl-next-release-afdo-generate-tryjob
+  eve-arcvm-mesa-virgl-next-release-afdo-tryjob
+  eve-arcvm-mesa-virgl-next-release-afdo-use-tryjob
+  eve-arcvm-mesa-virgl-next-release-tryjob
+  eve-arcvm-mesa-virgl-next-tot-chrome-pfq-informational-tryjob
+  eve-arcvm-mesa-virgl-next-tot-chromium-pfq-informational-tryjob
+  eve-arcvm-mesa-virgl-next-unittest-stress
+  eve-arcvm-mesa-virgl-next-vmpi-android-pfq-tryjob
   eve-arcvm-no-vmtest-pre-cq
   eve-arcvm-paladin-tryjob
   eve-arcvm-payloads-tryjob
@@ -1386,6 +1468,7 @@
   eve-kvm-unittest-stress
   eve-llvm-next-toolchain-tryjob
   eve-llvm-toolchain-tryjob
+  eve-llvm-tot-toolchain-tryjob
   eve-master-factorybranch-tryjob
   eve-no-vmtest-pre-cq
   eve-paladin-tryjob
@@ -1421,6 +1504,23 @@
   eve-userdebug-release-tryjob
   eve-userdebug-tot-chromium-pfq-informational-tryjob
   eve-userdebug-unittest-stress
+  excelsior-chrome-pfq-tryjob
+  excelsior-chromium-pfq-tryjob
+  excelsior-compile-only-pre-cq
+  excelsior-full-tryjob
+  excelsior-llvm-next-toolchain-tryjob
+  excelsior-llvm-toolchain-tryjob
+  excelsior-no-vmtest-pre-cq
+  excelsior-paladin-tryjob
+  excelsior-payloads-tryjob
+  excelsior-pre-cq
+  excelsior-release-afdo-generate-tryjob
+  excelsior-release-afdo-tryjob
+  excelsior-release-afdo-use-tryjob
+  excelsior-release-tryjob
+  excelsior-tot-chrome-pfq-informational-tryjob
+  excelsior-tot-chromium-pfq-informational-tryjob
+  excelsior-unittest-stress
   expresso-chrome-pfq-tryjob
   expresso-chromium-pfq-tryjob
   expresso-compile-only-pre-cq
@@ -1446,12 +1546,10 @@
     auron_yuna-factory-auron-6459.B-factorybranch-tryjob
     buddy-factory-auron-6459.B-factorybranch-tryjob
     gandof-factory-auron-6459.B-factorybranch-tryjob
-    jecht-factory-auron-6459.B-factorybranch-tryjob
     lulu-factory-auron-6459.B-factorybranch-tryjob
   factory-auron-6772.B-buildspec-tryjob
     buddy-factory-auron-6772.B-factorybranch-tryjob
     guado-factory-auron-6772.B-factorybranch-tryjob
-    jecht-factory-auron-6772.B-factorybranch-tryjob
     rikku-factory-auron-6772.B-factorybranch-tryjob
     tidus-factory-auron-6772.B-factorybranch-tryjob
   factory-coral-10122.B-buildspec-tryjob
@@ -1575,16 +1673,14 @@
   falco_li-tot-chromium-pfq-informational-tryjob
   falco_li-unittest-stress
   firmware-atlas-11827.B-firmwarebranch-tryjob
-  firmware-auron-6301.B-firmwarebranch-tryjob
   firmware-banjo-5216.334.B-firmwarebranch-tryjob
   firmware-buddy-6301.202.B-firmwarebranch-tryjob
   firmware-candy-5216.310.B-firmwarebranch-tryjob
   firmware-celes-7287.92.B-firmwarebranch-tryjob
   firmware-coral-10068.B-firmwarebranch-tryjob
-  firmware-cr50-9308.24.B-firmwarebranch-tryjob
   firmware-cr50-9308.B-firmwarebranch-tryjob
+  firmware-cr50-guc-factory-9308.26.B-firmwarebranch-tryjob
   firmware-cr50-mp-release-9308.87.B-firmwarebranch-tryjob
-  firmware-cr50-release-9308.25.B-firmwarebranch-tryjob
   firmware-cyan-7287.57.B-firmwarebranch-tryjob
   firmware-edgar-7287.167.B-firmwarebranch-tryjob
   firmware-enguarde-5216.201.B-firmwarebranch-tryjob
@@ -1603,6 +1699,7 @@
   firmware-kalista-11343.B-firmwarebranch-tryjob
   firmware-kip-5216.227.B-firmwarebranch-tryjob
   firmware-kitty-5771.61.B-firmwarebranch-tryjob
+  firmware-kukui-12573.B-firmwarebranch-tryjob
   firmware-lulu-6301.136.B-firmwarebranch-tryjob
   firmware-mistral-12422.B-firmwarebranch-tryjob
   firmware-monroe-4921.B-firmwarebranch-tryjob
@@ -1814,6 +1911,17 @@
   grunt-compile-only-pre-cq
   grunt-factory-grunt-11164.B-factorybranch-tryjob
   grunt-full-tryjob
+  grunt-kernelnext-chromium-pfq-tryjob
+  grunt-kernelnext-compile-only-pre-cq
+  grunt-kernelnext-full-tryjob
+  grunt-kernelnext-llvm-next-toolchain-tryjob
+  grunt-kernelnext-llvm-toolchain-tryjob
+  grunt-kernelnext-no-vmtest-pre-cq
+  grunt-kernelnext-paladin-tryjob
+  grunt-kernelnext-pre-cq
+  grunt-kernelnext-release-tryjob
+  grunt-kernelnext-tot-chromium-pfq-informational-tryjob
+  grunt-kernelnext-unittest-stress
   grunt-llvm-next-toolchain-tryjob
   grunt-llvm-toolchain-tryjob
   grunt-no-vmtest-pre-cq
@@ -1963,7 +2071,6 @@
   heli-tot-chrome-pfq-informational-tryjob
   heli-tot-chromium-pfq-informational-tryjob
   heli-unittest-stress
-  incremental-paladin-tryjob
   jacuzzi-chrome-pfq-tryjob
   jacuzzi-chromium-pfq-tryjob
   jacuzzi-compile-only-pre-cq
@@ -1984,8 +2091,6 @@
   jecht-chrome-pfq-tryjob
   jecht-chromium-pfq-tryjob
   jecht-compile-only-pre-cq
-  jecht-factory-auron-6459.B-factorybranch-tryjob
-  jecht-factory-auron-6772.B-factorybranch-tryjob
   jecht-full-tryjob
   jecht-llvm-next-toolchain-tryjob
   jecht-llvm-toolchain-tryjob
@@ -2000,6 +2105,17 @@
   jecht-tot-chrome-pfq-informational-tryjob
   jecht-tot-chromium-pfq-informational-tryjob
   jecht-unittest-stress
+  kalista-cfm-chromium-pfq-tryjob
+  kalista-cfm-compile-only-pre-cq
+  kalista-cfm-full-tryjob
+  kalista-cfm-llvm-next-toolchain-tryjob
+  kalista-cfm-llvm-toolchain-tryjob
+  kalista-cfm-no-vmtest-pre-cq
+  kalista-cfm-paladin-tryjob
+  kalista-cfm-pre-cq
+  kalista-cfm-release-tryjob
+  kalista-cfm-tot-chromium-pfq-informational-tryjob
+  kalista-cfm-unittest-stress
   kalista-chrome-pfq-tryjob
   kalista-chromium-pfq-tryjob
   kalista-compile-only-pre-cq
@@ -2097,6 +2213,7 @@
   kevin-full-tryjob
   kevin-llvm-next-toolchain-tryjob
   kevin-llvm-toolchain-tryjob
+  kevin-llvm-tot-toolchain-tryjob
   kevin-no-vmtest-pre-cq
   kevin-paladin-tryjob
   kevin-payloads-tryjob
@@ -2323,7 +2440,7 @@
     hana-chrome-pfq-tryjob
     kevin64-chrome-pfq-tryjob
     nocturne-chrome-pfq-tryjob
-    nyan_big-chrome-pfq-tryjob
+    nyan_kitty-chrome-pfq-tryjob
     reef-chrome-pfq-tryjob
     scarlet-chromium-pfq-tryjob
     terra-chrome-pfq-tryjob
@@ -2352,26 +2469,35 @@
     betty-arc64-nyc-android-pfq-tryjob
     betty-nyc-android-pfq-tryjob
     gandof-nyc-android-pfq-tryjob
-    veyron_jerry-nyc-android-pfq-tryjob
+    veyron_mighty-nyc-android-pfq-tryjob
     veyron_tiger-nyc-android-pfq-tryjob
   master-paladin-tryjob
     amd64-generic-paladin-tryjob
+    arkham-paladin-tryjob
     arm-generic-paladin-tryjob
     arm64-generic-paladin-tryjob
+    asuka-paladin-tryjob
     atlas-paladin-tryjob
     auron_paine-paladin-tryjob
     auron_yuna-paladin-tryjob
+    banjo-paladin-tryjob
+    banon-paladin-tryjob
     beaglebone-paladin-tryjob
+    beaglebone_servo-paladin-tryjob
     betty-arc64-paladin-tryjob
     betty-arcnext-paladin-tryjob
+    betty-kernelnext-paladin-tryjob
     betty-paladin-tryjob
     betty-pi-arc-paladin-tryjob
     bob-paladin-tryjob
     bubs-paladin-tryjob
+    buddy-paladin-tryjob
+    candy-paladin-tryjob
     capri-paladin-tryjob
     capri-zfpga-paladin-tryjob
     caroline-paladin-tryjob
     cave-paladin-tryjob
+    celes-paladin-tryjob
     chell-nowithdebug-paladin-tryjob
     chell-paladin-tryjob
     cheza-paladin-tryjob
@@ -2381,8 +2507,13 @@
     drallion-paladin-tryjob
     edgar-paladin-tryjob
     elm-paladin-tryjob
+    enguarde-paladin-tryjob
     eve-arcnext-paladin-tryjob
+    eve-arcvm-mesa-virgl-next-paladin-tryjob
+    eve-arcvm-paladin-tryjob
     eve-paladin-tryjob
+    expresso-paladin-tryjob
+    falco_li-paladin-tryjob
     fizz-accelerator-paladin-tryjob
     fizz-moblab-paladin-tryjob
     fizz-paladin-tryjob
@@ -2390,17 +2521,21 @@
     gale-paladin-tryjob
     gandof-paladin-tryjob
     glados-paladin-tryjob
+    gnawty-paladin-tryjob
     gonzo-paladin-tryjob
+    grunt-kernelnext-paladin-tryjob
     grunt-paladin-tryjob
     grunt-unittest-only-paladin-tryjob
     guado-accelerator-paladin-tryjob
     guado-paladin-tryjob
     hana-paladin-tryjob
     hatch-paladin-tryjob
-    incremental-paladin-tryjob
+    heli-paladin-tryjob
     jacuzzi-paladin-tryjob
     kalista-paladin-tryjob
     kefka-kernelnext-paladin-tryjob
+    kefka-paladin-tryjob
+    kevin-arc64-paladin-tryjob
     kevin-arcnext-paladin-tryjob
     kevin-paladin-tryjob
     kevin64-paladin-tryjob
@@ -2410,35 +2545,54 @@
     lakitu-gpu-paladin-tryjob
     lakitu-paladin-tryjob
     lakitu-st-paladin-tryjob
+    lars-paladin-tryjob
     lasilla-ground-paladin-tryjob
     littlejoe-paladin-tryjob
+    lulu-paladin-tryjob
     mistral-paladin-tryjob
     moblab-generic-vm-paladin-tryjob
     monroe-paladin-tryjob
     nami-paladin-tryjob
+    nautilus-paladin-tryjob
+    ninja-paladin-tryjob
     nocturne-paladin-tryjob
-    nyan_big-paladin-tryjob
-    nyan_blaze-paladin-tryjob
+    novato-arc64-paladin-tryjob
+    novato-paladin-tryjob
     nyan_kitty-full-compile-paladin-tryjob
     nyan_kitty-paladin-tryjob
     octavius-paladin-tryjob
     octopus-paladin-tryjob
+    orco-paladin-tryjob
+    puff-paladin-tryjob
+    pyro-paladin-tryjob
     rammus-paladin-tryjob
     reef-paladin-tryjob
+    reks-paladin-tryjob
+    relm-paladin-tryjob
+    rikku-paladin-tryjob
     romer-paladin-tryjob
     samus-kernelnext-paladin-tryjob
     samus-paladin-tryjob
+    sand-paladin-tryjob
     sarien-paladin-tryjob
     scarlet-paladin-tryjob
     sentry-paladin-tryjob
+    setzer-paladin-tryjob
     sludge-paladin-tryjob
+    snappy-paladin-tryjob
+    soraka-paladin-tryjob
+    sumo-paladin-tryjob
+    swanky-paladin-tryjob
     tael-paladin-tryjob
     tatl-paladin-tryjob
     terra-paladin-tryjob
     tidus-paladin-tryjob
+    ultima-paladin-tryjob
+    veyron_fievel-paladin-tryjob
     veyron_jaq-paladin-tryjob
     veyron_jerry-kernelnext-paladin-tryjob
     veyron_jerry-paladin-tryjob
+    veyron_mickey-paladin-tryjob
     veyron_mighty-paladin-tryjob
     veyron_minnie-kernelnext-paladin-tryjob
     veyron_minnie-paladin-tryjob
@@ -2446,6 +2600,7 @@
     veyron_speedy-paladin-tryjob
     veyron_tiger-paladin-tryjob
     viking-paladin-tryjob
+    viking-poc2-paladin-tryjob
     volteer-paladin-tryjob
     whirlwind-paladin-tryjob
     winky-paladin-tryjob
@@ -2479,7 +2634,7 @@
     betty-arc64-release-tryjob
     betty-arcmaster-release-tryjob
     betty-arcnext-release-tryjob
-    betty-nyc-arc-release-tryjob
+    betty-kernelnext-release-tryjob
     betty-pi-arc-release-tryjob
     betty-qt-arc-release-tryjob
     betty-release-tryjob
@@ -2498,15 +2653,18 @@
     chell-release-tryjob
     cheza-freedreno-release-tryjob
     cheza-release-tryjob
+    cheza64-freedreno-release-tryjob
     cheza64-release-tryjob
     cobblepot-release-tryjob
     coral-release-tryjob
+    cyan-kernelnext-release-tryjob
     cyan-release-tryjob
     drallion-release-tryjob
     edgar-release-tryjob
     elm-release-tryjob
     enguarde-release-tryjob
     eve-arcnext-release-tryjob
+    eve-arcvm-mesa-virgl-next-release-tryjob
     eve-arcvm-release-tryjob
     eve-arm64-release-tryjob
     eve-campfire-release-tryjob
@@ -2514,6 +2672,7 @@
     eve-release-tryjob
     eve-swap-release-tryjob
     eve-userdebug-release-tryjob
+    excelsior-release-tryjob
     expresso-release-tryjob
     falco_li-release-tryjob
     fizz-accelerator-release-tryjob
@@ -2526,6 +2685,7 @@
     gandof-release-tryjob
     gnawty-release-tryjob
     gonzo-release-tryjob
+    grunt-kernelnext-release-tryjob
     grunt-release-tryjob
     guado-cfm-release-tryjob
     guado-kernelnext-release-tryjob
@@ -2536,6 +2696,7 @@
     hatch-release-tryjob
     heli-release-tryjob
     jacuzzi-release-tryjob
+    kalista-cfm-release-tryjob
     kalista-release-tryjob
     kefka-kernelnext-release-tryjob
     kefka-release-tryjob
@@ -2569,11 +2730,13 @@
     octavius-release-tryjob
     octopus-release-tryjob
     orco-release-tryjob
+    puff-release-tryjob
     pyro-release-tryjob
     rammus-release-tryjob
     reef-release-tryjob
     reks-release-tryjob
     relm-release-tryjob
+    rikku-cfm-release-tryjob
     rikku-release-tryjob
     romer-release-tryjob
     samus-kernelnext-release-tryjob
@@ -2615,6 +2778,7 @@
     arm-llvm-next-toolchain-tryjob
     arm64-llvm-next-toolchain-tryjob
   master-vmpi-android-pfq-tryjob
+    eve-arcvm-mesa-virgl-next-vmpi-android-pfq-tryjob
     eve-arcvm-vmpi-android-pfq-tryjob
   mistral-compile-only-pre-cq
   mistral-factory-mistral-12361.B-factorybranch-tryjob
@@ -2910,6 +3074,23 @@
   poppy-tot-chromium-pfq-informational-tryjob
   poppy-unittest-stress
   pre-cq-launcher-tryjob
+  puff-chrome-pfq-tryjob
+  puff-chromium-pfq-tryjob
+  puff-compile-only-pre-cq
+  puff-full-tryjob
+  puff-llvm-next-toolchain-tryjob
+  puff-llvm-toolchain-tryjob
+  puff-no-vmtest-pre-cq
+  puff-paladin-tryjob
+  puff-payloads-tryjob
+  puff-pre-cq
+  puff-release-afdo-generate-tryjob
+  puff-release-afdo-tryjob
+  puff-release-afdo-use-tryjob
+  puff-release-tryjob
+  puff-tot-chrome-pfq-informational-tryjob
+  puff-tot-chromium-pfq-informational-tryjob
+  puff-unittest-stress
   pyro-chrome-pfq-tryjob
   pyro-chromium-pfq-tryjob
   pyro-compile-only-pre-cq
@@ -3004,6 +3185,17 @@
   relm-tot-chrome-pfq-informational-tryjob
   relm-tot-chromium-pfq-informational-tryjob
   relm-unittest-stress
+  rikku-cfm-chromium-pfq-tryjob
+  rikku-cfm-compile-only-pre-cq
+  rikku-cfm-full-tryjob
+  rikku-cfm-llvm-next-toolchain-tryjob
+  rikku-cfm-llvm-toolchain-tryjob
+  rikku-cfm-no-vmtest-pre-cq
+  rikku-cfm-paladin-tryjob
+  rikku-cfm-pre-cq
+  rikku-cfm-release-tryjob
+  rikku-cfm-tot-chromium-pfq-informational-tryjob
+  rikku-cfm-unittest-stress
   rikku-chrome-pfq-tryjob
   rikku-chromium-pfq-tryjob
   rikku-compile-only-pre-cq
@@ -3389,7 +3581,6 @@
   veyron_jerry-llvm-next-toolchain-tryjob
   veyron_jerry-llvm-toolchain-tryjob
   veyron_jerry-no-vmtest-pre-cq
-  veyron_jerry-nyc-android-pfq-tryjob
   veyron_jerry-paladin-tryjob
   veyron_jerry-payloads-tryjob
   veyron_jerry-pre-cq
@@ -3428,6 +3619,7 @@
   veyron_mighty-llvm-next-toolchain-tryjob
   veyron_mighty-llvm-toolchain-tryjob
   veyron_mighty-no-vmtest-pre-cq
+  veyron_mighty-nyc-android-pfq-tryjob
   veyron_mighty-paladin-tryjob
   veyron_mighty-payloads-tryjob
   veyron_mighty-pre-cq
@@ -3529,6 +3721,15 @@
   viking-llvm-toolchain-tryjob
   viking-no-vmtest-pre-cq
   viking-paladin-tryjob
+  viking-poc2-compile-only-pre-cq
+  viking-poc2-full-tryjob
+  viking-poc2-llvm-next-toolchain-tryjob
+  viking-poc2-llvm-toolchain-tryjob
+  viking-poc2-no-vmtest-pre-cq
+  viking-poc2-paladin-tryjob
+  viking-poc2-pre-cq
+  viking-poc2-release-tryjob
+  viking-poc2-unittest-stress
   viking-pre-cq
   viking-release-tryjob
   viking-unittest-stress

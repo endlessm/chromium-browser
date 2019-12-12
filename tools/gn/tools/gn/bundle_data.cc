@@ -5,6 +5,7 @@
 #include "tools/gn/bundle_data.h"
 
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "tools/gn/filesystem_utils.h"
 #include "tools/gn/label_pattern.h"
 #include "tools/gn/output_file.h"
@@ -15,14 +16,14 @@
 namespace {
 
 // Return directory of |path| without the trailing directory separator.
-base::StringPiece FindDirNoTrailingSeparator(base::StringPiece path) {
-  base::StringPiece::size_type pos = path.find_last_of("/\\");
-  if (pos == base::StringPiece::npos)
-    return base::StringPiece();
-  return base::StringPiece(path.data(), pos);
+std::string_view FindDirNoTrailingSeparator(std::string_view path) {
+  std::string_view::size_type pos = path.find_last_of("/\\");
+  if (pos == std::string_view::npos)
+    return std::string_view();
+  return std::string_view(path.data(), pos);
 }
 
-bool IsSourceFileFromAssetsCatalog(base::StringPiece source,
+bool IsSourceFileFromAssetsCatalog(std::string_view source,
                                    SourceFile* asset_catalog) {
   // Check whether |source| matches one of the following pattern:
   //    .*\.xcassets/Contents.json
@@ -30,16 +31,21 @@ bool IsSourceFileFromAssetsCatalog(base::StringPiece source,
   //    .*\.xcassets/[^/]*\.imageset/[^/]*
   //    .*\.xcassets/[^/]*\.launchimage/[^/]*
   bool is_file_from_asset_catalog = false;
-  base::StringPiece dir = FindDirNoTrailingSeparator(source);
-  if (source.ends_with("/Contents.json") && dir.ends_with(".xcassets")) {
+  std::string_view dir = FindDirNoTrailingSeparator(source);
+  if (base::EndsWith(source, "/Contents.json", base::CompareCase::SENSITIVE) &&
+      base::EndsWith(dir, ".xcassets", base::CompareCase::SENSITIVE)) {
     is_file_from_asset_catalog = true;
-  } else if (dir.ends_with(".appiconset") || dir.ends_with(".imageset") ||
-             dir.ends_with(".launchimage") || dir.ends_with(".colorset")) {
+  } else if (base::EndsWith(dir, ".appiconset", base::CompareCase::SENSITIVE) ||
+             base::EndsWith(dir, ".imageset", base::CompareCase::SENSITIVE) ||
+             base::EndsWith(dir, ".launchimage",
+                            base::CompareCase::SENSITIVE) ||
+             base::EndsWith(dir, ".colorset", base::CompareCase::SENSITIVE)) {
     dir = FindDirNoTrailingSeparator(dir);
-    is_file_from_asset_catalog = dir.ends_with(".xcassets");
+    is_file_from_asset_catalog =
+        base::EndsWith(dir, ".xcassets", base::CompareCase::SENSITIVE);
   }
   if (is_file_from_asset_catalog && asset_catalog) {
-    std::string asset_catalog_path = dir.as_string();
+    std::string asset_catalog_path(dir);
     *asset_catalog = SourceFile(std::move(asset_catalog_path));
   }
   return is_file_from_asset_catalog;

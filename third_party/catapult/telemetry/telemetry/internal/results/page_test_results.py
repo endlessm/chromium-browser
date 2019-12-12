@@ -14,7 +14,6 @@ import traceback
 
 from telemetry import value as value_module
 from telemetry.internal.results import chart_json_output_formatter
-from telemetry.internal.results import html_output_formatter
 from telemetry.internal.results import gtest_progress_reporter
 from telemetry.internal.results import results_processor
 from telemetry.internal.results import story_run
@@ -25,6 +24,7 @@ from tracing.value import convert_chart_json
 from tracing.value import histogram_set
 from tracing.value.diagnostics import all_diagnostics
 from tracing.value.diagnostics import reserved_infos
+from tracing.value.diagnostics import generic_set
 
 
 TELEMETRY_RESULTS = '_telemetry_results.jsonl'
@@ -34,8 +34,7 @@ HISTOGRAM_DICTS_NAME = 'histogram_dicts.json'
 class PageTestResults(object):
   def __init__(self, output_formatters=None, progress_stream=None,
                output_dir=None, intermediate_dir=None,
-               should_add_value=None, benchmark_name=None,
-               benchmark_description=None,
+               benchmark_name=None, benchmark_description=None,
                upload_bucket=None, results_label=None):
     """
     Args:
@@ -46,10 +45,6 @@ class PageTestResults(object):
           stories are being run. Can be None to suppress progress reporting.
       output_dir: A string specifying the directory where to store the test
           artifacts, e.g: trace, videos, etc.
-      should_add_value: A function that takes two arguments: a value name and
-          a boolean (True when the value belongs to the first run of the
-          corresponding story). It returns True if the value should be added
-          to the test results and False otherwise.
       benchmark_name: A string with the name of the currently running benchmark.
       benchmark_description: A string with a description of the currently
           running benchmark.
@@ -67,18 +62,12 @@ class PageTestResults(object):
     self._intermediate_dir = intermediate_dir
     if intermediate_dir is None and output_dir is not None:
       self._intermediate_dir = os.path.join(output_dir, 'artifacts')
-
     self._upload_bucket = upload_bucket
-    if should_add_value is not None:
-      self._should_add_value = should_add_value
-    else:
-      self._should_add_value = lambda v, is_first: True
 
     self._current_story_run = None
     self._all_story_runs = []
     self._all_stories = set()
     self._representative_value_for_each_value_name = {}
-    self._all_summary_values = []
 
     self._histograms = histogram_set.HistogramSet()
 
@@ -90,6 +79,12 @@ class PageTestResults(object):
     # Interruptions occur for unrecoverable exceptions.
     self._interruption = None
     self._results_label = results_label
+
+    self._diagnostics = {
+        reserved_infos.BENCHMARKS.name: [self.benchmark_name],
+        reserved_infos.BENCHMARK_DESCRIPTIONS.name:
+            [self.benchmark_description],
+    }
 
     # If the object has been finalized, no more results can be added to it.
     self._finalized = False
@@ -172,10 +167,6 @@ class PageTestResults(object):
     self._histograms.ImportDicts(json.loads(vinn_result.stdout))
 
   @property
-  def all_summary_values(self):
-    return self._all_summary_values
-
-  @property
   def current_page(self):
     """DEPRECATED: Use current_story instead."""
     return self.current_story
@@ -234,8 +225,8 @@ class PageTestResults(object):
 
   @property
   def empty(self):
-    """Whether there were any story runs or results."""
-    return not self._all_story_runs and not self._all_summary_values
+    """Whether there were any story runs."""
+    return not self._all_story_runs
 
   def _WriteJsonLine(self, data, close=False):
     if self._results_stream is not None:
@@ -251,9 +242,6 @@ class PageTestResults(object):
     self._WriteJsonLine({
         'benchmarkRun': {
             'startTime': self.start_datetime.isoformat() + 'Z',
-            # TODO(crbug.com/981349): Fill this in with benchmark and platform
-            # diagnostics info.
-            'diagnostics': {}
         }
     })
 
@@ -262,6 +250,7 @@ class PageTestResults(object):
         'benchmarkRun': {
             'finalized': self.finalized,
             'interrupted': self.benchmark_interrupted,
+            'diagnostics': self._diagnostics,
         }
     }, close=True)
 
@@ -276,8 +265,8 @@ class PageTestResults(object):
   def __enter__(self):
     return self
 
-  def __exit__(self, _, __, ___):
-    self.Finalize()
+  def __exit__(self, _, exc_value, __):
+    self.Finalize(exc_value)
 
   def WillRunPage(self, page, story_run_index=0):
     assert not self.finalized, 'Results are finalized, cannot run more stories.'
@@ -311,7 +300,7 @@ class PageTestResults(object):
       for fail in result['fail']:
         self.Fail(fail)
       if result['histogram_dicts']:
-        self._ImportHistogramDicts(result['histogram_dicts'])
+        self._histograms.ImportDicts(result['histogram_dicts'])
         # Saving histograms as an artifact is a temporary hack to keep
         # things working while we gradually move code from Telemetry to
         # Results Processor.
@@ -320,7 +309,7 @@ class PageTestResults(object):
         with self.CreateArtifact(HISTOGRAM_DICTS_NAME) as f:
           json.dump(result['histogram_dicts'], f)
       for value in result['scalars']:
-        self.AddValue(value)
+        self._AddValue(value)
     finally:
       self._current_story_run = None
 
@@ -340,56 +329,32 @@ class PageTestResults(object):
     self._interruption = self._interruption or reason
 
   def AddHistogram(self, hist):
-    if self._ShouldAddHistogram(hist):
-      diags = self._GetDiagnostics()
-      for diag in diags.itervalues():
-        self._histograms.AddSharedDiagnostic(diag)
-      self._histograms.AddHistogram(hist, diags)
+    """DEPRECATED: New clients should use AddMeasurement instead."""
+    diags = self._GetDiagnostics()
+    for diag in diags.itervalues():
+      self._histograms.AddSharedDiagnostic(diag)
+    self._histograms.AddHistogram(hist, diags)
+    self.current_story_run.AddMeasurement(
+        hist.name, hist.unit, hist.sample_values, hist.description or None)
 
   def _GetDiagnostics(self):
-    """Get benchmark and current story details as histogram diagnostics."""
-    diag_values = [
+    """Get benchmark and current story details as histogram diagnostics.
+
+    Diagnostics of the DateRange type are converted to milliseconds.
+    """
+    return dict(_WrapDiagnostics([
         (reserved_infos.BENCHMARKS, self.benchmark_name),
-        (reserved_infos.BENCHMARK_START, self.benchmark_start_us),
+        (reserved_infos.BENCHMARK_START, self.benchmark_start_us / 1e3),
         (reserved_infos.BENCHMARK_DESCRIPTIONS, self.benchmark_description),
         (reserved_infos.LABELS, self.label),
         (reserved_infos.HAD_FAILURES, self.current_story_run.failed),
         (reserved_infos.STORIES, self.current_story.name),
         (reserved_infos.STORY_TAGS, self.current_story.GetStoryTagsList()),
         (reserved_infos.STORYSET_REPEATS, self.current_story_run.index),
-        (reserved_infos.TRACE_START, self.current_story_run.start_us),
-    ]
+        (reserved_infos.TRACE_START, self.current_story_run.start_us / 1e3),
+    ]))
 
-    diags = {}
-    for diag, value in diag_values:
-      if value is None or value == []:
-        continue
-      if diag.type == 'GenericSet' and not isinstance(value, list):
-        value = [value]
-      elif diag.type == 'DateRange':
-        # We store timestamps in microseconds, DateRange expects milliseconds.
-        value = value / 1e3  # pylint: disable=redefined-variable-type
-      diag_class = all_diagnostics.GetDiagnosticClassForName(diag.type)
-      diags[diag.name] = diag_class(value)
-    return diags
-
-  def _ImportHistogramDicts(self, histogram_dicts):
-    histograms = histogram_set.HistogramSet()
-    histograms.ImportDicts(histogram_dicts)
-    histograms.FilterHistograms(lambda hist: not self._ShouldAddHistogram(hist))
-    dicts_to_add = histograms.AsDicts()
-    self._histograms.ImportDicts(dicts_to_add)
-
-  def _ShouldAddHistogram(self, hist):
-    assert self._current_story_run, 'Not currently running test.'
-    is_first_result = (
-        self._current_story_run.story not in self._all_stories)
-    # TODO(eakuefner): Stop doing this once AddValue doesn't exist
-    stat_names = [
-        '%s_%s' % (hist.name, s) for  s in hist.statistics_scalars.iterkeys()]
-    return any(self._should_add_value(s, is_first_result) for s in stat_names)
-
-  def AddMeasurement(self, name, unit, samples):
+  def AddMeasurement(self, name, unit, samples, description=None):
     """Record a measurement of the currently running story.
 
     Measurements are numeric values obtained directly by a benchmark while
@@ -410,25 +375,45 @@ class PageTestResults(object):
         'count', etc).
       samples: Either a single numeric value or a list of numeric values to
         record as part of this measurement.
+      description: An optional string with a short human readable description
+        of the measurement.
     """
     assert self._current_story_run, 'Not currently running a story.'
-    value = _MeasurementToValue(self.current_story, name, unit, samples)
-    self.AddValue(value)
+    value = _MeasurementToValue(
+        self.current_story, name, unit, samples, description)
+    self._AddValue(value)
+    self.current_story_run.AddMeasurement(name, unit, samples, description)
 
-  def AddValue(self, value):
+  def _AddValue(self, value):
     """DEPRECATED: Use AddMeasurement instead."""
     assert self._current_story_run, 'Not currently running a story.'
-
     self._ValidateValue(value)
-    is_first_result = (
-        self._current_story_run.story not in self._all_stories)
-
-    if not self._should_add_value(value.name, is_first_result):
-      return
     self._current_story_run.AddLegacyValue(value)
 
-  def AddSharedDiagnosticToAllHistograms(self, name, diagnostic):
-    self._histograms.AddSharedDiagnosticToAllHistograms(name, diagnostic)
+  def AddSharedDiagnostics(self,
+                           owners=None,
+                           bug_components=None,
+                           documentation_urls=None,
+                           architecture=None,
+                           device_id=None,
+                           os_name=None,
+                           os_version=None):
+    """Add diagnostics to all histograms and save it to intermediate results."""
+    diag_values = [
+        (reserved_infos.OWNERS, owners),
+        (reserved_infos.BUG_COMPONENTS, bug_components),
+        (reserved_infos.DOCUMENTATION_URLS, documentation_urls),
+        (reserved_infos.ARCHITECTURES, architecture),
+        (reserved_infos.DEVICE_IDS, device_id),
+        (reserved_infos.OS_NAMES, os_name),
+        (reserved_infos.OS_VERSIONS, os_version),
+    ]
+
+    for name, value in _WrapDiagnostics(diag_values):
+      self._histograms.AddSharedDiagnosticToAllHistograms(name, value)
+      # Results Processor supports only GenericSet diagnostics for now.
+      assert isinstance(value, generic_set.GenericSet)
+      self._diagnostics[name] = list(value)
 
   def Fail(self, failure):
     """Mark the current story run as failed.
@@ -478,12 +463,6 @@ class PageTestResults(object):
     if tbm_metrics:
       self._current_story_run.SetTbmMetrics(tbm_metrics)
 
-  def AddSummaryValue(self, value):
-    assert not self.finalized, 'Results are finalized, cannot add values.'
-    assert value.page is None
-    self._ValidateValue(value)
-    self._all_summary_values.append(value)
-
   def _ValidateValue(self, value):
     assert isinstance(value, value_module.Value)
     if value.name not in self._representative_value_for_each_value_name:
@@ -492,7 +471,7 @@ class PageTestResults(object):
         value.name]
     assert value.IsMergableWith(representative_value)
 
-  def Finalize(self):
+  def Finalize(self, exc_value=None):
     """Finalize this object to prevent more results from being recorded.
 
     When progress reporting is enabled, also prints a final summary with the
@@ -503,17 +482,20 @@ class PageTestResults(object):
     if self.finalized:
       return
 
-    assert self._current_story_run is None, (
-        'Cannot finalize while stories are still running.')
+    if exc_value is not None:
+      self.InterruptBenchmark(repr(exc_value))
+      self._current_story_run = None
+    else:
+      assert self._current_story_run is None, (
+          'Cannot finalize while stories are still running.')
+
     self._finalized = True
     self._progress_reporter.DidFinishAllStories(self)
 
-    # Only serialize the trace if output_format is json or html.
-    if (self._output_dir and
-        any(isinstance(o, html_output_formatter.HtmlOutputFormatter)
-            for o in self._output_formatters)):
-      # Just to make sure that html trace is there in artifacts dir
-      results_processor.SerializeAndUploadHtmlTraces(self)
+    # Make sure that html traces are recorded as artifacts.
+    # TODO(crbug.com/981349): Remove this after trace serialization is
+    # implemented in Results Processor.
+    results_processor.SerializeAndUploadHtmlTraces(self)
 
     # TODO(crbug.com/981349): Ideally we want to write results for each story
     # run individually at DidRunPage when the story finished executing. For
@@ -541,9 +523,30 @@ class PageTestResults(object):
         yield run
 
 
-def _MeasurementToValue(story, name, unit, samples):
+def _MeasurementToValue(story, name, unit, samples, description):
   if isinstance(samples, list):
     return list_of_scalar_values.ListOfScalarValues(
-        story, name=name, units=unit, values=samples)
+        story, name=name, units=unit, values=samples, description=description)
   else:
-    return scalar.ScalarValue(story, name=name, units=unit, value=samples)
+    return scalar.ScalarValue(
+        story, name=name, units=unit, value=samples, description=description)
+
+
+def _WrapDiagnostics(info_value_pairs):
+  """Wrap diagnostic values in corresponding Diagnostics classes.
+
+  Args:
+    info_value_pairs: any iterable of pairs (info, value), where info is one
+        of reserved infos defined in tracing.value.diagnostics.reserved_infos,
+        and value can be any json-serializable object.
+
+  Returns:
+    An iterator over pairs (diagnostic name, diagnostic value).
+  """
+  for info, value in info_value_pairs:
+    if value is None or value == []:
+      continue
+    if info.type == 'GenericSet' and not isinstance(value, list):
+      value = [value]
+    diag_class = all_diagnostics.GetDiagnosticClassForName(info.type)
+    yield info.name, diag_class(value)

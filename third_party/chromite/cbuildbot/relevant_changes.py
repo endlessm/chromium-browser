@@ -113,12 +113,12 @@ class RelevantChanges(object):
     for k, v in changes_by_build_id.items():
       changes_by_config[config_map[k]] = v
 
-    for config in builds_not_passed_sync_stage:
+    for fail_config in builds_not_passed_sync_stage:
       # If a slave did not passed the sync stage, it means that the slave never
       # finished applying the changes in the sync stage. Hence the CL pickup
       # actions for this slave may be inaccurate. Conservatively assume all
       # changes are relevant.
-      changes_by_config[config] = set(changes)
+      changes_by_config[fail_config] = set(changes)
 
     return changes_by_config
 
@@ -594,7 +594,7 @@ class TriageRelevantChanges(object):
     if bb_info.status != constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED:
       return False
     if bb_info.result != constants.BUILDBUCKET_BUILDER_RESULT_SUCCESS:
-      #If the build uploaded 'passed' BuilderStatus pickle or the build
+      # If the build uploaded 'passed' BuilderStatus pickle or the build
       # only contains failures which can be ignored by this change, change is
       # in the value set for build_config in build_ignorable_changes_dict.
       if change not in ignorable_changes:

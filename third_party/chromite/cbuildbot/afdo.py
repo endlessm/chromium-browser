@@ -64,7 +64,7 @@ AFDO_GENERATE_LLVM_PROF = '/usr/bin/create_llvm_prof'
 # away, it is considered valid.
 
 # How old can the AFDO data be? (in days).
-AFDO_ALLOWED_STALE_DAYS = 14
+AFDO_ALLOWED_STALE_DAYS = 42
 
 # How old can the AFDO data be? (in difference of builds).
 AFDO_ALLOWED_STALE_BUILDS = 7
@@ -562,8 +562,72 @@ def _MergeAFDOProfiles(chroot_profile_list,
   if use_compbinary:
     merge_command.append('-compbinary')
 
-  cros_build_lib.RunCommand(
+  cros_build_lib.run(
       merge_command, enter_chroot=True, capture_output=True, print_cmd=True)
+
+
+def _RemoveIndirectCallTargetsFromProfile(chroot_input_path,
+                                          chroot_output_path):
+  """Removes indirect call targets from the given profile.
+
+  Args:
+    chroot_input_path: the profile in the chroot to remove indirect call
+      targets from.
+    chroot_output_path: where to drop the new profile. May be the same name as
+      chroot_input_path.
+  """
+
+  removal_script = ('/mnt/host/source/src/third_party/toolchain-utils/'
+                    'afdo_redaction/remove_indirect_calls.py')
+
+  def UniqueChrootFilePath(path):
+    # If this fires, we can do stuff with tempfile. I don't think it
+    # will, and I like path names without a lot of garbage in them.
+    if os.path.exists(path_util.FromChrootPath(path)):
+      raise ValueError('Path %r already exists; refusing to overwrite.' % path)
+    return path
+
+  input_as_txt = UniqueChrootFilePath(chroot_input_path + '.txt')
+
+  # This is mostly here because yapf has ugly formatting when we do
+  # foo(['a long list that', 'wraps on multiple', 'lines'], kwarg=1, kwarg=2)
+  def RunCommand(cmd):
+    cros_build_lib.run(cmd, enter_chroot=True, print_cmd=True)
+
+  RunCommand([
+      'llvm-profdata',
+      'merge',
+      '-sample',
+      '-output=' + input_as_txt,
+      '-text',
+      chroot_input_path,
+  ])
+
+  output_as_txt = UniqueChrootFilePath(chroot_output_path + '.txt')
+  RunCommand([
+      removal_script,
+      '--input=' + input_as_txt,
+      '--output=' + output_as_txt,
+  ])
+
+  # FIXME: Maybe want to use compbinary here.
+  RunCommand([
+      'llvm-profdata',
+      'merge',
+      '-sample',
+      '-output=' + chroot_output_path,
+      output_as_txt,
+  ])
+
+
+def _CompressAndUploadAFDOProfileIfNotPresent(gs_context, buildroot, gsurl_base,
+                                              profile_to_upload_path):
+  """Compresses and potentially uploads the given profile."""
+  compressed_path = CompressAFDOFile(profile_to_upload_path, buildroot)
+  compressed_basename = os.path.basename(compressed_path)
+  gs_target = os.path.join(gsurl_base, compressed_basename)
+  uploaded = GSUploadIfNotPresent(gs_context, compressed_path, gs_target)
+  return uploaded
 
 
 def CreateAndUploadMergedAFDOProfile(gs_context,
@@ -673,23 +737,29 @@ def CreateAndUploadMergedAFDOProfile(gs_context,
     cros_build_lib.UncompressFile(copy_to, copy_to_uncompressed)
     chroot_afdo_files.append(chroot_file)
 
-  merged_basename = os.path.basename(chroot_afdo_files[-1])
-  assert merged_basename.endswith(AFDO_SUFFIX)
-  merged_basename = merged_basename[:-len(AFDO_SUFFIX)] + merged_suffix + \
-      AFDO_SUFFIX
+  afdo_basename = os.path.basename(chroot_afdo_files[-1])
+  assert afdo_basename.endswith(AFDO_SUFFIX)
+  afdo_basename = afdo_basename[:-len(AFDO_SUFFIX)]
 
-  merged_output_path = os.path.join(work_dir, merged_basename)
-  chroot_merged_output_path = os.path.join(chroot_work_dir, merged_basename)
+  raw_merged_basename = 'raw-' + afdo_basename + merged_suffix + AFDO_SUFFIX
+  chroot_raw_merged_output_path = os.path.join(chroot_work_dir,
+                                               raw_merged_basename)
 
   # Weight all profiles equally.
   _MergeAFDOProfiles([(profile, 1) for profile in chroot_afdo_files],
-                     chroot_merged_output_path)
+                     chroot_raw_merged_output_path)
 
-  compressed_path = CompressAFDOFile(merged_output_path, buildroot)
-  compressed_basename = os.path.basename(compressed_path)
-  gs_target = os.path.join(GSURL_BASE_BENCH, compressed_basename)
-  uploaded = GSUploadIfNotPresent(gs_context, compressed_path, gs_target)
-  return merged_basename, uploaded
+  profile_to_upload_basename = afdo_basename + merged_suffix + AFDO_SUFFIX
+  profile_to_upload_path = os.path.join(work_dir, profile_to_upload_basename)
+  chroot_profile_to_upload_path = os.path.join(chroot_work_dir,
+                                               profile_to_upload_basename)
+
+  _RemoveIndirectCallTargetsFromProfile(chroot_raw_merged_output_path,
+                                        chroot_profile_to_upload_path)
+
+  result_basename = os.path.basename(profile_to_upload_path)
+  return result_basename, _CompressAndUploadAFDOProfileIfNotPresent(
+      gs_context, buildroot, GSURL_BASE_BENCH, profile_to_upload_path)
 
 
 def PatchChromeEbuildAFDOFile(ebuild_file, profiles):
@@ -738,7 +808,7 @@ def UpdateManifest(ebuild_file, ebuild_prog='ebuild'):
     ebuild_prog: the ebuild command; can be board specific
   """
   gen_manifest_cmd = [ebuild_prog, ebuild_file, 'manifest', '--force']
-  cros_build_lib.RunCommand(gen_manifest_cmd, enter_chroot=True, print_cmd=True)
+  cros_build_lib.run(gen_manifest_cmd, enter_chroot=True, print_cmd=True)
 
 
 def CommitIfChanged(ebuild_dir, message):
@@ -781,7 +851,7 @@ def UpdateChromeEbuildAFDOFile(board, profiles):
     ebuild_prog += '-%s' % board
 
   equery_cmd = [equery_prog, 'w', 'chromeos-chrome']
-  ebuild_file = cros_build_lib.RunCommand(
+  ebuild_file = cros_build_lib.run(
       equery_cmd, enter_chroot=True, redirect_stdout=True).output.rstrip()
 
   # Patch the ebuild file with the names of the available afdo_files.
@@ -1006,7 +1076,7 @@ def GenerateAFDOData(cpv, arch, board, buildroot, gs_context):
       '--profile=%s' % perf_afdo_path,
       '--out=%s' % afdo_path
   ]
-  cros_build_lib.RunCommand(
+  cros_build_lib.run(
       afdo_cmd, enter_chroot=True, capture_output=True, print_cmd=True)
 
   afdo_local_path = os.path.join(local_dir, afdo_file)
@@ -1064,8 +1134,7 @@ def CWPProfileToVersionTuple(url):
     A tuple of (milestone, major, minor, timestamp)
   """
   fn_mat = (
-      CWP_CHROME_PROFILE_NAME_PATTERN % tuple(
-          r'([0-9]+)' for _ in range(0, 4)))
+      CWP_CHROME_PROFILE_NAME_PATTERN % tuple(r'([0-9]+)' for _ in range(0, 4)))
   fn_mat.replace('.', '\\.')
   return [int(x) for x in re.match(fn_mat, os.path.basename(url)).groups()]
 
@@ -1149,8 +1218,7 @@ def GetAvailableKernelProfiles():
   matches = [x for x in all_matches if x]
   versions = {}
   for m in matches:
-    versions.setdefault(m.group(1), []).append(
-        [int(x) for x in m.groups()[1:]])
+    versions.setdefault(m.group(1), []).append([int(x) for x in m.groups()[1:]])
   for v in versions:
     versions[v].sort()
   return versions
@@ -1195,8 +1263,8 @@ def ProfileAge(profile_version):
   Returns:
     Age of profile_version in days.
   """
-  return (datetime.datetime.utcnow() - datetime.datetime.utcfromtimestamp(
-      profile_version[3])).days
+  return (datetime.datetime.utcnow() -
+          datetime.datetime.utcfromtimestamp(profile_version[3])).days
 
 
 PROFILE_SOURCES = {

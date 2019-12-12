@@ -7,8 +7,7 @@
 
 #include <algorithm>
 #include <string>
-
-#include "base/strings/string_piece.h"
+#include <string_view>
 
 namespace base {
 
@@ -142,9 +141,9 @@ class StringTokenizerT {
   const_iterator token_begin() const { return token_begin_; }
   const_iterator token_end() const { return token_end_; }
   str token() const { return str(token_begin_, token_end_); }
-  BasicStringPiece<str> token_piece() const {
-    return BasicStringPiece<str>(&*token_begin_,
-                                 std::distance(token_begin_, token_end_));
+  std::basic_string_view<typename str::value_type> token_piece() const {
+    return std::basic_string_view<typename str::value_type>(
+        &*token_begin_, std::distance(token_begin_, token_end_));
   }
 
  private:
@@ -242,7 +241,7 @@ class StringTokenizerT {
 
 typedef StringTokenizerT<std::string, std::string::const_iterator>
     StringTokenizer;
-typedef StringTokenizerT<std::wstring, std::wstring::const_iterator>
+typedef StringTokenizerT<std::u16string, std::u16string::const_iterator>
     WStringTokenizer;
 typedef StringTokenizerT<std::string, const char*> CStringTokenizer;
 

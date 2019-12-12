@@ -13,12 +13,12 @@ from __future__ import print_function
 
 import pickle
 import functools
-import httplib
 import os
 import time
 from xml.dom import minidom
 
 import six
+from six.moves import http_client as httplib
 
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import patch_series
@@ -78,7 +78,7 @@ class InternalCQError(cros_patch.PatchException):
     cros_patch.PatchException.__init__(self, patch, message=message)
 
   def ShortExplanation(self):
-    return 'failed to apply due to a CQ issue: %s' % (self.message,)
+    return 'failed to apply due to a CQ issue: %s' % (self.msg,)
 
 
 class InconsistentReloadException(Exception):
@@ -103,8 +103,8 @@ class PatchFailedToSubmit(cros_patch.PatchException):
 
   def ShortExplanation(self):
     error = 'could not be submitted by the CQ.'
-    if self.message:
-      error += ' The error message from Gerrit was: %s' % (self.message,)
+    if self.msg:
+      error += ' The error message from Gerrit was: %s' % (self.msg,)
     else:
       error += ' The Gerrit server might be having trouble.'
     return error
@@ -140,8 +140,9 @@ class ValidationPool(object):
   This class can be used to acquire a set of commits that form a pool of
   commits ready to be validated and committed.
 
-  Usage:  Use ValidationPool.AcquirePool -- a static
-  method that grabs the commits that are ready for validation.
+  Examples:
+    Use ValidationPool.AcquirePool -- a static method that grabs the commits
+    that are ready for validation.
   """
 
   GLOBAL_DRYRUN = False

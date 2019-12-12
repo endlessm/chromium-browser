@@ -18,7 +18,7 @@ class GconvStriptTest(cros_test_lib.MockTempDirTestCase):
   """Tests for gconv_strip script."""
 
   def testMultipleStringMatch(self):
-    self.assertEquals(
+    self.assertEqual(
         gconv_strip.MultipleStringMatch(
             ['hell', 'a', 'z', 'k', 'spec'],
             'hello_from a very special place'),
@@ -44,7 +44,9 @@ module charset_foo   charset_A     USED_MODULE
     gmods = gconv_strip.GconvModules(tmp_gconv_module)
     gmods.Load()
     self.PatchObject(gconv_strip.lddtree, 'ParseELF', return_value={})
-    self.PatchObject(gconv_strip.os, 'lstat')
+    class _StubStat(object):
+      st_size = 0
+    self.PatchObject(gconv_strip.os, 'lstat', return_value=_StubStat)
     self.PatchObject(gconv_strip.os, 'unlink')
     gmods.Rewrite(['charset_A', 'charset_B'], dry_run=False)
 
@@ -60,4 +62,4 @@ module charset_foo   charset_A     USED_MODULE
 """
 
     content = osutils.ReadFile(tmp_gconv_module)
-    self.assertEquals(content, expected)
+    self.assertEqual(content, expected)

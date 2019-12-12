@@ -164,7 +164,7 @@ class StageTestCase(cros_test_lib.MockOutputTestCase,
     self._model = self._current_board
 
     # Some preliminary sanity checks.
-    self.assertEquals(options.buildroot, self.build_root)
+    self.assertEqual(options.buildroot, self.build_root)
 
     # Construct a real BuilderRun using options and build_config.
     self._run = cbuildbot_run.BuilderRun(
@@ -251,7 +251,7 @@ class AbstractStageTestCase(StageTestCase):
     # it's state afterwards.
     self.stage = None
 
-  def ConstructStage(self, **kwargs):
+  def ConstructStage(self):
     """Returns an instance of the stage to be tested.
 
     Note: Must be implemented in subclasses.
@@ -802,47 +802,39 @@ class BoardSpecificBuilderStageTest(AbstractStageTestCase):
     expected = ['virtual/target-os', 'virtual/target-os-dev',
                 'virtual/target-os-test', 'virtual/target-os-factory',
                 'virtual/target-os-factory-shim', 'chromeos-base/autotest-all']
-    self.assertEquals(expected, packages)
+    self.assertEqual(expected, packages)
 
     # Test if an explicit list of packages is configured, only that list is set.
     self._run.config.packages = ['pkgA', 'pkgB']
     packages = stage.GetListOfPackagesToBuild()
-    self.assertEquals(['pkgA', 'pkgB'], packages)
+    self.assertEqual(['pkgA', 'pkgB'], packages)
 
     # Test if a list of packages is set for ChromeOS Findit builds, they are
     # added to an explicit list.
     self._run.options.cbb_build_packages = ['pkgC', 'pkgD']
     packages = stage.GetListOfPackagesToBuild()
-    self.assertEquals(['pkgC', 'pkgD', 'pkgA', 'pkgB'], packages)
+    self.assertEqual(['pkgC', 'pkgD', 'pkgA', 'pkgB'], packages)
 
     # Only check packages setup for ChromeOS Findit.
     self._run.config.packages = []
     packages = stage.GetListOfPackagesToBuild()
-    self.assertEquals(['pkgC', 'pkgD'], packages)
+    self.assertEqual(['pkgC', 'pkgD'], packages)
 
 
 class RunCommandAbstractStageTestCase(
     AbstractStageTestCase, cros_test_lib.RunCommandTestCase):
-  """Base test class for testing a stage and mocking RunCommand."""
+  """Base test class for testing a stage and mocking run."""
 
   # pylint: disable=abstract-method
 
   FULL_BOT_ID = 'amd64-generic-full'
   BIN_BOT_ID = 'amd64-generic-paladin'
 
-  def _Prepare(self, bot_id, **kwargs):
-    super(RunCommandAbstractStageTestCase, self)._Prepare(bot_id, **kwargs)
-
   def _PrepareFull(self, **kwargs):
     self._Prepare(self.FULL_BOT_ID, **kwargs)
 
   def _PrepareBin(self, **kwargs):
     self._Prepare(self.BIN_BOT_ID, **kwargs)
-
-  def _Run(self, dir_exists):
-    """Helper for running the build."""
-    with patch(os.path, 'isdir', return_value=dir_exists):
-      self.RunStage()
 
 
 class ArchivingStageMixinMock(partial_mock.PartialMock):

@@ -4,7 +4,9 @@
 
 import contextlib
 import datetime
+import json
 import logging
+import numbers
 import os
 import posixpath
 import time
@@ -15,6 +17,7 @@ PASS = 'PASS'
 FAIL = 'FAIL'
 SKIP = 'SKIP'
 
+MEASUREMENTS_NAME = 'measurements.json'
 
 _CONTENT_TYPES = {
     '.dat': 'application/octet-stream',  # Generic data blob.
@@ -113,6 +116,7 @@ class StoryRun(object):
     self._start_time = time.time()
     self._end_time = None
     self._artifacts = {}
+    self._measurements = {}
 
     if intermediate_dir is None:
       self._artifacts_dir = None
@@ -125,6 +129,23 @@ class StoryRun(object):
 
   def AddLegacyValue(self, value):
     self._values.append(value)
+
+  def AddMeasurement(self, name, unit, samples, description=None):
+    """Record an add hoc measurement associated with this story run."""
+    assert self._measurements is not None, (
+        'Measurements have already been collected')
+    if not isinstance(name, basestring):
+      raise TypeError('name must be a string, got %s' % name)
+    assert name not in self._measurements, (
+        'Already have measurement with the name %s' % name)
+    self._measurements[name] = _MeasurementToDict(unit, samples, description)
+
+  def _WriteMeasurementsArtifact(self):
+    if self._measurements:
+      with self.CreateArtifact(MEASUREMENTS_NAME) as f:
+        json.dump({'measurements': self._measurements}, f)
+    # It's an error to record more measurements after this point.
+    self._measurements = None
 
   def SetTbmMetrics(self, metrics):
     assert not self._tbm_metrics, 'Metrics have already been set'
@@ -148,6 +169,7 @@ class StoryRun(object):
   def Finish(self):
     assert not self.finished, 'story run had already finished'
     self._end_time = time.time()
+    self._WriteMeasurementsArtifact()
 
   def AsDict(self):
     """Encode as TestResultEntry dict in LUCI Test Results format.
@@ -162,7 +184,7 @@ class StoryRun(object):
             'isExpected': self.is_expected,
             'startTime': self.start_datetime.isoformat() + 'Z',
             'runDuration': _FormatDuration(self.duration),
-            'artifacts': {
+            'outputArtifacts': {
                 name: artifact.AsDict()
                 for name, artifact in self._artifacts.items()
             },
@@ -178,6 +200,8 @@ class StoryRun(object):
       yield 'tbmv2', metric
     if 'GTEST_SHARD_INDEX' in os.environ:
       yield 'shard', os.environ['GTEST_SHARD_INDEX']
+    for tag in self.story.GetStoryTagsList():
+      yield 'story_tag', tag
 
   @property
   def story(self):
@@ -352,3 +376,21 @@ class StoryRun(object):
     Returns an Artifact object or None, if there's no artifact with this name.
     """
     return self._artifacts.get(name)
+
+
+def _MeasurementToDict(unit, samples, description):
+  """Validate a measurement and encode as a JSON serializable dict."""
+  if not isinstance(unit, basestring):
+    # TODO(crbug.com/999484): Also validate that this is a known unit.
+    raise TypeError('unit must be a string, got %s' % unit)
+  if not isinstance(samples, list):
+    samples = [samples]
+  if not all(isinstance(v, numbers.Number) for v in samples):
+    raise TypeError(
+        'samples must be a list of numeric values, got %s' % samples)
+  measurement = {'unit': unit, 'samples': samples}
+  if description is not None:
+    if not isinstance(description, basestring):
+      raise TypeError('description must be a string, got %s' % description)
+    measurement['description'] = description
+  return measurement

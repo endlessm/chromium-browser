@@ -99,46 +99,42 @@ TEST_F(RenderPassDescriptorValidationTest, OneAttachment) {
 
 // Test OOB color attachment indices are handled
 TEST_F(RenderPassDescriptorValidationTest, ColorAttachmentOutOfBounds) {
+    dawn::TextureView color0 = Create2DAttachment(device, 1, 1, dawn::TextureFormat::RGBA8Unorm);
     dawn::TextureView color1 = Create2DAttachment(device, 1, 1, dawn::TextureFormat::RGBA8Unorm);
     dawn::TextureView color2 = Create2DAttachment(device, 1, 1, dawn::TextureFormat::RGBA8Unorm);
     dawn::TextureView color3 = Create2DAttachment(device, 1, 1, dawn::TextureFormat::RGBA8Unorm);
-    dawn::TextureView color4 = Create2DAttachment(device, 1, 1, dawn::TextureFormat::RGBA8Unorm);
     // For setting the color attachment, control case
     {
-        utils::ComboRenderPassDescriptor renderPass({color1, color2, color3, color4});
+        utils::ComboRenderPassDescriptor renderPass({color0, color1, color2, color3});
         AssertBeginRenderPassSuccess(&renderPass);
     }
     // For setting the color attachment, OOB
     {
         // We cannot use utils::ComboRenderPassDescriptor here because it only supports at most
         // kMaxColorAttachments(4) color attachments.
-        dawn::RenderPassColorAttachmentDescriptor colorAttachment1;
-        colorAttachment1.attachment = color1;
-        colorAttachment1.resolveTarget = nullptr;
-        colorAttachment1.clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
-        colorAttachment1.loadOp = dawn::LoadOp::Clear;
-        colorAttachment1.storeOp = dawn::StoreOp::Store;
+        std::array<dawn::RenderPassColorAttachmentDescriptor, 5> colorAttachments;
+        colorAttachments[0].attachment = color0;
+        colorAttachments[0].resolveTarget = nullptr;
+        colorAttachments[0].clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
+        colorAttachments[0].loadOp = dawn::LoadOp::Clear;
+        colorAttachments[0].storeOp = dawn::StoreOp::Store;
 
-        dawn::RenderPassColorAttachmentDescriptor colorAttachment2 = colorAttachment1;
-        dawn::RenderPassColorAttachmentDescriptor colorAttachment3 = colorAttachment1;
-        dawn::RenderPassColorAttachmentDescriptor colorAttachment4 = colorAttachment1;
-        colorAttachment2.attachment = color2;
-        colorAttachment3.attachment = color3;
-        colorAttachment4.attachment = color4;
+        colorAttachments[1] = colorAttachments[0];
+        colorAttachments[1].attachment = color1;
 
-        dawn::TextureView color5 =
+        colorAttachments[2] = colorAttachments[0];
+        colorAttachments[2].attachment = color2;
+
+        colorAttachments[3] = colorAttachments[0];
+        colorAttachments[3].attachment = color3;
+
+        colorAttachments[4] = colorAttachments[0];
+        colorAttachments[4].attachment =
             Create2DAttachment(device, 1, 1, dawn::TextureFormat::RGBA8Unorm);
-        dawn::RenderPassColorAttachmentDescriptor colorAttachment5 = colorAttachment1;
-        colorAttachment5.attachment = color5;
 
-        dawn::RenderPassColorAttachmentDescriptor* colorAttachments[] = {&colorAttachment1,
-                                                                         &colorAttachment2,
-                                                                         &colorAttachment3,
-                                                                         &colorAttachment4,
-                                                                         &colorAttachment5};
         dawn::RenderPassDescriptor renderPass;
-        renderPass.colorAttachmentCount = kMaxColorAttachments + 1;
-        renderPass.colorAttachments = colorAttachments;
+        renderPass.colorAttachmentCount = 5;
+        renderPass.colorAttachments = colorAttachments.data();
         renderPass.depthStencilAttachment = nullptr;
         AssertBeginRenderPassError(&renderPass);
     }
@@ -190,6 +186,54 @@ TEST_F(RenderPassDescriptorValidationTest, FormatMismatch) {
     {
         utils::ComboRenderPassDescriptor renderPass({}, color);
         AssertBeginRenderPassError(&renderPass);
+    }
+}
+
+// Depth and stencil storeOps must match
+TEST_F(RenderPassDescriptorValidationTest, DepthStencilStoreOpMismatch) {
+    constexpr uint32_t kArrayLayers = 1;
+    constexpr uint32_t kLevelCount = 1;
+    constexpr uint32_t kSize = 32;
+    constexpr dawn::TextureFormat kColorFormat = dawn::TextureFormat::RGBA8Unorm;
+    constexpr dawn::TextureFormat kDepthStencilFormat = dawn::TextureFormat::Depth24PlusStencil8;
+
+    dawn::Texture colorTexture = CreateTexture(device, dawn::TextureDimension::e2D, kColorFormat,
+                                               kSize, kSize, kArrayLayers, kLevelCount);
+    dawn::Texture depthStencilTexture =
+        CreateTexture(device, dawn::TextureDimension::e2D, kDepthStencilFormat, kSize, kSize,
+                      kArrayLayers, kLevelCount);
+
+    dawn::TextureViewDescriptor descriptor;
+    descriptor.dimension = dawn::TextureViewDimension::e2D;
+    descriptor.baseArrayLayer = 0;
+    descriptor.arrayLayerCount = kArrayLayers;
+    descriptor.baseMipLevel = 0;
+    descriptor.mipLevelCount = kLevelCount;
+    dawn::TextureView colorTextureView = colorTexture.CreateView(&descriptor);
+    dawn::TextureView depthStencilView = depthStencilTexture.CreateView(&descriptor);
+
+    // StoreOps mismatch causing the render pass to error
+    {
+        utils::ComboRenderPassDescriptor renderPass({}, depthStencilView);
+        renderPass.cDepthStencilAttachmentInfo.stencilStoreOp = dawn::StoreOp::Store;
+        renderPass.cDepthStencilAttachmentInfo.depthStoreOp = dawn::StoreOp::Clear;
+        AssertBeginRenderPassError(&renderPass);
+    }
+
+    // StoreOps match so render pass is a success
+    {
+        utils::ComboRenderPassDescriptor renderPass({}, depthStencilView);
+        renderPass.cDepthStencilAttachmentInfo.stencilStoreOp = dawn::StoreOp::Store;
+        renderPass.cDepthStencilAttachmentInfo.depthStoreOp = dawn::StoreOp::Store;
+        AssertBeginRenderPassSuccess(&renderPass);
+    }
+
+    // StoreOps match so render pass is a success
+    {
+        utils::ComboRenderPassDescriptor renderPass({}, depthStencilView);
+        renderPass.cDepthStencilAttachmentInfo.stencilStoreOp = dawn::StoreOp::Clear;
+        renderPass.cDepthStencilAttachmentInfo.depthStoreOp = dawn::StoreOp::Clear;
+        AssertBeginRenderPassSuccess(&renderPass);
     }
 }
 
@@ -398,7 +442,7 @@ TEST_F(RenderPassDescriptorValidationTest, NonMultisampledColorWithResolveTarget
     dawn::TextureView resolveTargetTextureView = resolveTargetTexture.CreateView();
 
     utils::ComboRenderPassDescriptor renderPass({colorTextureView});
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTargetTextureView;
+    renderPass.cColorAttachments[0].resolveTarget = resolveTargetTextureView;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -457,7 +501,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, MultisampledResolveTarget
     dawn::TextureView multisampledResolveTargetView = CreateMultisampledColorTextureView();
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = multisampledResolveTargetView;
+    renderPass.cColorAttachments[0].resolveTarget = multisampledResolveTargetView;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -470,7 +514,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ResolveTargetArrayLayerMo
     dawn::TextureView resolveTextureView = resolveTexture.CreateView();
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTextureView;
+    renderPass.cColorAttachments[0].resolveTarget = resolveTextureView;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -483,7 +527,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ResolveTargetMipmapLevelM
     dawn::TextureView resolveTextureView = resolveTexture.CreateView();
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTextureView;
+    renderPass.cColorAttachments[0].resolveTarget = resolveTextureView;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -497,7 +541,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ResolveTargetUsageNoOutpu
     dawn::TextureView nonColorUsageResolveTextureView = nonColorUsageResolveTexture.CreateView();
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = nonColorUsageResolveTextureView;
+    renderPass.cColorAttachments[0].resolveTarget = nonColorUsageResolveTextureView;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -515,7 +559,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ResolveTargetInErrorState
         resolveTexture.CreateView(&errorTextureView));
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = errorResolveTarget;
+    renderPass.cColorAttachments[0].resolveTarget = errorResolveTarget;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -524,7 +568,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, MultisampledColorWithReso
     dawn::TextureView resolveTargetTextureView = CreateNonMultisampledColorTextureView();
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTargetTextureView;
+    renderPass.cColorAttachments[0].resolveTarget = resolveTargetTextureView;
     AssertBeginRenderPassSuccess(&renderPass);
 }
 
@@ -537,7 +581,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ResolveTargetDifferentFor
     dawn::TextureView resolveTextureView = resolveTexture.CreateView();
 
     utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-    renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTextureView;
+    renderPass.cColorAttachments[0].resolveTarget = resolveTextureView;
     AssertBeginRenderPassError(&renderPass);
 }
 
@@ -564,7 +608,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ColorAttachmentResolveTar
             resolveTexture.CreateView(&firstMipLevelDescriptor);
 
         utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-        renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTextureView;
+        renderPass.cColorAttachments[0].resolveTarget = resolveTextureView;
         AssertBeginRenderPassError(&renderPass);
     }
 
@@ -576,7 +620,7 @@ TEST_F(MultisampledRenderPassDescriptorValidationTest, ColorAttachmentResolveTar
             resolveTexture.CreateView(&secondMipLevelDescriptor);
 
         utils::ComboRenderPassDescriptor renderPass = CreateMultisampledRenderPass();
-        renderPass.cColorAttachmentsInfoPtr[0]->resolveTarget = resolveTextureView;
+        renderPass.cColorAttachments[0].resolveTarget = resolveTextureView;
         AssertBeginRenderPassSuccess(&renderPass);
     }
 }

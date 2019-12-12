@@ -46,8 +46,8 @@ std::vector<destType> BitCast(std::vector<srcType> data) {
 
 class VertexFormatTest : public DawnTest {
   protected:
-    void SetUp() override {
-        DawnTest::SetUp();
+    void TestSetUp() override {
+        DawnTest::TestSetUp();
 
         renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
     }
@@ -263,8 +263,8 @@ class VertexFormatTest : public DawnTest {
         vs << "void main() {\n";
 
         // Hard code the triangle in the shader so that we don't have to add a vertex input for it.
-        vs << "    const vec2 pos[3] = vec2[3](vec2(-1.0f, 0.0f), vec2(-1.0f, -1.0f), vec2(0.0f, "
-              "-1.0f));\n";
+        vs << "    const vec2 pos[3] = vec2[3](vec2(-1.0f, 0.0f), vec2(-1.0f, 1.0f), vec2(0.0f, "
+              "1.0f));\n";
         vs << "    gl_Position = vec4(pos[gl_VertexIndex], 0.0, 1.0);\n";
 
         // Declare expected values.
@@ -366,7 +366,7 @@ class VertexFormatTest : public DawnTest {
         descriptor.cVertexInput.cBuffers[0].stride = strideBytes;
         descriptor.cVertexInput.cBuffers[0].attributeCount = 1;
         descriptor.cVertexInput.cAttributes[0].format = format;
-        descriptor.cColorStates[0]->format = renderPass.colorFormat;
+        descriptor.cColorStates[0].format = renderPass.colorFormat;
 
         return device.CreateRenderPipeline(&descriptor);
     }
@@ -378,12 +378,11 @@ class VertexFormatTest : public DawnTest {
         dawn::RenderPipeline pipeline = MakeTestPipeline(format, expectedData);
         dawn::Buffer vertexBuffer = utils::CreateBufferFromData(
             device, vertex.data(), vertex.size() * sizeof(VertexType), dawn::BufferUsage::Vertex);
-        uint64_t zeroOffset = 0;
         dawn::CommandEncoder encoder = device.CreateCommandEncoder();
         {
             dawn::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
             pass.SetPipeline(pipeline);
-            pass.SetVertexBuffers(0, 1, &vertexBuffer, &zeroOffset);
+            pass.SetVertexBuffer(0, vertexBuffer);
             pass.Draw(3, 1, 0, 0);
             pass.EndPass();
         }

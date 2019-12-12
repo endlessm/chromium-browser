@@ -7,17 +7,15 @@
 
 from __future__ import print_function
 
-import collections
+import base64
 import contextlib
 from datetime import datetime
 import email.utils
 import errno
 import functools
 import getpass
-import hashlib
 import inspect
 import os
-import pprint
 import re
 import signal
 import socket
@@ -25,8 +23,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import traceback
-import types
 
 import six
 
@@ -84,7 +80,24 @@ def ShellQuote(s):
   Returns:
     A safely (possibly quoted) string.
   """
-  s = s.encode('utf-8')
+  if sys.version_info.major < 3:
+    # This is a bit of a hack.  Python 2 will display strings with u prefixes
+    # when logging which makes things harder to work with.  Writing bytes to
+    # stdout will be interpreted as UTF-8 content implicitly.
+    if isinstance(s, six.string_types):
+      try:
+        s = s.encode('utf-8')
+      except UnicodeDecodeError:
+        # We tried our best.  Let Python's automatic mixed encoding kick in.
+        pass
+    else:
+      return repr(s)
+  else:
+    # If callers pass down bad types, don't blow up.
+    if isinstance(s, six.binary_type):
+      s = s.decode('utf-8', 'backslashreplace')
+    elif not isinstance(s, six.string_types):
+      return repr(s)
 
   # See if no quoting is needed so we can return the string as-is.
   for c in s:
@@ -182,35 +195,94 @@ def CmdToStr(cmd):
   Returns:
     String representing full command.
   """
-  # Use str before repr to translate unicode strings to regular strings.
-  return ' '.join(ShellQuote(arg) for arg in cmd)
+  # If callers pass down bad types, triage it a bit.
+  if isinstance(cmd, (list, tuple)):
+    return ' '.join(ShellQuote(arg) for arg in cmd)
+  else:
+    raise ValueError('cmd must be list or tuple, not %s: %r' %
+                     (type(cmd), repr(cmd)))
 
 
 class CommandResult(object):
-  """An object to store various attributes of a child process."""
+  """An object to store various attributes of a child process.
 
-  def __init__(self, cmd=None, error=None, output=None, returncode=None):
-    self.cmd = cmd
-    self.error = error
-    self.output = output
+  This is akin to subprocess.CompletedProcess.
+  """
+
+  # TODO(crbug.com/1006587): Drop redundant arguments & backwards compat APIs.
+  def __init__(self, cmd=None, error=None, output=None, returncode=None,
+               args=None, stdout=None, stderr=None):
+    if args is None:
+      args = cmd
+    elif cmd is not None:
+      raise TypeError('Only specify |args|, not |cmd|')
+    if stdout is None:
+      stdout = output
+    elif output is not None:
+      raise TypeError('Only specify |stdout|, not |output|')
+    if stderr is None:
+      stderr = error
+    elif error is not None:
+      raise TypeError('Only specify |stderr|, not |error|')
+
+    self.args = args
+    self.stdout = stdout
+    self.stderr = stderr
     self.returncode = returncode
+
+  @property
+  def cmd(self):
+    """Backwards compat API."""
+    return self.args
+
+  @property
+  def output(self):
+    """Backwards compat API."""
+    return self.stdout
+
+  @property
+  def error(self):
+    """Backwards compat API."""
+    return self.stderr
 
   @property
   def cmdstr(self):
     """Return self.cmd as a space-separated string, useful for log messages."""
-    return CmdToStr(self.cmd or '')
+    if self.args is None:
+      return ''
+    else:
+      return CmdToStr(self.args)
+
+  def check_returncode(self):
+    """Raise RunCommandError if the exit code is non-zero."""
+    if self.returncode:
+      raise RunCommandError('check_returncode failed', result=self)
 
 
 class RunCommandError(Exception):
-  """Error caught in RunCommand() method."""
+  """Error caught in run() method.
 
-  def __init__(self, msg, result, exception=None):
-    self.msg, self.result, self.exception = msg, result, exception
+  Attributes:
+    args: Tuple of the attributes below.
+    msg: Short explanation of the error.
+    result: The CommandResult that triggered this error, if available.
+    exception: The underlying Exception if available.
+  """
+
+  def __init__(self, msg, result=None, exception=None):
     if exception is not None and not isinstance(exception, Exception):
-      raise ValueError('exception must be an exception instance; got %r'
-                       % (exception,))
-    Exception.__init__(self, msg)
-    self.args = (msg, result, exception)
+      raise TypeError('exception must be an exception instance; got %r'
+                      % (exception,))
+
+    # This makes mocking tests easier.
+    if result is None:
+      result = CommandResult()
+    elif not isinstance(result, CommandResult):
+      raise TypeError('result must be a CommandResult instance; got %r'
+                      % (result,))
+
+    self.msg, self.result, self.exception = msg, result, exception
+    super(RunCommandError, self).__init__(msg, result, exception)
 
   def Stringify(self, error=True, output=True):
     """Custom method for controlling what is included in stringifying this.
@@ -222,23 +294,37 @@ class RunCommandError(Exception):
     Args:
       error: See comment about individual arguments above.
       output: See comment about individual arguments above.
+
+    Returns:
+      A summary string for this result.
     """
     items = [
-        'return code: %s; command: %s' % (
+        u'return code: %s; command: %s' % (
             self.result.returncode, self.result.cmdstr),
     ]
-    if error and self.result.error:
-      items.append(self.result.error)
-    if output and self.result.output:
-      items.append(self.result.output)
+    if error and self.result.stderr:
+      stderr = self.result.stderr
+      if isinstance(stderr, six.binary_type):
+        stderr = stderr.decode('utf-8', 'replace')
+      items.append(stderr)
+    if output and self.result.stdout:
+      stdout = self.result.stdout
+      if isinstance(stdout, six.binary_type):
+        stdout = stdout.decode('utf-8', 'replace')
+      items.append(stdout)
     if self.msg:
-      items.append(self.msg)
-    return '\n'.join(items)
+      msg = self.msg
+      if isinstance(msg, six.binary_type):
+        msg = msg.decode('utf-8', 'replace')
+      items.append(msg)
+    return u'\n'.join(items)
 
   def __str__(self):
-    # __str__ needs to return ascii, thus force a conversion to be safe.
-    return self.Stringify().decode('utf-8', 'replace').encode(
-        'ascii', 'xmlcharrefreplace')
+    if sys.version_info.major < 3:
+      # __str__ needs to return ascii, thus force a conversion to be safe.
+      return self.Stringify().encode('ascii', 'xmlcharrefreplace')
+    else:
+      return self.Stringify()
 
   def __eq__(self, other):
     return (isinstance(other, type(self)) and
@@ -256,44 +342,44 @@ class TerminateRunCommandError(RunCommandError):
   """
 
 
-def SudoRunCommand(cmd, user='root', preserve_env=False, **kwargs):
+def sudo_run(cmd, user='root', preserve_env=False, **kwargs):
   """Run a command via sudo.
 
-  Client code must use this rather than coming up with their own RunCommand
+  Client code must use this rather than coming up with their own run
   invocation that jams sudo in- this function is used to enforce certain
   rules in our code about sudo usage, and as a potential auditing point.
 
   Args:
-    cmd: The command to run.  See RunCommand for rules of this argument-
-         SudoRunCommand purely prefixes it with sudo.
+    cmd: The command to run.  See run for rules of this argument: sudo_run
+         purely prefixes it with sudo.
     user: The user to run the command as.
     preserve_env (bool): Whether to preserve the environment.
-    kwargs: See RunCommand options, it's a direct pass thru to it.
+    kwargs: See run() options, it's a direct pass thru to it.
           Note that this supports a 'strict' keyword that defaults to True.
           If set to False, it'll suppress strict sudo behavior.
 
   Returns:
-    See RunCommand documentation.
+    See run documentation.
 
   Raises:
     This function may immediately raise RunCommandError if we're operating
     in a strict sudo context and the API is being misused.
-    Barring that, see RunCommand's documentation- it can raise the same things
-    RunCommand does.
+    Barring that, see run's documentation: it can raise the same things run
+    does.
   """
   sudo_cmd = ['sudo']
 
   strict = kwargs.pop('strict', True)
 
   if user == 'root' and os.geteuid() == 0:
-    return RunCommand(cmd, **kwargs)
+    return run(cmd, **kwargs)
 
   if strict and STRICT_SUDO:
     if 'CROS_SUDO_KEEP_ALIVE' not in os.environ:
       raise RunCommandError(
           'We were invoked in a strict sudo non - interactive context, but no '
           'sudo keep alive daemon is running.  This is a bug in the code.',
-          CommandResult(cmd=cmd, returncode=126))
+          CommandResult(args=cmd, returncode=126))
     sudo_cmd += ['-n']
 
   if user != 'root':
@@ -319,7 +405,7 @@ def SudoRunCommand(cmd, user='root', preserve_env=False, **kwargs):
   if isinstance(cmd, six.string_types):
     # We need to handle shell ourselves so the order is correct:
     #  $ sudo [sudo args] -- bash -c '[shell command]'
-    # If we let RunCommand take care of it, we'd end up with:
+    # If we let run take care of it, we'd end up with:
     #  $ bash -c 'sudo [sudo args] -- [shell command]'
     shell = kwargs.pop('shell', False)
     if not shell:
@@ -328,14 +414,19 @@ def SudoRunCommand(cmd, user='root', preserve_env=False, **kwargs):
   else:
     sudo_cmd.extend(cmd)
 
-  return RunCommand(sudo_cmd, **kwargs)
+  return run(sudo_cmd, **kwargs)
+
+
+def SudoRunCommand(cmd, **kwargs):
+  """Backwards compat API."""
+  return sudo_run(cmd, **kwargs)
 
 
 def _KillChildProcess(proc, int_timeout, kill_timeout, cmd, original_handler,
                       signum, frame):
-  """Used as a signal handler by RunCommand.
+  """Used as a signal handler by run.
 
-  This is internal to Runcommand.  No other code should use this.
+  This is internal to run.  No other code should use this.
   """
   if signum:
     # If we've been invoked because of a signal, ignore delivery of that signal
@@ -370,7 +461,7 @@ def _KillChildProcess(proc, int_timeout, kill_timeout, cmd, original_handler,
 
   if not signals.RelaySignal(original_handler, signum, frame):
     # Mock up our own, matching exit code for signaling.
-    cmd_result = CommandResult(cmd=cmd, returncode=signum << 8)
+    cmd_result = CommandResult(args=cmd, returncode=signum << 8)
     raise TerminateRunCommandError('Received signal %i' % signum, cmd_result)
 
 
@@ -387,7 +478,9 @@ class _Popen(subprocess.Popen):
   has knowingly been waitpid'd already.
   """
 
-  def send_signal(self, signum):
+  # Pylint seems to be buggy with the send_signal signature detection.
+  # pylint: disable=arguments-differ
+  def send_signal(self, sig):
     if self.returncode is not None:
       # The original implementation in Popen would allow signaling whatever
       # process now occupies this pid, even if the Popen object had waitpid'd.
@@ -397,15 +490,15 @@ class _Popen(subprocess.Popen):
       return
 
     try:
-      os.kill(self.pid, signum)
+      os.kill(self.pid, sig)
     except EnvironmentError as e:
       if e.errno == errno.EPERM:
         # Kill returns either 0 (signal delivered), or 1 (signal wasn't
         # delivered).  This isn't particularly informative, but we still
-        # need that info to decide what to do, thus the error_code_ok=True.
-        ret = SudoRunCommand(['kill', '-%i' % signum, str(self.pid)],
-                             print_cmd=False, redirect_stdout=True,
-                             redirect_stderr=True, error_code_ok=True)
+        # need that info to decide what to do, thus the check=False.
+        ret = sudo_run(['kill', '-%i' % sig, str(self.pid)],
+                       print_cmd=False, redirect_stdout=True,
+                       redirect_stderr=True, check=False)
         if ret.returncode == 1:
           # The kill binary doesn't distinguish between permission denied,
           # and the pid is missing.  Denied can only occur under weird
@@ -422,14 +515,14 @@ class _Popen(subprocess.Popen):
 
 
 # pylint: disable=redefined-builtin
-def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
-               redirect_stderr=False, cwd=None, input=None, enter_chroot=False,
-               shell=False, env=None, extra_env=None, ignore_sigint=False,
-               combine_stdout_stderr=False, log_stdout_to_file=None,
-               append_to_file=False, chroot_args=None, debug_level=logging.INFO,
-               error_code_ok=False, int_timeout=1, kill_timeout=1,
-               log_output=False, stdout_to_pipe=False, capture_output=False,
-               quiet=False, mute_output=None):
+def run(cmd, print_cmd=True, redirect_stdout=False,
+        redirect_stderr=False, cwd=None, input=None, enter_chroot=False,
+        shell=False, env=None, extra_env=None, ignore_sigint=False,
+        combine_stdout_stderr=False, log_stdout_to_file=None,
+        append_to_file=False, chroot_args=None, debug_level=logging.INFO,
+        check=True, int_timeout=1, kill_timeout=1,
+        log_output=False, capture_output=False,
+        quiet=False, mute_output=None, encoding=None, errors=None, **kwargs):
   """Runs a command.
 
   Args:
@@ -437,7 +530,6 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
       must be true. Otherwise the command must be an array of arguments, and
       shell must be false.
     print_cmd: prints the command before running it.
-    error_message: prints out this message when an error occurs.
     redirect_stdout: returns the stdout.
     redirect_stderr: holds stderr output until input is communicated.
     cwd: the working directory to run this cmd.
@@ -466,34 +558,47 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
     append_to_file: If True, the stdout streams are appended to the end of log
       stdout_to_file.
     chroot_args: An array of arguments for the chroot environment wrapper.
-    debug_level: The debug level of RunCommand's output.
-    error_code_ok: Does not raise an exception when command returns a non-zero
-      exit code. Instead, returns the CommandResult object containing the exit
-      code. Note: will still raise an exception if the cmd file does not exist.
+    debug_level: The debug level of run's output.
+    check: Whether to raise an exception when command returns a non-zero exit
+      code, or return the CommandResult object containing the exit code.
+      Note: will still raise an exception if the cmd file does not exist.
     int_timeout: If we're interrupted, how long (in seconds) should we give the
       invoked process to clean up before we send a SIGTERM.
     kill_timeout: If we're interrupted, how long (in seconds) should we give the
       invoked process to shutdown from a SIGTERM before we SIGKILL it.
     log_output: Log the command and its output automatically.
-    stdout_to_pipe: Redirect stdout to pipe.
     capture_output: Set |redirect_stdout| and |redirect_stderr| to True.
-    quiet: Set |print_cmd| to False, |stdout_to_pipe| and
+    quiet: Set |print_cmd| to False, |redirect_stdout| to True, and
       |combine_stdout_stderr| to True.
     mute_output: Mute subprocess printing to parent stdout/stderr. Defaults to
       None, which bases muting on |debug_level|.
+    encoding: Encoding for stdin/stdout/stderr, otherwise bytes are used.  Most
+      users want 'utf-8' here for string data.
+    errors: How to handle errors when |encoding| is used.  Defaults to 'strict',
+      but 'ignore' and 'replace' are common settings.
 
   Returns:
     A CommandResult object.
 
   Raises:
-    RunCommandError:  Raises exception on error with optional error_message.
+    RunCommandError: Raised on error.
   """
   if capture_output:
     redirect_stdout, redirect_stderr = True, True
 
+  stdout_to_pipe = False
   if quiet:
     debug_level = logging.DEBUG
     stdout_to_pipe, combine_stdout_stderr = True, True
+
+  if 'error_code_ok' in kwargs:
+    # TODO(vapier): Enable this warning once chromite & users migrate.
+    # logging.warning('run: error_code_ok= is renamed/inverted to check=')
+    check = not kwargs.pop('error_code_ok')
+  assert not kwargs, 'Unknown arguments to run: %s' % (list(kwargs),)
+
+  if encoding is not None and errors is None:
+    errors = 'strict'
 
   # Set default for variables.
   stdout = None
@@ -510,7 +615,7 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
 
   def _get_tempfile():
     try:
-      return tempfile.TemporaryFile(bufsize=0)
+      return UnbufferedTemporaryFile()
     except EnvironmentError as e:
       if e.errno != errno.ENOENT:
         raise
@@ -518,7 +623,7 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
       # TMP, but that location has since been deleted.  Suppress that issue
       # in this particular case since our usage gurantees deletion,
       # and since this is primarily triggered during hard cgroups shutdown.
-      return tempfile.TemporaryFile(bufsize=0, dir='/tmp')
+      return UnbufferedTemporaryFile(dir='/tmp')
 
   # Modify defaults based on parameters.
   # Note that tempfiles must be unbuffered else attempts to read
@@ -547,19 +652,35 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
 
   # If input is a string, we'll create a pipe and send it through that.
   # Otherwise we assume it's a file object that can be read from directly.
-  if isinstance(input, six.string_types):
+  if isinstance(input, (six.string_types, six.binary_type)):
     stdin = subprocess.PIPE
+    # Allow people to always pass in bytes.
+    # Linter can't see that we're using |input| as a var, not a builtin.
+    # pylint: disable=input-builtin
+    if encoding and isinstance(input, six.binary_type):
+      input = input.encode(encoding, errors)
+    elif not encoding and isinstance(input, six.string_types):
+      input = input.encode('utf-8')
   elif input is not None:
     stdin = input
     input = None
 
-  if isinstance(cmd, six.string_types):
+  # Sanity check the command.  This helps when RunCommand is deep in the call
+  # chain, but the command itself was constructed along the way.
+  if isinstance(cmd, (six.string_types, six.binary_type)):
     if not shell:
-      raise Exception('Cannot run a string command without a shell')
+      raise ValueError('Cannot run a string command without a shell')
     cmd = ['/bin/bash', '-c', cmd]
     shell = False
   elif shell:
-    raise Exception('Cannot run an array command with a shell')
+    raise ValueError('Cannot run an array command with a shell')
+  elif not cmd:
+    raise ValueError('Missing command to run')
+  elif not isinstance(cmd, (list, tuple)):
+    raise TypeError('cmd must be list or tuple, not %s: %r' %
+                    (type(cmd), repr(cmd)))
+  elif not all(isinstance(x, (six.binary_type, six.string_types)) for x in cmd):
+    raise TypeError('All command elements must be bytes/strings: %r' % (cmd,))
 
   # If we are using enter_chroot we need to use enterchroot pass env through
   # to the final command.
@@ -594,75 +715,78 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
   # Print out the command before running.
   if print_cmd or log_output:
     if cwd:
-      logging.log(debug_level, 'RunCommand: %s in %s', CmdToStr(cmd), cwd)
+      logging.log(debug_level, 'run: %s in %s', CmdToStr(cmd), cwd)
     else:
-      logging.log(debug_level, 'RunCommand: %s', CmdToStr(cmd))
+      logging.log(debug_level, 'run: %s', CmdToStr(cmd))
 
-  cmd_result.cmd = cmd
+  cmd_result.args = cmd
 
   proc = None
-  # Verify that the signals modules is actually usable, and won't segfault
-  # upon invocation of getsignal.  See signals.SignalModuleUsable for the
-  # details and upstream python bug.
-  use_signals = signals.SignalModuleUsable()
   try:
     proc = _Popen(cmd, cwd=cwd, stdin=stdin, stdout=stdout,
                   stderr=stderr, shell=False, env=env,
                   close_fds=True)
 
-    if use_signals:
-      if ignore_sigint:
-        old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
-      else:
-        old_sigint = signal.getsignal(signal.SIGINT)
-        signal.signal(signal.SIGINT,
-                      functools.partial(_KillChildProcess, proc, int_timeout,
-                                        kill_timeout, cmd, old_sigint))
-
-      old_sigterm = signal.getsignal(signal.SIGTERM)
-      signal.signal(signal.SIGTERM,
+    if ignore_sigint:
+      old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    else:
+      old_sigint = signal.getsignal(signal.SIGINT)
+      signal.signal(signal.SIGINT,
                     functools.partial(_KillChildProcess, proc, int_timeout,
-                                      kill_timeout, cmd, old_sigterm))
+                                      kill_timeout, cmd, old_sigint))
+
+    old_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM,
+                  functools.partial(_KillChildProcess, proc, int_timeout,
+                                    kill_timeout, cmd, old_sigterm))
 
     try:
-      (cmd_result.output, cmd_result.error) = proc.communicate(input)
+      (cmd_result.stdout, cmd_result.stderr) = proc.communicate(input)
     finally:
-      if use_signals:
-        signal.signal(signal.SIGINT, old_sigint)
-        signal.signal(signal.SIGTERM, old_sigterm)
+      signal.signal(signal.SIGINT, old_sigint)
+      signal.signal(signal.SIGTERM, old_sigterm)
 
       if stdout and not log_stdout_to_file and not stdout_to_pipe:
         stdout.seek(0)
-        cmd_result.output = stdout.read()
+        cmd_result.stdout = stdout.read()
         stdout.close()
 
       if stderr and stderr != subprocess.STDOUT:
         stderr.seek(0)
-        cmd_result.error = stderr.read()
+        cmd_result.stderr = stderr.read()
         stderr.close()
 
     cmd_result.returncode = proc.returncode
 
-    if log_output:
-      if cmd_result.output:
-        logging.log(debug_level, '(stdout):\n%s', cmd_result.output)
-      if cmd_result.error:
-        logging.log(debug_level, '(stderr):\n%s', cmd_result.error)
+    # The try/finally block is a bit hairy.  We normally want the logged
+    # output to be what gets passed back up.  But if there's a decode error,
+    # we don't want it to break logging entirely.  If the output had a lot of
+    # newlines, always logging it as bytes wouldn't be human readable.
+    try:
+      if encoding:
+        if cmd_result.stdout is not None:
+          cmd_result.stdout = cmd_result.stdout.decode(encoding, errors)
+        if cmd_result.stderr is not None:
+          cmd_result.stderr = cmd_result.stderr.decode(encoding, errors)
+    finally:
+      if log_output:
+        if cmd_result.stdout:
+          logging.log(debug_level, '(stdout):\n%s', cmd_result.stdout)
+        if cmd_result.stderr:
+          logging.log(debug_level, '(stderr):\n%s', cmd_result.stderr)
 
-    if not error_code_ok and proc.returncode:
+    if check and proc.returncode:
       msg = 'cmd=%s' % cmd
       if cwd:
         msg += ', cwd=%s' % cwd
       if extra_env:
         msg += ', extra env=%s' % extra_env
-      if error_message:
-        msg += '\n%s' % error_message
       raise RunCommandError(msg, cmd_result)
   except OSError as e:
     estr = str(e)
     if e.errno == errno.EACCES:
       estr += '; does the program need `chmod a+x`?'
-    raise RunCommandError(estr, CommandResult(cmd=cmd), exception=e)
+    raise RunCommandError(estr, CommandResult(args=cmd), exception=e)
   finally:
     if proc is not None:
       # Ensure the process is dead.
@@ -672,15 +796,20 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
 # pylint: enable=redefined-builtin
 
 
-# Convenience RunCommand methods.
+def RunCommand(cmd, **kwargs):
+  """Backwards compat API."""
+  return run(cmd, **kwargs)
+
+
+# Convenience run methods.
 #
 # We don't use functools.partial because it binds the methods at import time,
 # which doesn't work well with unit tests, since it bypasses the mock that may
-# be set up for RunCommand.
+# be set up for run.
 
-def DebugRunCommand(*args, **kwargs):
+def dbg_run(*args, **kwargs):
   kwargs.setdefault('debug_level', logging.DEBUG)
-  return RunCommand(*args, **kwargs)
+  return run(*args, **kwargs)
 
 
 class DieSystemExit(SystemExit):
@@ -715,30 +844,6 @@ def GetSysrootToolPath(sysroot, tool_name):
   return os.path.join(sysroot, 'build', 'bin', tool_name)
 
 
-def ListFiles(base_dir):
-  """Recursively list files in a directory.
-
-  Args:
-    base_dir: directory to start recursively listing in.
-
-  Returns:
-    A list of files relative to the base_dir path or
-    An empty list of there are no files in the directories.
-  """
-  directories = [base_dir]
-  files_list = []
-  while directories:
-    directory = directories.pop()
-    for name in os.listdir(directory):
-      fullpath = os.path.join(directory, name)
-      if os.path.isfile(fullpath):
-        files_list.append(fullpath)
-      elif os.path.isdir(fullpath):
-        directories.append(fullpath)
-
-  return files_list
-
-
 def IsInsideChroot():
   """Returns True if we are inside chroot."""
   return os.path.exists('/etc/cros_chroot_version')
@@ -759,26 +864,6 @@ def AssertOutsideChroot():
   """Die if we are inside the chroot"""
   if IsInsideChroot():
     Die('%s: please run outside the chroot', os.path.basename(sys.argv[0]))
-
-
-def GetChromeosVersion(str_obj):
-  """Helper method to parse output for CHROMEOS_VERSION_STRING.
-
-  Args:
-    str_obj: a string, which may contain Chrome OS version info.
-
-  Returns:
-    A string, value of CHROMEOS_VERSION_STRING environment variable set by
-      chromeos_version.sh. Or None if not found.
-  """
-  if str_obj is not None:
-    match = re.search(r'CHROMEOS_VERSION_STRING=([0-9_.]+)', str_obj)
-    if match and match.group(1):
-      logging.info('CHROMEOS_VERSION_STRING = %s', match.group(1))
-      return match.group(1)
-
-  logging.info('CHROMEOS_VERSION_STRING NOT found')
-  return None
 
 
 def GetHostName(fully_qualified=False):
@@ -939,10 +1024,10 @@ def CompressFile(infile, outfile):
     # pixz does not accept '-c'; instead an explicit '-i' indicates input file
     # should not be deleted, and '-o' specifies output file.
     cmd = [comp, '-i', infile, '-o', outfile]
-    RunCommand(cmd)
+    run(cmd)
   else:
     cmd = [comp, '-c', infile]
-    RunCommand(cmd, log_stdout_to_file=outfile)
+    run(cmd, log_stdout_to_file=outfile)
 
 
 def UncompressFile(infile, outfile):
@@ -960,17 +1045,17 @@ def UncompressFile(infile, outfile):
     # pixz does not accept '-c'; instead an explicit '-i' indicates input file
     # should not be deleted, and '-o' specifies output file.
     cmd = [comp, '-d', '-i', infile, '-o', outfile]
-    RunCommand(cmd)
+    run(cmd)
   else:
     cmd = [comp, '-dc', infile]
-    RunCommand(cmd, log_stdout_to_file=outfile)
+    run(cmd, log_stdout_to_file=outfile)
 
 
 class CreateTarballError(RunCommandError):
   """Error while running tar.
 
   We may run tar multiple times because of "soft" errors.  The result is from
-  the last RunCommand instance.
+  the last run instance.
   """
 
 
@@ -989,10 +1074,10 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
       defaults to ".".
     timeout: The number of seconds to wait on soft failure.
     extra_args: A list of extra args to pass to "tar".
-    kwargs: Any RunCommand options/overrides to use.
+    kwargs: Any run options/overrides to use.
 
   Returns:
-    The cmd_result object returned by the RunCommand invocation.
+    The cmd_result object returned by the run invocation.
 
   Raises:
     CreateTarballError: if the tar command failed, possibly after retry.
@@ -1010,18 +1095,17 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
          ['--sparse', '-I', comp, '-cf', target])
   if len(inputs) > _THRESHOLD_TO_USE_T_FOR_TAR:
     cmd += ['--null', '-T', '/dev/stdin']
-    rc_input = '\0'.join(inputs)
+    rc_input = b'\0'.join(x.encode('utf-8') for x in inputs)
   else:
     cmd += list(inputs)
     rc_input = None
 
-  rc_func = SudoRunCommand if sudo else RunCommand
+  rc_func = sudo_run if sudo else run
 
   # If tar fails with status 1, retry twice. Once after timeout seconds and
   # again 2*timeout seconds after that.
   for try_count in range(3):
-    result = rc_func(cmd, cwd=cwd,
-                     **dict(kwargs, error_code_ok=True, input=rc_input))
+    result = rc_func(cmd, cwd=cwd, **dict(kwargs, check=False, input=rc_input))
     if result.returncode == 0:
       return result
     if result.returncode != 1 or try_count > 1:
@@ -1040,7 +1124,7 @@ def GetInput(prompt):
   """Helper function to grab input from a user.   Makes testing easier."""
   # We have people use GetInput() so they don't have to use these bad builtins
   # themselves or deal with version skews.
-  # pylint: disable=input-builtin,raw_input-builtin
+  # pylint: disable=bad-builtin,input-builtin,raw_input-builtin
   if sys.version_info.major < 3:
     return raw_input(prompt)
   else:
@@ -1226,28 +1310,6 @@ def NoOpContextManager():
   yield
 
 
-def AllowDisabling(enabled, functor, *args, **kwargs):
-  """Context Manager wrapper that can be used to enable/disable usage.
-
-  This is mainly useful to control whether or not a given Context Manager
-  is used.
-
-  For example:
-
-  with AllowDisabling(options.timeout <= 0, Timeout, options.timeout):
-    ... do code w/in a timeout context..
-
-  If options.timeout is a positive integer, then the_Timeout context manager is
-  created and ran.  If it's zero or negative, then the timeout code is disabled.
-
-  While Timeout *could* handle this itself, it's redundant having each
-  implementation do this, thus the generic wrapper.
-  """
-  if enabled:
-    return functor(*args, **kwargs)
-  return NoOpContextManager()
-
-
 class ContextManagerStack(object):
   """Context manager that is designed to safely allow nesting and stacking.
 
@@ -1329,58 +1391,8 @@ class ContextManagerStack(object):
     six.reraise(exc_type, exc, exc_tb)
 
 
-class ApiMismatchError(Exception):
-  """Raised by GetTargetChromiteApiVersion."""
-
-
-class NoChromiteError(Exception):
-  """Raised when an expected chromite installation was missing."""
-
-
-def GetTargetChromiteApiVersion(buildroot, validate_version=True):
-  """Get the re-exec API version of the target chromite.
-
-  Args:
-    buildroot: The directory containing the chromite to check.
-    validate_version: If set to true, checks the target chromite for
-      compatibility, and raises an ApiMismatchError when there is an
-      incompatibility.
-
-  Returns:
-    The version number in (major, minor) tuple.
-
-  Raises:
-    May raise an ApiMismatchError if validate_version is set.
-  """
-  try:
-    api = RunCommand(
-        [constants.PATH_TO_CBUILDBOT, '--reexec-api-version'],
-        cwd=buildroot, error_code_ok=True, capture_output=True)
-  except RunCommandError:
-    # Although error_code_ok=True was used, this exception will still be raised
-    # if the executible did not exist.
-    full_cbuildbot_path = os.path.join(buildroot, constants.PATH_TO_CBUILDBOT)
-    if not os.path.exists(full_cbuildbot_path):
-      raise NoChromiteError('No cbuildbot found in buildroot %s, expected to '
-                            'find %s. ' % (buildroot, full_cbuildbot_path))
-    raise
-
-  # If the command failed, then we're targeting a cbuildbot that lacks the
-  # option; assume 0:0 (ie, initial state).
-  major = minor = 0
-  if api.returncode == 0:
-    major, minor = (int(x) for x in api.output.strip().split('.', 1))
-
-  if validate_version and major != constants.REEXEC_API_MAJOR:
-    raise ApiMismatchError(
-        'The targeted version of chromite in buildroot %s requires '
-        'api version %i, but we are api version %i.  We cannot proceed.'
-        % (buildroot, major, constants.REEXEC_API_MAJOR))
-
-  return major, minor
-
-
-def iflatten_instance(iterable, terminate_on_kls=six.string_types):
+def iflatten_instance(iterable,
+                      terminate_on_kls=(six.string_types, six.binary_type)):
   """Derivative of snakeoil.lists.iflatten_instance; flatten an object.
 
   Given an object, flatten it into a single depth iterable-
@@ -1413,45 +1425,6 @@ def iflatten_instance(iterable, terminate_on_kls=six.string_types):
         yield subitem
 
 
-# TODO: Remove this once we move to snakeoil.
-def load_module(name):
-  """load a module
-
-  Args:
-    name: python dotted namespace path of the module to import
-
-  Returns:
-    imported module
-
-  Raises:
-    FailedImport if importing fails
-  """
-  m = __import__(name)
-  # __import__('foo.bar') returns foo, so...
-  for bit in name.split('.')[1:]:
-    m = getattr(m, bit)
-  return m
-
-
-def PredicateSplit(func, iterable):
-  """Splits an iterable into two groups based on a predicate return value.
-
-  Args:
-    func: A functor that takes an item as its argument and returns a boolean
-      value indicating which group the item belongs.
-    iterable: The collection to split.
-
-  Returns:
-    A tuple containing two lists, the first containing items that func()
-    returned True for, and the second containing items that func() returned
-    False for.
-  """
-  trues, falses = [], []
-  for x in iterable:
-    (trues if func(x) else falses).append(x)
-  return trues, falses
-
-
 @contextlib.contextmanager
 def Open(obj, mode='r'):
   """Convenience ctx that accepts a file path or an already open file object."""
@@ -1460,64 +1433,6 @@ def Open(obj, mode='r'):
       yield f
   else:
     yield obj
-
-
-def LoadKeyValueFile(obj, ignore_missing=False, multiline=False):
-  """Turn a key=value file into a dict
-
-  Note: If you're designing a new data store, please use json rather than
-  this format.  This func is designed to work with legacy/external files
-  where json isn't an option.
-
-  Args:
-    obj: The file to read.  Can be a path or an open file object.
-    ignore_missing: If the file does not exist, return an empty dict.
-    multiline: Allow a value enclosed by quotes to span multiple lines.
-
-  Returns:
-    a dict of all the key=value pairs found in the file.
-  """
-  d = {}
-
-  try:
-    with Open(obj) as f:
-      key = None
-      in_quotes = None
-      for raw_line in f:
-        line = raw_line.split('#')[0]
-        if not line.strip():
-          continue
-
-        # Continue processing a multiline value.
-        if multiline and in_quotes and key:
-          if line.rstrip()[-1] == in_quotes:
-            # Wrap up the multiline value if the line ends with a quote.
-            d[key] += line.rstrip()[:-1]
-            in_quotes = None
-          else:
-            d[key] += line
-          continue
-
-        chunks = line.split('=', 1)
-        if len(chunks) != 2:
-          raise ValueError('Malformed key=value file %r; line %r'
-                           % (obj, raw_line))
-        key = chunks[0].strip()
-        val = chunks[1].strip()
-        if len(val) >= 2 and val[0] in '"\'' and val[0] == val[-1]:
-          # Strip matching quotes on the same line.
-          val = val[1:-1]
-        elif val and multiline and val[0] in '"\'':
-          # Unmatched quote here indicates a multiline value. Do not
-          # strip the '\n' at the end of the line.
-          in_quotes = val[0]
-          val = chunks[1].lstrip()[1:]
-        d[key] = val
-  except EnvironmentError as e:
-    if not (ignore_missing and e.errno == errno.ENOENT):
-      raise
-
-  return d
 
 
 def SafeRun(functors, combine_exceptions=False):
@@ -1550,7 +1465,7 @@ def SafeRun(functors, combine_exceptions=False):
     if len(errors) == 1 or not combine_exceptions:
       # To preserve the traceback.
       inst, tb = errors[0]
-      six.reraise(inst, None, tb)
+      six.reraise(type(inst), inst, tb)
     else:
       raise RuntimeError([e[0] for e in errors])
 
@@ -1573,19 +1488,6 @@ def UserDateTimeFormat(timeval=None):
     timeval = time.mktime(timeval.timetuple())
   return '%s (%s)' % (email.utils.formatdate(timeval=timeval, localtime=True),
                       time.strftime('%Z', time.localtime(timeval)))
-
-
-def GetCommonPathPrefix(paths):
-  """Get the longest common directory of |paths|.
-
-  Args:
-    paths: A list of absolute directory or file paths.
-
-  Returns:
-    Absolute path to the longest directory common to |paths|, with no
-    trailing '/'.
-  """
-  return os.path.dirname(os.path.commonprefix(paths))
 
 
 def ParseUserDateTimeFormat(time_string):
@@ -1640,7 +1542,7 @@ def SetDefaultBoard(board):
     with open(config_path, 'w') as f:
       f.write(board)
   except IOError as e:
-    logging.error('Unable to write default board: %s', e.message)
+    logging.error('Unable to write default board: %s', e)
     return False
 
   return True
@@ -1681,92 +1583,6 @@ def GetBoard(device_board, override_board=None, force=False, strict=False):
   return board
 
 
-class AttributeFrozenError(Exception):
-  """Raised when frozen attribute value is modified."""
-
-
-class FrozenAttributesClass(type):
-  """Metaclass for any class to support freezing attribute values.
-
-  This metaclass can be used by any class to add the ability to
-  freeze attribute values with the Freeze method.
-
-  Use by adding this line before a class:
-    @six.add_metaclass(FrozenAttributesClass)
-  """
-  _FROZEN_ERR_MSG = 'Attribute values are frozen, cannot alter %s.'
-
-  def __new__(mcs, clsname, bases, scope):
-    # Create Freeze method that freezes current attributes.
-    if 'Freeze' in scope:
-      raise TypeError('Class %s has its own Freeze method, cannot use with'
-                      ' the FrozenAttributesClass metaclass.' % clsname)
-
-    # Make sure cls will have _FROZEN_ERR_MSG set.
-    scope.setdefault('_FROZEN_ERR_MSG', mcs._FROZEN_ERR_MSG)
-
-    # Create the class.
-    # pylint: disable=bad-super-call
-    cls = super(FrozenAttributesClass, mcs).__new__(mcs, clsname, bases, scope)
-
-    # Replace cls.__setattr__ with the one that honors freezing.
-    orig_setattr = cls.__setattr__
-
-    def SetAttr(obj, name, value):
-      """If the object is frozen then abort."""
-      # pylint: disable=protected-access
-      if getattr(obj, '_frozen', False):
-        raise AttributeFrozenError(obj._FROZEN_ERR_MSG % name)
-      if isinstance(orig_setattr, types.MethodType):
-        orig_setattr(obj, name, value)
-      else:
-        super(cls, obj).__setattr__(name, value)
-    cls.__setattr__ = SetAttr
-
-    # Add new cls.Freeze method.
-    def Freeze(obj):
-      # pylint: disable=protected-access
-      obj._frozen = True
-    cls.Freeze = Freeze
-
-    return cls
-
-
-@six.add_metaclass(FrozenAttributesClass)
-class FrozenAttributesMixin(object):
-  """Alternate mechanism for freezing attributes in a class.
-
-  If an existing class is not a new-style class then it will be unable to
-  use the FrozenAttributesClass metaclass directly.  Simply use this class
-  as a mixin instead to accomplish the same thing.
-  """
-
-
-def GetIPv4Address(dev=None, global_ip=True):
-  """Returns any global/host IP address or the IP address of the given device.
-
-  socket.gethostname() is insufficient for machines where the host files are
-  not set up "correctly."  Since some of our builders may have this issue,
-  this method gives you a generic way to get the address so you are reachable
-  either via a VM or remote machine on the same network.
-
-  Args:
-    dev: Get the IP address of the device (e.g. 'eth0').
-    global_ip: If set True, returns a globally valid IP address. Otherwise,
-      returns a local IP address (default: True).
-  """
-  cmd = ['ip', 'addr', 'show']
-  cmd += ['scope', 'global' if global_ip else 'host']
-  cmd += [] if dev is None else ['dev', dev]
-
-  result = RunCommand(cmd, print_cmd=False, capture_output=True)
-  matches = re.findall(r'\binet (\d+\.\d+\.\d+\.\d+).*', result.output)
-  if matches:
-    return matches[0]
-  logging.warning('Failed to find ip address in %r', result.output)
-  return None
-
-
 def GetSysroot(board=None):
   """Returns the sysroot for |board| or '/' if |board| is None."""
   return '/' if board is None else os.path.join('/build', board)
@@ -1802,120 +1618,19 @@ def TimedSection():
     times.delta = times.finish - times.start
 
 
-PartitionInfo = collections.namedtuple(
-    'PartitionInfo',
-    ['number', 'start', 'end', 'size', 'file_system', 'name', 'flags']
-)
+def GetRandomString():
+  """Returns a random string.
 
-
-def _ParseParted(lines):
-  """Returns partition information from `parted print` output."""
-  ret = []
-  # Sample output (partition #, start, end, size, file system, name, flags):
-  #   /foo/chromiumos_qemu_image.bin:3360MB:file:512:512:gpt:;
-  #   11:0.03MB:8.42MB:8.39MB::RWFW:;
-  #   6:8.42MB:8.42MB:0.00MB::KERN-C:;
-  #   7:8.42MB:8.42MB:0.00MB::ROOT-C:;
-  #   9:8.42MB:8.42MB:0.00MB::reserved:;
-  #   10:8.42MB:8.42MB:0.00MB::reserved:;
-  #   2:10.5MB:27.3MB:16.8MB::KERN-A:;
-  #   4:27.3MB:44.0MB:16.8MB::KERN-B:;
-  #   8:44.0MB:60.8MB:16.8MB:ext4:OEM:;
-  #   12:128MB:145MB:16.8MB:fat16:EFI-SYSTEM:boot;
-  #   5:145MB:2292MB:2147MB::ROOT-B:;
-  #   3:2292MB:4440MB:2147MB:ext2:ROOT-A:;
-  #   1:4440MB:7661MB:3221MB:ext4:STATE:;
-  pattern = re.compile(r'(([^:]*:){6}[^:]*);')
-  for line in lines:
-    match = pattern.match(line)
-    if match:
-      d = dict(zip(PartitionInfo._fields, match.group(1).split(':')))
-      # Disregard any non-numeric partition number (e.g. the file path).
-      if d['number'].isdigit():
-        d['number'] = int(d['number'])
-        for key in ['start', 'end', 'size']:
-          d[key] = float(d[key][:-1])
-        ret.append(PartitionInfo(**d))
-  return ret
-
-
-def _ParseCgpt(lines):
-  """Returns partition information from `cgpt show` output."""
-  #   start        size    part  contents
-  # 1921024     2097152       1  Label: "STATE"
-  #                              Type: Linux data
-  #                              UUID: EEBD83BE-397E-BD44-878B-0DDDD5A5C510
-  #   20480       32768       2  Label: "KERN-A"
-  #                              Type: ChromeOS kernel
-  #                              UUID: 7007C2F3-08E5-AB40-A4BC-FF5B01F5460D
-  #                              Attr: priority=15 tries=15 successful=1
-  # pylint: disable=invalid-triple-quote
-  # https://github.com/edaniszewski/pylint-quotes/issues/20
-  start_pattern = re.compile(r'''\s+(\d+)\s+(\d+)\s+(\d+)\s+Label: "(.+)"''')
-  ret = []
-  line_no = 0
-  while line_no < len(lines):
-    line = lines[line_no]
-    line_no += 1
-    m = start_pattern.match(line)
-    if not m:
-      continue
-
-    start, size, number, label = m.groups()
-    number = int(number)
-    start = int(start) * 512
-    size = int(size) * 512
-    end = start + size
-
-    ret.append(PartitionInfo(number=number, start=start, end=end, size=size,
-                             name=label, file_system='', flags=''))
-
-  return ret
-
-
-def GetImageDiskPartitionInfo(image_path):
-  """Returns the disk partition table of an image.
-
-  Args:
-    image_path: Path to the image file.
-
-  Returns:
-    A list of ParitionInfo items.
+  It will be 32 characters long, although callers shouldn't rely on this.
+  Only lowercase & numbers are used to avoid case-insensitive collisions.
   """
-
-  if IsInsideChroot():
-    # Inside chroot, use `cgpt`.
-    cmd = ['cgpt', 'show', image_path]
-    func = _ParseCgpt
-  else:
-    # Outside chroot, use `parted`. Parted 3.2 and earlier has a bug where it
-    # will complain that partitions are overlapping even when they are not. It
-    # does this in a specific case: when inserting a one-sector partition into
-    # a layout where that partition is snug in between two other partitions
-    # that have smaller partition numbers. With disk_layout_v2.json, this
-    # happens when inserting partition 10, KERN-A, since the blank padding
-    # before it was removed.
-    # Work around this by telling parted to ignore this "failure" interactively.
-    # Yes, the three dashes are correct, and yes, it _is_ weird.
-    cmd = ['parted', '---pretend-input-tty', '-m', image_path, 'unit', 'B',
-           'print']
-    func = _ParseParted
-
-  # The 'I' input tells parted to ignore its supposed concern about overlapping
-  # partitions. Cgpt simply ignores the input.
-  lines = RunCommand(
-      cmd,
-      extra_env={'PATH': '/sbin:%s' % os.environ['PATH'], 'LC_ALL': 'C'},
-      capture_output=True,
-      input='I').output.splitlines()
-  return func(lines)
-
-
-def GetRandomString(length=20):
-  """Returns a random string of |length|."""
-  md5 = hashlib.md5(os.urandom(length))
-  md5.update(UserDateTimeFormat())
-  return md5.hexdigest()
+  # Start with current time.  This "scopes" the following random data.
+  stamp = b'%x' % int(time.time())
+  # Add in some entropy.  This reads more bytes than strictly necessary, but
+  # it guarantees that we always have enough bytes below.
+  data = os.urandom(16)
+  # Then convert it to a lowercase base32 string of 32 characters.
+  return base64.b32encode(stamp + data).decode('utf-8')[0:32].lower()
 
 
 def MachineDetails():
@@ -1943,92 +1658,6 @@ def MachineDetails():
       'TIMESTAMP=%s' % UserDateTimeFormat(),
       'RANDOM_JUNK=%s' % GetRandomString(),
   )) + '\n'
-
-
-def FormatDetailedTraceback(exc_info=None):
-  """Generate a traceback including details like local variables.
-
-  Args:
-    exc_info: The exception tuple to format; defaults to sys.exc_info().
-      See the help on that function for details on the type.
-
-  Returns:
-    A string of the formatted |exc_info| details.
-  """
-  if exc_info is None:
-    exc_info = sys.exc_info()
-
-  ret = []
-  try:
-    # pylint: disable=unpacking-non-sequence
-    exc_type, exc_value, exc_tb = exc_info
-
-    if exc_type:
-      ret += [
-          'Traceback (most recent call last):\n',
-          'Note: Call args reflect *current* state, not *entry* state\n',
-      ]
-
-    while exc_tb:
-      frame = exc_tb.tb_frame
-
-      ret += traceback.format_tb(exc_tb, 1)
-      args = inspect.getargvalues(frame)
-      _, _, fname, _ = traceback.extract_tb(exc_tb, 1)[0]
-      ret += [
-          '    Call: %s%s\n' % (fname, inspect.formatargvalues(*args)),
-          '    Locals:\n',
-      ]
-      if frame.f_locals:
-        keys = sorted(frame.f_locals.keys(), key=str.lower)
-        keylen = max(len(x) for x in keys)
-        typelen = max(len(str(type(x))) for x in frame.f_locals.values())
-        for key in keys:
-          val = frame.f_locals[key]
-          ret += ['      %-*s: %-*s %s\n' %
-                  (keylen, key, typelen, type(val), pprint.saferepr(val))]
-      exc_tb = exc_tb.tb_next
-
-    if exc_type:
-      ret += traceback.format_exception_only(exc_type, exc_value)
-  finally:
-    # Help python with its circular references.
-    del exc_tb
-
-  return ''.join(ret)
-
-
-def PrintDetailedTraceback(exc_info=None, file=None):
-  """Print a traceback including details like local variables.
-
-  Args:
-    exc_info: The exception tuple to format; defaults to sys.exc_info().
-      See the help on that function for details on the type.
-    file: The file object to write the details to; defaults to sys.stderr.
-  """
-  # We use |file| to match the existing traceback API.
-  # pylint: disable=redefined-builtin
-  if exc_info is None:
-    exc_info = sys.exc_info()
-  if file is None:
-    file = sys.stderr
-
-  # Try to print out extended details on the current exception.
-  # If that fails, still fallback to the normal exception path.
-  curr_exc_info = exc_info
-  try:
-    output = FormatDetailedTraceback()
-    if output:
-      print(output, file=file)
-  except Exception:
-    print('Could not decode extended exception details:', file=file)
-    traceback.print_exc(file=file)
-    print(file=file)
-    traceback.print_exception(*curr_exc_info, file=sys.stdout)
-  finally:
-    # Help python with its circular references.
-    del exc_info
-    del curr_exc_info
 
 
 class _FdCapturer(object):
@@ -2241,3 +1870,25 @@ class OutputCapturer(object):
     If |include_empties| is false filter out all empty lines.
     """
     return self._GetOutputLines(self.GetStderr(), include_empties)
+
+
+def UnbufferedTemporaryFile(**kwargs):
+  """Handle buffering changes in tempfile.TemporaryFile."""
+  assert 'bufsize' not in kwargs
+  assert 'buffering' not in kwargs
+  if sys.version_info.major < 3:
+    kwargs['bufsize'] = 0
+  else:
+    kwargs['buffering'] = 0
+  return tempfile.TemporaryFile(**kwargs)
+
+
+def UnbufferedNamedTemporaryFile(**kwargs):
+  """Handle buffering changes in tempfile.NamedTemporaryFile."""
+  assert 'bufsize' not in kwargs
+  assert 'buffering' not in kwargs
+  if sys.version_info.major < 3:
+    kwargs['bufsize'] = 0
+  else:
+    kwargs['buffering'] = 0
+  return tempfile.NamedTemporaryFile(**kwargs)

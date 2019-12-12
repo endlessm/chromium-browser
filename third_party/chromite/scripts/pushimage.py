@@ -11,14 +11,13 @@ artifacts for signing (which a signing process will look for).
 
 from __future__ import print_function
 
-import cStringIO
 import getpass
 import os
 import re
-import tempfile
 import textwrap
 
 from six.moves import configparser
+from six.moves import StringIO
 
 from chromite.lib import constants
 from chromite.lib import commandline
@@ -54,6 +53,7 @@ _SUPPORTED_IMAGE_TYPES = (
     constants.IMAGE_TYPE_ACCESSORY_USBPD,
     constants.IMAGE_TYPE_ACCESSORY_RWSIG,
     constants.IMAGE_TYPE_BASE,
+    constants.IMAGE_TYPE_CR50_FIRMWARE,
 )
 
 
@@ -196,7 +196,7 @@ class InputInsns(object):
     https://bugs.python.org/issue16058
     """
     # Write the current config to a string io object.
-    data = cStringIO.StringIO()
+    data = StringIO()
     config.write(data)
     data.seek(0)
 
@@ -247,7 +247,7 @@ class InputInsns(object):
     for alt in self.GetAltInsnSets():
       config.remove_section(alt)
 
-    output = cStringIO.StringIO()
+    output = StringIO()
     config.write(output)
     data = output.getvalue()
     osutils.WriteFile(output_file, data)
@@ -404,6 +404,7 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
         constants.IMAGE_TYPE_NV_LP0_FIRMWARE)
     acc_usbpd_basename = _ImageNameBase(constants.IMAGE_TYPE_ACCESSORY_USBPD)
     acc_rwsig_basename = _ImageNameBase(constants.IMAGE_TYPE_ACCESSORY_RWSIG)
+    cr50_firmware_basename = _ImageNameBase(constants.IMAGE_TYPE_CR50_FIRMWARE)
     test_basename = _ImageNameBase(constants.IMAGE_TYPE_TEST)
     base_basename = _ImageNameBase(constants.IMAGE_TYPE_BASE)
     hwqual_tarball = 'chromeos-hwqual-%s-%s.tar.bz2' % (board, versionrev)
@@ -442,6 +443,9 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
 
         ('firmware_from_source.tar.bz2', acc_rwsig_basename, 'tar.bz2',
          constants.IMAGE_TYPE_ACCESSORY_RWSIG),
+
+        ('firmware_from_source.tar.bz2', cr50_firmware_basename, 'tar.bz2',
+         constants.IMAGE_TYPE_CR50_FIRMWARE),
     )
 
     # The following build artifacts are copied and marked for signing, if
@@ -541,8 +545,8 @@ def PushImage(src_path, board, versionrev=None, profile=None, priority=50,
 
           # Generate the insn file for this artifact that the signer will use,
           # and flag it for signing.
-          with tempfile.NamedTemporaryFile(
-              bufsize=0, prefix='pushimage.insns.') as insns_path:
+          with cros_build_lib.UnbufferedNamedTemporaryFile(
+              prefix='pushimage.insns.') as insns_path:
             input_insns.OutputInsns(insns_path.name, sect_insns, sect_general,
                                     insns_merge=alt_insn_set)
 

@@ -1,6 +1,6 @@
 # ~~~
-# Copyright (c) 2014-2018 Valve Corporation
-# Copyright (c) 2014-2018 LunarG, Inc.
+# Copyright (c) 2014-2019 Valve Corporation
+# Copyright (c) 2014-2019 LunarG, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,20 +15,23 @@
 # limitations under the License.
 # ~~~
 
-cmake_minimum_required(VERSION 3.4)
+cmake_minimum_required(VERSION 3.10.2)
 
 # Apple: Must be set before enable_language() or project() as it may influence configuration of the toolchain and flags.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.12" CACHE STRING "Minimum OS X deployment version")
 
 project(Vulkan-Loader)
 
+enable_testing()
+
 add_definitions(-DAPI_NAME="Vulkan")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-find_package(PythonInterp 3 REQUIRED)
+find_package(PythonInterp 3 QUIET)
 
 if (TARGET Vulkan::Headers)
     message(STATUS "Using Vulkan headers from Vulkan::Headers target")
+    get_target_property(VulkanHeaders_INCLUDE_DIRS Vulkan::Headers INTERFACE_INCLUDE_DIRECTORIES)
     get_target_property(VulkanRegistry_DIR Vulkan::Registry INTERFACE_INCLUDE_DIRECTORIES)
 else()
     find_package(VulkanHeaders)
@@ -87,6 +90,12 @@ if(UNIX)
         CACHE
             STRING
             "Search path to use when XDG_DATA_DIRS is unset or empty or the current process is SUID/SGID. Default is freedesktop compliant."
+        )
+    set(
+        SYSCONFDIR ""
+        CACHE
+            STRING
+            "System-wide search directory. If not set or empty, CMAKE_INSTALL_FULL_SYSCONFDIR and /etc are used."
         )
 endif()
 
@@ -154,50 +163,31 @@ if(MSVC)
     set(MSVC_LOADER_COMPILE_OPTIONS /WX /GR- /w34456 /w34701 /w34703 /w34057 /w34245)
 endif()
 
-# Define a macro to generate source code from vk.xml
-set(SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/scripts")
-macro(GenerateFromVkXml output dependency)
-    add_custom_command(OUTPUT ${output}
-                       COMMAND ${PYTHON_EXECUTABLE} ${SCRIPTS_DIR}/loader_genvk.py -registry ${VulkanRegistry_DIR}/vk.xml -scripts
-                               ${VulkanRegistry_DIR} ${output}
-                       DEPENDS ${SCRIPTS_DIR}/${dependency}
-                               ${SCRIPTS_DIR}/loader_genvk.py
-                               ${VulkanRegistry_DIR}/vk.xml
-                               ${VulkanRegistry_DIR}/generator.py
-                               ${VulkanRegistry_DIR}/reg.py)
-endmacro()
+# Optional codegen target
+if(PYTHONINTERP_FOUND)
+    add_custom_target(VulkanLoader_generated_source
+                      COMMAND ${PYTHON_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/generate_source.py
+                              ${VulkanRegistry_DIR} --incremental
+                      )
+else()
+    message("WARNING: VulkanLoader_generated_source target requires python 3")
+endif()
 
-# Use the macro to generate the source files.
-GenerateFromVkXml(vk_layer_dispatch_table.h loader_extension_generator.py)
-GenerateFromVkXml(vk_dispatch_table_helper.h dispatch_table_helper_generator.py)
-GenerateFromVkXml(vk_safe_struct.h helper_file_generator.py)
-GenerateFromVkXml(vk_safe_struct.cpp helper_file_generator.py)
-GenerateFromVkXml(vk_enum_string_helper.h helper_file_generator.py)
-GenerateFromVkXml(vk_object_types.h helper_file_generator.py)
-GenerateFromVkXml(vk_extension_helper.h helper_file_generator.py)
-GenerateFromVkXml(vk_typemap_helper.h helper_file_generator.py)
-
-# Use a custom target to cause the source files to be generated.
-add_custom_target(generate_helper_files
-                  DEPENDS vk_enum_string_helper.h
-                          vk_safe_struct.h
-                          vk_safe_struct.cpp
-                          vk_object_types.h
-                          vk_layer_dispatch_table.h
-                          vk_dispatch_table_helper.h
-                          vk_extension_helper.h
-                          vk_typemap_helper.h)
-
-set_target_properties(generate_helper_files PROPERTIES FOLDER ${LOADER_HELPER_FOLDER})
 
 if(UNIX)
     add_definitions(-DFALLBACK_CONFIG_DIRS="${FALLBACK_CONFIG_DIRS}")
     add_definitions(-DFALLBACK_DATA_DIRS="${FALLBACK_DATA_DIRS}")
-    add_definitions(-DSYSCONFDIR="${CMAKE_INSTALL_FULL_SYSCONFDIR}")
 
-    # Make sure /etc is searched by the loader
-    if(NOT (CMAKE_INSTALL_FULL_SYSCONFDIR STREQUAL "/etc"))
-        add_definitions(-DEXTRASYSCONFDIR="/etc")
+    if(NOT (SYSCONFDIR STREQUAL ""))
+        # SYSCONFDIR is specified, use it and do not force /etc.
+        add_definitions(-DSYSCONFDIR="${SYSCONFDIR}")
+    else()
+        add_definitions(-DSYSCONFDIR="${CMAKE_INSTALL_FULL_SYSCONFDIR}")
+
+        # Make sure /etc is searched by the loader
+        if(NOT (CMAKE_INSTALL_FULL_SYSCONFDIR STREQUAL "/etc"))
+            add_definitions(-DEXTRASYSCONFDIR="/etc")
+        endif()
     endif()
 endif()
 

@@ -52,7 +52,7 @@ class PrepareBinhostUploadsTest(cros_test_lib.MockTestCase,
     input_proto.uri = 'gs://chromeos-prebuilt/target'
     binhost.PrepareBinhostUploads(input_proto, self.response, self.api_config)
     self.assertEqual(self.response.uploads_dir, '/build/target/packages')
-    self.assertItemsEqual(
+    self.assertCountEqual(
         [ut.path for ut in self.response.upload_targets],
         ['Packages', 'foo.tbz2', 'bar.tbz2'])
 
@@ -97,8 +97,10 @@ class SetBinhostTest(cros_test_lib.MockTestCase, api_config.ApiConfigMixin):
 
     self.assertEqual(self.response.output_file, '/path/to/BINHOST.conf')
     set_binhost.assert_called_once_with(
-        'target', 'PARALLEL_POSTSUBMIT_BINHOST',
-        'gs://chromeos-prebuilt/target', private=True)
+        'target',
+        'POSTSUBMIT_BINHOST',
+        'gs://chromeos-prebuilt/target',
+        private=True)
 
 
 class RegenBuildCacheTest(cros_test_lib.MockTestCase,
@@ -217,7 +219,7 @@ CPV: virtual/python-enum34-1
                                'virtual/chromium-os-printing-1-r4.tbz2',
                                'virtual/python-enum34-1.tbz2',
                                'Packages']
-    self.assertItemsEqual(
+    self.assertCountEqual(
         [ut.path for ut in self.response.upload_targets],
         expected_upload_targets)
     # All of the upload_targets should also be in the uploads_directory
