@@ -27,7 +27,6 @@ class Compiler(object):
     "java",
     "-jar",
     "-Xms1024m",
-    "-client",
     "-XX:+TieredCompilation"
   ]
 
