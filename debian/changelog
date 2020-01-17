@@ -1,3 +1,13 @@
+chromium-browser (79.0.3945.130-0endless0) eos; urgency=medium
+
+  * Upstream release: 79.0.3945.130
+    - CVE-2020-6378: Use-after-free in speech recognizer.
+    - CVE-2020-6379: Use-after-free in speech recognizer.
+    - CVE-2020-6380: Extension message verification error.
+    - CVE-2020-0601: Protections to mitigate Windows ECC certificate validation vulnerability
+
+ -- Andre Moreira Magalhaes <andre.magalhaes@endlessm.com>  Fri, 17 Jan 2020 12:20:27 -0300
+
 chromium-browser (79.0.3945.117-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 79.0.3945.117
