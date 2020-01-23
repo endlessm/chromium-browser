@@ -1,3 +1,10 @@
+chromium-browser (79.0.3945.130-0endless1) eos; urgency=medium
+
+  * Fix use of renamed malcontent-client API and bump the malcontent-tools
+    dependency (T29195)
+
+ -- Philip Withnall <withnall@endlessm.com>  Thu, 23 Jan 2020 13:45:00 +0000
+
 chromium-browser (79.0.3945.130-0endless0) eos; urgency=medium
 
   * Upstream release: 79.0.3945.130
