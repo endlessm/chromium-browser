@@ -58,7 +58,13 @@ if (use_v8_context_snapshot) {
     output_file = "$root_out_dir/v8_context_snapshot.bin"
     output_path = rebase_path(output_file, root_build_dir)
 
-    args = [
+    if (v8_use_wrapper) {
+      args = [ "./v8-wrapper.sh", ]
+    } else {
+      args = []
+    }
+
+    args += [
       "./" + rebase_path(
               get_label_info(
                       ":v8_context_snapshot_generator($v8_snapshot_toolchain)",

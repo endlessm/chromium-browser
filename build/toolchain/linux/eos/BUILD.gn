@@ -1,0 +1,41 @@
+# Copyright 2020 Endless Mobile, Inc. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/sysroot.gni")
+import("//build/toolchain/gcc_toolchain.gni")
+
+gcc_toolchain("clang_x64") {
+  prefix = rebase_path("$clang_base_path/bin", root_build_dir)
+  cc = "$prefix/clang-6.0"
+  cxx = "$prefix/clang++-6.0"
+  ld = cxx
+  ar = "${prefix}/llvm-ar-6.0"
+
+  readelf = "readelf"
+  nm = "nm"
+
+  toolchain_args = {
+    current_cpu = "x64"
+    current_os = "linux"
+    is_clang = true
+  }
+}
+
+gcc_toolchain("clang_arm") {
+  prefix = rebase_path("$clang_base_path/bin", root_build_dir)
+  cc = "$prefix/clang-6.0"
+  cxx = "$prefix/clang++-6.0"
+  ld = cxx
+  ar = "${prefix}/llvm-ar-6.0"
+
+  toolprefix = "arm-linux-gnueabihf-"
+  readelf = "${toolprefix}readelf"
+  nm = "${toolprefix}nm"
+
+  toolchain_args = {
+    current_cpu = "arm"
+    current_os = "linux"
+    is_clang = true
+  }
+}

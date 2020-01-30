@@ -57,6 +57,9 @@ declare_args() {
   # Use Perfetto (https://perfetto.dev) as the default TracingController. Not
   # currently implemented.
   v8_use_perfetto = false
+
+  # Whether to run v8 tools using a wrapper during build.
+  v8_use_wrapper = false
 }
 
 if (v8_use_external_startup_data == "") {

@@ -1127,7 +1127,13 @@ action("run_torque") {
     ]
   }
 
-  args = [
+  if (v8_use_wrapper) {
+    args = [ "./v8-wrapper.sh", ]
+  } else {
+    args = []
+  }
+
+  args += [
     "./" + rebase_path(get_label_info(":torque($v8_generator_toolchain)",
                                       "root_out_dir") + "/torque",
                        root_build_dir),
@@ -1205,7 +1211,14 @@ action("generate_bytecode_builtins_list") {
   deps = [
     ":bytecode_builtins_list_generator($v8_generator_toolchain)",
   ]
-  args = [
+
+  if (v8_use_wrapper) {
+    args = [ "./v8-wrapper.sh", ]
+  } else {
+    args = []
+  }
+
+  args += [
     "./" + rebase_path(
             get_label_info(
                     ":bytecode_builtins_list_generator($v8_generator_toolchain)",
@@ -1248,7 +1261,13 @@ template("run_mksnapshot") {
 
     data = []
 
-    args = [
+    if (v8_use_wrapper) {
+      args = [ "./v8-wrapper.sh", ]
+    } else {
+      args = []
+    }
+
+    args += [
       "./" + rebase_path(get_label_info(":mksnapshot($v8_snapshot_toolchain)",
                                         "root_out_dir") + "/mksnapshot",
                          root_build_dir),
@@ -3954,7 +3973,13 @@ if (v8_enable_i18n_support) {
       output_file,
     ]
 
-    args = [
+    if (v8_use_wrapper) {
+      args = [ "./v8-wrapper.sh", ]
+    } else {
+      args = []
+    }
+
+    args += [
       "./" + rebase_path(
               get_label_info(
                       ":gen-regexp-special-case($v8_generator_toolchain)",
