@@ -1,0 +1,66 @@
+#!/bin/bash -e
+# -*- mode: Shell-script; sh-basic-offset: 2; indent-tabs-mode: nil -*-
+#
+
+fail()
+{
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+get_chromium_arch()
+{
+  case "$1" in
+    amd64) ret=x64
+           ;;
+    armhf) ret=arm
+           ;;
+    *)     ret="unknown"
+           ;;
+  esac
+
+  echo "$ret"
+}
+
+get_qemu_arch()
+{
+  case "$1" in
+    amd64) ret=x86_64
+           ;;
+    armhf) ret=arm
+           ;;
+    *)     ret="unknown"
+           ;;
+  esac
+
+  echo "$ret"
+}
+
+# Based on code from https://github.com/debarshiray/toolbox
+ask_for_confirmation()
+{
+    default_response="$1"
+    prompt="$2"
+    ret_val=0
+
+    while :; do
+        printf "%s " "${prompt}"
+        read -r user_response
+
+        if [ "${user_response}" = "" ]; then
+            user_response="${default_response}"
+        else
+            user_response=$(echo "${user_response}" | tr "[:upper:]" "[:lower:]")
+        fi
+
+        if [ "${user_response}" = "no" ] || [ "${user_response}" = "n" ]; then
+            ret_val=1
+            break
+        elif [ "${user_response}" = "yes" ] || [ "${user_response}" = "y" ]; then
+            ret_val=0
+            break
+        fi
+    done
+
+    return "${ret_val}"
+}
