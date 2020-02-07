@@ -21,7 +21,7 @@ class ScopePerFileProvider : public Scope::ProgrammaticProvider {
   ~ScopePerFileProvider() override;
 
   // ProgrammaticProvider implementation.
-  const Value* GetProgrammaticValue(const std::string_view& ident) override;
+  const Value* GetProgrammaticValue(const std::experimental::string_view& ident) override;
 
  private:
   const Value* GetCurrentToolchain();

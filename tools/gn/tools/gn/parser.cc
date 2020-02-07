@@ -290,7 +290,7 @@ ParserHelper Parser::expressions_[] = {
 };
 
 Parser::Parser(const std::vector<Token>& tokens, Err* err)
-    : invalid_token_(Location(), Token::INVALID, std::string_view()),
+    : invalid_token_(Location(), Token::INVALID, std::experimental::string_view()),
       err_(err),
       cur_(0) {
   for (const auto& token : tokens) {

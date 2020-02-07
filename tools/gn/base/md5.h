@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 namespace base {
 
@@ -49,10 +49,10 @@ typedef char MD5Context[88];
 // MD5Update().
 void MD5Init(MD5Context* context);
 
-// For the given buffer of |data| as a std::string_view, updates the given MD5
+// For the given buffer of |data| as a std::experimental::string_view, updates the given MD5
 // context with the sum of the data. You can call this any number of times
 // during the computation, except that MD5Init() must have been called first.
-void MD5Update(MD5Context* context, const std::string_view& data);
+void MD5Update(MD5Context* context, const std::experimental::string_view& data);
 
 // Finalizes the MD5 operation and fills the buffer with the digest.
 void MD5Final(MD5Digest* digest, MD5Context* context);
@@ -70,7 +70,7 @@ std::string MD5DigestToBase16(const MD5Digest& digest);
 void MD5Sum(const void* data, size_t length, MD5Digest* digest);
 
 // Returns the MD5 (in hexadecimal) of a string.
-std::string MD5String(const std::string_view& str);
+std::string MD5String(const std::experimental::string_view& str);
 
 }  // namespace base
 

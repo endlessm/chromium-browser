@@ -9,7 +9,7 @@
 
 #include <algorithm>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "tools/gn/source_file.h"
 
@@ -19,7 +19,7 @@ class LibFile {
  public:
   LibFile() = default;
 
-  explicit LibFile(const std::string_view& lib_name);
+  explicit LibFile(const std::experimental::string_view& lib_name);
   explicit LibFile(const SourceFile& source_file);
 
   bool is_source_file() const { return name_.empty(); }

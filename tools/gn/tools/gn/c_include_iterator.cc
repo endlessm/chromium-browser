@@ -21,7 +21,7 @@ enum IncludeType {
 // Returns a new string piece referencing the same buffer as the argument, but
 // with leading space trimmed. This only checks for space and tab characters
 // since we're dealing with lines in C source files.
-std::string_view TrimLeadingWhitespace(const std::string_view& str) {
+std::experimental::string_view TrimLeadingWhitespace(const std::experimental::string_view& str) {
   size_t new_begin = 0;
   while (new_begin < str.size() &&
          (str[new_begin] == ' ' || str[new_begin] == '\t'))
@@ -40,7 +40,7 @@ std::string_view TrimLeadingWhitespace(const std::string_view& str) {
 //
 // We assume the line has leading whitespace trimmed. We also assume that empty
 // lines have already been filtered out.
-bool ShouldCountTowardNonIncludeLines(const std::string_view& line) {
+bool ShouldCountTowardNonIncludeLines(const std::experimental::string_view& line) {
   if (base::StartsWith(line, "//", base::CompareCase::SENSITIVE))
     return false;  // Don't count comments.
   if (base::StartsWith(line, "/*", base::CompareCase::SENSITIVE) ||
@@ -59,15 +59,15 @@ bool ShouldCountTowardNonIncludeLines(const std::string_view& line) {
 //
 // The 1-based character number on the line that the include was found at
 // will be filled into *begin_char.
-IncludeType ExtractInclude(const std::string_view& line,
-                           std::string_view* path,
+IncludeType ExtractInclude(const std::experimental::string_view& line,
+                           std::experimental::string_view* path,
                            int* begin_char) {
   static const char kInclude[] = "include";
   static const size_t kIncludeLen = arraysize(kInclude) - 1;  // No null.
   static const char kImport[] = "import";
   static const size_t kImportLen = arraysize(kImport) - 1;  // No null.
 
-  std::string_view trimmed = TrimLeadingWhitespace(line);
+  std::experimental::string_view trimmed = TrimLeadingWhitespace(line);
   if (trimmed.empty())
     return INCLUDE_NONE;
 
@@ -76,11 +76,11 @@ IncludeType ExtractInclude(const std::string_view& line,
 
   trimmed = TrimLeadingWhitespace(trimmed.substr(1));
 
-  std::string_view contents;
-  if (base::StartsWith(trimmed, std::string_view(kInclude, kIncludeLen),
+  std::experimental::string_view contents;
+  if (base::StartsWith(trimmed, std::experimental::string_view(kInclude, kIncludeLen),
                        base::CompareCase::SENSITIVE))
     contents = TrimLeadingWhitespace(trimmed.substr(kIncludeLen));
-  else if (base::StartsWith(trimmed, std::string_view(kImport, kImportLen),
+  else if (base::StartsWith(trimmed, std::experimental::string_view(kImport, kImportLen),
                             base::CompareCase::SENSITIVE))
     contents = TrimLeadingWhitespace(trimmed.substr(kImportLen));
 
@@ -101,7 +101,7 @@ IncludeType ExtractInclude(const std::string_view& line,
 
   // Count everything to next "/> as the contents.
   size_t terminator_index = contents.find(terminating_char, 1);
-  if (terminator_index == std::string_view::npos)
+  if (terminator_index == std::experimental::string_view::npos)
     return INCLUDE_NONE;
 
   *path = contents.substr(1, terminator_index - 1);
@@ -111,8 +111,8 @@ IncludeType ExtractInclude(const std::string_view& line,
 }
 
 // Returns true if this line has a "nogncheck" comment associated with it.
-bool HasNoCheckAnnotation(const std::string_view& line) {
-  return line.find("nogncheck") != std::string_view::npos;
+bool HasNoCheckAnnotation(const std::experimental::string_view& line) {
+  return line.find("nogncheck") != std::experimental::string_view::npos;
 }
 
 }  // namespace
@@ -124,13 +124,13 @@ CIncludeIterator::CIncludeIterator(const InputFile* input)
 
 CIncludeIterator::~CIncludeIterator() = default;
 
-bool CIncludeIterator::GetNextIncludeString(std::string_view* out,
+bool CIncludeIterator::GetNextIncludeString(std::experimental::string_view* out,
                                             LocationRange* location) {
-  std::string_view line;
+  std::experimental::string_view line;
   int cur_line_number = 0;
   while (lines_since_last_include_ <= kMaxNonIncludeLines &&
          GetNextLine(&line, &cur_line_number)) {
-    std::string_view include_contents;
+    std::experimental::string_view include_contents;
     int begin_char;
     IncludeType type = ExtractInclude(line, &include_contents, &begin_char);
     if (type == INCLUDE_USER && !HasNoCheckAnnotation(line)) {
@@ -153,7 +153,7 @@ bool CIncludeIterator::GetNextIncludeString(std::string_view* out,
   return false;
 }
 
-bool CIncludeIterator::GetNextLine(std::string_view* line, int* line_number) {
+bool CIncludeIterator::GetNextLine(std::experimental::string_view* line, int* line_number) {
   if (offset_ == file_.size())
     return false;
 

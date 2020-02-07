@@ -117,7 +117,7 @@ bool AppendInterpolatedIdentifier(Scope* scope,
                                   size_t end_offset,
                                   std::string* output,
                                   Err* err) {
-  std::string_view identifier(&input[begin_offset], end_offset - begin_offset);
+  std::experimental::string_view identifier(&input[begin_offset], end_offset - begin_offset);
   const Value* value = scope->GetValue(identifier, true);
   if (!value) {
     // We assume the input points inside the token.
@@ -225,7 +225,7 @@ bool AppendHexByte(Scope* scope,
     return false;
   }
   int value = 0;
-  if (!base::HexStringToInt(std::string_view(&input[*i + 2], 2), &value)) {
+  if (!base::HexStringToInt(std::experimental::string_view(&input[*i + 2], 2), &value)) {
     *err = ErrInsideStringToken(token, dollars_index, *i - dollars_index + 1,
                                 "Could not convert hex value.");
     return false;
@@ -287,8 +287,8 @@ bool ExpandStringLiteral(Scope* scope,
   return true;
 }
 
-size_t EditDistance(const std::string_view& s1,
-                    const std::string_view& s2,
+size_t EditDistance(const std::experimental::string_view& s1,
+                    const std::experimental::string_view& s2,
                     size_t max_edit_distance) {
   // The algorithm implemented below is the "classic"
   // dynamic-programming algorithm for computing the Levenshtein
@@ -329,13 +329,13 @@ size_t EditDistance(const std::string_view& s1,
   return row[n];
 }
 
-std::string_view SpellcheckString(const std::string_view& text,
-                                  const std::vector<std::string_view>& words) {
+std::experimental::string_view SpellcheckString(const std::experimental::string_view& text,
+                                  const std::vector<std::experimental::string_view>& words) {
   const size_t kMaxValidEditDistance = 3u;
 
   size_t min_distance = kMaxValidEditDistance + 1u;
-  std::string_view result;
-  for (std::string_view word : words) {
+  std::experimental::string_view result;
+  for (std::experimental::string_view word : words) {
     size_t distance = EditDistance(word, text, kMaxValidEditDistance);
     if (distance < min_distance) {
       min_distance = distance;
