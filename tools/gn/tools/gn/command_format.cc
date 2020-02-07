@@ -127,7 +127,7 @@ class Printer {
   };
 
   // Add to output.
-  void Print(std::string_view str);
+  void Print(std::experimental::string_view str);
 
   // Add the current margin (as spaces) to the output.
   void PrintMargin();
@@ -238,7 +238,7 @@ class Printer {
   std::vector<IndentState> stack_;
 
   // Gives the precedence for operators in a BinaryOpNode.
-  std::map<std::string_view, Precedence> precedence_;
+  std::map<std::experimental::string_view, Precedence> precedence_;
 
   DISALLOW_COPY_AND_ASSIGN(Printer);
 };
@@ -264,8 +264,8 @@ Printer::Printer() : penalty_depth_(0) {
 
 Printer::~Printer() = default;
 
-void Printer::Print(std::string_view str) {
-  output_.append(str);
+void Printer::Print(std::experimental::string_view str) {
+  output_.append(str.data(), str.size());
 }
 
 void Printer::PrintMargin() {
@@ -323,7 +323,7 @@ void Printer::AnnotatePreferredMultilineAssignment(const BinaryOpNode* binop) {
   // This is somewhat arbitrary, but we include the 'deps'- and 'sources'-like
   // things, but not flags things.
   if (binop->op().value() == "=" && ident && list) {
-    const std::string_view lhs = ident->value().value();
+    const std::experimental::string_view lhs = ident->value().value();
     if (lhs == "data" || lhs == "datadeps" || lhs == "data_deps" ||
         lhs == "deps" || lhs == "inputs" || lhs == "outputs" ||
         lhs == "public" || lhs == "public_deps" || lhs == "sources") {
@@ -347,7 +347,7 @@ void Printer::SortIfSourcesOrDeps(const BinaryOpNode* binop) {
   if ((binop->op().value() == "=" || binop->op().value() == "+=" ||
        binop->op().value() == "-=") &&
       ident && list) {
-    const std::string_view lhs = ident->value().value();
+    const std::experimental::string_view lhs = ident->value().value();
     if (lhs == "public" || lhs == "sources")
       const_cast<ListNode*>(list)->SortAsStringsList();
     else if (lhs == "deps" || lhs == "public_deps")
@@ -389,14 +389,14 @@ void Printer::SortImports(std::vector<std::unique_ptr<PARSENODE>>& statements) {
                     const std::unique_ptr<PARSENODE>& b) const {
       const auto& a_args = a->AsFunctionCall()->args()->contents();
       const auto& b_args = b->AsFunctionCall()->args()->contents();
-      std::string_view a_name;
-      std::string_view b_name;
+      std::experimental::string_view a_name;
+      std::experimental::string_view b_name;
       if (!a_args.empty())
         a_name = a_args[0]->AsLiteral()->value().value();
       if (!b_args.empty())
         b_name = b_args[0]->AsLiteral()->value().value();
 
-      auto is_absolute = [](std::string_view import) {
+      auto is_absolute = [](std::experimental::string_view import) {
         return import.size() >= 3 && import[0] == '"' && import[1] == '/' &&
                import[2] == '/';
       };

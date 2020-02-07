@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversion_utils.h"
@@ -157,10 +157,10 @@ bool UTFConversion(const InputString& src_str, DestString* dest_str) {
 // UTF16 <-> UTF8 --------------------------------------------------------------
 
 bool UTF8ToUTF16(const char* src, size_t src_len, std::u16string* output) {
-  return UTFConversion(std::string_view(src, src_len), output);
+  return UTFConversion(std::experimental::string_view(src, src_len), output);
 }
 
-std::u16string UTF8ToUTF16(std::string_view utf8) {
+std::u16string UTF8ToUTF16(std::experimental::string_view utf8) {
   std::u16string ret;
   // Ignore the success flag of this call, it will do the best it can for
   // invalid input, which is what we want here.
@@ -169,10 +169,10 @@ std::u16string UTF8ToUTF16(std::string_view utf8) {
 }
 
 bool UTF16ToUTF8(const char16_t* src, size_t src_len, std::string* output) {
-  return UTFConversion(std::u16string_view(src, src_len), output);
+  return UTFConversion(std::experimental::u16string_view(src, src_len), output);
 }
 
-std::string UTF16ToUTF8(std::u16string_view utf16) {
+std::string UTF16ToUTF8(std::experimental::u16string_view utf16) {
   std::string ret;
   // Ignore the success flag of this call, it will do the best it can for
   // invalid input, which is what we want here.
@@ -182,12 +182,12 @@ std::string UTF16ToUTF8(std::u16string_view utf16) {
 
 // ASCII <-> UTF-16 -----------------------------------------------------------
 
-std::u16string ASCIIToUTF16(std::string_view ascii) {
+std::u16string ASCIIToUTF16(std::experimental::string_view ascii) {
   DCHECK(IsStringASCII(ascii)) << ascii;
   return std::u16string(ascii.begin(), ascii.end());
 }
 
-std::string UTF16ToASCII(std::u16string_view utf16) {
+std::string UTF16ToASCII(std::experimental::u16string_view utf16) {
   DCHECK(IsStringASCII(utf16)) << UTF16ToUTF8(utf16);
   return std::string(utf16.begin(), utf16.end());
 }

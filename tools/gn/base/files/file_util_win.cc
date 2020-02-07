@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <limits>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -195,7 +195,7 @@ FilePath MakeAbsoluteFilePath(const FilePath& input) {
 bool DeleteFile(const FilePath& path, bool recursive) {
   static constexpr char kRecursive[] = "DeleteFile.Recursive";
   static constexpr char kNonRecursive[] = "DeleteFile.NonRecursive";
-  const std::string_view operation(recursive ? kRecursive : kNonRecursive);
+  const std::experimental::string_view operation(recursive ? kRecursive : kNonRecursive);
 
   // Metrics for delete failures tracked in https://crbug.com/599084. Delete may
   // fail for a number of reasons. Log some metrics relating to failures in the

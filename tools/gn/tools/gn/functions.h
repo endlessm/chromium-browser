@@ -7,7 +7,7 @@
 
 #include <map>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 class Err;
@@ -432,7 +432,7 @@ struct FunctionInfo {
   bool is_target;
 };
 
-typedef std::map<std::string_view, FunctionInfo> FunctionInfoMap;
+typedef std::map<std::experimental::string_view, FunctionInfo> FunctionInfoMap;
 
 // Returns the mapping of all built-in functions.
 const FunctionInfoMap& GetFunctions();

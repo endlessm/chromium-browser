@@ -14,7 +14,7 @@
 
 #include <initializer_list>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 #include "base/compiler_specific.h"
@@ -71,12 +71,12 @@ inline char16_t ToUpperASCII(char16_t c) {
 }
 
 // Converts the given string to it's ASCII-lowercase equivalent.
-std::string ToLowerASCII(std::string_view str);
-std::u16string ToLowerASCII(std::u16string_view str);
+std::string ToLowerASCII(std::experimental::string_view str);
+std::u16string ToLowerASCII(std::experimental::u16string_view str);
 
 // Converts the given string to it's ASCII-uppercase equivalent.
-std::string ToUpperASCII(std::string_view str);
-std::u16string ToUpperASCII(std::u16string_view str);
+std::string ToUpperASCII(std::experimental::string_view str);
+std::u16string ToUpperASCII(std::experimental::u16string_view str);
 
 // Functor for case-insensitive ASCII comparisons for STL algorithms like
 // std::search.
@@ -101,14 +101,14 @@ struct CaseInsensitiveCompareASCII {
 // (unlike strcasecmp which can return values greater or less than 1/-1). For
 // full Unicode support, use base::i18n::ToLower or base::i18h::FoldCase
 // and then just call the normal string operators on the result.
-int CompareCaseInsensitiveASCII(std::string_view a, std::string_view b);
-int CompareCaseInsensitiveASCII(std::u16string_view a, std::u16string_view b);
+int CompareCaseInsensitiveASCII(std::experimental::string_view a, std::experimental::string_view b);
+int CompareCaseInsensitiveASCII(std::experimental::u16string_view a, std::experimental::u16string_view b);
 
 // Equality for ASCII case-insensitive comparisons. For full Unicode support,
 // use base::i18n::ToLower or base::i18h::FoldCase and then compare with either
 // == or !=.
-bool EqualsCaseInsensitiveASCII(std::string_view a, std::string_view b);
-bool EqualsCaseInsensitiveASCII(std::u16string_view a, std::u16string_view b);
+bool EqualsCaseInsensitiveASCII(std::experimental::string_view a, std::experimental::string_view b);
+bool EqualsCaseInsensitiveASCII(std::experimental::u16string_view a, std::experimental::u16string_view b);
 
 // Contains the set of characters representing whitespace in the corresponding
 // encoding. Null-terminated. The ASCII versions are the whitespaces as defined
@@ -124,10 +124,10 @@ extern const char kUtf8ByteOrderMark[];
 // if any characters were removed.  |remove_chars| must be null-terminated.
 // NOTE: Safe to use the same variable for both |input| and |output|.
 bool RemoveChars(const std::u16string& input,
-                 std::u16string_view remove_chars,
+                 std::experimental::u16string_view remove_chars,
                  std::u16string* output);
 bool RemoveChars(const std::string& input,
-                 std::string_view remove_chars,
+                 std::experimental::string_view remove_chars,
                  std::string* output);
 
 // Replaces characters in |replace_chars| from anywhere in |input| with
@@ -136,11 +136,11 @@ bool RemoveChars(const std::string& input,
 // |replace_chars| must be null-terminated.
 // NOTE: Safe to use the same variable for both |input| and |output|.
 bool ReplaceChars(const std::u16string& input,
-                  std::u16string_view replace_chars,
+                  std::experimental::u16string_view replace_chars,
                   const std::u16string& replace_with,
                   std::u16string* output);
 bool ReplaceChars(const std::string& input,
-                  std::string_view replace_chars,
+                  std::experimental::string_view replace_chars,
                   const std::string& replace_with,
                   std::string* output);
 
@@ -158,19 +158,19 @@ enum TrimPositions {
 // It is safe to use the same variable for both |input| and |output| (this is
 // the normal usage to trim in-place).
 bool TrimString(const std::u16string& input,
-                std::u16string_view trim_chars,
+                std::experimental::u16string_view trim_chars,
                 std::u16string* output);
 bool TrimString(const std::string& input,
-                std::string_view trim_chars,
+                std::experimental::string_view trim_chars,
                 std::string* output);
 
-// std::string_view versions of the above. The returned pieces refer to the
+// std::experimental::string_view versions of the above. The returned pieces refer to the
 // original buffer.
-std::u16string_view TrimString(std::u16string_view input,
-                               std::u16string_view trim_chars,
+std::experimental::u16string_view TrimString(std::experimental::u16string_view input,
+                               std::experimental::u16string_view trim_chars,
                                TrimPositions positions);
-std::string_view TrimString(std::string_view input,
-                            std::string_view trim_chars,
+std::experimental::string_view TrimString(std::experimental::string_view input,
+                            std::experimental::string_view trim_chars,
                             TrimPositions positions);
 
 // Truncates a string to the nearest UTF-8 character that will leave
@@ -181,7 +181,7 @@ void TruncateUTF8ToByteSize(const std::string& input,
 
 // Trims any whitespace from either end of the input string.
 //
-// The std::string_view versions return a substring referencing the input
+// The std::experimental::string_view versions return a substring referencing the input
 // buffer. The ASCII versions look only for ASCII whitespace.
 //
 // The std::string versions return where whitespace was found.
@@ -189,12 +189,12 @@ void TruncateUTF8ToByteSize(const std::string& input,
 TrimPositions TrimWhitespace(const std::u16string& input,
                              TrimPositions positions,
                              std::u16string* output);
-std::u16string_view TrimWhitespace(std::u16string_view input,
+std::experimental::u16string_view TrimWhitespace(std::experimental::u16string_view input,
                                    TrimPositions positions);
 TrimPositions TrimWhitespaceASCII(const std::string& input,
                                   TrimPositions positions,
                                   std::string* output);
-std::string_view TrimWhitespaceASCII(std::string_view input,
+std::experimental::string_view TrimWhitespaceASCII(std::experimental::string_view input,
                                      TrimPositions positions);
 
 // Searches for CR or LF characters.  Removes all contiguous whitespace
@@ -212,9 +212,9 @@ std::string CollapseWhitespaceASCII(const std::string& text,
 
 // Returns true if |input| is empty or contains only characters found in
 // |characters|.
-bool ContainsOnlyChars(std::string_view input, std::string_view characters);
-bool ContainsOnlyChars(std::u16string_view input,
-                       std::u16string_view characters);
+bool ContainsOnlyChars(std::experimental::string_view input, std::experimental::string_view characters);
+bool ContainsOnlyChars(std::experimental::u16string_view input,
+                       std::experimental::u16string_view characters);
 
 // Returns true if the specified string matches the criteria. How can a wide
 // string be 8-bit or UTF8? It contains only characters that are < 256 (in the
@@ -230,21 +230,21 @@ bool ContainsOnlyChars(std::u16string_view input,
 //
 // IsStringASCII assumes the input is likely all ASCII, and does not leave early
 // if it is not the case.
-bool IsStringUTF8(std::string_view str);
-bool IsStringASCII(std::string_view str);
-bool IsStringASCII(std::u16string_view str);
+bool IsStringUTF8(std::experimental::string_view str);
+bool IsStringASCII(std::experimental::string_view str);
+bool IsStringASCII(std::experimental::u16string_view str);
 
 // Compare the lower-case form of the given string against the given
 // previously-lower-cased ASCII string (typically a constant).
-bool LowerCaseEqualsASCII(std::string_view str,
-                          std::string_view lowecase_ascii);
-bool LowerCaseEqualsASCII(std::u16string_view str,
-                          std::string_view lowecase_ascii);
+bool LowerCaseEqualsASCII(std::experimental::string_view str,
+                          std::experimental::string_view lowecase_ascii);
+bool LowerCaseEqualsASCII(std::experimental::u16string_view str,
+                          std::experimental::string_view lowecase_ascii);
 
 // Performs a case-sensitive string compare of the given 16-bit string against
 // the given 8-bit ASCII string (typically a constant). The behavior is
 // undefined if the |ascii| string is not ASCII.
-bool EqualsASCII(std::u16string_view str, std::string_view ascii);
+bool EqualsASCII(std::experimental::u16string_view str, std::experimental::string_view ascii);
 
 // Indicates case sensitivity of comparisons. Only ASCII case insensitivity
 // is supported. Full Unicode case-insensitive conversions would need to go in
@@ -259,17 +259,17 @@ enum class CompareCase {
   INSENSITIVE_ASCII,
 };
 
-bool StartsWith(std::string_view str,
-                std::string_view search_for,
+bool StartsWith(std::experimental::string_view str,
+                std::experimental::string_view search_for,
                 CompareCase case_sensitivity);
-bool StartsWith(std::u16string_view str,
-                std::u16string_view search_for,
+bool StartsWith(std::experimental::u16string_view str,
+                std::experimental::u16string_view search_for,
                 CompareCase case_sensitivity);
-bool EndsWith(std::string_view str,
-              std::string_view search_for,
+bool EndsWith(std::experimental::string_view str,
+              std::experimental::string_view search_for,
               CompareCase case_sensitivity);
-bool EndsWith(std::u16string_view str,
-              std::u16string_view search_for,
+bool EndsWith(std::experimental::u16string_view str,
+              std::experimental::u16string_view search_for,
               CompareCase case_sensitivity);
 
 // Determines the type of ASCII character, independent of locale (the C
@@ -321,12 +321,12 @@ std::u16string FormatBytesUnlocalized(int64_t bytes);
 // |find_this| with |replace_with|.
 void ReplaceFirstSubstringAfterOffset(std::u16string* str,
                                       size_t start_offset,
-                                      std::u16string_view find_this,
-                                      std::u16string_view replace_with);
+                                      std::experimental::u16string_view find_this,
+                                      std::experimental::u16string_view replace_with);
 void ReplaceFirstSubstringAfterOffset(std::string* str,
                                       size_t start_offset,
-                                      std::string_view find_this,
-                                      std::string_view replace_with);
+                                      std::experimental::string_view find_this,
+                                      std::experimental::string_view replace_with);
 
 // Starting at |start_offset| (usually 0), look through |str| and replace all
 // instances of |find_this| with |replace_with|.
@@ -336,12 +336,12 @@ void ReplaceFirstSubstringAfterOffset(std::string* str,
 //   std::replace(str.begin(), str.end(), 'a', 'b');
 void ReplaceSubstringsAfterOffset(std::u16string* str,
                                   size_t start_offset,
-                                  std::u16string_view find_this,
-                                  std::u16string_view replace_with);
+                                  std::experimental::u16string_view find_this,
+                                  std::experimental::u16string_view replace_with);
 void ReplaceSubstringsAfterOffset(std::string* str,
                                   size_t start_offset,
-                                  std::string_view find_this,
-                                  std::string_view replace_with);
+                                  std::experimental::string_view find_this,
+                                  std::experimental::string_view replace_with);
 
 // Reserves enough memory in |str| to accommodate |length_with_null| characters,
 // sets the size of |str| to |length_with_null - 1| characters, and returns a
@@ -370,28 +370,28 @@ char16_t* WriteInto(std::u16string* str, size_t length_with_null);
 // of strings into a single string, inserting |separator| (which may be empty)
 // in between all elements.
 //
-// If possible, callers should build a vector of std::string_views and use the
-// std::string_view variant, so that they do not create unnecessary copies of
+// If possible, callers should build a vector of std::experimental::string_views and use the
+// std::experimental::string_view variant, so that they do not create unnecessary copies of
 // strings. For example, instead of using SplitString, modifying the vector,
 // then using JoinString, use SplitStringPiece followed by JoinString so that no
 // copies of those strings are created until the final join operation.
 //
 // Use StrCat (in base/strings/strcat.h) if you don't need a separator.
 std::string JoinString(const std::vector<std::string>& parts,
-                       std::string_view separator);
+                       std::experimental::string_view separator);
 std::u16string JoinString(const std::vector<std::u16string>& parts,
-                          std::u16string_view separator);
-std::string JoinString(const std::vector<std::string_view>& parts,
-                       std::string_view separator);
-std::u16string JoinString(const std::vector<std::u16string_view>& parts,
-                          std::u16string_view separator);
+                          std::experimental::u16string_view separator);
+std::string JoinString(const std::vector<std::experimental::string_view>& parts,
+                       std::experimental::string_view separator);
+std::u16string JoinString(const std::vector<std::experimental::u16string_view>& parts,
+                          std::experimental::u16string_view separator);
 // Explicit initializer_list overloads are required to break ambiguity when used
 // with a literal initializer list (otherwise the compiler would not be able to
-// decide between the string and std::string_view overloads).
-std::string JoinString(std::initializer_list<std::string_view> parts,
-                       std::string_view separator);
-std::u16string JoinString(std::initializer_list<std::u16string_view> parts,
-                          std::u16string_view separator);
+// decide between the string and std::experimental::string_view overloads).
+std::string JoinString(std::initializer_list<std::experimental::string_view> parts,
+                       std::experimental::string_view separator);
+std::u16string JoinString(std::initializer_list<std::experimental::u16string_view> parts,
+                          std::experimental::u16string_view separator);
 
 // Replace $1-$2-$3..$9 in the format string with values from |subst|.
 // Additionally, any number of consecutive '$' characters is replaced by that
@@ -402,7 +402,7 @@ std::u16string ReplaceStringPlaceholders(
     const std::vector<std::u16string>& subst,
     std::vector<size_t>* offsets);
 
-std::string ReplaceStringPlaceholders(std::string_view format_string,
+std::string ReplaceStringPlaceholders(std::experimental::string_view format_string,
                                       const std::vector<std::string>& subst,
                                       std::vector<size_t>* offsets);
 

@@ -6,7 +6,7 @@
 
 #include <algorithm>
 #include <ostream>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
@@ -186,8 +186,8 @@ CommandLine::~CommandLine() = default;
 // static
 void CommandLine::set_slash_is_not_a_switch() {
   // The last switch prefix should be slash, so adjust the size to skip it.
-  DCHECK(std::u16string_view(kSwitchPrefixes[arraysize(kSwitchPrefixes) - 1]) ==
-         std::u16string_view(u"/"));
+  DCHECK(std::experimental::u16string_view(kSwitchPrefixes[arraysize(kSwitchPrefixes) - 1]) ==
+         std::experimental::u16string_view(u"/"));
   switch_prefix_count = arraysize(kSwitchPrefixes) - 1;
 }
 
@@ -282,17 +282,17 @@ void CommandLine::SetProgram(const FilePath& program) {
 #endif
 }
 
-bool CommandLine::HasSwitch(const std::string_view& switch_string) const {
+bool CommandLine::HasSwitch(const std::experimental::string_view& switch_string) const {
   DCHECK_EQ(ToLowerASCII(switch_string), switch_string);
   return ContainsKey(switches_, switch_string);
 }
 
 bool CommandLine::HasSwitch(const char switch_constant[]) const {
-  return HasSwitch(std::string_view(switch_constant));
+  return HasSwitch(std::experimental::string_view(switch_constant));
 }
 
 std::string CommandLine::GetSwitchValueASCII(
-    const std::string_view& switch_string) const {
+    const std::experimental::string_view& switch_string) const {
   StringType value = GetSwitchValueNative(switch_string);
   if (!IsStringASCII(value)) {
     DLOG(WARNING) << "Value of switch (" << switch_string << ") must be ASCII.";
@@ -306,12 +306,12 @@ std::string CommandLine::GetSwitchValueASCII(
 }
 
 FilePath CommandLine::GetSwitchValuePath(
-    const std::string_view& switch_string) const {
+    const std::experimental::string_view& switch_string) const {
   return FilePath(GetSwitchValueNative(switch_string));
 }
 
 CommandLine::StringType CommandLine::GetSwitchValueNative(
-    const std::string_view& switch_string) const {
+    const std::experimental::string_view& switch_string) const {
   DCHECK_EQ(ToLowerASCII(switch_string), switch_string);
   auto result = switches_.find(switch_string);
   return result == switches_.end() ? StringType() : result->second;

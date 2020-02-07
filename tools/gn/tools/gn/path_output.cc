@@ -11,7 +11,7 @@
 #include "util/build_config.h"
 
 PathOutput::PathOutput(const SourceDir& current_dir,
-                       const std::string_view& source_root,
+                       const std::experimental::string_view& source_root,
                        EscapingMode escaping)
     : current_dir_(current_dir) {
   inverse_current_dir_ = RebasePath("//", current_dir, source_root);
@@ -65,7 +65,7 @@ void PathOutput::WriteDir(std::ostream& out,
   } else {
     // DIR_NO_LAST_SLASH mode, just trim the last char.
     WritePathStr(out,
-                 std::string_view(dir.value().data(), dir.value().size() - 1));
+                 std::experimental::string_view(dir.value().data(), dir.value().size() - 1));
   }
 }
 
@@ -104,7 +104,7 @@ void PathOutput::WriteDir(std::ostream& out,
           file.value()[file.value().size() - 1] == '/') {
         // Trim trailing slash.
         EscapeStringToStream(
-            out, std::string_view(file.value().data(), file.value().size() - 1),
+            out, std::experimental::string_view(file.value().data(), file.value().size() - 1),
             options_);
       } else {
         // Doesn't end with a slash, write the whole thing.
@@ -121,7 +121,7 @@ void PathOutput::WriteFile(std::ostream& out,
 }
 
 void PathOutput::WriteSourceRelativeString(std::ostream& out,
-                                           const std::string_view& str) const {
+                                           const std::experimental::string_view& str) const {
   if (options_.mode == ESCAPE_NINJA_COMMAND) {
     // Shell escaping needs an intermediate string since it may end up
     // quoting the whole thing.
@@ -132,7 +132,7 @@ void PathOutput::WriteSourceRelativeString(std::ostream& out,
     intermediate.append(str.data(), str.size());
 
     EscapeStringToStream(
-        out, std::string_view(intermediate.c_str(), intermediate.size()),
+        out, std::experimental::string_view(intermediate.c_str(), intermediate.size()),
         options_);
   } else {
     // Ninja (and none) escaping can avoid the intermediate string and
@@ -143,11 +143,11 @@ void PathOutput::WriteSourceRelativeString(std::ostream& out,
 }
 
 void PathOutput::WritePathStr(std::ostream& out,
-                              const std::string_view& str) const {
+                              const std::experimental::string_view& str) const {
   DCHECK(str.size() > 0 && str[0] == '/');
 
   if (str.substr(0, current_dir_.value().size()) ==
-      std::string_view(current_dir_.value())) {
+      std::experimental::string_view(current_dir_.value())) {
     // The current dir is a prefix of the output file, so we can strip the
     // prefix and write out the result.
     EscapeStringToStream(out, str.substr(current_dir_.value().size()),

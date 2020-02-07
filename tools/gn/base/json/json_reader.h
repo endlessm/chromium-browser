@@ -30,7 +30,7 @@
 
 #include <memory>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 namespace base {
 
@@ -93,7 +93,7 @@ class JSONReader {
   // If |json| is not a properly formed JSON string, returns nullptr.
   // Wrap this in base::FooValue::From() to check the Value is of type Foo and
   // convert to a FooValue at the same time.
-  static std::unique_ptr<Value> Read(std::string_view json,
+  static std::unique_ptr<Value> Read(std::experimental::string_view json,
                                      int options = JSON_PARSE_RFC,
                                      int max_depth = kStackMaxDepth);
 
@@ -102,7 +102,7 @@ class JSONReader {
   // an error code and a formatted error message (including error location if
   // appropriate). Otherwise, they will be unmodified.
   static std::unique_ptr<Value> ReadAndReturnError(
-      std::string_view json,
+      std::experimental::string_view json,
       int options,  // JSONParserOptions
       int* error_code_out,
       std::string* error_msg_out,
@@ -114,7 +114,7 @@ class JSONReader {
   static std::string ErrorCodeToString(JsonParseError error_code);
 
   // Non-static version of Read() above.
-  std::unique_ptr<Value> ReadToValue(std::string_view json);
+  std::unique_ptr<Value> ReadToValue(std::experimental::string_view json);
 
   // Returns the error code if the last call to ReadToValue() failed.
   // Returns JSON_NO_ERROR otherwise.

@@ -193,7 +193,7 @@ void DecrementWorkCount() {
 
 #if defined(OS_WIN)
 
-std::u16string SysMultiByteTo16(std::string_view mb) {
+std::u16string SysMultiByteTo16(std::experimental::string_view mb) {
   if (mb.empty())
     return std::u16string();
 
@@ -272,7 +272,7 @@ base::FilePath FindWindowsPython() {
 
   // Search for python.exe in the path.
   for (const auto& component : base::SplitStringPiece(
-           std::u16string_view(full_path.get(), path_length), u";",
+           std::experimental::u16string_view(full_path.get(), path_length), u";",
            base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
     base::FilePath candidate_exe =
         base::FilePath(component).Append(kPythonExeName);
