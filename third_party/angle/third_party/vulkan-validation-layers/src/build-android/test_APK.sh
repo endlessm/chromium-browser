@@ -114,10 +114,6 @@ echo Setting up...
 # Start up
 #
 
-# Wake up the device
-adb $serialFlag shell input keyevent "KEYCODE_MENU"
-adb $serialFlag shell input keyevent "KEYCODE_HOME"
-
 # Grab our Android test mutex
 # Wait for any existing test runs on the devices
 
@@ -143,6 +139,12 @@ function finish {
    rm -r /var/tmp/VkLayerValidationTests.$serial.lock
 }
 trap finish EXIT
+
+# Wake up the device - make sure each keycode has time to be processed
+adb $serialFlag shell input keyevent "KEYCODE_MENU"
+sleep 2
+adb $serialFlag shell input keyevent "KEYCODE_HOME"
+sleep 2
 
 # Clear the log
 adb $serialFlag logcat -c
@@ -175,7 +177,7 @@ fi
 echo
 echo Launching tests...
 
-# Kick off the tests with known expection list
+# Kick off the tests with known exception list
 adb $serialFlag shell am start -a android.intent.action.MAIN -c android-intent.category.LAUNCH -n com.example.VulkanLayerValidationTests/android.app.NativeActivity --es args --gtest_filter="${filter}"
 
 #
@@ -186,7 +188,7 @@ adb $serialFlag shell am start -a android.intent.action.MAIN -c android-intent.c
 seconds=1200                          # Duration in seconds.
 endTime=$(( $(date +%s) + seconds ))  # Calculate end time.
 
-exitCode=-1;
+exitCode=-1
 
 # Disable exit on error, we expect grep to fail multiple times in this loop
 set +e
@@ -230,9 +232,6 @@ while [ $(date +%s) -lt $endTime ]; do  # Loop until interval has elapsed.
 
 done
 
-# Re-enable exit on error
-set -e
-
 if [ $exitCode -eq -1 ]
 then
     echo "VulkanLayerValidationTests hasn't completed in $seconds seconds. Script exiting."
@@ -244,12 +243,13 @@ fi
 
 # Return to home screen to clear any error pop-ups
 adb $serialFlag shell input keyevent "KEYCODE_HOME"
+sleep 2
 
 # Stop the activity
 adb $serialFlag shell am force-stop com.example.VulkanLayerValidationTests
 
 echo
-echo Fetching test output and filtered logcat text...
+echo Fetching test output and logcat text...
 
 # Avoid characters that are illegal in Windows filenames, so these
 # files can be archived to a Windows host system for later reference
@@ -259,7 +259,7 @@ errFile="VulkanLayerValidationTests.$platform.$today.err.txt"
 logFile="VulkanLayerValidationTests.$platform.$today.logcat.txt"
 adb $serialFlag pull /sdcard/Android/data/com.example.VulkanLayerValidationTests/files/out.txt $outFile
 adb $serialFlag pull /sdcard/Android/data/com.example.VulkanLayerValidationTests/files/err.txt $errFile
-adb $serialFlag logcat -d | grep VulkanLayerValidationTests > $logFile
+adb $serialFlag logcat -d > $logFile
 
 if [ -f $outFile ]; then
     echo $outFile size $(wc -c < $outFile)
@@ -284,7 +284,7 @@ then
     echo 
     echo Dumping logcat text, filtered by ''"VulkanLayerValidationTests"'':
     echo =========================================================================================
-    cat $logFile
+    cat $logFile | grep VulkanLayerValidationTests
     echo =========================================================================================
 fi
 

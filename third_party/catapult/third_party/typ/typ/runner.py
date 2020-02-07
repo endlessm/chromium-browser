@@ -39,7 +39,7 @@ if dir_above_typ not in sys.path:  # pragma: no cover
 from typ import artifacts
 from typ import json_results
 from typ.arg_parser import ArgumentParser
-from typ.expectations_parser import TestExpectations
+from typ.expectations_parser import TestExpectations, Expectation
 from typ.host import Host
 from typ.pool import make_pool
 from typ.stats import Stats
@@ -847,11 +847,11 @@ class Runner(object):
         return trace
 
     def expectations_for(self, test_case):
+      test_name = test_case.id()[len(self.args.test_name_prefix):]
       if self.has_expectations:
-          return self.expectations.expectations_for(
-              test_case.id()[len(self.args.test_name_prefix):])[:-1]
+          return self.expectations.expectations_for(test_name)
       else:
-          return (set([ResultType.Pass]), False)
+          return Expectation(test=test_name)
 
     def default_classifier(self, test_set, test):
         if self.matches_filter(test):
@@ -890,9 +890,9 @@ class Runner(object):
           return False
         test_name = test_case.id()[len(self.args.test_name_prefix):]
         if self.has_expectations:
-            expected_results, _, _ = self.expectations.expectations_for(test_name)
+            expected_results = self.expectations.expectations_for(test_name).results
         else:
-            expected_results = set([ResultType.Pass])
+            expected_results = {ResultType.Pass}
         return (
             ResultType.Skip in expected_results or
             any(fnmatch.fnmatch(test_name, glob) for glob in self.args.skip))
@@ -999,8 +999,9 @@ def _run_one_test(child, test_input):
     # but could come up when testing non-typ code as well.
     h.capture_output(divert=not child.passthrough)
     if child.has_expectations:
-      expected_results, should_retry_on_failure, _ = (child.expectations
-                                                   .expectations_for(test_name))
+      expectation = child.expectations.expectations_for(test_name)
+      expected_results, should_retry_on_failure = (
+          expectation.results, expectation.should_retry_on_failure)
     else:
       expected_results, should_retry_on_failure = {ResultType.Pass}, False
     ex_str = ''
@@ -1052,7 +1053,7 @@ def _run_one_test(child, test_input):
     if isinstance(test_case, TypTestCase):
         test_case.child = child
         test_case.context = child.context_after_setup
-        test_case.artifacts = art
+        test_case.set_artifacts(art)
 
     test_result = unittest.TestResult()
     out = ''

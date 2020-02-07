@@ -35,7 +35,6 @@
 #include "chrome/browser/data_reduction_proxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/download/download_stats.h"
-#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/language/language_model_manager_factory.h"
 #include "chrome/browser/media/router/media_router_dialog_controller.h"
@@ -43,7 +42,6 @@
 #include "chrome/browser/media/router/media_router_metrics.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -60,11 +58,11 @@
 #include "chrome/browser/send_tab_to_self/send_tab_to_self_desktop_util.h"
 #include "chrome/browser/send_tab_to_self/send_tab_to_self_util.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_context_menu_observer.h"
+#include "chrome/browser/sharing/click_to_call/click_to_call_metrics.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_utils.h"
 #include "chrome/browser/sharing/features.h"
 #include "chrome/browser/sharing/shared_clipboard/shared_clipboard_context_menu_observer.h"
 #include "chrome/browser/sharing/shared_clipboard/shared_clipboard_utils.h"
-#include "chrome/browser/sharing/sharing_metrics.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/translate/translate_service.h"
@@ -79,7 +77,7 @@
 #include "chrome/browser/ui/qrcode_generator/qrcode_generator_bubble_controller.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/webui/foreign_session_handler.h"
+#include "chrome/browser/ui/webui/history/foreign_session_handler.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_features.h"
@@ -134,8 +132,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/menu_item.h"
 #include "content/public/common/url_utils.h"
-#include "extensions/browser/extension_registry.h"
-#include "extensions/browser/extension_system.h"
 #include "extensions/buildflags/buildflags.h"
 #include "media/base/media_switches.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
@@ -145,10 +141,12 @@
 #include "printing/buildflags/buildflags.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/context_menu_data/edit_flags.h"
+#include "third_party/blink/public/common/context_menu_data/input_field_type.h"
+#include "third_party/blink/public/common/context_menu_data/media_type.h"
+#include "third_party/blink/public/common/media/media_player_action.h"
 #include "third_party/blink/public/common/plugin/plugin_action.h"
 #include "third_party/blink/public/public_buildflags.h"
-#include "third_party/blink/public/web/web_context_menu_data.h"
-#include "third_party/blink/public/web/web_media_player_action.h"
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -178,6 +176,10 @@
 #include "extensions/common/extension.h"
 #endif
 
+#if BUILDFLAG(ENABLE_PLUGINS)
+#include "chrome/browser/plugins/chrome_plugin_service_filter.h"
+#endif
+
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "chrome/browser/printing/print_view_manager_common.h"
 #include "components/printing/common/print_messages.h"
@@ -200,9 +202,11 @@
 #endif
 
 using base::UserMetricsAction;
+using blink::ContextMenuDataEditFlags;
+using blink::ContextMenuDataMediaType;
+using blink::MediaPlayerAction;
 using blink::PluginAction;
 using blink::WebContextMenuData;
-using blink::WebMediaPlayerAction;
 using blink::WebString;
 using blink::WebURL;
 using content::BrowserContext;
@@ -563,12 +567,12 @@ void OnProfileCreated(const GURL& link_url,
 }
 
 bool DoesInputFieldTypeSupportEmoji(
-    blink::WebContextMenuData::InputFieldType text_input_type) {
+    blink::ContextMenuDataInputFieldType text_input_type) {
   // Disable emoji for input types that definitely do not support emoji.
   switch (text_input_type) {
-    case blink::WebContextMenuData::kInputFieldTypeNumber:
-    case blink::WebContextMenuData::kInputFieldTypeTelephone:
-    case blink::WebContextMenuData::kInputFieldTypeOther:
+    case blink::ContextMenuDataInputFieldType::kNumber:
+    case blink::ContextMenuDataInputFieldType::kTelephone:
+    case blink::ContextMenuDataInputFieldType::kOther:
       return false;
     default:
       return true;
@@ -651,19 +655,19 @@ bool RenderViewContextMenu::ExtensionContextAndPatternMatch(
     return true;
 
   switch (params.media_type) {
-    case WebContextMenuData::kMediaTypeImage:
+    case ContextMenuDataMediaType::kImage:
       if (contexts.Contains(MenuItem::IMAGE) &&
           ExtensionPatternMatch(target_url_patterns, params.src_url))
         return true;
       break;
 
-    case WebContextMenuData::kMediaTypeVideo:
+    case ContextMenuDataMediaType::kVideo:
       if (contexts.Contains(MenuItem::VIDEO) &&
           ExtensionPatternMatch(target_url_patterns, params.src_url))
         return true;
       break;
 
-    case WebContextMenuData::kMediaTypeAudio:
+    case ContextMenuDataMediaType::kAudio:
       if (contexts.Contains(MenuItem::AUDIO) &&
           ExtensionPatternMatch(target_url_patterns, params.src_url))
         return true;
@@ -677,7 +681,7 @@ bool RenderViewContextMenu::ExtensionContextAndPatternMatch(
   // other contexts apply (except for FRAME, which is included in PAGE for
   // backwards compatibility).
   if (!has_link && !has_selection && !params.is_editable &&
-      params.media_type == WebContextMenuData::kMediaTypeNone &&
+      params.media_type == ContextMenuDataMediaType::kNone &&
       contexts.Contains(MenuItem::PAGE))
     return true;
 
@@ -823,15 +827,10 @@ void RenderViewContextMenu::InitMenu() {
 
   if (content_type_->SupportsGroup(ContextMenuContentType::ITEM_GROUP_LINK)) {
     AppendLinkItems();
-    if (params_.media_type != WebContextMenuData::kMediaTypeNone)
+    if (params_.media_type != ContextMenuDataMediaType::kNone)
       menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
-  } else {
-    // Shown when non link item is highlighted to avoid showing click to call
-    // twice when you highlight a link of the form <a
-    // href="tel:+9876543210">+9876543210</a> and right click on it.
-    MaybeAppendClickToCallItem();
-    AppendSharedClipboardItems();
   }
+
   bool media_image = content_type_->SupportsGroup(
       ContextMenuContentType::ITEM_GROUP_MEDIA_IMAGE);
   if (media_image)
@@ -873,6 +872,9 @@ void RenderViewContextMenu::InitMenu() {
     DCHECK(!editable);
     AppendCopyItem();
   }
+
+  if (!content_type_->SupportsGroup(ContextMenuContentType::ITEM_GROUP_LINK))
+    AppendSharingItems();
 
   if (content_type_->SupportsGroup(
           ContextMenuContentType::ITEM_GROUP_SEARCH_PROVIDER) &&
@@ -1040,7 +1042,7 @@ void RenderViewContextMenu::RecordUsedItem(int id) {
         "ContextMenu.SelectedOptionDesktop.MisspelledWord", enum_id,
         GetUmaValueMax(UmaEnumIdLookupType::ContextSpecificEnumId));
   } else if (!params_.selection_text.empty() &&
-             params_.media_type == blink::WebContextMenuData::kMediaTypeNone) {
+             params_.media_type == ContextMenuDataMediaType::kNone) {
     // Probably just text.
     UMA_HISTOGRAM_EXACT_LINEAR(
         "ContextMenu.SelectedOptionDesktop.SelectedText", enum_id,
@@ -1266,11 +1268,13 @@ void RenderViewContextMenu::AppendLinkItems() {
       }
     }
 #endif  // !defined(OS_CHROMEOS)
+
+    menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
+
     if (browser && send_tab_to_self::ShouldOfferFeatureForLink(
                        active_web_contents, params_.link_url)) {
       send_tab_to_self::RecordSendTabToSelfClickResult(
           send_tab_to_self::kLinkMenu, SendTabToSelfClickResult::kShowItem);
-      menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
       if (send_tab_to_self::GetValidDeviceCount(GetBrowser()->profile()) == 1) {
 #if defined(OS_MACOSX)
         menu_model_.AddItem(IDC_CONTENT_LINK_SEND_TAB_TO_SELF_SINGLE_TARGET,
@@ -1310,7 +1314,7 @@ void RenderViewContextMenu::AppendLinkItems() {
       }
     }
 
-    MaybeAppendClickToCallItem();
+    AppendClickToCallItem();
 
     menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
     menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_SAVELINKAS,
@@ -1324,7 +1328,7 @@ void RenderViewContextMenu::AppendLinkItems() {
           IDS_CONTENT_CONTEXT_COPYLINKLOCATION);
 
   if (params_.source_type == ui::MENU_SOURCE_TOUCH &&
-      params_.media_type != WebContextMenuData::kMediaTypeImage &&
+      params_.media_type != ContextMenuDataMediaType::kImage &&
       !params_.link_text.empty()) {
     menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_COPYLINKTEXT,
                                     IDS_CONTENT_CONTEXT_COPYLINKTEXT);
@@ -1596,22 +1600,9 @@ void RenderViewContextMenu::AppendCopyItem() {
                                   IDS_CONTENT_CONTEXT_COPY);
 }
 
-// Context menu item for shared clipboard on selected text.
-void RenderViewContextMenu::AppendSharedClipboardItems() {
-  if (!ShouldOfferSharedClipboard(browser_context_, params_.selection_text))
-    return;
-
-  if (!shared_clipboard_context_menu_observer_) {
-    shared_clipboard_context_menu_observer_ =
-        std::make_unique<SharedClipboardContextMenuObserver>(this);
-    observers_.AddObserver(shared_clipboard_context_menu_observer_.get());
-  }
-  shared_clipboard_context_menu_observer_->InitMenu(params_);
-}
-
 void RenderViewContextMenu::AppendPrintItem() {
   if (GetPrefs(browser_context_)->GetBoolean(prefs::kPrintingEnabled) &&
-      (params_.media_type == WebContextMenuData::kMediaTypeNone ||
+      (params_.media_type == ContextMenuDataMediaType::kNone ||
        params_.media_flags & WebContextMenuData::kMediaCanPrint) &&
       params_.misspelled_word.empty()) {
     menu_model_.AddItemWithStringId(IDC_PRINT, IDS_CONTENT_CONTEXT_PRINT);
@@ -1840,16 +1831,37 @@ void RenderViewContextMenu::AppendPictureInPictureItem() {
                                          IDS_CONTENT_CONTEXT_PICTUREINPICTURE);
 }
 
-void RenderViewContextMenu::MaybeAppendClickToCallItem() {
+void RenderViewContextMenu::AppendSharingItems() {
+  int items_initial = menu_model_.GetItemCount();
+  menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
+  // Check if the starting separator got added.
+  int items_before_sharing = menu_model_.GetItemCount();
+  bool starting_separator_added = items_before_sharing > items_initial;
+
+  AppendClickToCallItem();
+  AppendSharedClipboardItem();
+
+  // Add an ending separator if there are sharing items, otherwise remove the
+  // starting separator iff we added one above.
+  int sharing_items = menu_model_.GetItemCount() - items_before_sharing;
+  if (sharing_items > 0)
+    menu_model_.AddSeparator(ui::NORMAL_SEPARATOR);
+  else if (starting_separator_added)
+    menu_model_.RemoveItemAt(items_initial);
+}
+
+void RenderViewContextMenu::AppendClickToCallItem() {
   SharingClickToCallEntryPoint entry_point;
   base::Optional<std::string> phone_number;
+  std::string selection_text;
   if (ShouldOfferClickToCallForURL(browser_context_, params_.link_url)) {
     entry_point = SharingClickToCallEntryPoint::kRightClickLink;
     phone_number = GetUnescapedURLContent(params_.link_url);
   } else if (!params_.selection_text.empty()) {
     entry_point = SharingClickToCallEntryPoint::kRightClickSelection;
-    phone_number = ExtractPhoneNumberForClickToCall(
-        browser_context_, base::UTF16ToUTF8(params_.selection_text));
+    selection_text = base::UTF16ToUTF8(params_.selection_text);
+    phone_number =
+        ExtractPhoneNumberForClickToCall(browser_context_, selection_text);
   }
 
   if (!phone_number || phone_number->empty())
@@ -1861,7 +1873,20 @@ void RenderViewContextMenu::MaybeAppendClickToCallItem() {
     observers_.AddObserver(click_to_call_context_menu_observer_.get());
   }
 
-  click_to_call_context_menu_observer_->BuildMenu(*phone_number, entry_point);
+  click_to_call_context_menu_observer_->BuildMenu(*phone_number, selection_text,
+                                                  entry_point);
+}
+
+void RenderViewContextMenu::AppendSharedClipboardItem() {
+  if (!ShouldOfferSharedClipboard(browser_context_, params_.selection_text))
+    return;
+
+  if (!shared_clipboard_context_menu_observer_) {
+    shared_clipboard_context_menu_observer_ =
+        std::make_unique<SharedClipboardContextMenuObserver>(this);
+    observers_.AddObserver(shared_clipboard_context_menu_observer_.get());
+  }
+  shared_clipboard_context_menu_observer_->InitMenu(params_);
 }
 
 // Menu delegate functions -----------------------------------------------------
@@ -2011,16 +2036,16 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
              params_.frame_url.GetOrigin() != chrome::kChromeUIPrintURL;
 
     case IDC_CONTENT_CONTEXT_UNDO:
-      return !!(params_.edit_flags & WebContextMenuData::kCanUndo);
+      return !!(params_.edit_flags & ContextMenuDataEditFlags::kCanUndo);
 
     case IDC_CONTENT_CONTEXT_REDO:
-      return !!(params_.edit_flags & WebContextMenuData::kCanRedo);
+      return !!(params_.edit_flags & ContextMenuDataEditFlags::kCanRedo);
 
     case IDC_CONTENT_CONTEXT_CUT:
-      return !!(params_.edit_flags & WebContextMenuData::kCanCut);
+      return !!(params_.edit_flags & ContextMenuDataEditFlags::kCanCut);
 
     case IDC_CONTENT_CONTEXT_COPY:
-      return !!(params_.edit_flags & WebContextMenuData::kCanCopy);
+      return !!(params_.edit_flags & ContextMenuDataEditFlags::kCanCopy);
 
     case IDC_CONTENT_CONTEXT_PASTE:
       return IsPasteEnabled();
@@ -2029,10 +2054,10 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
       return IsPasteAndMatchStyleEnabled();
 
     case IDC_CONTENT_CONTEXT_DELETE:
-      return !!(params_.edit_flags & WebContextMenuData::kCanDelete);
+      return !!(params_.edit_flags & ContextMenuDataEditFlags::kCanDelete);
 
     case IDC_CONTENT_CONTEXT_SELECTALL:
-      return !!(params_.edit_flags & WebContextMenuData::kCanSelectAll);
+      return !!(params_.edit_flags & ContextMenuDataEditFlags::kCanSelectAll);
 
     case IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD:
       return IsOpenLinkOTREnabled();
@@ -2498,7 +2523,7 @@ bool RenderViewContextMenu::IsViewSourceEnabled() const {
           source_web_contents_)) {
     return false;
   }
-  return (params_.media_type != WebContextMenuData::kMediaTypePlugin) &&
+  return (params_.media_type != ContextMenuDataMediaType::kPlugin) &&
          embedder_web_contents_->GetController().CanViewSource();
 }
 
@@ -2535,7 +2560,8 @@ bool RenderViewContextMenu::IsTranslateEnabled() const {
   // target languages are identical.  This is to give a way to user to
   // translate a page that might contains text fragments in a different
   // language.
-  return ((params_.edit_flags & WebContextMenuData::kCanTranslate) != 0) &&
+  return ((params_.edit_flags & ContextMenuDataEditFlags::kCanTranslate) !=
+          0) &&
          !original_lang.empty() &&  // Did we receive the page language yet?
          !chrome_translate_client->GetLanguageState().IsPageTranslated() &&
          !embedder_web_contents_->GetInterstitialPage() &&
@@ -2611,7 +2637,7 @@ bool RenderViewContextMenu::IsSavePageEnabled() const {
 }
 
 bool RenderViewContextMenu::IsPasteEnabled() const {
-  if (!(params_.edit_flags & WebContextMenuData::kCanPaste))
+  if (!(params_.edit_flags & ContextMenuDataEditFlags::kCanPaste))
     return false;
 
   std::vector<base::string16> types;
@@ -2622,7 +2648,7 @@ bool RenderViewContextMenu::IsPasteEnabled() const {
 }
 
 bool RenderViewContextMenu::IsPasteAndMatchStyleEnabled() const {
-  if (!(params_.edit_flags & WebContextMenuData::kCanPaste))
+  if (!(params_.edit_flags & ContextMenuDataEditFlags::kCanPaste))
     return false;
 
   return ui::Clipboard::GetForCurrentThread()->IsFormatAvailable(
@@ -2631,7 +2657,7 @@ bool RenderViewContextMenu::IsPasteAndMatchStyleEnabled() const {
 }
 
 bool RenderViewContextMenu::IsPrintPreviewEnabled() const {
-  if (params_.media_type != WebContextMenuData::kMediaTypeNone &&
+  if (params_.media_type != ContextMenuDataMediaType::kNone &&
       !(params_.media_flags & WebContextMenuData::kMediaCanPrint)) {
     return false;
   }
@@ -2783,7 +2809,8 @@ void RenderViewContextMenu::ExecSaveLinkAs() {
   auto dl_params = std::make_unique<DownloadUrlParameters>(
       url, render_frame_host->GetProcess()->GetID(),
       render_frame_host->GetRenderViewHost()->GetRoutingID(),
-      render_frame_host->GetRoutingID(), traffic_annotation);
+      render_frame_host->GetRoutingID(), traffic_annotation,
+      render_frame_host->GetNetworkIsolationKey());
   content::Referrer referrer = CreateReferrer(url, params_);
   dl_params->set_referrer(referrer.url);
   dl_params->set_referrer_policy(
@@ -2800,8 +2827,8 @@ void RenderViewContextMenu::ExecSaveLinkAs() {
 void RenderViewContextMenu::ExecSaveAs() {
   bool is_large_data_url = params_.has_image_contents &&
       params_.src_url.is_empty();
-  if (params_.media_type == WebContextMenuData::kMediaTypeCanvas ||
-      (params_.media_type == WebContextMenuData::kMediaTypeImage &&
+  if (params_.media_type == ContextMenuDataMediaType::kCanvas ||
+      (params_.media_type == ContextMenuDataMediaType::kImage &&
        is_large_data_url)) {
     RenderFrameHost* frame_host = GetRenderFrameHost();
     if (frame_host)
@@ -2815,7 +2842,7 @@ void RenderViewContextMenu::ExecSaveAs() {
     DataReductionProxyChromeSettings* settings =
         DataReductionProxyChromeSettingsFactory::GetForBrowserContext(
             browser_context_);
-    if (params_.media_type == WebContextMenuData::kMediaTypeImage && settings &&
+    if (params_.media_type == ContextMenuDataMediaType::kImage && settings &&
         settings->CanUseDataReductionProxy(params_.src_url)) {
       headers = data_reduction_proxy::chrome_proxy_pass_through_header();
     }
@@ -2874,9 +2901,8 @@ void RenderViewContextMenu::ExecPlayPause() {
   else
     base::RecordAction(UserMetricsAction("MediaContextMenu_Pause"));
 
-  MediaPlayerActionAt(
-      gfx::Point(params_.x, params_.y),
-      WebMediaPlayerAction(WebMediaPlayerAction::Type::kPlay, play));
+  MediaPlayerActionAt(gfx::Point(params_.x, params_.y),
+                      MediaPlayerAction(MediaPlayerAction::Type::kPlay, play));
 }
 
 void RenderViewContextMenu::ExecMute() {
@@ -2886,25 +2912,24 @@ void RenderViewContextMenu::ExecMute() {
   else
     base::RecordAction(UserMetricsAction("MediaContextMenu_Unmute"));
 
-  MediaPlayerActionAt(
-      gfx::Point(params_.x, params_.y),
-      WebMediaPlayerAction(WebMediaPlayerAction::Type::kMute, mute));
+  MediaPlayerActionAt(gfx::Point(params_.x, params_.y),
+                      MediaPlayerAction(MediaPlayerAction::Type::kMute, mute));
 }
 
 void RenderViewContextMenu::ExecLoop() {
   base::RecordAction(UserMetricsAction("MediaContextMenu_Loop"));
   MediaPlayerActionAt(
       gfx::Point(params_.x, params_.y),
-      WebMediaPlayerAction(WebMediaPlayerAction::Type::kLoop,
-                           !IsCommandIdChecked(IDC_CONTENT_CONTEXT_LOOP)));
+      MediaPlayerAction(MediaPlayerAction::Type::kLoop,
+                        !IsCommandIdChecked(IDC_CONTENT_CONTEXT_LOOP)));
 }
 
 void RenderViewContextMenu::ExecControls() {
   base::RecordAction(UserMetricsAction("MediaContextMenu_Controls"));
   MediaPlayerActionAt(
       gfx::Point(params_.x, params_.y),
-      WebMediaPlayerAction(WebMediaPlayerAction::Type::kControls,
-                           !IsCommandIdChecked(IDC_CONTENT_CONTEXT_CONTROLS)));
+      MediaPlayerAction(MediaPlayerAction::Type::kControls,
+                        !IsCommandIdChecked(IDC_CONTENT_CONTEXT_CONTROLS)));
 }
 
 void RenderViewContextMenu::ExecRotateCW() {
@@ -2941,7 +2966,7 @@ void RenderViewContextMenu::ExecRestartPackagedApp() {
 
 void RenderViewContextMenu::ExecPrint() {
 #if BUILDFLAG(ENABLE_PRINTING)
-  if (params_.media_type != WebContextMenuData::kMediaTypeNone) {
+  if (params_.media_type != ContextMenuDataMediaType::kNone) {
     RenderFrameHost* render_frame_host = GetRenderFrameHost();
     if (render_frame_host) {
       render_frame_host->Send(new PrintMsg_PrintNodeUnderContextMenu(
@@ -2951,7 +2976,7 @@ void RenderViewContextMenu::ExecPrint() {
   }
 
   printing::StartPrint(
-      source_web_contents_, nullptr,
+      source_web_contents_, mojo::NullAssociatedRemote(),
       GetPrefs(browser_context_)->GetBoolean(prefs::kPrintPreviewDisabled),
       !params_.selection_text.empty());
 #endif  // BUILDFLAG(ENABLE_PRINTING)
@@ -3034,13 +3059,13 @@ void RenderViewContextMenu::ExecPictureInPicture() {
 
   MediaPlayerActionAt(
       gfx::Point(params_.x, params_.y),
-      WebMediaPlayerAction(WebMediaPlayerAction::Type::kPictureInPicture,
-                           !picture_in_picture_active));
+      MediaPlayerAction(MediaPlayerAction::Type::kPictureInPicture,
+                        !picture_in_picture_active));
 }
 
 void RenderViewContextMenu::MediaPlayerActionAt(
     const gfx::Point& location,
-    const WebMediaPlayerAction& action) {
+    const MediaPlayerAction& action) {
   RenderFrameHost* frame_host = GetRenderFrameHost();
   if (frame_host)
     frame_host->ExecuteMediaPlayerActionAtLocation(location, action);

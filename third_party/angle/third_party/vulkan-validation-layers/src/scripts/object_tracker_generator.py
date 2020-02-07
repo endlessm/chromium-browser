@@ -305,7 +305,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
         output_func = ''
         for objtype in ['instance', 'device']:
             upper_objtype = objtype.capitalize();
-            output_func += 'bool ObjectLifetimes::ReportUndestroyed%sObjects(Vk%s %s, const std::string& error_code) {\n' % (upper_objtype, upper_objtype, objtype)
+            output_func += 'bool ObjectLifetimes::ReportUndestroyed%sObjects(Vk%s %s, const std::string& error_code) const {\n' % (upper_objtype, upper_objtype, objtype)
             output_func += '    bool skip = false;\n'
             if objtype == 'device':
                 output_func += '    skip |= ReportLeaked%sObjects(%s, kVulkanObjectTypeCommandBuffer, error_code);\n' % (upper_objtype, objtype)
@@ -963,7 +963,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             if 'object_tracker.h' in self.genOpts.filename:
                 # Output PreCallValidateAPI prototype if necessary
                 if pre_call_validate:
-                    pre_cv_func_decl = 'bool PreCallValidate' + func_decl_template + ';'
+                    pre_cv_func_decl = 'bool PreCallValidate' + func_decl_template + ' const;'
                     self.appendSection('command', pre_cv_func_decl)
 
                 # Output PreCallRecordAPI prototype if necessary
@@ -983,7 +983,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             if 'object_tracker.cpp' in self.genOpts.filename:
                 # Output PreCallValidateAPI function if necessary
                 if pre_call_validate and not manual:
-                    pre_cv_func_decl = 'bool ObjectLifetimes::PreCallValidate' + func_decl_template + ' {'
+                    pre_cv_func_decl = 'bool ObjectLifetimes::PreCallValidate' + func_decl_template + ' const {'
                     self.appendSection('command', '')
                     self.appendSection('command', pre_cv_func_decl)
                     self.appendSection('command', '    bool skip = false;')

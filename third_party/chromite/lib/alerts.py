@@ -33,8 +33,8 @@ from chromite.lib import retry_util
 try:
   # pylint: disable=wrong-import-order
   import httplib2
-  from apiclient.discovery import build as apiclient_build
-  from apiclient import errors as apiclient_errors
+  from googleapiclient.discovery import build as apiclient_build
+  from googleapiclient import errors as apiclient_errors
   from oauth2client import file as oauth_client_fileio
   from oauth2client import client
 except (RuntimeError, ImportError) as e:
@@ -177,7 +177,10 @@ class GmailServer(MailServer):
     service = apiclient_build('gmail', 'v1', http=http)
     try:
       # 'me' represents the default authorized user.
-      payload = {'raw': base64.urlsafe_b64encode(message.as_string())}
+      payload = {
+          'raw': base64.urlsafe_b64encode(
+              message.as_string().encode('utf-8')).decode('utf-8'),
+      }
       service.users().messages().send(userId='me', body=payload).execute()
       return True
     except (apiclient_errors.HttpError, httplib.HTTPException,

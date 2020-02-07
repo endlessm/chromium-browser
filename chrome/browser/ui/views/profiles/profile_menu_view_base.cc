@@ -162,6 +162,7 @@ std::unique_ptr<views::Button> CreateCircularImageButton(
 
 }  // namespace
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 // MenuItems--------------------------------------------------------------------
 
 ProfileMenuViewBase::MenuItems::MenuItems()
@@ -230,7 +231,8 @@ ProfileMenuViewBase::ProfileMenuViewBase(views::Button* anchor_button,
       close_bubble_helper_(this, browser) {
   DCHECK(!g_profile_bubble_);
   g_profile_bubble_ = this;
-  // TODO(sajadm): Remove when fixing https://crbug.com/822075
+  DialogDelegate::set_buttons(ui::DIALOG_BUTTON_NONE);
+  // TODO(tluk): Remove when fixing https://crbug.com/822075
   // The sign in webview will be clipped on the bottom corners without these
   // margins, see related bug <http://crbug.com/593203>.
   set_margins(gfx::Insets(2, 0));
@@ -245,6 +247,7 @@ ProfileMenuViewBase::~ProfileMenuViewBase() {
   // Items stored for menu generation are removed after menu is finalized, hence
   // it's not expected to have while destroying the object.
   DCHECK(g_profile_bubble_ != this);
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   DCHECK(menu_item_groups_.empty());
 }
 
@@ -467,6 +470,7 @@ void ProfileMenuViewBase::SetProfileManagementHeading(
 
 void ProfileMenuViewBase::AddSelectableProfile(const gfx::ImageSkia& image,
                                                const base::string16& name,
+                                               bool is_guest,
                                                base::RepeatingClosure action) {
   constexpr int kImageSize = 22;
 
@@ -480,6 +484,9 @@ void ProfileMenuViewBase::AddSelectableProfile(const gfx::ImageSkia& image,
   gfx::ImageSkia sized_image = CropCircle(SizeImage(image, kImageSize));
   views::Button* button = selectable_profiles_container_->AddChildView(
       std::make_unique<HoverButton>(this, sized_image, name));
+
+  if (!is_guest && !first_profile_button_)
+    first_profile_button_ = button;
 
   RegisterClickAction(button, std::move(action));
 }
@@ -557,10 +564,6 @@ void ProfileMenuViewBase::OnThemeChanged() {
       ui::NativeTheme::kColorId_DialogBackground)));
 }
 
-int ProfileMenuViewBase::GetDialogButtons() const {
-  return ui::DIALOG_BUTTON_NONE;
-}
-
 bool ProfileMenuViewBase::HandleContextMenu(
     content::RenderFrameHost* render_frame_host,
     const content::ContextMenuParams& params) {
@@ -572,6 +575,7 @@ bool ProfileMenuViewBase::HandleContextMenu(
 void ProfileMenuViewBase::Init() {
   Reset();
   BuildMenu();
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   if (!base::FeatureList::IsEnabled(features::kProfileMenuRevamp))
     RepopulateViewFromMenuItems();
 }
@@ -620,6 +624,7 @@ int ProfileMenuViewBase::GetMaxHeight() const {
 }
 
 void ProfileMenuViewBase::Reset() {
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   if (!base::FeatureList::IsEnabled(features::kProfileMenuRevamp)) {
     menu_item_groups_.clear();
     return;
@@ -666,6 +671,7 @@ void ProfileMenuViewBase::Reset() {
       components->AddChildView(std::make_unique<views::View>());
   profile_mgmt_features_container_ =
       components->AddChildView(std::make_unique<views::View>());
+  first_profile_button_ = nullptr;
 
   // Create a scroll view to hold the components.
   auto scroll_view = std::make_unique<views::ScrollView>();
@@ -686,6 +692,7 @@ void ProfileMenuViewBase::Reset() {
   layout->AddView(std::move(scroll_view));
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 int ProfileMenuViewBase::GetMarginSize(GroupMarginSize margin_size) const {
   switch (margin_size) {
     case kNone:
@@ -702,6 +709,7 @@ int ProfileMenuViewBase::GetMarginSize(GroupMarginSize margin_size) const {
   }
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 void ProfileMenuViewBase::AddMenuGroup(bool add_separator) {
   if (add_separator && !menu_item_groups_.empty()) {
     DCHECK(!menu_item_groups_.back().items.empty());
@@ -711,6 +719,7 @@ void ProfileMenuViewBase::AddMenuGroup(bool add_separator) {
   menu_item_groups_.emplace_back();
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 void ProfileMenuViewBase::AddMenuItemInternal(std::unique_ptr<views::View> view,
                                               MenuItems::ItemType item_type) {
   DCHECK(!menu_item_groups_.empty());
@@ -727,6 +736,7 @@ void ProfileMenuViewBase::AddMenuItemInternal(std::unique_ptr<views::View> view,
   }
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 views::Button* ProfileMenuViewBase::CreateAndAddTitleCard(
     std::unique_ptr<views::View> icon_view,
     const base::string16& title,
@@ -742,6 +752,7 @@ views::Button* ProfileMenuViewBase::CreateAndAddTitleCard(
   return button_ptr;
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 views::Button* ProfileMenuViewBase::CreateAndAddButton(
     const gfx::ImageSkia& icon,
     const base::string16& title,
@@ -754,6 +765,7 @@ views::Button* ProfileMenuViewBase::CreateAndAddButton(
   return pointer;
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 views::Button* ProfileMenuViewBase::CreateAndAddBlueButton(
     const base::string16& text,
     bool md_style,
@@ -775,6 +787,7 @@ views::Button* ProfileMenuViewBase::CreateAndAddBlueButton(
   return pointer;
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 #if !defined(OS_CHROMEOS)
 DiceSigninButtonView* ProfileMenuViewBase::CreateAndAddDiceSigninButton(
     AccountInfo* account_info,
@@ -799,6 +812,7 @@ DiceSigninButtonView* ProfileMenuViewBase::CreateAndAddDiceSigninButton(
 }
 #endif
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 views::Label* ProfileMenuViewBase::CreateAndAddLabel(const base::string16& text,
                                                      int text_context) {
   std::unique_ptr<views::Label> label =
@@ -819,6 +833,7 @@ views::Label* ProfileMenuViewBase::CreateAndAddLabel(const base::string16& text,
   return pointer;
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 views::StyledLabel* ProfileMenuViewBase::CreateAndAddLabelWithLink(
     const base::string16& text,
     gfx::Range link_range,
@@ -834,6 +849,7 @@ views::StyledLabel* ProfileMenuViewBase::CreateAndAddLabelWithLink(
   return pointer;
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 void ProfileMenuViewBase::AddViewItem(std::unique_ptr<views::View> view) {
   // Add margins.
   std::unique_ptr<views::View> margined_view = std::make_unique<views::View>();
@@ -850,6 +866,7 @@ void ProfileMenuViewBase::RegisterClickAction(views::View* clickable_view,
   click_actions_[clickable_view] = std::move(action);
 }
 
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 void ProfileMenuViewBase::RepopulateViewFromMenuItems() {
   RemoveAllChildViews(true);
 
@@ -944,11 +961,29 @@ void ProfileMenuViewBase::RepopulateViewFromMenuItems() {
   }
 }
 
+void ProfileMenuViewBase::FocusButtonOnKeyboardOpen() {
+  if (first_profile_button_)
+    first_profile_button_->RequestFocus();
+}
+
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
+int ProfileMenuViewBase::GetDefaultIconSize() {
+  return kIconSize;
+}
+
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
+void ProfileMenuViewBase::SetFirstProfileButtonIfUnset(views::Button* button) {
+  if (!first_profile_button_)
+    first_profile_button_ = button;
+}
+
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
+bool ProfileMenuViewBase::HasFirstProfileButton() {
+  return first_profile_button_;
+}
+
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 gfx::ImageSkia ProfileMenuViewBase::CreateVectorIcon(
     const gfx::VectorIcon& icon) {
   return gfx::CreateVectorIcon(icon, kIconSize, GetDefaultIconColor());
-}
-
-int ProfileMenuViewBase::GetDefaultIconSize() {
-  return kIconSize;
 }

@@ -70,7 +70,7 @@ ui::ZOrderLevel TestBrowserWindow::GetZOrderLevel() const {
 }
 
 gfx::NativeWindow TestBrowserWindow::GetNativeWindow() const {
-  return NULL;
+  return native_window_;
 }
 
 bool TestBrowserWindow::IsOnCurrentWorkspace() const {
@@ -141,10 +141,6 @@ bool TestBrowserWindow::IsVisible() const {
 
 LocationBar* TestBrowserWindow::GetLocationBar() const {
   return const_cast<TestLocationBar*>(&location_bar_);
-}
-
-bool TestBrowserWindow::UpdatePageActionIcon(PageActionIconType type) {
-  return false;
 }
 
 autofill::AutofillBubbleHandler* TestBrowserWindow::GetAutofillBubbleHandler() {
@@ -253,6 +249,10 @@ std::string TestBrowserWindow::GetWorkspace() const {
 
 bool TestBrowserWindow::IsVisibleOnAllWorkspaces() const {
   return false;
+}
+
+void TestBrowserWindow::SetNativeWindow(gfx::NativeWindow window) {
+  native_window_ = window;
 }
 
 // TestBrowserWindowOwner -----------------------------------------------------

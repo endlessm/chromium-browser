@@ -60,7 +60,7 @@ class Template(collections.namedtuple('Template', (
     Returns (bool): True if |dst_path| was updated, False otherwise.
     """
     template_path = os.path.join(THIS_DIR, name)
-    with open(template_path, 'r') as fd:
+    with open(template_path, 'r', encoding='utf8') as fd:
       t = string.Template(fd.read())
     return maybe_update(t.safe_substitute(self._asdict()), dst_path)
 
@@ -82,12 +82,12 @@ def maybe_update(content, dst_path):
   # If the path already exists and matches the new content, refrain from writing
   # a new one.
   if os.path.exists(dst_path):
-    with open(dst_path, 'r') as fd:
+    with open(dst_path, 'r', encoding='utf-8') as fd:
       if fd.read() == content:
         return False
 
   logging.debug('Updating %r', dst_path)
-  with open(dst_path, 'w') as fd:
+  with open(dst_path, 'w', encoding='utf-8') as fd:
     fd.write(content)
   os.chmod(dst_path, 0o755)
   return True
@@ -104,7 +104,7 @@ def maybe_copy(src_path, dst_path):
 
   Returns (bool): True if |dst_path| was updated, False otherwise.
   """
-  with open(src_path, 'r') as fd:
+  with open(src_path, 'r', encoding='utf-8') as fd:
     content = fd.read()
   return maybe_update(content, dst_path)
 
@@ -130,14 +130,14 @@ def call_if_outdated(stamp_path, stamp_version, fn):
 
   stamp_version = stamp_version.strip()
   if os.path.isfile(stamp_path):
-    with open(stamp_path, 'r') as fd:
+    with open(stamp_path, 'r', encoding='utf-8') as fd:
       current_version = fd.read().strip()
     if current_version == stamp_version:
       return False
 
   fn()
 
-  with open(stamp_path, 'w') as fd:
+  with open(stamp_path, 'w', encoding='utf-8') as fd:
     fd.write(stamp_version)
   return True
 
@@ -297,8 +297,6 @@ def main(argv):
   parser.add_argument('--verbose', action='store_true')
   parser.add_argument('--bootstrap-name', required=True,
                       help='The directory of the Python installation.')
-  parser.add_argument('--bleeding-edge', action='store_true',
-                      help='Force bleeding edge Git.')
   args = parser.parse_args(argv)
 
   logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARN)
@@ -319,44 +317,37 @@ def main(argv):
   # Clean up any old Python and Git installations.
   clean_up_old_installations(bootstrap_dir)
 
-  # Only bootstrap git and Python 2 on Windows.
   if IS_WIN:
     git_postprocess(template, os.path.join(bootstrap_dir, 'git'))
-
-    # Emit our Python bin depot-tools-relative directory. This is ready by
-    # "python.bat" to identify the path of the current Python installation.
-    #
-    # We use this indirection so that upgrades can change this pointer to
-    # redirect "python.bat" to a new Python installation. We can't just update
-    # "python.bat" because batch file executions reload the batch file and seek
-    # to the previous cursor in between every command, so changing the batch
-    # file contents could invalidate any existing executions.
-    #
-    # The intention is that the batch file itself never needs to change when
-    # switching Python versions.
-    maybe_update(
-        template.PYTHON_BIN_RELDIR,
-        os.path.join(ROOT_DIR, 'python_bin_reldir.txt'))
-
-    python_template = 'python27.%s.bat' % (
-        'bleeding_edge' if args.bleeding_edge else 'new')
-    for src_name, dst_name in (
-        ('git-bash.template.sh', 'git-bash'),
-        (python_template, 'python' + BAT_EXT),
-        ):
+    templates = [
+        ('git-bash.template.sh', 'git-bash', ROOT_DIR),
+        ('python27.bat', 'python.bat', ROOT_DIR),
+        ('python3.bat', 'python3.bat', ROOT_DIR),
+    ]
+    for src_name, dst_name, dst_dir in templates:
       # Re-evaluate and regenerate our root templated files.
-      template.maybe_install(src_name, os.path.join(ROOT_DIR, dst_name))
+      template.maybe_install(src_name, os.path.join(dst_dir, dst_name))
+
+  # Emit our Python bin depot-tools-relative directory. This is read by
+  # python.bat, python3.bat, vpython[.bat] and vpython3[.bat] to identify the
+  # path of the current Python installation.
+  #
+  # We use this indirection so that upgrades can change this pointer to
+  # redirect "python.bat" to a new Python installation. We can't just update
+  # "python.bat" because batch file executions reload the batch file and seek
+  # to the previous cursor in between every command, so changing the batch
+  # file contents could invalidate any existing executions.
+  #
+  # The intention is that the batch file itself never needs to change when
+  # switching Python versions.
+
+  maybe_update(
+      template.PYTHON_BIN_RELDIR,
+      os.path.join(ROOT_DIR, 'python_bin_reldir.txt'))
 
   maybe_update(
       template.PYTHON3_BIN_RELDIR,
       os.path.join(ROOT_DIR, 'python3_bin_reldir.txt'))
-
-  python3_template = 'python3.'
-  python3_template += 'bleeding_edge' if args.bleeding_edge else 'new'
-  python3_template += BAT_EXT
-
-  template.maybe_install(
-      python3_template, os.path.join(ROOT_DIR, 'python3' + BAT_EXT))
 
   return 0
 

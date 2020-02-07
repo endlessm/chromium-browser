@@ -39,6 +39,11 @@ EGLint PlatformParameters::getRenderer() const
     return eglParameters.renderer;
 }
 
+EGLint PlatformParameters::getDeviceType() const
+{
+    return eglParameters.deviceType;
+}
+
 void PlatformParameters::initDefaultParameters()
 {
 #if defined(ANGLE_ENABLE_VULKAN_VALIDATION_LAYERS_BY_DEFAULT)
@@ -86,6 +91,9 @@ std::ostream &operator<<(std::ostream &stream, const PlatformParameters &pp)
                     break;
                 case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
                     stream << "D3D11";
+                    break;
+                case EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE:
+                    stream << "Metal";
                     break;
                 case EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE:
                     stream << "Null";
@@ -407,6 +415,11 @@ EGLPlatformParameters VULKAN_SWIFTSHADER()
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE);
 }
+EGLPlatformParameters METAL()
+{
+    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE);
+}
+
 }  // namespace egl_platform
 
 // ANGLE tests platforms
@@ -660,6 +673,11 @@ PlatformParameters ES1_VULKAN_NULL()
     return PlatformParameters(1, 0, egl_platform::VULKAN_NULL());
 }
 
+PlatformParameters ES1_VULKAN_SWIFTSHADER()
+{
+    return PlatformParameters(1, 0, egl_platform::VULKAN_SWIFTSHADER());
+}
+
 PlatformParameters ES2_VULKAN()
 {
     return PlatformParameters(2, 0, egl_platform::VULKAN());
@@ -685,6 +703,11 @@ PlatformParameters ES3_VULKAN_NULL()
     return PlatformParameters(3, 0, egl_platform::VULKAN_NULL());
 }
 
+PlatformParameters ES3_VULKAN_SWIFTSHADER()
+{
+    return PlatformParameters(3, 0, egl_platform::VULKAN_SWIFTSHADER());
+}
+
 PlatformParameters ES31_VULKAN()
 {
     return PlatformParameters(3, 1, egl_platform::VULKAN());
@@ -693,6 +716,26 @@ PlatformParameters ES31_VULKAN()
 PlatformParameters ES31_VULKAN_NULL()
 {
     return PlatformParameters(3, 1, egl_platform::VULKAN_NULL());
+}
+
+PlatformParameters ES31_VULKAN_SWIFTSHADER()
+{
+    return PlatformParameters(3, 1, egl_platform::VULKAN_SWIFTSHADER());
+}
+
+PlatformParameters ES1_METAL()
+{
+    return PlatformParameters(1, 0, egl_platform::METAL());
+}
+
+PlatformParameters ES2_METAL()
+{
+    return PlatformParameters(2, 0, egl_platform::METAL());
+}
+
+PlatformParameters ES3_METAL()
+{
+    return PlatformParameters(3, 0, egl_platform::METAL());
 }
 
 PlatformParameters ES2_WGL()

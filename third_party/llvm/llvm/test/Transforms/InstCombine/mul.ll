@@ -595,3 +595,15 @@ define <2 x i8> @negate_if_true_wrong_constant(<2 x i8> %px, i1 %cond) {
   %r = mul <2 x i8> %x, %sel
   ret <2 x i8> %r
 }
+
+; (C ? (X /exact Y) : 1) * Y -> C ? X : Y
+define i32 @mul_div_select(i32 %x, i32 %y, i1 %c) {
+; CHECK-LABEL: @mul_div_select(
+; CHECK-NEXT:    [[MUL:%.*]] = select i1 [[C:%.*]], i32 [[X:%.*]], i32 [[Y:%.*]]
+; CHECK-NEXT:    ret i32 [[MUL]]
+;
+  %div = udiv exact i32 %x, %y
+  %sel = select i1 %c, i32 %div, i32 1
+  %mul = mul i32 %sel, %y
+  ret i32 %mul
+}

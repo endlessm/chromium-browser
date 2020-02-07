@@ -33,6 +33,7 @@ from chromite.lib import remote_access
 from chromite.lib import retry_util
 from chromite.lib import terminal
 from chromite.lib import timeout_util
+from chromite.utils import outcap
 
 
 Directory = collections.namedtuple('Directory', ['name', 'contents'])
@@ -455,7 +456,7 @@ class EasyAttr(dict):
     self[attr] = value
 
   def __dir__(self):
-    return self.keys()
+    return list(self.keys())
 
 
 class LogFilter(logging.Filter):
@@ -540,14 +541,39 @@ class TestCase(unittest.TestCase):
     # This is set to keep pylint from complaining.
     self.__test_was_run__ = False
 
+  @staticmethod
+  def _CheckTestEnv(msg):
+    """Sanity check the environment.  https://crbug.com/1015450"""
+    # Note: We use print+sys.exit here instead of logging/Die because it might
+    # cause errors in tests that expect their own setUp to run before their own
+    # tearDown executes.  By failing in the core funcs, we violate that.
+    st = os.stat('/')
+    if st.st_mode & 0o7777 != 0o755:
+      print('%s %s\nError: The root directory has broken permissions: %o\n'
+            'Fix with: sudo chmod 755 /' % (sys.argv[0], msg, st.st_mode),
+            file=sys.stderr)
+      sys.exit(1)
+    if st.st_uid or st.st_gid:
+      print('%s %s\nError: The root directory has broken ownership: %i:%i'
+            ' (should be 0:0)\nFix with: sudo chown 0:0 /' %
+            (sys.argv[0], msg, st.st_uid, st.st_gid), file=sys.stderr)
+      sys.exit(1)
+
   def setUp(self):
+    self._CheckTestEnv('%s.setUp' % (self.id(),))
+
     self.__saved_env__ = os.environ.copy()
     self.__saved_cwd__ = os.getcwd()
     self.__saved_umask__ = os.umask(0o22)
     for x in self.ENVIRON_VARIABLE_SUPPRESSIONS:
       os.environ.pop(x, None)
+    # Force all log lines in tests to include ANSI color prefixes, since it can
+    # be configured per-user.
+    os.environ['NOCOLOR'] = 'no'
 
   def tearDown(self):
+    self._CheckTestEnv('%s.tearDown' % (self.id(),))
+
     osutils.SetEnvironment(self.__saved_env__)
     os.chdir(self.__saved_cwd__)
     os.umask(self.__saved_umask__)
@@ -752,7 +778,7 @@ class OutputTestCase(TestCase):
 
   def OutputCapturer(self, *args, **kwargs):
     """Create and return OutputCapturer object."""
-    self._output_capturer = cros_build_lib.OutputCapturer(*args, **kwargs)
+    self._output_capturer = outcap.OutputCapturer(*args, **kwargs)
     return self._output_capturer
 
   def _GetOutputCapt(self):
@@ -1171,11 +1197,12 @@ class FakeSDKCache(object):
     # Sets the SDK Version.
     self.sdk_version = sdk_version
     os.environ['%SDK_VERSION'] = sdk_version
-    # Defines the path for the fake SDK Cache.
-    self.tarball_cache_path = os.path.join(self.cache_dir, 'chrome-sdk',
-                                           'tarballs')
-    # Creates an SDK TarballCache instance.
-    self.tarball_cache = cache.TarballCache(self.tarball_cache_path)
+    # Defines the path for the fake SDK Symlink Cache. (No backing tarball cache
+    # is needed.)
+    self.symlink_cache_path = os.path.join(self.cache_dir, 'chrome-sdk',
+                                           'symlinks')
+    # Creates an SDK SymlinkCache instance.
+    self.symlink_cache = cache.DiskCache(self.symlink_cache_path)
 
   def CreateCacheReference(self, board, key):
     """Creates the Cache Reference.
@@ -1187,12 +1214,8 @@ class FakeSDKCache(object):
     Returns:
       Path to the cache directory.
     """
-    # Creates the cache key required for accessing the fake SDK cache.
-    cache_key = (board, self.sdk_version, key)
     # Adds the cache path at the key.
-    cache.CacheReference(self.tarball_cache,
-                         cache_key).Assign(self.tarball_cache_path)
-    return self.tarball_cache.Lookup(cache_key).path
+    return self.symlink_cache.Lookup((board, self.sdk_version, key)).path
 
 
 class MockTestCase(TestCase):
@@ -1368,8 +1391,6 @@ class ProfileTestRunner(unittest.TextTestRunner):
   SORT_STATS_KEYS = ()
 
   def run(self, test):
-    # TODO(vapier): Drop this after we upgrade past pylint-1.7.
-    # pylint: disable=bad-python3-import
     import cProfile
     profiler = cProfile.Profile(**self.PROFILE_KWARGS)
     ret = profiler.runcall(unittest.TextTestRunner.run, self, test)

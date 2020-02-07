@@ -8,10 +8,13 @@
 from __future__ import print_function
 
 import collections
+import filecmp
 import glob
 import grp
 import os
 import pwd
+import stat
+import sys
 
 import mock
 
@@ -58,6 +61,20 @@ class TestOsutils(cros_test_lib.TempDirTestCase):
     data = b'alsdkfjasldkfjaskdlfjasdf'
     self.assertEqual(osutils.WriteFile(filename, data, mode='wb'), None)
     self.assertEqual(osutils.ReadFile(filename, mode='rb'), data)
+
+  def testWriteFileStringIter(self):
+    """Verify that we can write an iterable of strings."""
+    filename = os.path.join(self.tempdir, 'foo')
+    data = ['a', 'cd', 'ef']
+    self.assertEqual(osutils.WriteFile(filename, data), None)
+    self.assertEqual(osutils.ReadFile(filename), ''.join(data))
+
+  def testWriteFileBytesIter(self):
+    """Verify that we can write an iterable of bytes."""
+    filename = os.path.join(self.tempdir, 'foo')
+    data = [b'ab', b'cd', b'ef']
+    self.assertEqual(osutils.WriteFile(filename, data, mode='wb'), None)
+    self.assertEqual(osutils.ReadFile(filename, mode='rb'), b''.join(data))
 
   def testSudoWrite(self):
     """Verify that we can write a file as sudo."""
@@ -143,9 +160,25 @@ class TestOsutils(cros_test_lib.TempDirTestCase):
     self.assertFalse(osutils.SafeMakedirs(path))
     self.assertExists(path)
 
+  def testSafeMakedirsMode(self):
+    """Test that mode is honored."""
+    path = os.path.join(self.tempdir, 'a', 'b', 'c', 'd', 'e')
+    self.assertTrue(osutils.SafeMakedirs(path, mode=0o775))
+    self.assertEqual(0o775, stat.S_IMODE(os.stat(path).st_mode))
+    self.assertFalse(osutils.SafeMakedirs(path, mode=0o777))
+    self.assertEqual(0o777, stat.S_IMODE(os.stat(path).st_mode))
+    cros_build_lib.sudo_run(['chown', 'root:root', path], print_cmd=False)
+    # Tries, but fails to change the mode.
+    self.assertFalse(osutils.SafeMakedirs(path, 0o755))
+    self.assertEqual(0o777, stat.S_IMODE(os.stat(path).st_mode))
+
   def testSafeMakedirs_error(self):
     """Check error paths."""
-    self.assertRaises(OSError, osutils.SafeMakedirs, '/foo/bar/cow/moo/wee')
+    with self.assertRaises(OSError):
+      osutils.SafeMakedirs('/foo/bar/cow/moo/wee')
+      ret = cros_build_lib.run(['ls', '-Rla', '/foo'], check=False,
+                               capture_output=True)
+      print('ls output of /foo:\n{{{%s}}}' % (ret.stdout,), file=sys.stderr)
     self.assertRaises(OSError, osutils.SafeMakedirs, '')
 
   def testSafeMakedirsSudo(self):
@@ -262,6 +295,27 @@ class TestOsutils(cros_test_lib.TempDirTestCase):
     osutils.Chown(filename, user=0, group=0)
     self.assertEqual(new_user, User(filename))
     self.assertEqual(new_group, Group(filename))
+
+    # Recursive.
+    dirname = os.path.join(self.tempdir, 'chowntestsdir')
+    osutils.SafeMakedirs(dirname)
+    filename = os.path.join(dirname, 'chowntestsfile')
+    osutils.Touch(filename)
+    # Chown without recursive.
+    osutils.Chown(dirname, user=new_user, group=new_group)
+    self.assertEqual(new_user, User(dirname))
+    self.assertEqual(new_group, Group(dirname))
+    self.assertEqual(user, User(filename))
+    self.assertEqual(group, Group(filename))
+    # Chown with recursive.
+    osutils.Chown(dirname, user=new_user, group=new_group, recursive=True)
+    self.assertEqual(new_user, User(filename))
+    self.assertEqual(new_group, Group(filename))
+    osutils.Chown(dirname, user=user, group=group, recursive=True)
+    self.assertEqual(user, User(dirname))
+    self.assertEqual(group, Group(dirname))
+    self.assertEqual(user, User(filename))
+    self.assertEqual(group, Group(filename))
 
 
 class TestEmptyDir(cros_test_lib.TempDirTestCase):
@@ -1003,6 +1057,70 @@ class CopyDirContentsTestCase(cros_test_lib.TempDirTestCase):
     osutils.SafeMakedirsNonRoot(out_dir)
     osutils.SafeMakedirsNonRoot(os.path.join(out_dir, 'blah'))
     osutils.CopyDirContents(in_dir, out_dir, allow_nonempty=True)
+
+  def testCopyingSymlinks(self):
+    in_dir = os.path.join(self.tempdir, 'input')
+    in_dir_link = os.path.join(in_dir, 'link')
+    in_dir_symlinks_dir = os.path.join(in_dir, 'holding_symlink')
+    in_dir_symlinks_dir_link = os.path.join(in_dir_symlinks_dir, 'link')
+
+    out_dir = os.path.join(self.tempdir, 'output')
+    out_dir_link = os.path.join(out_dir, 'link')
+    out_dir_symlinks_dir = os.path.join(out_dir, 'holding_symlink')
+    out_dir_symlinks_dir_link = os.path.join(out_dir_symlinks_dir, 'link')
+
+    # Create directories and symlinks appropriately.
+    osutils.SafeMakedirsNonRoot(in_dir)
+    osutils.SafeMakedirsNonRoot(in_dir_symlinks_dir)
+    os.symlink(self.tempdir, in_dir_link)
+    os.symlink(self.tempdir, in_dir_symlinks_dir_link)
+
+    osutils.SafeMakedirsNonRoot(out_dir)
+
+    # Actual execution.
+    osutils.CopyDirContents(in_dir, out_dir, symlinks=True)
+
+    # Assertions.
+    self.assertTrue(os.path.islink(out_dir_link))
+    self.assertTrue(os.path.islink(out_dir_symlinks_dir_link))
+
+  def testNotCopyingSymlinks(self):
+    # Create temporary to symlink against.
+    tmp_file = os.path.join(self.tempdir, 'a.txt')
+    osutils.WriteFile(tmp_file, 'aaa')
+    tmp_subdir = os.path.join(self.tempdir, 'tmp')
+    osutils.SafeMakedirsNonRoot(tmp_subdir)
+    tmp_subdir_file = os.path.join(tmp_subdir, 'b.txt')
+    osutils.WriteFile(tmp_subdir_file, 'bbb')
+
+    in_dir = os.path.join(self.tempdir, 'input')
+    in_dir_link = os.path.join(in_dir, 'link')
+    in_dir_symlinks_dir = os.path.join(in_dir, 'holding_symlink')
+    in_dir_symlinks_dir_link = os.path.join(in_dir_symlinks_dir, 'link')
+
+    out_dir = os.path.join(self.tempdir, 'output')
+    out_dir_file = os.path.join(out_dir, 'link')
+    out_dir_symlinks_dir = os.path.join(out_dir, 'holding_symlink')
+    out_dir_symlinks_dir_subdir = os.path.join(out_dir_symlinks_dir, 'link')
+
+    # Create directories and symlinks appropriately.
+    osutils.SafeMakedirsNonRoot(in_dir)
+    osutils.SafeMakedirsNonRoot(in_dir_symlinks_dir)
+    os.symlink(tmp_file, in_dir_link)
+    os.symlink(tmp_subdir, in_dir_symlinks_dir_link)
+
+    osutils.SafeMakedirsNonRoot(out_dir)
+
+    # Actual execution.
+    osutils.CopyDirContents(in_dir, out_dir, symlinks=False)
+
+    # Assertions.
+    self.assertFalse(os.path.islink(out_dir_file))
+    self.assertFalse(os.path.islink(out_dir_symlinks_dir_subdir))
+    self.assertTrue(filecmp.cmp(out_dir_file, tmp_file))
+    self.assertTrue(
+        filecmp.cmp(os.path.join(out_dir_symlinks_dir_subdir, 'b.txt'),
+                    tmp_subdir_file))
 
 
 class WhichTests(cros_test_lib.TempDirTestCase):

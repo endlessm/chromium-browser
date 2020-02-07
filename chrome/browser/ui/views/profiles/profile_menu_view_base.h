@@ -32,6 +32,7 @@ class Label;
 }  // namespace views
 
 struct AccountInfo;
+// TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
 class DiceSigninButtonView;
 
 // This class provides the UI for different menus that are created by user
@@ -67,6 +68,7 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
     kMaxValue = kEditProfileButton,
   };
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   // MenuItems struct keeps the menu items and meta data for a group of items in
   // a menu. It takes the ownership of views and passes it to the menu when menu
   // is constructed.
@@ -93,6 +95,7 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
     DISALLOW_COPY_AND_ASSIGN(MenuItems);
   };
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   enum GroupMarginSize { kNone, kTiny, kSmall, kLarge };
 
   // Shows the bubble if one is not already showing.  This allows us to easily
@@ -141,6 +144,7 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   void SetProfileManagementHeading(const base::string16& heading);
   void AddSelectableProfile(const gfx::ImageSkia& image,
                             const base::string16& name,
+                            bool is_guest,
                             base::RepeatingClosure action);
   void AddProfileManagementShortcutFeatureButton(const gfx::ImageSkia& icon,
                                                  const base::string16& text,
@@ -158,10 +162,12 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   // Should be called inside each button/link action.
   void RecordClick(ActionableItem item);
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   // Initializes a new group of menu items. A separator is added before them if
   // |add_separator| is true.
   void AddMenuGroup(bool add_separator = true);
 
+  // TODO(crbug.com/1021587): Remove methods below after ProfileMenuRevamp.
   // The following functions add different menu items to the latest menu group.
   // They pass the ownership of the generated item to |menu_item_groups_| and
   // return a raw pointer to the object. The ownership is transferred to the
@@ -200,24 +206,32 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
 
   views::Button* anchor_button() const { return anchor_button_; }
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   gfx::ImageSkia CreateVectorIcon(const gfx::VectorIcon& icon);
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   int GetDefaultIconSize();
+
+ protected:
+  // Sets |first_profile_button_| to |button| if not yet set.
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
+  void SetFirstProfileButtonIfUnset(views::Button* button);
+  bool HasFirstProfileButton();
 
  private:
   friend class ProfileMenuViewExtensionsTest;
 
   void Reset();
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   void RepopulateViewFromMenuItems();
 
   // Requests focus for a button when opened by keyboard.
-  virtual void FocusButtonOnKeyboardOpen() {}
+  void FocusButtonOnKeyboardOpen();
 
   // views::BubbleDialogDelegateView:
   void Init() final;
   void WindowClosing() override;
   void OnThemeChanged() override;
-  int GetDialogButtons() const override;
   ax::mojom::Role GetAccessibleWindowRole() override;
 
   // content::WebContentsDelegate:
@@ -241,14 +255,17 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   void RegisterClickAction(views::View* clickable_view,
                            base::RepeatingClosure action);
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   // Returns the size of different margin types.
   int GetMarginSize(GroupMarginSize margin_size) const;
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   void AddMenuItemInternal(std::unique_ptr<views::View> view,
                            MenuItems::ItemType item_type);
 
   Browser* const browser_;
 
+  // TODO(crbug.com/1021587): Remove after ProfileMenuRevamp.
   // ProfileMenuViewBase takes ownership of all menu_items and passes it to the
   // underlying view when it is created.
   std::vector<MenuItems> menu_item_groups_;
@@ -268,6 +285,10 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
   views::View* selectable_profiles_container_ = nullptr;
   views::View* profile_mgmt_shortcut_features_container_ = nullptr;
   views::View* profile_mgmt_features_container_ = nullptr;
+
+  // The first profile button that should be focused when the menu is opened
+  // using a key accelerator.
+  views::Button* first_profile_button_ = nullptr;
 
   CloseBubbleOnTabActivationHelper close_bubble_helper_;
 

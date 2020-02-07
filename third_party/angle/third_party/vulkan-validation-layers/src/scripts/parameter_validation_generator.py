@@ -135,20 +135,18 @@ class ParameterValidationOutputGenerator(OutputGenerator):
         self.functions_with_manual_checks = [
             'vkCreateInstance',
             'vkCreateDevice',
-            'vkCreateQueryPool'
+            'vkCreateQueryPool',
             'vkCreateRenderPass',
             'vkCreateRenderPass2KHR',
             'vkCreateBuffer',
             'vkCreateImage',
             'vkCreateGraphicsPipelines',
             'vkCreateComputePipelines',
-            "vkCreateRayTracingPipelinesNV",
+            'vkCreateRayTracingPipelinesNV',
             'vkCreateSampler',
             'vkCreateDescriptorSetLayout',
             'vkFreeDescriptorSets',
             'vkUpdateDescriptorSets',
-            'vkCreateRenderPass',
-            'vkCreateRenderPass2KHR',
             'vkBeginCommandBuffer',
             'vkCmdSetViewport',
             'vkCmdSetScissor',
@@ -185,6 +183,8 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             'vkSetDebugUtilsObjectNameEXT',
             'vkSetDebugUtilsObjectTagEXT',
             'vkCmdSetViewportWScalingNV',
+            'vkAcquireNextImageKHR',
+            'vkAcquireNextImage2KHR',
             ]
 
         # Commands to ignore
@@ -346,7 +346,7 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             write(self.enumValueLists, file=self.outFile)
             self.newline()
 
-            pnext_handler  = 'bool StatelessValidation::ValidatePnextStructContents(const char *api_name, const ParameterName &parameter_name, const VkBaseOutStructure* header) {\n'
+            pnext_handler  = 'bool StatelessValidation::ValidatePnextStructContents(const char *api_name, const ParameterName &parameter_name, const VkBaseOutStructure* header) const {\n'
             pnext_handler += '    bool skip = false;\n'
             pnext_handler += '    switch(header->sType) {\n'
 
@@ -383,7 +383,7 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             write(pnext_handler, file=self.outFile)
             self.newline()
 
-            ext_template  = 'bool StatelessValidation::OutputExtensionError(const std::string &api_name, const std::string &extension_name) {\n'
+            ext_template  = 'bool StatelessValidation::OutputExtensionError(const std::string &api_name, const std::string &extension_name) const {\n'
             ext_template += '    return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,\n'
             ext_template += '                   kVUID_PVError_ExtensionNotEnabled, "Attemped to call %s() but its required extension %s has not been enabled\\n",\n'
             ext_template += '                   api_name.c_str(), extension_name.c_str());\n'
@@ -632,7 +632,9 @@ class ParameterValidationOutputGenerator(OutputGenerator):
                 if (self.featureExtraProtect is not None):
                     self.declarations += [ '#ifdef %s' % self.featureExtraProtect ]
                 # Strip off 'vk' from API name
-                self.declarations += [ '%s%s' % ('bool PreCallValidate', decls[0].split("VKAPI_CALL vk")[1])]
+                decl = '%s%s' % ('bool PreCallValidate', decls[0].split("VKAPI_CALL vk")[1])
+                decl = str(decl).replace(';', ' const;')
+                self.declarations += [ decl ]
                 if (self.featureExtraProtect is not None):
                     self.declarations += [ '#endif' ]
         if self.source_file:
@@ -1283,7 +1285,7 @@ class ParameterValidationOutputGenerator(OutputGenerator):
                     ext_test = 'if (!%s_extensions.%s) skip |= OutputExtensionError("%s", %s);\n' % (ext_table_type, ext_enable_name, command.name, ext_name_define)
                     lines.insert(0, ext_test)
             if lines:
-                func_sig = self.getCmdDef(command) + ' {\n'
+                func_sig = self.getCmdDef(command) + ' const {\n'
                 func_sig = func_sig.split('VKAPI_CALL vk')[1]
                 cmdDef = 'bool StatelessValidation::PreCallValidate' + func_sig
                 cmdDef += '%sbool skip = false;\n' % indent

@@ -35,7 +35,7 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
   @property
   def last_returned_properties(self):
-      return self._last_returned_properties
+    return self._last_returned_properties
 
   def _get_commit_repo_path(self, commit, gclient_config):
     """Returns local path to the repo that the commit is associated with.
@@ -65,23 +65,41 @@ class BotUpdateApi(recipe_api.RecipeApi):
 
     return repo_path
 
-  def ensure_checkout(self, gclient_config=None, suffix=None,
-                      patch=True, update_presentation=True,
+  def ensure_checkout(self,
+                      gclient_config=None,
+                      suffix=None,
+                      patch=True,
+                      update_presentation=True,
                       patch_root=None,
-                      with_branch_heads=False, with_tags=False, refs=None,
-                      patch_oauth2=None, oauth2_json=None,
-                      use_site_config_creds=None, clobber=False,
-                      root_solution_revision=None, rietveld=None, issue=None,
-                      patchset=None, gerrit_no_reset=False,
+                      with_branch_heads=False,
+                      with_tags=False,
+                      no_fetch_tags=False,
+                      refs=None,
+                      patch_oauth2=None,
+                      oauth2_json=None,
+                      use_site_config_creds=None,
+                      clobber=False,
+                      root_solution_revision=None,
+                      rietveld=None,
+                      issue=None,
+                      patchset=None,
+                      gerrit_no_reset=False,
                       gerrit_no_rebase_patch_ref=False,
-                      disable_syntax_validation=False, manifest_name=None,
-                      patch_refs=None, ignore_input_commit=False,
-                      set_output_commit=False, step_test_data=None,
+                      disable_syntax_validation=False,
+                      manifest_name=None,
+                      patch_refs=None,
+                      ignore_input_commit=False,
+                      set_output_commit=False,
+                      step_test_data=None,
                       **kwargs):
     """
     Args:
       gclient_config: The gclient configuration to use when running bot_update.
         If omitted, the current gclient configuration is used.
+      no_fetch_tags: When true, the root git repo being checked out will not
+        fetch any tags referenced from the references being fetched. When a repo
+        has many references, it can become a performance bottleneck, so avoid
+        tags if the checkout will not need them present.
       disable_syntax_validation: (legacy) Disables syntax validation for DEPS.
         Needed as migration paths for recipes dealing with older revisions,
         such as bisect.
@@ -170,8 +188,14 @@ class BotUpdateApi(recipe_api.RecipeApi):
       # However, here we ignore it if the config specified a revision.
       # This is necessary because existing builders rely on this behavior,
       # e.g. they want to force refs/heads/master at the config level.
-      main_repo_path = self._get_commit_repo_path(in_commit, cfg)
-      revisions[main_repo_path] = revisions.get(main_repo_path) or in_commit_rev
+      in_commit_repo_path = self._get_commit_repo_path(in_commit, cfg)
+      revisions[in_commit_repo_path] = (
+          revisions.get(in_commit_repo_path) or in_commit_rev)
+      parsed_solution_urls = set(
+          self.m.gitiles.parse_repo_url(s.url) for s in cfg.solutions)
+      if (in_commit.id and in_commit.ref
+          and (in_commit.host, in_commit.project) in parsed_solution_urls):
+        refs = [in_commit.ref] + refs
 
     # Guarantee that first solution has a revision.
     # TODO(machenbach): We should explicitly pass HEAD for ALL solutions
@@ -238,6 +262,8 @@ class BotUpdateApi(recipe_api.RecipeApi):
       cmd.append('--with_tags')
     if gerrit_no_reset:
       cmd.append('--gerrit_no_reset')
+    if no_fetch_tags:
+      cmd.append('--no_fetch_tags')
     if gerrit_no_rebase_patch_ref:
       cmd.append('--gerrit_no_rebase_patch_ref')
     if disable_syntax_validation or cfg.disable_syntax_validation:
@@ -490,4 +516,5 @@ class BotUpdateApi(recipe_api.RecipeApi):
         bot_update_json['properties'][rev_property])
     self._resolve_fixed_revisions(bot_update_json)
 
-    self.ensure_checkout(patch=False, update_presentation=False)
+    self.ensure_checkout(
+        patch=False, no_fetch_tags=True, update_presentation=False)

@@ -8,26 +8,22 @@
 from __future__ import print_function
 
 import collections
-import datetime
 import getpass
-import hashlib
+import io
 import json
-import netrc
 import os
 import re
-import socket
+import shutil
 import stat
 
 import mock
 import six
 from six.moves import http_client as httplib
 from six.moves import http_cookiejar as cookielib
-from six.moves import StringIO
 from six.moves import urllib
 
 from chromite.lib import config_lib
 from chromite.lib import constants
-from chromite.cbuildbot import validation_pool
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import gerrit
@@ -35,13 +31,6 @@ from chromite.lib import git
 from chromite.lib import gob_util
 from chromite.lib import osutils
 from chromite.lib import retry_util
-from chromite.lib import timeout_util
-
-
-# NOTE: The following test cases are designed to run as part of the release
-# qualification process for the googlesource.com servers:
-#   GerritHelperTest
-# Any new test cases must be manually added to the qualification test suite.
 
 
 class GerritTestCase(cros_test_lib.MockTempDirTestCase):
@@ -56,7 +45,7 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
     CROS_TEST_GERRIT_HOST: host name for Gerrit operations; defaults to
                            t3st-chr0me-review.googlesource.com.
     CROS_TEST_COOKIES_PATH: path to a cookies.txt file to use for git/Gerrit
-                            requests; defaults to none.
+                            requests; defaults to ~/.gitcookies.
     CROS_TEST_COOKIE_NAMES: comma-separated list of cookie names from
                             CROS_TEST_COOKIES_PATH to set on requests; defaults
                             to none. The current implementation only sends
@@ -76,7 +65,6 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
       'gerrit_url',
       'git_host',
       'git_url',
-      'netrc_file',
       'project_prefix',
   ])
 
@@ -86,92 +74,50 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
                               constants.GOB_HOST % default_host)
     gerrit_host = os.environ.get('CROS_TEST_GERRIT_HOST',
                                  '%s-review.googlesource.com' % default_host)
-    ip = socket.gethostbyname(socket.gethostname())
-    project_prefix = 'test-%s-%s/' % (
-        datetime.datetime.now().strftime('%Y%m%d%H%M%S'),
-        hashlib.sha1('%s_%s' % (ip, os.getpid())).hexdigest()[:8])
-    cookies_path = os.environ.get('CROS_TEST_COOKIES_PATH')
-    cookie_names_str = os.environ.get('CROS_TEST_COOKIE_NAMES', '')
-    cookie_names = [c for c in cookie_names_str.split(',') if c]
+    project_prefix = 'test-%s/' % (cros_build_lib.GetRandomString(),)
+    cookies_path = os.environ.get('CROS_TEST_COOKIES_PATH',
+                                  constants.GITCOOKIES_PATH)
+    # "o" is the cookie name that GoB uses in its instructions.
+    cookie_names_str = os.environ.get('CROS_TEST_COOKIE_NAMES', 'o')
+    cookie_names = {c for c in cookie_names_str.split(',') if c}
+
+    tmpcookies_path = os.path.join(tmp_dir, '.gitcookies')
+    if os.path.exists(cookies_path):
+      shutil.copy(cookies_path, tmpcookies_path)
+    else:
+      osutils.Touch(tmpcookies_path)
 
     return self.GerritInstance(
         cookie_names=cookie_names,
-        cookies_path=cookies_path,
+        cookies_path=tmpcookies_path,
         gerrit_host=gerrit_host,
         gerrit_url='https://%s/' % gerrit_host,
         git_host=git_host,
         git_url='https://%s/' % git_host,
-        # TODO(dborowitz): Ensure this is populated when using role account.
-        netrc_file=os.path.join(tmp_dir, '.netrc'),
         project_prefix=project_prefix,)
-
-  def _populate_netrc(self, src):
-    """Sets up a test .netrc file using the given source as a base."""
-    # Heuristic: prefer passwords for @google.com accounts, since test host
-    # permissions tend to refer to those accounts.
-    preferred_account_domains = ['.google.com']
-    needed = [self.gerrit_instance.git_host, self.gerrit_instance.gerrit_host]
-    candidates = collections.defaultdict(list)
-    src_netrc = netrc.netrc(src)
-    for host, v in src_netrc.hosts.items():
-      dot = host.find('.')
-      if dot < 0:
-        continue
-      for n in needed:
-        if n.endswith(host[dot:]):
-          login, _, password = v
-          i = 1
-          for pd in preferred_account_domains:
-            if login.endswith(pd):
-              i = 0
-              break
-          candidates[n].append((i, login, password))
-
-    with open(self.gerrit_instance.netrc_file, 'w') as out:
-      for n in needed:
-        cs = candidates[n]
-        self.assertGreater(len(cs), 0,
-                           msg='missing password in ~/.netrc for %s' % n)
-        cs.sort()
-        _, login, password = cs[0]
-        out.write('machine %s login %s password %s\n' % (n, login, password))
 
   def setUp(self):
     """Sets up the gerrit instances in a class-specific temp dir."""
-    # TODO(vapier): <pylint-1.9 is buggy w/urllib.parse.
-    # pylint: disable=too-many-function-args
-
     self.saved_params = {}
-    old_home = os.environ['HOME']
     os.environ['HOME'] = self.tempdir
 
     # Create gerrit instance.
     gi = self.gerrit_instance = self._create_gerrit_instance(self.tempdir)
 
-    netrc_path = os.path.join(old_home, '.netrc')
-    if os.path.exists(netrc_path):
-      self._populate_netrc(netrc_path)
-      # Set netrc file for http authentication.
-      self.PatchObject(gob_util, '_GetNetRC',
-                       return_value=netrc.netrc(gi.netrc_file))
+    # This --global will use our tempdir $HOME we set above, not the real ~/.
+    cros_build_lib.run(
+        ['git', 'config', '--global', 'http.cookiefile', self.cookies_path],
+        quiet=True)
 
-    if gi.cookies_path:
-      cros_build_lib.run(
-          ['git', 'config', '--global', 'http.cookiefile', gi.cookies_path],
-          quiet=True)
+    jar = cookielib.MozillaCookieJar(self.cookies_path)
+    jar.load(ignore_expires=True)
 
-    # Set cookie file for http authentication
-    if gi.cookies_path:
-      jar = cookielib.MozillaCookieJar(gi.cookies_path)
-      jar.load(ignore_expires=True)
+    def GetCookies(host, _path):
+      return dict(
+          (c.name, urllib.parse.unquote(c.value)) for c in jar
+          if c.domain == host and c.path == '/' and c.name in gi.cookie_names)
 
-      def GetCookies(host, _path):
-        ret = dict(
-            (c.name, urllib.parse.unquote(c.value)) for c in jar
-            if c.domain == host and c.path == '/' and c.name in gi.cookie_names)
-        return ret
-
-      self.PatchObject(gob_util, 'GetCookies', GetCookies)
+    self.PatchObject(gob_util, 'GetCookies', GetCookies)
 
     site_params = config_lib.GetSiteParams()
 
@@ -217,9 +163,6 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
   def createProject(self, suffix, description='Test project', owners=None,
                     submit_type='CHERRY_PICK'):
     """Create a project on the test gerrit server."""
-    # TODO(vapier): <pylint-1.9 is buggy w/urllib.parse.
-    # pylint: disable=too-many-function-args
-
     name = self.gerrit_instance.project_prefix + suffix
     body = {
         'description': description,
@@ -233,8 +176,8 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
     response = conn.getresponse()
     self.assertEqual(201, response.status,
                      'Expected 201, got %s' % response.status)
-    s = StringIO(response.read())
-    self.assertEqual(")]}'", s.readline().rstrip())
+    s = io.BytesIO(response.read())
+    self.assertEqual(b")]}'", s.readline().rstrip())
     jmsg = json.load(s)
     self.assertEqual(name, jmsg['name'])
     return name
@@ -248,9 +191,8 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
     git.RunGit(root, ['clone', url, path])
     # Install commit-msg hook.
     hook_path = os.path.join(path, '.git', 'hooks', 'commit-msg')
-    hook_cmd = ['curl', '-n', '-o', hook_path]
-    if self.gerrit_instance.cookies_path:
-      hook_cmd.extend(['-b', self.gerrit_instance.cookies_path])
+    hook_cmd = ['curl', '-n', '-o', hook_path,
+                '-b', self.gerrit_instance.cookies_path]
     hook_cmd.append('https://%s/a/tools/hooks/commit-msg'
                     % self.gerrit_instance.gerrit_host)
     cros_build_lib.run(hook_cmd, quiet=True)
@@ -318,7 +260,7 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
   def _GetCommit(clone_path, ref='HEAD'):
     log_proc = cros_build_lib.run(
         ['git', 'log', '-n', '1', ref], cwd=clone_path,
-        print_cmd=False, capture_output=True)
+        print_cmd=False, capture_output=True, encoding='utf-8')
     sha1 = None
     change_id = None
     for line in log_proc.output.splitlines():
@@ -382,8 +324,8 @@ class GerritTestCase(cros_test_lib.MockTempDirTestCase):
         self.gerrit_instance.gerrit_host, path, reqtype='PUT', body=body)
     response = conn.getresponse()
     self.assertEqual(201, response.status)
-    s = StringIO(response.read())
-    self.assertEqual(")]}'", s.readline().rstrip())
+    s = io.BytesIO(response.read())
+    self.assertEqual(b")]}'", s.readline().rstrip())
     jmsg = json.load(s)
     self.assertEqual(email, jmsg['email'])
 
@@ -633,54 +575,6 @@ class GerritHelperTest(GerritTestCase):
     helper.SubmitChange(gpatch2)
     helper.IsChangeCommitted(gpatch2.gerrit_number)
 
-  def test010SubmitBatchUsingGit(self):
-    project = self.createProject('test012')
-
-    helper = self._GetHelper()
-    repo = self.cloneProject(project, 'p1')
-    initial_patch = self.createPatch(repo, project, msg='Init')
-    helper.SetReview(initial_patch.gerrit_number, labels={'Code-Review':'+2'})
-    helper.SubmitChange(initial_patch)
-    # GoB does not guarantee that the change will be in "merged" state
-    # atomically after the /Submit endpoint is called.
-    timeout_util.WaitForReturnTrue(
-        lambda: helper.IsChangeCommitted(initial_patch.gerrit_number),
-        timeout=60)
-
-    patchA = self.createPatch(repo, project,
-                              msg='Change A',
-                              filename='a.txt')
-
-    osutils.WriteFile(os.path.join(repo, 'aoeu.txt'), 'asdf')
-    git.RunGit(repo, ['add', 'aoeu.txt'])
-    git.RunGit(repo, ['commit', '--amend', '--reuse-message=HEAD'])
-    sha1 = git.RunGit(repo,
-                      ['rev-list', '-n1', 'HEAD']).output.strip()
-
-    patchA.sha1 = sha1
-    patchA.revision = sha1
-
-    patchB = self.createPatch(repo, project,
-                              msg='Change B',
-                              filename='b.txt')
-
-    pool = validation_pool.ValidationPool(
-        overlays=constants.PUBLIC,
-        build_root='',
-        build_number=0,
-        builder_name='',
-        is_master=False,
-        dryrun=False)
-
-    reason = 'Testing submitting changes in batch via Git.'
-    by_repo = {repo: {patchA: reason, patchB: reason}}
-    pool.SubmitLocalChanges(by_repo)
-
-    self.assertTrue(helper.IsChangeCommitted(patchB.gerrit_number))
-    self.assertTrue(helper.IsChangeCommitted(patchA.gerrit_number))
-    for patch in [patchA, patchB]:
-      self.assertTrue(helper.IsChangeCommitted(patch.gerrit_number))
-
   def test011ResetReviewLabels(self):
     """Tests that we can remove a code review label."""
     project = self.createProject('test011')
@@ -737,6 +631,12 @@ class DirectGerritHelperTest(cros_test_lib.TestCase):
 
   def testGetGerritPatchInfo(self):
     """Test ordering of results in GetGerritPatchInfo"""
-    changes = self.CHANGES
+    # Swizzle from our old syntax to the new syntax.
+    changes = []
+    for change in self.CHANGES:
+      if change.startswith('*'):
+        changes.append('chrome-internal:%s' % (change[1:],))
+      else:
+        changes.append('chromium:%s' % (change,))
     results = list(gerrit.GetGerritPatchInfo(changes))
     self.assertEqual(changes, [x.gerrit_number_str for x in results])

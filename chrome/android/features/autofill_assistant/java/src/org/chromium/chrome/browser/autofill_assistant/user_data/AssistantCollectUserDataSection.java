@@ -20,7 +20,6 @@ import org.chromium.base.Callback;
 import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.autofill_assistant.AssistantTagsForTesting;
 import org.chromium.chrome.browser.autofill_assistant.AssistantTextUtils;
-import org.chromium.chrome.browser.payments.ui.SectionInformation;
 import org.chromium.chrome.browser.widget.prefeditor.EditableOption;
 
 import java.util.ArrayList;
@@ -155,7 +154,7 @@ public abstract class AssistantCollectUserDataSection<T extends EditableOption> 
                 }
             }
             // Fallback: if there are no complete items, select the first (incomplete) one.
-            if (selectedItemIndex == SectionInformation.NO_SELECTION) {
+            if (selectedItemIndex < 0) {
                 selectedItemIndex = 0;
             }
         }
@@ -248,8 +247,9 @@ public abstract class AssistantCollectUserDataSection<T extends EditableOption> 
                 mContext.getResources().getDimensionPixelSize(
                         R.dimen.autofill_assistant_payment_request_choice_list_padding_end),
                 verticalPadding);
+        // TODO(b/144417635): Change to omnibox_bg_color once available.
         list.setBackgroundColor(ApiCompatibilityUtils.getColor(
-                mContext.getResources(), R.color.payments_section_edit_background));
+                mContext.getResources(), R.color.default_bg_color_elev_0));
         list.setTag(AssistantTagsForTesting.COLLECT_USER_DATA_CHOICE_LIST);
         if (addButtonText != null) {
             list.setOnAddButtonClickedListener(() -> createOrEditItem(null));
@@ -273,18 +273,6 @@ public abstract class AssistantCollectUserDataSection<T extends EditableOption> 
             titleView.setPadding(titleView.getPaddingLeft(), mTopPadding,
                     titleView.getPaddingRight(), mTitleToContentPadding);
             setBottomPadding(mSectionExpander.getCollapsedView(), mBottomPadding);
-        }
-    }
-
-    private void selectItem(Item item) {
-        mSelectedOption = item.mOption;
-        mItemsView.setCheckedItem(item.mFullView);
-        updateSummaryView(mSummaryView, item.mOption);
-        updateVisibility();
-
-        if (mListener != null) {
-            mListener.onResult(
-                    item.mOption != null && item.mOption.isComplete() ? item.mOption : null);
         }
     }
 
@@ -318,7 +306,7 @@ public abstract class AssistantCollectUserDataSection<T extends EditableOption> 
                         return;
                     }
                     mIgnoreItemSelectedNotifications = true;
-                    selectItem(item.mFullView, item.mOption);
+                    selectItem(item);
                     mIgnoreItemSelectedNotifications = false;
                     if (item.mOption.isComplete()) {
                         // Workaround for Android bug: a layout transition may cause the newly
@@ -333,6 +321,18 @@ public abstract class AssistantCollectUserDataSection<T extends EditableOption> 
                 /*editButtonDrawable=*/editButtonDrawable,
                 /*editButtonContentDescription=*/editButtonContentDescription);
         updateVisibility();
+    }
+
+    private void selectItem(Item item) {
+        mSelectedOption = item.mOption;
+        mItemsView.setCheckedItem(item.mFullView);
+        updateSummaryView(mSummaryView, item.mOption);
+        updateVisibility();
+
+        if (mListener != null) {
+            mListener.onResult(
+                    item.mOption != null && item.mOption.isComplete() ? item.mOption : null);
+        }
     }
 
     /**
@@ -376,16 +376,6 @@ public abstract class AssistantCollectUserDataSection<T extends EditableOption> 
         lp.setMarginStart(marginStart);
         lp.setMarginEnd(marginEnd);
         view.setLayoutParams(lp);
-    }
-
-    private void selectItem(View fullView, T option) {
-        mItemsView.setCheckedItem(fullView);
-        updateSummaryView(mSummaryView, option);
-        updateVisibility();
-
-        if (mListener != null) {
-            mListener.onResult(option != null && option.isComplete() ? option : null);
-        }
     }
 
     private void updateVisibility() {

@@ -155,6 +155,7 @@ Sections:
     Type: SHT_DYNAMIC
   - Name: note
     Type: SHT_NOTE
+    Notes: []
   - Name: nobits
     Type: SHT_NOBITS
   - Name: rel
@@ -196,6 +197,7 @@ Sections:
     Type: SHT_LLVM_CALL_GRAPH_PROFILE
   - Name: llvm_addrsig
     Type: SHT_LLVM_ADDRSIG
+    Symbols:
   - Name: .deplibs
     Type: SHT_LLVM_DEPENDENT_LIBRARIES
   - Name: .llvm_sympart.f
@@ -208,6 +210,7 @@ Sections:
     Type: SHT_GNU_ATTRIBUTES
   - Name: gnu_hash
     Type: SHT_GNU_HASH
+    Content: ""
   - Name: gnu_verdef
     Type: SHT_GNU_verdef
     Info: 0

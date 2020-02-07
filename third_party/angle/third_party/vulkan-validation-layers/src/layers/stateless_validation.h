@@ -95,7 +95,8 @@ class StatelessValidation : public ValidationObject {
 
     // Override chassis read/write locks for this validation object
     // This override takes a deferred lock. i.e. it is not acquired.
-    std::unique_lock<std::mutex> write_lock() { return std::unique_lock<std::mutex>(validation_object_mutex, std::defer_lock); }
+    virtual read_lock_guard_t read_lock() { return read_lock_guard_t(validation_object_mutex, std::defer_lock); }
+    virtual write_lock_guard_t write_lock() { return write_lock_guard_t(validation_object_mutex, std::defer_lock); }
 
     // Device extension properties -- storing properties gathered from VkPhysicalDeviceProperties2KHR::pNext chain
     struct DeviceExtensionProperties {
@@ -113,7 +114,7 @@ class StatelessValidation : public ValidationObject {
     // Though this validation object is predominantly statless, the Framebuffer checks are greatly simplified by creating and
     // updating a map of the renderpass usage states, and these accesses need thread protection. Use a mutex separate from the
     // parent object's to maintain that functionality.
-    std::mutex renderpass_map_mutex;
+    mutable std::mutex renderpass_map_mutex;
     std::unordered_map<VkRenderPass, SubpassesUsageStates> renderpasses_states;
 
     // Constructor for stateles validation tracking
@@ -131,7 +132,7 @@ class StatelessValidation : public ValidationObject {
      */
     template <typename T>
     bool ValidateGreaterThan(const T value, const T lower_bound, const ParameterName &parameter_name, const std::string &vuid,
-                             const LogMiscParams &misc) {
+                             const LogMiscParams &misc) const {
         bool skip_call = false;
 
         if (value <= lower_bound) {
@@ -147,7 +148,7 @@ class StatelessValidation : public ValidationObject {
 
     template <typename T>
     bool ValidateGreaterThanZero(const T value, const ParameterName &parameter_name, const std::string &vuid,
-                                 const LogMiscParams &misc) {
+                                 const LogMiscParams &misc) const {
         return ValidateGreaterThan(value, T{0}, parameter_name, vuid, misc);
     }
     /**
@@ -161,7 +162,7 @@ class StatelessValidation : public ValidationObject {
      * @return Boolean value indicating that the call should be skipped.
      */
     bool validate_required_pointer(const char *apiName, const ParameterName &parameterName, const void *value,
-                                   const std::string &vuid) {
+                                   const std::string &vuid) const {
         bool skip_call = false;
 
         if (value == NULL) {
@@ -191,7 +192,7 @@ class StatelessValidation : public ValidationObject {
     template <typename T1, typename T2>
     bool validate_array(const char *apiName, const ParameterName &countName, const ParameterName &arrayName, T1 count,
                         const T2 *array, bool countRequired, bool arrayRequired, const char *count_required_vuid,
-                        const char *array_required_vuid) {
+                        const char *array_required_vuid) const {
         bool skip_call = false;
 
         // Count parameters not tagged as optional cannot be 0
@@ -233,7 +234,7 @@ class StatelessValidation : public ValidationObject {
     template <typename T1, typename T2>
     bool validate_array(const char *apiName, const ParameterName &countName, const ParameterName &arrayName, const T1 *count,
                         const T2 *array, bool countPtrRequired, bool countValueRequired, bool arrayRequired,
-                        const char *count_required_vuid, const char *array_required_vuid) {
+                        const char *count_required_vuid, const char *array_required_vuid) const {
         bool skip_call = false;
 
         if (count == NULL) {
@@ -267,7 +268,7 @@ class StatelessValidation : public ValidationObject {
      */
     template <typename T>
     bool validate_struct_type(const char *apiName, const ParameterName &parameterName, const char *sTypeName, const T *value,
-                              VkStructureType sType, bool required, const char *struct_vuid, const char *stype_vuid) {
+                              VkStructureType sType, bool required, const char *struct_vuid, const char *stype_vuid) const {
         bool skip_call = false;
 
         if (value == NULL) {
@@ -306,7 +307,7 @@ class StatelessValidation : public ValidationObject {
     bool validate_struct_type_array(const char *apiName, const ParameterName &countName, const ParameterName &arrayName,
                                     const char *sTypeName, uint32_t count, const T *array, VkStructureType sType,
                                     bool countRequired, bool arrayRequired, const char *stype_vuid, const char *param_vuid,
-                                    const char *count_required_vuid) {
+                                    const char *count_required_vuid) const {
         bool skip_call = false;
 
         if ((count == 0) || (array == NULL)) {
@@ -350,7 +351,7 @@ class StatelessValidation : public ValidationObject {
     bool validate_struct_type_array(const char *apiName, const ParameterName &countName, const ParameterName &arrayName,
                                     const char *sTypeName, uint32_t *count, const T *array, VkStructureType sType,
                                     bool countPtrRequired, bool countValueRequired, bool arrayRequired, const char *stype_vuid,
-                                    const char *param_vuid, const char *count_required_vuid) {
+                                    const char *param_vuid, const char *count_required_vuid) const {
         bool skip_call = false;
 
         if (count == NULL) {
@@ -378,7 +379,7 @@ class StatelessValidation : public ValidationObject {
      * @return Boolean value indicating that the call should be skipped.
      */
     template <typename T>
-    bool validate_required_handle(const char *api_name, const ParameterName &parameter_name, T value) {
+    bool validate_required_handle(const char *api_name, const ParameterName &parameter_name, T value) const {
         bool skip_call = false;
 
         if (value == VK_NULL_HANDLE) {
@@ -413,7 +414,7 @@ class StatelessValidation : public ValidationObject {
      */
     template <typename T>
     bool validate_handle_array(const char *api_name, const ParameterName &count_name, const ParameterName &array_name,
-                               uint32_t count, const T *array, bool count_required, bool array_required) {
+                               uint32_t count, const T *array, bool count_required, bool array_required) const {
         bool skip_call = false;
 
         if ((count == 0) || (array == NULL)) {
@@ -453,7 +454,7 @@ class StatelessValidation : public ValidationObject {
      */
     bool validate_string_array(const char *apiName, const ParameterName &countName, const ParameterName &arrayName, uint32_t count,
                                const char *const *array, bool countRequired, bool arrayRequired, const char *count_required_vuid,
-                               const char *array_required_vuid) {
+                               const char *array_required_vuid) const {
         bool skip_call = false;
 
         if ((count == 0) || (array == NULL)) {
@@ -474,7 +475,8 @@ class StatelessValidation : public ValidationObject {
     }
 
     // Forward declaration for pNext validation
-    bool ValidatePnextStructContents(const char *api_name, const ParameterName &parameter_name, const VkBaseOutStructure *header);
+    bool ValidatePnextStructContents(const char *api_name, const ParameterName &parameter_name,
+                                     const VkBaseOutStructure *header) const;
 
     /**
      * Validate a structure's pNext member.
@@ -494,7 +496,7 @@ class StatelessValidation : public ValidationObject {
      */
     bool validate_struct_pnext(const char *api_name, const ParameterName &parameter_name, const char *allowed_struct_names,
                                const void *next, size_t allowed_type_count, const VkStructureType *allowed_types,
-                               uint32_t header_version, const char *vuid) {
+                               uint32_t header_version, const char *vuid) const {
         bool skip_call = false;
 
         // TODO: The valid pNext structure types are not recursive. Each structure has its own list of valid sTypes for pNext.
@@ -592,7 +594,7 @@ class StatelessValidation : public ValidationObject {
      * @param value Boolean value to validate.
      * @return Boolean value indicating that the call should be skipped.
      */
-    bool validate_bool32(const char *apiName, const ParameterName &parameterName, VkBool32 value) {
+    bool validate_bool32(const char *apiName, const ParameterName &parameterName, VkBool32 value) const {
         bool skip_call = false;
 
         if ((value != VK_TRUE) && (value != VK_FALSE)) {
@@ -623,7 +625,7 @@ class StatelessValidation : public ValidationObject {
      */
     template <typename T>
     bool validate_ranged_enum(const char *apiName, const ParameterName &parameterName, const char *enumName,
-                              const std::vector<T> &valid_values, T value, const char *vuid) {
+                              const std::vector<T> &valid_values, T value, const char *vuid) const {
         bool skip = false;
 
         if (std::find(valid_values.begin(), valid_values.end(), value) == valid_values.end()) {
@@ -661,7 +663,7 @@ class StatelessValidation : public ValidationObject {
     template <typename T>
     bool validate_ranged_enum_array(const char *apiName, const ParameterName &countName, const ParameterName &arrayName,
                                     const char *enumName, const std::vector<T> &valid_values, uint32_t count, const T *array,
-                                    bool countRequired, bool arrayRequired) {
+                                    bool countRequired, bool arrayRequired) const {
         bool skip_call = false;
 
         if ((count == 0) || (array == NULL)) {
@@ -693,7 +695,7 @@ class StatelessValidation : public ValidationObject {
      * @param value Value to validate.
      * @return Boolean value indicating that the call should be skipped.
      */
-    bool validate_reserved_flags(const char *api_name, const ParameterName &parameter_name, VkFlags value, const char *vuid) {
+    bool validate_reserved_flags(const char *api_name, const ParameterName &parameter_name, VkFlags value, const char *vuid) const {
         bool skip_call = false;
 
         if (value != 0) {
@@ -723,7 +725,7 @@ class StatelessValidation : public ValidationObject {
      * @return Boolean value indicating that the call should be skipped.
      */
     bool validate_flags(const char *api_name, const ParameterName &parameter_name, const char *flag_bits_name, VkFlags all_flags,
-                        VkFlags value, const FlagType flag_type, const char *vuid, const char *flags_zero_vuid = nullptr) {
+                        VkFlags value, const FlagType flag_type, const char *vuid, const char *flags_zero_vuid = nullptr) const {
         bool skip_call = false;
 
         if ((value & ~all_flags) != 0) {
@@ -774,7 +776,7 @@ class StatelessValidation : public ValidationObject {
      */
     bool validate_flags_array(const char *api_name, const ParameterName &count_name, const ParameterName &array_name,
                               const char *flag_bits_name, VkFlags all_flags, uint32_t count, const VkFlags *array,
-                              bool count_required, bool array_required) {
+                              bool count_required, bool array_required) const {
         bool skip_call = false;
 
         if ((count == 0) || (array == NULL)) {
@@ -805,7 +807,7 @@ class StatelessValidation : public ValidationObject {
 
     template <typename ExtensionState>
     bool validate_extension_reqs(const ExtensionState &extensions, const char *vuid, const char *extension_type,
-                                 const char *extension_name) {
+                                 const char *extension_name) const {
         bool skip = false;
         if (!extension_name) {
             return skip;  // Robust to invalid char *
@@ -839,7 +841,7 @@ class StatelessValidation : public ValidationObject {
     template <typename RenderPassCreateInfoGeneric>
     bool ValidateSubpassGraphicsFlags(const debug_report_data *report_data, const RenderPassCreateInfoGeneric *pCreateInfo,
                                       uint32_t dependency_index, uint32_t subpass, VkPipelineStageFlags stages, const char *vuid,
-                                      const char *target) {
+                                      const char *target) const {
         const VkPipelineStageFlags kCommonStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         const VkPipelineStageFlags kFramebufferStages =
             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
@@ -885,13 +887,20 @@ class StatelessValidation : public ValidationObject {
     template <typename RenderPassCreateInfoGeneric>
     bool CreateRenderPassGeneric(VkDevice device, const RenderPassCreateInfoGeneric *pCreateInfo,
                                  const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass,
-                                 RenderPassCreateVersion rp_version) {
+                                 RenderPassCreateVersion rp_version) const {
         bool skip = false;
         uint32_t max_color_attachments = device_limits.maxColorAttachments;
         bool use_rp2 = (rp_version == RENDER_PASS_VERSION_2);
         const char *vuid;
+        const auto *separate_depth_stencil_layouts_features =
+            lvl_find_in_chain<VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR>(physical_device_features2.pNext);
 
         for (uint32_t i = 0; i < pCreateInfo->attachmentCount; ++i) {
+            const auto *attachment_description_stencil_layout =
+                (use_rp2) ? lvl_find_in_chain<VkAttachmentDescriptionStencilLayoutKHR>(
+                                reinterpret_cast<VkAttachmentDescription2KHR const *>(&pCreateInfo->pAttachments[i])->pNext)
+                          : 0;
+
             if (pCreateInfo->pAttachments[i].format == VK_FORMAT_UNDEFINED) {
                 std::stringstream ss;
                 ss << (use_rp2 ? "vkCreateRenderPass2KHR" : "vkCreateRenderPass") << ": pCreateInfo->pAttachments[" << i
@@ -909,6 +918,192 @@ class StatelessValidation : public ValidationObject {
                                 "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_UNDEFINED or "
                                 "VK_IMAGE_LAYOUT_PREINITIALIZED.",
                                 i);
+            }
+            if (!separate_depth_stencil_layouts_features || !separate_depth_stencil_layouts_features->separateDepthStencilLayouts) {
+                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-separateDepthStencilLayouts-03298"
+                                   : "VUID-VkAttachmentDescription-separateDepthStencilLayouts-03284";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                        "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                        i);
+                }
+                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-separateDepthStencilLayouts-03299"
+                                   : "VUID-VkAttachmentDescription-separateDepthStencilLayouts-03285";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                        "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                        i);
+                }
+            }
+            if (!FormatIsDepthOrStencil(pCreateInfo->pAttachments[i].format)) {
+                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-format-03300" : "VUID-VkAttachmentDescription-format-03286";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                        "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMA_KHRL",
+                        i);
+                }
+                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-format-03301" : "VUID-VkAttachmentDescription-format-03287";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                        "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                        i);
+                }
+            } else if (FormatIsDepthAndStencil(pCreateInfo->pAttachments[i].format)) {
+                if (use_rp2) {
+                    if (!attachment_description_stencil_layout) {
+                        if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                            pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                            skip |=
+                                log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                        "VUID-VkAttachmentDescription2KHR-format-03302",
+                                        "pCreateInfo->pNext must include an instance of VkAttachmentDescriptionStencilLayoutKHR");
+                        }
+                        if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                            pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                            skip |=
+                                log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                        "VUID-VkAttachmentDescription2KHR-format-03303",
+                                        "pCreateInfo->pNext must include an instance of VkAttachmentDescriptionStencilLayoutKHR");
+                        }
+                    }
+                } else {
+                    if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                        pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                        pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                        pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                        skip |= log_msg(
+                            report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkAttachmentDescription-format-03288",
+                            "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
+                            "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                            "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                            i);
+                    }
+                    if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                        pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                        pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                        pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                        skip |= log_msg(
+                            report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkAttachmentDescription-format-03289",
+                            "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
+                            "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                            "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                            i);
+                    }
+                }
+            } else if (FormatIsDepthOnly(pCreateInfo->pAttachments[i].format)) {
+                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-format-03304" : "VUID-VkAttachmentDescription-format-03290";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, or"
+                        "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                        i);
+                }
+                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-format-03305" : "VUID-VkAttachmentDescription-format-03291";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR, or "
+                        "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
+                        i);
+                }
+            } else if (FormatIsStencilOnly(pCreateInfo->pAttachments[i].format)) {
+                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-format-03306" : "VUID-VkAttachmentDescription-format-03292";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, or"
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR",
+                        i);
+                }
+                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2KHR-format-03307" : "VUID-VkAttachmentDescription-format-03293";
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
+                        "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, or "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMA_KHRL",
+                        i);
+                }
+            }
+            if (use_rp2 && attachment_description_stencil_layout) {
+                if (attachment_description_stencil_layout->stencilInitialLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilInitialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    attachment_description_stencil_layout->stencilInitialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    attachment_description_stencil_layout->stencilInitialLayout ==
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilInitialLayout ==
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilInitialLayout ==
+                        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilInitialLayout ==
+                        VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                    "VUID-VkAttachmentDescriptionStencilLayoutKHR-stencilInitialLayout-03308",
+                                    "VkAttachmentDescriptionStencilLayoutKHR.stencilInitialLayout must not be "
+                                    "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL, or "
+                                    "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL.");
+                }
+                if (attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilFinalLayout ==
+                        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL ||
+                    attachment_description_stencil_layout->stencilFinalLayout ==
+                        VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) {
+                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                    "VUID-VkAttachmentDescriptionStencilLayoutKHR-stencilFinalLayout-03309",
+                                    "VkAttachmentDescriptionStencilLayoutKHR.stencilFinalLayout must not be "
+                                    "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, "
+                                    "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL, or "
+                                    "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL.");
+                }
+                if (attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_UNDEFINED ||
+                    attachment_description_stencil_layout->stencilFinalLayout == VK_IMAGE_LAYOUT_PREINITIALIZED) {
+                    skip |= log_msg(
+                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                        "VUID-VkAttachmentDescriptionStencilLayoutKHR-stencilFinalLayout-03310",
+                        "VkAttachmentDescriptionStencilLayoutKHR.stencilFinalLayout must not be VK_IMAGE_LAYOUT_UNDEFINED, or "
+                        "VK_IMAGE_LAYOUT_PREINITIALIZED.");
+                }
             }
         }
 
@@ -961,15 +1156,16 @@ class StatelessValidation : public ValidationObject {
         }
     }
 
-    bool require_device_extension(bool flag, char const *function_name, char const *extension_name);
+    bool require_device_extension(bool flag, char const *function_name, char const *extension_name) const;
 
-    bool validate_instance_extensions(const VkInstanceCreateInfo *pCreateInfo);
+    bool validate_instance_extensions(const VkInstanceCreateInfo *pCreateInfo) const;
 
-    bool validate_api_version(uint32_t api_version, uint32_t effective_api_version);
+    bool validate_api_version(uint32_t api_version, uint32_t effective_api_version) const;
 
-    bool validate_string(const char *apiName, const ParameterName &stringName, const std::string &vuid, const char *validateString);
+    bool validate_string(const char *apiName, const ParameterName &stringName, const std::string &vuid,
+                         const char *validateString) const;
 
-    bool ValidateCoarseSampleOrderCustomNV(const VkCoarseSampleOrderCustomNV *order);
+    bool ValidateCoarseSampleOrderCustomNV(const VkCoarseSampleOrderCustomNV *order) const;
 
     bool ValidateQueueFamilies(uint32_t queue_family_count, const uint32_t *queue_families, const char *cmd_name,
                                const char *array_parameter_name, const std::string &unique_error_code,
@@ -987,7 +1183,7 @@ class StatelessValidation : public ValidationObject {
     bool ValidateAccelerationStructureInfoNV(const VkAccelerationStructureInfoNV &info, VkDebugReportObjectTypeEXT object_type,
                                              uint64_t object_handle, const char *func_nam) const;
 
-    bool OutputExtensionError(const std::string &api_name, const std::string &extension_name);
+    bool OutputExtensionError(const std::string &api_name, const std::string &extension_name) const;
 
     void PostCallRecordCreateRenderPass(VkDevice device, const VkRenderPassCreateInfo *pCreateInfo,
                                         const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass, VkResult result);
@@ -1003,171 +1199,181 @@ class StatelessValidation : public ValidationObject {
     void PostCallRecordQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPresentInfo, VkResult result);
 
     bool manual_PreCallValidateCreateQueryPool(VkDevice device, const VkQueryPoolCreateInfo *pCreateInfo,
-                                               const VkAllocationCallbacks *pAllocator, VkQueryPool *pQueryPool);
+                                               const VkAllocationCallbacks *pAllocator, VkQueryPool *pQueryPool) const;
 
     bool manual_PreCallValidateCreateInstance(const VkInstanceCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator,
-                                              VkInstance *pInstance);
+                                              VkInstance *pInstance) const;
 
     bool manual_PreCallValidateCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pCreateInfo,
-                                            const VkAllocationCallbacks *pAllocator, VkDevice *pDevice);
+                                            const VkAllocationCallbacks *pAllocator, VkDevice *pDevice) const;
 
     bool manual_PreCallValidateCreateBuffer(VkDevice device, const VkBufferCreateInfo *pCreateInfo,
-                                            const VkAllocationCallbacks *pAllocator, VkBuffer *pBuffer);
+                                            const VkAllocationCallbacks *pAllocator, VkBuffer *pBuffer) const;
 
     bool manual_PreCallValidateCreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo,
-                                           const VkAllocationCallbacks *pAllocator, VkImage *pImage);
+                                           const VkAllocationCallbacks *pAllocator, VkImage *pImage) const;
 
     bool manual_PreCallValidateViewport(const VkViewport &viewport, const char *fn_name, const ParameterName &parameter_name,
-                                        VkDebugReportObjectTypeEXT object_type, uint64_t object);
+                                        VkDebugReportObjectTypeEXT object_type, uint64_t object) const;
 
     bool manual_PreCallValidateCreateGraphicsPipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount,
                                                        const VkGraphicsPipelineCreateInfo *pCreateInfos,
-                                                       const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines);
+                                                       const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines) const;
     bool manual_PreCallValidateCreateComputePipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount,
                                                       const VkComputePipelineCreateInfo *pCreateInfos,
-                                                      const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines);
+                                                      const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines) const;
 
     bool manual_PreCallValidateCreateSampler(VkDevice device, const VkSamplerCreateInfo *pCreateInfo,
-                                             const VkAllocationCallbacks *pAllocator, VkSampler *pSampler);
+                                             const VkAllocationCallbacks *pAllocator, VkSampler *pSampler) const;
     bool manual_PreCallValidateCreateDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutCreateInfo *pCreateInfo,
                                                          const VkAllocationCallbacks *pAllocator,
-                                                         VkDescriptorSetLayout *pSetLayout);
+                                                         VkDescriptorSetLayout *pSetLayout) const;
 
     bool manual_PreCallValidateUpdateDescriptorSets(VkDevice device, uint32_t descriptorWriteCount,
                                                     const VkWriteDescriptorSet *pDescriptorWrites, uint32_t descriptorCopyCount,
-                                                    const VkCopyDescriptorSet *pDescriptorCopies);
+                                                    const VkCopyDescriptorSet *pDescriptorCopies) const;
 
     bool manual_PreCallValidateFreeDescriptorSets(VkDevice device, VkDescriptorPool descriptorPool, uint32_t descriptorSetCount,
-                                                  const VkDescriptorSet *pDescriptorSets);
+                                                  const VkDescriptorSet *pDescriptorSets) const;
 
     bool manual_PreCallValidateCreateRenderPass(VkDevice device, const VkRenderPassCreateInfo *pCreateInfo,
-                                                const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass);
+                                                const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass) const;
 
     bool manual_PreCallValidateCreateRenderPass2KHR(VkDevice device, const VkRenderPassCreateInfo2KHR *pCreateInfo,
-                                                    const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass);
+                                                    const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass) const;
 
     bool manual_PreCallValidateFreeCommandBuffers(VkDevice device, VkCommandPool commandPool, uint32_t commandBufferCount,
-                                                  const VkCommandBuffer *pCommandBuffers);
+                                                  const VkCommandBuffer *pCommandBuffers) const;
 
-    bool manual_PreCallValidateBeginCommandBuffer(VkCommandBuffer commandBuffer, const VkCommandBufferBeginInfo *pBeginInfo);
+    bool manual_PreCallValidateBeginCommandBuffer(VkCommandBuffer commandBuffer, const VkCommandBufferBeginInfo *pBeginInfo) const;
 
     bool manual_PreCallValidateCmdSetViewport(VkCommandBuffer commandBuffer, uint32_t firstViewport, uint32_t viewportCount,
-                                              const VkViewport *pViewports);
+                                              const VkViewport *pViewports) const;
 
     bool manual_PreCallValidateCmdSetScissor(VkCommandBuffer commandBuffer, uint32_t firstScissor, uint32_t scissorCount,
-                                             const VkRect2D *pScissors);
-    bool manual_PreCallValidateCmdSetLineWidth(VkCommandBuffer commandBuffer, float lineWidth);
+                                             const VkRect2D *pScissors) const;
+    bool manual_PreCallValidateCmdSetLineWidth(VkCommandBuffer commandBuffer, float lineWidth) const;
 
     bool manual_PreCallValidateCmdDraw(VkCommandBuffer commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
-                                       uint32_t firstVertex, uint32_t firstInstance);
+                                       uint32_t firstVertex, uint32_t firstInstance) const;
 
     bool manual_PreCallValidateCmdDrawIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, uint32_t count,
-                                               uint32_t stride);
+                                               uint32_t stride) const;
 
     bool manual_PreCallValidateCmdDrawIndexedIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
-                                                      uint32_t count, uint32_t stride);
+                                                      uint32_t count, uint32_t stride) const;
 
     bool manual_PreCallValidateCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_t attachmentCount,
                                                    const VkClearAttachment *pAttachments, uint32_t rectCount,
-                                                   const VkClearRect *pRects);
+                                                   const VkClearRect *pRects) const;
 
     bool manual_PreCallValidateCmdCopyImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
                                             VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount,
-                                            const VkImageCopy *pRegions);
+                                            const VkImageCopy *pRegions) const;
 
     bool manual_PreCallValidateCmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
                                             VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount,
-                                            const VkImageBlit *pRegions, VkFilter filter);
+                                            const VkImageBlit *pRegions, VkFilter filter) const;
 
     bool manual_PreCallValidateCmdCopyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage,
                                                     VkImageLayout dstImageLayout, uint32_t regionCount,
-                                                    const VkBufferImageCopy *pRegions);
+                                                    const VkBufferImageCopy *pRegions) const;
 
     bool manual_PreCallValidateCmdCopyImageToBuffer(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
-                                                    VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy *pRegions);
+                                                    VkBuffer dstBuffer, uint32_t regionCount,
+                                                    const VkBufferImageCopy *pRegions) const;
 
     bool manual_PreCallValidateCmdUpdateBuffer(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset,
-                                               VkDeviceSize dataSize, const void *pData);
+                                               VkDeviceSize dataSize, const void *pData) const;
 
     bool manual_PreCallValidateCmdFillBuffer(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset,
-                                             VkDeviceSize size, uint32_t data);
+                                             VkDeviceSize size, uint32_t data) const;
 
     bool manual_PreCallValidateCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *pCreateInfo,
-                                                  const VkAllocationCallbacks *pAllocator, VkSwapchainKHR *pSwapchain);
-    bool manual_PreCallValidateQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPresentInfo);
+                                                  const VkAllocationCallbacks *pAllocator, VkSwapchainKHR *pSwapchain) const;
+    bool manual_PreCallValidateQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPresentInfo) const;
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     bool manual_PreCallValidateCreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR *pCreateInfo,
-                                                     const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface);
+                                                     const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface) const;
 #endif  // VK_USE_PLATFORM_WIN32_KHR
 
     bool manual_PreCallValidateCreateDescriptorPool(VkDevice device, const VkDescriptorPoolCreateInfo *pCreateInfo,
-                                                    const VkAllocationCallbacks *pAllocator, VkDescriptorPool *pDescriptorPool);
+                                                    const VkAllocationCallbacks *pAllocator,
+                                                    VkDescriptorPool *pDescriptorPool) const;
     bool manual_PreCallValidateCmdDispatch(VkCommandBuffer commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
-                                           uint32_t groupCountZ);
+                                           uint32_t groupCountZ) const;
 
-    bool manual_PreCallValidateCmdDispatchIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset);
+    bool manual_PreCallValidateCmdDispatchIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset) const;
 
     bool manual_PreCallValidateCmdDispatchBaseKHR(VkCommandBuffer commandBuffer, uint32_t baseGroupX, uint32_t baseGroupY,
                                                   uint32_t baseGroupZ, uint32_t groupCountX, uint32_t groupCountY,
-                                                  uint32_t groupCountZ);
+                                                  uint32_t groupCountZ) const;
     bool manual_PreCallValidateCmdSetExclusiveScissorNV(VkCommandBuffer commandBuffer, uint32_t firstExclusiveScissor,
-                                                        uint32_t exclusiveScissorCount, const VkRect2D *pExclusiveScissors);
+                                                        uint32_t exclusiveScissorCount, const VkRect2D *pExclusiveScissors) const;
     bool manual_PreCallValidateCmdSetViewportShadingRatePaletteNV(VkCommandBuffer commandBuffer, uint32_t firstViewport,
                                                                   uint32_t viewportCount,
-                                                                  const VkShadingRatePaletteNV *pShadingRatePalettes);
+                                                                  const VkShadingRatePaletteNV *pShadingRatePalettes) const;
 
     bool manual_PreCallValidateCmdSetCoarseSampleOrderNV(VkCommandBuffer commandBuffer, VkCoarseSampleOrderTypeNV sampleOrderType,
                                                          uint32_t customSampleOrderCount,
-                                                         const VkCoarseSampleOrderCustomNV *pCustomSampleOrders);
+                                                         const VkCoarseSampleOrderCustomNV *pCustomSampleOrders) const;
 
-    bool manual_PreCallValidateCmdDrawMeshTasksNV(VkCommandBuffer commandBuffer, uint32_t taskCount, uint32_t firstTask);
+    bool manual_PreCallValidateCmdDrawMeshTasksNV(VkCommandBuffer commandBuffer, uint32_t taskCount, uint32_t firstTask) const;
     bool manual_PreCallValidateCmdDrawMeshTasksIndirectNV(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
-                                                          uint32_t drawCount, uint32_t stride);
+                                                          uint32_t drawCount, uint32_t stride) const;
 
     bool manual_PreCallValidateCmdDrawMeshTasksIndirectCountNV(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
                                                                VkBuffer countBuffer, VkDeviceSize countBufferOffset,
-                                                               uint32_t maxDrawCount, uint32_t stride);
+                                                               uint32_t maxDrawCount, uint32_t stride) const;
 
     bool manual_PreCallValidateEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice, const char *pLayerName,
-                                                                  uint32_t *pPropertyCount, VkExtensionProperties *pProperties);
+                                                                  uint32_t *pPropertyCount,
+                                                                  VkExtensionProperties *pProperties) const;
     bool manual_PreCallValidateAllocateMemory(VkDevice device, const VkMemoryAllocateInfo *pAllocateInfo,
-                                              const VkAllocationCallbacks *pAllocator, VkDeviceMemory *pMemory);
+                                              const VkAllocationCallbacks *pAllocator, VkDeviceMemory *pMemory) const;
 
     bool manual_PreCallValidateCreateAccelerationStructureNV(VkDevice device,
                                                              const VkAccelerationStructureCreateInfoNV *pCreateInfo,
                                                              const VkAllocationCallbacks *pAllocator,
-                                                             VkAccelerationStructureNV *pAccelerationStructure);
+                                                             VkAccelerationStructureNV *pAccelerationStructure) const;
     bool manual_PreCallValidateCmdBuildAccelerationStructureNV(VkCommandBuffer commandBuffer,
                                                                const VkAccelerationStructureInfoNV *pInfo, VkBuffer instanceData,
                                                                VkDeviceSize instanceOffset, VkBool32 update,
                                                                VkAccelerationStructureNV dst, VkAccelerationStructureNV src,
-                                                               VkBuffer scratch, VkDeviceSize scratchOffset);
+                                                               VkBuffer scratch, VkDeviceSize scratchOffset) const;
     bool manual_PreCallValidateGetAccelerationStructureHandleNV(VkDevice device, VkAccelerationStructureNV accelerationStructure,
-                                                                size_t dataSize, void *pData);
+                                                                size_t dataSize, void *pData) const;
     bool manual_PreCallValidateCreateRayTracingPipelinesNV(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount,
                                                            const VkRayTracingPipelineCreateInfoNV *pCreateInfos,
-                                                           const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines);
+                                                           const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines) const;
     bool manual_PreCallValidateCmdSetViewportWScalingNV(VkCommandBuffer commandBuffer, uint32_t firstViewport,
-                                                        uint32_t viewportCount, const VkViewportWScalingNV *pViewportWScalings);
+                                                        uint32_t viewportCount,
+                                                        const VkViewportWScalingNV *pViewportWScalings) const;
 
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     bool PreCallValidateGetDeviceGroupSurfacePresentModes2EXT(VkDevice device, const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo,
-                                                              VkDeviceGroupPresentModeFlagsKHR *pModes);
+                                                              VkDeviceGroupPresentModeFlagsKHR *pModes) const;
 #endif  // VK_USE_PLATFORM_WIN32_KHR
 
     bool manual_PreCallValidateCreateFramebuffer(VkDevice device, const VkFramebufferCreateInfo *pCreateInfo,
-                                                 const VkAllocationCallbacks *pAllocator, VkFramebuffer *pFramebuffer);
+                                                 const VkAllocationCallbacks *pAllocator, VkFramebuffer *pFramebuffer) const;
 
     bool manual_PreCallValidateCmdSetLineStippleEXT(VkCommandBuffer commandBuffer, uint32_t lineStippleFactor,
-                                                    uint16_t lineStipplePattern);
+                                                    uint16_t lineStipplePattern) const;
 
     bool manual_PreCallValidateCmdBindIndexBuffer(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
-                                                  VkIndexType indexType);
+                                                  VkIndexType indexType) const;
 
-    bool manual_PreCallValidateSetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsObjectNameInfoEXT *pNameInfo);
+    bool manual_PreCallValidateSetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsObjectNameInfoEXT *pNameInfo) const;
 
-    bool manual_PreCallValidateSetDebugUtilsObjectTagEXT(VkDevice device, const VkDebugUtilsObjectTagInfoEXT *pTagInfo);
+    bool manual_PreCallValidateSetDebugUtilsObjectTagEXT(VkDevice device, const VkDebugUtilsObjectTagInfoEXT *pTagInfo) const;
+
+    bool manual_PreCallValidateAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
+                                                   VkSemaphore semaphore, VkFence fence, uint32_t *pImageIndex) const;
+
+    bool manual_PreCallValidateAcquireNextImage2KHR(VkDevice device, const VkAcquireNextImageInfoKHR *pAcquireInfo,
+                                                    uint32_t *pImageIndex) const;
 
 #include "parameter_validation.h"
 };  // Class StatelessValidation

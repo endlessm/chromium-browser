@@ -34,7 +34,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
-#include "storage/browser/fileapi/external_mount_points.h"
+#include "storage/browser/file_system/external_mount_points.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -930,6 +930,21 @@ TEST_F(GuestOsSharePathTest, UnshareOnDeleteMountRemoved) {
       base::Unretained(this), "ignore-delete-before-unmount", shared_path_,
       Persist::YES, SeneschalClientCalled::NO, "MyFiles/already-shared",
       Success::YES, ""));
+  run_loop()->Run();
+}
+
+TEST_F(GuestOsSharePathTest, RegisterPathThenUnshare) {
+  SetUpVolume();
+  crostini::CrostiniManager::GetForProfile(profile())->AddRunningVmForTesting(
+      crostini::kCrostiniDefaultVmName);
+  guest_os_share_path_->RegisterSharedPath(crostini::kCrostiniDefaultVmName,
+                                           share_path_);
+  guest_os_share_path_->UnsharePath(
+      crostini::kCrostiniDefaultVmName, share_path_, true,
+      base::BindOnce(&GuestOsSharePathTest::UnsharePathCallback,
+                     base::Unretained(this), share_path_, Persist::NO,
+                     SeneschalClientCalled::YES, "MyFiles/path-to-share",
+                     Success::YES, ""));
   run_loop()->Run();
 }
 

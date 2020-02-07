@@ -35,8 +35,9 @@ _signer_types = {k.lower().replace('signer_', ''): v
                  for k, v in sign_image_pb2.SignerType.items() if v}
 
 # See ../infra/proto/src/chromiumos/sign_image.proto.
-_target_types = {k.lower() if v else 'unchanged': v
-                 for k, v in sign_image_pb2.Cr50Instructions.Target.items()}
+_target_types = {k.lower(): v
+                 for k, v in sign_image_pb2.Cr50Instructions.Target.items()
+                 if v}
 
 
 def GetParser():
@@ -49,7 +50,7 @@ def GetParser():
 
   class Dev01Action(argparse.Action):
     """Convert --dev01 MMM NNN into an %08x-%08x device_id."""
-    def __call__(self, parser, namespace, values, option_string=None, **kwargs):
+    def __call__(self, parser, namespace, values, option_string=None):
       if not namespace.dev_ids:
         namespace.dev_ids = []
       namespace.dev_ids.append('%08x-%08x' % (values[0], values[1]))
@@ -78,7 +79,7 @@ def GetParser():
       help='This is a dryrun, nothing will be triggered.')
 
   parser.add_argument(
-      '--keyset', required=True, help='The keyset to use.')
+      '--keyset', default='cr50-accessory-mp', help='The keyset to use.')
 
   parser.add_argument(
       '--image-type', choices=_image_types, default='cr50_firmware',
@@ -86,11 +87,11 @@ def GetParser():
 
   parser.add_argument(
       '--signer-type', choices=_signer_types,
-      default='dev', help='The image type.')
+      default='production', help='The image type.')
 
   parser.add_argument(
       '--target', choices=_target_types,
-      default='unchanged', help='The image type.')
+      default='prepvt', help='The image type.')
 
   node_locked = parser.add_argument_group(
       'Node_locked',

@@ -183,7 +183,7 @@ class ArchiveImagesTest(cros_test_lib.TempDirTestCase):
   def testAllImages(self):
     """Test each image gets picked up."""
     created = artifacts.ArchiveImages(self.image_dir, self.output_dir)
-    self.assertCountEqual(artifacts.IMAGE_TARS.values(), created)
+    self.assertCountEqual(list(artifacts.IMAGE_TARS.values()), created)
 
 
 class CreateChromeRootTest(cros_test_lib.RunCommandTempDirTestCase):
@@ -434,6 +434,8 @@ class BundleAFDOGenerationArtifacts(cros_test_lib.MockTempDirTestCase):
     self.output_dir = os.path.join(self.tempdir, 'output_dir')
     osutils.SafeMakedirs(self.output_dir)
 
+    self.chrome_root = os.path.join(self.tempdir, 'chrome_root')
+
   def testRunSuccess(self):
     """Generic function for testing success cases for different types."""
 
@@ -460,12 +462,14 @@ class BundleAFDOGenerationArtifacts(cros_test_lib.MockTempDirTestCase):
         osutils.Touch(os.path.join(call_tempdir, f))
 
       created = artifacts.BundleAFDOGenerationArtifacts(
-          is_orderfile, self.chroot, self.build_target, self.output_dir)
+          is_orderfile, self.chroot, self.chrome_root,
+          self.build_target, self.output_dir)
 
       # Test right class is called with right arguments
       if is_orderfile:
         mock_orderfile_generate.assert_called_once_with(
             board=self.build_target.name,
+            chrome_root=self.chrome_root,
             output_dir=call_tempdir,
             chroot_path=self.chroot.path,
             chroot_args=self.chroot.get_enter_args()
@@ -579,15 +583,17 @@ class GeneratePayloadsTest(cros_test_lib.MockTempDirTestCase):
     artifacts.GenerateQuickProvisionPayloads(self.target_image, self.tempdir)
 
     extract_kernel_mock.assert_called_once_with(
-        self.target_image, partial_mock.HasString('full_dev_part_KERN.bin'))
+        self.target_image, partial_mock.HasString('kernel.bin'))
     extract_root_mock.assert_called_once_with(
-        self.target_image, partial_mock.HasString('full_dev_part_ROOT.bin'),
+        self.target_image, partial_mock.HasString('rootfs.bin'),
         truncate=False)
 
-    calls = [mock.call(partial_mock.HasString('full_dev_part_KERN.bin'),
-                       partial_mock.HasString('full_dev_part_KERN.bin.gz')),
-             mock.call(partial_mock.HasString('full_dev_part_ROOT.bin'),
-                       partial_mock.HasString('full_dev_part_ROOT.bin.gz'))]
+    calls = [mock.call(partial_mock.HasString('kernel.bin'),
+                       partial_mock.HasString(
+                           constants.QUICK_PROVISION_PAYLOAD_KERNEL)),
+             mock.call(partial_mock.HasString('rootfs.bin'),
+                       partial_mock.HasString(
+                           constants.QUICK_PROVISION_PAYLOAD_ROOTFS))]
     compress_file_mock.assert_has_calls(calls)
 
 

@@ -12,11 +12,16 @@ import multiprocessing
 import os
 import re
 import socket
-import sys
 import tempfile
 
 from six.moves import http_client as httplib
 from six.moves import urllib
+
+# cherrypy may not be available outside the chroot.
+try:
+  import cherrypy  # pylint: disable=import-error
+except ImportError:
+  cherrypy = None
 
 from chromite.lib import constants
 from chromite.cli import command
@@ -27,11 +32,12 @@ from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import remote_access
 from chromite.lib import timeout_util
+from chromite.lib.xbuddy import build_artifact
+from chromite.lib.xbuddy import xbuddy
 
 
 DEFAULT_PORT = 8080
 
-DEVSERVER_PKG_DIR = os.path.join(constants.SOURCE_ROOT, 'src/platform/dev')
 DEFAULT_STATIC_DIR = path_util.FromChrootPath(
     os.path.join(constants.SOURCE_ROOT, 'src', 'platform', 'dev', 'static'))
 
@@ -97,11 +103,12 @@ def GetXbuddyPath(path):
     logging.debug('Assuming %s is an xbuddy path.', path)
     return path
   else:
-    raise ValueError('Do not support scheme %s.', parsed.scheme)
+    raise ValueError('Do not support scheme %s.' % (parsed.scheme,))
 
 
 def GetImagePathWithXbuddy(path, board, version=None,
-                           static_dir=DEFAULT_STATIC_DIR, lookup_only=False):
+                           static_dir=DEFAULT_STATIC_DIR,
+                           lookup_only=False, silent=False):
   """Gets image path and resolved XBuddy path using xbuddy.
 
   Ask xbuddy to translate |path|, and if necessary, download and stage the
@@ -116,6 +123,7 @@ def GetImagePathWithXbuddy(path, board, version=None,
     static_dir: Static directory to stage the image in.
     lookup_only: Caller only wants to translate the path not download the
       artifact.
+    silent: Suppress error messages.
 
   Returns:
     A tuple consisting of a translated path to the image
@@ -128,18 +136,8 @@ def GetImagePathWithXbuddy(path, board, version=None,
   upath.insert(0, os.path.dirname(gs.GSContext.GetDefaultGSUtilBin()))
   os.environ['PATH'] = os.pathsep.join(upath)
 
-  # Import xbuddy for translating, downloading and staging the image.
-  if not os.path.exists(DEVSERVER_PKG_DIR):
-    raise Exception('Cannot find xbuddy module. Devserver package directory '
-                    'does not exist: %s' % DEVSERVER_PKG_DIR)
-  sys.path.append(DEVSERVER_PKG_DIR)
-  # pylint: disable=import-error
-  import build_artifact
-  import xbuddy
-  import cherrypy
-
   # If we are using the progress bar, quiet the logging output of cherrypy.
-  if command.UseProgressBar():
+  if cherrypy and command.UseProgressBar():
     if (hasattr(cherrypy.log, 'access_log') and
         hasattr(cherrypy.log, 'error_log')):
       cherrypy.log.access_log.setLevel(logging.NOTICE)
@@ -159,11 +157,13 @@ def GetImagePathWithXbuddy(path, board, version=None,
     resolved_path, _ = xb.LookupAlias(os.path.sep.join(path_list))
     return os.path.join(build_id, file_name), resolved_path
   except xbuddy.XBuddyException as e:
-    logging.error('Locating image "%s" failed. The path might not be valid or '
-                  'the image might not exist.', path)
+    if not silent:
+      logging.error('Locating image "%s" failed. The path might not be valid '
+                    'or the image might not exist.', path)
     raise ImagePathError('Cannot locate image %s: %s' % (path, e))
   except build_artifact.ArtifactDownloadError as e:
-    logging.error('Downloading image "%s" failed.', path)
+    if not silent:
+      logging.error('Downloading image "%s" failed.', path)
     raise ArtifactDownloadError('Cannot download image %s: %s' % (path, e))
 
 
@@ -250,7 +250,8 @@ def GetIPv4Address(dev=None, global_ip=True):
   cmd += ['scope', 'global' if global_ip else 'host']
   cmd += [] if dev is None else ['dev', dev]
 
-  result = cros_build_lib.run(cmd, print_cmd=False, capture_output=True)
+  result = cros_build_lib.run(cmd, print_cmd=False, capture_output=True,
+                              encoding='utf-8')
   matches = re.findall(r'\binet (\d+\.\d+\.\d+\.\d+).*', result.output)
   if matches:
     return matches[0]
@@ -487,7 +488,7 @@ class DevServerWrapper(multiprocessing.Process):
     result = self._RunCommand(
         cmd, enter_chroot=True, chroot_args=chroot_args,
         cwd=constants.SOURCE_ROOT, extra_env=extra_env, error_code_ok=True,
-        redirect_stdout=True, combine_stdout_stderr=True)
+        redirect_stdout=True, combine_stdout_stderr=True, encoding='utf-8')
     if result.returncode != 0:
       msg = ('Devserver failed to start!\n'
              '--- Start output from the devserver startup command ---\n'
@@ -538,7 +539,7 @@ class DevServerWrapper(multiprocessing.Process):
     if self._RunCommand(
         ['test', '-f', fname], error_code_ok=True).returncode == 0:
       result = self._RunCommand(['tail', '-n', str(num_lines), fname],
-                                capture_output=True)
+                                capture_output=True, encoding='utf-8')
       output = '--- Start output from %s ---' % fname
       output += result.output
       output += '--- End output from %s ---' % fname

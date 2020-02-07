@@ -1831,7 +1831,7 @@ void PrintHelpMessage(bool Hidden = false, bool Categorized = false);
 //
 
 /// Use this to get a StringMap to all registered named options
-/// (e.g. -help). Note \p Map Should be an empty StringMap.
+/// (e.g. -help).
 ///
 /// \return A reference to the StringMap used by the cl APIs to parse options.
 ///
@@ -1999,6 +1999,9 @@ void ResetAllOptionOccurrences();
 /// all options, categories, and subcommands and returns the parser to a state
 /// where no options are supported.
 void ResetCommandLineParser();
+
+/// Parses `Arg` into the option handler `Handler`.
+bool ProvidePositionalOption(Option *Handler, StringRef Arg, int i);
 
 } // end namespace cl
 

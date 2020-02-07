@@ -10,11 +10,11 @@ import androidx.annotation.Nullable;
 
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.FeatureUtilities;
 import org.chromium.chrome.browser.tasks.TasksSurface;
 import org.chromium.chrome.browser.tasks.TasksSurfaceProperties;
 import org.chromium.chrome.browser.tasks.tab_management.TabManagementModuleProvider;
 import org.chromium.chrome.browser.tasks.tab_management.TabSwitcher;
-import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.features.start_surface.StartSurfaceMediator.SurfaceMode;
 import org.chromium.chrome.start_surface.R;
 import org.chromium.ui.modelutil.PropertyKey;
@@ -96,10 +96,19 @@ public class StartSurfaceCoordinator implements StartSurface {
                 mSurfaceMode != SurfaceMode.NO_START_SURFACE
                         ? mActivity.getToolbarManager().getFakeboxDelegate()
                         : null,
-                mActivity.getNightModeStateProvider());
+                mActivity.getNightModeStateProvider(), mActivity.getFullscreenManager());
     }
 
     // Implements StartSurface.
+    @Override
+    public void initialize() {
+        // TODO (crbug.com/1041047): Move more stuff from the constructor to here for lazy
+        // initialization.
+        if (mTasksSurface != null) {
+            mTasksSurface.initialize();
+        }
+    }
+
     @Override
     public void setStateChangeObserver(StartSurface.StateObserver observer) {
         mStartSurfaceMediator.setStateChangeObserver(observer);
@@ -150,6 +159,7 @@ public class StartSurfaceCoordinator implements StartSurface {
             return SurfaceMode.NO_START_SURFACE;
         }
 
+        // TODO(crbug.com/982018): use cached variation.
         String feature = ChromeFeatureList.getFieldTrialParamByFeature(
                 ChromeFeatureList.START_SURFACE_ANDROID, "start_surface_variation");
 
@@ -163,6 +173,8 @@ public class StartSurfaceCoordinator implements StartSurface {
         if (feature.equals("single")) return SurfaceMode.SINGLE_PANE;
 
         if (feature.equals("tasksonly")) return SurfaceMode.TASKS_ONLY;
+
+        if (feature.equals("omniboxonly")) return SurfaceMode.OMNIBOX_ONLY;
 
         // Default to SurfaceMode.TASKS_ONLY. This could happen when the start surface has been
         // changed from enabled to disabled in native side, but the cached flag has not been updated
@@ -182,6 +194,7 @@ public class StartSurfaceCoordinator implements StartSurface {
         mTasksSurface = TabManagementModuleProvider.getDelegate().createTasksSurface(mActivity,
                 mPropertyModel, mActivity.getToolbarManager().getFakeboxDelegate(),
                 mSurfaceMode == SurfaceMode.SINGLE_PANE);
+        mTasksSurface.getView().setId(R.id.primary_tasks_surface_view);
 
         mTasksSurfacePropertyModelChangeProcessor =
                 PropertyModelChangeProcessor.create(mPropertyModel,
@@ -189,8 +202,8 @@ public class StartSurfaceCoordinator implements StartSurface {
                                 mActivity.getCompositorViewHolder(), mTasksSurface.getView()),
                         TasksSurfaceViewBinder::bind);
 
-        // There is nothing else to do for SurfaceMode.TASKS_ONLY.
-        if (mSurfaceMode == SurfaceMode.TASKS_ONLY) {
+        // There is nothing else to do for SurfaceMode.TASKS_ONLY and SurfaceMode.OMNIBOX_ONLY.
+        if (mSurfaceMode == SurfaceMode.TASKS_ONLY || mSurfaceMode == SurfaceMode.OMNIBOX_ONLY) {
             return;
         }
 
@@ -214,6 +227,13 @@ public class StartSurfaceCoordinator implements StartSurface {
         mSecondaryTasksSurface =
                 TabManagementModuleProvider.getDelegate().createTasksSurface(mActivity,
                         propertyModel, mActivity.getToolbarManager().getFakeboxDelegate(), false);
+
+        // Intentionally do not call mSecondaryTasksSurface.initialize since the secondary tasks
+        // surface will never show MV tiles.
+        // TODO(crbug.com/1041047): Remove constructing of the MV tilles from the
+        // TasksSurfaceCoordinator.
+
+        mSecondaryTasksSurface.getView().setId(R.id.secondary_tasks_surface_view);
         mSecondaryTasksSurfacePropertyModelChangeProcessor =
                 PropertyModelChangeProcessor.create(mPropertyModel,
                         new TasksSurfaceViewBinder.ViewHolder(mActivity.getCompositorViewHolder(),

@@ -19,6 +19,18 @@
 
 namespace web_app {
 
+std::string ControllerTypeParamToString(
+    const ::testing::TestParamInfo<ControllerType>& controller_type) {
+  switch (controller_type.param) {
+    case ControllerType::kHostedAppController:
+      return "HostedAppController";
+    case ControllerType::kUnifiedControllerWithBookmarkApp:
+      return "UnifiedControllerWithBookmarkApp";
+    case ControllerType::kUnifiedControllerWithWebApp:
+      return "UnifiedControllerWithWebApp";
+  }
+}
+
 WebAppControllerBrowserTestBase::WebAppControllerBrowserTestBase() {
   if (GetParam() == ControllerType::kUnifiedControllerWithWebApp) {
     scoped_feature_list_.InitWithFeatures(
@@ -96,6 +108,10 @@ content::WebContents* WebAppControllerBrowserTest::OpenApplication(
       apps::LaunchService::Get(profile())->OpenApplication(params);
   url_observer.Wait();
   return contents;
+}
+
+GURL WebAppControllerBrowserTest::GetInstallableAppURL() {
+  return https_server()->GetURL("/banners/manifest_test_page.html");
 }
 
 void WebAppControllerBrowserTest::SetUpInProcessBrowserTestFixture() {

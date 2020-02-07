@@ -127,6 +127,12 @@ best_practices_sources = [
   "layers/best_practices_error_enums.h",
 ]
 
+command_counter_sources = [
+  "layers/generated/command_counter_helper.cpp",
+  "layers/generated/command_counter_helper.h",
+  "layers/command_counter.h",
+]
+
 chassis_sources = [
   "layers/state_tracker.h",
   "layers/core_validation.h",
@@ -144,7 +150,8 @@ layers = [ [
       "khronos_validation",
       core_validation_sources + object_lifetimes_sources +
           stateless_validation_sources + thread_safety_sources +
-          unique_objects_sources + best_practices_sources + chassis_sources,
+          unique_objects_sources + best_practices_sources +
+          command_counter_sources + chassis_sources,
       [ ":vulkan_core_validation_glslang" ],
       [],
     ] ]
@@ -232,6 +239,7 @@ config("vulkan_stateless_validation_config") {
 foreach(layer_info, layers) {
   name = layer_info[0]
   shared_library("VkLayer_$name") {
+    defines = []
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [ "//build/config/compiler:no_chromium_code" ]
     configs -= vulkan_undefine_configs
@@ -251,6 +259,9 @@ foreach(layer_info, layers) {
     if (is_linux || is_android) {
       ldflags = [ "-Wl,-Bsymbolic,--exclude-libs,ALL" ]
     }
+    if (use_x11) {
+      defines += [ "VK_USE_PLATFORM_XLIB_KHR" ]
+    }
     if (is_android) {
       libs = [
         "log",
@@ -258,7 +269,7 @@ foreach(layer_info, layers) {
       ]
       configs -= [ "//build/config/android:hide_all_but_jni_onload" ]
     }
-    defines = layer_info[3]
+    defines += layer_info[3]
   }
 }
 

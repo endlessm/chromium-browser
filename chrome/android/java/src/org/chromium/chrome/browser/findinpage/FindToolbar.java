@@ -31,10 +31,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -724,6 +724,11 @@ public class FindToolbar extends LinearLayout {
         }
         mFindQuery.setText(findText);
         mSettingFindTextProgrammatically = false;
+    }
+
+    /** Sets the find query text string. */
+    void setFindQuery(String findText) {
+        mFindQuery.setText(findText);
     }
 
     /** Clears the result displays (except in-page match highlighting). */

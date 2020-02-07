@@ -93,6 +93,48 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
      !kLargeMetric, MemoryAllocatorDump::kNameObjectCount,
      EmitTo::kCountsInUkmOnly,
      &Memory_Experimental::SetNumberOfDetachedScriptStates},
+    {"blink_objects/V8CallInDetachedWindowByNavigation",
+     "NumberOfCallsInDetachedWindowByNavigation", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::SetNumberOfCallsInDetachedWindowByNavigation},
+    {"blink_objects/V8CallInDetachedWindowByNavigationAfter10s",
+     "NumberOfCallsInDetachedWindowByNavigationAfter10s", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::
+         SetNumberOfCallsInDetachedWindowByNavigation_After10sSinceDetaching},
+    {"blink_objects/V8CallInDetachedWindowByNavigationAfter1min",
+     "NumberOfCallsInDetachedWindowByNavigationAfter1min", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::
+         SetNumberOfCallsInDetachedWindowByNavigation_After1minSinceDetaching},
+    {"blink_objects/V8CallInDetachedWindowByClosing",
+     "NumberOfCallsInDetachedWindowByClosing", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::SetNumberOfCallsInDetachedWindowByClosing},
+    {"blink_objects/V8CallInDetachedWindowByClosingAfter10s",
+     "NumberOfCallsInDetachedWindowByClosingAfter10s", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::
+         SetNumberOfCallsInDetachedWindowByClosing_After10sSinceDetaching},
+    {"blink_objects/V8CallInDetachedWindowByClosingAfter1min",
+     "NumberOfCallsInDetachedWindowByClosingAfter1min", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::
+         SetNumberOfCallsInDetachedWindowByClosing_After1minSinceDetaching},
+    {"blink_objects/V8CallInDetachedWindowByOtherReason",
+     "NumberOfCallsInDetachedWindowByOtherReason", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::SetNumberOfCallsInDetachedWindowByOtherReason},
+    {"blink_objects/V8CallInDetachedWindowByOtherReasonAfter10s",
+     "NumberOfCallsInDetachedWindowByOtherReasonAfter10s", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::
+         SetNumberOfCallsInDetachedWindowByOtherReason_After10sSinceDetaching},
+    {"blink_objects/V8CallInDetachedWindowByOtherReasonAfter1min",
+     "NumberOfCallsInDetachedWindowByOtherReasonAfter1min", !kLargeMetric,
+     MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
+     &Memory_Experimental::
+         SetNumberOfCallsInDetachedWindowByOtherReason_After1minSinceDetaching},
     {"blink_objects/Frame", "NumberOfFrames", !kLargeMetric,
      MemoryAllocatorDump::kNameObjectCount, EmitTo::kCountsInUkmOnly,
      &Memory_Experimental::SetNumberOfFrames},
@@ -111,12 +153,20 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
      &Memory_Experimental::SetExtensions_ValueStore},
     {"font_caches", "FontCaches", !kLargeMetric, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetFontCaches},
+    {"gpu/discardable_cache", "ServiceDiscardableManager", !kLargeMetric, kSize,
+     EmitTo::kSizeInUmaOnly, nullptr},
+    {"gpu/discardable_cache", "ServiceDiscardableManager.AvgImageSize",
+     !kLargeMetric, "average_size", EmitTo::kSizeInUmaOnly, nullptr},
     {"gpu/gl", "CommandBuffer", kLargeMetric, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetCommandBuffer},
     {"gpu/gr_shader_cache", "Gpu.GrShaderCache", !kLargeMetric, kEffectiveSize,
      EmitTo::kSizeInUmaOnly, nullptr},
     {"gpu/shared_images", "gpu::SharedImageStub", !kLargeMetric, kEffectiveSize,
      EmitTo::kIgnored, nullptr},
+    {"gpu/transfer_cache", "ServiceTransferCache", !kLargeMetric, kSize,
+     EmitTo::kSizeInUmaOnly, nullptr},
+    {"gpu/transfer_cache", "ServiceTransferCache.AvgImageSize", !kLargeMetric,
+     "average_size", EmitTo::kSizeInUmaOnly, nullptr},
     {"history", "History", !kLargeMetric, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetHistory},
     {"java_heap", "JavaHeap", kLargeMetric, kEffectiveSize,
@@ -745,10 +795,9 @@ void ProcessMemoryMetricsEmitter::CollateResults() {
             }
           }
 
-          // If there is more than one frame being hosted in a renderer, don't
-          // emit any per-renderer URLs. This is not ideal, but UKM does not
-          // support multiple-URLs per entry, and we must have one entry per
-          // process.
+          // If there is more than one tab being hosted in a renderer, don't
+          // emit certain data. This is not ideal, but UKM does not support
+          // multiple-URLs per entry, and we must have one entry per process.
           if (process_info.page_infos.size() == 1) {
             single_page_info = &process_info.page_infos[0];
           }

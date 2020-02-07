@@ -10,6 +10,7 @@ from __future__ import print_function
 import json
 import multiprocessing
 import os
+import sys
 
 from chromite.cli import command
 from chromite.cli import deploy
@@ -101,7 +102,7 @@ class DbApiFake(object):
           'SLOT': slot, 'RDEPEND': rdeps_raw, 'BUILD_TIME': build_time}
 
   def cpv_all(self):
-    return self.pkg_db.keys()
+    return list(self.pkg_db)
 
   def aux_get(self, cpv, keys):
     pkg_info = self.pkg_db[cpv]
@@ -115,7 +116,7 @@ class PackageScannerFake(object):
     self.pkgs = packages
     self.cpvs = packages_cpvs or packages
     self.listed = []
-    self.num_updates = None
+    self.num_updates = 0
     self.pkgs_attrs = pkgs_attrs
 
   def Run(self, _device, _root, _packages, _update, _deep, _deep_rev):
@@ -448,6 +449,7 @@ class TestDeploy(cros_test_lib.ProgressBarTestCase):
       for event in op.MERGE_EVENTS:
         queue.get()
         print(event)
+        sys.stdout.flush()
 
     queue = multiprocessing.Queue()
     # Emerge one package.
@@ -465,6 +467,7 @@ class TestDeploy(cros_test_lib.ProgressBarTestCase):
       for event in op.UNMERGE_EVENTS:
         queue.get()
         print(event)
+        sys.stdout.flush()
 
     queue = multiprocessing.Queue()
     # Unmerge one package.

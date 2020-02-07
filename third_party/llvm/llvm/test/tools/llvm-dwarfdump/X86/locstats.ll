@@ -71,7 +71,7 @@
 ; CHECK: "vars with 80-89% of its scope covered":1
 ; CHECK: "vars with 90-99% of its scope covered":0
 ; CHECK: "vars with 100% of its scope covered":1
-; CHECK: "vars (excluding the debug entry values) with 0% of its scope covered":0
+; CHECK: "vars (excluding the debug entry values) with 0% of its scope covered":1
 ; CHECK: "vars (excluding the debug entry values) with 1-9% of its scope covered":0
 ; CHECK: "vars (excluding the debug entry values) with 10-19% of its scope covered":0
 ; CHECK: "vars (excluding the debug entry values) with 20-29% of its scope covered":0
@@ -80,9 +80,9 @@
 ; CHECK: "vars (excluding the debug entry values) with 50-59% of its scope covered":1
 ; CHECK: "vars (excluding the debug entry values) with 60-69% of its scope covered":0
 ; CHECK: "vars (excluding the debug entry values) with 70-79% of its scope covered":0
-; CHECK: "vars (excluding the debug entry values) with 80-89% of its scope covered":0
+; CHECK: "vars (excluding the debug entry values) with 80-89% of its scope covered":1
 ; CHECK: "vars (excluding the debug entry values) with 90-99% of its scope covered":0
-; CHECK: "vars (excluding the debug entry values) with 100% of its scope covered":1}
+; CHECK: "vars (excluding the debug entry values) with 100% of its scope covered":1
 ;
 ; The source code of the test case:
 ; extern void fn3(int *);
@@ -191,8 +191,8 @@ declare void @llvm.dbg.value(metadata, metadata, metadata)
 !17 = !DISubroutineType(types: !18)
 !18 = !{null, !7, !7}
 !19 = !{!20, !21, !22, !23}
-!20 = !DILocalVariable(name: "x", arg: 1, scope: !16, file: !1, line: 6, type: !7, flags: DIFlagArgumentNotModified)
-!21 = !DILocalVariable(name: "y", arg: 2, scope: !16, file: !1, line: 6, type: !7, flags: DIFlagArgumentNotModified)
+!20 = !DILocalVariable(name: "x", arg: 1, scope: !16, file: !1, line: 6, type: !7)
+!21 = !DILocalVariable(name: "y", arg: 2, scope: !16, file: !1, line: 6, type: !7)
 !22 = !DILocalVariable(name: "u", scope: !16, file: !1, line: 8, type: !7)
 !23 = !DILocalVariable(name: "a", scope: !16, file: !1, line: 18, type: !7)
 !24 = !DILocation(line: 0, scope: !16)

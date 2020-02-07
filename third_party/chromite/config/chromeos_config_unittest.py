@@ -64,7 +64,7 @@ class ConfigDumpTest(ChromeosConfigTestBase):
     # watefall_layout_dump.txt
     # We run this as a sep program to avoid the config cache.
     cmd = os.path.join(constants.CHROMITE_BIN_DIR, 'cros_show_waterfall_layout')
-    result = cros_build_lib.run([cmd], capture_output=True)
+    result = cros_build_lib.run([cmd], capture_output=True, encoding='utf-8')
 
     new_dump = result.output
     old_dump = osutils.ReadFile(constants.WATERFALL_CONFIG_FILE)
@@ -80,7 +80,7 @@ class ConfigDumpTest(ChromeosConfigTestBase):
     # luci-scheduler.cfg
     # We run this as a sep program to avoid the config cache.
     cmd = os.path.join(constants.CHROMITE_DIR, 'scripts', 'gen_luci_scheduler')
-    result = cros_build_lib.run([cmd], capture_output=True)
+    result = cros_build_lib.run([cmd], capture_output=True, encoding='utf-8')
 
     new_dump = result.output
     old_dump = osutils.ReadFile(constants.LUCI_SCHEDULER_CONFIG_FILE)
@@ -99,7 +99,7 @@ class ConfigDumpTest(ChromeosConfigTestBase):
     loaded = config_lib.LoadConfigFromString(site_config_str)
 
     self.longMessage = True
-    for name in self.site_config.keys():
+    for name in self.site_config:
       self.assertDictEqual(loaded[name], self.site_config[name], name)
 
     # This includes templates and the default build config.
@@ -268,8 +268,6 @@ class UnifiedBuildConfigTestCase(object):
         self._site_config, self._fake_ge_build_config)
     chromeos_config.ReleaseBuilders(
         self._site_config, self._boards_dict, self._fake_ge_build_config)
-    chromeos_config.CqBuilders(
-        self._site_config, self._boards_dict, self._fake_ge_build_config)
 
 
 class UnifiedBuildReleaseBuilders(
@@ -290,24 +288,6 @@ class UnifiedBuildReleaseBuilders(
 
     master_release = self._site_config['master-release']
     self.assertIn('coral-release', master_release['slave_configs'])
-
-
-class UnifiedBuildCqBuilders(
-    cros_test_lib.OutputTestCase, UnifiedBuildConfigTestCase):
-  """Tests that verify how unified builder CQ configs are generated"""
-
-  def setUp(self):
-    UnifiedBuildConfigTestCase.setUp(self)
-
-  def testUnifiedCqBuilders(self):
-    coral_paladin = self._site_config['coral-paladin']
-    self.assertIsNotNone(coral_paladin)
-    models = coral_paladin['models']
-    self.assertEqual(len(models), 1)
-    self.assertIn(config_lib.ModelTestConfig('robo', 'robo'), models)
-
-    master_paladin = self._site_config['master-paladin']
-    self.assertIn('coral-paladin', master_paladin['slave_configs'])
 
 
 class ConfigClassTest(ChromeosConfigTestBase):
@@ -355,9 +335,9 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
     This checks for mispelled keys, or keys that are somehow removed.
     """
-    expected_keys = set(self.site_config.GetDefault().keys())
+    expected_keys = set(self.site_config.GetDefault())
     for build_name, config in self.site_config.items():
-      config_keys = set(config.keys())
+      config_keys = set(config)
 
       extra_keys = config_keys.difference(expected_keys)
       self.assertFalse(extra_keys, ('Config %s has extra values %s' %
@@ -657,6 +637,10 @@ class CBuildBotTest(ChromeosConfigTestBase):
         'gale-release',
         'mistral-release',
         'whirlwind-release',
+        # See crbug.com/1011171.
+        'expresso-release',
+        'jacuzzi-release',
+        'zork-release',
     ))
     missing_tests = set()
     running_tests = set()
@@ -667,7 +651,9 @@ class CBuildBotTest(ChromeosConfigTestBase):
         # Release tryjobs match their release job.
         if '-release-tryjob' in check_name:
           check_name = check_name.replace('-tryjob', '')
-        if check_name.startswith('betty-') or check_name.startswith('novato-'):
+        if (check_name.startswith('betty-')
+            or check_name.startswith('novato-')
+            or check_name.startswith('amd64-generic-')):
           # Betty is vm-only, so never does hardware tests.  See crbug/998427.
           continue
         elif check_name not in expected_exceptions:
@@ -696,6 +682,14 @@ class CBuildBotTest(ChromeosConfigTestBase):
         continue
 
       if build_name.startswith('novato'):
+        continue
+
+      if build_name.startswith('amd64-generic'):
+        continue
+
+      # crbug.com/1011171: expresso, jacuzzi, and zork do not run hwtests in the
+      # release builder.
+      if build_name.startswith(('expresso', 'jacuzzi', 'zork')):
         continue
 
       # Jetstream boards currently do not run hwtests in the release builder,
@@ -767,31 +761,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
   #   have_vm_tests = any([self.site_config[name].vm_tests
   #                        for name in pre_cq_configs])
   #   self.assertTrue(have_vm_tests, 'No Pre-CQ builder has VM tests enabled')
-
-  def testPfqsHavePaladins(self):
-    """Make sure that every active PFQ has an associated Paladin.
-
-    This checks that every configured active PFQ on the external or internal
-    main waterfall has an associated active Paladin config.
-    """
-    # Get a list of all active Paladins boards.
-    paladin_boards = set()
-    for slave_config in self._getSlaveConfigsForMaster('master-paladin'):
-      paladin_boards.update(slave_config.boards)
-
-    for pfq_master in (constants.PFQ_MASTER,
-                       constants.NYC_ANDROID_PFQ_MASTER):
-      pfq_configs = self._getSlaveConfigsForMaster(pfq_master)
-
-      failures = set()
-      for config in pfq_configs:
-        self.assertEqual(len(config.boards), 1)
-        if config.boards[0] not in paladin_boards:
-          failures.add(config.name)
-
-      if failures:
-        self.fail("Some active PFQ configs don't have active Paladins: %s" % (
-            ', '.join(sorted(failures))))
 
   def testGetSlavesOnTrybot(self):
     """Make sure every master has a sane list of slaves"""
@@ -928,7 +897,7 @@ class CBuildBotTest(ChromeosConfigTestBase):
         prebuilt_slave_boards = {}
         for slave in prebuilt_slaves:
           for board in slave['boards']:
-            self.assertFalse(prebuilt_slave_boards.has_key(board),
+            self.assertNotIn(board, prebuilt_slave_boards,
                              'Configs %s and %s both upload prebuilts for '
                              'board %s.' % (prebuilt_slave_boards.get(board),
                                             slave['name'],
@@ -1133,12 +1102,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
           '%s timeout %s is greater than 24h'
           % (build_name, config.build_timeout))
 
-  def testBinhostTest(self):
-    """Builders with the binhost_test setting shouldn't have boards."""
-    for config in self.site_config.values():
-      if config.binhost_test:
-        self.assertEqual(config.boards, [])
-
   def testLuciScheduler(self):
     """LUCI Scheduler entries only work for swarming builds."""
     for config in self.site_config.values():
@@ -1225,12 +1188,12 @@ class BoardConfigsTest(ChromeosConfigTestBase):
 
   def testBoardConfigsSuperset(self):
     """Ensure all external boards are listed as internal, also."""
-    for board in self.external_board_configs.keys():
+    for board in self.external_board_configs:
       self.assertIn(board, self.internal_board_configs)
 
-  def verifyNoTests(self, board_configs_iter):
+  def _verifyNoTests(self, board_configs):
     """Defining tests in board specific templates doesn't work as expected."""
-    for board, template in board_configs_iter:
+    for board, template in board_configs.items():
       self.assertFalse(
           'vm_tests' in template and template.vm_tests,
           'Per-board template for %s defining vm_tests' % board)
@@ -1249,16 +1212,16 @@ class BoardConfigsTest(ChromeosConfigTestBase):
 
   def testExternalsDontDefineTests(self):
     """Verify no external boards define tests at the board level."""
-    self.verifyNoTests(self.external_board_configs.items())
+    self._verifyNoTests(self.external_board_configs)
 
   def testInternalsDontDefineTests(self):
     """Verify no internal boards define tests at the board level."""
-    self.verifyNoTests(self.internal_board_configs.items())
+    self._verifyNoTests(self.internal_board_configs)
 
   def testUpdateBoardConfigs(self):
     """Test UpdateBoardConfigs."""
     pre_test = copy.deepcopy(self.internal_board_configs)
-    update_boards = pre_test.keys()[2:5]
+    update_boards = list(pre_test)[2:5]
 
     result = chromeos_config.UpdateBoardConfigs(
         self.internal_board_configs, update_boards,
@@ -1269,7 +1232,7 @@ class BoardConfigsTest(ChromeosConfigTestBase):
     self.assertEqual(self.internal_board_configs, pre_test)
 
     # The result as the same list of boards.
-    self.assertCountEqual(result.keys(), pre_test.keys())
+    self.assertCountEqual(list(result), list(pre_test))
 
     # And only appropriate values were updated.
     for b in pre_test:

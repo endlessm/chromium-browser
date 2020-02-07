@@ -25,7 +25,7 @@
 #include <iomanip>
 
 // get the API name is proper format
-std::string BestPractices::GetAPIVersionName(uint32_t version) {
+std::string BestPractices::GetAPIVersionName(uint32_t version) const {
     std::stringstream version_name;
     uint32_t major = VK_VERSION_MAJOR(version);
     uint32_t minor = VK_VERSION_MINOR(version);
@@ -38,7 +38,7 @@ std::string BestPractices::GetAPIVersionName(uint32_t version) {
 }
 
 bool BestPractices::PreCallValidateCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator,
-                                                  VkInstance* pInstance) {
+                                                  VkInstance* pInstance) const {
     bool skip = false;
 
     for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; i++) {
@@ -59,13 +59,13 @@ void BestPractices::PreCallRecordCreateInstance(const VkInstanceCreateInfo* pCre
 }
 
 bool BestPractices::PreCallValidateCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo,
-                                                const VkAllocationCallbacks* pAllocator, VkDevice* pDevice) {
+                                                const VkAllocationCallbacks* pAllocator, VkDevice* pDevice) const {
     bool skip = false;
 
     // get API version of physical device passed when creating device.
     VkPhysicalDeviceProperties physical_device_properties{};
     DispatchGetPhysicalDeviceProperties(physicalDevice, &physical_device_properties);
-    device_api_version = physical_device_properties.apiVersion;
+    auto device_api_version = physical_device_properties.apiVersion;
 
     // check api versions and warn if instance api Version is higher than version on device.
     if (instance_api_version > device_api_version) {
@@ -98,7 +98,7 @@ bool BestPractices::PreCallValidateCreateDevice(VkPhysicalDevice physicalDevice,
 }
 
 bool BestPractices::PreCallValidateCreateBuffer(VkDevice device, const VkBufferCreateInfo* pCreateInfo,
-                                                const VkAllocationCallbacks* pAllocator, VkBuffer* pBuffer) {
+                                                const VkAllocationCallbacks* pAllocator, VkBuffer* pBuffer) const {
     bool skip = false;
 
     if ((pCreateInfo->queueFamilyIndexCount > 1) && (pCreateInfo->sharingMode == VK_SHARING_MODE_EXCLUSIVE)) {
@@ -117,7 +117,7 @@ bool BestPractices::PreCallValidateCreateBuffer(VkDevice device, const VkBufferC
 }
 
 bool BestPractices::PreCallValidateCreateImage(VkDevice device, const VkImageCreateInfo* pCreateInfo,
-                                               const VkAllocationCallbacks* pAllocator, VkImage* pImage) {
+                                               const VkAllocationCallbacks* pAllocator, VkImage* pImage) const {
     bool skip = false;
 
     if ((pCreateInfo->queueFamilyIndexCount > 1) && (pCreateInfo->sharingMode == VK_SHARING_MODE_EXCLUSIVE)) {
@@ -136,7 +136,7 @@ bool BestPractices::PreCallValidateCreateImage(VkDevice device, const VkImageCre
 }
 
 bool BestPractices::PreCallValidateCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo,
-                                                      const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain) {
+                                                      const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain) const {
     bool skip = false;
 
     auto physical_device_state = GetPhysicalDeviceState();
@@ -175,7 +175,8 @@ bool BestPractices::PreCallValidateCreateSwapchainKHR(VkDevice device, const VkS
 
 bool BestPractices::PreCallValidateCreateSharedSwapchainsKHR(VkDevice device, uint32_t swapchainCount,
                                                              const VkSwapchainCreateInfoKHR* pCreateInfos,
-                                                             const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchains) {
+                                                             const VkAllocationCallbacks* pAllocator,
+                                                             VkSwapchainKHR* pSwapchains) const {
     bool skip = false;
 
     for (uint32_t i = 0; i < swapchainCount; i++) {
@@ -194,7 +195,7 @@ bool BestPractices::PreCallValidateCreateSharedSwapchainsKHR(VkDevice device, ui
 }
 
 bool BestPractices::PreCallValidateCreateRenderPass(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo,
-                                                    const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass) {
+                                                    const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass) const {
     bool skip = false;
 
     for (uint32_t i = 0; i < pCreateInfo->attachmentCount; ++i) {
@@ -229,12 +230,10 @@ bool BestPractices::PreCallValidateCreateRenderPass(VkDevice device, const VkRen
 }
 
 bool BestPractices::PreCallValidateAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
-                                                  const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory) {
+                                                  const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory) const {
     bool skip = false;
 
-    num_mem_objects++;
-
-    if (num_mem_objects > kMemoryObjectWarningLimit) {
+    if (num_mem_objects + 1 > kMemoryObjectWarningLimit) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                         kVUID_BestPractices_AllocateMemory_TooManyObjects,
                         "Performance Warning: This app has > %" PRIu32 " memory objects.", kMemoryObjectWarningLimit);
@@ -245,10 +244,21 @@ bool BestPractices::PreCallValidateAllocateMemory(VkDevice device, const VkMemor
     return skip;
 }
 
-bool BestPractices::PreCallValidateFreeMemory(VkDevice device, VkDeviceMemory memory, const VkAllocationCallbacks* pAllocator) {
+void BestPractices::PostCallRecordAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
+                                                 const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory,
+                                                 VkResult result) {
+    ValidationStateTracker::PostCallRecordAllocateMemory(device, pAllocateInfo, pAllocator, pMemory, result);
+
+    if (VK_SUCCESS == result) {
+        num_mem_objects++;
+    }
+}
+
+bool BestPractices::PreCallValidateFreeMemory(VkDevice device, VkDeviceMemory memory,
+                                              const VkAllocationCallbacks* pAllocator) const {
     bool skip = false;
 
-    DEVICE_MEMORY_STATE* mem_info = GetDevMemState(memory);
+    const DEVICE_MEMORY_STATE* mem_info = ValidationStateTracker::GetDevMemState(memory);
 
     for (auto& obj : mem_info->obj_bindings) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, get_debug_report_enum[obj.type], 0, layer_name.c_str(),
@@ -265,11 +275,11 @@ void BestPractices::PreCallRecordFreeMemory(VkDevice device, VkDeviceMemory memo
     }
 }
 
-bool BestPractices::ValidateBindBufferMemory(VkBuffer buffer, const char* api_name) {
+bool BestPractices::ValidateBindBufferMemory(VkBuffer buffer, const char* api_name) const {
     bool skip = false;
-    BUFFER_STATE* buffer_state = GetBufferState(buffer);
+    const BUFFER_STATE* buffer_state = GetBufferState(buffer);
 
-    if (!buffer_state->memory_requirements_checked) {
+    if (!buffer_state->memory_requirements_checked && !buffer_state->external_memory_handle) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                         kVUID_BestPractices_BufferMemReqNotCalled,
                         "%s: Binding memory to %s but vkGetBufferMemoryRequirements() has not been called on that buffer.",
@@ -280,7 +290,7 @@ bool BestPractices::ValidateBindBufferMemory(VkBuffer buffer, const char* api_na
 }
 
 bool BestPractices::PreCallValidateBindBufferMemory(VkDevice device, VkBuffer buffer, VkDeviceMemory memory,
-                                                    VkDeviceSize memoryOffset) {
+                                                    VkDeviceSize memoryOffset) const {
     bool skip = false;
     const char* api_name = "BindBufferMemory()";
 
@@ -290,7 +300,7 @@ bool BestPractices::PreCallValidateBindBufferMemory(VkDevice device, VkBuffer bu
 }
 
 bool BestPractices::PreCallValidateBindBufferMemory2(VkDevice device, uint32_t bindInfoCount,
-                                                     const VkBindBufferMemoryInfo* pBindInfos) {
+                                                     const VkBindBufferMemoryInfo* pBindInfos) const {
     char api_name[64];
     bool skip = false;
 
@@ -303,7 +313,7 @@ bool BestPractices::PreCallValidateBindBufferMemory2(VkDevice device, uint32_t b
 }
 
 bool BestPractices::PreCallValidateBindBufferMemory2KHR(VkDevice device, uint32_t bindInfoCount,
-                                                        const VkBindBufferMemoryInfo* pBindInfos) {
+                                                        const VkBindBufferMemoryInfo* pBindInfos) const {
     char api_name[64];
     bool skip = false;
 
@@ -315,11 +325,11 @@ bool BestPractices::PreCallValidateBindBufferMemory2KHR(VkDevice device, uint32_
     return skip;
 }
 
-bool BestPractices::ValidateBindImageMemory(VkImage image, const char* api_name) {
+bool BestPractices::ValidateBindImageMemory(VkImage image, const char* api_name) const {
     bool skip = false;
-    IMAGE_STATE* image_state = GetImageState(image);
+    const IMAGE_STATE* image_state = GetImageState(image);
 
-    if (!image_state->memory_requirements_checked) {
+    if (!image_state->memory_requirements_checked && !image_state->external_memory_handle) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                         kVUID_BestPractices_ImageMemReqNotCalled,
                         "%s: Binding memory to %s but vkGetImageMemoryRequirements() has not been called on that image.", api_name,
@@ -330,7 +340,7 @@ bool BestPractices::ValidateBindImageMemory(VkImage image, const char* api_name)
 }
 
 bool BestPractices::PreCallValidateBindImageMemory(VkDevice device, VkImage image, VkDeviceMemory memory,
-                                                   VkDeviceSize memoryOffset) {
+                                                   VkDeviceSize memoryOffset) const {
     bool skip = false;
     const char* api_name = "vkBindImageMemory()";
 
@@ -340,7 +350,7 @@ bool BestPractices::PreCallValidateBindImageMemory(VkDevice device, VkImage imag
 }
 
 bool BestPractices::PreCallValidateBindImageMemory2(VkDevice device, uint32_t bindInfoCount,
-                                                    const VkBindImageMemoryInfo* pBindInfos) {
+                                                    const VkBindImageMemoryInfo* pBindInfos) const {
     char api_name[64];
     bool skip = false;
 
@@ -353,7 +363,7 @@ bool BestPractices::PreCallValidateBindImageMemory2(VkDevice device, uint32_t bi
 }
 
 bool BestPractices::PreCallValidateBindImageMemory2KHR(VkDevice device, uint32_t bindInfoCount,
-                                                       const VkBindImageMemoryInfo* pBindInfos) {
+                                                       const VkBindImageMemoryInfo* pBindInfos) const {
     char api_name[64];
     bool skip = false;
 
@@ -368,7 +378,7 @@ bool BestPractices::PreCallValidateBindImageMemory2KHR(VkDevice device, uint32_t
 bool BestPractices::PreCallValidateCreateGraphicsPipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount,
                                                            const VkGraphicsPipelineCreateInfo* pCreateInfos,
                                                            const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines,
-                                                           void* cgpl_state_data) {
+                                                           void* cgpl_state_data) const {
     bool skip = StateTracker::PreCallValidateCreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos,
                                                                      pAllocator, pPipelines, cgpl_state_data);
 
@@ -386,7 +396,7 @@ bool BestPractices::PreCallValidateCreateGraphicsPipelines(VkDevice device, VkPi
 bool BestPractices::PreCallValidateCreateComputePipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount,
                                                           const VkComputePipelineCreateInfo* pCreateInfos,
                                                           const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines,
-                                                          void* ccpl_state_data) {
+                                                          void* ccpl_state_data) const {
     bool skip = StateTracker::PreCallValidateCreateComputePipelines(device, pipelineCache, createInfoCount, pCreateInfos,
                                                                     pAllocator, pPipelines, ccpl_state_data);
 
@@ -400,7 +410,7 @@ bool BestPractices::PreCallValidateCreateComputePipelines(VkDevice device, VkPip
     return skip;
 }
 
-bool BestPractices::CheckPipelineStageFlags(std::string api_name, const VkPipelineStageFlags flags) {
+bool BestPractices::CheckPipelineStageFlags(std::string api_name, const VkPipelineStageFlags flags) const {
     bool skip = false;
 
     if (flags & VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT) {
@@ -416,7 +426,8 @@ bool BestPractices::CheckPipelineStageFlags(std::string api_name, const VkPipeli
     return skip;
 }
 
-bool BestPractices::PreCallValidateQueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence) {
+bool BestPractices::PreCallValidateQueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits,
+                                               VkFence fence) const {
     bool skip = false;
 
     for (uint32_t submit = 0; submit < submitCount; submit++) {
@@ -428,7 +439,7 @@ bool BestPractices::PreCallValidateQueueSubmit(VkQueue queue, uint32_t submitCou
     return skip;
 }
 
-bool BestPractices::PreCallValidateCmdSetEvent(VkCommandBuffer commandBuffer, VkEvent event, VkPipelineStageFlags stageMask) {
+bool BestPractices::PreCallValidateCmdSetEvent(VkCommandBuffer commandBuffer, VkEvent event, VkPipelineStageFlags stageMask) const {
     bool skip = false;
 
     skip |= CheckPipelineStageFlags("vkCmdSetEvent", stageMask);
@@ -436,7 +447,8 @@ bool BestPractices::PreCallValidateCmdSetEvent(VkCommandBuffer commandBuffer, Vk
     return skip;
 }
 
-bool BestPractices::PreCallValidateCmdResetEvent(VkCommandBuffer commandBuffer, VkEvent event, VkPipelineStageFlags stageMask) {
+bool BestPractices::PreCallValidateCmdResetEvent(VkCommandBuffer commandBuffer, VkEvent event,
+                                                 VkPipelineStageFlags stageMask) const {
     bool skip = false;
 
     skip |= CheckPipelineStageFlags("vkCmdResetEvent", stageMask);
@@ -450,7 +462,7 @@ bool BestPractices::PreCallValidateCmdWaitEvents(VkCommandBuffer commandBuffer, 
                                                  uint32_t bufferMemoryBarrierCount,
                                                  const VkBufferMemoryBarrier* pBufferMemoryBarriers,
                                                  uint32_t imageMemoryBarrierCount,
-                                                 const VkImageMemoryBarrier* pImageMemoryBarriers) {
+                                                 const VkImageMemoryBarrier* pImageMemoryBarriers) const {
     bool skip = false;
 
     skip |= CheckPipelineStageFlags("vkCmdWaitEvents", srcStageMask);
@@ -465,7 +477,7 @@ bool BestPractices::PreCallValidateCmdPipelineBarrier(VkCommandBuffer commandBuf
                                                       uint32_t bufferMemoryBarrierCount,
                                                       const VkBufferMemoryBarrier* pBufferMemoryBarriers,
                                                       uint32_t imageMemoryBarrierCount,
-                                                      const VkImageMemoryBarrier* pImageMemoryBarriers) {
+                                                      const VkImageMemoryBarrier* pImageMemoryBarriers) const {
     bool skip = false;
 
     skip |= CheckPipelineStageFlags("vkCmdPipelineBarrier", srcStageMask);
@@ -475,7 +487,7 @@ bool BestPractices::PreCallValidateCmdPipelineBarrier(VkCommandBuffer commandBuf
 }
 
 bool BestPractices::PreCallValidateCmdWriteTimestamp(VkCommandBuffer commandBuffer, VkPipelineStageFlagBits pipelineStage,
-                                                     VkQueryPool queryPool, uint32_t query) {
+                                                     VkQueryPool queryPool, uint32_t query) const {
     bool skip = false;
 
     skip |= CheckPipelineStageFlags("vkCmdWriteTimestamp", pipelineStage);
@@ -484,7 +496,7 @@ bool BestPractices::PreCallValidateCmdWriteTimestamp(VkCommandBuffer commandBuff
 }
 
 bool BestPractices::PreCallValidateCmdDraw(VkCommandBuffer commandBuffer, uint32_t vertexCount, uint32_t instanceCount,
-                                           uint32_t firstVertex, uint32_t firstInstance) {
+                                           uint32_t firstVertex, uint32_t firstInstance) const {
     bool skip = false;
 
     if (instanceCount == 0) {
@@ -497,7 +509,7 @@ bool BestPractices::PreCallValidateCmdDraw(VkCommandBuffer commandBuffer, uint32
 }
 
 bool BestPractices::PreCallValidateCmdDrawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t instanceCount,
-                                                  uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
+                                                  uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) const {
     bool skip = false;
 
     if (instanceCount == 0) {
@@ -510,7 +522,7 @@ bool BestPractices::PreCallValidateCmdDrawIndexed(VkCommandBuffer commandBuffer,
 }
 
 bool BestPractices::PreCallValidateCmdDrawIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
-                                                   uint32_t drawCount, uint32_t stride) {
+                                                   uint32_t drawCount, uint32_t stride) const {
     bool skip = false;
 
     if (drawCount == 0) {
@@ -523,7 +535,7 @@ bool BestPractices::PreCallValidateCmdDrawIndirect(VkCommandBuffer commandBuffer
 }
 
 bool BestPractices::PreCallValidateCmdDrawIndexedIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
-                                                          uint32_t drawCount, uint32_t stride) {
+                                                          uint32_t drawCount, uint32_t stride) const {
     bool skip = false;
 
     if (drawCount == 0) {
@@ -536,7 +548,7 @@ bool BestPractices::PreCallValidateCmdDrawIndexedIndirect(VkCommandBuffer comman
 }
 
 bool BestPractices::PreCallValidateCmdDispatch(VkCommandBuffer commandBuffer, uint32_t groupCountX, uint32_t groupCountY,
-                                               uint32_t groupCountZ) {
+                                               uint32_t groupCountZ) const {
     bool skip = false;
 
     if ((groupCountX == 0) || (groupCountY == 0) || (groupCountZ == 0)) {
@@ -550,24 +562,53 @@ bool BestPractices::PreCallValidateCmdDispatch(VkCommandBuffer commandBuffer, ui
     return skip;
 }
 
-bool BestPractices::PreCallValidateGetDisplayPlaneSupportedDisplaysKHR(VkPhysicalDevice physicalDevice, uint32_t planeIndex,
-                                                                       uint32_t* pDisplayCount, VkDisplayKHR* pDisplays) {
+bool BestPractices::ValidateGetPhysicalDeviceDisplayPlanePropertiesKHRQuery(VkPhysicalDevice physicalDevice,
+                                                                            const char* api_name) const {
     bool skip = false;
+    const auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
 
-    auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
-
-    if (physical_device_state->vkGetPhysicalDeviceDisplayPlanePropertiesKHRState != QUERY_DETAILS) {
-        skip |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                        kVUID_BestPractices_DisplayPlane_PropertiesNotCalled,
-                        "vkGetDisplayPlaneSupportedDisplaysKHR() called before getting diplay plane properties from "
-                        "vkGetPhysicalDeviceDisplayPlanePropertiesKHR().");
+    if (physical_device_state->vkGetPhysicalDeviceDisplayPlanePropertiesKHRState == UNCALLED) {
+        skip |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PHYSICAL_DEVICE_EXT,
+                        HandleToUint64(physicalDevice), kVUID_BestPractices_DisplayPlane_PropertiesNotCalled,
+                        "Potential problem with calling %s() without first retrieving properties from "
+                        "vkGetPhysicalDeviceDisplayPlanePropertiesKHR or vkGetPhysicalDeviceDisplayPlaneProperties2KHR.",
+                        api_name);
     }
 
     return skip;
 }
 
+bool BestPractices::PreCallValidateGetDisplayPlaneSupportedDisplaysKHR(VkPhysicalDevice physicalDevice, uint32_t planeIndex,
+                                                                       uint32_t* pDisplayCount, VkDisplayKHR* pDisplays) const {
+    bool skip = false;
+
+    skip |= ValidateGetPhysicalDeviceDisplayPlanePropertiesKHRQuery(physicalDevice, "vkGetDisplayPlaneSupportedDisplaysKHR");
+
+    return skip;
+}
+
+bool BestPractices::PreCallValidateGetDisplayPlaneCapabilitiesKHR(VkPhysicalDevice physicalDevice, VkDisplayModeKHR mode,
+                                                                  uint32_t planeIndex,
+                                                                  VkDisplayPlaneCapabilitiesKHR* pCapabilities) const {
+    bool skip = false;
+
+    skip |= ValidateGetPhysicalDeviceDisplayPlanePropertiesKHRQuery(physicalDevice, "vkGetDisplayPlaneCapabilitiesKHR");
+
+    return skip;
+}
+
+bool BestPractices::PreCallValidateGetDisplayPlaneCapabilities2KHR(VkPhysicalDevice physicalDevice,
+                                                                   const VkDisplayPlaneInfo2KHR* pDisplayPlaneInfo,
+                                                                   VkDisplayPlaneCapabilities2KHR* pCapabilities) const {
+    bool skip = false;
+
+    skip |= ValidateGetPhysicalDeviceDisplayPlanePropertiesKHRQuery(physicalDevice, "vkGetDisplayPlaneCapabilities2KHR");
+
+    return skip;
+}
+
 bool BestPractices::PreCallValidateGetSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain, uint32_t* pSwapchainImageCount,
-                                                         VkImage* pSwapchainImages) {
+                                                         VkImage* pSwapchainImages) const {
     bool skip = false;
 
     auto swapchain_state = GetSwapchainState(swapchain);
@@ -616,8 +657,8 @@ static bool ValidateCommonGetPhysicalDeviceQueueFamilyProperties(debug_report_da
     return skip;
 }
 
-bool BestPractices::PreCallValidateBindAccelerationStructureMemoryNV(VkDevice device, uint32_t bindInfoCount,
-                                                                     const VkBindAccelerationStructureMemoryInfoNV* pBindInfos) {
+bool BestPractices::PreCallValidateBindAccelerationStructureMemoryNV(
+    VkDevice device, uint32_t bindInfoCount, const VkBindAccelerationStructureMemoryInfoNV* pBindInfos) const {
     bool skip = false;
 
     for (uint32_t i = 0; i < bindInfoCount; i++) {
@@ -640,7 +681,7 @@ bool BestPractices::PreCallValidateBindAccelerationStructureMemoryNV(VkDevice de
 
 bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties(VkPhysicalDevice physicalDevice,
                                                                           uint32_t* pQueueFamilyPropertyCount,
-                                                                          VkQueueFamilyProperties* pQueueFamilyProperties) {
+                                                                          VkQueueFamilyProperties* pQueueFamilyProperties) const {
     const auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
     assert(physical_device_state);
     return ValidateCommonGetPhysicalDeviceQueueFamilyProperties(report_data, physical_device_state, *pQueueFamilyPropertyCount,
@@ -648,9 +689,9 @@ bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties(VkPhys
                                                                 "vkGetPhysicalDeviceQueueFamilyProperties()");
 }
 
-bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties2(VkPhysicalDevice physicalDevice,
-                                                                           uint32_t* pQueueFamilyPropertyCount,
-                                                                           VkQueueFamilyProperties2KHR* pQueueFamilyProperties) {
+bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties2(
+    VkPhysicalDevice physicalDevice, uint32_t* pQueueFamilyPropertyCount,
+    VkQueueFamilyProperties2KHR* pQueueFamilyProperties) const {
     const auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
     assert(physical_device_state);
     return ValidateCommonGetPhysicalDeviceQueueFamilyProperties(report_data, physical_device_state, *pQueueFamilyPropertyCount,
@@ -658,9 +699,9 @@ bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties2(VkPhy
                                                                 "vkGetPhysicalDeviceQueueFamilyProperties2()");
 }
 
-bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties2KHR(VkPhysicalDevice physicalDevice,
-                                                                              uint32_t* pQueueFamilyPropertyCount,
-                                                                              VkQueueFamilyProperties2KHR* pQueueFamilyProperties) {
+bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties2KHR(
+    VkPhysicalDevice physicalDevice, uint32_t* pQueueFamilyPropertyCount,
+    VkQueueFamilyProperties2KHR* pQueueFamilyProperties) const {
     auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
     assert(physical_device_state);
     return ValidateCommonGetPhysicalDeviceQueueFamilyProperties(report_data, physical_device_state, *pQueueFamilyPropertyCount,
@@ -670,7 +711,7 @@ bool BestPractices::PreCallValidateGetPhysicalDeviceQueueFamilyProperties2KHR(Vk
 
 bool BestPractices::PreCallValidateGetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
                                                                       uint32_t* pSurfaceFormatCount,
-                                                                      VkSurfaceFormatKHR* pSurfaceFormats) {
+                                                                      VkSurfaceFormatKHR* pSurfaceFormats) const {
     if (!pSurfaceFormats) return false;
     const auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
     const auto& call_state = physical_device_state->vkGetPhysicalDeviceSurfaceFormatsKHRState;
@@ -697,13 +738,16 @@ bool BestPractices::PreCallValidateGetPhysicalDeviceSurfaceFormatsKHR(VkPhysical
 }
 
 bool BestPractices::PreCallValidateQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo,
-                                                   VkFence fence) {
+                                                   VkFence fence) const {
     bool skip = false;
 
     for (uint32_t bindIdx = 0; bindIdx < bindInfoCount; bindIdx++) {
         const VkBindSparseInfo& bindInfo = pBindInfo[bindIdx];
         // Store sparse binding image_state and after binding is complete make sure that any requiring metadata have it bound
-        std::unordered_set<IMAGE_STATE*> sparse_images;
+        std::unordered_set<const IMAGE_STATE*> sparse_images;
+        // Track images getting metadata bound by this call in a set, it'll be recorded into the image_state
+        // in RecordQueueBindSparse.
+        std::unordered_set<const IMAGE_STATE*> sparse_images_with_metadata;
         // If we're binding sparse image memory make sure reqs were queried and note if metadata is required and bound
         for (uint32_t i = 0; i < bindInfo.imageBindCount; ++i) {
             const auto& image_bind = bindInfo.pImageBinds[i];
@@ -756,12 +800,13 @@ bool BestPractices::PreCallValidateQueueBindSparse(VkQueue queue, uint32_t bindI
             }
             for (uint32_t j = 0; j < image_opaque_bind.bindCount; ++j) {
                 if (image_opaque_bind.pBinds[j].flags & VK_SPARSE_MEMORY_BIND_METADATA_BIT) {
-                    image_state->sparse_metadata_bound = true;
+                    sparse_images_with_metadata.insert(image_state);
                 }
             }
         }
         for (const auto& sparse_image_state : sparse_images) {
-            if (sparse_image_state->sparse_metadata_required && !sparse_image_state->sparse_metadata_bound) {
+            if (sparse_image_state->sparse_metadata_required && !sparse_image_state->sparse_metadata_bound &&
+                sparse_images_with_metadata.find(sparse_image_state) == sparse_images_with_metadata.end()) {
                 // Warn if sparse image binding metadata required for image with sparse binding, but metadata not bound
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT,
                                 HandleToUint64(sparse_image_state->image), kVUID_Core_MemTrack_InvalidState,
@@ -770,6 +815,49 @@ bool BestPractices::PreCallValidateQueueBindSparse(VkQueue queue, uint32_t bindI
                                 report_data->FormatHandle(sparse_image_state->image).c_str());
             }
         }
+    }
+
+    return skip;
+}
+
+void BestPractices::PostCallRecordQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo,
+                                                  VkFence fence, VkResult result) {
+    if (result != VK_SUCCESS) return;
+
+    for (uint32_t bindIdx = 0; bindIdx < bindInfoCount; bindIdx++) {
+        const VkBindSparseInfo& bindInfo = pBindInfo[bindIdx];
+        for (uint32_t i = 0; i < bindInfo.imageOpaqueBindCount; ++i) {
+            const auto& image_opaque_bind = bindInfo.pImageOpaqueBinds[i];
+            auto image_state = GetImageState(bindInfo.pImageOpaqueBinds[i].image);
+            if (!image_state)
+                continue;  // Param/Object validation should report image_bind.image handles being invalid, so just skip here.
+            for (uint32_t j = 0; j < image_opaque_bind.bindCount; ++j) {
+                if (image_opaque_bind.pBinds[j].flags & VK_SPARSE_MEMORY_BIND_METADATA_BIT) {
+                    image_state->sparse_metadata_bound = true;
+                }
+            }
+        }
+    }
+}
+
+bool BestPractices::PreCallValidateCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_t attachmentCount,
+                                                       const VkClearAttachment* pAttachments, uint32_t rectCount,
+                                                       const VkClearRect* pRects) const {
+    bool skip = false;
+    const CMD_BUFFER_STATE* cb_node = GetCBState(commandBuffer);
+    if (!cb_node) return skip;
+
+    // Warn if this is issued prior to Draw Cmd and clearing the entire attachment
+    if (!cb_node->hasDrawCmd && (cb_node->activeRenderPassBeginInfo.renderArea.extent.width == pRects[0].rect.extent.width) &&
+        (cb_node->activeRenderPassBeginInfo.renderArea.extent.height == pRects[0].rect.extent.height)) {
+        // There are times where app needs to use ClearAttachments (generally when reusing a buffer inside of a render pass)
+        // This warning should be made more specific. It'd be best to avoid triggering this test if it's a use that must call
+        // CmdClearAttachments.
+        skip |= log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
+                        HandleToUint64(commandBuffer), kVUID_Core_DrawState_ClearCmdBeforeDraw,
+                        "vkCmdClearAttachments() issued on %s prior to any Draw Cmds. It is recommended you "
+                        "use RenderPass LOAD_OP_CLEAR on Attachments prior to any Draw.",
+                        report_data->FormatHandle(commandBuffer).c_str());
     }
 
     return skip;

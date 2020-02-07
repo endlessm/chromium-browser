@@ -62,7 +62,7 @@ public class DownloadActivity extends SnackbarActivity implements ModalDialogMan
                 new DownloadManagerUiConfig.Builder()
                         .setIsOffTheRecord(isOffTheRecord)
                         .setIsSeparateActivity(true)
-                        .setShowOfflineHome(DownloadUtils.shouldShowOfflineHome())
+                        .setShowPaginationHeaders(DownloadUtils.shouldShowPaginationHeaders())
                         .build();
 
         mModalDialogManager = new ModalDialogManager(

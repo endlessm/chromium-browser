@@ -18,6 +18,11 @@
 # path. You may set this option multiple times.
 #ignore=CVS
 
+# Add files or directories matching the regex patterns to the blacklist. The
+# regex matches against base names, not paths.
+ignore-patterns=
+    .*_pb2\.py$
+
 # Pickle collected data for later comparisons.
 #persistent=yes
 
@@ -27,6 +32,8 @@ load-plugins=
     chromite.cli.cros.lint,
     pylint.extensions.bad_builtin,
     pylint.extensions.docstyle,
+    pylint.extensions.redefined_variable_type,
+    pylint.extensions.overlapping_exceptions,
 
 # Configure quote preferences.
 string-quote = single-avoid-escape
@@ -124,11 +131,17 @@ enable=
 # We leave many of the style warnings to judgement/peer review.
 # TODO: We need to re-enable broad-except, but requires cleaning up our code.
 # TODO: Re-enable redefined-variable-type.
+# TODO: Re-enable inconsistent-return-statements.
+# TODO: Re-enable keyword-arg-before-vararg once we're on Python 3-only.
+# TODO: Re-enable useless-object-inheritance once we're on Python 3-only and
+#       we update the style guide.
 disable=
     broad-except,
     consider-iterating-dictionary,
     fixme,
     file-ignored,
+    keyword-arg-before-vararg,
+    inconsistent-return-statements,
     invalid-name,
     locally-disabled,
     locally-enabled,
@@ -149,6 +162,7 @@ disable=
     too-many-public-methods,
     too-many-return-statements,
     too-many-statements,
+    useless-object-inheritance,
 
 
 [REPORTS]
@@ -369,6 +383,7 @@ max-parents=10
 # Deprecated modules which should not be used, separated by a comma.
 # __builtin__: Use the 'six.moves.builtins' module instead
 #   (or 'builtins' in Python 3).
+# apiclient: Use the 'googleapiclient' module instead.
 # Bastion: Dropped in Python 3.
 # ConfigParser: Use the 'six.moves.configparser' module instead
 #   (or 'configparser' in Python 3).
@@ -395,6 +410,7 @@ max-parents=10
 #   (or 'urllib.parse' in Python 3).
 deprecated-modules=
     __builtin__,
+    apiclient,
     Bastion,
     ConfigParser,
     cookielib,
@@ -439,6 +455,10 @@ known-third-party=
     google,
     googleapiclient,
     httplib2,
+    jinja2,
+    jsonschema,
+    lddtree,
+    magic,
     mock,
     oauth2client,
     portage,
@@ -446,6 +466,7 @@ known-third-party=
     requests,
     six,
     sqlalchemy,
+    yaml,
 
 
 [LOGGING]

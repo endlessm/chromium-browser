@@ -8,14 +8,14 @@ from __future__ import print_function
 
 import os
 
+import httplib2
+
 from chromite.lib import cipd
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import retry_util
 from chromite.lib import path_util
 
-# from third_party
-import httplib2
 
 REFRESH_STATUS_CODES = [401]
 
@@ -105,7 +105,8 @@ def Token(service_account_json=None):
       print_cmd=False,
       mute_output=True,
       capture_output=True,
-      error_code_ok=True)
+      check=False,
+      encoding='utf-8')
 
   if result.returncode:
     raise AccessTokenError('Failed at getting the access token, may retry.')

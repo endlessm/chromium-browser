@@ -243,6 +243,68 @@ inherit cros-workon superpower
     self.assertFalse(
         AlmostSameEBuilds(self._EBUILD_BASE, self._EBUILD_DIFFERENT_CONTENT))
 
+  def testClassifySimple(self):
+    """Test Classify on a simple ebuild."""
+    ebuild_path = os.path.join(self.tempdir, 'foo-1.ebuild')
+    osutils.WriteFile(ebuild_path, '')
+    attrs = portage_util.EBuild.Classify(ebuild_path)
+    self.assertFalse(attrs.is_workon)
+    self.assertFalse(attrs.is_stable)
+    self.assertFalse(attrs.is_blacklisted)
+    self.assertFalse(attrs.has_test)
+
+  def testClassifyUnstable(self):
+    """Test Classify handling of non-stable KEYWORDS."""
+    ebuild_path = os.path.join(self.tempdir, 'foo-1.ebuild')
+    TESTS = (
+        'KEYWORDS=',
+        'KEYWORDS= # Yep.',
+        'KEYWORDS="-*"',
+        'KEYWORDS="-* ~arm"',
+        'KEYWORDS="~*"',
+    )
+    for keywords in TESTS:
+      osutils.WriteFile(ebuild_path, keywords)
+      attrs = portage_util.EBuild.Classify(ebuild_path)
+      self.assertFalse(attrs.is_stable, msg='Failing: %s' % (keywords,))
+
+  def testClassifyStable(self):
+    """Test Classify handling of stable KEYWORDS."""
+    ebuild_path = os.path.join(self.tempdir, 'foo-1.ebuild')
+    TESTS = (
+        'KEYWORDS="*"',
+        'KEYWORDS="*" # Yep.',
+        'KEYWORDS="-* arm"',
+    )
+    for keywords in TESTS:
+      osutils.WriteFile(ebuild_path, keywords)
+      attrs = portage_util.EBuild.Classify(ebuild_path)
+      self.assertTrue(attrs.is_stable, msg='Failing: %s' % (keywords,))
+
+  def testClassifyEncodingASCII(self):
+    """Test Classify with ASCII file encodings."""
+    ebuild_path = os.path.join(self.tempdir, 'foo-1.ebuild')
+    # Generate a valid shell script with all possible ASCII values.
+    osutils.WriteFile(
+        ebuild_path,
+        'cat <<\\EOF\n%s\nEOF\n' % (''.join(chr(x) for x in range(0, 128)),))
+    # Just check that we don't throw an exception.
+    portage_util.EBuild.Classify(ebuild_path)
+
+  def testClassifyEncodingUTF8(self):
+    """Test Classify with UTF-8 file encodings."""
+    ebuild_path = os.path.join(self.tempdir, 'foo-1.ebuild')
+    osutils.WriteFile(ebuild_path, u'# FöÖßbäłł')
+    # Just check that we don't throw an exception.
+    portage_util.EBuild.Classify(ebuild_path)
+
+  def testClassifyEncodingLatin1(self):
+    """Test Classify with ISO 8859-1 file encodings."""
+    ebuild_path = os.path.join(self.tempdir, 'foo-1.ebuild')
+    osutils.WriteFile(ebuild_path, b'# This is \xa0 bad UTF-8', mode='wb')
+    with self.assertRaises(UnicodeDecodeError):
+      portage_util.EBuild.Classify(ebuild_path)
+
 
 class ProjectAndPathTest(cros_test_lib.MockTempDirTestCase):
   """Project and Path related tests."""

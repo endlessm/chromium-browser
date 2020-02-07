@@ -14,11 +14,15 @@ import ctypes.util
 import datetime
 import errno
 import glob
+import hashlib
 import os
 import pwd
 import re
 import shutil
+import stat
 import tempfile
+
+import six
 
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -64,7 +68,8 @@ def IsChildProcess(pid, name=None):
     an incorrect match might be possible.
   """
   cmd = ['pstree', '-Ap', str(os.getpid())]
-  pstree = cros_build_lib.run(cmd, capture_output=True, print_cmd=False).output
+  pstree = cros_build_lib.run(cmd, capture_output=True, print_cmd=False,
+                              encoding='utf-8').stdout
   if name is None:
     match = '(%d)' % pid
   else:
@@ -101,32 +106,70 @@ def AllocateFile(path, size, makedirs=False):
     out.truncate(size)
 
 
-def WriteFile(path, content, mode='w', atomic=False, makedirs=False,
-              sudo=False):
+# All the modes that we allow people to pass to WriteFile.  This allows us to
+# make assumptions about the input so we can update it if needed.
+_VALID_WRITE_MODES = {
+    # Read & write, but no truncation, and file offset is 0.
+    'r+', 'r+b',
+    # Writing (and maybe reading) with truncation.
+    'w', 'wb', 'w+', 'w+b',
+    # Writing (and maybe reading), but no truncation, and file offset is at end.
+    'a', 'ab', 'a+', 'a+b',
+}
+
+
+def WriteFile(path, content, mode='w', encoding=None, errors=None, atomic=False,
+              makedirs=False, sudo=False):
   """Write the given content to disk.
 
   Args:
     path: Pathway to write the content to.
     content: Content to write.  May be either an iterable, or a string.
-    mode: Optional; if binary mode is necessary, pass 'wb'.  If appending is
-          desired, 'w+', etc.
+    mode: The mode to use when opening the file.  'w' is for text files (see the
+      following settings) and 'wb' is for binary files.  If appending, pass
+      'w+', etc...
+    encoding: The encoding of the file content.  Text files default to 'utf-8'.
+    errors: How to handle encoding errors.  Text files default to 'strict'.
     atomic: If the updating of the file should be done atomically.  Note this
             option is incompatible w/ append mode.
     makedirs: If True, create missing leading directories in the path.
     sudo: If True, write the file as root.
   """
+  if mode not in _VALID_WRITE_MODES:
+    raise ValueError('mode must be one of {"%s"}, not %r' %
+                     ('", "'.join(sorted(_VALID_WRITE_MODES)), mode))
+
   if sudo and ('a' in mode or '+' in mode):
     raise ValueError('append mode does not work in sudo mode')
 
+  if 'b' in mode:
+    if encoding is not None or errors is not None:
+      raise ValueError('binary mode does not use encoding/errors')
+  else:
+    if encoding is None:
+      encoding = 'utf-8'
+    if errors is None:
+      errors = 'strict'
+
   if makedirs:
     SafeMakedirs(os.path.dirname(path), sudo=sudo)
+
+  # TODO(vapier): We can merge encoding/errors into the open call once we are
+  # Python 3 only.  Until then, we have to handle it ourselves.
+  if 'b' in mode:
+    write_wrapper = lambda x: x
+  else:
+    mode += 'b'
+    def write_wrapper(iterable):
+      for item in iterable:
+        yield item.encode(encoding, errors)
 
   # If the file needs to be written as root and we are not root, write to a temp
   # file, move it and change the permission.
   if sudo and os.getuid() != 0:
     with tempfile.NamedTemporaryFile(mode=mode, delete=False) as temp:
       write_path = temp.name
-      temp.writelines(cros_build_lib.iflatten_instance(content))
+      temp.writelines(write_wrapper(cros_build_lib.iflatten_instance(content)))
     os.chmod(write_path, 0o644)
 
     try:
@@ -149,7 +192,7 @@ def WriteFile(path, content, mode='w', atomic=False, makedirs=False,
     if atomic:
       write_path = path + '.tmp'
     with open(write_path, mode) as f:
-      f.writelines(cros_build_lib.iflatten_instance(content))
+      f.writelines(write_wrapper(cros_build_lib.iflatten_instance(content)))
 
     if not atomic:
       return
@@ -181,7 +224,7 @@ def Touch(path, makedirs=False, mode=None):
   os.utime(path, None)
 
 
-def Chown(path, user=None, group=None):
+def Chown(path, user=None, group=None, recursive=False):
   """Simple sudo chown path to the user.
 
   Defaults to user running command. Does nothing if run as root user unless
@@ -191,6 +234,7 @@ def Chown(path, user=None, group=None):
     path: str - File/directory to chown.
     user: str|int|None - User to chown the file to. Defaults to current user.
     group: str|int|None - Group to assign the file to.
+    recursive: Also chown child files/directories recursively.
   """
   if user is None:
     user = GetNonRootUser() or ''
@@ -200,8 +244,11 @@ def Chown(path, user=None, group=None):
   group = '' if group is None else str(group)
 
   if user or group:
-    owner = '%s:%s' % (user, group)
-    cros_build_lib.sudo_run(['chown', owner, path], print_cmd=False,
+    cmd = ['chown']
+    if recursive:
+      cmd += ['-R']
+    cmd += ['%s:%s' % (user, group), path]
+    cros_build_lib.sudo_run(cmd, print_cmd=False,
                             redirect_stderr=True, redirect_stdout=True)
 
 
@@ -222,7 +269,7 @@ def ReadFile(path, mode='r', encoding=None, errors=None):
     encoding).
   """
   if mode not in ('r', 'rb'):
-    raise ValueError('mode may only be "r" or "rb", not "%s"' % (mode,))
+    raise ValueError('mode may only be "r" or "rb", not %r' % (mode,))
 
   if 'b' in mode:
     if encoding is not None or errors is not None:
@@ -240,6 +287,19 @@ def ReadFile(path, mode='r', encoding=None, errors=None):
     if 'b' not in mode:
       ret = ret.decode(encoding, errors)
     return ret
+
+
+def MD5HashFile(path):
+  """Calculate the md5 hash of a given file path.
+
+  Args:
+    path: The path of the file to hash.
+
+  Returns:
+    The hex digest of the md5 hash of the file.
+  """
+  contents = ReadFile(path, mode='rb')
+  return hashlib.md5(contents).hexdigest()
 
 
 def SafeSymlink(source, dest, sudo=False):
@@ -307,17 +367,32 @@ def SafeMakedirs(path, mode=0o775, sudo=False, user='root'):
     if os.path.isdir(path):
       return False
     cros_build_lib.sudo_run(
-        ['mkdir', '-p', '--mode', oct(mode), path], user=user, print_cmd=False,
-        redirect_stderr=True, redirect_stdout=True)
+        ['mkdir', '-p', '--mode', '%o' % mode, path], user=user,
+        print_cmd=False, redirect_stderr=True, redirect_stdout=True)
+    cros_build_lib.sudo_run(
+        ['chmod', '%o' % mode, path],
+        print_cmd=False, redirect_stderr=True, redirect_stdout=True)
     return True
 
   try:
     os.makedirs(path, mode)
+    # If we made the directory, force the mode.
+    os.chmod(path, mode)
     return True
   except EnvironmentError as e:
     if e.errno != errno.EEXIST or not os.path.isdir(path):
       raise
 
+  # If the mode on the directory does not match the request, log it.
+  # It is the callers responsibility to coordinate mode values if there is a
+  # need for that.
+  if stat.S_IMODE(os.stat(path).st_mode) != mode:
+    try:
+      os.chmod(path, mode)
+    except EnvironmentError:
+      # Just make sure it's a directory.
+      if not os.path.isdir(path):
+        raise
   return False
 
 
@@ -362,7 +437,7 @@ class BadPathsException(Exception):
   """Raised by various osutils path manipulation functions on bad input."""
 
 
-def CopyDirContents(from_dir, to_dir, symlink=False, allow_nonempty=False):
+def CopyDirContents(from_dir, to_dir, symlinks=False, allow_nonempty=False):
   """Copy contents of from_dir to to_dir. Both should exist.
 
   shutil.copytree allows one to copy a rooted directory tree along with the
@@ -390,7 +465,9 @@ def CopyDirContents(from_dir, to_dir, symlink=False, allow_nonempty=False):
   Args:
     from_dir: The directory whose contents should be copied. Must exist.
     to_dir: The directory to which contents should be copied. Must exist.
-    symlink: Whether symlinks should be copied.
+    symlinks: Whether symlinks should be copied or dereferenced. When True, all
+        symlinks will be copied as symlinks into the destination. When False,
+        the symlinks will be dereferenced and the contents copied over.
     allow_nonempty: If True, do not die when to_dir is nonempty.
 
   Raises:
@@ -408,10 +485,10 @@ def CopyDirContents(from_dir, to_dir, symlink=False, allow_nonempty=False):
   for name in os.listdir(from_dir):
     from_path = os.path.join(from_dir, name)
     to_path = os.path.join(to_dir, name)
-    if os.path.isdir(from_path):
-      shutil.copytree(from_path, to_path)
-    elif symlink and os.path.islink(from_path):
+    if symlinks and os.path.islink(from_path):
       os.symlink(os.readlink(from_path), to_path)
+    elif os.path.isdir(from_path):
+      shutil.copytree(from_path, to_path, symlinks=symlinks)
     elif os.path.isfile(from_path):
       shutil.copy2(from_path, to_path)
 
@@ -830,7 +907,12 @@ MS_NOUSER = 1 << 31
 def Mount(source, target, fstype, flags, data=''):
   """Call the mount(2) func; see the man page for details."""
   libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-  if libc.mount(source, target, fstype, ctypes.c_int(flags), data) != 0:
+  # These fields might be a string or 0 (for NULL).  Convert to bytes.
+  def _MaybeEncode(s):
+    return s.encode('utf-8') if isinstance(s, six.string_types) else s
+  if libc.mount(_MaybeEncode(source), _MaybeEncode(target),
+                _MaybeEncode(fstype), ctypes.c_int(flags),
+                _MaybeEncode(data)) != 0:
     e = ctypes.get_errno()
     raise OSError(e, os.strerror(e))
 
@@ -984,6 +1066,7 @@ def SourceEnvironment(script, whitelist, ifs=',', env=None, multiline=False):
     env = None
   output = cros_build_lib.run(['bash'], env=env, redirect_stdout=True,
                               redirect_stderr=True, print_cmd=False,
+                              encoding='utf-8',
                               input='\n'.join(dump_script)).output
   return key_value_store.LoadData(output, multiline=multiline)
 
@@ -1010,10 +1093,9 @@ def ListBlockDevices(device_path=None, in_bytes=False):
     cmd.append(device_path)
 
   cmd += ['--output', ','.join(keys)]
-  output = cros_build_lib.run(
-      cmd, debug_level=logging.DEBUG, capture_output=True).output.strip()
+  result = cros_build_lib.dbg_run(cmd, capture_output=True, encoding='utf-8')
   devices = []
-  for line in output.splitlines():
+  for line in result.stdout.strip().splitlines():
     d = {}
     for k, v in re.findall(r'(\S+?)=\"(.+?)\"', line):
       d[k] = v
@@ -1086,12 +1168,12 @@ def StatFilesInDirectory(path, recursive=False, to_string=False):
     returns a string of metadata of the files.
   """
   path = ExpandPath(path)
-  def ToFileInfo(path, stat):
+  def ToFileInfo(path, stat_val):
     return FileInfo(path,
-                    pwd.getpwuid(stat.st_uid)[0],
-                    stat.st_size,
-                    datetime.datetime.fromtimestamp(stat.st_atime),
-                    datetime.datetime.fromtimestamp(stat.st_mtime))
+                    pwd.getpwuid(stat_val.st_uid)[0],
+                    stat_val.st_size,
+                    datetime.datetime.fromtimestamp(stat_val.st_atime),
+                    datetime.datetime.fromtimestamp(stat_val.st_mtime))
 
   file_infos = []
   for root, dirs, files in os.walk(path, topdown=True):

@@ -210,7 +210,7 @@ func (hs *serverHandshakeState) readClientHello() error {
 	if config.Bugs.FailIfCECPQ2Offered {
 		for _, offeredCurve := range hs.clientHello.supportedCurves {
 			if isPqGroup(offeredCurve) {
-				return errors.New("tls: CECPQ2 or CECPQ2b was offered")
+				return errors.New("tls: CECPQ2 was offered")
 			}
 		}
 	}
@@ -225,10 +225,6 @@ func (hs *serverHandshakeState) readClientHello() error {
 				return fmt.Errorf("tls: key share #%d is for group %d, not %d", i, found, group)
 			}
 		}
-	}
-
-	if c.config.Bugs.ExpectPQExperimentSignal != hs.clientHello.pqExperimentSignal {
-		return fmt.Errorf("tls: PQ experiment signal presence (%t) was not what was expected", hs.clientHello.pqExperimentSignal)
 	}
 
 	c.clientVersion = hs.clientHello.vers
@@ -1227,7 +1223,7 @@ func (hs *serverHandshakeState) processClientHello() (isResume bool, err error) 
 Curves:
 	for _, curve := range hs.clientHello.supportedCurves {
 		if isPqGroup(curve) && c.vers < VersionTLS13 {
-			// CECPQ2 and CECPQ2b is TLS 1.3-only.
+			// CECPQ2 is TLS 1.3-only.
 			continue
 		}
 
@@ -1450,7 +1446,6 @@ func (hs *serverHandshakeState) processClientExtensions(serverExtensions *server
 	}
 
 	serverExtensions.serverNameAck = c.config.Bugs.SendServerNameAck
-	serverExtensions.pqExperimentSignal = hs.clientHello.pqExperimentSignal
 
 	return nil
 }

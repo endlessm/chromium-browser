@@ -20,7 +20,6 @@ vmtest_boards = frozenset([
     'amd64-generic', # Has kernel 4.4, used with public Chromium.
     'betty',         # amd64 Chrome OS VM board with 32 bit arm/x86 ARC++ ABI.
     'betty-arc64',   # Chrome OS VM board with 64 bit x86_64 ARC++ ABI.
-    'betty-arcnext', # Like betty but with the next version of ARC++.
     'betty-pi-arc',  # Like betty but P version of ARC++.
     'novato',        # Like betty but with GMSCore but not the Play Store
     'novato-arc64',  # 64 bit x86_64 ARC++ ABI
@@ -153,23 +152,6 @@ class HWTestList(object):
         config_lib.HWTestConfig(constants.HWTEST_ARC_COMMIT_SUITE,
                                 **kwargs)]
 
-  def DefaultListCQ(self, **kwargs):
-    """Return a default list of HWTestConfigs for a CQ build.
-
-    Optional arguments may be overridden in `kwargs`, except that
-    the `blocking` setting cannot be provided.
-    """
-    default_dict = dict(pool=constants.HWTEST_QUOTA_POOL,
-                        timeout=config_lib.HWTestConfig.PALADIN_HW_TEST_TIMEOUT,
-                        file_bugs=False, quota_account='cq',
-                        minimum_duts=4)
-    # Allows kwargs overrides to default_dict for cq.
-    default_dict.update(kwargs)
-    suite_list = self.DefaultListNonCanary(**default_dict)
-    suite_list.append(self.TastConfig(constants.HWTEST_TAST_CQ_SUITE,
-                                      **default_dict))
-    return suite_list
-
   def DefaultListChromePFQInformational(self, **kwargs):
     """Return a default list of HWTestConfigs for an inform. Chrome PFQ build.
 
@@ -230,27 +212,6 @@ class HWTestList(object):
     suite_list.extend(self.DefaultListPFQ(**default_dict))
     return suite_list
 
-  def SharedPoolCQ(self, **kwargs):
-    """Return a list of HWTestConfigs for CQ which uses a shared pool.
-
-    The returned suites will run in pool:critical by default, which is
-    shared with other types of builder (canaries, pfq). The first suite in the
-    list is a blocking sanity suite that verifies the build will not break dut.
-    """
-    sanity_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                       timeout=config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT,
-                       file_bugs=False, priority=constants.HWTEST_CQ_PRIORITY)
-    sanity_dict.update(kwargs)
-    sanity_dict.update(dict(minimum_duts=1, suite_min_duts=1,
-                            blocking=True))
-    default_dict = dict(pool=constants.HWTEST_MACH_POOL,
-                        suite_min_duts=10)
-    default_dict.update(kwargs)
-    suite_list = [config_lib.HWTestConfig(constants.HWTEST_SANITY_SUITE,
-                                          **sanity_dict)]
-    suite_list.extend(self.DefaultListCQ(**default_dict))
-    return suite_list
-
   def SharedPoolCanary(self, **kwargs):
     """Return a list of HWTestConfigs for Canary which uses a shared pool.
 
@@ -279,36 +240,6 @@ class HWTestList(object):
     # Allows kwargs overrides to default_dict for cq.
     default_dict.update(kwargs)
     return config_lib.HWTestConfig(constants.HWTEST_AFDO_SUITE, **default_dict)
-
-  def WiFiCellPoolPreCQ(self, **kwargs):
-    """Return a list of HWTestConfigs which run wifi tests.
-
-    This should be used by the ChromeOS WiFi team to ensure changes pass the
-    wifi tests as a pre-cq sanity check.
-    """
-    default_dict = dict(pool=constants.HWTEST_WIFICELL_PRE_CQ_POOL,
-                        file_bugs=False,
-                        priority=constants.HWTEST_DEFAULT_PRIORITY,
-                        retry=False, max_retries=None, minimum_duts=1)
-    default_dict.update(kwargs)
-    suite_list = [config_lib.HWTestConfig(constants.WIFICELL_PRE_CQ,
-                                          **default_dict)]
-    return suite_list
-
-  def BluestreakPoolPreCQ(self, **kwargs):
-    """Return a list of HWTestConfigs which run bluestreak tests.
-
-    This should be used by the ChromeOS MRHW team to ensure changes pass the
-    CFM tests as a pre-cq sanity check.
-    """
-    default_dict = dict(pool=constants.HWTEST_BLUESTREAK_PRE_CQ_POOL,
-                        file_bugs=False,
-                        priority=constants.HWTEST_DEFAULT_PRIORITY,
-                        retry=False, max_retries=None, minimum_duts=1)
-    default_dict.update(kwargs)
-    suite_list = [config_lib.HWTestConfig(constants.BLUESTREAK_PRE_CQ,
-                                          **default_dict)]
-    return suite_list
 
   def ToolchainTestFull(self, machine_pool, **kwargs):
     """Return full set of HWTESTConfigs to run toolchain correctness tests."""
@@ -451,7 +382,7 @@ def EnsureVmTestsOnVmTestBoards(site_config, boards_dict, _gs_build_config):
           cc.apply(site_config.templates.no_vmtest_builder)
 
 
-def ApplyCustomOverrides(site_config, ge_build_config):
+def ApplyCustomOverrides(site_config):
   """Method with to override specific flags for specific builders.
 
   Generally try really hard to avoid putting anything here that isn't
@@ -461,26 +392,9 @@ def ApplyCustomOverrides(site_config, ge_build_config):
   Args:
     site_config: config_lib.SiteConfig containing builds to have their
                  waterfall values updated.
-    ge_build_config: Dictionary containing the decoded GE configuration file.
   """
-  hw_test_list = HWTestList(ge_build_config)
 
   overwritten_configs = {
-      'lakitu-pre-cq':
-          site_config.templates.lakitu_test_customizations,
-
-      'lakitu-gpu-pre-cq':
-          site_config.templates.lakitu_test_customizations,
-
-      'lakitu-nc-pre-cq':
-          site_config.templates.lakitu_nc_customizations,
-
-      'lakitu-st-pre-cq':
-          site_config.templates.lakitu_test_customizations,
-
-      'lakitu_next-pre-cq':
-          site_config.templates.lakitu_test_customizations,
-
       'lakitu-release': config_lib.BuildConfig().apply(
           site_config.templates.lakitu_test_customizations,
       ),
@@ -525,56 +439,9 @@ def ApplyCustomOverrides(site_config, ge_build_config):
           'vm_tests':[],
       },
 
-      'cyan-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolPFQ(),
-      },
-
-      'grunt-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolPFQ(),
-      },
-
-      'kevin-arcnext-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolPFQ(),
-      },
-
-      'moblab-generic-vm-paladin': config_lib.BuildConfig().apply(
-          site_config.templates.moblab_vm_tests,
-          site_config.templates.tast_vm_paladin_tests,
-      ),
-      # Disabled due to https://crbug.com/968271
-      # 'moblab-generic-vm-pre-cq': config_lib.BuildConfig().apply(
-      #    site_config.templates.moblab_vm_tests,
-      #    site_config.templates.tast_vm_paladin_tests,
-      # ),
-
-      'reef-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolPFQ(),
-      },
-
-      'veyron_minnie-chrome-pfq': {
-          'hw_tests': hw_test_list.SharedPoolPFQ(),
-      },
-
-      'amd64-generic-paladin': site_config.templates.tast_vm_paladin_tests,
-      'betty-arc64-paladin': site_config.templates.tast_vm_paladin_tests,
-      'betty-paladin': site_config.templates.tast_vm_paladin_tests,
-      'betty-pre-cq': site_config.templates.tast_vm_paladin_tests,
-
-      'amd64-generic-chromium-pfq':
-          site_config.templates.tast_vm_chrome_pfq_tests,
-      'amd64-generic-tot-chromium-pfq-informational':
-          site_config.templates.tast_vm_chrome_pfq_tests,
-      'betty-arcnext-chrome-pfq':
-          site_config.templates.tast_vm_chrome_pfq_tests,
-      'betty-pi-arc-chrome-pfq':
-          site_config.templates.tast_vm_chrome_pfq_tests,
-      'betty-chrome-pfq': site_config.templates.tast_vm_chrome_pfq_tests,
-
       'betty-arc64-nyc-android-pfq':
           site_config.templates.tast_vm_android_pfq_tests,
       'betty-nyc-android-pfq':
-          site_config.templates.tast_vm_android_pfq_tests,
-      'betty-arcnext-pi-android-pfq':
           site_config.templates.tast_vm_android_pfq_tests,
       'betty-pi-arc-pi-android-pfq':
           site_config.templates.tast_vm_android_pfq_tests,
@@ -584,14 +451,8 @@ def ApplyCustomOverrides(site_config, ge_build_config):
       # https://crbug.com/946858
       'amd64-generic-full': site_config.templates.tast_vm_canary_tests,
       'betty-arc64-release': site_config.templates.tast_vm_canary_tests,
-      'betty-arcnext-release': site_config.templates.tast_vm_canary_tests,
       'betty-pi-arc-release': site_config.templates.tast_vm_canary_tests,
       'betty-release': site_config.templates.tast_vm_canary_tests,
-
-      'kumo-pre-cq': {
-          'vm_tests': [config_lib.VMTestConfig(constants.VM_SUITE_TEST_TYPE,
-                                               test_suite='smoke')],
-      }
   }
 
   for config_name, overrides in overwritten_configs.items():
@@ -720,10 +581,6 @@ def GeneralTemplates(site_config, ge_build_config):
   site_config.templates.asan.apply(
       site_config.templates.default_hw_tests_override,
   )
-
-  site_config.templates.tot_asan_informational.apply(
-      site_config.templates.default_hw_tests_override,
-  )
   # END asan
 
   # BEGIN Incremental
@@ -735,62 +592,6 @@ def GeneralTemplates(site_config, ge_build_config):
       site_config.templates.default_hw_tests_override,
   )
   # END Incremental
-
-  # BEGIN Paladin
-  paladin_hw_tests_override = (
-      hw_test_list.DefaultListNonCanary(pool=constants.HWTEST_TRYBOT_POOL,
-                                        file_bugs=False) +
-      [hw_test_list.TastConfig(constants.HWTEST_TAST_CQ_SUITE,
-                               pool=constants.HWTEST_TRYBOT_POOL,
-                               file_bugs=False)])
-
-  site_config.templates.paladin.apply(
-      hw_tests_override=paladin_hw_tests_override,
-  )
-
-  site_config.templates.internal_paladin.apply(
-      hw_tests_override=paladin_hw_tests_override,
-  )
-
-  site_config.templates.internal_nowithdebug_paladin.apply(
-      hw_tests_override=paladin_hw_tests_override,
-  )
-  # END Paladin
-
-  site_config.templates.telemetry.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-
-  # BEGIN Chrome PFQ
-  site_config.templates.chrome_pfq.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-
-  site_config.templates.chrome_pfq_cheets_informational.apply(
-      site_config.templates.default_hw_tests_override,
-      hw_tests=hw_test_list.SharedPoolPFQ(),
-      hw_tests_override=hw_test_list.SharedPoolPFQ(),
-  )
-
-  site_config.templates.chrome_pfq_informational.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-
-  site_config.templates.chrome_perf.apply(
-      site_config.templates.default_hw_tests_override,
-      site_config.templates.no_vmtest_builder,
-  )
-  # END Chrome PFQ
-
-  # BEGIN Chromium PFQ
-  site_config.templates.chromium_pfq.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-
-  site_config.templates.chromium_pfq_informational.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-  # END Chromium PFQ
 
   # BEGIN Factory
   site_config.templates.factory.apply(
@@ -907,10 +708,6 @@ def GeneralTemplates(site_config, ge_build_config):
   # END Unittest Stress
 
   # BEGIN Ubsan
-  site_config.templates.tot_ubsan_informational.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-
   site_config.templates.ubsan.apply(
       site_config.templates.default_hw_tests_override,
   )
@@ -967,4 +764,4 @@ def ApplyConfig(site_config, boards_dict, ge_build_config):
 
   EnsureVmTestsOnVmTestBoards(site_config, boards_dict, ge_build_config)
 
-  ApplyCustomOverrides(site_config, ge_build_config)
+  ApplyCustomOverrides(site_config)

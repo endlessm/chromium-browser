@@ -9,6 +9,7 @@ found in the LICENSE file.
 <link rel="import" href="/components/iron-ajax/iron-ajax.html">
 <link rel="import" href="/components/iron-form/iron-form.html">
 <link rel="import" href="/components/paper-button/paper-button.html">
+<link rel="import" href="/components/paper-checkbox/paper-checkbox.html">
 <link rel="import" href="/components/paper-dialog/paper-dialog.html">
 <link rel="import" href="/components/paper-dropdown-menu/paper-dropdown-menu.html">
 <link rel="import" href="/components/paper-fab/paper-fab.html">
@@ -19,7 +20,7 @@ found in the LICENSE file.
 <link rel="import" href="/components/paper-radio-button/paper-radio-button.html">
 <link rel="import" href="/components/paper-radio-group/paper-radio-group.html">
 <link rel="import" href="/components/paper-tooltip/paper-tooltip.html">
-<link rel="import" href="/dashboard/elements/autocomplete-box.html">
+<link rel="import" href="/elements/autocomplete-box.html">
 
 <link rel="import" href="/elements/base-style.html">
 <link rel="import" href="/elements/jobs-page/commit-details.html">
@@ -43,6 +44,7 @@ found in the LICENSE file.
 
       paper-dialog {
         width: 50em;
+        overflow: auto;
       }
 
       .divider {
@@ -136,7 +138,9 @@ found in the LICENSE file.
 
             <template is="dom-if" if="[[hasJob(job)]]">
               <input type="hidden" name="comparison_magnitude" disabled$="[[!job.arguments.comparison_magnitude]]" value="[[job.arguments.comparison_magnitude]]">
+              <!-- TODO(crbug.com/974237): Stop filling in 'tir_label' when no longer in use. -->
               <input type="hidden" name="tir_label" disabled$="[[!job.arguments.tir_label]]" value="[[job.arguments.tir_label]]">
+              <input type="hidden" name="grouping_label" disabled$="[[!job.arguments.grouping_label]]" value="[[job.arguments.grouping_label]]">
               <input type="hidden" name="trace" disabled$="[[!job.arguments.trace]]" value="[[job.arguments.trace]]">
               <input type="hidden" name="tags" disabled$="[[!job.arguments.tags]]" value="[[job.arguments.tags]]">
               <input type="hidden" name="pin" disabled$="[[!job.arguments.pin]]" value="[[job.arguments.pin]]">
@@ -181,9 +185,9 @@ found in the LICENSE file.
                 <autocomplete-box id="storyCasesDropdown"
                                   name="story"
                                   items="{{storyCases(benchmarkConfig)}}"
-                                  disabled="{{!validCases(benchmark, benchmarkConfig)}}"
                                   placeholder="Story"
-                                  required></autocomplete-box>
+                                  selected-name="{{story}}"
+                                  required$="[[!isStoryOrTagsSet(story, storyTags)]]"></autocomplete-box>
                 <template is="dom-if" if="[[benchmarkConfigLoading]]">
                   <paper-progress indeterminate></paper-progress>
                 </template>
@@ -216,9 +220,10 @@ found in the LICENSE file.
               <div class="column">
                 <autocomplete-box id="storyTagsDropdown"
                                   name="story_tags"
-                                  items="{{storyTags(benchmarkConfig)}}"
-                                  disabled="{{!validTags(benchmark, benchmarkConfig)}}"
-                                  placeholder="Story Tags (optional, comma-separated)"></autocomplete-box>
+                                  items="{{storyTagsFromConfig(benchmarkConfig)}}"
+                                  placeholder="Story Tags (optional, comma-separated)"
+                                  selected-name="{{storyTags}}"
+                                  required$="[[!isStoryOrTagsSet(story, storyTags)]]"></autocomplete-box>
                 <template is="dom-if" if="[[benchmarkConfigLoading]]">
                   <paper-progress indeterminate></paper-progress>
                 </template>
@@ -245,6 +250,10 @@ found in the LICENSE file.
             </div>
 
             <paper-input name="bug_id" value="{{bug_id}}" label="Bug ID"></paper-input>
+
+            <paper-checkbox name="experimental_execution_engine">
+              Use experimental execution engine.
+            </paper-checkbox>
           </form>
         </iron-form>
       </div>
@@ -341,6 +350,10 @@ found in the LICENSE file.
       handleResponse(event) {
         this.set('route.path', '/job/' + event.detail.response.jobId);
         this.$.try_dialog.close();
+      },
+
+      isStoryOrTagsSet(story, storyTags) {
+        return story !== '' || storyTags !== '';
       },
 
       isBisectJob(comparisonMode) {
@@ -501,7 +514,7 @@ found in the LICENSE file.
           this.storyCases(benchmarkConfig).length > 0);
       },
 
-      storyTags(benchmarkConfig) {
+      storyTagsFromConfig(benchmarkConfig) {
         if (!benchmarkConfig) {
           return [];
         }
@@ -513,7 +526,7 @@ found in the LICENSE file.
       validTags(benchmark, benchmarkConfig) {
         return (
           this.validBenchmark(benchmark) &&
-          this.storyTags(benchmarkConfig).length > 0);
+          this.storyTagsFromConfig(benchmarkConfig).length > 0);
       },
 
       telemetryIsolate(configuration, benchmark) {

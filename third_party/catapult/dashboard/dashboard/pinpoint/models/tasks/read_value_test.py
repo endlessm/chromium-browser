@@ -7,7 +7,6 @@ from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
 
-import functools
 import itertools
 import json
 import mock
@@ -18,6 +17,7 @@ from dashboard.pinpoint.models import evaluators
 from dashboard.pinpoint.models import event as event_module
 from dashboard.pinpoint.models import job as job_module
 from dashboard.pinpoint.models import task as task_module
+from dashboard.pinpoint.models.tasks import bisection_test_util
 from dashboard.pinpoint.models.tasks import find_isolate
 from dashboard.pinpoint.models.tasks import read_value
 from dashboard.pinpoint.models.tasks import run_test
@@ -40,13 +40,13 @@ class EvaluatorTest(test.TestCase):
             evaluators.FilteringEvaluator(
                 predicate=evaluators.TaskTypeEq('find_isolate'),
                 delegate=evaluators.SequenceEvaluator(
-                    evaluators=(functools.partial(FakeFoundIsolate, self.job),
+                    evaluators=(bisection_test_util.FakeFoundIsolate(self.job),
                                 evaluators.TaskPayloadLiftingEvaluator()))),
             evaluators.FilteringEvaluator(
                 predicate=evaluators.TaskTypeEq('run_test'),
                 delegate=evaluators.SequenceEvaluator(
                     evaluators=(
-                        functools.partial(FakeSuccessfulRunTest, self.job),
+                        bisection_test_util.FakeSuccessfulRunTest(self.job),
                         evaluators.TaskPayloadLiftingEvaluator()))),
             read_value.Evaluator(self.job),
         ))
@@ -54,7 +54,7 @@ class EvaluatorTest(test.TestCase):
   def PopulateTaskGraph(self,
                         benchmark=None,
                         chart=None,
-                        tir_label=None,
+                        grouping_label=None,
                         story=None,
                         statistic=None,
                         trace='some_trace',
@@ -80,7 +80,7 @@ class EvaluatorTest(test.TestCase):
                     attempts=10),
                 benchmark=benchmark,
                 histogram_options=read_value.HistogramOptions(
-                    tir_label=tir_label,
+                    grouping_label=grouping_label,
                     story=story,
                     statistic=statistic,
                 ),
@@ -97,8 +97,7 @@ class EvaluatorTest(test.TestCase):
     histogram.AddSample(2)
     histograms = histogram_set.HistogramSet([histogram])
     histograms.AddSharedDiagnosticToAllHistograms(
-        reserved_infos.STORY_TAGS.name,
-        generic_set.GenericSet(['group:tir_label']))
+        reserved_infos.STORY_TAGS.name, generic_set.GenericSet(['group:label']))
     histograms.AddSharedDiagnosticToAllHistograms(
         reserved_infos.STORIES.name, generic_set.GenericSet(['story']))
     isolate_retrieve.side_effect = itertools.chain(
@@ -110,7 +109,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='story')
     self.assertNotEqual({},
                         task_module.Evaluate(
@@ -129,7 +128,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'story',
                     'statistic': None,
                 },
@@ -140,6 +139,7 @@ class EvaluatorTest(test.TestCase):
                 'status': 'completed',
                 'result_values': [0, 1, 2],
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -154,8 +154,7 @@ class EvaluatorTest(test.TestCase):
     histogram.AddSample(2)
     histograms = histogram_set.HistogramSet([histogram])
     histograms.AddSharedDiagnosticToAllHistograms(
-        reserved_infos.STORY_TAGS.name,
-        generic_set.GenericSet(['group:tir_label']))
+        reserved_infos.STORY_TAGS.name, generic_set.GenericSet(['group:label']))
     histograms.AddSharedDiagnosticToAllHistograms(
         reserved_infos.STORIES.name, generic_set.GenericSet(['story']))
     isolate_retrieve.side_effect = itertools.chain(
@@ -165,7 +164,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='story',
         statistic='avg')
     self.assertNotEqual({},
@@ -182,7 +181,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'story',
                     'statistic': 'avg',
                 },
@@ -193,6 +192,7 @@ class EvaluatorTest(test.TestCase):
                 'result_values': [1.0],
                 'status': 'completed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -207,8 +207,7 @@ class EvaluatorTest(test.TestCase):
     histogram.AddSample(2)
     histograms = histogram_set.HistogramSet([histogram])
     histograms.AddSharedDiagnosticToAllHistograms(
-        reserved_infos.STORY_TAGS.name,
-        generic_set.GenericSet(['group:tir_label']))
+        reserved_infos.STORY_TAGS.name, generic_set.GenericSet(['group:label']))
     histograms.AddSharedDiagnosticToAllHistograms(
         reserved_infos.STORIES.name, generic_set.GenericSet(['https://story']))
     isolate_retrieve.side_effect = itertools.chain(
@@ -218,7 +217,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='https://story')
     self.assertNotEqual({},
                         task_module.Evaluate(
@@ -234,7 +233,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'https://story',
                     'statistic': None,
                 },
@@ -245,6 +244,7 @@ class EvaluatorTest(test.TestCase):
                 'result_values': [0, 1, 2],
                 'status': 'completed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -266,8 +266,7 @@ class EvaluatorTest(test.TestCase):
         for name in ('some_benchmark', 'some_benchmark', 'some_other_benchmark')
     ])
     histograms.AddSharedDiagnosticToAllHistograms(
-        reserved_infos.STORY_TAGS.name,
-        generic_set.GenericSet(['group:tir_label']))
+        reserved_infos.STORY_TAGS.name, generic_set.GenericSet(['group:label']))
     histograms.AddSharedDiagnosticToAllHistograms(
         reserved_infos.STORIES.name, generic_set.GenericSet(['story']))
     isolate_retrieve.side_effect = itertools.chain(
@@ -277,7 +276,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='story')
     self.assertNotEqual({},
                         task_module.Evaluate(
@@ -293,7 +292,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'story',
                     'statistic': None,
                 },
@@ -304,6 +303,7 @@ class EvaluatorTest(test.TestCase):
                 'result_values': [0, 1, 2, 0, 1, 2],
                 'status': 'completed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -337,15 +337,12 @@ class EvaluatorTest(test.TestCase):
     self.assertEqual(
         {
             'read_value_chromium@aaaaaaa_%s' % (attempt,): {
-                'benchmark':
-                    'some_benchmark',
+                'benchmark': 'some_benchmark',
                 'change': mock.ANY,
-                'mode':
-                    'histogram_sets',
-                'results_filename':
-                    'some_benchmark/perf_results.json',
+                'mode': 'histogram_sets',
+                'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -354,10 +351,8 @@ class EvaluatorTest(test.TestCase):
                     'trace': 'some_trace'
                 },
                 'result_values': [0],
-                'status':
-                    'completed',
-                'tries':
-                    1,
+                'status': 'completed',
+                'tries': 1,
                 'trace_urls': [{
                     'key': 'trace',
                     'value': 'trace_url1',
@@ -370,7 +365,8 @@ class EvaluatorTest(test.TestCase):
                     'key': 'trace',
                     'value': 'trace_url3',
                     'url': 'trace_url3',
-                }]
+                }],
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -402,15 +398,12 @@ class EvaluatorTest(test.TestCase):
     self.assertEqual(
         {
             'read_value_chromium@aaaaaaa_%s' % (attempt,): {
-                'benchmark':
-                    'some_benchmark',
+                'benchmark': 'some_benchmark',
                 'change': mock.ANY,
-                'mode':
-                    'histogram_sets',
-                'results_filename':
-                    'some_benchmark/perf_results.json',
+                'mode': 'histogram_sets',
+                'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -419,10 +412,8 @@ class EvaluatorTest(test.TestCase):
                     'trace': 'some_trace'
                 },
                 'result_values': [0],
-                'status':
-                    'completed',
-                'tries':
-                    1,
+                'status': 'completed',
+                'tries': 1,
                 'trace_urls': [{
                     'key': 'trace',
                     'value': 'trace_url1',
@@ -431,7 +422,8 @@ class EvaluatorTest(test.TestCase):
                     'key': 'trace',
                     'value': 'trace_url2',
                     'url': 'trace_url2',
-                }]
+                }],
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -450,7 +442,7 @@ class EvaluatorTest(test.TestCase):
       hist.diagnostics[reserved_infos.STORIES.name] = (
           generic_set.GenericSet(['story%d' % i]))
       hist.diagnostics[reserved_infos.STORY_TAGS.name] = (
-          generic_set.GenericSet(['group:tir_label1']))
+          generic_set.GenericSet(['group:label1']))
       hists.append(hist)
       samples.extend(hist.sample_values)
 
@@ -462,14 +454,13 @@ class EvaluatorTest(test.TestCase):
       hist.diagnostics[reserved_infos.STORIES.name] = (
           generic_set.GenericSet(['another_story%d' % i]))
       hist.diagnostics[reserved_infos.STORY_TAGS.name] = (
-          generic_set.GenericSet(['group:tir_label2']))
+          generic_set.GenericSet(['group:label2']))
       hists.append(hist)
       samples.extend(hist.sample_values)
 
     histograms = histogram_set.HistogramSet(hists)
     histograms.AddSharedDiagnosticToAllHistograms(
-        reserved_infos.STORY_TAGS.name,
-        generic_set.GenericSet(['group:tir_label']))
+        reserved_infos.STORY_TAGS.name, generic_set.GenericSet(['group:label']))
     isolate_retrieve.side_effect = itertools.chain(
         *itertools.repeat([('{"files": {"some_benchmark/perf_results.json": '
                             '{"h": "394890891823812873798734a"}}}'),
@@ -489,7 +480,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -500,6 +491,7 @@ class EvaluatorTest(test.TestCase):
                 'result_values': [sum(samples)],
                 'status': 'completed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -511,8 +503,7 @@ class EvaluatorTest(test.TestCase):
     histogram = histogram_module.Histogram('some_benchmark', 'count')
     histograms = histogram_set.HistogramSet([histogram])
     histograms.AddSharedDiagnosticToAllHistograms(
-        reserved_infos.STORY_TAGS.name,
-        generic_set.GenericSet(['group:tir_label']))
+        reserved_infos.STORY_TAGS.name, generic_set.GenericSet(['group:label']))
     histograms.AddSharedDiagnosticToAllHistograms(
         reserved_infos.STORIES.name, generic_set.GenericSet(['https://story']))
     isolate_retrieve.side_effect = itertools.chain(
@@ -522,7 +513,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='https://story')
     self.assertNotEqual({},
                         task_module.Evaluate(
@@ -538,7 +529,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'https://story',
                     'statistic': None,
                 },
@@ -552,6 +543,7 @@ class EvaluatorTest(test.TestCase):
                     'message': mock.ANY,
                 }],
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -567,7 +559,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='https://story')
     self.assertNotEqual({},
                         task_module.Evaluate(
@@ -583,7 +575,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'https://story',
                     'statistic': None,
                 },
@@ -597,6 +589,7 @@ class EvaluatorTest(test.TestCase):
                     'message': mock.ANY,
                 }],
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -615,7 +608,7 @@ class EvaluatorTest(test.TestCase):
     self.PopulateTaskGraph(
         benchmark='some_benchmark',
         chart='some_chart',
-        tir_label='tir_label',
+        grouping_label='label',
         story='https://story')
     self.assertNotEqual({},
                         task_module.Evaluate(
@@ -631,7 +624,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'histogram_sets',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': 'tir_label',
+                    'grouping_label': 'label',
                     'story': 'https://story',
                     'statistic': None,
                 },
@@ -645,6 +638,7 @@ class EvaluatorTest(test.TestCase):
                     'message': mock.ANY,
                 }],
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -680,7 +674,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'graph_json',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -691,6 +685,7 @@ class EvaluatorTest(test.TestCase):
                 'result_values': [126444.869721],
                 'status': 'completed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -719,7 +714,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'graph_json',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -733,6 +728,7 @@ class EvaluatorTest(test.TestCase):
                 }],
                 'status': 'failed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -764,7 +760,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'graph_json',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -778,6 +774,7 @@ class EvaluatorTest(test.TestCase):
                 }],
                 'status': 'failed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -813,7 +810,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'graph_json',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -827,6 +824,7 @@ class EvaluatorTest(test.TestCase):
                 }],
                 'status': 'failed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
@@ -851,13 +849,13 @@ class EvaluatorTest(test.TestCase):
                         predicate=evaluators.TaskTypeEq('find_isolate'),
                         delegate=evaluators.SequenceEvaluator(
                             evaluators=(
-                                functools.partial(FakeFoundIsolate, self.job),
+                                bisection_test_util.FakeFoundIsolate(self.job),
                                 evaluators.TaskPayloadLiftingEvaluator()))),
                     evaluators.FilteringEvaluator(
                         predicate=evaluators.TaskTypeEq('run_test'),
                         delegate=evaluators.SequenceEvaluator(
                             evaluators=(
-                                functools.partial(FakeFailedRunTest, self.job),
+                                bisection_test_util.FakeFailedRunTest(self.job),
                                 evaluators.TaskPayloadLiftingEvaluator()))),
                     read_value.Evaluator(self.job),
                 ))))
@@ -869,7 +867,7 @@ class EvaluatorTest(test.TestCase):
                 'mode': 'graph_json',
                 'results_filename': 'some_benchmark/perf_results.json',
                 'histogram_options': {
-                    'tir_label': None,
+                    'grouping_label': None,
                     'story': None,
                     'statistic': None,
                 },
@@ -883,53 +881,10 @@ class EvaluatorTest(test.TestCase):
                 }],
                 'status': 'failed',
                 'tries': 1,
+                'index': attempt,
             } for attempt in range(10)
         },
         task_module.Evaluate(
             self.job,
             event_module.Event(type='select', target_task=None, payload={}),
             evaluators.Selector(task_type='read_value')))
-
-
-def FakeFoundIsolate(job, task, *_):
-  if task.status == 'completed':
-    return None
-
-  task.payload.update({
-      'isolate_server': 'https://isolate.server',
-      'isolate_hash': '12049adfa129339482234098',
-  })
-  return [
-      lambda _: task_module.UpdateTask(
-          job, task.id, new_state='completed', payload=task.payload)
-  ]
-
-
-def FakeSuccessfulRunTest(job, task, *_):
-  if task.status == 'completed':
-    return None
-
-  task.payload.update({
-      'isolate_server': 'https://isolate.server',
-      'isolate_hash': '12334981aad2304ff1243458',
-  })
-  return [
-      lambda _: task_module.UpdateTask(
-          job, task.id, new_state='completed', payload=task.payload)
-  ]
-
-
-def FakeFailedRunTest(job, task, *_):
-  if task.status == 'failed':
-    return None
-
-  task.payload.update({
-      'errors': [{
-          'reason': 'SomeReason',
-          'message': 'There is some message here.',
-      }]
-  })
-  return [
-      lambda _: task_module.UpdateTask(
-          job, task.id, new_state='failed', payload=task.payload)
-  ]

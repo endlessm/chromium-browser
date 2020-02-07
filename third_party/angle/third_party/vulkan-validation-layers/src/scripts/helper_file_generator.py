@@ -177,6 +177,9 @@ class HelperFileOutputGenerator(OutputGenerator):
             required_extensions = requires.split(',')
         else:
             required_extensions = list()
+        requiresCore = interface.get('requiresCore')
+        if requiresCore is not None:
+            required_extensions.append('VK_VERSION_%s' % ('_'.join(requiresCore.split('.'))))
         info = { 'define': name_define, 'ifdef':self.featureExtraProtect, 'reqs':required_extensions }
         if interface.get('type') == 'instance':
             self.instance_extension_info[name] = info
@@ -545,8 +548,11 @@ class HelperFileOutputGenerator(OutputGenerator):
             '#include <utility>',
             '#include <set>',
             '#include <vector>',
+            '#include <cassert>',
             '',
             '#include <vulkan/vulkan.h>',
+            '',
+            '#define VK_VERSION_1_1_NAME "VK_VERSION_1_1"',
             '']
 
         def guarded(ifdef, value):
@@ -570,6 +576,10 @@ class HelperFileOutputGenerator(OutputGenerator):
             extension_items = sorted(extension_dict.items())
 
             field_name = { ext_name: re.sub('_extension_name', '', info['define'].lower()) for ext_name, info in extension_items }
+
+            # Add in pseudo-extensions for core API versions so real extensions can depend on them
+            extension_dict['VK_VERSION_1_1'] = {'define':"VK_VERSION_1_1_NAME", 'ifdef':None, 'reqs':[]}
+            field_name['VK_VERSION_1_1'] = "vk_feature_version_1_1"
 
             if type == 'Instance':
                 instance_field_name = field_name
@@ -858,10 +868,13 @@ class HelperFileOutputGenerator(OutputGenerator):
             struct VulkanTypedHandle {
                 uint64_t handle;
                 VulkanObjectType type;
+                // node is optional, and if non-NULL is used to avoid a hash table lookup
+                class BASE_NODE *node;
                 template <typename Handle>
-                VulkanTypedHandle(Handle handle_, VulkanObjectType type_) :
+                VulkanTypedHandle(Handle handle_, VulkanObjectType type_, class BASE_NODE *node_ = nullptr) :
                     handle(CastToUint64(handle_)),
-                    type(type_) {
+                    type(type_),
+                    node(node_) {
             #ifdef TYPESAFE_NONDISPATCHABLE_HANDLES
                     // For 32 bit it's not always safe to check for traits <-> type
                     // as all non-dispatchable handles have the same type-id and thus traits,
@@ -878,7 +891,8 @@ class HelperFileOutputGenerator(OutputGenerator):
                 }
                 VulkanTypedHandle() :
                     handle(VK_NULL_HANDLE),
-                    type(kVulkanObjectTypeUnknown) {}
+                    type(kVulkanObjectTypeUnknown),
+                    node(nullptr) {}
             }; ''')  +'\n'
 
         return object_types_header

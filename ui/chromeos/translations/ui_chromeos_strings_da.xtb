@@ -564,6 +564,7 @@
 <translation id="7589661784326793847">Vent et øjeblik</translation>
 <translation id="7603724359189955920">Gitre</translation>
 <translation id="7627790789328695202"><ph name="FILE_NAME" /> findes allerede. Giv filen et nyt navn, og prøv igen.</translation>
+<translation id="7628656427739290098"><ph name="PERCENT" /> % fuldført.</translation>
 <translation id="7649070708921625228">Hjælp</translation>
 <translation id="7654209398114106148">Flytter <ph name="NUMBER_OF_ITEMS" /> elementer...</translation>
 <translation id="7658239707568436148">Annuller</translation>
@@ -637,7 +638,7 @@
 <translation id="8279388322240498158">Sorani-kurdisk tastatur (engelskbaseret)</translation>
 <translation id="8280151743281770066">Armensk (fonetisk)</translation>
 <translation id="8294431847097064396">Kilde</translation>
-<translation id="8297012244086013755">Hangul 3-sæt (ingen shift)</translation>
+<translation id="8297012244086013755">Hangul 3-sæt (ingen Shift)</translation>
 <translation id="8299269255470343364">Japansk</translation>
 <translation id="8312871300878166382">Indsæt i mappe</translation>
 <translation id="8329978297633540474">Almindelig tekst</translation>

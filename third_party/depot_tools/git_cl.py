@@ -14,8 +14,8 @@ from multiprocessing.pool import ThreadPool
 import base64
 import collections
 import datetime
-import glob
-import httplib
+import fnmatch
+import httplib2
 import itertools
 import json
 import logging
@@ -29,15 +29,11 @@ import sys
 import tempfile
 import textwrap
 import time
-import urllib
-import urllib2
-import urlparse
 import uuid
 import webbrowser
 import zlib
 
 from third_party import colorama
-from third_party import httplib2
 import auth
 import clang_format
 import dart_format
@@ -57,6 +53,14 @@ import split_cl
 import subcommand
 import subprocess2
 import watchlists
+
+from third_party import six
+from six.moves import urllib
+
+
+if sys.version_info.major == 3:
+  basestring = (str,)  # pylint: disable=redefined-builtin
+
 
 __version__ = '2.0'
 
@@ -99,7 +103,7 @@ TRACES_README_FORMAT = (
 
 COMMIT_BOT_EMAIL = 'commit-bot@chromium.org'
 POSTUPSTREAM_HOOK = '.git/hooks/post-cl-land'
-DESCRIPTION_BACKUP_FILE = '~/.git_cl_description_backup'
+DESCRIPTION_BACKUP_FILE = '.git_cl_description_backup'
 REFS_THAT_ALIAS_TO_OTHER_REFS = {
     'refs/remotes/origin/lkgr': 'refs/remotes/origin/master',
     'refs/remotes/origin/lkcr': 'refs/remotes/origin/master',
@@ -134,7 +138,7 @@ def DieWithError(message, change_desc=None):
 
 
 def SaveDescriptionBackup(change_desc):
-  backup_path = os.path.expanduser(DESCRIPTION_BACKUP_FILE)
+  backup_path = os.path.join(DEPOT_TOOLS, DESCRIPTION_BACKUP_FILE)
   print('\nsaving CL description to %s\n' % backup_path)
   backup_file = open(backup_path, 'w')
   backup_file.write(change_desc.description)
@@ -150,14 +154,15 @@ def GetNoGitPagerEnv():
 
 def RunCommand(args, error_ok=False, error_message=None, shell=False, **kwargs):
   try:
-    return subprocess2.check_output(args, shell=shell, **kwargs)
+    stdout = subprocess2.check_output(args, shell=shell, **kwargs)
+    return stdout.decode('utf-8', 'replace')
   except subprocess2.CalledProcessError as e:
     logging.debug('Failed running %s', args)
     if not error_ok:
       DieWithError(
           'Command "%s" failed.\n%s' % (
             ' '.join(args), error_message or e.stdout or ''))
-    return e.stdout
+    return e.stdout.decode('utf-8', 'replace')
 
 
 def RunGit(args, **kwargs):
@@ -176,10 +181,10 @@ def RunGitWithCode(args, suppress_stderr=False):
                                              env=GetNoGitPagerEnv(),
                                              stdout=subprocess2.PIPE,
                                              stderr=stderr)
-    return code, out
+    return code, out.decode('utf-8', 'replace')
   except subprocess2.CalledProcessError as e:
     logging.debug('Failed running %s', ['git'] + args)
-    return e.returncode, e.stdout
+    return e.returncode, e.stdout.decode('utf-8', 'replace')
 
 
 def RunGitSilent(args):
@@ -421,7 +426,7 @@ def _get_bucket_map(changelist, options, option_parser):
   if options.bucket:
     return {options.bucket: {b: [] for b in options.bot}}
   option_parser.error(
-      'Please specify the bucket, e.g. "-B luci.chromium.try".')
+      'Please specify the bucket, e.g. "-B chromium/try".')
 
 
 def _parse_bucket(raw_bucket):
@@ -443,11 +448,10 @@ def _parse_bucket(raw_bucket):
   return project, bucket
 
 
-def _trigger_try_jobs(auth_config, changelist, buckets, options, patchset):
+def _trigger_try_jobs(changelist, buckets, options, patchset):
   """Sends a request to Buildbucket to trigger tryjobs for a changelist.
 
   Args:
-    auth_config: AuthConfig for Buildbucket.
     changelist: Changelist that the tryjobs are associated with.
     buckets: A nested dict mapping bucket names to builders to tests.
     options: Command-line options.
@@ -466,7 +470,7 @@ def _trigger_try_jobs(auth_config, changelist, buckets, options, patchset):
   if not requests:
     return
 
-  http = auth.get_authenticator(auth_config).authorize(httplib2.Http())
+  http = auth.Authenticator().authorize(httplib2.Http())
   http.force_exception_to_status_code = True
 
   batch_request = {'requests': requests}
@@ -527,8 +531,7 @@ def _make_try_job_schedule_requests(changelist, buckets, options, patchset):
   return requests
 
 
-def fetch_try_jobs(auth_config, changelist, buildbucket_host,
-                   patchset=None):
+def fetch_try_jobs(changelist, buildbucket_host, patchset=None):
   """Fetches tryjobs from buildbucket.
 
   Returns list of buildbucket.v2.Build with the try jobs for the changelist.
@@ -541,7 +544,7 @@ def fetch_try_jobs(auth_config, changelist, buildbucket_host,
       'fields': ','.join('builds.*.' + field for field in fields),
   }
 
-  authenticator = auth.get_authenticator(auth_config)
+  authenticator = auth.Authenticator()
   if authenticator.has_cached_credentials():
     http = authenticator.authorize(httplib2.Http())
   else:
@@ -554,13 +557,11 @@ def fetch_try_jobs(auth_config, changelist, buildbucket_host,
   response = _call_buildbucket(http, buildbucket_host, 'SearchBuilds', request)
   return response.get('builds', [])
 
-def _fetch_latest_builds(
-    auth_config, changelist, buildbucket_host, latest_patchset=None):
+def _fetch_latest_builds(changelist, buildbucket_host, latest_patchset=None):
   """Fetches builds from the latest patchset that has builds (within
   the last few patchsets).
 
   Args:
-    auth_config (auth.AuthConfig): Auth info for Buildbucket
     changelist (Changelist): The CL to fetch builds for
     buildbucket_host (str): Buildbucket host, e.g. "cr-buildbucket.appspot.com"
     lastest_patchset(int|NoneType): the patchset to start fetching builds from.
@@ -581,8 +582,7 @@ def _fetch_latest_builds(
 
   min_ps = max(1, ps - 5)
   while ps >= min_ps:
-    builds = fetch_try_jobs(
-        auth_config, changelist, buildbucket_host, patchset=ps)
+    builds = fetch_try_jobs(changelist, buildbucket_host, patchset=ps)
     if len(builds):
       return builds, ps
     ps -= 1
@@ -694,8 +694,7 @@ def _ComputeDiffLineRanges(files, upstream_commit):
     return {}
 
   # Take the git diff and find the line ranges where there are changes.
-  lines = '-U%s' % settings.GetDiffLinesOfContext()
-  diff_cmd = BuildGitDiffCmd(lines, upstream_commit, files, allow_prefix=True)
+  diff_cmd = BuildGitDiffCmd('-U0', upstream_commit, files, allow_prefix=True)
   diff_output = RunGit(diff_cmd)
 
   pattern = r'(?:^diff --git a/(?:.*) b/(.*))|(?:^@@.*\+(.*) @@)'
@@ -765,8 +764,8 @@ def _FindYapfConfigFile(fpath, yapf_config_cache, top_dir=None):
   return ret
 
 
-def _GetYapfIgnoreFilepaths(top_dir):
-  """Returns all filepaths that match the ignored files in the .yapfignore file.
+def _GetYapfIgnorePatterns(top_dir):
+  """Returns all patterns in the .yapfignore file.
 
   yapf is supposed to handle the ignoring of files listed in .yapfignore itself,
   but this functionality appears to break when explicitly passing files to
@@ -779,28 +778,37 @@ def _GetYapfIgnoreFilepaths(top_dir):
     top_dir: The top level directory for the repository being formatted.
 
   Returns:
-    A set of all filepaths that should be ignored by yapf.
+    A set of all fnmatch patterns to be ignored.
   """
   yapfignore_file = os.path.join(top_dir, '.yapfignore')
-  ignore_filepaths = set()
+  ignore_patterns = set()
   if not os.path.exists(yapfignore_file):
-    return ignore_filepaths
+    return ignore_patterns
 
-  # glob works relative to the current working directory, so we need to ensure
-  # that we're at the top level directory.
-  old_cwd = os.getcwd()
-  try:
-    os.chdir(top_dir)
-    with open(yapfignore_file) as f:
-      for line in f.readlines():
-        stripped_line = line.strip()
-        # Comments and blank lines should be ignored.
-        if stripped_line.startswith('#') or stripped_line == '':
-          continue
-        ignore_filepaths |= set(glob.glob(stripped_line))
-    return ignore_filepaths
-  finally:
-    os.chdir(old_cwd)
+  with open(yapfignore_file) as f:
+    for line in f.readlines():
+      stripped_line = line.strip()
+      # Comments and blank lines should be ignored.
+      if stripped_line.startswith('#') or stripped_line == '':
+        continue
+      ignore_patterns.add(stripped_line)
+  return ignore_patterns
+
+
+def _FilterYapfIgnoredFiles(filepaths, patterns):
+  """Filters out any filepaths that match any of the given patterns.
+
+  Args:
+    filepaths: An iterable of strings containing filepaths to filter.
+    patterns: An iterable of strings containing fnmatch patterns to filter on.
+
+  Returns:
+    A list of strings containing all the elements of |filepaths| that did not
+    match any of the patterns in |patterns|.
+  """
+  # Not inlined so that tests can use the same implementation.
+  return [f for f in filepaths
+          if not any(fnmatch.fnmatch(f, p) for p in patterns)]
 
 
 def print_stats(args):
@@ -812,13 +820,9 @@ def print_stats(args):
   if 'GIT_EXTERNAL_DIFF' in env:
     del env['GIT_EXTERNAL_DIFF']
 
-  try:
-    stdout = sys.stdout.fileno()
-  except AttributeError:
-    stdout = None
   return subprocess2.call(
       ['git', 'diff', '--no-ext-diff', '--stat', '-l100000', '-C50'] + args,
-      stdout=stdout, env=env)
+      env=env)
 
 
 class BuildbucketResponseException(Exception):
@@ -836,6 +840,7 @@ class Settings(object):
     self.squash_gerrit_uploads = None
     self.gerrit_skip_ensure_authenticated = None
     self.git_editor = None
+    self.format_full_by_default = None
 
   def LazyUpdateIfNeeded(self):
     """Updates the settings from a codereview.settings file, if available."""
@@ -944,9 +949,13 @@ class Settings(object):
     return (self._GetConfig('rietveld.cpplint-ignore-regex', error_ok=True) or
             DEFAULT_LINT_IGNORE_REGEX)
 
-  def GetDiffLinesOfContext(self):
-    return (self._GetConfig('rietveld.diff-lines-of-context', error_ok=True) or
-            "0")
+  def GetFormatFullByDefault(self):
+    if self.format_full_by_default is None:
+      result = (
+          RunGit(['config', '--bool', 'rietveld.format-full-by-default'],
+                 error_ok=True).strip())
+      self.format_full_by_default = (result == 'true')
+    return self.format_full_by_default
 
   def _GetConfig(self, param, **kwargs):
     self.LazyUpdateIfNeeded()
@@ -1011,7 +1020,7 @@ def ParseIssueNumberArgument(arg):
 
   url = gclient_utils.UpgradeToHttps(arg)
   try:
-    parsed_url = urlparse.urlparse(url)
+    parsed_url = urllib.parse.urlparse(url)
   except ValueError:
     return fail_result
 
@@ -1316,7 +1325,7 @@ class Changelist(object):
     url = RunGit(['config', 'remote.%s.url' % remote], error_ok=True).strip()
 
     # Check if the remote url can be parsed as an URL.
-    host = urlparse.urlparse(url).netloc
+    host = urllib.parse.urlparse(url).netloc
     if host:
       self._cached_remote_url = (True, url)
       return url
@@ -1336,7 +1345,7 @@ class Changelist(object):
                  error_ok=True,
                  cwd=url).strip()
 
-    host = urlparse.urlparse(url).netloc
+    host = urllib.parse.urlparse(url).netloc
     if not host:
       logging.error(
           'Remote "%(remote)s" for branch "%(branch)s" points to '
@@ -1649,7 +1658,7 @@ class Changelist(object):
     if self._gerrit_host and '.' not in self._gerrit_host:
       # Abbreviated domain like "chromium" instead of chromium.googlesource.com.
       # This happens for internal stuff http://crbug.com/614312.
-      parsed = urlparse.urlparse(self.GetRemoteUrl())
+      parsed = urllib.parse.urlparse(self.GetRemoteUrl())
       if parsed.scheme == 'sso':
         print('WARNING: using non-https URLs for remote is likely broken\n'
               '  Your current remote is: %s' % self.GetRemoteUrl())
@@ -1662,7 +1671,7 @@ class Changelist(object):
     remote_url = self.GetRemoteUrl()
     if not remote_url:
       return None
-    return urlparse.urlparse(remote_url).netloc
+    return urllib.parse.urlparse(remote_url).netloc
 
   def GetCodereviewServer(self):
     if not self._gerrit_server:
@@ -1672,7 +1681,7 @@ class Changelist(object):
         self._gerrit_server = self._GitGetBranchConfigValue(
             self.CodereviewServerConfigKey())
         if self._gerrit_server:
-          self._gerrit_host = urlparse.urlparse(self._gerrit_server).netloc
+          self._gerrit_host = urllib.parse.urlparse(self._gerrit_server).netloc
       if not self._gerrit_server:
         # We assume repo to be hosted on Gerrit, and hence Gerrit server
         # has "-review" suffix for lowest level subdomain.
@@ -1688,7 +1697,7 @@ class Changelist(object):
     if remote_url is None:
       logging.warn('can\'t detect Gerrit project.')
       return None
-    project = urlparse.urlparse(remote_url).path.strip('/')
+    project = urllib.parse.urlparse(remote_url).path.strip('/')
     if project.endswith('.git'):
       project = project[:-len('.git')]
     # *.googlesource.com hosts ensure that Git/Gerrit projects don't start with
@@ -1737,7 +1746,7 @@ class Changelist(object):
     if not isinstance(cookie_auth, gerrit_util.CookiesAuthenticator):
       return
 
-    if urlparse.urlparse(self.GetRemoteUrl()).scheme != 'https':
+    if urllib.parse.urlparse(self.GetRemoteUrl()).scheme != 'https':
       print('WARNING: Ignoring branch %s with non-https remote %s' %
             (self.branch, self.GetRemoteUrl()))
       return
@@ -1847,7 +1856,7 @@ class Changelist(object):
     try:
       data = self._GetChangeDetail([
           'DETAILED_LABELS', 'CURRENT_REVISION', 'SUBMITTABLE'])
-    except (httplib.HTTPException, GerritChangeNotExists):
+    except GerritChangeNotExists:
       return 'error'
 
     if data['status'] in ('ABANDONED', 'MERGED'):
@@ -1869,7 +1878,7 @@ class Changelist(object):
       return 'unsent'
 
     owner = data['owner'].get('_account_id')
-    messages = sorted(data.get('messages', []), key=lambda m: m.get('updated'))
+    messages = sorted(data.get('messages', []), key=lambda m: m.get('date'))
     last_message_author = messages.pop().get('author', {})
     while last_message_author:
       if last_message_author.get('email') == COMMIT_BOT_EMAIL:
@@ -1896,8 +1905,7 @@ class Changelist(object):
     data = self._GetChangeDetail(['CURRENT_REVISION', 'CURRENT_COMMIT'],
                                  no_cache=force)
     current_rev = data['current_revision']
-    return data['revisions'][current_rev]['commit']['message'].encode(
-        'utf-8', 'ignore')
+    return data['revisions'][current_rev]['commit']['message']
 
   def UpdateDescriptionRemote(self, description, force=False):
     if gerrit_util.HasPendingChangeEdit(
@@ -2318,6 +2326,7 @@ class Changelist(object):
           # Flush after every line: useful for seeing progress when running as
           # recipe.
           filter_fn=lambda _: sys.stdout.flush())
+      push_stdout = push_stdout.decode('utf-8', 'replace')
     except subprocess2.CalledProcessError as e:
       push_returncode = e.returncode
       DieWithError('Failed to create a change. Please examine output above '
@@ -2472,7 +2481,7 @@ class Changelist(object):
                                    options.force, change_desc)
       tree = RunGit(['rev-parse', 'HEAD:']).strip()
       with tempfile.NamedTemporaryFile(delete=False) as desc_tempfile:
-        desc_tempfile.write(change_desc.description)
+        desc_tempfile.write(change_desc.description.encode('utf-8', 'replace'))
         desc_tempfile.close()
         ref_to_push = RunGit(['commit-tree', tree, '-p', parent,
                               '-F', desc_tempfile.name]).strip()
@@ -2522,7 +2531,7 @@ class Changelist(object):
     # Add cc's from the --cc flag.
     if options.cc:
       cc.extend(options.cc)
-    cc = filter(None, [email.strip() for email in cc])
+    cc = [email.strip() for email in cc if email.strip()]
     if change_desc.get_cced():
       cc.extend(change_desc.get_cced())
     if self._GetGerritHost() == 'chromium-review.googlesource.com':
@@ -2723,7 +2732,7 @@ class Changelist(object):
 
   def GetGerritChange(self, patchset=None):
     """Returns a buildbucket.v2.GerritChange message for the current issue."""
-    host = urlparse.urlparse(self.GetCodereviewServer()).hostname
+    host = urllib.parse.urlparse(self.GetCodereviewServer()).hostname
     issue = self.GetIssue()
     patchset = int(patchset or self.GetPatchset())
     data = self._GetChangeDetail(['ALL_REVISIONS'])
@@ -2821,7 +2830,7 @@ class ChangeDescription(object):
   CHERRY_PICK_LINE = r'^\(cherry picked from commit [a-fA-F0-9]{40}\)$'
   STRIP_HASH_TAG_PREFIX = r'^(\s*(revert|reland)( "|:)?\s*)*'
   BRACKET_HASH_TAG = r'\s*\[([^\[\]]+)\]'
-  COLON_SEPARATED_HASH_TAG = r'^([a-zA-Z0-9_\- ]+):'
+  COLON_SEPARATED_HASH_TAG = r'^([a-zA-Z0-9_\- ]+):($|[^:])'
   BAD_HASH_TAG_CHUNK = r'[^a-zA-Z0-9]+'
 
   def __init__(self, description, bug=None, fixed=None):
@@ -2949,7 +2958,7 @@ class ChangeDescription(object):
       self.append_footer('Bug: %s' % prefix)
 
     content = gclient_utils.RunEditor(self.description, True,
-                                        git_editor=settings.GetGitEditor())
+                                      git_editor=settings.GetGitEditor())
     if not content:
       DieWithError('Running editor failed')
     lines = content.splitlines()
@@ -3160,7 +3169,7 @@ def LoadCodereviewSettingsFromFile(fileobj):
   SetProperty('run-post-upload-hook', 'RUN_POST_UPLOAD_HOOK',
               unset_error_ok=True)
   SetProperty(
-      'diff-lines-of-context', 'DIFF_LINES_OF_CONTEXT', unset_error_ok=True)
+      'format-full-by-default', 'FORMAT_FULL_BY_DEFAULT', unset_error_ok=True)
 
   if 'GERRIT_HOST' in keyvals:
     RunGit(['config', 'gerrit.host', keyvals['GERRIT_HOST']])
@@ -3187,7 +3196,7 @@ def urlretrieve(source, destination):
   This is necessary because urllib is broken for SSL connections via a proxy.
   """
   with open(destination, 'w') as f:
-    f.write(urllib2.urlopen(source).read())
+    f.write(urllib.request.urlopen(source).read())
 
 
 def hasSheBang(fname):
@@ -3323,7 +3332,7 @@ class _GitCookiesChecker(object):
     if not hosts:
       print('No Git/Gerrit credentials found')
       return
-    lengths = [max(map(len, (row[i] for row in hosts))) for i in xrange(3)]
+    lengths = [max(map(len, (row[i] for row in hosts))) for i in range(3)]
     header = [('Host', 'User', 'Which file'),
               ['=' * l for l in lengths]]
     for row in (header + hosts):
@@ -3718,6 +3727,22 @@ def upload_branch_deps(cl, args):
   return 0
 
 
+def GetArchiveTagForBranch(issue_num, branch_name, existing_tags):
+  """Given a proposed tag name, returns a tag name that is guaranteed to be
+  unique. If 'foo' is proposed but already exists, then 'foo-2' is used,
+  or 'foo-3', and so on."""
+
+  proposed_tag = 'git-cl-archived-%s-%s' % (issue_num, branch_name)
+  for suffix_num in itertools.count(1):
+    if suffix_num == 1:
+      to_check = proposed_tag
+    else:
+      to_check = '%s-%d' % (proposed_tag, suffix_num)
+
+    if to_check not in existing_tags:
+      return to_check
+
+
 @metrics.collector.collect_metrics('git cl archive')
 def CMDarchive(parser, args):
   """Archives and deletes branches associated with closed changelists."""
@@ -3743,6 +3768,10 @@ def CMDarchive(parser, args):
   if not branches:
     return 0
 
+  tags = RunGit(['for-each-ref', '--format=%(refname)',
+                 'refs/tags']).splitlines() or []
+  tags = [t.split('/')[-1] for t in tags]
+
   print('Finding all branches associated with closed issues...')
   changes = [Changelist(branchref=b)
              for b in branches.splitlines()]
@@ -3751,7 +3780,8 @@ def CMDarchive(parser, args):
                              fine_grained=True,
                              max_processes=options.maxjobs)
   proposal = [(cl.GetBranch(),
-               'git-cl-archived-%s-%s' % (cl.GetIssue(), cl.GetBranch()))
+               GetArchiveTagForBranch(cl.GetIssue(), cl.GetBranch(),
+                                      tags))
               for cl, status in statuses
               if status in ('closed', 'rietveld-not-supported')]
   proposal.sort()
@@ -3791,7 +3821,10 @@ def CMDarchive(parser, args):
   for branch, tagname in proposal:
     if not options.notags:
       RunGit(['tag', tagname, branch])
-    RunGit(['branch', '-D', branch])
+
+    if RunGitWithCode(['branch', '-D', branch])[0] != 0:
+      # Clean up the tag if we failed to delete the branch.
+      RunGit(['tag', '-d', tagname])
 
   print('\nJob\'s done!')
 
@@ -3890,7 +3923,7 @@ def CMDstatus(parser, args):
   for cl in sorted(changes, key=lambda c: c.GetBranch()):
     branch = cl.GetBranch()
     while branch not in branch_statuses:
-      c, status = output.next()
+      c, status = next(output)
       branch_statuses[c.GetBranch()] = status
     status = branch_statuses.pop(branch)
     url = cl.GetIssueURL()
@@ -4075,10 +4108,10 @@ def CMDcomments(parser, args):
 
   if options.json_file:
     def pre_serialize(c):
-      dct = c.__dict__.copy()
+      dct = c._asdict().copy()
       dct['date'] = dct['date'].strftime('%Y-%m-%d %H:%M:%S.%f')
       return dct
-    write_json(options.json_file, map(pre_serialize, summary))
+    write_json(options.json_file, [pre_serialize(x) for x in summary])
   return 0
 
 
@@ -4439,7 +4472,6 @@ def CMDupload(parser, args):
                          'fixed (pre-populates "Fixed:" tag). Same format as '
                          '-b option / "Bug:" tag. If fixing several issues, '
                          'separate with commas.')
-  auth.add_auth_options(parser)
 
   orig_args = args
   _add_codereview_select_options(parser)
@@ -4487,15 +4519,13 @@ def CMDupload(parser, args):
     if ret != 0:
       print('Upload failed, so --retry-failed has no effect.')
       return ret
-    auth_config = auth.extract_auth_config_from_options(options)
     builds, _ = _fetch_latest_builds(
-        auth_config, cl, options.buildbucket_host,
-        latest_patchset=patchset)
+        cl, options.buildbucket_host, latest_patchset=patchset)
     buckets = _filter_failed_for_retry(builds)
     if len(buckets) == 0:
       print('No failed tryjobs, so --retry-failed has no effect.')
       return ret
-    _trigger_try_jobs(auth_config, cl, buckets, options, patchset + 1)
+    _trigger_try_jobs(cl, buckets, options, patchset + 1)
 
   return ret
 
@@ -4663,7 +4693,7 @@ def GetTreeStatus(url=None):
   'unknown' or 'unset'."""
   url = url or settings.GetTreeStatusUrl(error_ok=True)
   if url:
-    status = urllib2.urlopen(url).read().lower()
+    status = urllib.request.urlopen(url).read().lower()
     if status.find('closed') != -1 or status == '0':
       return 'closed'
     elif status.find('open') != -1 or status == '1':
@@ -4677,7 +4707,7 @@ def GetTreeStatusReason():
   with the reason for the tree to be opened or closed."""
   url = settings.GetTreeStatusUrl()
   json_url = urlparse.urljoin(url, '/current?format=json')
-  connection = urllib2.urlopen(json_url)
+  connection = urllib.request.urlopen(json_url)
   status = json.loads(connection.read())
   connection.close()
   return status['message']
@@ -4745,10 +4775,8 @@ def CMDtry(parser, args):
       '-R', '--retry-failed', action='store_true', default=False,
       help='Retry failed jobs from the latest set of tryjobs. '
            'Not allowed with --bucket and --bot options.')
-  auth.add_auth_options(parser)
   _add_codereview_issue_select_options(parser)
   options, args = parser.parse_args(args)
-  auth_config = auth.extract_auth_config_from_options(options)
 
   # Make sure that all properties are prop=value pairs.
   bad_params = [x for x in options.properties if '=' not in x]
@@ -4775,8 +4803,7 @@ def CMDtry(parser, args):
             '-B, -b, --bucket, or --bot.', file=sys.stderr)
       return 1
     print('Searching for failed tryjobs...')
-    builds, patchset = _fetch_latest_builds(
-        auth_config, cl, options.buildbucket_host)
+    builds, patchset = _fetch_latest_builds(cl, options.buildbucket_host)
     if options.verbose:
       print('Got %d builds in patchset #%d' % (len(builds), patchset))
     buckets = _filter_failed_for_retry(builds)
@@ -4812,7 +4839,7 @@ def CMDtry(parser, args):
 
   patchset = cl.GetMostRecentPatchset()
   try:
-    _trigger_try_jobs(auth_config, cl, buckets, options, patchset)
+    _trigger_try_jobs(cl, buckets, options, patchset)
   except BuildbucketResponseException as ex:
     print('ERROR: %s' % ex)
     return 1
@@ -4837,13 +4864,11 @@ def CMDtry_results(parser, args):
       '--json', help=('Path of JSON output file to write tryjob results to,'
                       'or "-" for stdout.'))
   parser.add_option_group(group)
-  auth.add_auth_options(parser)
   _add_codereview_issue_select_options(parser)
   options, args = parser.parse_args(args)
   if args:
     parser.error('Unrecognized args: %s' % ' '.join(args))
 
-  auth_config = auth.extract_auth_config_from_options(options)
   cl = Changelist(issue=options.issue)
   if not cl.GetIssue():
     parser.error('Need to upload first.')
@@ -4858,7 +4883,7 @@ def CMDtry_results(parser, args):
                    cl.GetIssue())
 
   try:
-    jobs = fetch_try_jobs(auth_config, cl, options.buildbucket_host, patchset)
+    jobs = fetch_try_jobs(cl, options.buildbucket_host, patchset)
   except BuildbucketResponseException as ex:
     print('Buildbucket error: %s' % ex)
     return 1
@@ -5182,7 +5207,7 @@ def CMDformat(parser, args):
     except clang_format.NotFoundError as e:
       DieWithError(e)
 
-    if opts.full:
+    if opts.full or settings.GetFormatFullByDefault():
       cmd = [clang_format_tool]
       if not opts.dry_run and not opts.diff:
         cmd.append('-i')
@@ -5202,8 +5227,7 @@ def CMDformat(parser, args):
       if not opts.dry_run and not opts.diff:
         cmd.append('-i')
 
-      lines = '-U%s' % settings.GetDiffLinesOfContext()
-      diff_cmd = BuildGitDiffCmd(lines, upstream_commit, clang_diff_files)
+      diff_cmd = BuildGitDiffCmd('-U0', upstream_commit, clang_diff_files)
       diff_output = RunGit(diff_cmd)
 
       stdout = RunCommand(cmd, stdin=diff_output, cwd=top_dir, env=env)
@@ -5249,11 +5273,11 @@ def CMDformat(parser, args):
     if not opts.full and filtered_py_files:
       py_line_diffs = _ComputeDiffLineRanges(filtered_py_files, upstream_commit)
 
-    ignored_yapf_files = _GetYapfIgnoreFilepaths(top_dir)
+    yapfignore_patterns = _GetYapfIgnorePatterns(top_dir)
+    filtered_py_files = _FilterYapfIgnoredFiles(filtered_py_files,
+                                                yapfignore_patterns)
 
     for f in filtered_py_files:
-      if f in ignored_yapf_files:
-        continue
       yapf_config = _FindYapfConfigFile(f, yapf_configs, top_dir)
       if yapf_config is None:
         yapf_config = chromium_default_yapf_style
@@ -5449,7 +5473,7 @@ class OptionParser(optparse.OptionParser):
     # Store the options passed by the user in an _actual_options attribute.
     # We store only the keys, and not the values, since the values can contain
     # arbitrary information, which might be PII.
-    metrics.collector.add('arguments', actual_options.__dict__.keys())
+    metrics.collector.add('arguments', list(actual_options.__dict__.keys()))
 
     levels = [logging.WARNING, logging.INFO, logging.DEBUG]
     logging.basicConfig(
@@ -5470,9 +5494,9 @@ def main(argv):
   dispatcher = subcommand.CommandDispatcher(__name__)
   try:
     return dispatcher.execute(OptionParser(), argv)
-  except auth.AuthenticationError as e:
+  except auth.LoginRequiredError as e:
     DieWithError(str(e))
-  except urllib2.HTTPError as e:
+  except urllib.error.HTTPError as e:
     if e.code != 500:
       raise
     DieWithError(

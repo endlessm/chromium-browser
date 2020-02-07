@@ -19,6 +19,7 @@
  *   ANDROID_APPS: (undefined|!settings.Route),
  *   ANDROID_APPS_DETAILS: (undefined|!settings.Route),
  *   CROSTINI: (undefined|!settings.Route),
+ *   CROSTINI_ANDROID_ADB: (undefined|!settings.Route),
  *   CROSTINI_DETAILS: (undefined|!settings.Route),
  *   CROSTINI_EXPORT_IMPORT: (undefined|!settings.Route),
  *   CROSTINI_SHARED_PATHS: (undefined|!settings.Route),
@@ -68,6 +69,7 @@
  *   MULTIDEVICE_FEATURES: (undefined|!settings.Route),
  *   NETWORK_DETAIL: (undefined|!settings.Route),
  *   ON_STARTUP: (undefined|!settings.Route),
+ *   OS_SYNC: (undefined|!settings.Route),
  *   PASSWORDS: (undefined|!settings.Route),
  *   PAYMENTS: (undefined|!settings.Route),
  *   PEOPLE: (undefined|!settings.Route),
@@ -254,6 +256,75 @@ cr.define('settings', function() {
   }
 
   /**
+   * Add all of the child routes that originate from the privacy route,
+   * regardless of whether the privacy section under basic or advanced.
+   * @param {!SettingsRoutes} r
+   */
+  function addPrivacyChildRoutes(r) {
+    r.CERTIFICATES = r.PRIVACY.createChild('/certificates');
+    r.SITE_SETTINGS = r.PRIVACY.createChild('/content');
+    if (loadTimeData.getBoolean('enableSecurityKeysSubpage')) {
+      r.SECURITY_KEYS = r.PRIVACY.createChild('/securityKeys');
+    }
+
+    r.SITE_SETTINGS_ALL = r.SITE_SETTINGS.createChild('all');
+    r.SITE_SETTINGS_SITE_DETAILS =
+        r.SITE_SETTINGS_ALL.createChild('/content/siteDetails');
+
+    r.SITE_SETTINGS_HANDLERS = r.SITE_SETTINGS.createChild('/handlers');
+
+    // TODO(tommycli): Find a way to refactor these repetitive category
+    // routes.
+    r.SITE_SETTINGS_ADS = r.SITE_SETTINGS.createChild('ads');
+    r.SITE_SETTINGS_AUTOMATIC_DOWNLOADS =
+        r.SITE_SETTINGS.createChild('automaticDownloads');
+    r.SITE_SETTINGS_BACKGROUND_SYNC =
+        r.SITE_SETTINGS.createChild('backgroundSync');
+    r.SITE_SETTINGS_CAMERA = r.SITE_SETTINGS.createChild('camera');
+    r.SITE_SETTINGS_CLIPBOARD = r.SITE_SETTINGS.createChild('clipboard');
+    r.SITE_SETTINGS_COOKIES = r.SITE_SETTINGS.createChild('cookies');
+    r.SITE_SETTINGS_SITE_DATA =
+        r.SITE_SETTINGS_COOKIES.createChild('/siteData');
+    r.SITE_SETTINGS_DATA_DETAILS =
+        r.SITE_SETTINGS_SITE_DATA.createChild('/cookies/detail');
+    r.SITE_SETTINGS_IMAGES = r.SITE_SETTINGS.createChild('images');
+    if (loadTimeData.getBoolean('enableInsecureContentContentSetting')) {
+      r.SITE_SETTINGS_MIXEDSCRIPT =
+          r.SITE_SETTINGS.createChild('insecureContent');
+    }
+    r.SITE_SETTINGS_JAVASCRIPT = r.SITE_SETTINGS.createChild('javascript');
+    r.SITE_SETTINGS_SOUND = r.SITE_SETTINGS.createChild('sound');
+    r.SITE_SETTINGS_SENSORS = r.SITE_SETTINGS.createChild('sensors');
+    r.SITE_SETTINGS_LOCATION = r.SITE_SETTINGS.createChild('location');
+    r.SITE_SETTINGS_MICROPHONE = r.SITE_SETTINGS.createChild('microphone');
+    r.SITE_SETTINGS_NOTIFICATIONS =
+        r.SITE_SETTINGS.createChild('notifications');
+    r.SITE_SETTINGS_FLASH = r.SITE_SETTINGS.createChild('flash');
+    r.SITE_SETTINGS_POPUPS = r.SITE_SETTINGS.createChild('popups');
+    r.SITE_SETTINGS_UNSANDBOXED_PLUGINS =
+        r.SITE_SETTINGS.createChild('unsandboxedPlugins');
+    r.SITE_SETTINGS_MIDI_DEVICES = r.SITE_SETTINGS.createChild('midiDevices');
+    r.SITE_SETTINGS_USB_DEVICES = r.SITE_SETTINGS.createChild('usbDevices');
+    r.SITE_SETTINGS_SERIAL_PORTS = r.SITE_SETTINGS.createChild('serialPorts');
+    r.SITE_SETTINGS_ZOOM_LEVELS = r.SITE_SETTINGS.createChild('zoomLevels');
+    r.SITE_SETTINGS_PDF_DOCUMENTS = r.SITE_SETTINGS.createChild('pdfDocuments');
+    r.SITE_SETTINGS_PROTECTED_CONTENT =
+        r.SITE_SETTINGS.createChild('protectedContent');
+    if (loadTimeData.getBoolean('enablePaymentHandlerContentSetting')) {
+      r.SITE_SETTINGS_PAYMENT_HANDLER =
+          r.SITE_SETTINGS.createChild('paymentHandler');
+    }
+    if (loadTimeData.getBoolean('enableExperimentalWebPlatformFeatures')) {
+      r.SITE_SETTINGS_BLUETOOTH_SCANNING =
+          r.SITE_SETTINGS.createChild('bluetoothScanning');
+    }
+    if (loadTimeData.getBoolean('enableNativeFileSystemWriteContentSetting')) {
+      r.SITE_SETTINGS_NATIVE_FILE_SYSTEM_WRITE =
+          r.SITE_SETTINGS.createChild('filesystem');
+    }
+  }
+
+  /**
    * Adds Route objects for each path corresponding to browser-only content.
    * @param {!SettingsRoutes} r Routes to include browser-only content.
    */
@@ -281,6 +352,16 @@ cr.define('settings', function() {
       r.ADDRESSES = r.AUTOFILL.createChild('/addresses');
     }
 
+    if (loadTimeData.getBoolean('privacySettingsRedesignEnabled')) {
+      r.CLEAR_BROWSER_DATA = r.BASIC.createChild('/clearBrowserData');
+      r.CLEAR_BROWSER_DATA.isNavigableDialog = true;
+
+      if (pageVisibility.privacy !== false) {
+        r.PRIVACY = r.BASIC.createSection('/privacy', 'privacy');
+        addPrivacyChildRoutes(r);
+      }
+    }
+
     if (pageVisibility.defaultBrowser !== false) {
       r.DEFAULT_BROWSER =
           r.BASIC.createSection('/defaultBrowser', 'defaultBrowser');
@@ -297,77 +378,14 @@ cr.define('settings', function() {
     if (pageVisibility.advancedSettings !== false) {
       r.ADVANCED = new Route('/advanced');
 
-      r.CLEAR_BROWSER_DATA = r.ADVANCED.createChild('/clearBrowserData');
-      r.CLEAR_BROWSER_DATA.isNavigableDialog = true;
+      if (!loadTimeData.getBoolean('privacySettingsRedesignEnabled')) {
+        r.CLEAR_BROWSER_DATA = r.ADVANCED.createChild('/clearBrowserData');
+        r.CLEAR_BROWSER_DATA.isNavigableDialog = true;
 
-      if (pageVisibility.privacy !== false) {
-        r.PRIVACY = r.ADVANCED.createSection('/privacy', 'privacy');
-        r.CERTIFICATES = r.PRIVACY.createChild('/certificates');
-        r.SITE_SETTINGS = r.PRIVACY.createChild('/content');
-        if (loadTimeData.getBoolean('enableSecurityKeysSubpage')) {
-          r.SECURITY_KEYS = r.PRIVACY.createChild('/securityKeys');
+        if (pageVisibility.privacy !== false) {
+          r.PRIVACY = r.ADVANCED.createSection('/privacy', 'privacy');
+          addPrivacyChildRoutes(r);
         }
-      }
-
-      r.SITE_SETTINGS_ALL = r.SITE_SETTINGS.createChild('all');
-      r.SITE_SETTINGS_SITE_DETAILS =
-          r.SITE_SETTINGS_ALL.createChild('/content/siteDetails');
-
-      r.SITE_SETTINGS_HANDLERS = r.SITE_SETTINGS.createChild('/handlers');
-
-      // TODO(tommycli): Find a way to refactor these repetitive category
-      // routes.
-      r.SITE_SETTINGS_ADS = r.SITE_SETTINGS.createChild('ads');
-      r.SITE_SETTINGS_AUTOMATIC_DOWNLOADS =
-          r.SITE_SETTINGS.createChild('automaticDownloads');
-      r.SITE_SETTINGS_BACKGROUND_SYNC =
-          r.SITE_SETTINGS.createChild('backgroundSync');
-      r.SITE_SETTINGS_CAMERA = r.SITE_SETTINGS.createChild('camera');
-      r.SITE_SETTINGS_CLIPBOARD = r.SITE_SETTINGS.createChild('clipboard');
-      r.SITE_SETTINGS_COOKIES = r.SITE_SETTINGS.createChild('cookies');
-      r.SITE_SETTINGS_SITE_DATA =
-          r.SITE_SETTINGS_COOKIES.createChild('/siteData');
-      r.SITE_SETTINGS_DATA_DETAILS =
-          r.SITE_SETTINGS_SITE_DATA.createChild('/cookies/detail');
-      r.SITE_SETTINGS_IMAGES = r.SITE_SETTINGS.createChild('images');
-      if (loadTimeData.getBoolean('enableInsecureContentContentSetting')) {
-        r.SITE_SETTINGS_MIXEDSCRIPT =
-            r.SITE_SETTINGS.createChild('insecureContent');
-      }
-      r.SITE_SETTINGS_JAVASCRIPT = r.SITE_SETTINGS.createChild('javascript');
-      r.SITE_SETTINGS_SOUND = r.SITE_SETTINGS.createChild('sound');
-      r.SITE_SETTINGS_SENSORS = r.SITE_SETTINGS.createChild('sensors');
-      r.SITE_SETTINGS_LOCATION = r.SITE_SETTINGS.createChild('location');
-      r.SITE_SETTINGS_MICROPHONE = r.SITE_SETTINGS.createChild('microphone');
-      r.SITE_SETTINGS_NOTIFICATIONS =
-          r.SITE_SETTINGS.createChild('notifications');
-      r.SITE_SETTINGS_FLASH = r.SITE_SETTINGS.createChild('flash');
-      r.SITE_SETTINGS_POPUPS = r.SITE_SETTINGS.createChild('popups');
-      r.SITE_SETTINGS_UNSANDBOXED_PLUGINS =
-          r.SITE_SETTINGS.createChild('unsandboxedPlugins');
-      r.SITE_SETTINGS_MIDI_DEVICES = r.SITE_SETTINGS.createChild('midiDevices');
-      r.SITE_SETTINGS_USB_DEVICES = r.SITE_SETTINGS.createChild('usbDevices');
-      if (loadTimeData.getBoolean('enableExperimentalWebPlatformFeatures')) {
-        r.SITE_SETTINGS_SERIAL_PORTS =
-            r.SITE_SETTINGS.createChild('serialPorts');
-      }
-      r.SITE_SETTINGS_ZOOM_LEVELS = r.SITE_SETTINGS.createChild('zoomLevels');
-      r.SITE_SETTINGS_PDF_DOCUMENTS =
-          r.SITE_SETTINGS.createChild('pdfDocuments');
-      r.SITE_SETTINGS_PROTECTED_CONTENT =
-          r.SITE_SETTINGS.createChild('protectedContent');
-      if (loadTimeData.getBoolean('enablePaymentHandlerContentSetting')) {
-        r.SITE_SETTINGS_PAYMENT_HANDLER =
-            r.SITE_SETTINGS.createChild('paymentHandler');
-      }
-      if (loadTimeData.getBoolean('enableExperimentalWebPlatformFeatures')) {
-        r.SITE_SETTINGS_BLUETOOTH_SCANNING =
-            r.SITE_SETTINGS.createChild('bluetoothScanning');
-      }
-      if (loadTimeData.getBoolean(
-              'enableNativeFileSystemWriteContentSetting')) {
-        r.SITE_SETTINGS_NATIVE_FILE_SYSTEM_WRITE =
-            r.SITE_SETTINGS.createChild('filesystem');
       }
 
       r.LANGUAGES = r.ADVANCED.createSection('/languages', 'languages');
@@ -474,6 +492,7 @@ cr.define('settings', function() {
     if (loadTimeData.valueExists('showCrostini') &&
         loadTimeData.getBoolean('showCrostini')) {
       r.CROSTINI = r.BASIC.createSection('/crostini', 'crostini');
+      r.CROSTINI_ANDROID_ADB = r.CROSTINI.createChild('/crostini/androidAdb');
       r.CROSTINI_DETAILS = r.CROSTINI.createChild('/crostini/details');
       if (loadTimeData.valueExists('showCrostiniExportImport') &&
           loadTimeData.getBoolean('showCrostiniExportImport')) {
@@ -519,6 +538,10 @@ cr.define('settings', function() {
       r.ACCESSIBILITY = r.ADVANCED.createSection('/accessibility', 'a11y');
 
       if (!loadTimeData.getBoolean('isGuest')) {
+        if (loadTimeData.valueExists('splitSettingsSyncEnabled') &&
+            loadTimeData.getBoolean('splitSettingsSyncEnabled')) {
+          r.OS_SYNC = r.PEOPLE.createChild('/osSync');
+        }
         // Personalization
         r.PERSONALIZATION =
             r.BASIC.createSection('/personalization', 'personalization');

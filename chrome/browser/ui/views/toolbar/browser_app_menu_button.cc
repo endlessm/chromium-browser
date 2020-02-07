@@ -20,6 +20,7 @@
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/extensions/browser_action_drag_data.h"
+#include "chrome/browser/ui/views/feature_promos/feature_promo_colors.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
@@ -51,14 +52,6 @@
 #endif  // defined(OS_CHROMEOS)
 
 namespace {
-
-// Button background and icon colors for in-product help promos. The first is
-// the preferred color, but the selected color depends on the
-// background. TODO(collinbaker): consider moving these into theme system.
-constexpr SkColor kFeaturePromoHighlightDarkColor = gfx::kGoogleBlue600;
-constexpr SkColor kFeaturePromoHighlightDarkExtremeColor = gfx::kGoogleBlue900;
-constexpr SkColor kFeaturePromoHighlightLightColor = gfx::kGoogleGrey100;
-constexpr SkColor kFeaturePromoHighlightLightExtremeColor = SK_ColorWHITE;
 
 // Cycle duration of ink drop pulsing animation used for in-product help.
 constexpr base::TimeDelta kFeaturePromoPulseDuration =
@@ -152,8 +145,6 @@ BrowserAppMenuButton::BrowserAppMenuButton(ToolbarView* toolbar_view)
   set_ink_drop_visible_opacity(kToolbarInkDropVisibleOpacity);
 
   md_observer_.Add(ui::MaterialDesignController::GetInstance());
-
-  UpdateBorder();
 }
 
 BrowserAppMenuButton::~BrowserAppMenuButton() {}
@@ -284,64 +275,21 @@ void BrowserAppMenuButton::UpdateIcon() {
           ui::MaterialDesignController::touch_ui(), GetPromoHighlightColor()));
 }
 
-void BrowserAppMenuButton::SetTrailingMargin(int margin) {
-  gfx::Insets* const internal_padding = GetProperty(views::kInternalPaddingKey);
-  if (internal_padding->right() == margin)
-    return;
-  internal_padding->set_right(margin);
-  UpdateBorder();
-  InvalidateLayout();
-}
-
 void BrowserAppMenuButton::OnTouchUiChanged() {
   UpdateIcon();
-  UpdateBorder();
+  UpdateColorsAndInsets();
   PreferredSizeChanged();
-}
-
-void BrowserAppMenuButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
-  // AppMenuButton overrides parts of the ToolbarButton behavior.
-  // BrowserAppMenuButton is hosted on the toolbar so we need to make sure that
-  // ToolbarButton backgrounds etc. are properly updated.
-  ToolbarButton::OnBoundsChanged(previous_bounds);
 }
 
 const char* BrowserAppMenuButton::GetClassName() const {
   return "BrowserAppMenuButton";
 }
 
-void BrowserAppMenuButton::UpdateBorder() {
-  gfx::Insets new_insets = GetLayoutInsets(TOOLBAR_BUTTON) +
-                           *GetProperty(views::kInternalPaddingKey);
-  if (!border() || border()->GetInsets() != new_insets)
-    SetBorder(views::CreateEmptyBorder(new_insets));
-}
-
 base::Optional<SkColor> BrowserAppMenuButton::GetPromoHighlightColor() const {
-  if (promo_feature_) {
-    return ToolbarButton::AdjustHighlightColorForContrast(
-        GetThemeProvider(), kFeaturePromoHighlightDarkColor,
-        kFeaturePromoHighlightLightColor,
-        kFeaturePromoHighlightDarkExtremeColor,
-        kFeaturePromoHighlightLightExtremeColor);
-  }
+  if (promo_feature_)
+    return GetFeaturePromoHighlightColorForToolbar(GetThemeProvider());
 
   return base::nullopt;
-}
-
-gfx::Rect BrowserAppMenuButton::GetAnchorBoundsInScreen() const {
-  gfx::Rect bounds = GetBoundsInScreen();
-  gfx::Insets insets = GetToolbarInkDropInsets(this);
-  // If the button is extended, don't inset the trailing edge. The anchored menu
-  // should extend to the screen edge as well so the menu is easier to hit
-  // (Fitts's law).
-  // TODO(pbos): Make sure the button is aware of that it is being extended or
-  // not (margin_trailing_ cannot be used as it can be 0 in fullscreen on
-  // Touch). When this is implemented, use 0 as a replacement for
-  // margin_trailing_ in fullscreen only. Always keep the rest.
-  insets.Set(insets.top(), 0, insets.bottom(), 0);
-  bounds.Inset(insets);
-  return bounds;
 }
 
 bool BrowserAppMenuButton::GetDropFormats(

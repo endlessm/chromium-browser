@@ -267,14 +267,13 @@ class Mirror(object):
   @staticmethod
   def UrlToCacheDir(url):
     """Convert a git url to a normalized form for the cache dir path."""
+    if os.path.isdir(url):
+      # Ignore the drive letter in Windows
+      url = os.path.splitdrive(url)[1]
+      return url.replace('-', '--').replace(os.sep, '-')
+
     parsed = urlparse.urlparse(url)
-    # Get rid of the port. This is only needed for Windows tests, since tests
-    # serve git from git://localhost:port/git, but Windows doesn't like ':' in
-    # paths.
-    netloc = parsed.netloc
-    if ':' in netloc:
-      netloc = netloc.split(':', 1)[0]
-    norm_url = netloc + parsed.path
+    norm_url = parsed.netloc + parsed.path
     if norm_url.endswith('.git'):
       norm_url = norm_url[:-len('.git')]
 
@@ -528,15 +527,18 @@ class Mirror(object):
             'but failed. Continuing with non-optimized repository.'
             % len(pack_files))
 
-  def _fetch(self, rundir, verbose, depth, reset_fetch_config):
+  def _fetch(self, rundir, verbose, depth, no_fetch_tags, reset_fetch_config):
     self.config(rundir, reset_fetch_config)
     v = []
     d = []
+    t = []
     if verbose:
       v = ['-v', '--progress']
     if depth:
       d = ['--depth', str(depth)]
-    fetch_cmd = ['fetch'] + v + d + ['origin']
+    if no_fetch_tags:
+      t = ['--no-tags']
+    fetch_cmd = ['fetch'] + v + d + t + ['origin']
     fetch_specs = subprocess.check_output(
         [self.git_exe, 'config', '--get-all', 'remote.origin.fetch'],
         cwd=rundir).strip().splitlines()
@@ -551,8 +553,14 @@ class Mirror(object):
           raise ClobberNeeded()  # Corrupted cache.
         logging.warn('Fetch of %s failed' % spec)
 
-  def populate(self, depth=None, shallow=False, bootstrap=False,
-               verbose=False, ignore_lock=False, lock_timeout=0,
+  def populate(self,
+               depth=None,
+               no_fetch_tags=False,
+               shallow=False,
+               bootstrap=False,
+               verbose=False,
+               ignore_lock=False,
+               lock_timeout=0,
                reset_fetch_config=False):
     assert self.GetCachePath()
     if shallow and not depth:
@@ -565,13 +573,15 @@ class Mirror(object):
 
     try:
       self._ensure_bootstrapped(depth, bootstrap)
-      self._fetch(self.mirror_path, verbose, depth, reset_fetch_config)
+      self._fetch(self.mirror_path, verbose, depth, no_fetch_tags,
+                  reset_fetch_config)
     except ClobberNeeded:
       # This is a major failure, we need to clean and force a bootstrap.
       gclient_utils.rmtree(self.mirror_path)
       self.print(GIT_CACHE_CORRUPT_MESSAGE)
       self._ensure_bootstrapped(depth, bootstrap, force=True)
-      self._fetch(self.mirror_path, verbose, depth, reset_fetch_config)
+      self._fetch(self.mirror_path, verbose, depth, no_fetch_tags,
+                  reset_fetch_config)
     finally:
       if not ignore_lock:
         lockfile.unlock()
@@ -723,8 +733,8 @@ def CMDupdate_bootstrap(parser, args):
     print('Skipped populate step.')
 
   # Get the repo directory.
-  options, args = parser.parse_args(args)
-  url = args[0]
+  _, args2 = parser.parse_args(args)
+  url = args2[0]
   mirror = Mirror(url)
   mirror.update_bootstrap(options.prune, options.gc_aggressive)
   return 0
@@ -735,6 +745,11 @@ def CMDpopulate(parser, args):
   """Ensure that the cache has all up-to-date objects for the given repo."""
   parser.add_option('--depth', type='int',
                     help='Only cache DEPTH commits of history')
+  parser.add_option(
+      '--no-fetch-tags',
+      action='store_true',
+      help=('Don\'t fetch tags from the server. This can speed up '
+            'fetch considerably when there are many tags.'))
   parser.add_option('--shallow', '-s', action='store_true',
                     help='Only cache 10000 commits of history')
   parser.add_option('--ref', action='append',
@@ -760,6 +775,7 @@ def CMDpopulate(parser, args):
   if options.break_locks:
     mirror.unlock()
   kwargs = {
+      'no_fetch_tags': options.no_fetch_tags,
       'verbose': options.verbose,
       'shallow': options.shallow,
       'bootstrap': not options.no_bootstrap,
@@ -779,6 +795,11 @@ def CMDfetch(parser, args):
   parser.add_option('--no_bootstrap', '--no-bootstrap',
                     action='store_true',
                     help='Don\'t (re)bootstrap from Google Storage')
+  parser.add_option(
+      '--no-fetch-tags',
+      action='store_true',
+      help=('Don\'t fetch tags from the server. This can speed up '
+            'fetch considerably when there are many tags.'))
   options, args = parser.parse_args(args)
 
   # Figure out which remotes to fetch.  This mimics the behavior of regular
@@ -810,7 +831,9 @@ def CMDfetch(parser, args):
   if git_dir.startswith(cachepath):
     mirror = Mirror.FromPath(git_dir)
     mirror.populate(
-        bootstrap=not options.no_bootstrap, lock_timeout=options.timeout)
+        bootstrap=not options.no_bootstrap,
+        no_fetch_tags=options.no_fetch_tags,
+        lock_timeout=options.timeout)
     return 0
   for remote in remotes:
     remote_url = subprocess.check_output(
@@ -820,7 +843,9 @@ def CMDfetch(parser, args):
       mirror.print = lambda *args: None
       print('Updating git cache...')
       mirror.populate(
-          bootstrap=not options.no_bootstrap, lock_timeout=options.timeout)
+          bootstrap=not options.no_bootstrap,
+          no_fetch_tags=options.no_fetch_tags,
+          lock_timeout=options.timeout)
     subprocess.check_call([Mirror.git_exe, 'fetch', remote])
   return 0
 

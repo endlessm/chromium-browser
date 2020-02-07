@@ -594,31 +594,22 @@ uint32_t Module::ResolveSymbolContextsForFileSpec(
   return sc_list.GetSize() - initial_count;
 }
 
-size_t Module::FindGlobalVariables(ConstString name,
-                                   const CompilerDeclContext *parent_decl_ctx,
-                                   size_t max_matches,
-                                   VariableList &variables) {
+void Module::FindGlobalVariables(ConstString name,
+                                 const CompilerDeclContext *parent_decl_ctx,
+                                 size_t max_matches, VariableList &variables) {
   if (SymbolFile *symbols = GetSymbolFile())
-    return symbols->FindGlobalVariables(name, parent_decl_ctx, max_matches,
-                                        variables);
-  return 0;
+    symbols->FindGlobalVariables(name, parent_decl_ctx, max_matches, variables);
 }
 
-size_t Module::FindGlobalVariables(const RegularExpression &regex,
-                                   size_t max_matches,
-                                   VariableList &variables) {
+void Module::FindGlobalVariables(const RegularExpression &regex,
+                                 size_t max_matches, VariableList &variables) {
   SymbolFile *symbols = GetSymbolFile();
   if (symbols)
-    return symbols->FindGlobalVariables(regex, max_matches, variables);
-  return 0;
+    symbols->FindGlobalVariables(regex, max_matches, variables);
 }
 
-size_t Module::FindCompileUnits(const FileSpec &path, bool append,
-                                SymbolContextList &sc_list) {
-  if (!append)
-    sc_list.Clear();
-
-  const size_t start_size = sc_list.GetSize();
+void Module::FindCompileUnits(const FileSpec &path,
+                              SymbolContextList &sc_list) {
   const size_t num_compile_units = GetNumCompileUnits();
   SymbolContext sc;
   sc.module_sp = shared_from_this();
@@ -626,11 +617,11 @@ size_t Module::FindCompileUnits(const FileSpec &path, bool append,
   for (size_t i = 0; i < num_compile_units; ++i) {
     sc.comp_unit = GetCompileUnitAtIndex(i).get();
     if (sc.comp_unit) {
-      if (FileSpec::Equal(*sc.comp_unit, path, compare_directory))
+      if (FileSpec::Equal(sc.comp_unit->GetPrimaryFile(), path,
+                          compare_directory))
         sc_list.Append(sc);
     }
   }
-  return sc_list.GetSize() - start_size;
 }
 
 Module::LookupInfo::LookupInfo(ConstString name,
@@ -793,14 +784,11 @@ void Module::LookupInfo::Prune(SymbolContextList &sc_list,
   }
 }
 
-size_t Module::FindFunctions(ConstString name,
-                             const CompilerDeclContext *parent_decl_ctx,
-                             FunctionNameType name_type_mask,
-                             bool include_symbols, bool include_inlines,
-                             bool append, SymbolContextList &sc_list) {
-  if (!append)
-    sc_list.Clear();
-
+void Module::FindFunctions(ConstString name,
+                           const CompilerDeclContext *parent_decl_ctx,
+                           FunctionNameType name_type_mask,
+                           bool include_symbols, bool include_inlines,
+                           SymbolContextList &sc_list) {
   const size_t old_size = sc_list.GetSize();
 
   // Find all the functions (not symbols, but debug information functions...
@@ -812,7 +800,7 @@ size_t Module::FindFunctions(ConstString name,
     if (symbols) {
       symbols->FindFunctions(lookup_info.GetLookupName(), parent_decl_ctx,
                              lookup_info.GetNameTypeMask(), include_inlines,
-                             append, sc_list);
+                             sc_list);
 
       // Now check our symbol table for symbols that are code symbols if
       // requested
@@ -831,7 +819,7 @@ size_t Module::FindFunctions(ConstString name,
   } else {
     if (symbols) {
       symbols->FindFunctions(name, parent_decl_ctx, name_type_mask,
-                             include_inlines, append, sc_list);
+                             include_inlines, sc_list);
 
       // Now check our symbol table for symbols that are code symbols if
       // requested
@@ -842,20 +830,15 @@ size_t Module::FindFunctions(ConstString name,
       }
     }
   }
-
-  return sc_list.GetSize() - old_size;
 }
 
-size_t Module::FindFunctions(const RegularExpression &regex,
-                             bool include_symbols, bool include_inlines,
-                             bool append, SymbolContextList &sc_list) {
-  if (!append)
-    sc_list.Clear();
-
+void Module::FindFunctions(const RegularExpression &regex, bool include_symbols,
+                           bool include_inlines,
+                           SymbolContextList &sc_list) {
   const size_t start_size = sc_list.GetSize();
 
   if (SymbolFile *symbols = GetSymbolFile()) {
-    symbols->FindFunctions(regex, include_inlines, append, sc_list);
+    symbols->FindFunctions(regex, include_inlines, sc_list);
 
     // Now check our symbol table for symbols that are code symbols if
     // requested
@@ -917,7 +900,6 @@ size_t Module::FindFunctions(const RegularExpression &regex,
       }
     }
   }
-  return sc_list.GetSize() - start_size;
 }
 
 void Module::FindAddressesForLine(const lldb::TargetSP target_sp,
@@ -1025,12 +1007,14 @@ void Module::FindTypes(
   }
 }
 
-void Module::FindTypes(llvm::ArrayRef<CompilerContext> pattern,
-                       LanguageSet languages, TypeMap &types) {
+void Module::FindTypes(
+    llvm::ArrayRef<CompilerContext> pattern, LanguageSet languages,
+    llvm::DenseSet<lldb_private::SymbolFile *> &searched_symbol_files,
+    TypeMap &types) {
   static Timer::Category func_cat(LLVM_PRETTY_FUNCTION);
   Timer scoped_timer(func_cat, LLVM_PRETTY_FUNCTION);
   if (SymbolFile *symbols = GetSymbolFile())
-    symbols->FindTypes(pattern, languages, types);
+    symbols->FindTypes(pattern, languages, searched_symbol_files, types);
 }
 
 SymbolFile *Module::GetSymbolFile(bool can_create, Stream *feedback_strm) {
@@ -1326,7 +1310,7 @@ void Module::SymbolIndicesToSymbolContextList(
   }
 }
 
-size_t Module::FindFunctionSymbols(ConstString name,
+void Module::FindFunctionSymbols(ConstString name,
                                    uint32_t name_type_mask,
                                    SymbolContextList &sc_list) {
   static Timer::Category func_cat(LLVM_PRETTY_FUNCTION);
@@ -1334,11 +1318,10 @@ size_t Module::FindFunctionSymbols(ConstString name,
                      "Module::FindSymbolsFunctions (name = %s, mask = 0x%8.8x)",
                      name.AsCString(), name_type_mask);
   if (Symtab *symtab = GetSymtab())
-    return symtab->FindFunctionSymbols(name, name_type_mask, sc_list);
-  return 0;
+    symtab->FindFunctionSymbols(name, name_type_mask, sc_list);
 }
 
-size_t Module::FindSymbolsWithNameAndType(ConstString name,
+void Module::FindSymbolsWithNameAndType(ConstString name,
                                           SymbolType symbol_type,
                                           SymbolContextList &sc_list) {
   // No need to protect this call using m_mutex all other method calls are
@@ -1348,18 +1331,16 @@ size_t Module::FindSymbolsWithNameAndType(ConstString name,
   Timer scoped_timer(
       func_cat, "Module::FindSymbolsWithNameAndType (name = %s, type = %i)",
       name.AsCString(), symbol_type);
-  const size_t initial_size = sc_list.GetSize();
   if (Symtab *symtab = GetSymtab()) {
     std::vector<uint32_t> symbol_indexes;
     symtab->FindAllSymbolsWithNameAndType(name, symbol_type, symbol_indexes);
     SymbolIndicesToSymbolContextList(symtab, symbol_indexes, sc_list);
   }
-  return sc_list.GetSize() - initial_size;
 }
 
-size_t Module::FindSymbolsMatchingRegExAndType(const RegularExpression &regex,
-                                               SymbolType symbol_type,
-                                               SymbolContextList &sc_list) {
+void Module::FindSymbolsMatchingRegExAndType(const RegularExpression &regex,
+                                             SymbolType symbol_type,
+                                             SymbolContextList &sc_list) {
   // No need to protect this call using m_mutex all other method calls are
   // already thread safe.
 
@@ -1368,7 +1349,6 @@ size_t Module::FindSymbolsMatchingRegExAndType(const RegularExpression &regex,
       func_cat,
       "Module::FindSymbolsMatchingRegExAndType (regex = %s, type = %i)",
       regex.GetText().str().c_str(), symbol_type);
-  const size_t initial_size = sc_list.GetSize();
   if (Symtab *symtab = GetSymtab()) {
     std::vector<uint32_t> symbol_indexes;
     symtab->FindAllSymbolsMatchingRexExAndType(
@@ -1376,7 +1356,6 @@ size_t Module::FindSymbolsMatchingRegExAndType(const RegularExpression &regex,
         symbol_indexes);
     SymbolIndicesToSymbolContextList(symtab, symbol_indexes, sc_list);
   }
-  return sc_list.GetSize() - initial_size;
 }
 
 void Module::PreloadSymbols() {

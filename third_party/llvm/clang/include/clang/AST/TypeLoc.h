@@ -106,7 +106,7 @@ public:
 #define ABSTRACT_TYPE(Class, Base)
 #define TYPE(Class, Base) \
     Class = Type::Class,
-#include "clang/AST/TypeNodes.def"
+#include "clang/AST/TypeNodes.inc"
     Qualified
   };
 
@@ -172,9 +172,6 @@ public:
   UnqualTypeLoc getUnqualifiedLoc() const; // implemented in this header
 
   TypeLoc IgnoreParens() const;
-
-  /// Strips MacroDefinitionTypeLocs from a type location.
-  TypeLoc IgnoreMacroDefinitions() const;
 
   /// Find a type with the location of an explicit type qualifier.
   ///

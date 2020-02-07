@@ -20,6 +20,24 @@
         <item name="android:layout_marginStart">8dp</item>
         <item name="android:layout_marginTop">8dp</item>
     </style>
+    <style name="CardPaginationHeaderText">
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.BlueButtonText2</item>
+    </style>
+    <style name="ListPaginationHeaderText">
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">16dp</item>
+        <item name="android:textAppearance">@style/TextAppearance.BlueButtonText2</item>
+    </style>
+    <style name="InlineOfflineIconStyle">
+        <item name="android:layout_width">16dp</item>
+        <item name="android:layout_height">16dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:scaleType">centerInside</item>
+        <item name="android:tint">@color/prefetch_offline_icon_tint_color</item>
+    </style>
 
     <!-- Download Home V2 Snowflake Contender Styles -->
     <style name="TinyCircularProgress">

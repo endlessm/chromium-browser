@@ -71,7 +71,6 @@ HOST_PACKAGES = (
 # build), so we have to delay their installation.
 HOST_POST_CROSS_PACKAGES = (
     'dev-lang/rust',
-    'dev-util/cargo',
     'virtual/target-sdk-post-cross',
     'dev-embedded/coreboot-sdk',
 )
@@ -156,7 +155,8 @@ class Crossdev(object):
     script = os.path.abspath(__file__)
     if script.endswith('.pyc'):
       script = script[:-1]
-    setup_toolchains_hash = hashlib.md5(osutils.ReadFile(script)).hexdigest()
+    setup_toolchains_hash = hashlib.md5(
+        osutils.ReadFile(script, mode='rb')).hexdigest()
 
     cls._CACHE = {
         'crossdev_version': crossdev_version,
@@ -228,7 +228,8 @@ class Crossdev(object):
         cmd.extend(['-t', target])
         # Catch output of crossdev.
         out = cros_build_lib.run(
-            cmd, print_cmd=False, redirect_stdout=True).output.splitlines()
+            cmd, print_cmd=False, redirect_stdout=True,
+            encoding='utf-8').stdout.splitlines()
         # List of tuples split at the first '=', converted into dict.
         conf = dict((k, cros_build_lib.ShellUnquote(v))
                     for k, v in (x.split('=', 1) for x in out))
@@ -642,7 +643,8 @@ def SelectActiveToolchains(targets, suffixes, root='/'):
         extra_env['ROOT'] = root
       cmd = ['%s-config' % package, '-c', target]
       result = cros_build_lib.run(
-          cmd, print_cmd=False, redirect_stdout=True, extra_env=extra_env)
+          cmd, print_cmd=False, redirect_stdout=True, encoding='utf-8',
+          extra_env=extra_env)
       current = result.output.splitlines()[0]
 
       # Do not reconfig when the current is live or nothing needs to be done.
@@ -679,7 +681,7 @@ def ExpandTargets(targets_wanted):
   # Verify user input.
   nonexistent = targets_wanted.difference(all_targets)
   if nonexistent:
-    raise ValueError('Invalid targets: %s', ','.join(nonexistent))
+    raise ValueError('Invalid targets: %s' % (','.join(nonexistent),))
   return {t: all_targets[t] for t in targets_wanted}
 
 
@@ -849,13 +851,13 @@ def FileIsCrosSdkElf(elf):
   Returns:
     True if we think |elf| is a native ELF
   """
-  with open(elf) as f:
+  with open(elf, 'rb') as f:
     data = f.read(20)
     # Check the magic number, EI_CLASS, EI_DATA, and e_machine.
-    return (data[0:4] == '\x7fELF' and
-            data[4] == '\x02' and
-            data[5] == '\x01' and
-            data[18] == '\x3e')
+    return (data[0:4] == b'\x7fELF' and
+            data[4] == b'\x02' and
+            data[5] == b'\x01' and
+            data[18] == b'\x3e')
 
 
 def IsPathPackagable(ptype, path):
@@ -970,7 +972,9 @@ def _GetFilesForTarget(target, root='/'):
       if ptype == 'obj':
         # For native ELFs, we need to pull in their dependencies too.
         if FileIsCrosSdkElf(obj):
+          logging.debug('Adding ELF %s', obj)
           elfs.add(obj)
+      logging.debug('Adding path %s', obj)
       paths.add(obj)
 
   return paths, elfs
@@ -994,6 +998,7 @@ def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
   sym_paths = {}
   for path in paths:
     new_path = path_rewrite_func(path)
+    logging.debug('Transformed %s to %s', path, new_path)
     dst = output_dir + new_path
     osutils.SafeMakedirs(os.path.dirname(dst))
 
@@ -1012,6 +1017,7 @@ def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
           os.symlink(tgt, dst)
           continue
 
+    logging.debug('Linking path %s -> %s', src, dst)
     os.link(src, dst)
 
   # Locate all the dependencies for all the ELFs.  Stick them all in the
@@ -1024,6 +1030,7 @@ def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
   glibc_re = re.compile(r'/lib(c|pthread)-[0-9.]+\.so$')
   for elf in elfs:
     e = lddtree.ParseELF(elf, root=root, ldpaths=ldpaths)
+    logging.debug('Parsed elf %s data: %s', elf, e)
     interp = e['interp']
     # Do not create wrapper for libc. crbug.com/766827
     if interp and not glibc_re.search(elf):
@@ -1056,6 +1063,7 @@ def _BuildInitialPackageRoot(output_dir, paths, elfs, ldpaths,
       dst = os.path.join(libdir, os.path.basename(path))
       src = ReadlinkRoot(src, root)
 
+      logging.debug('Linking lib %s -> %s', root + src, dst)
       os.link(root + src, dst)
 
 

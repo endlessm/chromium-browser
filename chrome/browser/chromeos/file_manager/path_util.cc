@@ -35,7 +35,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "net/base/escape.h"
 #include "net/base/filename_util.h"
-#include "storage/browser/fileapi/external_mount_points.h"
+#include "storage/browser/file_system/external_mount_points.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/strings/grit/ui_chromeos_strings.h"
 #include "url/gurl.h"
@@ -206,8 +206,8 @@ bool MigrateToDriveFs(Profile* profile,
     return false;
   }
   *new_path = integration_service->GetMountPointPath();
-  return drive::util::GetDriveMountPointPath(profile).AppendRelativePath(
-      old_path, new_path);
+  return drive::util::GetDriveGrandRootPath().AppendRelativePath(
+      drive::util::ExtractDrivePath(old_path), new_path);
 }
 
 std::string GetDownloadsMountPointName(Profile* profile) {

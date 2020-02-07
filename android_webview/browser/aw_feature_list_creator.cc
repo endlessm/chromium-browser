@@ -20,6 +20,7 @@
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_split.h"
@@ -55,6 +56,7 @@ const char* const kPersistentPrefsWhitelist[] = {
     metrics::prefs::kMetricsLowEntropySource,
     // Logged directly in the ChromeUserMetricsExtension proto.
     metrics::prefs::kInstallDate,
+    metrics::prefs::kMetricsReportingEnabledTimestamp,
     metrics::prefs::kMetricsSessionID,
     // Current and past country codes, to filter variations studies by country.
     variations::prefs::kVariationsCountry,
@@ -104,7 +106,13 @@ std::unique_ptr<PrefService> CreatePrefService() {
   pref_service_factory.set_read_error_callback(
       base::BindRepeating(&HandleReadError));
 
-  return pref_service_factory.Create(pref_registry);
+  base::TimeTicks pref_load_start = base::TimeTicks::Now();
+  auto service = pref_service_factory.Create(pref_registry);
+  base::TimeDelta pref_load_time = base::TimeTicks::Now() - pref_load_start;
+  UmaHistogramCustomTimes("Android.WebView.PrefLoadTime", pref_load_time,
+                          base::TimeDelta::FromMilliseconds(1),
+                          base::TimeDelta::FromMinutes(1), 50);
+  return service;
 }
 
 void CountOrRecordRestartsWithStaleSeed(PrefService* local_state,

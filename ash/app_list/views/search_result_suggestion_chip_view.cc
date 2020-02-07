@@ -68,9 +68,7 @@ SearchResultSuggestionChipView::SearchResultSuggestionChipView(
   InitLayout();
 }
 
-SearchResultSuggestionChipView::~SearchResultSuggestionChipView() {
-  ClearResult();
-}
+SearchResultSuggestionChipView::~SearchResultSuggestionChipView() = default;
 
 void SearchResultSuggestionChipView::SetBackgroundBlurEnabled(bool enabled) {
   // Background blur is enabled if and only if layer exists.
@@ -106,7 +104,8 @@ void SearchResultSuggestionChipView::ButtonPressed(views::Button* sender,
   view_delegate_->OpenSearchResult(
       result()->id(), event.flags(),
       ash::AppListLaunchedFrom::kLaunchedFromSuggestionChip,
-      ash::AppListLaunchType::kAppSearchResult, index_in_container());
+      ash::AppListLaunchType::kAppSearchResult, index_in_container(),
+      false /* launch_as_default */);
 }
 
 const char* SearchResultSuggestionChipView::GetClassName() const {

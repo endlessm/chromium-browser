@@ -22,35 +22,37 @@ include "llvm/Target/Target.td"
 // CPU Directives                                                             //
 //===----------------------------------------------------------------------===//
 
-def Directive440 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_440", "">;
-def Directive601 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_601", "">;
-def Directive602 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_602", "">;
-def Directive603 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_603", "">;
-def Directive604 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_603", "">;
-def Directive620 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_603", "">;
-def Directive7400: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_7400", "">;
-def Directive750 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_750", "">;
-def Directive970 : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_970", "">;
-def Directive32  : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_32", "">;
-def Directive64  : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_64", "">;
-def DirectiveA2  : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_A2", "">;
-def DirectiveE500   : SubtargetFeature<"", "DarwinDirective",
+def Directive440 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_440", "">;
+def Directive601 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_601", "">;
+def Directive602 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_602", "">;
+def Directive603 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_603", "">;
+def Directive604 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_603", "">;
+def Directive620 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_603", "">;
+def Directive7400: SubtargetFeature<"", "CPUDirective", "PPC::DIR_7400", "">;
+def Directive750 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_750", "">;
+def Directive970 : SubtargetFeature<"", "CPUDirective", "PPC::DIR_970", "">;
+def Directive32  : SubtargetFeature<"", "CPUDirective", "PPC::DIR_32", "">;
+def Directive64  : SubtargetFeature<"", "CPUDirective", "PPC::DIR_64", "">;
+def DirectiveA2  : SubtargetFeature<"", "CPUDirective", "PPC::DIR_A2", "">;
+def DirectiveE500   : SubtargetFeature<"", "CPUDirective",
                                        "PPC::DIR_E500", "">;
-def DirectiveE500mc : SubtargetFeature<"", "DarwinDirective",
+def DirectiveE500mc : SubtargetFeature<"", "CPUDirective",
                                        "PPC::DIR_E500mc", "">;
-def DirectiveE5500  : SubtargetFeature<"", "DarwinDirective",
+def DirectiveE5500  : SubtargetFeature<"", "CPUDirective",
                                        "PPC::DIR_E5500", "">;
-def DirectivePwr3: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR3", "">;
-def DirectivePwr4: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR4", "">;
-def DirectivePwr5: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR5", "">;
+def DirectivePwr3: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR3", "">;
+def DirectivePwr4: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR4", "">;
+def DirectivePwr5: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR5", "">;
 def DirectivePwr5x
-    : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR5X", "">;
-def DirectivePwr6: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR6", "">;
+    : SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR5X", "">;
+def DirectivePwr6: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR6", "">;
 def DirectivePwr6x
-    : SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR6X", "">;
-def DirectivePwr7: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR7", "">;
-def DirectivePwr8: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR8", "">;
-def DirectivePwr9: SubtargetFeature<"", "DarwinDirective", "PPC::DIR_PWR9", "">;
+    : SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR6X", "">;
+def DirectivePwr7: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR7", "">;
+def DirectivePwr8: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR8", "">;
+def DirectivePwr9: SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR9", "">;
+def DirectivePwrFuture
+    : SubtargetFeature<"", "CPUDirective", "PPC::DIR_PWR_FUTURE", "">;
 
 def Feature64Bit     : SubtargetFeature<"64bit","Has64BitSupport", "true",
                                         "Enable 64-bit instructions">;
@@ -235,10 +237,26 @@ def ProcessorFeatures {
   list<SubtargetFeature> Power8FeatureList =
       !listconcat(Power7FeatureList, Power8SpecificFeatures);
   list<SubtargetFeature> Power9SpecificFeatures =
-      [DirectivePwr9, FeatureP9Altivec, FeatureP9Vector, FeatureISA3_0,
-       FeatureVectorsUseTwoUnits, FeaturePPCPreRASched, FeaturePPCPostRASched];
+      [DirectivePwr9, FeatureP9Altivec, FeatureP9Vector, FeatureISA3_0];
+
+  // Some features are unique to Power9 and there is no reason to assume
+  // they will be part of any future CPUs. One example is the narrower
+  // dispatch for vector operations than scalar ones. For the time being,
+  // this list also includes scheduling-related features since we do not have
+  // enough info to create custom scheduling strategies for future CPUs.
+  list<SubtargetFeature> Power9OnlyFeatures =
+      [FeatureVectorsUseTwoUnits, FeaturePPCPreRASched, FeaturePPCPostRASched];
   list<SubtargetFeature> Power9FeatureList =
       !listconcat(Power8FeatureList, Power9SpecificFeatures);
+  list<SubtargetFeature> Power9ImplList =
+      !listconcat(Power9FeatureList, Power9OnlyFeatures);
+
+  // For future CPU we assume that all of the existing features from Power 9
+  // still exist with the exception of those we know are Power 9 specific.
+  list<SubtargetFeature> FutureSpecificFeatures =
+      [];
+  list<SubtargetFeature> FutureFeatureList =
+      !listconcat(Power9FeatureList, FutureSpecificFeatures);
 }
 
 // Note: Future features to add when support is extended to more
@@ -440,7 +458,10 @@ def : ProcessorModel<"pwr6x", G5Model,
                    FeatureMFTB, DeprecatedDST]>;
 def : ProcessorModel<"pwr7", P7Model, ProcessorFeatures.Power7FeatureList>;
 def : ProcessorModel<"pwr8", P8Model, ProcessorFeatures.Power8FeatureList>;
-def : ProcessorModel<"pwr9", P9Model, ProcessorFeatures.Power9FeatureList>;
+def : ProcessorModel<"pwr9", P9Model, ProcessorFeatures.Power9ImplList>;
+// No scheduler model for future CPU.
+def : ProcessorModel<"future", NoSchedModel,
+                  ProcessorFeatures.FutureFeatureList>;
 def : Processor<"ppc", G3Itineraries, [Directive32, FeatureHardFloat,
                                        FeatureMFTB]>;
 def : Processor<"ppc32", G3Itineraries, [Directive32, FeatureHardFloat,

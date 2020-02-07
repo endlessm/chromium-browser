@@ -15,6 +15,7 @@ import os
 from chromite.api import controller
 from chromite.api import faux
 from chromite.api import validate
+from chromite.api.metrics import deserialize_metrics_log
 from chromite.api.controller import controller_util
 from chromite.api.gen.chromite.api import test_pb2
 from chromite.cbuildbot import goma_util
@@ -23,10 +24,12 @@ from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import image_lib
 from chromite.lib import osutils
+from chromite.lib import portage_util
 from chromite.lib import sysroot_lib
 from chromite.scripts import cros_set_lsb_release
 from chromite.service import test
 from chromite.utils import key_value_store
+from chromite.utils import metrics
 
 
 @faux.all_empty
@@ -56,10 +59,27 @@ def DebugInfoTest(input_proto, _output_proto, config):
     return controller.RETURN_CODE_COMPLETED_UNSUCCESSFULLY
 
 
-@faux.all_empty
+def _BuildTargetUnitTestResponse(input_proto, output_proto, _config):
+  """Add tarball path to a successful response."""
+  output_proto.tarball_path = os.path.join(input_proto.result_path,
+                                           'unit_tests.tar')
+
+
+def _BuildTargetUnitTestFailedResponse(_input_proto, output_proto, _config):
+  """Add failed packages to a failed response."""
+  packages = ['foo/bar', 'cat/pkg']
+  failed_cpvs = [portage_util.SplitCPV(p, strict=False) for p in packages]
+  for cpv in failed_cpvs:
+    package_info = output_proto.failed_packages.add()
+    controller_util.CPVToPackageInfo(cpv, package_info)
+
+
+@faux.success(_BuildTargetUnitTestResponse)
+@faux.error(_BuildTargetUnitTestFailedResponse)
 @validate.require('build_target.name', 'result_path')
 @validate.exists('result_path')
 @validate.validation_complete
+@metrics.collect_metrics
 def BuildTargetUnitTest(input_proto, output_proto, _config):
   """Run a build target's ebuild unit tests."""
   # Required args.
@@ -98,9 +118,11 @@ def BuildTargetUnitTest(input_proto, output_proto, _config):
   tarball = test.BuildTargetUnitTestTarball(chroot, sysroot, result_path)
   if tarball:
     output_proto.tarball_path = tarball
+  deserialize_metrics_log(output_proto.events, prefix=build_target.name)
 
 
-@faux.all_empty
+@faux.empty_success
+@faux.empty_completed_unsuccessfully_error
 @validate.validation_complete
 def ChromiteUnitTest(_input_proto, _output_proto, _config):
   """Run the chromite unit tests."""
@@ -110,7 +132,6 @@ def ChromiteUnitTest(_input_proto, _output_proto, _config):
     return controller.RETURN_CODE_SUCCESS
   else:
     return controller.RETURN_CODE_COMPLETED_UNSUCCESSFULLY
-
 
 
 @faux.all_empty
@@ -199,9 +220,11 @@ def MoblabVmTest(input_proto, _output_proto, _config):
 
   # Now we can run the tests.
   with chroot.tempdir() as workspace_dir, chroot.tempdir() as results_dir:
+    # Convert the results directory to an absolute chroot directory.
+    chroot_results_dir = '/%s' % os.path.relpath(results_dir, chroot.path)
     vms = test.CreateMoblabVm(workspace_dir, chroot.path, image_payload_dir)
     cache_dir = test.PrepareMoblabVmImageCache(vms, builder, cache_payload_dirs)
-    test.RunMoblabVmTest(chroot, vms, builder, cache_dir, results_dir)
+    test.RunMoblabVmTest(chroot, vms, builder, cache_dir, chroot_results_dir)
     test.ValidateMoblabVmTest(results_dir)
 
 

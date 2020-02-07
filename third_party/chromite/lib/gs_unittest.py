@@ -15,6 +15,7 @@ import os
 import string
 
 import mock
+import six
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -851,6 +852,7 @@ class GSDoCommandTest(cros_test_lib.TestCase):
           cmd, sleep=sleep,
           redirect_stderr=True,
           capture_output=True,
+          encoding='utf-8',
           extra_env=mock.ANY)
 
   def testDoCommandDefault(self):
@@ -1305,7 +1307,7 @@ class StatTest(AbstractGSContextTest):
   """Tests Stat functionality."""
 
   # Convenient constant for mocking Stat results.
-  STAT_OUTPUT = """gs://abc/1:
+  STAT_OUTPUT = b"""gs://abc/1:
         Creation time:    Sat, 23 Aug 2014 06:53:20 GMT
         Content-Language: en
         Content-Length:   74
@@ -1318,7 +1320,7 @@ class StatTest(AbstractGSContextTest):
       """
 
   # Stat output can vary based on how/when the file was created.
-  STAT_OUTPUT_OLDER = """gs://abc/1:
+  STAT_OUTPUT_OLDER = b"""gs://abc/1:
         Creation time:    Sat, 23 Aug 2014 06:53:20 GMT
         Content-Length:   74
         Content-Type:   application/octet-stream
@@ -1331,7 +1333,7 @@ class StatTest(AbstractGSContextTest):
 
   # Stat output with no MD5 (this is not guaranteed by GS, and
   # can be omitted if files are uploaded as composite objects).
-  STAT_OUTPUT_NO_MD5 = """gs://abc/1:
+  STAT_OUTPUT_NO_MD5 = b"""gs://abc/1:
         Creation time:    Sat, 23 Aug 2014 06:53:20 GMT
         Content-Language: en
         Content-Length:   74
@@ -1343,7 +1345,7 @@ class StatTest(AbstractGSContextTest):
       """
 
   # When stat throws an error.  It's a special snow flake.
-  STAT_ERROR_OUTPUT = 'No URLs matched gs://abc/1'
+  STAT_ERROR_OUTPUT = b'No URLs matched gs://abc/1'
 
   def testStat(self):
     """Test ability to get the generation of a file."""
@@ -1433,7 +1435,7 @@ class UnmockedStatTest(cros_test_lib.TempDirTestCase):
     self.assertEqual(result.content_type, 'application/octet-stream')
     self.assertEqual(result.hash_crc32c, 'wUc4sQ==')
     self.assertEqual(result.hash_md5, 'iRvNNwBhmvUVG/lbg2/5sQ==')
-    self.assertIsInstance(result.etag, str)
+    self.assertIsInstance(result.etag, six.string_types)
     self.assertIsInstance(result.generation, int)
     self.assertEqual(result.metageneration, 1)
 

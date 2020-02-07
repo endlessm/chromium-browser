@@ -8,9 +8,9 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/infobars/infobar.h"
 #include "ios/chrome/browser/infobars/infobar_badge_tab_helper_delegate.h"
 #include "ios/chrome/browser/infobars/infobar_container_ios.h"
+#include "ios/chrome/browser/infobars/infobar_ios.h"
 #include "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #import "ios/chrome/browser/infobars/infobar_type.h"
 #import "ios/chrome/browser/ui/badges/badge_item.h"
@@ -41,18 +41,21 @@
 @end
 
 @implementation InfobarBadgeTabHelperTestDelegate
-- (void)updateInfobarBadge:(id<BadgeItem>)badgeItem {
+- (void)updateInfobarBadge:(id<BadgeItem>)badgeItem
+               forWebState:(web::WebState*)webState {
   self.badgeIsTappable = badgeItem.isTappable;
   self.badgeState = badgeItem.badgeState;
   self.badgeType = badgeItem.badgeType;
 }
-- (void)addInfobarBadge:(id<BadgeItem>)badgeItem {
+- (void)addInfobarBadge:(id<BadgeItem>)badgeItem
+            forWebState:(web::WebState*)webState {
   self.displayingBadge = YES;
   self.badgeIsTappable = badgeItem.isTappable;
   self.badgeState = badgeItem.badgeState;
   self.badgeType = badgeItem.badgeType;
 }
-- (void)removeInfobarBadge:(id<BadgeItem>)badgeItem {
+- (void)removeInfobarBadge:(id<BadgeItem>)badgeItem
+               forWebState:(web::WebState*)webState {
   self.displayingBadge = NO;
 }
 @end

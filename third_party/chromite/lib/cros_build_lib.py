@@ -203,13 +203,56 @@ def CmdToStr(cmd):
                      (type(cmd), repr(cmd)))
 
 
-class CommandResult(object):
+class CompletedProcess(getattr(subprocess, 'CompletedProcess', object)):
   """An object to store various attributes of a child process.
 
   This is akin to subprocess.CompletedProcess.
   """
 
-  # TODO(crbug.com/1006587): Drop redundant arguments & backwards compat APIs.
+  # The linter is confused by the getattr usage above.
+  # TODO(vapier): Drop this once we're Python 3-only and we drop getattr.
+  # pylint: disable=super-on-old-class
+  def __init__(self, args=None, returncode=None, stdout=None, stderr=None):
+    if sys.version_info.major < 3:
+      self.args = args
+      self.stdout = stdout
+      self.stderr = stderr
+      self.returncode = returncode
+    else:
+      super(CompletedProcess, self).__init__(
+          args=args, returncode=returncode, stdout=stdout, stderr=stderr)
+
+  @property
+  def cmd(self):
+    """Alias to self.args to better match other subprocess APIs."""
+    return self.args
+
+  @property
+  def cmdstr(self):
+    """Return self.cmd as a well shell-quoted string useful for log messages."""
+    if self.args is None:
+      return ''
+    else:
+      return CmdToStr(self.args)
+
+  def check_returncode(self):
+    """Raise CalledProcessError if the exit code is non-zero."""
+    if self.returncode:
+      raise CalledProcessError(
+          returncode=self.returncode, cmd=self.args, stdout=self.stdout,
+          stderr=self.stderr, msg='check_returncode failed')
+
+
+# TODO(crbug.com/1006587): Migrate users to CompletedProcess and drop this.
+class CommandResult(CompletedProcess):
+  """An object to store various attributes of a child process.
+
+  This is akin to subprocess.CompletedProcess.
+  """
+
+  # The linter is confused by the getattr usage above.
+  # TODO(vapier): Drop this once we're Python 3-only and we drop getattr.
+  # pylint: disable=super-on-old-class
   def __init__(self, cmd=None, error=None, output=None, returncode=None,
                args=None, stdout=None, stderr=None):
     if args is None:
@@ -225,15 +268,8 @@ class CommandResult(object):
     elif error is not None:
       raise TypeError('Only specify |stderr|, not |error|')
 
-    self.args = args
-    self.stdout = stdout
-    self.stderr = stderr
-    self.returncode = returncode
-
-  @property
-  def cmd(self):
-    """Backwards compat API."""
-    return self.args
+    super(CommandResult, self).__init__(args=args, stdout=stdout, stderr=stderr,
+                                        returncode=returncode)
 
   @property
   def output(self):
@@ -245,70 +281,66 @@ class CommandResult(object):
     """Backwards compat API."""
     return self.stderr
 
-  @property
-  def cmdstr(self):
-    """Return self.cmd as a space-separated string, useful for log messages."""
-    if self.args is None:
-      return ''
-    else:
-      return CmdToStr(self.args)
 
-  def check_returncode(self):
-    """Raise RunCommandError if the exit code is non-zero."""
-    if self.returncode:
-      raise RunCommandError('check_returncode failed', result=self)
+class CalledProcessError(subprocess.CalledProcessError):
+  """Error caught in run() function.
 
-
-class RunCommandError(Exception):
-  """Error caught in run() method.
+  This is akin to subprocess.CalledProcessError.  We do not support |output|,
+  only |stdout|.
 
   Attributes:
-    args: Tuple of the attributes below.
+    returncode: The exit code of the process.
+    cmd: The command that triggered this exception.
     msg: Short explanation of the error.
-    result: The CommandResult that triggered this error, if available.
     exception: The underlying Exception if available.
   """
 
-  def __init__(self, msg, result=None, exception=None):
+  def __init__(self, returncode, cmd, stdout=None, stderr=None, msg=None,
+               exception=None):
     if exception is not None and not isinstance(exception, Exception):
       raise TypeError('exception must be an exception instance; got %r'
                       % (exception,))
 
-    # This makes mocking tests easier.
-    if result is None:
-      result = CommandResult()
-    elif not isinstance(result, CommandResult):
-      raise TypeError('result must be a CommandResult instance; got %r'
-                      % (result,))
+    super(CalledProcessError, self).__init__(returncode, cmd, stdout)
+    # The parent class will set |output|, so delete it.
+    del self.output
+    # TODO(vapier): When we're Python 3-only, delete this assignment as the
+    # parent handles it for us.
+    self.stdout = stdout
+    # TODO(vapier): When we're Python 3-only, move stderr to the init above.
+    self.stderr = stderr
+    self.msg = msg
+    self.exception = exception
 
-    self.msg, self.result, self.exception = msg, result, exception
-    super(RunCommandError, self).__init__(msg, result, exception)
+  @property
+  def cmdstr(self):
+    """Return self.cmd as a well shell-quoted string useful for log messages."""
+    if self.cmd is None:
+      return ''
+    else:
+      return CmdToStr(self.cmd)
 
-  def Stringify(self, error=True, output=True):
+  def Stringify(self, stdout=True, stderr=True):
     """Custom method for controlling what is included in stringifying this.
 
-    Each individual argument is the literal name of an attribute
-    on the result object; if False, that value is ignored for adding
-    to this string content.  If true, it'll be incorporated.
-
     Args:
-      error: See comment about individual arguments above.
-      output: See comment about individual arguments above.
+      stdout: Whether to include captured stdout in the return value.
+      stderr: Whether to include captured stderr in the return value.
 
     Returns:
       A summary string for this result.
     """
     items = [
         u'return code: %s; command: %s' % (
-            self.result.returncode, self.result.cmdstr),
+            self.returncode, self.cmdstr),
     ]
-    if error and self.result.stderr:
-      stderr = self.result.stderr
+    if stderr and self.stderr:
+      stderr = self.stderr
       if isinstance(stderr, six.binary_type):
         stderr = stderr.decode('utf-8', 'replace')
       items.append(stderr)
-    if output and self.result.stdout:
-      stdout = self.result.stdout
+    if stdout and self.stdout:
+      stdout = self.stdout
       if isinstance(stdout, six.binary_type):
         stdout = stdout.decode('utf-8', 'replace')
       items.append(stdout)
@@ -328,10 +360,41 @@ class RunCommandError(Exception):
 
   def __eq__(self, other):
     return (isinstance(other, type(self)) and
-            self.args == other.args)
+            self.returncode == other.returncode and
+            self.cmd == other.cmd and
+            self.stdout == other.stdout and
+            self.stderr == other.stderr and
+            self.msg == other.msg and
+            self.exception == other.exception)
 
   def __ne__(self, other):
     return not self.__eq__(other)
+
+
+# TODO(crbug.com/1006587): Migrate users to CompletedProcess and drop this.
+class RunCommandError(CalledProcessError):
+  """Error caught in run() method.
+
+  Attributes:
+    args: Tuple of the attributes below.
+    msg: Short explanation of the error.
+    result: The CommandResult that triggered this error, if available.
+    exception: The underlying Exception if available.
+  """
+
+  def __init__(self, msg, result=None, exception=None):
+    # This makes mocking tests easier.
+    if result is None:
+      result = CommandResult()
+    elif not isinstance(result, CommandResult):
+      raise TypeError('result must be a CommandResult instance; got %r'
+                      % (result,))
+
+    self.args = (msg, result, exception)
+    self.result = result
+    super(RunCommandError, self).__init__(
+        returncode=result.returncode, cmd=result.args, stdout=result.stdout,
+        stderr=result.stderr, msg=msg, exception=exception)
 
 
 class TerminateRunCommandError(RunCommandError):
@@ -515,11 +578,10 @@ class _Popen(subprocess.Popen):
 
 
 # pylint: disable=redefined-builtin
-def run(cmd, print_cmd=True, redirect_stdout=False,
-        redirect_stderr=False, cwd=None, input=None, enter_chroot=False,
+def run(cmd, print_cmd=True, stdout=None, stderr=None,
+        cwd=None, input=None, enter_chroot=False,
         shell=False, env=None, extra_env=None, ignore_sigint=False,
-        combine_stdout_stderr=False, log_stdout_to_file=None,
-        append_to_file=False, chroot_args=None, debug_level=logging.INFO,
+        chroot_args=None, debug_level=logging.INFO,
         check=True, int_timeout=1, kill_timeout=1,
         log_output=False, capture_output=False,
         quiet=False, mute_output=None, encoding=None, errors=None, **kwargs):
@@ -530,8 +592,14 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
       must be true. Otherwise the command must be an array of arguments, and
       shell must be false.
     print_cmd: prints the command before running it.
-    redirect_stdout: returns the stdout.
-    redirect_stderr: holds stderr output until input is communicated.
+    stdout: Where to send stdout.  This may be many things to control
+      redirection:
+        * None is the default; the existing stdout is used.
+        * A string to a file (will be truncated & opened automatically).
+        * A boolean to indicate whether to capture the output.
+          True will capture the output via a tempfile (good for large output).
+    stderr: Where to send stderr.  See |stdout| for possible values.  This also
+      may be subprocess.STDOUT to indicate stderr & stdout should be combined.
     cwd: the working directory to run this cmd.
     input: The data to pipe into this command through stdin.  If a file object
       or file descriptor, stdin will be connected directly to that.
@@ -551,12 +619,6 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
       child.  This is the desired behavior if we know our child will handle
       Ctrl-C.  If we don't do this, I think we and the child will both get
       Ctrl-C at the same time, which means we'll forcefully kill the child.
-    combine_stdout_stderr: Combines stdout and stderr streams into stdout.
-    log_stdout_to_file: If set, redirects stdout to file specified by this path.
-      If |combine_stdout_stderr| is set to True, then stderr will also be logged
-      to the specified file.
-    append_to_file: If True, the stdout streams are appended to the end of log
-      stdout_to_file.
     chroot_args: An array of arguments for the chroot environment wrapper.
     debug_level: The debug level of run's output.
     check: Whether to raise an exception when command returns a non-zero exit
@@ -567,9 +629,9 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
     kill_timeout: If we're interrupted, how long (in seconds) should we give the
       invoked process to shutdown from a SIGTERM before we SIGKILL it.
     log_output: Log the command and its output automatically.
-    capture_output: Set |redirect_stdout| and |redirect_stderr| to True.
-    quiet: Set |print_cmd| to False, |redirect_stdout| to True, and
-      |combine_stdout_stderr| to True.
+    capture_output: Set |stdout| and |stderr| to True.
+    quiet: Set |print_cmd| to False, |stdout| to True, and |stderr| to
+      subprocess.STDOUT.
     mute_output: Mute subprocess printing to parent stdout/stderr. Defaults to
       None, which bases muting on |debug_level|.
     encoding: Encoding for stdin/stdout/stderr, otherwise bytes are used.  Most
@@ -583,26 +645,63 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
   Raises:
     RunCommandError: Raised on error.
   """
-  if capture_output:
-    redirect_stdout, redirect_stderr = True, True
-
-  stdout_to_pipe = False
-  if quiet:
-    debug_level = logging.DEBUG
-    stdout_to_pipe, combine_stdout_stderr = True, True
-
+  # Handle backwards compatible settings.
   if 'error_code_ok' in kwargs:
     # TODO(vapier): Enable this warning once chromite & users migrate.
     # logging.warning('run: error_code_ok= is renamed/inverted to check=')
     check = not kwargs.pop('error_code_ok')
+  if 'redirect_stdout' in kwargs:
+    # TODO(vapier): Enable this warning once chromite & users migrate.
+    # logging.warning('run: redirect_stdout=True is now stdout=True')
+    stdout = True if kwargs.pop('redirect_stdout') else None
+  if 'redirect_stderr' in kwargs:
+    # TODO(vapier): Enable this warning once chromite & users migrate.
+    # logging.warning('run: redirect_stderr=True is now stderr=True')
+    stderr = True if kwargs.pop('redirect_stderr') else None
+  if 'combine_stdout_stderr' in kwargs:
+    # TODO(vapier): Enable this warning once chromite & users migrate.
+    # logging.warning('run: combine_stdout_stderr=True is now '
+    #                 'stderr=subprocess.STDOUT')
+    if kwargs.pop('combine_stdout_stderr'):
+      stderr = subprocess.STDOUT
+  if 'log_stdout_to_file' in kwargs:
+    # TODO(vapier): Enable this warning once chromite & users migrate.
+    # logging.warning('run: log_stdout_to_file=X is now stdout=X')
+    log_stdout_to_file = kwargs.pop('log_stdout_to_file')
+    if log_stdout_to_file is not None:
+      stdout = log_stdout_to_file
+  stdout_file_mode = 'w+b'
+  if 'append_to_file' in kwargs:
+    # TODO(vapier): Enable this warning once chromite & users migrate.
+    # logging.warning('run: append_to_file is now part of stdout')
+    if kwargs.pop('append_to_file'):
+      stdout_file_mode = 'a+b'
   assert not kwargs, 'Unknown arguments to run: %s' % (list(kwargs),)
+
+  if capture_output:
+    # TODO(vapier): Enable this once we migrate all the legacy arguments above.
+    # if stdout is not None or stderr is not None:
+    #   raise ValueError('capture_output may not be used with stdout & stderr')
+    # TODO(vapier): Drop this specialization once we're Python 3-only as we can
+    # pass this argument down to Popen directly.
+    if stdout is None:
+      stdout = True
+    if stderr is None:
+      stderr = True
+
+  stdout_to_pipe = False
+  if quiet:
+    debug_level = logging.DEBUG
+    stdout_to_pipe = True
+    if stderr is None:
+      stderr = subprocess.STDOUT
 
   if encoding is not None and errors is None:
     errors = 'strict'
 
   # Set default for variables.
-  stdout = None
-  stderr = None
+  popen_stdout = None
+  popen_stderr = None
   stdin = None
   cmd_result = CommandResult()
 
@@ -629,24 +728,23 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
   # Note that tempfiles must be unbuffered else attempts to read
   # what a separate process did to that file can result in a bad
   # view of the file.
-  if log_stdout_to_file:
-    if append_to_file:
-      stdout = open(log_stdout_to_file, 'a+')
-    else:
-      stdout = open(log_stdout_to_file, 'w+')
+  log_stdout_to_file = False
+  if isinstance(stdout, six.string_types):
+    popen_stdout = open(stdout, stdout_file_mode)
+    log_stdout_to_file = True
   elif stdout_to_pipe:
-    stdout = subprocess.PIPE
-  elif redirect_stdout or mute_output or log_output:
-    stdout = _get_tempfile()
+    popen_stdout = subprocess.PIPE
+  elif stdout or mute_output or log_output:
+    popen_stdout = _get_tempfile()
 
-  if combine_stdout_stderr:
-    stderr = subprocess.STDOUT
-  elif redirect_stderr or mute_output or log_output:
-    stderr = _get_tempfile()
+  if stderr == subprocess.STDOUT:
+    popen_stderr = subprocess.STDOUT
+  elif stderr or mute_output or log_output:
+    popen_stderr = _get_tempfile()
 
   # If subprocesses have direct access to stdout or stderr, they can bypass
   # our buffers, so we need to flush to ensure that output is not interleaved.
-  if stdout is None or stderr is None:
+  if popen_stdout is None or popen_stderr is None:
     sys.stdout.flush()
     sys.stderr.flush()
 
@@ -654,12 +752,14 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
   # Otherwise we assume it's a file object that can be read from directly.
   if isinstance(input, (six.string_types, six.binary_type)):
     stdin = subprocess.PIPE
-    # Allow people to always pass in bytes.
+    # Allow people to always pass in bytes or strings regardless of encoding.
+    # Our Popen usage takes care of converting everything to bytes first.
+    #
     # Linter can't see that we're using |input| as a var, not a builtin.
     # pylint: disable=input-builtin
-    if encoding and isinstance(input, six.binary_type):
+    if encoding and isinstance(input, six.text_type):
       input = input.encode(encoding, errors)
-    elif not encoding and isinstance(input, six.string_types):
+    elif not encoding and isinstance(input, six.text_type):
       input = input.encode('utf-8')
   elif input is not None:
     stdin = input
@@ -722,39 +822,47 @@ def run(cmd, print_cmd=True, redirect_stdout=False,
   cmd_result.args = cmd
 
   proc = None
+  # Verify that the signals modules is actually usable, and won't segfault
+  # upon invocation of getsignal.  See signals.SignalModuleUsable for the
+  # details and upstream python bug.
+  use_signals = signals.SignalModuleUsable()
   try:
-    proc = _Popen(cmd, cwd=cwd, stdin=stdin, stdout=stdout,
-                  stderr=stderr, shell=False, env=env,
+    proc = _Popen(cmd, cwd=cwd, stdin=stdin, stdout=popen_stdout,
+                  stderr=popen_stderr, shell=False, env=env,
                   close_fds=True)
 
-    if ignore_sigint:
-      old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
-    else:
-      old_sigint = signal.getsignal(signal.SIGINT)
-      signal.signal(signal.SIGINT,
-                    functools.partial(_KillChildProcess, proc, int_timeout,
-                                      kill_timeout, cmd, old_sigint))
+    if use_signals:
+      if ignore_sigint:
+        old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
+      else:
+        old_sigint = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT,
+                      functools.partial(_KillChildProcess, proc, int_timeout,
+                                        kill_timeout, cmd, old_sigint))
 
-    old_sigterm = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGTERM,
-                  functools.partial(_KillChildProcess, proc, int_timeout,
-                                    kill_timeout, cmd, old_sigterm))
+      old_sigterm = signal.getsignal(signal.SIGTERM)
+      signal.signal(signal.SIGTERM,
+                    functools.partial(_KillChildProcess, proc, int_timeout,
+                                      kill_timeout, cmd, old_sigterm))
 
     try:
       (cmd_result.stdout, cmd_result.stderr) = proc.communicate(input)
     finally:
-      signal.signal(signal.SIGINT, old_sigint)
-      signal.signal(signal.SIGTERM, old_sigterm)
+      if use_signals:
+        signal.signal(signal.SIGINT, old_sigint)
+        signal.signal(signal.SIGTERM, old_sigterm)
 
-      if stdout and not log_stdout_to_file and not stdout_to_pipe:
-        stdout.seek(0)
-        cmd_result.stdout = stdout.read()
-        stdout.close()
+      if popen_stdout and not log_stdout_to_file and not stdout_to_pipe:
+        popen_stdout.seek(0)
+        cmd_result.stdout = popen_stdout.read()
+        popen_stdout.close()
+      elif log_stdout_to_file:
+        popen_stdout.close()
 
-      if stderr and stderr != subprocess.STDOUT:
-        stderr.seek(0)
-        cmd_result.stderr = stderr.read()
-        stderr.close()
+      if popen_stderr and popen_stderr != subprocess.STDOUT:
+        popen_stderr.seek(0)
+        cmd_result.stderr = popen_stderr.read()
+        popen_stderr.close()
 
     cmd_result.returncode = proc.returncode
 
@@ -1658,218 +1766,6 @@ def MachineDetails():
       'TIMESTAMP=%s' % UserDateTimeFormat(),
       'RANDOM_JUNK=%s' % GetRandomString(),
   )) + '\n'
-
-
-class _FdCapturer(object):
-  """Helper class to capture output at the file descriptor level.
-
-  This is meant to be used with sys.stdout or sys.stderr. By capturing
-  file descriptors, this will also intercept subprocess output, which
-  reassigning sys.stdout or sys.stderr will not do.
-
-  Output will only be captured, it will no longer be printed while
-  the capturer is active.
-  """
-
-  def __init__(self, source, output=None):
-    """Construct the _FdCapturer object.
-
-    Does not start capturing until Start() is called.
-
-    Args:
-      source: A file object to capture. Typically sys.stdout or
-        sys.stderr, but will work with anything that implements flush()
-        and fileno().
-      output: A file name where the captured output is to be stored. If None,
-        then the output will be stored to a temporary file.
-    """
-    self._source = source
-    self._captured = ''
-    self._saved_fd = None
-    self._tempfile = None
-    self._capturefile = None
-    self._capturefile_reader = None
-    self._capturefile_name = output
-
-  def _SafeCreateTempfile(self, tempfile_obj):
-    """Ensure that the tempfile is created safely.
-
-    (1) Stash away a reference to the tempfile.
-    (2) Unlink the file from the filesystem.
-
-    (2) ensures that if we crash, the file gets deleted. (1) ensures that while
-    we are running, we hold a reference to the file so the system does not close
-    the file.
-
-    Args:
-      tempfile_obj: A tempfile object.
-    """
-    self._tempfile = tempfile_obj
-    os.unlink(tempfile_obj.name)
-
-  def Start(self):
-    """Begin capturing output."""
-    if self._capturefile_name is None:
-      tempfile_obj = tempfile.NamedTemporaryFile(delete=False)
-      self._capturefile = tempfile_obj.file
-      self._capturefile_name = tempfile_obj.name
-      self._capturefile_reader = open(self._capturefile_name)
-      self._SafeCreateTempfile(tempfile_obj)
-    else:
-      # Open file passed in for writing. Set buffering=1 for line level
-      # buffering.
-      self._capturefile = open(self._capturefile_name, 'w', buffering=1)
-      self._capturefile_reader = open(self._capturefile_name)
-    # Save the original fd so we can revert in Stop().
-    self._saved_fd = os.dup(self._source.fileno())
-    os.dup2(self._capturefile.fileno(), self._source.fileno())
-
-  def Stop(self):
-    """Stop capturing output."""
-    self.GetCaptured()
-    if self._saved_fd is not None:
-      os.dup2(self._saved_fd, self._source.fileno())
-      os.close(self._saved_fd)
-      self._saved_fd = None
-    # If capturefile and capturefile_reader exist, close them as they were
-    # opened in self.Start().
-    if self._capturefile_reader is not None:
-      self._capturefile_reader.close()
-      self._capturefile_reader = None
-    if self._capturefile is not None:
-      self._capturefile.close()
-      self._capturefile = None
-
-  def GetCaptured(self):
-    """Return all output captured up to this point.
-
-    Can be used while capturing or after Stop() has been called.
-    """
-    self._source.flush()
-    if self._capturefile_reader is not None:
-      self._captured += self._capturefile_reader.read()
-    return self._captured
-
-  def ClearCaptured(self):
-    """Erase all captured output."""
-    self.GetCaptured()
-    self._captured = ''
-
-
-class OutputCapturer(object):
-  """Class for capturing stdout/stderr output.
-
-  Class is designed as a 'ContextManager'.
-
-  Examples:
-    with cros_build_lib.OutputCapturer() as output:
-      # Capturing of stdout/stderr automatically starts now.
-      # Do stuff that sends output to stdout/stderr.
-      # Capturing automatically stops at end of 'with' block.
-
-    # stdout/stderr can be retrieved from the OutputCapturer object:
-    stdout = output.GetStdoutLines() # Or other access methods
-
-    # Some Assert methods are only valid if capturing was used in test.
-    self.AssertOutputContainsError() # Or other related methods
-
-    # OutputCapturer can also be used to capture output to specified files.
-    with self.OutputCapturer(stdout_path='/tmp/stdout.txt') as output:
-      # Do stuff.
-      # stdout will be captured to /tmp/stdout.txt.
-  """
-
-  OPER_MSG_SPLIT_RE = re.compile(r'^\033\[1;.*?\033\[0m$|^[^\n]*$',
-                                 re.DOTALL | re.MULTILINE)
-
-  __slots__ = ['_stdout_capturer', '_stderr_capturer', '_quiet_fail']
-
-  def __init__(self, stdout_path=None, stderr_path=None, quiet_fail=False):
-    """Initalize OutputCapturer with capture files.
-
-    If OutputCapturer is initialized with filenames to capture stdout and stderr
-    to, then those files are used. Otherwise, temporary files are created.
-
-    Args:
-      stdout_path: File to capture stdout to. If None, a temporary file is used.
-      stderr_path: File to capture stderr to. If None, a temporary file is used.
-      quiet_fail: If True fail quietly without printing the captured stdout and
-        stderr.
-    """
-    self._stdout_capturer = _FdCapturer(sys.stdout, output=stdout_path)
-    self._stderr_capturer = _FdCapturer(sys.stderr, output=stderr_path)
-    self._quiet_fail = quiet_fail
-
-  def __enter__(self):
-    # This method is called with entering 'with' block.
-    self.StartCapturing()
-    return self
-
-  def __exit__(self, exc_type, exc_val, exc_tb):
-    # This method is called when exiting 'with' block.
-    self.StopCapturing()
-
-    if exc_type and not self._quiet_fail:
-      print('Exception during output capturing: %r' % (exc_val,))
-      stdout = self.GetStdout()
-      if stdout:
-        print('Captured stdout was:\n%s' % stdout)
-      else:
-        print('No captured stdout')
-      stderr = self.GetStderr()
-      if stderr:
-        print('Captured stderr was:\n%s' % stderr)
-      else:
-        print('No captured stderr')
-
-  def StartCapturing(self):
-    """Begin capturing stdout and stderr."""
-    self._stdout_capturer.Start()
-    self._stderr_capturer.Start()
-
-  def StopCapturing(self):
-    """Stop capturing stdout and stderr."""
-    self._stdout_capturer.Stop()
-    self._stderr_capturer.Stop()
-
-  def ClearCaptured(self):
-    """Clear any captured stdout/stderr content."""
-    self._stdout_capturer.ClearCaptured()
-    self._stderr_capturer.ClearCaptured()
-
-  def GetStdout(self):
-    """Return captured stdout so far."""
-    return self._stdout_capturer.GetCaptured()
-
-  def GetStderr(self):
-    """Return captured stderr so far."""
-    return self._stderr_capturer.GetCaptured()
-
-  def _GetOutputLines(self, output, include_empties):
-    """Split |output| into lines, optionally |include_empties|.
-
-    Return array of lines.
-    """
-
-    lines = self.OPER_MSG_SPLIT_RE.findall(output)
-    if not include_empties:
-      lines = [ln for ln in lines if ln]
-
-    return lines
-
-  def GetStdoutLines(self, include_empties=True):
-    """Return captured stdout so far as array of lines.
-
-    If |include_empties| is false filter out all empty lines.
-    """
-    return self._GetOutputLines(self.GetStdout(), include_empties)
-
-  def GetStderrLines(self, include_empties=True):
-    """Return captured stderr so far as array of lines.
-
-    If |include_empties| is false filter out all empty lines.
-    """
-    return self._GetOutputLines(self.GetStderr(), include_empties)
 
 
 def UnbufferedTemporaryFile(**kwargs):

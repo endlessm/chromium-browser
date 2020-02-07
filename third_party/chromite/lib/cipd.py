@@ -17,7 +17,7 @@ import os
 import pprint
 import tempfile
 
-import six
+import httplib2
 from six.moves import urllib
 
 import chromite.lib.cros_logging as log
@@ -26,8 +26,6 @@ from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import cros_build_lib
 from chromite.utils import memoize
-
-import httplib2
 
 # pylint: disable=line-too-long
 # CIPD client to download.
@@ -73,7 +71,7 @@ def _ChromeInfraRequest(method, request):
   if resp.status != 200:
     raise Error('Got HTTP %d from CIPD %r: %s' % (resp.status, method, body))
   try:
-    return json.loads(body.lstrip(")]}'\n"))
+    return json.loads(body.lstrip(b")]}'\n"))
   except ValueError:
     raise Error('Bad response from CIPD server:\n%s' % (body,))
 
@@ -108,7 +106,7 @@ def _DownloadCIPD(instance_sha256):
     raise Error('Got a %d response from Google Storage.' % response.status)
 
   # Check SHA256 matches what server expects.
-  digest = six.text_type(hashlib.sha256(binary).hexdigest())
+  digest = hashlib.sha256(binary).hexdigest()
   for alias in resp['clientRefAliases']:
     if alias['hashAlgo'] == 'SHA256':
       if digest != alias['hexDigest']:
@@ -128,7 +126,7 @@ class CipdCache(cache.RemoteCache):
     instance_sha256 = urllib.parse.urlparse(url).netloc
     binary = _DownloadCIPD(instance_sha256)
     log.info('Fetched CIPD package %s:%s', CIPD_CLIENT_PACKAGE, instance_sha256)
-    osutils.WriteFile(local_path, binary)
+    osutils.WriteFile(local_path, binary, mode='wb')
     os.chmod(local_path, 0o755)
 
 
@@ -164,7 +162,7 @@ def GetInstanceID(cipd_path, package, version, service_account_json=None):
 
   result = cros_build_lib.run(
       [cipd_path, 'resolve', package, '-version', version] +
-      service_account_flag, capture_output=True)
+      service_account_flag, capture_output=True, encoding='utf-8')
   # An example output of resolve is like:
   #   Packages:\n package:instance_id
   return result.output.splitlines()[-1].split(':')[-1]
@@ -192,7 +190,7 @@ def InstallPackage(cipd_path, package, instance_id, destination,
     service_account_flag = ['-service-account-json', service_account_json]
 
   with tempfile.NamedTemporaryFile() as f:
-    f.write('%s %s' % (package, instance_id))
+    f.write(('%s %s' % (package, instance_id)).encode('utf-8'))
     f.flush()
 
     cros_build_lib.run(

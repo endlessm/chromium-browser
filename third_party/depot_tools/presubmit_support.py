@@ -16,20 +16,16 @@ __version__ = '1.8.0'
 
 import ast  # Exposed through the API.
 import contextlib
-import cPickle  # Exposed through the API.
 import cpplint
-import cStringIO  # Exposed through the API.
 import fnmatch  # Exposed through the API.
 import glob
 import inspect
 import itertools
 import json  # Exposed through the API.
 import logging
-import marshal  # Exposed through the API.
 import multiprocessing
 import optparse
 import os  # Somewhat exposed through the API.
-import pickle  # Exposed through the API.
 import random
 import re  # Exposed through the API.
 import signal
@@ -37,11 +33,8 @@ import sys  # Parts exposed through API.
 import tempfile  # Exposed through the API.
 import threading
 import time
-import traceback  # Exposed through the API.
-import types
+import traceback
 import unittest  # Exposed through the API.
-import urllib2  # Exposed through the API.
-import urlparse
 from warnings import warn
 
 # Local imports.
@@ -56,6 +49,16 @@ import presubmit_canned_checks
 import scm
 import subprocess2 as subprocess  # Exposed through the API.
 
+if sys.version_info.major == 2:
+  # TODO(1009814): Expose urllib2 only through urllib_request and urllib_error
+  import urllib2  # Exposed through the API.
+  import urlparse
+  import urllib2 as urllib_request
+  import urllib2 as urllib_error
+else:
+  import urllib.parse as urlparse
+  import urllib.request as urllib_request
+  import urllib.error as urllib_error
 
 # Ask for feedback only once in program lifetime.
 _ASKED_FOR_FEEDBACK = False
@@ -162,20 +165,34 @@ class ThreadPool(object):
     elif cmd[0].endswith('.py'):
       cmd = [vpython] + cmd
 
+    # On Windows, scripts on the current directory take precedence over PATH, so
+    # that when testing depot_tools on Windows, calling `vpython.bat` will
+    # execute the copy of vpython of the depot_tools under test instead of the
+    # one in the bot.
+    # As a workaround, we run the tests from the parent directory instead.
+    if (cmd[0] == vpython and
+        'cwd' in test.kwargs and
+        os.path.basename(test.kwargs['cwd']) == 'depot_tools'):
+      test.kwargs['cwd'] = os.path.dirname(test.kwargs['cwd'])
+      cmd[1] = os.path.join('depot_tools', cmd[1])
+
     try:
       start = time.time()
       p = subprocess.Popen(cmd, **test.kwargs)
       stdout, _ = sigint_handler.wait(p, test.stdin)
       duration = time.time() - start
-    except OSError as e:
+    except Exception:
       duration = time.time() - start
       return test.message(
-          '%s exec failure (%4.2fs)\n   %s' % (test.name, duration, e))
+          '%s\n%s exec failure (%4.2fs)\n%s' % (
+              test.name, ' '.join(cmd), duration, traceback.format_exc()))
+
     if p.returncode != 0:
       return test.message(
-          '%s (%4.2fs) failed\n%s' % (test.name, duration, stdout))
+          '%s\n%s (%4.2fs) failed\n%s' % (
+              test.name, ' '.join(cmd), duration, stdout))
     if test.info:
-      return test.info('%s (%4.2fs)' % (test.name, duration))
+      return test.info('%s\n%s (%4.2fs)' % (test.name, ' '.join(cmd), duration))
 
   def AddTests(self, tests, parallel=True):
     if parallel:
@@ -524,9 +541,7 @@ class InputApi(object):
     # so that presubmit scripts don't have to import them.
     self.ast = ast
     self.basename = os.path.basename
-    self.cPickle = cPickle
     self.cpplint = cpplint
-    self.cStringIO = cStringIO
     self.fnmatch = fnmatch
     self.gclient_paths = gclient_paths
     # TODO(yyanagisawa): stop exposing this when python3 become default.
@@ -535,27 +550,27 @@ class InputApi(object):
     self.glob = glob.glob
     self.json = json
     self.logging = logging.getLogger('PRESUBMIT')
-    self.marshal = marshal
     self.os_listdir = os.listdir
     self.os_path = os.path
     self.os_stat = os.stat
     self.os_walk = os.walk
-    self.pickle = pickle
     self.re = re
     self.subprocess = subprocess
+    self.sys = sys
     self.tempfile = tempfile
     self.time = time
-    self.traceback = traceback
     self.unittest = unittest
-    self.urllib2 = urllib2
+    if sys.version_info.major == 2:
+      self.urllib2 = urllib2
+    self.urllib_request = urllib_request
+    self.urllib_error = urllib_error
 
     self.is_windows = sys.platform == 'win32'
 
-    # Set python_executable to 'python'. This is interpreted in CallCommand to
-    # convert to vpython in order to allow scripts in other repos (e.g. src.git)
-    # to automatically pick up that repo's .vpython file, instead of inheriting
-    # the one in depot_tools.
-    self.python_executable = 'python'
+    # Set python_executable to 'vpython' in order to allow scripts in other
+    # repos (e.g. src.git) to automatically pick up that repo's .vpython file,
+    # instead of inheriting the one in depot_tools.
+    self.python_executable = 'vpython'
     self.environ = os.environ
 
     # InputApi.platform is the platform you're currently running on.
@@ -575,7 +590,7 @@ class InputApi(object):
     # TODO(dpranke): figure out a list of all approved owners for a repo
     # in order to be able to handle wildcard OWNERS files?
     self.owners_db = owners.Database(change.RepositoryRoot(),
-                                     fopen=file, os_path=self.os_path)
+                                     fopen=open, os_path=self.os_path)
     self.owners_finder = owners_finder.OwnersFinder
     self.verbose = verbose
     self.Command = CommandData
@@ -609,9 +624,9 @@ class InputApi(object):
     if len(dir_with_slash) == 1:
       dir_with_slash = ''
 
-    return filter(
+    return list(filter(
         lambda x: normpath(x.AbsoluteLocalPath()).startswith(dir_with_slash),
-        self.change.AffectedFiles(include_deletes, file_filter))
+        self.change.AffectedFiles(include_deletes, file_filter)))
 
   def LocalPaths(self):
     """Returns local paths of input_api.AffectedFiles()."""
@@ -633,8 +648,9 @@ class InputApi(object):
                " is deprecated and ignored" % str(include_deletes),
            category=DeprecationWarning,
            stacklevel=2)
-    return filter(lambda x: x.IsTestableFile(),
-                  self.AffectedFiles(include_deletes=False, **kwargs))
+    return list(filter(
+        lambda x: x.IsTestableFile(),
+        self.AffectedFiles(include_deletes=False, **kwargs)))
 
   def AffectedTextFiles(self, include_deletes=None):
     """An alias to AffectedTestableFiles for backwards compatibility."""
@@ -667,7 +683,7 @@ class InputApi(object):
     """
     if not source_file:
       source_file = self.FilterSourceFile
-    return filter(source_file, self.AffectedTestableFiles())
+    return list(filter(source_file, self.AffectedTestableFiles()))
 
   def RightHandSideLines(self, source_file_filter=None):
     """An iterator over all text lines in "new" version of changed files.
@@ -1094,11 +1110,11 @@ class Change(object):
     Returns:
       [AffectedFile(path, action), AffectedFile(path, action)]
     """
-    affected = filter(file_filter, self._affected_files)
+    affected = list(filter(file_filter, self._affected_files))
 
     if include_deletes:
       return affected
-    return filter(lambda x: x.Action() != 'D', affected)
+    return list(filter(lambda x: x.Action() != 'D', affected))
 
   def AffectedTestableFiles(self, include_deletes=None, **kwargs):
     """Return a list of the existing text files in a change."""
@@ -1107,8 +1123,9 @@ class Change(object):
                " is deprecated and ignored" % str(include_deletes),
            category=DeprecationWarning,
            stacklevel=2)
-    return filter(lambda x: x.IsTestableFile(),
-                  self.AffectedFiles(include_deletes=False, **kwargs))
+    return list(filter(
+        lambda x: x.IsTestableFile(),
+        self.AffectedFiles(include_deletes=False, **kwargs)))
 
   def AffectedTextFiles(self, include_deletes=None):
     """An alias to AffectedTestableFiles for backwards compatibility."""
@@ -1445,9 +1462,9 @@ class PresubmitExecuter(object):
         logging.debug('Running %s done.', function_name)
         self.more_cc.extend(output_api.more_cc)
       finally:
-        map(os.remove, input_api._named_temporary_files)
-      if not (isinstance(result, types.TupleType) or
-              isinstance(result, types.ListType)):
+        for f in input_api._named_temporary_files:
+          os.remove(f)
+      if not isinstance(result, (tuple, list)):
         raise PresubmitFailure(
           'Presubmit functions must return a tuple or list')
       for item in result:
@@ -1566,7 +1583,8 @@ def DoPresubmitChecks(change,
         ]
       }
 
-      gclient_utils.FileWrite(json_output, json.dumps(presubmit_results))
+      gclient_utils.FileWrite(
+          json_output, json.dumps(presubmit_results, sort_keys=True))
 
     output.write('\n')
     for name, items in (('Messages', notifications),

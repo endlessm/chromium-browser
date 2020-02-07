@@ -31,10 +31,6 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
-// shared_mutex support added in MSVC 2015 update 2
-#if defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 190023918 && NTDDI_VERSION > NTDDI_WIN10_RS2
-    #include <shared_mutex>
-#endif
 
 VK_DEFINE_NON_DISPATCHABLE_HANDLE(DISTINCT_NONDISPATCHABLE_PHONY_HANDLE)
 // The following line must match the vulkan_core.h condition guarding VK_DEFINE_NON_DISPATCHABLE_HANDLE
@@ -289,22 +285,15 @@ private:
 class ThreadSafety : public ValidationObject {
 public:
 
-// shared_mutex support added in MSVC 2015 update 2
-#if defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 190023918 && NTDDI_VERSION > NTDDI_WIN10_RS2
-    typedef std::shared_mutex thread_safety_lock_t;
-    typedef std::shared_lock<thread_safety_lock_t> read_lock_guard_t;
-    typedef std::unique_lock<thread_safety_lock_t> write_lock_guard_t;
-#else
-    typedef std::mutex thread_safety_lock_t;
-    typedef std::unique_lock<thread_safety_lock_t> read_lock_guard_t;
-    typedef std::unique_lock<thread_safety_lock_t> write_lock_guard_t;
-#endif
-    thread_safety_lock_t thread_safety_lock;
+    ReadWriteLock thread_safety_lock;
 
     // Override chassis read/write locks for this validation object
     // This override takes a deferred lock. i.e. it is not acquired.
-    std::unique_lock<std::mutex> write_lock() {
-        return std::unique_lock<std::mutex>(validation_object_mutex, std::defer_lock);
+    virtual read_lock_guard_t read_lock() {
+        return read_lock_guard_t(validation_object_mutex, std::defer_lock);
+    }
+    virtual write_lock_guard_t write_lock() {
+        return write_lock_guard_t(validation_object_mutex, std::defer_lock);
     }
 
     // If this ThreadSafety is for a VkDevice, then parent_instance points to the
@@ -315,6 +304,20 @@ public:
     vl_concurrent_unordered_map<VkCommandBuffer, VkCommandPool, 6> command_pool_map;
     std::unordered_map<VkCommandPool, std::unordered_set<VkCommandBuffer>> pool_command_buffers_map;
     std::unordered_map<VkDevice, std::unordered_set<VkQueue>> device_queues_map;
+
+    // Track per-descriptorsetlayout and per-descriptorset whether UPDATE_AFTER_BIND is used.
+    // This is used to (sloppily) implement the relaxed externsync rules for UPDATE_AFTER_BIND
+    // descriptors. We model updates of UPDATE_AFTER_BIND descriptors as if they were reads
+    // rather than writes, because they only conflict with the set being freed or reset.
+    //
+    // We don't track the UPDATE_AFTER_BIND state per-binding for a couple reasons:
+    // (1) We only have one counter per object, and if we treated non-UAB as writes
+    //     and UAB as reads then they'd appear to conflict with each other.
+    // (2) Avoid additional tracking of descriptor binding state in the descriptor set
+    //     layout, and tracking of which bindings are accessed by a VkDescriptorUpdateTemplate.
+    vl_concurrent_unordered_map<VkDescriptorSetLayout, bool, 4> dsl_update_after_bind_map;
+    vl_concurrent_unordered_map<VkDescriptorSet, bool, 6> ds_update_after_bind_map;
+    bool DsUpdateAfterBind(VkDescriptorSet) const;
 
     counter<VkCommandBuffer> c_VkCommandBuffer;
     counter<VkDevice> c_VkDevice;
@@ -2896,6 +2899,21 @@ void PostCallRecordGetFenceFdKHR(
     int*                                        pFd,
     VkResult                                    result);
 
+void PreCallRecordAcquireProfilingLockKHR(
+    VkDevice                                    device,
+    const VkAcquireProfilingLockInfoKHR*        pInfo);
+
+void PostCallRecordAcquireProfilingLockKHR(
+    VkDevice                                    device,
+    const VkAcquireProfilingLockInfoKHR*        pInfo,
+    VkResult                                    result);
+
+void PreCallRecordReleaseProfilingLockKHR(
+    VkDevice                                    device);
+
+void PostCallRecordReleaseProfilingLockKHR(
+    VkDevice                                    device);
+
 void PreCallRecordGetDisplayModeProperties2KHR(
     VkPhysicalDevice                            physicalDevice,
     VkDisplayKHR                                display,
@@ -3031,6 +3049,37 @@ void PostCallRecordCmdDrawIndexedIndirectCountKHR(
     VkDeviceSize                                countBufferOffset,
     uint32_t                                    maxDrawCount,
     uint32_t                                    stride);
+
+void PreCallRecordGetSemaphoreCounterValueKHR(
+    VkDevice                                    device,
+    VkSemaphore                                 semaphore,
+    uint64_t*                                   pValue);
+
+void PostCallRecordGetSemaphoreCounterValueKHR(
+    VkDevice                                    device,
+    VkSemaphore                                 semaphore,
+    uint64_t*                                   pValue,
+    VkResult                                    result);
+
+void PreCallRecordWaitSemaphoresKHR(
+    VkDevice                                    device,
+    const VkSemaphoreWaitInfoKHR*               pWaitInfo,
+    uint64_t                                    timeout);
+
+void PostCallRecordWaitSemaphoresKHR(
+    VkDevice                                    device,
+    const VkSemaphoreWaitInfoKHR*               pWaitInfo,
+    uint64_t                                    timeout,
+    VkResult                                    result);
+
+void PreCallRecordSignalSemaphoreKHR(
+    VkDevice                                    device,
+    const VkSemaphoreSignalInfoKHR*             pSignalInfo);
+
+void PostCallRecordSignalSemaphoreKHR(
+    VkDevice                                    device,
+    const VkSemaphoreSignalInfoKHR*             pSignalInfo,
+    VkResult                                    result);
 
 void PreCallRecordGetPipelineExecutablePropertiesKHR(
     VkDevice                                    device,

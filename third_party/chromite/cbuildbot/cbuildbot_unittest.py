@@ -108,7 +108,8 @@ class RunBuildStagesTest(cros_test_lib.RunCommandTempDirTestCase,
     self.options.prebuilts = False
 
     self._manager = parallel.Manager()
-    self._manager.__enter__()
+    # Pylint-1.9 has a false positive on this for some reason.
+    self._manager.__enter__()  # pylint: disable=no-value-for-parameter
     self.run = cbuildbot_run.BuilderRun(self.options, self.site_config,
                                         self.build_config, self._manager)
 
@@ -391,21 +392,21 @@ class FullInterfaceTest(cros_test_lib.MockTempDirTestCase):
   def testNullArgsStripped(self):
     """Test that null args are stripped out and don't cause error."""
     self.assertMain(['-r', self.buildroot, '', '',
-                     'amd64-generic-pre-cq'])
+                     'amd64-generic-full-tryjob'])
 
   def testMultipleConfigsError(self):
     """Test that multiple configs cause error."""
     with self.assertRaises(cros_build_lib.DieSystemExit):
       self.assertMain(['-r', self.buildroot,
-                       'arm-generic-pre-cq',
-                       'amd64-generic-pre-cq'])
+                       'arm-generic-full-tryjob',
+                       'amd64-generic-full-tryjob'])
 
   def testBuildbotDiesInChroot(self):
     """Buildbot should quit if run inside a chroot."""
     self.inchroot_mock.return_value = True
     with self.assertRaises(cros_build_lib.DieSystemExit):
       self.assertMain(['--debug', '-r', self.buildroot,
-                       'amd64-generic-pre-cq'])
+                       'amd64-generic-full-tryjob'])
 
   def testBuildBotOnNonCIBuilder(self):
     """Test BuildBot On Non-CIBuilder
@@ -415,4 +416,4 @@ class FullInterfaceTest(cros_test_lib.MockTempDirTestCase):
     """
     if not cros_build_lib.HostIsCIBuilder():
       with self.assertRaises(cros_build_lib.DieSystemExit):
-        self.assertMain(['--buildbot', 'amd64-generic-pre-cq'])
+        self.assertMain(['--buildbot', 'amd64-generic-full'])

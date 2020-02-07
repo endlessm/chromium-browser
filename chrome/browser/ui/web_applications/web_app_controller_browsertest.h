@@ -30,6 +30,9 @@ enum class ControllerType {
   kUnifiedControllerWithWebApp,
 };
 
+std::string ControllerTypeParamToString(
+    const ::testing::TestParamInfo<ControllerType>& controller_type);
+
 // Base class for tests of user interface support for web applications.
 // ControllerType selects between use of WebAppBrowserController and
 // HostedAppBrowserController.
@@ -70,6 +73,8 @@ class WebAppControllerBrowserTest : public WebAppControllerBrowserTestBase {
   content::WebContents* OpenApplication(const AppId&);
 
   net::EmbeddedTestServer* https_server() { return &https_server_; }
+
+  GURL GetInstallableAppURL();
 
   // ExtensionBrowserTest:
   void SetUpInProcessBrowserTestFixture() override;

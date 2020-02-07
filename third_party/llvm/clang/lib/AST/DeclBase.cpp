@@ -803,6 +803,7 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case OMPRequires:
     case OMPCapturedExpr:
     case Empty:
+    case LifetimeExtendedTemporary:
       // Never looked up by name.
       return 0;
   }
@@ -959,11 +960,11 @@ const FunctionType *Decl::getFunctionType(bool BlocksToo) const {
     return nullptr;
 
   if (Ty->isFunctionPointerType())
-    Ty = Ty->getAs<PointerType>()->getPointeeType();
+    Ty = Ty->castAs<PointerType>()->getPointeeType();
   else if (Ty->isFunctionReferenceType())
-    Ty = Ty->getAs<ReferenceType>()->getPointeeType();
+    Ty = Ty->castAs<ReferenceType>()->getPointeeType();
   else if (BlocksToo && Ty->isBlockPointerType())
-    Ty = Ty->getAs<BlockPointerType>()->getPointeeType();
+    Ty = Ty->castAs<BlockPointerType>()->getPointeeType();
 
   return Ty->getAs<FunctionType>();
 }

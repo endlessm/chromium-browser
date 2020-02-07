@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 
+from google.protobuf import json_format
 import six
 
 from chromite.api.gen.chromite.api import android_pb2
@@ -51,11 +52,6 @@ from chromite.lib.paygen import filelib
 
 from chromite.scripts import pushimage
 from chromite.service import artifacts as artifacts_service
-
-# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
-# pylint: disable=no-name-in-module
-from google.protobuf import json_format
-# pylint: enable=no-name-in-module
 
 
 _PACKAGE_FILE = '%(buildroot)s/src/scripts/cbuildbot_package.list'
@@ -103,6 +99,7 @@ TAST_SSP_FILES = [
     'chroot/usr/libexec/tast/bundles',  # Dir containing test bundles.
     'chroot/usr/share/tast/data',  # Dir containing test data.
     'src/platform/tast/tools/run_tast.sh',  # Helper script to run SSP tast.
+    'src/platform/tast-tests-private/vars',  # Secret variables tast interprets.
 ]
 
 # =========================== Command Helpers =================================
@@ -506,6 +503,7 @@ def VerifyBinpkg(buildroot, board, pkg, packages, extra_env=None):
       buildroot,
       cmd,
       capture_output=True,
+      encoding='utf-8',
       enter_chroot=True,
       extra_env=extra_env)
   pattern = r'^\[(ebuild|binary).*%s' % re.escape(pkg)
@@ -514,21 +512,6 @@ def VerifyBinpkg(buildroot, board, pkg, packages, extra_env=None):
     logging.info('(output):\n%s', result.output)
     msg = 'Cannot find prebuilts for %s on %s' % (pkg, board)
     raise MissingBinpkg(msg)
-
-
-def RunBinhostTest(buildroot, incremental=True):
-  """Test prebuilts for all boards, making sure everybody gets Chrome prebuilts.
-
-  Args:
-    buildroot: The buildroot of the current build.
-    incremental: If True, run the incremental compatibility test.
-  """
-  cmd = ['../cbuildbot/binhost_test', '-v', '--log-level=debug']
-
-  # Non incremental tests are listed in a special test suite.
-  if not incremental:
-    cmd += ['NoIncremental']
-  RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=True)
 
 
 def RunLocalTryjob(buildroot, build_config, args=None, target_buildroot=None):
@@ -565,29 +548,6 @@ def RunLocalTryjob(buildroot, build_config, args=None, target_buildroot=None):
     RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
-def RunCrosSigningTests(buildroot, branches=None, network=False):
-  """Run the signer unittests.
-
-  These tests don't have a matching ebuild, and don't need to be run during
-  most builds, so we have a special helper to run them.
-
-  Args:
-    buildroot: The buildroot of the current build.
-    branches: Iterable with branches to test. Default: ['master']
-    network: Whether to run network based tests.
-  """
-  if not branches:
-    branches = ['master']
-  for branch in branches:
-    test_runner = path_util.ToChrootPath(
-        os.path.join(buildroot, 'src', 'platform', 'signing',
-                     'signer-%s' % branch, 'signer', 'run_tests.py'))
-    cmd = [test_runner]
-    if network:
-      cmd.append('--network')
-    cros_build_lib.run(cmd, enter_chroot=True)
-
-
 def UpdateBinhostJson(buildroot):
   """Test prebuilts for all boards, making sure everybody gets Chrome prebuilts.
 
@@ -610,7 +570,8 @@ def Build(buildroot,
           chroot_args=None,
           event_file=None,
           run_goma=False,
-          build_all_with_goma=False):
+          build_all_with_goma=False,
+          disable_revdep_logic=False):
   """Wrapper around build_packages.
 
   Args:
@@ -630,6 +591,8 @@ def Build(buildroot,
     build_all_with_goma: Use goma to build all board packages.
     run_goma: Set ./build_package --run_goma option, which starts and stops
       goma server in chroot while building packages.
+    disable_revdep_logic: Pass --nowithrevdeps to build_packages, disabling the
+      reverse dependency calculation step.
   """
   cmd = [
       './build_packages',
@@ -647,6 +610,9 @@ def Build(buildroot,
 
   if noretry:
     cmd.append('--nobuildretry')
+
+  if disable_revdep_logic:
+    cmd.append('--nowithrevdeps')
 
   if run_goma:
     cmd.append('--run_goma')
@@ -696,7 +662,7 @@ def GetFirmwareVersionCmdResult(buildroot, board):
 
   return cros_build_lib.run([updater, '-V'], enter_chroot=True,
                             capture_output=True, log_output=True,
-                            cwd=buildroot).output
+                            encoding='utf-8', cwd=buildroot).stdout
 
 
 def FindFirmwareVersions(cmd_output):
@@ -814,6 +780,7 @@ def RunCrosConfigHost(buildroot, board, args, log_output=True):
       [tool, '-c', config_fname] + args,
       enter_chroot=True,
       capture_output=True,
+      encoding='utf-8',
       log_output=log_output,
       cwd=buildroot,
       error_code_ok=True)
@@ -1752,6 +1719,7 @@ def _HWTestCreate(cmd, debug=False, **kwargs):
         error_check=swarming_lib.SwarmingRetriableErrorCheck,
         cmd=start_cmd,
         capture_output=True,
+        encoding='utf-8',
         combine_stdout_stderr=True,
         **kwargs)
     # If the command succeeds, result.task_summary_json
@@ -1790,6 +1758,7 @@ def _HWTestWait(cmd, job_id, **kwargs):
         error_check=swarming_lib.SwarmingRetriableErrorCheck,
         cmd=wait_cmd,
         capture_output=True,
+        encoding='utf-8',
         combine_stdout_stderr=True,
         **kwargs)
     pass_hwtest = True
@@ -1846,6 +1815,7 @@ def _HWTestDumpJson(cmd, job_id, **kwargs):
       error_check=swarming_lib.SwarmingRetriableErrorCheck,
       cmd=dump_json_cmd,
       capture_output=True,
+      encoding='utf-8',
       combine_stdout_stderr=True,
       **kwargs)
   for output in result.GetValue('outputs', ''):
@@ -1994,6 +1964,7 @@ def GenerateStackTraces(buildroot, board, test_results_dir, archive_dir,
             enter_chroot=True,
             debug_level=logging.DEBUG,
             capture_output=True,
+            encoding='utf-8',
             extra_env={'LLVM_SYMBOLIZER_PATH': '/usr/bin/llvm-symbolizer'})
         cros_build_lib.run(['c++filt'],
                            input=raw.output,
@@ -2300,6 +2271,7 @@ def ExtractDependencies(buildroot,
         enter_chroot=True,
         chromite_cmd=True,
         capture_output=True,
+        encoding='utf-8',
         extra_env=env)
 
   # The stdout of cros_extract_deps may contain undesirable
@@ -3662,7 +3634,9 @@ def GetChromeLKGM(revision):
       constants.CHROMIUM_SRC_PROJECT, revision, constants.PATH_TO_CHROME_LKGM)
   contents_b64 = gob_util.FetchUrl(config_lib.GetSiteParams().EXTERNAL_GOB_HOST,
                                    lkgm_url_path)
-  return base64.b64decode(contents_b64.read()).strip()
+  # TODO(crbug.com/997354): for Python 3 support, it probably makes
+  # sense to return a string here, not bytes.
+  return base64.b64decode(contents_b64).strip()
 
 
 def SyncChrome(build_root,
@@ -3839,13 +3813,14 @@ class ChromeSDK(object):
     return os.path.join(self._GetOutDirectory(debug=debug), '.ninja_log')
 
 
-def GenerateAFDOArtifacts(buildroot, board, output_path, target):
+def GenerateAFDOArtifacts(buildroot, chrome_root, board, output_path, target):
   """Command to generate AFDO artifacts.
 
   This is only a wrapper of the build API. It doesn't validate the inputs.
 
   Args:
     buildroot: The path to build root.
+    chrome_root: The path to Chrome root.
     board: Name of the board.
     output_path: The path to save output.
     target: A valid toolchain_pb2.AFDOArtifactType.
@@ -3856,6 +3831,7 @@ def GenerateAFDOArtifacts(buildroot, board, output_path, target):
   input_proto = {
       'chroot': {
           'path': os.path.join(buildroot, 'chroot'),
+          'chrome_dir': chrome_root,
       },
       'build_target': {
           'name': board,
@@ -3926,7 +3902,7 @@ def GetTargetChromiteApiVersion(buildroot, validate_version=True):
   try:
     api = cros_build_lib.run(
         [constants.PATH_TO_CBUILDBOT, '--reexec-api-version'],
-        cwd=buildroot, error_code_ok=True, capture_output=True)
+        cwd=buildroot, check=False, encoding='utf-8', capture_output=True)
   except cros_build_lib.RunCommandError:
     # Although error_code_ok=True was used, this exception will still be raised
     # if the executible did not exist.

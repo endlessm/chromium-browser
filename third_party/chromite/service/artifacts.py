@@ -40,6 +40,8 @@ CPE_RESULT_FILE_TEMPLATE = 'cpe-chromeos-%s.txt'
 # The individual image archives for ArchiveImages.
 IMAGE_TARS = {
     constants.TEST_IMAGE_BIN: constants.TEST_IMAGE_TAR,
+    constants.TEST_GUEST_VM_DIR: constants.TEST_GUEST_VM_TAR,
+    constants.BASE_GUEST_VM_DIR: constants.BASE_GUEST_VM_TAR
 }
 
 TAST_BUNDLE_NAME = 'tast_bundles.tar.bz2'
@@ -454,21 +456,25 @@ def GenerateQuickProvisionPayloads(target_image_path, archive_dir):
   payloads = []
   with osutils.TempDir() as temp_dir:
     # These partitions are mainly used by quick_provision.
+    kernel_part = 'kernel.bin'
+    rootfs_part = 'rootfs.bin'
     partition_lib.ExtractKernel(
-        target_image_path, os.path.join(temp_dir, 'full_dev_part_KERN.bin'))
+        target_image_path, os.path.join(temp_dir, kernel_part))
     partition_lib.ExtractRoot(target_image_path,
-                              os.path.join(temp_dir, 'full_dev_part_ROOT.bin'),
+                              os.path.join(temp_dir, rootfs_part),
                               truncate=False)
-    for partition in ('KERN', 'ROOT'):
-      source = os.path.join(temp_dir, 'full_dev_part_%s.bin' % partition)
-      dest = os.path.join(archive_dir, 'full_dev_part_%s.bin.gz' % partition)
+    for partition, payload in {
+        kernel_part: constants.QUICK_PROVISION_PAYLOAD_KERNEL,
+        rootfs_part: constants.QUICK_PROVISION_PAYLOAD_ROOTFS}.items():
+      source = os.path.join(temp_dir, partition)
+      dest = os.path.join(archive_dir, payload)
       cros_build_lib.CompressFile(source, dest)
       payloads.append(dest)
 
   return payloads
 
 
-def BundleAFDOGenerationArtifacts(is_orderfile, chroot,
+def BundleAFDOGenerationArtifacts(is_orderfile, chroot, chrome_root,
                                   build_target, output_dir):
   """Generate artifacts for toolchain-related AFDO artifacts.
 
@@ -476,6 +482,7 @@ def BundleAFDOGenerationArtifacts(is_orderfile, chroot,
     is_orderfile (boolean): The generation is for orderfile (True) or
     for AFDO (False).
     chroot (chroot_lib.Chroot): The chroot in which the sysroot should be built.
+    chrome_root (str): Path to Chrome root.
     build_target (build_target_util.BuildTarget): The build target.
     output_dir (str): The location outside the chroot where the files should be
       stored.
@@ -489,6 +496,7 @@ def BundleAFDOGenerationArtifacts(is_orderfile, chroot,
       generate_orderfile = toolchain_util.GenerateChromeOrderfile(
           board=build_target.name,
           output_dir=tempdir,
+          chrome_root=chrome_root,
           chroot_path=chroot.path,
           chroot_args=chroot_args)
 
@@ -608,7 +616,7 @@ def GenerateCpeReport(chroot, sysroot, output_dir):
   warnings_path = os.path.join(output_dir,
                                CPE_WARNINGS_FILE_TEMPLATE % build_target)
 
-  osutils.WriteFile(report_path, result.output)
-  osutils.WriteFile(warnings_path, result.error)
+  osutils.WriteFile(report_path, result.stdout, mode='wb')
+  osutils.WriteFile(warnings_path, result.stderr, mode='wb')
 
   return CpeResult(report=report_path, warnings=warnings_path)

@@ -25,6 +25,12 @@
  *
  */
 
+// This needs to be defined first, or else we'll get redefinitions on NTSTATUS values
+#ifdef _WIN32
+#define UMDF_USING_NTSTATUS
+#include <ntstatus.h>
+#endif
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -63,6 +69,9 @@
 #include <cfgmgr32.h>
 #include <initguid.h>
 #include <devpkey.h>
+#include <winternl.h>
+#include "adapters.h"
+#include "dxgi_loader.h"
 #endif
 
 // This is a CMake generated file with #defines for any functions/includes
@@ -254,16 +263,13 @@ static inline char *loader_secure_getenv(const char *name, const struct loader_i
     return IsHighIntegrity() ? NULL : loader_getenv(name, inst);
 #else
 // Linux
-#ifdef HAVE_SECURE_GETENV
+#if defined(HAVE_SECURE_GETENV) && !defined(USE_UNSAFE_FILE_SEARCH)
     (void)inst;
     return secure_getenv(name);
-#elif defined(HAVE___SECURE_GETENV)
+#elif defined(HAVE___SECURE_GETENV) && !defined(USE_UNSAFE_FILE_SEARCH)
     (void)inst;
     return __secure_getenv(name);
 #else
-#pragma message(                                                                       \
-    "Warning:  Falling back to non-secure getenv for environmental lookups!  Consider" \
-    " updating to a different libc.")
     return loader_getenv(name, inst);
 #endif
 #endif
@@ -326,10 +332,11 @@ static inline char *loader_getenv(const char *name, const struct loader_instance
 }
 
 static inline char *loader_secure_getenv(const char *name, const struct loader_instance *inst) {
-    // TDEHACK: Allow VK_LAYER_PATH through
-    if (strcmp(name, "VK_LAYER_PATH") != 0 && IsHighIntegrity()) {
+#if !defined(USE_UNSAFE_FILE_SEARCH)
+    if (IsHighIntegrity()) {
         return NULL;
     }
+#endif
 
     return loader_getenv(name, inst);
 }
@@ -798,6 +805,49 @@ static char *loader_get_next_path(char *path);
 // When done using the returned string list, the caller should free the pointer.
 VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *location, bool use_secondary_hive, char **reg_data,
                                 PDWORD reg_data_size) {
+    // This list contains all of the allowed ICDs. This allows us to verify that a device is actually present from the vendor
+    // specified. This does disallow other vendors, but any new driver should use the device-specific registries anyway.
+    static const struct {
+        const char *filename;
+        int vendor_id;
+    } known_drivers[] = {
+#if defined(_WIN64)
+        {
+            .filename = "igvk64.json",
+            .vendor_id = 0x8086,
+        },
+        {
+            .filename = "nv-vk64.json",
+            .vendor_id = 0x10de,
+        },
+        {
+            .filename = "amd-vulkan64.json",
+            .vendor_id = 0x1002,
+        },
+        {
+            .filename = "amdvlk64.json",
+            .vendor_id = 0x1002,
+        },
+#else
+        {
+            .filename = "igvk32.json",
+            .vendor_id = 0x8086,
+        },
+        {
+            .filename = "nv-vk32.json",
+            .vendor_id = 0x10de,
+        },
+        {
+            .filename = "amd-vulkan32.json",
+            .vendor_id = 0x1002,
+        },
+        {
+            .filename = "amdvlk32.json",
+            .vendor_id = 0x1002,
+        },
+#endif
+    };
+
     LONG rtn_value;
     HKEY hive = DEFAULT_VK_REGISTRY_HIVE, key;
     DWORD access_flags;
@@ -810,10 +860,23 @@ VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *locati
     DWORD value_size = sizeof(value);
     VkResult result = VK_SUCCESS;
     bool found = false;
+    IDXGIFactory1 *dxgi_factory = NULL;
+    bool is_driver = !strcmp(location, VK_DRIVERS_INFO_REGISTRY_LOC);
 
     if (NULL == reg_data) {
         result = VK_ERROR_INITIALIZATION_FAILED;
         goto out;
+    }
+
+    if (is_driver) {
+        HRESULT hres = dyn_CreateDXGIFactory1(&IID_IDXGIFactory1, &dxgi_factory);
+        if (hres != S_OK) {
+            loader_log(
+                inst, VK_DEBUG_REPORT_WARNING_BIT_EXT, 0,
+                "loaderGetRegistryFiles: Failed to create dxgi factory for ICD registry verification. No ICDs will be added from "
+                "legacy registry locations");
+            goto out;
+        }
     }
 
     while (*loc) {
@@ -851,9 +914,56 @@ VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *locati
                         *reg_data_size *= 2;
                     }
 
+                    // We've now found a json file. If this is an ICD, we still need to check if there is actually a device
+                    // that matches this ICD
                     loader_log(
                         inst, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, 0, "Located json file \"%s\" from registry \"%s\\%s\"", name,
                         hive == DEFAULT_VK_REGISTRY_HIVE ? DEFAULT_VK_REGISTRY_HIVE_STR : SECONDARY_VK_REGISTRY_HIVE_STR, location);
+                    if (is_driver) {
+                        int i;
+                        for (i = 0; i < sizeof(known_drivers) / sizeof(known_drivers[0]); ++i) {
+                            if (!strcmp(name + strlen(name) - strlen(known_drivers[i].filename), known_drivers[i].filename)) {
+                                break;
+                            }
+                        }
+                        if (i == sizeof(known_drivers) / sizeof(known_drivers[0])) {
+                            loader_log(inst, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, 0,
+                                       "Driver %s is not recognized as a known driver. It will be assumed to be active", name);
+                        } else {
+                            bool found_gpu = false;
+                            for (int j = 0;; ++j) {
+                                IDXGIAdapter1 *adapter;
+                                HRESULT hres = dxgi_factory->lpVtbl->EnumAdapters1(dxgi_factory, j, &adapter);
+                                if (hres == DXGI_ERROR_NOT_FOUND) {
+                                    break;
+                                } else if (hres != S_OK) {
+                                    loader_log(inst, VK_DEBUG_REPORT_WARNING_BIT_EXT, 0,
+                                               "Failed to enumerate DXGI adapters at index %d. As a result, drivers may be skipped", j);
+                                    continue;
+                                }
+
+                                DXGI_ADAPTER_DESC1 description;
+                                hres = adapter->lpVtbl->GetDesc1(adapter, &description);
+                                if (hres != S_OK) {
+                                    loader_log(
+                                        inst, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, 0,
+                                        "Failed to get DXGI adapter information at index %d. As a result, drivers may be skipped", j);
+                                    continue;
+                                }
+
+                                if (description.VendorId == known_drivers[i].vendor_id) {
+                                    found_gpu = true;
+                                    break;
+                                }
+                            }
+
+                            if (!found_gpu) {
+                                loader_log(inst, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, 0,
+                                           "Dropping driver %s as no corresponduing DXGI adapter was found", name);
+                                continue;
+                            }
+                        }
+                    }
 
                     if (strlen(*reg_data) == 0) {
                         // The list is emtpy. Add the first entry.
@@ -888,7 +998,8 @@ VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *locati
                         }
                     }
                 }
-                name_size = 2048;
+                name_size = sizeof(name);
+                value_size = sizeof(value);
             }
             RegCloseKey(key);
         }
@@ -907,6 +1018,9 @@ VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *locati
     }
 
 out:
+    if (is_driver && dxgi_factory != NULL) {
+        dxgi_factory->lpVtbl->Release(dxgi_factory);
+    }
 
     return result;
 }
@@ -1667,7 +1781,7 @@ bool loaderImplicitLayerIsEnabled(const struct loader_instance *inst, const stru
         enable = true;
     } else {
         // Otherwise, only enable this layer if the enable environment variable is defined
-        env_value = loader_secure_getenv(prop->enable_env_var.name, inst);
+        env_value = loader_getenv(prop->enable_env_var.name, inst);
         if (env_value && !strcmp(prop->enable_env_var.value, env_value)) {
             enable = true;
         }
@@ -1676,7 +1790,7 @@ bool loaderImplicitLayerIsEnabled(const struct loader_instance *inst, const stru
 
     // The disable_environment has priority over everything else.  If it is defined, the layer is always
     // disabled.
-    env_value = loader_secure_getenv(prop->disable_env_var.name, inst);
+    env_value = loader_getenv(prop->disable_env_var.name, inst);
     if (env_value) {
         enable = false;
     }
@@ -1938,7 +2052,8 @@ struct loader_icd_term *loader_get_icd_and_device(const VkDevice device, struct 
             for (struct loader_device *dev = icd_term->logical_device_list; dev; dev = dev->next)
                 // Value comparison of device prevents object wrapping by layers
                 if (loader_get_dispatch(dev->icd_device) == loader_get_dispatch(device) ||
-                    loader_get_dispatch(dev->chain_device) == loader_get_dispatch(device)) {
+                    (dev->chain_device != VK_NULL_HANDLE &&
+                     loader_get_dispatch(dev->chain_device) == loader_get_dispatch(device))) {
                     *found_dev = dev;
                     if (NULL != icd_index) {
                         *icd_index = index;
@@ -2319,6 +2434,12 @@ void loader_initialize(void) {
         .malloc_fn = loader_instance_tls_heap_alloc, .free_fn = loader_instance_tls_heap_free,
     };
     cJSON_InitHooks(&alloc_fns);
+
+#if defined(_WIN32)
+    // This is needed to ensure that newer APIs are available right away
+    // and not after the first call that has been statically linked
+    LoadLibrary("gdi32.dll");
+#endif
 }
 
 struct loader_data_files {
@@ -3827,6 +3948,138 @@ out:
 }
 
 #ifdef _WIN32
+// Read manifest JSON files uing the Windows driver interface
+static VkResult ReadManifestsFromD3DAdapters(const struct loader_instance *inst, char **reg_data, PDWORD reg_data_size,
+                                             const wchar_t *value_name) {
+    VkResult result = VK_INCOMPLETE;
+    LoaderEnumAdapters2 adapters = {.adapter_count = 0, .adapters = NULL};
+    LoaderQueryRegistryInfo *full_info = NULL;
+    size_t full_info_size = 0;
+    char *json_path = NULL;
+    size_t json_path_size = 0;
+
+    PFN_LoaderEnumAdapters2 fpLoaderEnumAdapters2 =
+        (PFN_LoaderEnumAdapters2)GetProcAddress(GetModuleHandle("gdi32.dll"), "D3DKMTEnumAdapters2");
+    PFN_LoaderQueryAdapterInfo fpLoaderQueryAdapterInfo =
+        (PFN_LoaderQueryAdapterInfo)GetProcAddress(GetModuleHandle("gdi32.dll"), "D3DKMTQueryAdapterInfo");
+    if (fpLoaderEnumAdapters2 == NULL || fpLoaderQueryAdapterInfo == NULL) {
+        result = VK_ERROR_OUT_OF_HOST_MEMORY;
+        goto out;
+    }
+
+    // Get all of the adapters
+    NTSTATUS status = fpLoaderEnumAdapters2(&adapters);
+    if (status == STATUS_SUCCESS && adapters.adapter_count > 0) {
+        adapters.adapters = loader_instance_heap_alloc(inst, sizeof(*adapters.adapters) * adapters.adapter_count,
+                                                       VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
+        if (adapters.adapters == NULL) {
+            goto out;
+        }
+        status = fpLoaderEnumAdapters2(&adapters);
+    }
+    if (status != STATUS_SUCCESS) {
+        goto out;
+    }
+
+    // If that worked, we need to get the manifest file(s) for each adapter
+    for (ULONG i = 0; i < adapters.adapter_count; ++i) {
+        // The first query should just check if the field exists and how big it is
+        LoaderQueryRegistryInfo filename_info = {
+            .query_type = LOADER_QUERY_REGISTRY_ADAPTER_KEY,
+            .query_flags =
+                {
+                    .translate_path = true,
+                },
+            .value_type = REG_MULTI_SZ,
+            .physical_adapter_index = 0,
+        };
+        wcsncpy(filename_info.value_name, value_name, sizeof(filename_info.value_name) / sizeof(DWORD));
+        LoaderQueryAdapterInfo query_info = {
+            .handle = adapters.adapters[i].handle,
+            .type = LOADER_QUERY_TYPE_REGISTRY,
+            .private_data = &filename_info,
+            .private_data_size = sizeof(filename_info),
+        };
+        status = fpLoaderQueryAdapterInfo(&query_info);
+
+        // This error indicates that the type didn't match, so we'll try a REG_SZ
+        if (status != STATUS_SUCCESS) {
+            filename_info.value_type = REG_SZ;
+            status = fpLoaderQueryAdapterInfo(&query_info);
+        }
+
+        if (status != STATUS_SUCCESS || filename_info.status != LOADER_QUERY_REGISTRY_STATUS_BUFFER_OVERFLOW) {
+            continue;
+        }
+
+        while (status == STATUS_SUCCESS &&
+               ((LoaderQueryRegistryInfo *)query_info.private_data)->status == LOADER_QUERY_REGISTRY_STATUS_BUFFER_OVERFLOW) {
+            bool needs_copy = (full_info == NULL);
+            size_t full_size = sizeof(LoaderQueryRegistryInfo) + filename_info.output_value_size;
+            void *buffer =
+                loader_instance_heap_realloc(inst, full_info, full_info_size, full_size, VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
+            if (buffer == NULL) {
+                result = VK_ERROR_OUT_OF_HOST_MEMORY;
+                goto out;
+            }
+            full_info = buffer;
+            full_info_size = full_size;
+
+            if (needs_copy) {
+                memcpy(full_info, &filename_info, sizeof(LoaderQueryRegistryInfo));
+            }
+            query_info.private_data = full_info;
+            query_info.private_data_size = (UINT)full_info_size;
+            status = fpLoaderQueryAdapterInfo(&query_info);
+        }
+
+        if (status != STATUS_SUCCESS || full_info->status != LOADER_QUERY_REGISTRY_STATUS_SUCCESS) {
+            goto out;
+        }
+
+        // Convert the wide string to a narrow string
+        void *buffer = loader_instance_heap_realloc(inst, json_path, json_path_size, full_info->output_value_size,
+                                                    VK_SYSTEM_ALLOCATION_SCOPE_COMMAND);
+        if (buffer == NULL) {
+            result = VK_ERROR_OUT_OF_HOST_MEMORY;
+            goto out;
+        }
+        json_path = buffer;
+        json_path_size = full_info->output_value_size;
+
+        // Iterate over each component string
+        for (const wchar_t *curr_path = full_info->output_string; curr_path[0] != '\0'; curr_path += wcslen(curr_path) + 1) {
+            WideCharToMultiByte(CP_UTF8, 0, curr_path, -1, json_path, (int)json_path_size, NULL, NULL);
+
+            // Add the string to the output list
+            result = VK_SUCCESS;
+            loaderAddJsonEntry(inst, reg_data, reg_data_size, (LPCTSTR)L"EnumAdapters", REG_SZ, json_path,
+                               (DWORD)strlen(json_path) + 1, &result);
+            if (result != VK_SUCCESS) {
+                goto out;
+            }
+
+            // If this is a string and not a multi-string, we don't want to go throught the loop more than once
+            if (full_info->value_type == REG_SZ) {
+                break;
+            }
+        }
+    }
+
+out:
+    if (json_path != NULL) {
+        loader_instance_heap_free(inst, json_path);
+    }
+    if (full_info != NULL) {
+        loader_instance_heap_free(inst, full_info);
+    }
+    if (adapters.adapters != NULL) {
+        loader_instance_heap_free(inst, adapters.adapters);
+    }
+
+    return result;
+}
+
 // Look for data files in the registry.
 static VkResult ReadDataFilesInRegistry(const struct loader_instance *inst, enum loader_data_files_type data_file_type,
                                         bool warn_if_not_present, char *registry_location, struct loader_data_files *out_files) {
@@ -3838,11 +4091,21 @@ static VkResult ReadDataFilesInRegistry(const struct loader_instance *inst, enum
     VkResult regHKR_result = VK_SUCCESS;
     DWORD reg_size = 4096;
     if (!strncmp(registry_location, VK_DRIVERS_INFO_REGISTRY_LOC, sizeof(VK_DRIVERS_INFO_REGISTRY_LOC))) {
-        regHKR_result = loaderGetDeviceRegistryFiles(inst, &search_path, &reg_size, LoaderPnpDriverRegistry());
+        // If we're looking for drivers we need to try enumerating adapters
+        regHKR_result = ReadManifestsFromD3DAdapters(inst, &search_path, &reg_size, LoaderPnpDriverRegistryWide());
+        if (regHKR_result == VK_INCOMPLETE) {
+            regHKR_result = loaderGetDeviceRegistryFiles(inst, &search_path, &reg_size, LoaderPnpDriverRegistry());
+        }
     } else if (!strncmp(registry_location, VK_ELAYERS_INFO_REGISTRY_LOC, sizeof(VK_ELAYERS_INFO_REGISTRY_LOC))) {
-        regHKR_result = loaderGetDeviceRegistryFiles(inst, &search_path, &reg_size, LoaderPnpELayerRegistry());
+        regHKR_result = ReadManifestsFromD3DAdapters(inst, &search_path, &reg_size, LoaderPnpELayerRegistryWide());
+        if (regHKR_result == VK_INCOMPLETE) {
+            regHKR_result = loaderGetDeviceRegistryFiles(inst, &search_path, &reg_size, LoaderPnpELayerRegistry());
+        }
     } else if (!strncmp(registry_location, VK_ILAYERS_INFO_REGISTRY_LOC, sizeof(VK_ILAYERS_INFO_REGISTRY_LOC))) {
-        regHKR_result = loaderGetDeviceRegistryFiles(inst, &search_path, &reg_size, LoaderPnpILayerRegistry());
+        regHKR_result = ReadManifestsFromD3DAdapters(inst, &search_path, &reg_size, LoaderPnpILayerRegistryWide());
+        if (regHKR_result == VK_INCOMPLETE) {
+            regHKR_result = loaderGetDeviceRegistryFiles(inst, &search_path, &reg_size, LoaderPnpILayerRegistry());
+        }
     }
 
     // This call looks into the Khronos non-device specific section of the registry.
@@ -4489,7 +4752,7 @@ void loaderScanForImplicitLayers(struct loader_instance *inst, struct loader_lay
                 continue;
             }
 
-            res = loaderAddLayerProperties(inst, instance_layers, json, false, file_str);
+            res = loaderAddLayerProperties(inst, instance_layers, json, true, file_str);
 
             loader_instance_heap_free(inst, file_str);
             cJSON_Delete(json);
@@ -4504,13 +4767,11 @@ void loaderScanForImplicitLayers(struct loader_instance *inst, struct loader_lay
     // actually present in the available layer list
     VerifyAllMetaLayers(inst, instance_layers, &override_layer_valid);
 
-    if (override_layer_valid) {
-        loaderRemoveLayersInBlacklist(inst, instance_layers);
-        if (NULL != inst) {
+    if (override_layer_valid || implicit_metalayer_present) {
+        loaderRemoveLayersNotInImplicitMetaLayers(inst, instance_layers);
+        if (override_layer_valid && inst != NULL) {
             inst->override_layer_present = true;
         }
-    } else if (implicit_metalayer_present) {
-        loaderRemoveLayersNotInImplicitMetaLayers(inst, instance_layers);
     }
 
 out:
@@ -5132,7 +5393,7 @@ static void loaderAddEnvironmentLayers(struct loader_instance *inst, const enum 
                                        struct loader_layer_list *target_list, struct loader_layer_list *expanded_target_list,
                                        const struct loader_layer_list *source_list) {
     char *next, *name;
-    char *layer_env = loader_secure_getenv(env_name, inst);
+    char *layer_env = loader_getenv(env_name, inst);
     if (layer_env == NULL) {
         goto out;
     }

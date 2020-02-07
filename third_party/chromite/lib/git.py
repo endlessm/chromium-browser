@@ -656,7 +656,7 @@ class ManifestCheckout(Manifest):
     Returns:
       A list of ProjectCheckout objects.
     """
-    return self.checkouts_by_path.values()
+    return list(self.checkouts_by_path.values())
 
   def FindCheckoutFromPath(self, path, strict=True):
     """Find the associated checkouts for a given |path|.
@@ -887,10 +887,18 @@ def MatchBranchName(git_repo, pattern, namespace=''):
   Returns:
     List of matching branch names (with |namespace| trimmed).
   """
-  match = re.compile(pattern, flags=re.I)
   output = RunGit(git_repo, ['ls-remote', git_repo, namespace + '*']).output
   branches = [x.split()[1] for x in output.splitlines()]
   branches = [x[len(namespace):] for x in branches if x.startswith(namespace)]
+
+  # Try exact match first.
+  match = re.compile(r'(^|/)%s$' % (pattern,), flags=re.I)
+  ret = [x for x in branches if match.search(x)]
+  if ret:
+    return ret
+
+  # Fall back to regex match if no exact match.
+  match = re.compile(pattern, flags=re.I)
   return [x for x in branches if match.search(x)]
 
 

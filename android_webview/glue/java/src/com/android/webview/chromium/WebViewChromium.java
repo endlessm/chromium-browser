@@ -52,6 +52,8 @@ import android.webkit.WebView;
 import android.webkit.WebView.VisualStateCallback;
 import android.webkit.WebViewClient;
 import android.webkit.WebViewProvider;
+import android.webkit.WebViewRenderProcess;
+import android.webkit.WebViewRenderProcessClient;
 import android.widget.TextView;
 
 import androidx.annotation.IntDef;
@@ -69,6 +71,8 @@ import org.chromium.base.metrics.CachedMetrics.TimesHistogramSample;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.base.task.PostTask;
 import org.chromium.components.autofill.AutofillProvider;
+import org.chromium.components.content_capture.ContentCaptureConsumerImpl;
+import org.chromium.components.content_capture.ContentCaptureFeatures;
 import org.chromium.components.embedder_support.application.ClassLoaderContextWrapperFactory;
 import org.chromium.content_public.browser.NavigationHistory;
 import org.chromium.content_public.browser.SmartClipProvider;
@@ -80,6 +84,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 
 /**
  * This class is the delegate to which WebViewProxy forwards all API calls.
@@ -958,9 +963,8 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
     public void insertVisualStateCallback(
             final long requestId, final VisualStateCallback callback) {
         sWebViewApiCallSample.record(ApiCall.INSERT_VISUAL_STATE_CALLBACK);
-        if (callback == null) return;
         mSharedWebViewChromium.insertVisualStateCallback(
-                requestId, new AwContents.VisualStateCallback() {
+                requestId, callback == null ? null : new AwContents.VisualStateCallback() {
                     @Override
                     public void onComplete(long requestId) {
                         callback.onComplete(requestId);
@@ -1468,6 +1472,35 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
     }
 
     @Override
+    public WebViewRenderProcess getWebViewRenderProcess() {
+        return GlueApiHelperForQ.getWebViewRenderProcess(mSharedWebViewChromium.getRenderProcess());
+    }
+
+    @Override
+    public void setWebViewRenderProcessClient(
+            Executor executor, WebViewRenderProcessClient webViewRenderProcessClient) {
+        if (webViewRenderProcessClient == null) {
+            mSharedWebViewChromium.setWebViewRendererClientAdapter(null);
+        } else {
+            if (executor == null) {
+                executor = (Runnable r) -> r.run();
+            }
+            GlueApiHelperForQ.setWebViewRenderProcessClient(
+                    mSharedWebViewChromium, executor, webViewRenderProcessClient);
+        }
+    }
+
+    @Override
+    public WebViewRenderProcessClient getWebViewRenderProcessClient() {
+        SharedWebViewRendererClientAdapter adapter =
+                mSharedWebViewChromium.getWebViewRendererClientAdapter();
+        if (adapter == null || !(adapter instanceof WebViewRenderProcessClientAdapter)) {
+            return null;
+        }
+        return GlueApiHelperForQ.getWebViewRenderProcessClient(adapter);
+    }
+
+    @Override
     public void setDownloadListener(DownloadListener listener) {
         sWebViewApiCallSample.record(ApiCall.SET_DOWNLOAD_LISTENER);
         mContentsClientAdapter.setDownloadListener(listener);
@@ -1777,6 +1810,16 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         }
         sWebViewApiCallSample.record(ApiCall.ON_PROVIDE_AUTOFILL_VIRTUAL_STRUCTURE);
         mAwContents.onProvideAutoFillVirtualStructure(structure, flags);
+    }
+
+    @Override
+    public void onProvideContentCaptureStructure(ViewStructure structure, int flags) {
+        if (ContentCaptureFeatures.isDumpForTestingEnabled()) {
+            Log.i("ContentCapture", "onProvideContentCaptureStructure");
+        }
+        mAwContents.setContentCaptureConsumer(ContentCaptureConsumerImpl.create(
+                ClassLoaderContextWrapperFactory.get(mWebView.getContext()), mWebView, structure,
+                mAwContents.getWebContents()));
     }
 
     // WebViewProvider glue methods ---------------------------------------------------------------

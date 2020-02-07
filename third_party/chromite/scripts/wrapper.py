@@ -13,7 +13,6 @@ lots of places.
 
 from __future__ import print_function
 
-import imp
 import os
 import sys
 
@@ -25,9 +24,9 @@ if sys.version_info < (2, 7, 5):
   print('%s: chromite: error: Python-2.7.5+ is required' % (sys.argv[0],),
         file=sys.stderr)
   sys.exit(1)
-elif sys.version_info.major == 3 and sys.version_info < (3, 4):
+elif sys.version_info.major == 3 and sys.version_info < (3, 5):
   # We don't actually test <Python-3.6.  Hope for the best!
-  print('%s: chromite: error: Python-3.4+ is required' % (sys.argv[0],),
+  print('%s: chromite: error: Python-3.5+ is required' % (sys.argv[0],),
         file=sys.stderr)
   sys.exit(1)
 
@@ -165,7 +164,16 @@ def FindTarget(target):
       raise
   else:
     try:
-      module = imp.load_source('main', full_path)
+      # Python 3 way.
+      from importlib.machinery import SourceFileLoader
+      _loader = lambda *args: SourceFileLoader(*args).load_module()
+    except ImportError:
+      # Python 2 way.
+      import imp
+      _loader = imp.load_source
+
+    try:
+      module = _loader('main', full_path)
     except IOError as e:
       print(
           '%s: could not import external module: %s: %s' % (sys.argv[0],

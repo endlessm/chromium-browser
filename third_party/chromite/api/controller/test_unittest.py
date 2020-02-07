@@ -7,6 +7,8 @@
 
 from __future__ import print_function
 
+import os
+
 import contextlib
 import mock
 
@@ -24,6 +26,53 @@ from chromite.lib import portage_util
 from chromite.scripts import cros_set_lsb_release
 from chromite.service import test as test_service
 from chromite.utils import key_value_store
+
+
+class DebugInfoTestTest(cros_test_lib.MockTempDirTestCase,
+                        api_config.ApiConfigMixin):
+  """Tests for the DebugInfoTest function."""
+
+  def setUp(self):
+    self.board = 'board'
+    self.chroot_path = os.path.join(self.tempdir, 'chroot')
+    self.sysroot_path = '/build/board'
+    self.full_sysroot_path = os.path.join(self.chroot_path,
+                                          self.sysroot_path.lstrip(os.sep))
+    osutils.SafeMakedirs(self.full_sysroot_path)
+
+  def _GetInput(self, sysroot_path=None, build_target=None):
+    """Helper to build an input message instance."""
+    proto = test_pb2.DebugInfoTestRequest()
+    if sysroot_path:
+      proto.sysroot.path = sysroot_path
+    if build_target:
+      proto.sysroot.build_target.name = build_target
+    return proto
+
+  def _GetOutput(self):
+    """Helper to get an empty output message instance."""
+    return test_pb2.DebugInfoTestResponse()
+
+  def testValidateOnly(self):
+    """Sanity check that a validate only call does not execute any logic."""
+    patch = self.PatchObject(test_service, 'DebugInfoTest')
+    input_msg = self._GetInput(sysroot_path=self.full_sysroot_path)
+    test_controller.DebugInfoTest(input_msg, self._GetOutput(),
+                                  self.validate_only_config)
+    patch.assert_not_called()
+
+  def testNoBuildTargetNoSysrootFails(self):
+    """Test missing build target name and sysroot path fails."""
+    input_msg = self._GetInput()
+    output_msg = self._GetOutput()
+    with self.assertRaises(cros_build_lib.DieSystemExit):
+      test_controller.DebugInfoTest(input_msg, output_msg, self.api_config)
+
+  def testDebugInfoTest(self):
+    """Call DebugInfoTest with valid sysroot_path."""
+    request = self._GetInput(sysroot_path=self.full_sysroot_path)
+
+    test_controller.DebugInfoTest(request, self._GetOutput(), self.api_config)
 
 
 class BuildTargetUnitTestTest(cros_test_lib.MockTempDirTestCase,
@@ -57,6 +106,34 @@ class BuildTargetUnitTestTest(cros_test_lib.MockTempDirTestCase,
     test_controller.BuildTargetUnitTest(input_msg, self._GetOutput(),
                                         self.validate_only_config)
     patch.assert_not_called()
+
+  def testMockCall(self):
+    """Test that a mock call does not execute logic, returns mocked value."""
+    patch = self.PatchObject(test_service, 'BuildTargetUnitTest')
+
+    input_msg = self._GetInput(board='board', result_path=self.tempdir)
+    response = self._GetOutput()
+    test_controller.BuildTargetUnitTest(input_msg, response,
+                                        self.mock_call_config)
+    patch.assert_not_called()
+    self.assertEqual(response.tarball_path,
+                     os.path.join(input_msg.result_path, 'unit_tests.tar'))
+
+  def testMockError(self):
+    """Test that a mock error does not execute logic, returns mocked value."""
+    patch = self.PatchObject(test_service, 'BuildTargetUnitTest')
+
+    input_msg = self._GetInput(board='board', result_path=self.tempdir)
+    response = self._GetOutput()
+    rc = test_controller.BuildTargetUnitTest(input_msg, response,
+                                             self.mock_error_config)
+    patch.assert_not_called()
+    self.assertEqual(controller.RETURN_CODE_UNSUCCESSFUL_RESPONSE_AVAILABLE, rc)
+    self.assertTrue(response.failed_packages)
+    self.assertEqual(response.failed_packages[0].category, 'foo')
+    self.assertEqual(response.failed_packages[0].package_name, 'bar')
+    self.assertEqual(response.failed_packages[1].category, 'cat')
+    self.assertEqual(response.failed_packages[1].package_name, 'pkg')
 
   def testNoArgumentFails(self):
     """Test no arguments fails."""
@@ -128,15 +205,117 @@ class BuildTargetUnitTestTest(cros_test_lib.MockTempDirTestCase,
     self.assertEqual(controller.RETURN_CODE_COMPLETED_UNSUCCESSFULLY, rc)
     self.assertFalse(output_msg.failed_packages)
 
+  def testBuildTargetUnitTest(self):
+    """Test BuildTargetUnitTest successful call."""
+    input_msg = self._GetInput(board='board', result_path=self.tempdir)
+
+    result = test_service.BuildTargetUnitTestResult(0, None)
+    self.PatchObject(test_service, 'BuildTargetUnitTest', return_value=result)
+
+    tarball_result = os.path.join(input_msg.result_path, 'unit_tests.tar')
+    self.PatchObject(test_service, 'BuildTargetUnitTestTarball',
+                     return_value=tarball_result)
+
+    response = self._GetOutput()
+    test_controller.BuildTargetUnitTest(input_msg, response,
+                                        self.api_config)
+    self.assertEqual(response.tarball_path,
+                     os.path.join(input_msg.result_path, 'unit_tests.tar'))
+
+
+class ChromiteUnitTestTest(cros_test_lib.MockTestCase,
+                           api_config.ApiConfigMixin):
+  """Tests for the ChromiteInfoTest function."""
+
+  def setUp(self):
+    self.board = 'board'
+    self.chroot_path = '/path/to/chroot'
+
+  def _GetInput(self, chroot_path=None):
+    """Helper to build an input message instance."""
+    proto = test_pb2.ChromiteUnitTestRequest(
+        chroot={'path': chroot_path},
+    )
+    return proto
+
+  def _GetOutput(self):
+    """Helper to get an empty output message instance."""
+    return test_pb2.ChromiteUnitTestResponse()
+
+  def testValidateOnly(self):
+    """Sanity check that a validate only call does not execute any logic."""
+    patch = self.PatchObject(cros_build_lib, 'run')
+
+    input_msg = self._GetInput(chroot_path=self.chroot_path)
+    test_controller.ChromiteUnitTest(input_msg, self._GetOutput(),
+                                     self.validate_only_config)
+    patch.assert_not_called()
+
+  def testMockError(self):
+    """Test mock error call does not execute any logic, returns error."""
+    patch = self.PatchObject(cros_build_lib, 'run')
+
+    input_msg = self._GetInput(chroot_path=self.chroot_path)
+    rc = test_controller.ChromiteUnitTest(input_msg, self._GetOutput(),
+                                          self.mock_error_config)
+    patch.assert_not_called()
+    self.assertEqual(controller.RETURN_CODE_COMPLETED_UNSUCCESSFULLY, rc)
+
+  def testMockCall(self):
+    """Test mock call does not execute any logic, returns success."""
+    patch = self.PatchObject(cros_build_lib, 'run')
+
+    input_msg = self._GetInput(chroot_path=self.chroot_path)
+    rc = test_controller.ChromiteUnitTest(input_msg, self._GetOutput(),
+                                          self.mock_call_config)
+    patch.assert_not_called()
+    self.assertEqual(controller.RETURN_CODE_SUCCESS, rc)
+
+  def testChromiteUnitTest(self):
+    """Call ChromiteUnitTest with mocked cros_build_lib.run."""
+    request = self._GetInput(chroot_path=self.chroot_path)
+    patch = self.PatchObject(
+        cros_build_lib, 'run',
+        return_value=cros_build_lib.CommandResult(returncode=0))
+
+    test_controller.ChromiteUnitTest(request, self._GetOutput(),
+                                     self.api_config)
+    patch.assert_called_once()
+
 
 class CrosSigningTestTest(cros_test_lib.RunCommandTestCase,
                           api_config.ApiConfigMixin):
   """CrosSigningTest tests."""
 
+  def setUp(self):
+    self.chroot_path = '/path/to/chroot'
+
+  def _GetInput(self, chroot_path=None):
+    """Helper to build an input message instance."""
+    proto = test_pb2.CrosSigningTestRequest(
+        chroot={'path': chroot_path},
+    )
+    return proto
+
+  def _GetOutput(self):
+    """Helper to get an empty output message instance."""
+    return test_pb2.CrosSigningTestResponse()
+
   def testValidateOnly(self):
     """Sanity check that a validate only call does not execute any logic."""
     test_controller.CrosSigningTest(None, None, self.validate_only_config)
     self.assertFalse(self.rc.call_count)
+
+  def testCrosSigningTest(self):
+    """Call CrosSigningTest with mocked cros_build_lib.run."""
+    request = self._GetInput(chroot_path=self.chroot_path)
+    patch = self.PatchObject(
+        cros_build_lib, 'run',
+        return_value=cros_build_lib.CommandResult(returncode=0))
+
+    test_controller.CrosSigningTest(request, self._GetOutput(),
+                                    self.api_config)
+    patch.assert_called_once()
 
 
 class SimpleChromeWorkflowTestTest(cros_test_lib.MockTestCase,
@@ -168,7 +347,7 @@ class SimpleChromeWorkflowTestTest(cros_test_lib.MockTestCase,
         test_service, 'SimpleChromeWorkflowTest')
 
   def testMissingBuildTarget(self):
-    """Test VmTest dies when build_target not set."""
+    """Test SimpleChromeWorkflowTest dies when build_target not set."""
     input_proto = self._Input(build_target=None, sysroot_path='/sysroot/dir',
                               chrome_root='/chrome/path')
     with self.assertRaises(cros_build_lib.DieSystemExit):
@@ -176,7 +355,7 @@ class SimpleChromeWorkflowTestTest(cros_test_lib.MockTestCase,
                                                self.api_config)
 
   def testMissingSysrootPath(self):
-    """Test VmTest dies when build_target not set."""
+    """Test SimpleChromeWorkflowTest dies when build_target not set."""
     input_proto = self._Input(build_target='board', sysroot_path=None,
                               chrome_root='/chrome/path')
     with self.assertRaises(cros_build_lib.DieSystemExit):
@@ -184,7 +363,7 @@ class SimpleChromeWorkflowTestTest(cros_test_lib.MockTestCase,
                                                self.api_config)
 
   def testMissingChromeRoot(self):
-    """Test VmTest dies when build_target not set."""
+    """Test SimpleChromeWorkflowTest dies when build_target not set."""
     input_proto = self._Input(build_target='board', sysroot_path='/sysroot/dir',
                               chrome_root=None)
     with self.assertRaises(cros_build_lib.DieSystemExit):
@@ -224,6 +403,9 @@ class VmTestTest(cros_test_lib.RunCommandTestCase, api_config.ApiConfigMixin):
     )
     values.update(kwargs)
     return test_pb2.VmTestRequest(**values)
+
+  def _Output(self):
+    return test_pb2.VmTestResponse()
 
   def testValidateOnly(self):
     """Sanity check that a validate only call does not execute any logic."""
@@ -280,6 +462,17 @@ class VmTestTest(cros_test_lib.RunCommandTestCase, api_config.ApiConfigMixin):
     input_proto = self._GetInput(vm_tests=[])
     with self.assertRaises(cros_build_lib.DieSystemExit):
       test_controller.VmTest(input_proto, None, self.api_config)
+
+  def testVmTest(self):
+    """Call VmTest with valid args and temp dir."""
+    request = self._GetInput()
+    response = self._Output()
+    patch = self.PatchObject(
+        cros_build_lib, 'run',
+        return_value=cros_build_lib.CommandResult(returncode=0))
+
+    test_controller.VmTest(request, response, self.api_config)
+    patch.assert_called()
 
 
 class MoblabVmTestTest(cros_test_lib.MockTestCase, api_config.ApiConfigMixin):

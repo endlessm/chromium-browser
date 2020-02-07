@@ -167,7 +167,8 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
     options.build_config_name = ''
 
     self._manager = parallel.Manager()
-    self._manager.__enter__()
+    # Pylint-1.9 has a false positive on this for some reason.
+    self._manager.__enter__()  # pylint: disable=no-value-for-parameter
 
     self._run = cbuildbot_run.BuilderRun(options, site_config, build_config,
                                          self._manager)
@@ -515,7 +516,7 @@ class BuildStagesResultsTest(cros_test_lib.TestCase):
         StringIO(self._PassString()))
 
     previous = results_lib.Results.GetPrevious()
-    self.assertEqual(previous.keys(), ['Pass'])
+    self.assertEqual(list(previous), ['Pass'])
 
   def testRunAfterRestore(self):
     """Tests that we skip previously completed stages."""

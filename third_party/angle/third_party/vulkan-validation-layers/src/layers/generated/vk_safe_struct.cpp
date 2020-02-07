@@ -13965,6 +13965,485 @@ void safe_VkFenceGetFdInfoKHR::initialize(const safe_VkFenceGetFdInfoKHR* src)
     pNext = SafePnextCopy(src->pNext);
 }
 
+safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::safe_VkPhysicalDevicePerformanceQueryFeaturesKHR(const VkPhysicalDevicePerformanceQueryFeaturesKHR* in_struct) :
+    sType(in_struct->sType),
+    performanceCounterQueryPools(in_struct->performanceCounterQueryPools),
+    performanceCounterMultipleQueryPools(in_struct->performanceCounterMultipleQueryPools)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::safe_VkPhysicalDevicePerformanceQueryFeaturesKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::safe_VkPhysicalDevicePerformanceQueryFeaturesKHR(const safe_VkPhysicalDevicePerformanceQueryFeaturesKHR& src)
+{
+    sType = src.sType;
+    performanceCounterQueryPools = src.performanceCounterQueryPools;
+    performanceCounterMultipleQueryPools = src.performanceCounterMultipleQueryPools;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPhysicalDevicePerformanceQueryFeaturesKHR& safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::operator=(const safe_VkPhysicalDevicePerformanceQueryFeaturesKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    performanceCounterQueryPools = src.performanceCounterQueryPools;
+    performanceCounterMultipleQueryPools = src.performanceCounterMultipleQueryPools;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::~safe_VkPhysicalDevicePerformanceQueryFeaturesKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::initialize(const VkPhysicalDevicePerformanceQueryFeaturesKHR* in_struct)
+{
+    sType = in_struct->sType;
+    performanceCounterQueryPools = in_struct->performanceCounterQueryPools;
+    performanceCounterMultipleQueryPools = in_struct->performanceCounterMultipleQueryPools;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPhysicalDevicePerformanceQueryFeaturesKHR::initialize(const safe_VkPhysicalDevicePerformanceQueryFeaturesKHR* src)
+{
+    sType = src->sType;
+    performanceCounterQueryPools = src->performanceCounterQueryPools;
+    performanceCounterMultipleQueryPools = src->performanceCounterMultipleQueryPools;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::safe_VkPhysicalDevicePerformanceQueryPropertiesKHR(const VkPhysicalDevicePerformanceQueryPropertiesKHR* in_struct) :
+    sType(in_struct->sType),
+    allowCommandBufferQueryCopies(in_struct->allowCommandBufferQueryCopies)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::safe_VkPhysicalDevicePerformanceQueryPropertiesKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::safe_VkPhysicalDevicePerformanceQueryPropertiesKHR(const safe_VkPhysicalDevicePerformanceQueryPropertiesKHR& src)
+{
+    sType = src.sType;
+    allowCommandBufferQueryCopies = src.allowCommandBufferQueryCopies;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPhysicalDevicePerformanceQueryPropertiesKHR& safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::operator=(const safe_VkPhysicalDevicePerformanceQueryPropertiesKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    allowCommandBufferQueryCopies = src.allowCommandBufferQueryCopies;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::~safe_VkPhysicalDevicePerformanceQueryPropertiesKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::initialize(const VkPhysicalDevicePerformanceQueryPropertiesKHR* in_struct)
+{
+    sType = in_struct->sType;
+    allowCommandBufferQueryCopies = in_struct->allowCommandBufferQueryCopies;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPhysicalDevicePerformanceQueryPropertiesKHR::initialize(const safe_VkPhysicalDevicePerformanceQueryPropertiesKHR* src)
+{
+    sType = src->sType;
+    allowCommandBufferQueryCopies = src->allowCommandBufferQueryCopies;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkPerformanceCounterKHR::safe_VkPerformanceCounterKHR(const VkPerformanceCounterKHR* in_struct) :
+    sType(in_struct->sType),
+    unit(in_struct->unit),
+    scope(in_struct->scope),
+    storage(in_struct->storage)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+    for (uint32_t i = 0; i < VK_UUID_SIZE; ++i) {
+        uuid[i] = in_struct->uuid[i];
+    }
+}
+
+safe_VkPerformanceCounterKHR::safe_VkPerformanceCounterKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPerformanceCounterKHR::safe_VkPerformanceCounterKHR(const safe_VkPerformanceCounterKHR& src)
+{
+    sType = src.sType;
+    unit = src.unit;
+    scope = src.scope;
+    storage = src.storage;
+    pNext = SafePnextCopy(src.pNext);
+    for (uint32_t i = 0; i < VK_UUID_SIZE; ++i) {
+        uuid[i] = src.uuid[i];
+    }
+}
+
+safe_VkPerformanceCounterKHR& safe_VkPerformanceCounterKHR::operator=(const safe_VkPerformanceCounterKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    unit = src.unit;
+    scope = src.scope;
+    storage = src.storage;
+    pNext = SafePnextCopy(src.pNext);
+    for (uint32_t i = 0; i < VK_UUID_SIZE; ++i) {
+        uuid[i] = src.uuid[i];
+    }
+
+    return *this;
+}
+
+safe_VkPerformanceCounterKHR::~safe_VkPerformanceCounterKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPerformanceCounterKHR::initialize(const VkPerformanceCounterKHR* in_struct)
+{
+    sType = in_struct->sType;
+    unit = in_struct->unit;
+    scope = in_struct->scope;
+    storage = in_struct->storage;
+    pNext = SafePnextCopy(in_struct->pNext);
+    for (uint32_t i = 0; i < VK_UUID_SIZE; ++i) {
+        uuid[i] = in_struct->uuid[i];
+    }
+}
+
+void safe_VkPerformanceCounterKHR::initialize(const safe_VkPerformanceCounterKHR* src)
+{
+    sType = src->sType;
+    unit = src->unit;
+    scope = src->scope;
+    storage = src->storage;
+    pNext = SafePnextCopy(src->pNext);
+    for (uint32_t i = 0; i < VK_UUID_SIZE; ++i) {
+        uuid[i] = src->uuid[i];
+    }
+}
+
+safe_VkPerformanceCounterDescriptionKHR::safe_VkPerformanceCounterDescriptionKHR(const VkPerformanceCounterDescriptionKHR* in_struct) :
+    sType(in_struct->sType),
+    flags(in_struct->flags)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        name[i] = in_struct->name[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        category[i] = in_struct->category[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        description[i] = in_struct->description[i];
+    }
+}
+
+safe_VkPerformanceCounterDescriptionKHR::safe_VkPerformanceCounterDescriptionKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPerformanceCounterDescriptionKHR::safe_VkPerformanceCounterDescriptionKHR(const safe_VkPerformanceCounterDescriptionKHR& src)
+{
+    sType = src.sType;
+    flags = src.flags;
+    pNext = SafePnextCopy(src.pNext);
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        name[i] = src.name[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        category[i] = src.category[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        description[i] = src.description[i];
+    }
+}
+
+safe_VkPerformanceCounterDescriptionKHR& safe_VkPerformanceCounterDescriptionKHR::operator=(const safe_VkPerformanceCounterDescriptionKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    flags = src.flags;
+    pNext = SafePnextCopy(src.pNext);
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        name[i] = src.name[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        category[i] = src.category[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        description[i] = src.description[i];
+    }
+
+    return *this;
+}
+
+safe_VkPerformanceCounterDescriptionKHR::~safe_VkPerformanceCounterDescriptionKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPerformanceCounterDescriptionKHR::initialize(const VkPerformanceCounterDescriptionKHR* in_struct)
+{
+    sType = in_struct->sType;
+    flags = in_struct->flags;
+    pNext = SafePnextCopy(in_struct->pNext);
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        name[i] = in_struct->name[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        category[i] = in_struct->category[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        description[i] = in_struct->description[i];
+    }
+}
+
+void safe_VkPerformanceCounterDescriptionKHR::initialize(const safe_VkPerformanceCounterDescriptionKHR* src)
+{
+    sType = src->sType;
+    flags = src->flags;
+    pNext = SafePnextCopy(src->pNext);
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        name[i] = src->name[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        category[i] = src->category[i];
+    }
+    for (uint32_t i = 0; i < VK_MAX_DESCRIPTION_SIZE; ++i) {
+        description[i] = src->description[i];
+    }
+}
+
+safe_VkQueryPoolPerformanceCreateInfoKHR::safe_VkQueryPoolPerformanceCreateInfoKHR(const VkQueryPoolPerformanceCreateInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    queueFamilyIndex(in_struct->queueFamilyIndex),
+    counterIndexCount(in_struct->counterIndexCount),
+    pCounterIndices(nullptr)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+    if (in_struct->pCounterIndices) {
+        pCounterIndices = new uint32_t[in_struct->counterIndexCount];
+        memcpy ((void *)pCounterIndices, (void *)in_struct->pCounterIndices, sizeof(uint32_t)*in_struct->counterIndexCount);
+    }
+}
+
+safe_VkQueryPoolPerformanceCreateInfoKHR::safe_VkQueryPoolPerformanceCreateInfoKHR() :
+    pNext(nullptr),
+    pCounterIndices(nullptr)
+{}
+
+safe_VkQueryPoolPerformanceCreateInfoKHR::safe_VkQueryPoolPerformanceCreateInfoKHR(const safe_VkQueryPoolPerformanceCreateInfoKHR& src)
+{
+    sType = src.sType;
+    queueFamilyIndex = src.queueFamilyIndex;
+    counterIndexCount = src.counterIndexCount;
+    pCounterIndices = nullptr;
+    pNext = SafePnextCopy(src.pNext);
+    if (src.pCounterIndices) {
+        pCounterIndices = new uint32_t[src.counterIndexCount];
+        memcpy ((void *)pCounterIndices, (void *)src.pCounterIndices, sizeof(uint32_t)*src.counterIndexCount);
+    }
+}
+
+safe_VkQueryPoolPerformanceCreateInfoKHR& safe_VkQueryPoolPerformanceCreateInfoKHR::operator=(const safe_VkQueryPoolPerformanceCreateInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pCounterIndices)
+        delete[] pCounterIndices;
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    queueFamilyIndex = src.queueFamilyIndex;
+    counterIndexCount = src.counterIndexCount;
+    pCounterIndices = nullptr;
+    pNext = SafePnextCopy(src.pNext);
+    if (src.pCounterIndices) {
+        pCounterIndices = new uint32_t[src.counterIndexCount];
+        memcpy ((void *)pCounterIndices, (void *)src.pCounterIndices, sizeof(uint32_t)*src.counterIndexCount);
+    }
+
+    return *this;
+}
+
+safe_VkQueryPoolPerformanceCreateInfoKHR::~safe_VkQueryPoolPerformanceCreateInfoKHR()
+{
+    if (pCounterIndices)
+        delete[] pCounterIndices;
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkQueryPoolPerformanceCreateInfoKHR::initialize(const VkQueryPoolPerformanceCreateInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    queueFamilyIndex = in_struct->queueFamilyIndex;
+    counterIndexCount = in_struct->counterIndexCount;
+    pCounterIndices = nullptr;
+    pNext = SafePnextCopy(in_struct->pNext);
+    if (in_struct->pCounterIndices) {
+        pCounterIndices = new uint32_t[in_struct->counterIndexCount];
+        memcpy ((void *)pCounterIndices, (void *)in_struct->pCounterIndices, sizeof(uint32_t)*in_struct->counterIndexCount);
+    }
+}
+
+void safe_VkQueryPoolPerformanceCreateInfoKHR::initialize(const safe_VkQueryPoolPerformanceCreateInfoKHR* src)
+{
+    sType = src->sType;
+    queueFamilyIndex = src->queueFamilyIndex;
+    counterIndexCount = src->counterIndexCount;
+    pCounterIndices = nullptr;
+    pNext = SafePnextCopy(src->pNext);
+    if (src->pCounterIndices) {
+        pCounterIndices = new uint32_t[src->counterIndexCount];
+        memcpy ((void *)pCounterIndices, (void *)src->pCounterIndices, sizeof(uint32_t)*src->counterIndexCount);
+    }
+}
+
+safe_VkAcquireProfilingLockInfoKHR::safe_VkAcquireProfilingLockInfoKHR(const VkAcquireProfilingLockInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    flags(in_struct->flags),
+    timeout(in_struct->timeout)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkAcquireProfilingLockInfoKHR::safe_VkAcquireProfilingLockInfoKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkAcquireProfilingLockInfoKHR::safe_VkAcquireProfilingLockInfoKHR(const safe_VkAcquireProfilingLockInfoKHR& src)
+{
+    sType = src.sType;
+    flags = src.flags;
+    timeout = src.timeout;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkAcquireProfilingLockInfoKHR& safe_VkAcquireProfilingLockInfoKHR::operator=(const safe_VkAcquireProfilingLockInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    flags = src.flags;
+    timeout = src.timeout;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkAcquireProfilingLockInfoKHR::~safe_VkAcquireProfilingLockInfoKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkAcquireProfilingLockInfoKHR::initialize(const VkAcquireProfilingLockInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    flags = in_struct->flags;
+    timeout = in_struct->timeout;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkAcquireProfilingLockInfoKHR::initialize(const safe_VkAcquireProfilingLockInfoKHR* src)
+{
+    sType = src->sType;
+    flags = src->flags;
+    timeout = src->timeout;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkPerformanceQuerySubmitInfoKHR::safe_VkPerformanceQuerySubmitInfoKHR(const VkPerformanceQuerySubmitInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    counterPassIndex(in_struct->counterPassIndex)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPerformanceQuerySubmitInfoKHR::safe_VkPerformanceQuerySubmitInfoKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPerformanceQuerySubmitInfoKHR::safe_VkPerformanceQuerySubmitInfoKHR(const safe_VkPerformanceQuerySubmitInfoKHR& src)
+{
+    sType = src.sType;
+    counterPassIndex = src.counterPassIndex;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPerformanceQuerySubmitInfoKHR& safe_VkPerformanceQuerySubmitInfoKHR::operator=(const safe_VkPerformanceQuerySubmitInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    counterPassIndex = src.counterPassIndex;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPerformanceQuerySubmitInfoKHR::~safe_VkPerformanceQuerySubmitInfoKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPerformanceQuerySubmitInfoKHR::initialize(const VkPerformanceQuerySubmitInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    counterPassIndex = in_struct->counterPassIndex;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPerformanceQuerySubmitInfoKHR::initialize(const safe_VkPerformanceQuerySubmitInfoKHR* src)
+{
+    sType = src->sType;
+    counterPassIndex = src->counterPassIndex;
+    pNext = SafePnextCopy(src->pNext);
+}
+
 safe_VkPhysicalDeviceSurfaceInfo2KHR::safe_VkPhysicalDeviceSurfaceInfo2KHR(const VkPhysicalDeviceSurfaceInfo2KHR* in_struct) :
     sType(in_struct->sType),
     surface(in_struct->surface)
@@ -14639,6 +15118,63 @@ void safe_VkPhysicalDeviceShaderAtomicInt64FeaturesKHR::initialize(const safe_Vk
     pNext = SafePnextCopy(src->pNext);
 }
 
+safe_VkPhysicalDeviceShaderClockFeaturesKHR::safe_VkPhysicalDeviceShaderClockFeaturesKHR(const VkPhysicalDeviceShaderClockFeaturesKHR* in_struct) :
+    sType(in_struct->sType),
+    shaderSubgroupClock(in_struct->shaderSubgroupClock),
+    shaderDeviceClock(in_struct->shaderDeviceClock)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPhysicalDeviceShaderClockFeaturesKHR::safe_VkPhysicalDeviceShaderClockFeaturesKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPhysicalDeviceShaderClockFeaturesKHR::safe_VkPhysicalDeviceShaderClockFeaturesKHR(const safe_VkPhysicalDeviceShaderClockFeaturesKHR& src)
+{
+    sType = src.sType;
+    shaderSubgroupClock = src.shaderSubgroupClock;
+    shaderDeviceClock = src.shaderDeviceClock;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPhysicalDeviceShaderClockFeaturesKHR& safe_VkPhysicalDeviceShaderClockFeaturesKHR::operator=(const safe_VkPhysicalDeviceShaderClockFeaturesKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    shaderSubgroupClock = src.shaderSubgroupClock;
+    shaderDeviceClock = src.shaderDeviceClock;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPhysicalDeviceShaderClockFeaturesKHR::~safe_VkPhysicalDeviceShaderClockFeaturesKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPhysicalDeviceShaderClockFeaturesKHR::initialize(const VkPhysicalDeviceShaderClockFeaturesKHR* in_struct)
+{
+    sType = in_struct->sType;
+    shaderSubgroupClock = in_struct->shaderSubgroupClock;
+    shaderDeviceClock = in_struct->shaderDeviceClock;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPhysicalDeviceShaderClockFeaturesKHR::initialize(const safe_VkPhysicalDeviceShaderClockFeaturesKHR* src)
+{
+    sType = src->sType;
+    shaderSubgroupClock = src->shaderSubgroupClock;
+    shaderDeviceClock = src->shaderDeviceClock;
+    pNext = SafePnextCopy(src->pNext);
+}
+
 safe_VkPhysicalDeviceDriverPropertiesKHR::safe_VkPhysicalDeviceDriverPropertiesKHR(const VkPhysicalDeviceDriverPropertiesKHR* in_struct) :
     sType(in_struct->sType),
     driverID(in_struct->driverID),
@@ -15002,6 +15538,468 @@ void safe_VkPhysicalDeviceDepthStencilResolvePropertiesKHR::initialize(const saf
     pNext = SafePnextCopy(src->pNext);
 }
 
+safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR(const VkPhysicalDeviceTimelineSemaphoreFeaturesKHR* in_struct) :
+    sType(in_struct->sType),
+    timelineSemaphore(in_struct->timelineSemaphore)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR(const safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR& src)
+{
+    sType = src.sType;
+    timelineSemaphore = src.timelineSemaphore;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR& safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::operator=(const safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    timelineSemaphore = src.timelineSemaphore;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::~safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::initialize(const VkPhysicalDeviceTimelineSemaphoreFeaturesKHR* in_struct)
+{
+    sType = in_struct->sType;
+    timelineSemaphore = in_struct->timelineSemaphore;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR::initialize(const safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR* src)
+{
+    sType = src->sType;
+    timelineSemaphore = src->timelineSemaphore;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR(const VkPhysicalDeviceTimelineSemaphorePropertiesKHR* in_struct) :
+    sType(in_struct->sType),
+    maxTimelineSemaphoreValueDifference(in_struct->maxTimelineSemaphoreValueDifference)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR(const safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR& src)
+{
+    sType = src.sType;
+    maxTimelineSemaphoreValueDifference = src.maxTimelineSemaphoreValueDifference;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR& safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::operator=(const safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    maxTimelineSemaphoreValueDifference = src.maxTimelineSemaphoreValueDifference;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::~safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::initialize(const VkPhysicalDeviceTimelineSemaphorePropertiesKHR* in_struct)
+{
+    sType = in_struct->sType;
+    maxTimelineSemaphoreValueDifference = in_struct->maxTimelineSemaphoreValueDifference;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR::initialize(const safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR* src)
+{
+    sType = src->sType;
+    maxTimelineSemaphoreValueDifference = src->maxTimelineSemaphoreValueDifference;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkSemaphoreTypeCreateInfoKHR::safe_VkSemaphoreTypeCreateInfoKHR(const VkSemaphoreTypeCreateInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    semaphoreType(in_struct->semaphoreType),
+    initialValue(in_struct->initialValue)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkSemaphoreTypeCreateInfoKHR::safe_VkSemaphoreTypeCreateInfoKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkSemaphoreTypeCreateInfoKHR::safe_VkSemaphoreTypeCreateInfoKHR(const safe_VkSemaphoreTypeCreateInfoKHR& src)
+{
+    sType = src.sType;
+    semaphoreType = src.semaphoreType;
+    initialValue = src.initialValue;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkSemaphoreTypeCreateInfoKHR& safe_VkSemaphoreTypeCreateInfoKHR::operator=(const safe_VkSemaphoreTypeCreateInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    semaphoreType = src.semaphoreType;
+    initialValue = src.initialValue;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkSemaphoreTypeCreateInfoKHR::~safe_VkSemaphoreTypeCreateInfoKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkSemaphoreTypeCreateInfoKHR::initialize(const VkSemaphoreTypeCreateInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    semaphoreType = in_struct->semaphoreType;
+    initialValue = in_struct->initialValue;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkSemaphoreTypeCreateInfoKHR::initialize(const safe_VkSemaphoreTypeCreateInfoKHR* src)
+{
+    sType = src->sType;
+    semaphoreType = src->semaphoreType;
+    initialValue = src->initialValue;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkTimelineSemaphoreSubmitInfoKHR::safe_VkTimelineSemaphoreSubmitInfoKHR(const VkTimelineSemaphoreSubmitInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    waitSemaphoreValueCount(in_struct->waitSemaphoreValueCount),
+    pWaitSemaphoreValues(nullptr),
+    signalSemaphoreValueCount(in_struct->signalSemaphoreValueCount),
+    pSignalSemaphoreValues(nullptr)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+    if (in_struct->pWaitSemaphoreValues) {
+        pWaitSemaphoreValues = new uint64_t[in_struct->waitSemaphoreValueCount];
+        memcpy ((void *)pWaitSemaphoreValues, (void *)in_struct->pWaitSemaphoreValues, sizeof(uint64_t)*in_struct->waitSemaphoreValueCount);
+    }
+    if (in_struct->pSignalSemaphoreValues) {
+        pSignalSemaphoreValues = new uint64_t[in_struct->signalSemaphoreValueCount];
+        memcpy ((void *)pSignalSemaphoreValues, (void *)in_struct->pSignalSemaphoreValues, sizeof(uint64_t)*in_struct->signalSemaphoreValueCount);
+    }
+}
+
+safe_VkTimelineSemaphoreSubmitInfoKHR::safe_VkTimelineSemaphoreSubmitInfoKHR() :
+    pNext(nullptr),
+    pWaitSemaphoreValues(nullptr),
+    pSignalSemaphoreValues(nullptr)
+{}
+
+safe_VkTimelineSemaphoreSubmitInfoKHR::safe_VkTimelineSemaphoreSubmitInfoKHR(const safe_VkTimelineSemaphoreSubmitInfoKHR& src)
+{
+    sType = src.sType;
+    waitSemaphoreValueCount = src.waitSemaphoreValueCount;
+    pWaitSemaphoreValues = nullptr;
+    signalSemaphoreValueCount = src.signalSemaphoreValueCount;
+    pSignalSemaphoreValues = nullptr;
+    pNext = SafePnextCopy(src.pNext);
+    if (src.pWaitSemaphoreValues) {
+        pWaitSemaphoreValues = new uint64_t[src.waitSemaphoreValueCount];
+        memcpy ((void *)pWaitSemaphoreValues, (void *)src.pWaitSemaphoreValues, sizeof(uint64_t)*src.waitSemaphoreValueCount);
+    }
+    if (src.pSignalSemaphoreValues) {
+        pSignalSemaphoreValues = new uint64_t[src.signalSemaphoreValueCount];
+        memcpy ((void *)pSignalSemaphoreValues, (void *)src.pSignalSemaphoreValues, sizeof(uint64_t)*src.signalSemaphoreValueCount);
+    }
+}
+
+safe_VkTimelineSemaphoreSubmitInfoKHR& safe_VkTimelineSemaphoreSubmitInfoKHR::operator=(const safe_VkTimelineSemaphoreSubmitInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pWaitSemaphoreValues)
+        delete[] pWaitSemaphoreValues;
+    if (pSignalSemaphoreValues)
+        delete[] pSignalSemaphoreValues;
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    waitSemaphoreValueCount = src.waitSemaphoreValueCount;
+    pWaitSemaphoreValues = nullptr;
+    signalSemaphoreValueCount = src.signalSemaphoreValueCount;
+    pSignalSemaphoreValues = nullptr;
+    pNext = SafePnextCopy(src.pNext);
+    if (src.pWaitSemaphoreValues) {
+        pWaitSemaphoreValues = new uint64_t[src.waitSemaphoreValueCount];
+        memcpy ((void *)pWaitSemaphoreValues, (void *)src.pWaitSemaphoreValues, sizeof(uint64_t)*src.waitSemaphoreValueCount);
+    }
+    if (src.pSignalSemaphoreValues) {
+        pSignalSemaphoreValues = new uint64_t[src.signalSemaphoreValueCount];
+        memcpy ((void *)pSignalSemaphoreValues, (void *)src.pSignalSemaphoreValues, sizeof(uint64_t)*src.signalSemaphoreValueCount);
+    }
+
+    return *this;
+}
+
+safe_VkTimelineSemaphoreSubmitInfoKHR::~safe_VkTimelineSemaphoreSubmitInfoKHR()
+{
+    if (pWaitSemaphoreValues)
+        delete[] pWaitSemaphoreValues;
+    if (pSignalSemaphoreValues)
+        delete[] pSignalSemaphoreValues;
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkTimelineSemaphoreSubmitInfoKHR::initialize(const VkTimelineSemaphoreSubmitInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    waitSemaphoreValueCount = in_struct->waitSemaphoreValueCount;
+    pWaitSemaphoreValues = nullptr;
+    signalSemaphoreValueCount = in_struct->signalSemaphoreValueCount;
+    pSignalSemaphoreValues = nullptr;
+    pNext = SafePnextCopy(in_struct->pNext);
+    if (in_struct->pWaitSemaphoreValues) {
+        pWaitSemaphoreValues = new uint64_t[in_struct->waitSemaphoreValueCount];
+        memcpy ((void *)pWaitSemaphoreValues, (void *)in_struct->pWaitSemaphoreValues, sizeof(uint64_t)*in_struct->waitSemaphoreValueCount);
+    }
+    if (in_struct->pSignalSemaphoreValues) {
+        pSignalSemaphoreValues = new uint64_t[in_struct->signalSemaphoreValueCount];
+        memcpy ((void *)pSignalSemaphoreValues, (void *)in_struct->pSignalSemaphoreValues, sizeof(uint64_t)*in_struct->signalSemaphoreValueCount);
+    }
+}
+
+void safe_VkTimelineSemaphoreSubmitInfoKHR::initialize(const safe_VkTimelineSemaphoreSubmitInfoKHR* src)
+{
+    sType = src->sType;
+    waitSemaphoreValueCount = src->waitSemaphoreValueCount;
+    pWaitSemaphoreValues = nullptr;
+    signalSemaphoreValueCount = src->signalSemaphoreValueCount;
+    pSignalSemaphoreValues = nullptr;
+    pNext = SafePnextCopy(src->pNext);
+    if (src->pWaitSemaphoreValues) {
+        pWaitSemaphoreValues = new uint64_t[src->waitSemaphoreValueCount];
+        memcpy ((void *)pWaitSemaphoreValues, (void *)src->pWaitSemaphoreValues, sizeof(uint64_t)*src->waitSemaphoreValueCount);
+    }
+    if (src->pSignalSemaphoreValues) {
+        pSignalSemaphoreValues = new uint64_t[src->signalSemaphoreValueCount];
+        memcpy ((void *)pSignalSemaphoreValues, (void *)src->pSignalSemaphoreValues, sizeof(uint64_t)*src->signalSemaphoreValueCount);
+    }
+}
+
+safe_VkSemaphoreWaitInfoKHR::safe_VkSemaphoreWaitInfoKHR(const VkSemaphoreWaitInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    flags(in_struct->flags),
+    semaphoreCount(in_struct->semaphoreCount),
+    pSemaphores(nullptr),
+    pValues(nullptr)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+    if (semaphoreCount && in_struct->pSemaphores) {
+        pSemaphores = new VkSemaphore[semaphoreCount];
+        for (uint32_t i = 0; i < semaphoreCount; ++i) {
+            pSemaphores[i] = in_struct->pSemaphores[i];
+        }
+    }
+    if (in_struct->pValues) {
+        pValues = new uint64_t[in_struct->semaphoreCount];
+        memcpy ((void *)pValues, (void *)in_struct->pValues, sizeof(uint64_t)*in_struct->semaphoreCount);
+    }
+}
+
+safe_VkSemaphoreWaitInfoKHR::safe_VkSemaphoreWaitInfoKHR() :
+    pNext(nullptr),
+    pSemaphores(nullptr),
+    pValues(nullptr)
+{}
+
+safe_VkSemaphoreWaitInfoKHR::safe_VkSemaphoreWaitInfoKHR(const safe_VkSemaphoreWaitInfoKHR& src)
+{
+    sType = src.sType;
+    flags = src.flags;
+    semaphoreCount = src.semaphoreCount;
+    pSemaphores = nullptr;
+    pValues = nullptr;
+    pNext = SafePnextCopy(src.pNext);
+    if (semaphoreCount && src.pSemaphores) {
+        pSemaphores = new VkSemaphore[semaphoreCount];
+        for (uint32_t i = 0; i < semaphoreCount; ++i) {
+            pSemaphores[i] = src.pSemaphores[i];
+        }
+    }
+    if (src.pValues) {
+        pValues = new uint64_t[src.semaphoreCount];
+        memcpy ((void *)pValues, (void *)src.pValues, sizeof(uint64_t)*src.semaphoreCount);
+    }
+}
+
+safe_VkSemaphoreWaitInfoKHR& safe_VkSemaphoreWaitInfoKHR::operator=(const safe_VkSemaphoreWaitInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pSemaphores)
+        delete[] pSemaphores;
+    if (pValues)
+        delete[] pValues;
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    flags = src.flags;
+    semaphoreCount = src.semaphoreCount;
+    pSemaphores = nullptr;
+    pValues = nullptr;
+    pNext = SafePnextCopy(src.pNext);
+    if (semaphoreCount && src.pSemaphores) {
+        pSemaphores = new VkSemaphore[semaphoreCount];
+        for (uint32_t i = 0; i < semaphoreCount; ++i) {
+            pSemaphores[i] = src.pSemaphores[i];
+        }
+    }
+    if (src.pValues) {
+        pValues = new uint64_t[src.semaphoreCount];
+        memcpy ((void *)pValues, (void *)src.pValues, sizeof(uint64_t)*src.semaphoreCount);
+    }
+
+    return *this;
+}
+
+safe_VkSemaphoreWaitInfoKHR::~safe_VkSemaphoreWaitInfoKHR()
+{
+    if (pSemaphores)
+        delete[] pSemaphores;
+    if (pValues)
+        delete[] pValues;
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkSemaphoreWaitInfoKHR::initialize(const VkSemaphoreWaitInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    flags = in_struct->flags;
+    semaphoreCount = in_struct->semaphoreCount;
+    pSemaphores = nullptr;
+    pValues = nullptr;
+    pNext = SafePnextCopy(in_struct->pNext);
+    if (semaphoreCount && in_struct->pSemaphores) {
+        pSemaphores = new VkSemaphore[semaphoreCount];
+        for (uint32_t i = 0; i < semaphoreCount; ++i) {
+            pSemaphores[i] = in_struct->pSemaphores[i];
+        }
+    }
+    if (in_struct->pValues) {
+        pValues = new uint64_t[in_struct->semaphoreCount];
+        memcpy ((void *)pValues, (void *)in_struct->pValues, sizeof(uint64_t)*in_struct->semaphoreCount);
+    }
+}
+
+void safe_VkSemaphoreWaitInfoKHR::initialize(const safe_VkSemaphoreWaitInfoKHR* src)
+{
+    sType = src->sType;
+    flags = src->flags;
+    semaphoreCount = src->semaphoreCount;
+    pSemaphores = nullptr;
+    pValues = nullptr;
+    pNext = SafePnextCopy(src->pNext);
+    if (semaphoreCount && src->pSemaphores) {
+        pSemaphores = new VkSemaphore[semaphoreCount];
+        for (uint32_t i = 0; i < semaphoreCount; ++i) {
+            pSemaphores[i] = src->pSemaphores[i];
+        }
+    }
+    if (src->pValues) {
+        pValues = new uint64_t[src->semaphoreCount];
+        memcpy ((void *)pValues, (void *)src->pValues, sizeof(uint64_t)*src->semaphoreCount);
+    }
+}
+
+safe_VkSemaphoreSignalInfoKHR::safe_VkSemaphoreSignalInfoKHR(const VkSemaphoreSignalInfoKHR* in_struct) :
+    sType(in_struct->sType),
+    semaphore(in_struct->semaphore),
+    value(in_struct->value)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkSemaphoreSignalInfoKHR::safe_VkSemaphoreSignalInfoKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkSemaphoreSignalInfoKHR::safe_VkSemaphoreSignalInfoKHR(const safe_VkSemaphoreSignalInfoKHR& src)
+{
+    sType = src.sType;
+    semaphore = src.semaphore;
+    value = src.value;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkSemaphoreSignalInfoKHR& safe_VkSemaphoreSignalInfoKHR::operator=(const safe_VkSemaphoreSignalInfoKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    semaphore = src.semaphore;
+    value = src.value;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkSemaphoreSignalInfoKHR::~safe_VkSemaphoreSignalInfoKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkSemaphoreSignalInfoKHR::initialize(const VkSemaphoreSignalInfoKHR* in_struct)
+{
+    sType = in_struct->sType;
+    semaphore = in_struct->semaphore;
+    value = in_struct->value;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkSemaphoreSignalInfoKHR::initialize(const safe_VkSemaphoreSignalInfoKHR* src)
+{
+    sType = src->sType;
+    semaphore = src->semaphore;
+    value = src->value;
+    pNext = SafePnextCopy(src->pNext);
+}
+
 safe_VkPhysicalDeviceVulkanMemoryModelFeaturesKHR::safe_VkPhysicalDeviceVulkanMemoryModelFeaturesKHR(const VkPhysicalDeviceVulkanMemoryModelFeaturesKHR* in_struct) :
     sType(in_struct->sType),
     vulkanMemoryModel(in_struct->vulkanMemoryModel),
@@ -15113,6 +16111,167 @@ void safe_VkSurfaceProtectedCapabilitiesKHR::initialize(const safe_VkSurfaceProt
 {
     sType = src->sType;
     supportsProtected = src->supportsProtected;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR(const VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR* in_struct) :
+    sType(in_struct->sType),
+    separateDepthStencilLayouts(in_struct->separateDepthStencilLayouts)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR(const safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR& src)
+{
+    sType = src.sType;
+    separateDepthStencilLayouts = src.separateDepthStencilLayouts;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR& safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::operator=(const safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    separateDepthStencilLayouts = src.separateDepthStencilLayouts;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::~safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::initialize(const VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR* in_struct)
+{
+    sType = in_struct->sType;
+    separateDepthStencilLayouts = in_struct->separateDepthStencilLayouts;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR::initialize(const safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR* src)
+{
+    sType = src->sType;
+    separateDepthStencilLayouts = src->separateDepthStencilLayouts;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkAttachmentReferenceStencilLayoutKHR::safe_VkAttachmentReferenceStencilLayoutKHR(const VkAttachmentReferenceStencilLayoutKHR* in_struct) :
+    sType(in_struct->sType),
+    stencilLayout(in_struct->stencilLayout)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkAttachmentReferenceStencilLayoutKHR::safe_VkAttachmentReferenceStencilLayoutKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkAttachmentReferenceStencilLayoutKHR::safe_VkAttachmentReferenceStencilLayoutKHR(const safe_VkAttachmentReferenceStencilLayoutKHR& src)
+{
+    sType = src.sType;
+    stencilLayout = src.stencilLayout;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkAttachmentReferenceStencilLayoutKHR& safe_VkAttachmentReferenceStencilLayoutKHR::operator=(const safe_VkAttachmentReferenceStencilLayoutKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    stencilLayout = src.stencilLayout;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkAttachmentReferenceStencilLayoutKHR::~safe_VkAttachmentReferenceStencilLayoutKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkAttachmentReferenceStencilLayoutKHR::initialize(const VkAttachmentReferenceStencilLayoutKHR* in_struct)
+{
+    sType = in_struct->sType;
+    stencilLayout = in_struct->stencilLayout;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkAttachmentReferenceStencilLayoutKHR::initialize(const safe_VkAttachmentReferenceStencilLayoutKHR* src)
+{
+    sType = src->sType;
+    stencilLayout = src->stencilLayout;
+    pNext = SafePnextCopy(src->pNext);
+}
+
+safe_VkAttachmentDescriptionStencilLayoutKHR::safe_VkAttachmentDescriptionStencilLayoutKHR(const VkAttachmentDescriptionStencilLayoutKHR* in_struct) :
+    sType(in_struct->sType),
+    stencilInitialLayout(in_struct->stencilInitialLayout),
+    stencilFinalLayout(in_struct->stencilFinalLayout)
+{
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+safe_VkAttachmentDescriptionStencilLayoutKHR::safe_VkAttachmentDescriptionStencilLayoutKHR() :
+    pNext(nullptr)
+{}
+
+safe_VkAttachmentDescriptionStencilLayoutKHR::safe_VkAttachmentDescriptionStencilLayoutKHR(const safe_VkAttachmentDescriptionStencilLayoutKHR& src)
+{
+    sType = src.sType;
+    stencilInitialLayout = src.stencilInitialLayout;
+    stencilFinalLayout = src.stencilFinalLayout;
+    pNext = SafePnextCopy(src.pNext);
+}
+
+safe_VkAttachmentDescriptionStencilLayoutKHR& safe_VkAttachmentDescriptionStencilLayoutKHR::operator=(const safe_VkAttachmentDescriptionStencilLayoutKHR& src)
+{
+    if (&src == this) return *this;
+
+    if (pNext)
+        FreePnextChain(pNext);
+
+    sType = src.sType;
+    stencilInitialLayout = src.stencilInitialLayout;
+    stencilFinalLayout = src.stencilFinalLayout;
+    pNext = SafePnextCopy(src.pNext);
+
+    return *this;
+}
+
+safe_VkAttachmentDescriptionStencilLayoutKHR::~safe_VkAttachmentDescriptionStencilLayoutKHR()
+{
+    if (pNext)
+        FreePnextChain(pNext);
+}
+
+void safe_VkAttachmentDescriptionStencilLayoutKHR::initialize(const VkAttachmentDescriptionStencilLayoutKHR* in_struct)
+{
+    sType = in_struct->sType;
+    stencilInitialLayout = in_struct->stencilInitialLayout;
+    stencilFinalLayout = in_struct->stencilFinalLayout;
+    pNext = SafePnextCopy(in_struct->pNext);
+}
+
+void safe_VkAttachmentDescriptionStencilLayoutKHR::initialize(const safe_VkAttachmentDescriptionStencilLayoutKHR* src)
+{
+    sType = src->sType;
+    stencilInitialLayout = src->stencilInitialLayout;
+    stencilFinalLayout = src->stencilFinalLayout;
     pNext = SafePnextCopy(src->pNext);
 }
 
@@ -28648,6 +29807,18 @@ void *SafePnextCopy(const void *pNext) {
         case VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR:
             safe_pNext = new safe_VkSharedPresentSurfaceCapabilitiesKHR(reinterpret_cast<const VkSharedPresentSurfaceCapabilitiesKHR *>(pNext));
             break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR:
+            safe_pNext = new safe_VkPhysicalDevicePerformanceQueryFeaturesKHR(reinterpret_cast<const VkPhysicalDevicePerformanceQueryFeaturesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR:
+            safe_pNext = new safe_VkPhysicalDevicePerformanceQueryPropertiesKHR(reinterpret_cast<const VkPhysicalDevicePerformanceQueryPropertiesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR:
+            safe_pNext = new safe_VkQueryPoolPerformanceCreateInfoKHR(reinterpret_cast<const VkQueryPoolPerformanceCreateInfoKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR:
+            safe_pNext = new safe_VkPerformanceQuerySubmitInfoKHR(reinterpret_cast<const VkPerformanceQuerySubmitInfoKHR *>(pNext));
+            break;
         case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR:
             safe_pNext = new safe_VkImageFormatListCreateInfoKHR(reinterpret_cast<const VkImageFormatListCreateInfoKHR *>(pNext));
             break;
@@ -28659,6 +29830,9 @@ void *SafePnextCopy(const void *pNext) {
             break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR:
             safe_pNext = new safe_VkPhysicalDeviceShaderAtomicInt64FeaturesKHR(reinterpret_cast<const VkPhysicalDeviceShaderAtomicInt64FeaturesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR:
+            safe_pNext = new safe_VkPhysicalDeviceShaderClockFeaturesKHR(reinterpret_cast<const VkPhysicalDeviceShaderClockFeaturesKHR *>(pNext));
             break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR:
             safe_pNext = new safe_VkPhysicalDeviceDriverPropertiesKHR(reinterpret_cast<const VkPhysicalDeviceDriverPropertiesKHR *>(pNext));
@@ -28672,11 +29846,32 @@ void *SafePnextCopy(const void *pNext) {
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES_KHR:
             safe_pNext = new safe_VkPhysicalDeviceDepthStencilResolvePropertiesKHR(reinterpret_cast<const VkPhysicalDeviceDepthStencilResolvePropertiesKHR *>(pNext));
             break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR:
+            safe_pNext = new safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR(reinterpret_cast<const VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR:
+            safe_pNext = new safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR(reinterpret_cast<const VkPhysicalDeviceTimelineSemaphorePropertiesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR:
+            safe_pNext = new safe_VkSemaphoreTypeCreateInfoKHR(reinterpret_cast<const VkSemaphoreTypeCreateInfoKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR:
+            safe_pNext = new safe_VkTimelineSemaphoreSubmitInfoKHR(reinterpret_cast<const VkTimelineSemaphoreSubmitInfoKHR *>(pNext));
+            break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES_KHR:
             safe_pNext = new safe_VkPhysicalDeviceVulkanMemoryModelFeaturesKHR(reinterpret_cast<const VkPhysicalDeviceVulkanMemoryModelFeaturesKHR *>(pNext));
             break;
         case VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR:
             safe_pNext = new safe_VkSurfaceProtectedCapabilitiesKHR(reinterpret_cast<const VkSurfaceProtectedCapabilitiesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR:
+            safe_pNext = new safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR(reinterpret_cast<const VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR:
+            safe_pNext = new safe_VkAttachmentReferenceStencilLayoutKHR(reinterpret_cast<const VkAttachmentReferenceStencilLayoutKHR *>(pNext));
+            break;
+        case VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR:
+            safe_pNext = new safe_VkAttachmentDescriptionStencilLayoutKHR(reinterpret_cast<const VkAttachmentDescriptionStencilLayoutKHR *>(pNext));
             break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES_KHR:
             safe_pNext = new safe_VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR(reinterpret_cast<const VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR *>(pNext));
@@ -29281,6 +30476,18 @@ void FreePnextChain(const void *pNext) {
         case VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR:
             delete reinterpret_cast<const safe_VkSharedPresentSurfaceCapabilitiesKHR *>(header);
             break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR:
+            delete reinterpret_cast<const safe_VkPhysicalDevicePerformanceQueryFeaturesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR:
+            delete reinterpret_cast<const safe_VkPhysicalDevicePerformanceQueryPropertiesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR:
+            delete reinterpret_cast<const safe_VkQueryPoolPerformanceCreateInfoKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR:
+            delete reinterpret_cast<const safe_VkPerformanceQuerySubmitInfoKHR *>(header);
+            break;
         case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR:
             delete reinterpret_cast<const safe_VkImageFormatListCreateInfoKHR *>(header);
             break;
@@ -29292,6 +30499,9 @@ void FreePnextChain(const void *pNext) {
             break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR:
             delete reinterpret_cast<const safe_VkPhysicalDeviceShaderAtomicInt64FeaturesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR:
+            delete reinterpret_cast<const safe_VkPhysicalDeviceShaderClockFeaturesKHR *>(header);
             break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR:
             delete reinterpret_cast<const safe_VkPhysicalDeviceDriverPropertiesKHR *>(header);
@@ -29305,11 +30515,32 @@ void FreePnextChain(const void *pNext) {
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES_KHR:
             delete reinterpret_cast<const safe_VkPhysicalDeviceDepthStencilResolvePropertiesKHR *>(header);
             break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR:
+            delete reinterpret_cast<const safe_VkPhysicalDeviceTimelineSemaphoreFeaturesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR:
+            delete reinterpret_cast<const safe_VkPhysicalDeviceTimelineSemaphorePropertiesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR:
+            delete reinterpret_cast<const safe_VkSemaphoreTypeCreateInfoKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR:
+            delete reinterpret_cast<const safe_VkTimelineSemaphoreSubmitInfoKHR *>(header);
+            break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES_KHR:
             delete reinterpret_cast<const safe_VkPhysicalDeviceVulkanMemoryModelFeaturesKHR *>(header);
             break;
         case VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR:
             delete reinterpret_cast<const safe_VkSurfaceProtectedCapabilitiesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR:
+            delete reinterpret_cast<const safe_VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR:
+            delete reinterpret_cast<const safe_VkAttachmentReferenceStencilLayoutKHR *>(header);
+            break;
+        case VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR:
+            delete reinterpret_cast<const safe_VkAttachmentDescriptionStencilLayoutKHR *>(header);
             break;
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES_KHR:
             delete reinterpret_cast<const safe_VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR *>(header);

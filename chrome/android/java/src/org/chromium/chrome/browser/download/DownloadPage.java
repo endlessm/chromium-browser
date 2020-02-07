@@ -46,7 +46,7 @@ public class DownloadPage extends BasicNativePage implements DownloadManagerCoor
                 new DownloadManagerUiConfig.Builder()
                         .setIsOffTheRecord(host.isIncognito())
                         .setIsSeparateActivity(false)
-                        .setShowOfflineHome(DownloadUtils.shouldShowOfflineHome())
+                        .setShowPaginationHeaders(DownloadUtils.shouldShowPaginationHeaders())
                         .build();
         mDownloadCoordinator = DownloadManagerCoordinatorFactory.create(activity, config,
                 ((SnackbarManageable) activity).getSnackbarManager(), activity.getComponentName(),

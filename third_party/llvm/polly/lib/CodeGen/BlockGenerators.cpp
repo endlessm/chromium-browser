@@ -1209,7 +1209,7 @@ void VectorBlockGenerator::copyStore(
     StoreInst *Store = Builder.CreateStore(Vector, VectorPtr);
 
     if (!Aligned)
-      Store->setAlignment(8);
+      Store->setAlignment(Align(8));
   } else {
     for (unsigned i = 0; i < ScalarMaps.size(); i++) {
       Value *Scalar = Builder.CreateExtractElement(Vector, Builder.getInt32(i));
@@ -1391,8 +1391,8 @@ void VectorBlockGenerator::copyStmt(
 
   generateScalarVectorLoads(Stmt, VectorBlockMap);
 
-  for (Instruction &Inst : *BB)
-    copyInstruction(Stmt, &Inst, VectorBlockMap, ScalarBlockMap, NewAccesses);
+  for (Instruction *Inst : Stmt.getInstructions())
+    copyInstruction(Stmt, Inst, VectorBlockMap, ScalarBlockMap, NewAccesses);
 
   verifyNoScalarStores(Stmt);
 }

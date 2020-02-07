@@ -6,3 +6,4 @@ checkout_ios_webkit = false
 checkout_nacl = true
 checkout_oculus_sdk = false
 checkout_openxr = false
+checkout_aemu = false

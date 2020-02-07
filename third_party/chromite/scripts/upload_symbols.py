@@ -261,10 +261,10 @@ def AdjustSymbolFileSize(symbol, tempdir, file_limit):
         prefix='upload_symbols',
         dir=tempdir, delete=False) as temp_sym_file:
 
-      temp_sym_file.writelines(
-          [x for x in open(symbol.file_name, 'rb').readlines()
-           if not x.startswith('STACK CFI')]
-      )
+      with open(symbol.file_name, 'rb') as fp:
+        temp_sym_file.writelines(
+            x for x in fp.readlines() if not x.startswith(b'STACK CFI')
+        )
 
       original_file_size = file_size
       symbol.file_name = temp_sym_file.name
@@ -358,9 +358,7 @@ def FindDuplicates(symbols, status_url, api_key, timeout=DEDUPE_TIMEOUT):
                            timeout,
                            api_key=api_key,
                            data=json.dumps(symbol_data))
-    except (requests.exceptions.HTTPError,
-            requests.exceptions.Timeout,
-            requests.exceptions.RequestException) as e:
+    except requests.exceptions.RequestException as e:
       logging.warning('could not identify duplicates: HTTP error: %s', e)
     for b in batch:
       b.status = SymbolFile.INITIAL
@@ -392,10 +390,11 @@ def UploadSymbolFile(upload_url, symbol, api_key):
                    {'debug_file': symbol.header.name,
                     'debug_id': symbol.header.id.replace('-', '')}
                   }
-    ExecRequest('put',
-                upload['uploadUrl'], timeout,
-                api_key=api_key,
-                data=open(symbol.file_name, 'r'))
+    with open(symbol.file_name, 'r') as fp:
+      ExecRequest('put',
+                  upload['uploadUrl'], timeout,
+                  api_key=api_key,
+                  data=fp)
     ExecRequest('post',
                 '%s/uploads/%s:complete' % (
                     upload_url, upload['uploadKey']),
@@ -449,9 +448,7 @@ def PerformSymbolsFileUpload(symbols, upload_url, api_key):
           logging.info('upload of %10i bytes took %s', s.FileSize(),
                        timer.delta)
           s.status = SymbolFile.UPLOADED
-      except (requests.exceptions.HTTPError,
-              requests.exceptions.Timeout,
-              requests.exceptions.RequestException) as e:
+      except requests.exceptions.RequestException as e:
         logging.warning('could not upload: %s: HTTP error: %s',
                         s.display_name, e)
         s.status = SymbolFile.ERROR

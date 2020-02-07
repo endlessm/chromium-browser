@@ -25,6 +25,9 @@ const char kKeyUsername[] = "user_name";
 const char kKeyDomain[] = "domain";
 const char kKeyExitCode[] = "exit_code";
 
+// AD attributes related to the device.
+const char kKeyIsAdJoinedUser[] = "is_ad_joined_user";
+
 // Name of registry value that holds user properties.
 const wchar_t kUserTokenHandle[] = L"th";
 const wchar_t kUserEmail[] = L"email";
@@ -48,6 +51,8 @@ const wchar_t kRegUpdaterClientStateAppPath[] =
     L"SOFTWARE\\Google\\Update\\ClientState\\" GCPW_UPDATE_CLIENT_GUID;
 const wchar_t kRegUpdaterClientsAppPath[] =
     L"SOFTWARE\\Google\\Update\\Clients\\" GCPW_UPDATE_CLIENT_GUID;
+const wchar_t kRegUninstallStringField[] = L"UninstallString";
+const wchar_t kRegUninstallArgumentsField[] = L"UninstallArguments";
 const wchar_t kRegUsageStatsName[] = L"usagestats";
 
 // Chrome is being opened to show the credential provider logon page.  This

@@ -140,6 +140,10 @@ typedef struct VkLayerInstanceDispatchTable_ {
     // ---- VK_KHR_external_fence_capabilities extension commands
     PFN_vkGetPhysicalDeviceExternalFencePropertiesKHR GetPhysicalDeviceExternalFencePropertiesKHR;
 
+    // ---- VK_KHR_performance_query extension commands
+    PFN_vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR EnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR;
+    PFN_vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR GetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR;
+
     // ---- VK_KHR_get_surface_capabilities2 extension commands
     PFN_vkGetPhysicalDeviceSurfaceCapabilities2KHR GetPhysicalDeviceSurfaceCapabilities2KHR;
     PFN_vkGetPhysicalDeviceSurfaceFormats2KHR GetPhysicalDeviceSurfaceFormats2KHR;
@@ -450,6 +454,10 @@ typedef struct VkLayerDispatchTable_ {
     PFN_vkImportFenceFdKHR ImportFenceFdKHR;
     PFN_vkGetFenceFdKHR GetFenceFdKHR;
 
+    // ---- VK_KHR_performance_query extension commands
+    PFN_vkAcquireProfilingLockKHR AcquireProfilingLockKHR;
+    PFN_vkReleaseProfilingLockKHR ReleaseProfilingLockKHR;
+
     // ---- VK_KHR_get_memory_requirements2 extension commands
     PFN_vkGetImageMemoryRequirements2KHR GetImageMemoryRequirements2KHR;
     PFN_vkGetBufferMemoryRequirements2KHR GetBufferMemoryRequirements2KHR;
@@ -469,6 +477,11 @@ typedef struct VkLayerDispatchTable_ {
     // ---- VK_KHR_draw_indirect_count extension commands
     PFN_vkCmdDrawIndirectCountKHR CmdDrawIndirectCountKHR;
     PFN_vkCmdDrawIndexedIndirectCountKHR CmdDrawIndexedIndirectCountKHR;
+
+    // ---- VK_KHR_timeline_semaphore extension commands
+    PFN_vkGetSemaphoreCounterValueKHR GetSemaphoreCounterValueKHR;
+    PFN_vkWaitSemaphoresKHR WaitSemaphoresKHR;
+    PFN_vkSignalSemaphoreKHR SignalSemaphoreKHR;
 
     // ---- VK_KHR_pipeline_executable_properties extension commands
     PFN_vkGetPipelineExecutablePropertiesKHR GetPipelineExecutablePropertiesKHR;

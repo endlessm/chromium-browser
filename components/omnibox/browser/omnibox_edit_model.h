@@ -215,7 +215,11 @@ class OmniboxEditModel {
       WindowOpenDisposition disposition,
       base::TimeTicks match_selection_timestamp = base::TimeTicks());
 
-  // Asks the browser to load the item at |index|, with the given properties.
+  // Asks the browser to load |match|. |index| is only used for logging, and
+  // can be kNoMatch if the popup was closed, or if none of the suggestions
+  // in the popup were used (in the unusual no-default-match case). In that
+  // case, an artificial result set with only |match| will be logged.
+  //
   // OpenMatch() needs to know the original text that drove this action.  If
   // |pasted_text| is non-empty, this is a Paste-And-Go/Search action, and
   // that's the relevant input text.  Otherwise, the relevant input text is
@@ -385,7 +389,8 @@ class OmniboxEditModel {
   // Name of the histogram tracking cut or copy omnibox commands.
   static const char kCutOrCopyAllTextHistogram[];
 
-  OmniboxView* view() { return view_; }
+  // Just forwards the call to the OmniboxView referred within.
+  void SetAccessibilityLabel(const AutocompleteMatch& match);
 
  private:
   friend class OmniboxControllerTest;
@@ -436,14 +441,14 @@ class OmniboxEditModel {
   base::string16 MaybeStripKeyword(const base::string16& text) const;
   base::string16 MaybePrependKeyword(const base::string16& text) const;
 
-  // If there's a selected match, copies it into |match|. Else, returns the
-  // default match for the current text, as well as the alternate nav URL, if
-  // |alternate_nav_url| is non-NULL and there is such a URL.
+  // Copies a match corresponding to the current text into |match|, and
+  // populates |alternate_nav_url| as well if it's not nullptr. If the popup
+  // is closed, the match is generated from the autocomplete classifier.
   void GetInfoForCurrentText(AutocompleteMatch* match,
                              GURL* alternate_nav_url) const;
 
   // Reverts the edit box from a temporary text back to the original user text.
-  // Also resets the popup to the default match.
+  // Also resets the popup to the initial state.
   void RevertTemporaryTextAndPopup();
 
   // Accepts current keyword if the user just typed a space at the end of

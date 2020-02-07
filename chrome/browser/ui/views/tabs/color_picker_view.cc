@@ -15,10 +15,14 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/favicon_size.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/flex_layout.h"
+#include "ui/views/layout/flex_layout_types.h"
+#include "ui/views/view_class_properties.h"
 
 namespace {
 
@@ -48,10 +52,12 @@ class ColorPickerElementView : public views::Button,
  public:
   ColorPickerElementView(
       base::RepeatingCallback<void(ColorPickerElementView*)> selected_callback,
+      SkColor background_color,
       SkColor color,
       base::string16 color_name)
       : Button(this),
         selected_callback_(std::move(selected_callback)),
+        background_color_(background_color),
         color_(color),
         color_name_(color_name) {
     DCHECK(selected_callback_);
@@ -105,7 +111,7 @@ class ColorPickerElementView : public views::Button,
 
   gfx::Size CalculatePreferredSize() const override {
     const gfx::Insets insets = GetInsets();
-    gfx::Size size(24, 24);
+    gfx::Size size(gfx::kFaviconSize, gfx::kFaviconSize);
     size.Enlarge(insets.width(), insets.height());
     return size;
   }
@@ -114,8 +120,8 @@ class ColorPickerElementView : public views::Button,
 
   void PaintButtonContents(gfx::Canvas* canvas) override {
     // Paint a colored circle surrounded by a bit of empty space.
-
     gfx::RectF bounds(GetContentsBounds());
+
     // We should be a circle.
     DCHECK_EQ(bounds.width(), bounds.height());
 
@@ -144,29 +150,18 @@ class ColorPickerElementView : public views::Button,
   // Paints a ring in our color circle to indicate selection or mouse hover.
   // Does nothing if not selected or hovered.
   void PaintSelectionIndicator(gfx::Canvas* canvas) {
-    // Visual parameters of our ring.
-    constexpr float kInset = 4.0f;
-    constexpr float kThickness = 4.0f;
-    constexpr SkColor kSelectedColor = SK_ColorWHITE;
-    constexpr SkColor kPendingColor = gfx::kGoogleGrey200;
-
-    SkColor paint_color = gfx::kPlaceholderColor;
-    if (selected_) {
-      paint_color = kSelectedColor;
-    } else if (GetVisualState() == STATE_HOVERED ||
-               hover_animation().is_animating()) {
-      const float alpha = gfx::Tween::CalculateValue(
-          gfx::Tween::FAST_OUT_SLOW_IN, hover_animation().GetCurrentValue());
-      paint_color = color_utils::AlphaBlend(kPendingColor, color_, alpha);
-    } else {
+    if (!selected_) {
       return;
     }
 
+    // Visual parameters of our ring.
+    constexpr float kInset = 3.0f;
+    constexpr float kThickness = 2.0f;
     cc::PaintFlags flags;
     flags.setStyle(cc::PaintFlags::kStroke_Style);
     flags.setStrokeWidth(kThickness);
     flags.setAntiAlias(true);
-    flags.setColor(paint_color);
+    flags.setColor(background_color_);
 
     gfx::RectF indicator_bounds(GetContentsBounds());
     indicator_bounds.Inset(gfx::InsetsF(kInset));
@@ -175,14 +170,18 @@ class ColorPickerElementView : public views::Button,
                        indicator_bounds.width() / 2.0f, flags);
   }
 
-  base::RepeatingCallback<void(ColorPickerElementView*)> selected_callback_;
-  SkColor color_;
-  base::string16 color_name_;
+  const base::RepeatingCallback<void(ColorPickerElementView*)>
+      selected_callback_;
+  const SkColor background_color_;
+  const SkColor color_;
+  const base::string16 color_name_;
   bool selected_ = false;
 };
 
 ColorPickerView::ColorPickerView(
     base::span<const std::pair<SkColor, base::string16>> colors,
+    SkColor background_color,
+    SkColor initial_color,
     ColorSelectedCallback callback)
     : callback_(std::move(callback)) {
   elements_.reserve(colors.size());
@@ -192,7 +191,9 @@ ColorPickerView::ColorPickerView(
     // views in our destructor, ensuring we outlive them.
     elements_.push_back(AddChildView(std::make_unique<ColorPickerElementView>(
         base::Bind(&ColorPickerView::OnColorSelected, base::Unretained(this)),
-        color.first, color.second)));
+        background_color, color.first, color.second)));
+    if (initial_color == color.first)
+      elements_.back()->SetSelected(true);
   }
 
   // Our children should take keyboard focus, not us.
@@ -202,15 +203,14 @@ ColorPickerView::ColorPickerView(
     view->SetGroup(0);
   }
 
-  const int element_spacing = ChromeLayoutProvider::Get()->GetDistanceMetric(
-                                  views::DISTANCE_RELATED_BUTTON_HORIZONTAL) /
-                              2;
-
-  auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kHorizontal, gfx::Insets(),
-      element_spacing));
-  layout->set_cross_axis_alignment(
-      views::BoxLayout::CrossAxisAlignment::kCenter);
+  auto* layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
+  layout->SetOrientation(views::LayoutOrientation::kHorizontal)
+      .SetDefault(views::kFlexBehaviorKey,
+                  views::FlexSpecification::ForSizeRule(
+                      views::MinimumFlexSizeRule::kPreferred,
+                      views::MaximumFlexSizeRule::kUnbounded)
+                      .WithAlignment(views::LayoutAlignment::kCenter)
+                      .WithWeight(1));
 }
 
 ColorPickerView::~ColorPickerView() {

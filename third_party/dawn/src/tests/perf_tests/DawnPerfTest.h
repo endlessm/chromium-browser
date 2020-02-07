@@ -21,6 +21,8 @@ namespace utils {
     class Timer;
 }
 
+class DawnPerfTestPlatform;
+
 void InitDawnPerfTestEnvironment(int argc, char** argv);
 
 class DawnPerfTestEnvironment : public DawnTestEnvironment {
@@ -29,9 +31,14 @@ class DawnPerfTestEnvironment : public DawnTestEnvironment {
     ~DawnPerfTestEnvironment();
 
     void SetUp() override;
+    void TearDown() override;
 
     bool IsCalibrating() const;
     unsigned int OverrideStepsToRun() const;
+
+    // Returns the path to the trace file, or nullptr if traces should
+    // not be written to a json file.
+    const char* GetTraceFile() const;
 
   private:
     // Only run calibration which allows the perf test runner to save time.
@@ -39,6 +46,10 @@ class DawnPerfTestEnvironment : public DawnTestEnvironment {
 
     // If non-zero, overrides the number of steps.
     unsigned int mOverrideStepsToRun = 0;
+
+    const char* mTraceFile = nullptr;
+
+    std::unique_ptr<DawnPerfTestPlatform> mPlatform;
 };
 
 class DawnPerfTestBase {
@@ -62,6 +73,9 @@ class DawnPerfTestBase {
     void AbortTest();
 
     void RunTest();
+    void PrintPerIterationResultFromSeconds(const std::string& trace,
+                                            double valueInSeconds,
+                                            bool important) const;
     void PrintResult(const std::string& trace,
                      double value,
                      const std::string& units,
@@ -73,7 +87,7 @@ class DawnPerfTestBase {
 
   private:
     void DoRunLoop(double maxRunTime);
-    void PrintResults();
+    void OutputResults();
 
     virtual void Step() = 0;
 
@@ -83,7 +97,7 @@ class DawnPerfTestBase {
     const unsigned int mMaxStepsInFlight;
     unsigned int mStepsToRun = 0;
     unsigned int mNumStepsPerformed = 0;
-    uint64_t mGPUTimeNs = 0;  // TODO(enga): Measure GPU time with timing queries.
+    double cpuTime;
     std::unique_ptr<utils::Timer> mTimer;
 };
 

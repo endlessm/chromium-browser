@@ -78,7 +78,7 @@ class SetupBoardRunConfig(object):
     else:
       args += ['--nousepkg']
 
-    if self.jobs > 0:
+    if self.jobs:
       args += ['--jobs', str(self.jobs)]
 
     if not self.update_toolchain:
@@ -117,7 +117,12 @@ class BuildPackagesRunConfig(object):
     # Defaults for the builder.
     # TODO(saklein): Parametrize/rework the defaults when build_packages is
     #   ported to chromite.
-    args = ['--accept_licenses', '@CHROMEOS', '--skip_chroot_upgrade']
+    args = [
+        '--accept_licenses',
+        '@CHROMEOS',
+        '--skip_chroot_upgrade',
+        '--nouse_any_chrome',
+    ]
 
     if self.event_file:
       args.append('--withevents')

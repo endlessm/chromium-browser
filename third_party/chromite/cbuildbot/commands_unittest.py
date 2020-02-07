@@ -16,7 +16,6 @@ import os
 import struct
 
 import mock
-from six.moves import StringIO
 
 from chromite.cbuildbot import commands
 from chromite.lib import config_lib
@@ -491,11 +490,11 @@ The suite job has another 2:39:39.789250 till timeout.
                 '--io-timeout', swarming_io_timeout_secs,
                 '--hard-timeout', swarming_hard_timeout_secs,
                 '--expiration', swarming_expiration_secs,
+                '--tags=board:test-board',
+                '--tags=build:test-build',
                 '--tags=priority:%s' % priority,
                 '--tags=suite:test-suite',
-                '--tags=build:test-build',
                 '--tags=task_name:test-build-test-suite',
-                '--tags=board:test-board',
                 '--auth-service-account-json',
                 constants.CHROMEOS_SERVICE_ACCOUNT,
                 '--', commands.RUN_SUITE_PATH,
@@ -594,7 +593,8 @@ The suite job has another 2:39:39.789250 till timeout.
       cmd_result = self.RunHWTestSuite()
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
-                             combine_stdout_stderr=True, env=mock.ANY)
+                             encoding='utf-8', combine_stdout_stderr=True,
+                             env=mock.ANY)
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
   def testRunHWTestSuiteMaximal(self):
@@ -629,9 +629,11 @@ The suite job has another 2:39:39.789250 till timeout.
                                        suite_min_duts=self._suite_min_duts)
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
-                             combine_stdout_stderr=True, env=mock.ANY)
+                             combine_stdout_stderr=True, env=mock.ANY,
+                             encoding='utf-8')
     self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                             combine_stdout_stderr=True, env=mock.ANY)
+                             combine_stdout_stderr=True, env=mock.ANY,
+                             encoding='utf-8')
     self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
@@ -682,7 +684,8 @@ The suite job has another 2:39:39.789250 till timeout.
       cmd_result = self.RunHWTestSuite(wait_for_results=True)
       self.assertIsInstance(cmd_result.to_raise, failures_lib.TestLabFailure)
       self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                               combine_stdout_stderr=True, env=mock.ANY)
+                               combine_stdout_stderr=True, env=mock.ANY,
+                               encoding='utf-8')
 
   def testRunHWTestBoardNotAvailable(self):
     """Test RunHWTestSuite when BOARD_NOT_AVAILABLE is returned."""
@@ -736,9 +739,11 @@ The suite job has another 2:39:39.789250 till timeout.
     with self.OutputCapturer() as output:
       self.RunHWTestSuite(wait_for_results=self._wait_for_results)
       self.assertCommandCalled(self.create_cmd, capture_output=True,
-                               combine_stdout_stderr=True, env=mock.ANY)
+                               combine_stdout_stderr=True, env=mock.ANY,
+                               encoding='utf-8')
       self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                               combine_stdout_stderr=True, env=mock.ANY)
+                               combine_stdout_stderr=True, env=mock.ANY,
+                               encoding='utf-8')
       self.assertIn(self.WAIT_RETRY_OUTPUT.strip(),
                     '\n'.join(output.GetStdoutLines()))
       self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
@@ -755,9 +760,11 @@ The suite job has another 2:39:39.789250 till timeout.
       with self.OutputCapturer() as output:
         self.RunHWTestSuite(wait_for_results=self._wait_for_results)
         self.assertCommandCalled(self.create_cmd, capture_output=True,
-                                 combine_stdout_stderr=True, env=mock.ANY)
+                                 combine_stdout_stderr=True, env=mock.ANY,
+                                 encoding='utf-8')
         self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                                 combine_stdout_stderr=True, env=mock.ANY)
+                                 combine_stdout_stderr=True, env=mock.ANY,
+                                 encoding='utf-8')
         self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
         self.assertIn(self.JSON_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
@@ -1185,7 +1192,7 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
 
   def _TestChromeLKGM(self, chrome_revision):
     """Helper method for testing the GetChromeLKGM method."""
-    chrome_lkgm = '3322.0.0'
+    chrome_lkgm = b'3322.0.0'
     url = '%s/+/%s/%s?format=text' % (
         constants.CHROMIUM_SRC_PROJECT,
         chrome_revision or 'refs/heads/master',
@@ -1193,7 +1200,7 @@ fe5d699f2e9e4a7de031497953313dbd *./models/snappy/setvars.sh
     site_params = config_lib.GetSiteParams()
     with mock.patch.object(
         gob_util, 'FetchUrl',
-        return_value=StringIO(base64.b64encode(chrome_lkgm))) as patcher:
+        return_value=base64.b64encode(chrome_lkgm)) as patcher:
       self.assertEqual(chrome_lkgm, commands.GetChromeLKGM(chrome_revision))
       patcher.assert_called_with(site_params.EXTERNAL_GOB_HOST, url)
 
@@ -1600,8 +1607,8 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     parsed = json.loads(osutils.ReadFile(upload_file))
 
     # Directory should be ignored.
-    test_content = {'file1.txt': text_str,
-                    'file2.json': json_str,
+    test_content = {'file1.txt': text_str.encode('utf-8'),
+                    'file2.json': json_str.encode('utf-8'),
                     'file3.bin': bin_blob}
 
     self.assertEqual(set(parsed.keys()), set(test_content.keys()))
@@ -1610,8 +1617,9 @@ class UnmockedTests(cros_test_lib.TempDirTestCase):
     for filename, content in test_content.items():
       entry = parsed[filename]
       size = len(content)
-      sha1 = base64.b64encode(hashlib.sha1(content).digest())
-      sha256 = base64.b64encode(hashlib.sha256(content).digest())
+      sha1 = base64.b64encode(hashlib.sha1(content).digest()).decode('utf-8')
+      sha256 = base64.b64encode(
+          hashlib.sha256(content).digest()).decode('utf-8')
 
       self.assertEqual(entry['size'], size)
       self.assertEqual(entry['sha1'], sha1)
@@ -1845,6 +1853,7 @@ class GenerateAFDOArtifactsTests(
     osutils.SafeMakedirs(chroot_tmp)
     self.board = 'board'
     self.target = 'any_target'
+    self.chrome_root = '/path/to/chrome_root'
     self.output_path = os.path.join(self.tempdir, 'output_dir')
     osutils.SafeMakedirs(self.output_path)
     self.mock_command = self.PatchObject(commands,
@@ -1868,7 +1877,8 @@ class GenerateAFDOArtifactsTests(
       json.dump(output_proto, f)
 
     ret = commands.GenerateAFDOArtifacts(
-        self.buildroot, self.board, self.output_path, self.target)
+        self.buildroot, self.chrome_root, self.board,
+        self.output_path, self.target)
 
     cmd = [
         'build_api',
@@ -1885,6 +1895,8 @@ class GenerateAFDOArtifactsTests(
     input_proto = json.loads(osutils.ReadFile(input_proto_file))
     self.assertEqual(input_proto['chroot']['path'],
                      os.path.join(self.buildroot, 'chroot'))
+    self.assertEqual(input_proto['chroot']['chrome_dir'],
+                     self.chrome_root)
     self.assertEqual(input_proto['build_target']['name'],
                      self.board)
     self.assertEqual(input_proto['output_dir'],

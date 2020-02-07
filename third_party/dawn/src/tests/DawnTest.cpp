@@ -22,9 +22,9 @@
 #include "dawn_native/DawnNative.h"
 #include "dawn_wire/WireClient.h"
 #include "dawn_wire/WireServer.h"
-#include "utils/DawnHelpers.h"
 #include "utils/SystemUtils.h"
 #include "utils/TerribleCommandBuffer.h"
+#include "utils/WGPUHelpers.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -80,6 +80,14 @@ namespace {
 
 }  // namespace
 
+const RGBA8 RGBA8::kZero = RGBA8(0, 0, 0, 0);
+const RGBA8 RGBA8::kBlack = RGBA8(0, 0, 0, 255);
+const RGBA8 RGBA8::kRed = RGBA8(255, 0, 0, 255);
+const RGBA8 RGBA8::kGreen = RGBA8(0, 255, 0, 255);
+const RGBA8 RGBA8::kBlue = RGBA8(0, 0, 255, 255);
+const RGBA8 RGBA8::kYellow = RGBA8(255, 255, 0, 255);
+const RGBA8 RGBA8::kWhite = RGBA8(255, 255, 255, 255);
+
 const DawnTestParam D3D12Backend(dawn_native::BackendType::D3D12);
 const DawnTestParam MetalBackend(dawn_native::BackendType::Metal);
 const DawnTestParam OpenGLBackend(dawn_native::BackendType::OpenGL);
@@ -129,10 +137,21 @@ DawnTestEnvironment::DawnTestEnvironment(int argc, char** argv) {
             continue;
         }
 
-        if (strstr(argv[i], "--adapter-vendor-id") != nullptr) {
-            const char* value = strchr(argv[i], '=');
-            if (value != nullptr) {
-                mVendorIdFilter = strtoul(value + 1, nullptr, 16);
+        if (strcmp("--skip-validation", argv[i]) == 0) {
+            mSkipDawnValidation = true;
+            continue;
+        }
+
+        if (strcmp("--use-spvc", argv[i]) == 0) {
+            mUseSpvc = true;
+            continue;
+        }
+
+        constexpr const char kVendorIdFilterArg[] = "--adapter-vendor-id=";
+        if (strstr(argv[i], kVendorIdFilterArg) == argv[i]) {
+            const char* vendorIdFilter = argv[i] + strlen(kVendorIdFilterArg);
+            if (vendorIdFilter[0] != '\0') {
+                mVendorIdFilter = strtoul(vendorIdFilter, nullptr, 16);
                 // Set filter flag if vendor id is non-zero.
                 mHasVendorIdFilter = mVendorIdFilter != 0;
             }
@@ -147,6 +166,7 @@ DawnTestEnvironment::DawnTestEnvironment(int argc, char** argv) {
                          " to disabled)\n"
                          "  -c, --begin-capture-on-startup: Begin debug capture on startup "
                          "(defaults to no capture)\n"
+                         "  --skip-validation: Skip Dawn validation\n"
                          "  --adapter-vendor-id: Select adapter by vendor id to run end2end tests"
                          "on multi-GPU systems \n"
                       << std::endl;
@@ -175,6 +195,12 @@ void DawnTestEnvironment::SetUp() {
               << "\n"
                  "EnableBackendValidation: "
               << (mEnableBackendValidation ? "true" : "false")
+              << "\n"
+                 "SkipDawnValidation: "
+              << (mSkipDawnValidation ? "true" : "false")
+              << "\n"
+                 "UseSpvc: "
+              << (mUseSpvc ? "true" : "false")
               << "\n"
                  "BeginCaptureOnStartup: "
               << (mBeginCaptureOnStartup ? "true" : "false")
@@ -205,12 +231,26 @@ void DawnTestEnvironment::SetUp() {
     std::cout << std::endl;
 }
 
+void DawnTestEnvironment::TearDown() {
+    // When Vulkan validation layers are enabled, it's unsafe to call Vulkan APIs in the destructor
+    // of a static/global variable, so the instance must be manually released beforehand.
+    mInstance.reset();
+}
+
 bool DawnTestEnvironment::UsesWire() const {
     return mUseWire;
 }
 
 bool DawnTestEnvironment::IsBackendValidationEnabled() const {
     return mEnableBackendValidation;
+}
+
+bool DawnTestEnvironment::IsDawnValidationSkipped() const {
+    return mSkipDawnValidation;
+}
+
+bool DawnTestEnvironment::IsSpvcBeingUsed() const {
+    return mUseSpvc;
 }
 
 dawn_native::Instance* DawnTestEnvironment::GetInstance() const {
@@ -254,8 +294,8 @@ DawnTestBase::DawnTestBase(const DawnTestParam& param) : mParam(param) {
 DawnTestBase::~DawnTestBase() {
     // We need to destroy child objects before the Device
     mReadbackSlots.clear();
-    queue = dawn::Queue();
-    device = dawn::Device();
+    queue = wgpu::Queue();
+    device = wgpu::Device();
 
     mWireClient = nullptr;
     mWireServer = nullptr;
@@ -338,6 +378,14 @@ bool DawnTestBase::IsBackendValidationEnabled() const {
     return gTestEnv->IsBackendValidationEnabled();
 }
 
+bool DawnTestBase::IsDawnValidationSkipped() const {
+    return gTestEnv->IsDawnValidationSkipped();
+}
+
+bool DawnTestBase::IsSpvcBeingUsed() const {
+    return gTestEnv->IsSpvcBeingUsed();
+}
+
 bool DawnTestBase::HasVendorIdFilter() const {
     return gTestEnv->HasVendorIdFilter();
 }
@@ -416,13 +464,26 @@ void DawnTestBase::SetUp() {
     deviceDescriptor.forceEnabledToggles = mParam.forceEnabledWorkarounds;
     deviceDescriptor.forceDisabledToggles = mParam.forceDisabledWorkarounds;
     deviceDescriptor.requiredExtensions = GetRequiredExtensions();
+
+    static constexpr char kSkipValidationToggle[] = "skip_validation";
+    if (gTestEnv->IsDawnValidationSkipped()) {
+        ASSERT(gTestEnv->GetInstance()->GetToggleInfo(kSkipValidationToggle) != nullptr);
+        deviceDescriptor.forceEnabledToggles.push_back(kSkipValidationToggle);
+    }
+
+    static constexpr char kUseSpvcToggle[] = "use_spvc";
+    if (gTestEnv->IsSpvcBeingUsed()) {
+        ASSERT(gTestEnv->GetInstance()->GetToggleInfo(kUseSpvcToggle) != nullptr);
+        deviceDescriptor.forceEnabledToggles.push_back(kUseSpvcToggle);
+    }
+
     backendDevice = mBackendAdapter.CreateDevice(&deviceDescriptor);
     ASSERT_NE(nullptr, backendDevice);
 
     backendProcs = dawn_native::GetProcs();
 
     // Choose whether to use the backend procs and devices directly, or set up the wire.
-    DawnDevice cDevice = nullptr;
+    WGPUDevice cDevice = nullptr;
     DawnProcTable procs;
 
     if (gTestEnv->UsesWire()) {
@@ -441,7 +502,7 @@ void DawnTestBase::SetUp() {
         clientDesc.serializer = mC2sBuf.get();
 
         mWireClient.reset(new dawn_wire::WireClient(clientDesc));
-        DawnDevice clientDevice = mWireClient->GetDevice();
+        WGPUDevice clientDevice = mWireClient->GetDevice();
         DawnProcTable clientProcs = mWireClient->GetProcs();
         mS2cBuf->SetHandler(mWireClient.get());
 
@@ -455,7 +516,7 @@ void DawnTestBase::SetUp() {
     // Set up the device and queue because all tests need them, and DawnTestBase needs them too for
     // the deferred expectations.
     dawnProcSetProcs(&procs);
-    device = dawn::Device::Acquire(cDevice);
+    device = wgpu::Device::Acquire(cDevice);
     queue = device.CreateQueue();
 
     device.SetUncapturedErrorCallback(OnDeviceError, this);
@@ -490,8 +551,8 @@ dawn_native::PCIInfo DawnTestBase::GetPCIInfo() const {
 }
 
 // static
-void DawnTestBase::OnDeviceError(DawnErrorType type, const char* message, void* userdata) {
-    ASSERT(type != DAWN_ERROR_TYPE_NO_ERROR);
+void DawnTestBase::OnDeviceError(WGPUErrorType type, const char* message, void* userdata) {
+    ASSERT(type != WGPUErrorType_NoError);
     DawnTestBase* self = static_cast<DawnTestBase*>(userdata);
 
     ASSERT_TRUE(self->mExpectError) << "Got unexpected device error: " << message;
@@ -501,7 +562,7 @@ void DawnTestBase::OnDeviceError(DawnErrorType type, const char* message, void* 
 
 std::ostringstream& DawnTestBase::AddBufferExpectation(const char* file,
                                                        int line,
-                                                       const dawn::Buffer& buffer,
+                                                       const wgpu::Buffer& buffer,
                                                        uint64_t offset,
                                                        uint64_t size,
                                                        detail::Expectation* expectation) {
@@ -509,10 +570,10 @@ std::ostringstream& DawnTestBase::AddBufferExpectation(const char* file,
 
     // We need to enqueue the copy immediately because by the time we resolve the expectation,
     // the buffer might have been modified.
-    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
     encoder.CopyBufferToBuffer(buffer, offset, readback.buffer, readback.offset, size);
 
-    dawn::CommandBuffer commands = encoder.Finish();
+    wgpu::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     DeferredExpectation deferred;
@@ -532,7 +593,7 @@ std::ostringstream& DawnTestBase::AddBufferExpectation(const char* file,
 
 std::ostringstream& DawnTestBase::AddTextureExpectation(const char* file,
                                                         int line,
-                                                        const dawn::Texture& texture,
+                                                        const wgpu::Texture& texture,
                                                         uint32_t x,
                                                         uint32_t y,
                                                         uint32_t width,
@@ -548,16 +609,16 @@ std::ostringstream& DawnTestBase::AddTextureExpectation(const char* file,
 
     // We need to enqueue the copy immediately because by the time we resolve the expectation,
     // the texture might have been modified.
-    dawn::TextureCopyView textureCopyView =
+    wgpu::TextureCopyView textureCopyView =
         utils::CreateTextureCopyView(texture, level, slice, {x, y, 0});
-    dawn::BufferCopyView bufferCopyView =
+    wgpu::BufferCopyView bufferCopyView =
         utils::CreateBufferCopyView(readback.buffer, readback.offset, rowPitch, 0);
-    dawn::Extent3D copySize = {width, height, 1};
+    wgpu::Extent3D copySize = {width, height, 1};
 
-    dawn::CommandEncoder encoder = device.CreateCommandEncoder();
+    wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
     encoder.CopyTextureToBuffer(&textureCopyView, &bufferCopyView, &copySize);
 
-    dawn::CommandBuffer commands = encoder.Finish();
+    wgpu::CommandBuffer commands = encoder.Finish();
     queue.Submit(1, &commands);
 
     DeferredExpectation deferred;
@@ -594,9 +655,9 @@ void DawnTestBase::FlushWire() {
 DawnTestBase::ReadbackReservation DawnTestBase::ReserveReadback(uint64_t readbackSize) {
     // For now create a new MapRead buffer for each readback
     // TODO(cwallez@chromium.org): eventually make bigger buffers and allocate linearly?
-    dawn::BufferDescriptor descriptor;
+    wgpu::BufferDescriptor descriptor;
     descriptor.size = readbackSize;
-    descriptor.usage = dawn::BufferUsage::MapRead | dawn::BufferUsage::CopyDst;
+    descriptor.usage = wgpu::BufferUsage::MapRead | wgpu::BufferUsage::CopyDst;
 
     ReadbackSlot slot;
     slot.bufferSize = readbackSize;
@@ -631,11 +692,11 @@ void DawnTestBase::MapSlotsSynchronously() {
 }
 
 // static
-void DawnTestBase::SlotMapReadCallback(DawnBufferMapAsyncStatus status,
+void DawnTestBase::SlotMapReadCallback(WGPUBufferMapAsyncStatus status,
                                        const void* data,
                                        uint64_t,
                                        void* userdata_) {
-    DAWN_ASSERT(status == DAWN_BUFFER_MAP_ASYNC_STATUS_SUCCESS);
+    DAWN_ASSERT(status == WGPUBufferMapAsyncStatus_Success);
 
     auto userdata = static_cast<MapReadUserdata*>(userdata_);
     userdata->test->mReadbackSlots[userdata->slot].mappedData = data;

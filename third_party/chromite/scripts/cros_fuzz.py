@@ -55,6 +55,7 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
+from chromite.lib import portage_util
 
 # Directory in sysroot's /tmp directory that this script will use for files it
 # needs to write. We need a directory to write files to because this script uses
@@ -288,7 +289,7 @@ def CopyCorpusToSysroot(src_corpus_path):
     return SysrootPath(src_corpus_path)
 
   dest_corpus_path = GetPathForCopy(CORPUS_DIRECTORY_NAME, src_corpus_path)
-  osutils.RmDir(dest_corpus_path.chroot)
+  osutils.RmDir(dest_corpus_path.chroot, ignore_missing=True)
   shutil.copytree(src_corpus_path, dest_corpus_path.chroot)
   return dest_corpus_path
 
@@ -1109,14 +1110,19 @@ def ExecuteReproduceCommand(options):
   SetUpSysrootForFuzzing()
   Reproduce(StripFuzzerPrefixes(options.fuzzer), options.testcase)
 
+
 def InstallBaseDependencies(options):
-  """ Installs the base packages needed to chroot in board sysroot.
+  """Installs the base packages needed to chroot in board sysroot.
 
   Args:
     options: The parsed arguments passed to this program.
   """
-  build_type = getattr(options, 'build_type', None)
-  BuildPackage('virtual/implicit-system', options.board, build_type)
+  package = 'virtual/implicit-system'
+  if not portage_util.IsPackageInstalled(
+      package, sysroot=SysrootPath.path_to_sysroot):
+    build_type = getattr(options, 'build_type', None)
+    BuildPackage(package, options.board, build_type)
+
 
 def ParseArgs(argv):
   """Parses program arguments.

@@ -4,6 +4,8 @@
 
 package org.chromium.chrome.browser.autofill_assistant.details;
 
+import static org.chromium.chrome.browser.autofill_assistant.AssistantAccessibilityUtils.setAccessibility;
+
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ArgbEvaluator;
@@ -154,6 +156,8 @@ class AssistantDetailsViewBinder
                 details.getTotalPrice().isEmpty() ? View.GONE : View.VISIBLE);
 
         viewHolder.mImageView.setVisibility(View.VISIBLE);
+        setAccessibility(viewHolder.mImageView, details.getImageAccessibilityHint());
+
         if (details.getImageUrl().isEmpty()) {
             if (details.getShowImagePlaceholder()) {
                 viewHolder.mImageView.setImageDrawable(viewHolder.mDefaultImage);
@@ -194,11 +198,11 @@ class AssistantDetailsViewBinder
         setTextStyle(viewHolder.mDescriptionLine2View, details.getUserApprovalRequired(),
                 details.getHighlightLine2(), R.style.TextAppearance_BlackBody);
         setTextStyle(viewHolder.mDescriptionLine3View, details.getUserApprovalRequired(),
-                details.getHighlightLine3(), R.style.TextAppearance_AssistantDetailsAttribution);
+                details.getHighlightLine3(), R.style.TextAppearance_BlackDisabledText2);
         setTextStyle(viewHolder.mPriceAttributionView, details.getUserApprovalRequired(),
-                details.getHighlightLine3(), R.style.TextAppearance_AssistantDetailsAttribution);
+                details.getHighlightLine3(), R.style.TextAppearance_BlackDisabledText2);
         setTextStyle(viewHolder.mTotalPriceLabelView, details.getUserApprovalRequired(),
-                /* highlight= */ false, R.style.TextAppearance_BlackButtonText);
+                /* highlight= */ false, R.style.TextAppearance_BlackBody);
         setTextStyle(viewHolder.mTotalPriceView, details.getUserApprovalRequired(),
                 /* highlight= */ false, R.style.TextAppearance_AssistantDetailsPrice);
 

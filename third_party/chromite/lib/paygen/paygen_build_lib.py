@@ -19,6 +19,7 @@ import json
 import operator
 import os
 
+from google.protobuf import json_format
 from six.moves import urllib
 
 from chromite.api.gen.chromite.api import test_metadata_pb2
@@ -37,11 +38,6 @@ from chromite.lib.paygen import paygen_payload_lib
 from chromite.lib.paygen import test_control
 from chromite.lib.paygen import test_params
 from chromite.lib.paygen import utils
-
-# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
-# pylint: disable=no-name-in-module
-from google.protobuf import json_format
-# pylint: enable=no-name-in-module
 
 
 # The oldest release milestone for which run_suite should be attempted.
@@ -321,12 +317,14 @@ class PayloadTest(utils.RestrictedAttrDict):
                  it's a delta.
     payload_type: The type of update we are doing with this payload. Possible
                   types are in PAYLOAD_TYPES.
+    applicable_models: A list of models that a paygen test should run against.
   """
-  _slots = ('payload', 'src_channel', 'src_version', 'payload_type')
+  _slots = ('payload', 'src_channel', 'src_version', 'payload_type',
+            'applicable_models')
   _name = 'Payload Test'
 
   def __init__(self, payload, src_channel=None, src_version=None,
-               payload_type=PAYLOAD_TYPE_N2N):
+               payload_type=PAYLOAD_TYPE_N2N, applicable_models=None):
     assert bool(src_channel) == bool(src_version), (
         'src_channel(%s), src_version(%s) must both be set, or not set' %
         (src_channel, src_version))
@@ -344,7 +342,8 @@ class PayloadTest(utils.RestrictedAttrDict):
     super(PayloadTest, self).__init__(payload=payload,
                                       src_channel=src_channel,
                                       src_version=src_version,
-                                      payload_type=payload_type)
+                                      payload_type=payload_type,
+                                      applicable_models=applicable_models)
 
 
 class PaygenBuild(object):
@@ -455,9 +454,6 @@ class PaygenBuild(object):
     Raises:
       ArchiveError: if we could not compute the mapping.
     """
-    # TODO(vapier): <pylint-1.9 is buggy w/urllib.parse.
-    # pylint: disable=too-many-function-args
-
     # Map chromeos-releases board name to its chromeos-image-archive equivalent.
     archive_board_candidates = set([
         archive_board for archive_board in self._site_config.GetBoards()
@@ -784,6 +780,7 @@ class PaygenBuild(object):
       _LogList('Images found (source)', (source_images + [source_test_image] +
                                          source_dlc_module_images))
 
+      applicable_models = source.get('applicable_models', None)
       if not self._skip_delta_payloads and source['generate_delta']:
         # Generate the signed deltas.
         payloads.extend(self._DiscoverRequiredDeltasBuildToBuild(
@@ -800,13 +797,15 @@ class PaygenBuild(object):
 
         if source['delta_payload_tests']:
           payload_tests.append(PayloadTest(test_payload,
-                                           payload_type=source['delta_type']))
+                                           payload_type=source['delta_type'],
+                                           applicable_models=applicable_models))
 
       if source['full_payload_tests']:
         # Test the full payload against this source version.
         payload_tests.append(PayloadTest(
             full_test_payload, source_build.channel, source_build.version,
-            payload_type=source['delta_type']))
+            payload_type=source['delta_type'],
+            applicable_models=applicable_models))
 
     for p in payloads:
       p.build = self._payload_build
@@ -952,7 +951,8 @@ class PaygenBuild(object):
         payload.uri,
         suite_name=suite_name,
         source_archive_uri=release_archive_uri,
-        payload_type=payload_test.payload_type)
+        payload_type=payload_test.payload_type,
+        applicable_models=payload_test.applicable_models)
 
 
   def _EmitControlFile(self, payload_test_config, control_dump_dir):

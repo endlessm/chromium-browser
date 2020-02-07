@@ -84,8 +84,10 @@ def Manager():
   # Use a short directory in /tmp. Do not use /tmp directly to keep these
   # temperary files together and because certain environments do not like too
   # many top-level paths in /tmp (see crbug.com/945523).
-  tmp_dir = '/tmp/chromite.parallel'
-  osutils.SafeMakedirs(tmp_dir)
+  # Make it mode 1777 to mirror /tmp, so that we don't have failures when root
+  # calls parallel first, and some other user calls it later.
+  tmp_dir = '/tmp/chromite.parallel.%d' % os.geteuid()
+  osutils.SafeMakedirs(tmp_dir, mode=0o1777)
   old_tempdir_value, old_tempdir_env = osutils.SetGlobalTempDir(tmp_dir)
   try:
     m = HackTimeoutSyncManager()
@@ -382,8 +384,8 @@ class _BackgroundTask(multiprocessing.Process):
 
     sys.stdout.flush()
     sys.stderr.flush()
-    tmp_dir = '/tmp/chromite.parallel'
-    osutils.SafeMakedirs(tmp_dir)
+    tmp_dir = '/tmp/chromite.parallel.%d' % os.geteuid()
+    osutils.SafeMakedirs(tmp_dir, mode=0o1777)
     self._output = cros_build_lib.UnbufferedNamedTemporaryFile(
         delete=False, dir=tmp_dir, prefix='chromite-parallel-')
     self._parent_pid = os.getpid()
@@ -418,7 +420,7 @@ class _BackgroundTask(multiprocessing.Process):
     sys.stderr.flush()
     errors = []
     # Send all output to a named temporary file.
-    with open(self._output.name, 'w', 0) as output:
+    with open(self._output.name, 'wb', 0) as output:
       # Back up sys.std{err,out}. These aren't used, but we keep a copy so
       # that they aren't garbage collected. We intentionally don't restore
       # the old stdout and stderr at the end, because we want shutdown errors
@@ -428,8 +430,13 @@ class _BackgroundTask(multiprocessing.Process):
       # Replace std{out,err} with unbuffered file objects.
       os.dup2(output.fileno(), sys.__stdout__.fileno())
       os.dup2(output.fileno(), sys.__stderr__.fileno())
-      sys.stdout = os.fdopen(sys.__stdout__.fileno(), 'w', 0)
-      sys.stderr = os.fdopen(sys.__stderr__.fileno(), 'w', 0)
+      # The API of these funcs changed between versions.
+      if sys.version_info.major < 3:
+        sys.stdout = os.fdopen(sys.__stdout__.fileno(), 'w', 0)
+        sys.stderr = os.fdopen(sys.__stderr__.fileno(), 'w', 0)
+      else:
+        sys.stdout = os.fdopen(sys.__stdout__.fileno(), 'w', closefd=False)
+        sys.stderr = os.fdopen(sys.__stderr__.fileno(), 'w', closefd=False)
 
       try:
         self._started.set()

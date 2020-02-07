@@ -864,11 +864,10 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates_MultipleDuplicateHashes) {
   EXPECT_EQ(kValue3, result[2]->entity->specifics.preference().value());
 }
 
+// Covers the scenario where two updates have the same client tag hash but
+// different server IDs. This scenario is considered a bug on the server.
 TEST_F(ModelTypeWorkerTest,
        ReceiveUpdates_DuplicateClientTagHashesForDistinctServerIds) {
-  // This is testing that in a a scenario where two updates are having the same
-  // client tag hashes and different server ids, the proper UMA metrics are
-  // emitted. This scenario is considered a bug on the server.
   NormalInitialize();
 
   // First create two entities with different tags, so they get assigned
@@ -895,6 +894,83 @@ TEST_F(ModelTypeWorkerTest,
   ASSERT_EQ(1u, result.size());
   ASSERT_TRUE(result[0]);
   EXPECT_EQ(entity2.id_string(), result[0]->entity->id);
+}
+
+// Covers the scenario where two updates have the same GUID as originator client
+// item ID but different server IDs. This scenario is considered a bug on the
+// server.
+TEST_F(ModelTypeWorkerTest,
+       ReceiveUpdates_DuplicateOriginatorClientIdForDistinctServerIds) {
+  const std::string kOriginatorClientItemId = base::GenerateGUID();
+  const std::string kURL1 = "http://url1";
+  const std::string kURL2 = "http://url2";
+  const std::string kServerId1 = "serverid1";
+  const std::string kServerId2 = "serverid2";
+
+  NormalInitialize();
+
+  sync_pb::SyncEntity entity1;
+  sync_pb::SyncEntity entity2;
+
+  // Generate two entities with the same originator client item ID.
+  entity1.set_id_string(kServerId1);
+  entity2.set_id_string(kServerId2);
+  entity1.mutable_specifics()->mutable_bookmark()->set_url(kURL1);
+  entity2.mutable_specifics()->mutable_bookmark()->set_url(kURL2);
+  entity1.set_originator_client_item_id(kOriginatorClientItemId);
+  entity2.set_originator_client_item_id(kOriginatorClientItemId);
+
+  worker()->ProcessGetUpdatesResponse(
+      server()->GetProgress(), server()->GetContext(), {&entity1, &entity2},
+      status_controller());
+
+  ApplyUpdates();
+
+  // Make sure the first update has been discarded.
+  ASSERT_EQ(1u, processor()->GetNumUpdateResponses());
+  std::vector<const UpdateResponseData*> result =
+      processor()->GetNthUpdateResponse(0);
+  ASSERT_EQ(1u, result.size());
+  ASSERT_TRUE(result[0]);
+  EXPECT_EQ(kURL2, result[0]->entity->specifics.bookmark().url());
+}
+
+// Covers the scenario where two updates have the same originator client item ID
+// but different originator cache GUIDs. This is only possible for legacy
+// bookmarks created before 2015.
+TEST_F(
+    ModelTypeWorkerTest,
+    ReceiveUpdates_DuplicateOriginatorClientIdForDistinctOriginatorCacheGuids) {
+  const std::string kOriginatorClientItemId = "1";
+  const std::string kURL1 = "http://url1";
+  const std::string kURL2 = "http://url2";
+  const std::string kServerId1 = "serverid1";
+  const std::string kServerId2 = "serverid2";
+
+  NormalInitialize();
+
+  sync_pb::SyncEntity entity1;
+  sync_pb::SyncEntity entity2;
+
+  // Generate two entities with the same originator client item ID.
+  entity1.set_id_string(kServerId1);
+  entity2.set_id_string(kServerId2);
+  entity1.mutable_specifics()->mutable_bookmark()->set_url(kURL1);
+  entity2.mutable_specifics()->mutable_bookmark()->set_url(kURL2);
+  entity1.set_originator_cache_guid(base::GenerateGUID());
+  entity2.set_originator_cache_guid(base::GenerateGUID());
+  entity1.set_originator_client_item_id(kOriginatorClientItemId);
+  entity2.set_originator_client_item_id(kOriginatorClientItemId);
+
+  worker()->ProcessGetUpdatesResponse(
+      server()->GetProgress(), server()->GetContext(), {&entity1, &entity2},
+      status_controller());
+
+  ApplyUpdates();
+
+  // Both updates should have made through.
+  ASSERT_EQ(1u, processor()->GetNumUpdateResponses());
+  EXPECT_EQ(2u, processor()->GetNthUpdateResponse(0).size());
 }
 
 // Test that an update download coming in multiple parts gets accumulated into
@@ -1902,6 +1978,7 @@ TEST_F(ModelTypeWorkerBookmarksTest, CanDecryptUpdateWithMissingBookmarkGUID) {
   sync_pb::SyncEntity entity;
   entity.mutable_specifics()->mutable_bookmark()->set_url("www.foo.com");
   entity.mutable_specifics()->mutable_bookmark()->set_title("Title");
+  entity.set_id_string("testserverid");
   entity.set_originator_client_item_id(kGuid1);
   *entity.mutable_unique_position() =
       UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();
@@ -1950,6 +2027,7 @@ TEST_F(ModelTypeWorkerBookmarksTest,
   sync_pb::SyncEntity entity;
   entity.mutable_specifics()->mutable_bookmark()->set_url("www.foo.com");
   entity.mutable_specifics()->mutable_bookmark()->set_title("Title");
+  entity.set_id_string("testserverid");
   entity.set_originator_client_item_id(kInvalidOCII);
   *entity.mutable_unique_position() =
       UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();
@@ -1996,6 +2074,7 @@ TEST_F(ModelTypeWorkerBookmarksTest,
   // Generate specifics without a GUID.
   sync_pb::SyncEntity entity;
   entity.mutable_specifics()->mutable_bookmark();
+  entity.set_id_string("testserverid");
   entity.set_originator_client_item_id(kGuid1);
   *entity.mutable_unique_position() =
       UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();
@@ -2037,6 +2116,7 @@ TEST_F(ModelTypeWorkerBookmarksTest,
   // originator_client_item_id.
   sync_pb::SyncEntity entity;
   entity.mutable_specifics()->mutable_bookmark();
+  entity.set_id_string("testserverid");
   entity.set_originator_client_item_id(kInvalidOCII);
   *entity.mutable_unique_position() =
       UniquePosition::InitialPosition(UniquePosition::RandomSuffix()).ToProto();

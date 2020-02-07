@@ -44,9 +44,12 @@ class AssistantInteractionController
       chromeos::assistant::mojom::AssistantInteractionResolution;
   using AssistantInteractionType =
       chromeos::assistant::mojom::AssistantInteractionType;
+  using AssistantQuerySource = chromeos::assistant::mojom::AssistantQuerySource;
   using AssistantSuggestion = chromeos::assistant::mojom::AssistantSuggestion;
   using AssistantSuggestionPtr =
       chromeos::assistant::mojom::AssistantSuggestionPtr;
+  using AssistantSuggestionType =
+      chromeos::assistant::mojom::AssistantSuggestionType;
 
   explicit AssistantInteractionController(
       AssistantController* assistant_controller);

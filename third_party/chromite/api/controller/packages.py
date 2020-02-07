@@ -25,8 +25,13 @@ _OVERLAY_TYPE_TO_NAME = {
     binhost_pb2.OVERLAYTYPE_BOTH: constants.BOTH_OVERLAYS,
 }
 
+def _UprevResponse(_input_proto, output_proto, _config):
+  """Add fake paths to a successful uprev response."""
+  output_proto.modified_ebuilds.add().path = '/fake/path1'
+  output_proto.modified_ebuilds.add().path = '/fake/path2'
 
-@faux.all_empty
+@faux.success(_UprevResponse)
+@faux.empty_error
 @validate.require('overlay_type')
 @validate.is_in('overlay_type', _OVERLAY_TYPE_TO_NAME)
 @validate.validation_complete
@@ -49,7 +54,14 @@ def Uprev(input_proto, output_proto, _config):
     output_proto.modified_ebuilds.add().path = path
 
 
-@faux.all_empty
+def _UprevVersionedPackageResponse(_input_proto, output_proto, _config):
+  """Add fake paths to a successful uprev versioned package response."""
+  uprev_response = output_proto.responses.add()
+  uprev_response.modified_ebuilds.add().path = '/uprev/response/path'
+
+
+@faux.success(_UprevVersionedPackageResponse)
+@faux.empty_error
 @validate.require('versions')
 @validate.require('package_info.package_name', 'package_info.category')
 @validate.validation_complete
@@ -83,8 +95,18 @@ def UprevVersionedPackage(input_proto, output_proto, _config):
       uprev_response.modified_ebuilds.add().path = path
 
 
+def _GetBestVisibleResponse(_input_proto, output_proto, _config):
+  """Add fake paths to a successful GetBestVisible response."""
+  package_info = common_pb2.PackageInfo(
+      category='category',
+      package_name='name',
+      version='1.01',
+  )
+  output_proto.package_info.CopyFrom(package_info)
 
-@faux.all_empty
+
+@faux.success(_GetBestVisibleResponse)
+@faux.empty_error
 @validate.require('atom')
 @validate.validation_complete
 def GetBestVisible(input_proto, output_proto, _config):
@@ -99,21 +121,36 @@ def GetBestVisible(input_proto, output_proto, _config):
   output_proto.package_info.CopyFrom(package_info)
 
 
-@faux.all_empty
+def _ChromeVersionResponse(_input_proto, output_proto, _config):
+  """Add a fake chrome version to a successful response."""
+  output_proto.version = '78.0.3900.0'
+
+
+@faux.success(_ChromeVersionResponse)
+@faux.empty_error
 @validate.require('build_target.name')
 @validate.validation_complete
 def GetChromeVersion(input_proto, output_proto, _config):
   """Returns the chrome version."""
   build_target = controller_util.ParseBuildTarget(input_proto.build_target)
-  output_proto.version = packages.determine_chrome_version(build_target)
+  chrome_version = packages.determine_chrome_version(build_target)
+  if chrome_version:
+    output_proto.version = chrome_version
 
 
-def _HasChromePrebuiltSuccess(_input_proto, output_proto, _config):
-  """The mock success case for HasChromePrebuilt."""
-  output_proto.has_prebuilt = True
+def _GetTargetVersionsResponse(_input_proto, output_proto, _config):
+  """Add fake target version fields to a successful response."""
+  output_proto.android_version = '5812377'
+  output_proto.android_branch_version = 'git_nyc-mr1-arc'
+  output_proto.android_target_version = 'cheets'
+  output_proto.chrome_version = '78.0.3900.0'
+  output_proto.platform_version = '12438.0.0'
+  output_proto.milestone_version = '78'
+  output_proto.full_version = 'R78-12438.0.0'
 
 
-@faux.all_empty
+@faux.success(_GetTargetVersionsResponse)
+@faux.empty_error
 @validate.require('build_target.name')
 @validate.validation_complete
 def GetTargetVersions(input_proto, output_proto, _config):
@@ -128,8 +165,21 @@ def GetTargetVersions(input_proto, output_proto, _config):
   android_target_version = packages.determine_android_target(build_target)
   if android_target_version:
     output_proto.android_target_version = android_target_version
-  output_proto.chrome_version = packages.determine_chrome_version(build_target)
-  # TODO(crbug.com/1004438): Implement remaining version fields.
+  # TODO(crbug/1019770): Investigate cases where builds_chrome is true but
+  # chrome_version is None.
+  builds_chrome = packages.builds(constants.CHROME_CP, build_target)
+  if builds_chrome:
+    chrome_version = packages.determine_chrome_version(build_target)
+    if chrome_version:
+      output_proto.chrome_version = chrome_version
+  output_proto.platform_version = packages.determine_platform_version()
+  output_proto.milestone_version = packages.determine_milestone_version()
+  output_proto.full_version = packages.determine_full_version()
+
+
+def _HasChromePrebuiltSuccess(_input_proto, output_proto, _config):
+  """The mock success case for HasChromePrebuilt."""
+  output_proto.has_prebuilt = True
 
 
 @faux.success(_HasChromePrebuiltSuccess)

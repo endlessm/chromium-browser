@@ -11,14 +11,13 @@
 #include "net/third_party/quiche/src/quic/core/http/quic_header_list.h"
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_decoded_headers_accumulator.h"
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_decoder.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_decoder_test_utils.h"
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder.h"
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_stream_sender_delegate.h"
-#include "net/third_party/quiche/src/quic/core/qpack/qpack_utils.h"
 #include "net/third_party/quiche/src/quic/core/qpack/value_splitting_header_list.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_fuzzed_data_provider.h"
-#include "net/third_party/quiche/src/quic/test_tools/qpack_encoder_peer.h"
+#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_decoder_test_utils.h"
+#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_encoder_peer.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
 
 namespace quic {
@@ -273,33 +272,13 @@ class VerifyingDecoder : public QpackDecodedHeadersAccumulator::Visitor {
     visitor_->OnHeaderBlockDecoded(stream_id_);
   }
 
-  void OnHeaderDecodingError() override {
-    CHECK(false) << accumulator_.error_message();
+  void OnHeaderDecodingError(QuicStringPiece error_message) override {
+    CHECK(false) << error_message;
   }
 
-  void Decode(QuicStringPiece data) {
-    const bool success = accumulator_.Decode(data);
-    CHECK(success) << accumulator_.error_message();
-  }
+  void Decode(QuicStringPiece data) { accumulator_.Decode(data); }
 
-  void EndHeaderBlock() {
-    QpackDecodedHeadersAccumulator::Status status =
-        accumulator_.EndHeaderBlock();
-
-    CHECK(status != QpackDecodedHeadersAccumulator::Status::kError)
-        << accumulator_.error_message();
-
-    if (status == QpackDecodedHeadersAccumulator::Status::kBlocked) {
-      return;
-    }
-
-    CHECK(status == QpackDecodedHeadersAccumulator::Status::kSuccess);
-
-    // Compare resulting header list to original.
-    CHECK(expected_header_list_ == accumulator_.quic_header_list());
-    // Might destroy |this|.
-    visitor_->OnHeaderBlockDecoded(stream_id_);
-  }
+  void EndHeaderBlock() { accumulator_.EndHeaderBlock(); }
 
  private:
   QuicStreamId stream_id_;
@@ -554,8 +533,6 @@ spdy::SpdyHeaderBlock GenerateHeaderList(QuicFuzzedDataProvider* provider) {
 // Splits |*header_list| header values along '\0' or ';' separators.
 QuicHeaderList SplitHeaderList(const spdy::SpdyHeaderBlock& header_list) {
   QuicHeaderList split_header_list;
-  split_header_list.set_max_header_list_size(
-      std::numeric_limits<size_t>::max());
   split_header_list.OnHeaderBlockStart();
 
   size_t total_size = 0;

@@ -44,7 +44,9 @@ TEST_SIG_TIMEOUT = 5
 # How long (in seconds) to let tests clean up after CTRL+C is sent.
 SIGINT_TIMEOUT = 5
 # How long (in seconds) to let all children clean up after CTRL+C is sent.
-CTRL_C_TIMEOUT = SIGINT_TIMEOUT + 5
+# This has to be big enough to try and tear down ~72 parallel tests (which is
+# how many cores we commonly have in Googler workstations today).
+CTRL_C_TIMEOUT = SIGINT_TIMEOUT + 15
 
 
 # The cache file holds various timing information.  This is used later on to
@@ -96,17 +98,22 @@ SPECIAL_TESTS = {
     'scripts/cros_run_unit_tests_unittest': INSIDE,
     'scripts/dep_tracker_unittest': INSIDE,
     'scripts/gconv_strip_unittest': INSIDE,
+    'scripts/merge_logs_unittest': INSIDE,
     'scripts/test_image_unittest': INSIDE,
     'service/dependency_unittest': INSIDE,
 
+    # These require 3rd party modules that are in the chroot.
+    'cli/cros/cros_bisect_unittest': INSIDE,
+    'cli/cros/cros_flash_unittest': INSIDE,
+    'cli/cros/cros_stage_unittest': INSIDE,
+    'lib/dev_server_wrapper_unittest': INSIDE,
+    'lib/xbuddy/build_artifact_unittest': INSIDE,
+    'lib/xbuddy/common_util_unittest': INSIDE,
+    'lib/xbuddy/downloader_unittest': INSIDE,
+    'lib/xbuddy/xbuddy_unittest': INSIDE,
+
     # Tests that need to run outside the chroot.
     'lib/cgroups_unittest': OUTSIDE,
-
-    # Running cros_sdk_unittest through run_tests is triggering
-    # a hang inside lvm.
-    # TODO(crbug.com/764335): Change this back to OUTSIDE once
-    # the lvm hang is resolved.
-    'scripts/cros_sdk_unittest': SKIP,
 
     # The proto compile unittest requires network access to install protoc
     # with CIPD. Since ebuilds have no network access and our tests are run
@@ -133,135 +140,6 @@ SLOW_TESTS = {
     'scripts/cros_sdk_unittest': SKIP,
     # This test involves lots of git operations, which are very slow.
     'cli/cros/cros_branch_unittest': SKIP,
-}
-
-# These are tests that are safe to run under Python 3 too.  Add to this list to
-# prevent regressions with Python 3.
-PYTHON3_TESTS = {
-    'api/api_config_unittest',
-    'api/controller/api_unittest',
-    'api/controller/artifacts_unittest',
-    'api/controller/binhost_unittest',
-    'api/controller/controller_util_unittest',
-    'api/controller/dependency_unittest',
-    'api/controller/image_unittest',
-    'api/controller/sdk_unittest',
-    'api/controller/sysroot_unittest',
-    'api/controller/test_unittest',
-    'api/controller/toolchain_unittest',
-    'api/faux_unittest',
-    'api/field_handler_unittest',
-    'api/metrics_unittest',
-    'api/proto_compiled_unittest',
-    'api/router_unittest',
-    'api/validate_unittest',
-    'cbuildbot/goma_util_unittest',
-    'cbuildbot/swarming_lib_unittest',
-    'cbuildbot/topology_unittest',
-    'cli/cros/cros_bisect_unittest',
-    'cli/cros/cros_build_unittest',
-    'cli/cros/cros_chroot_unittest',
-    'cli/cros/cros_debug_unittest',
-    'cli/cros/cros_deploy_unittest',
-    'cli/cros/cros_flash_unittest',
-    'cli/cros/cros_stage_unittest',
-    'cli/cros/cros_tryjob_unittest',
-    'cli/cros/lint_autotest_unittest',
-    'cli/cros/lint_unittest',
-    'config/config_skew_unittest',
-    'cros_bisect/manual_evaluator_unittest',
-    'lib/accounts_lib_unittest',
-    'lib/androidbuild_unittest',
-    'lib/auth_unittest',
-    'lib/auto_update_util_unittest',
-    'lib/autotest_util_unittest',
-    'lib/boto_compat_unittest',
-    'lib/build_failure_message_unittest',
-    'lib/build_summary_unittest',
-    'lib/build_target_util_unittest',
-    'lib/buildbot_annotations_unittest',
-    'lib/buildbucket_lib_unittest',
-    'lib/chrome_committer_unittest',
-    'lib/chrome_util_unittest',
-    'lib/chroot_lib_unittest',
-    'lib/chroot_util_unittest',
-    'lib/cipd_unittest',
-    'lib/cl_messages_unittest',
-    'lib/commandline_unittest',
-    'lib/cq_config_unittest',
-    'lib/cros_build_lib_unittest',
-    'lib/cros_collections_unittest',
-    'lib/cros_event_unittest',
-    'lib/cros_import_unittest',
-    'lib/cros_logging_unittest',
-    'lib/cros_test_lib_unittest',
-    'lib/cts_helper_unittest',
-    'lib/factory_unittest',
-    'lib/failures_lib_unittest',
-    'lib/gce_unittest',
-    'lib/gclient_unittest',
-    'lib/hwtest_results_unittest',
-    'lib/iter_utils_unittest',
-    'lib/json_lib_unittest',
-    'lib/launch_control/processed_builds_unittest',
-    'lib/luci/net_unittest',
-    'lib/luci/utils_unittest',
-    'lib/moblab_vm_unittest',
-    'lib/namespaces_unittest',
-    'lib/nebraska_wrapper_unittest',
-    'lib/parseelf_unittest',
-    'lib/parser/elog_unittest',
-    'lib/partial_mock_unittest',
-    'lib/path_util_unittest',
-    'lib/paygen/download_cache_unittest',
-    'lib/paygen/gslock_unittest',
-    'lib/paygen/partition_lib_unittest',
-    'lib/paygen/paygen_payload_lib_unittest',
-    'lib/paygen/paygen_stateful_payload_lib_unittest',
-    'lib/paygen/urilib_unittest',
-    'lib/paygen/utils_unittest',
-    'lib/process_util_unittest',
-    'lib/prpc_unittest',
-    'lib/repo_util_unittest',
-    'lib/request_build_unittest',
-    'lib/retry_stats_unittest',
-    'lib/retry_util_unittest',
-    'lib/signing_unittest',
-    'lib/som_unittest',
-    'lib/table_unittest',
-    'lib/triage_lib_unittest',
-    'lib/upgrade_table_unittest',
-    'lib/uri_lib_unittest',
-    'lib/user_db_unittest',
-    'lib/vm_unittest',
-    'scripts/build_dlc_unittest',
-    'scripts/cros_extract_deps_unittest',
-    'scripts/cros_fuzz_unittest',
-    'scripts/cros_generate_android_breakpad_symbols_unittest',
-    'scripts/cros_generate_os_release_unittest',
-    'scripts/cros_generate_sysroot_unittest',
-    'scripts/cros_generate_update_payload_unittest',
-    'scripts/cros_install_debug_syms_unittest',
-    'scripts/cros_list_overlays_unittest',
-    'scripts/cros_run_unit_tests_unittest',
-    'scripts/cros_show_waterfall_layout_unittest',
-    'scripts/cros_unittest',
-    'scripts/gconv_strip_unittest',
-    'scripts/gen_luci_scheduler_unittest',
-    'scripts/security_test_image_unittest',
-    'scripts/trigger_cr50_signing_unittest',
-    'service/binhost_unittest',
-    'service/dependency_unittest',
-    'service/image_unittest',
-    'service/sdk_unittest',
-    'service/test_unittest',
-    'signing/bin/dump_image_config_unittest',
-    'signing/bin/sign_image_unittest',
-    'signing/bin/update_release_keys_unittest',
-    'utils/attrs_freezer_unittest',
-    'utils/key_value_store_unittest',
-    'utils/matching_unittest',
-    'utils/metrics_unittest',
 }
 
 
@@ -405,8 +283,7 @@ def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1,
       if pyver is None or pyver == 'py2':
         yield (test, 'python2')
       if pyver is None or pyver == 'py3':
-        if test in PYTHON3_TESTS:
-          yield (test, 'python3')
+        yield (test, 'python3')
 
   for (test, interp) in PythonWrappers(SortTests(tests, jobs=jobs)):
     cmd = [interp, test]
@@ -528,7 +405,7 @@ def RunTests(tests, jobs=1, chroot_available=True, network=False,
   failed_tests = []
   for test, interp, cmd, tmpfile in testsets:
     tmpfile.seek(0)
-    output = tmpfile.read()
+    output = tmpfile.read().decode('utf-8', 'replace')
     desc = '[%s] %s' % (interp, test)
     if output:
       failed_tests.append(desc)
@@ -684,6 +561,8 @@ def GetParser():
                       help='Only run Python 2 unittests.')
   parser.add_argument('--py3', dest='pyver', action='store_const', const='py3',
                       help='Only run Python 3 unittests.')
+  parser.add_argument('--clear-pycache', action='store_true',
+                      help='Clear .pyc files, then exit without running tests.')
   parser.add_argument('tests', nargs='*', default=None, help='Tests to run')
   return parser
 
@@ -695,7 +574,8 @@ def main(argv):
 
   # Process list output quickly as it takes no privileges.
   if opts.list:
-    print('\n'.join(sorted(opts.tests or FindTests((constants.CHROMITE_DIR,)))))
+    tests = set(opts.tests or FindTests((constants.CHROMITE_DIR,)))
+    print('\n'.join(sorted(tests)))
     return
 
   # Many of our tests require a valid chroot to run. Make sure it's created
@@ -720,6 +600,18 @@ def main(argv):
   # Clear python caches now that we're root, in the right dir, but before we
   # run any tests.
   ClearPythonCacheFiles()
+  if opts.clear_pycache:
+    return
+
+  # Sanity check the environment.  https://crbug.com/1015450
+  st = os.stat('/')
+  if st.st_mode & 0o7777 != 0o755:
+    cros_build_lib.Die('The root directory has broken permissions: %o\n'
+                       'Fix with: sudo chmod 755 /' % (st.st_mode,))
+  if st.st_uid or st.st_gid:
+    cros_build_lib.Die('The root directory has broken ownership: %i:%i'
+                       ' (should be 0:0)\nFix with: sudo chown 0:0 /' %
+                       (st.st_uid, st.st_gid))
 
   if opts.quick:
     SPECIAL_TESTS.update(SLOW_TESTS)

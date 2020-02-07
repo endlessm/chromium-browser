@@ -6,10 +6,10 @@
 
 #include "base/test/task_environment.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/infobars/infobar.h"
 #include "ios/chrome/browser/infobars/infobar_badge_model.h"
 #include "ios/chrome/browser/infobars/infobar_badge_tab_helper.h"
 #include "ios/chrome/browser/infobars/infobar_badge_tab_helper_delegate.h"
+#include "ios/chrome/browser/infobars/infobar_ios.h"
 #import "ios/chrome/browser/ui/badges/badge_consumer.h"
 #import "ios/chrome/browser/ui/badges/badge_item.h"
 #import "ios/chrome/browser/ui/infobars/test_infobar_delegate.h"
@@ -42,13 +42,13 @@ class FakeInfobarBadgeTabHelper : public InfobarBadgeTabHelper {
     InfobarBadgeModel* new_badge =
         [[InfobarBadgeModel alloc] initWithInfobarType:infobar_type];
     infobar_badge_models_[infobar_type_key] = new_badge;
-    [delegate_ addInfobarBadge:new_badge];
+    [delegate_ addInfobarBadge:new_badge forWebState:web_state_];
   }
   void RemoveInfobar(InfobarType infobar_type) {
     NSNumber* infobar_type_key = [NSNumber numberWithInt:(int)infobar_type];
     InfobarBadgeModel* removed_badge = infobar_badge_models_[infobar_type_key];
     [infobar_badge_models_ removeObjectForKey:infobar_type_key];
-    [delegate_ removeInfobarBadge:removed_badge];
+    [delegate_ removeInfobarBadge:removed_badge forWebState:web_state_];
   }
 
  private:

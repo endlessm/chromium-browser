@@ -21,7 +21,7 @@ import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
-import org.chromium.chrome.browser.preferences.PreferencesLauncher;
+import org.chromium.chrome.browser.settings.PreferencesLauncher;
 import org.chromium.chrome.browser.sharing.SharingAdapter;
 import org.chromium.chrome.browser.sharing.SharingServiceProxy;
 import org.chromium.chrome.browser.sharing.SharingServiceProxy.DeviceInfo;
@@ -128,7 +128,8 @@ public class SharedClipboardShareActivity
         SharedClipboardMetrics.recordDeviceClick(position);
         SharedClipboardMetrics.recordTextSize(text.length());
 
-        SharedClipboardMessageHandler.showSendingNotification(device.guid, device.clientName, text);
+        SharedClipboardMessageHandler.showSendingNotification(
+                device.guid, device.clientName, device.lastUpdatedTimestampMillis, text);
         finish();
     }
 }

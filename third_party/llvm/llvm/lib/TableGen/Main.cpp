@@ -49,6 +49,9 @@ static cl::list<std::string>
 MacroNames("D", cl::desc("Name of the macro to be defined"),
             cl::value_desc("macro name"), cl::Prefix);
 
+static cl::opt<bool>
+WriteIfChanged("write-if-changed", cl::desc("Only write output if it changed"));
+
 static int reportError(const char *ProgName, Twine Msg) {
   errs() << ProgName << ": " << Msg;
   errs().flush();
@@ -70,7 +73,7 @@ static int createDependencyFile(const TGParser &Parser, const char *argv0) {
                                   EC.message() + "\n");
   DepOut.os() << OutputFilename << ":";
   for (const auto &Dep : Parser.getDependencies()) {
-    DepOut.os() << ' ' << Dep.first;
+    DepOut.os() << ' ' << Dep;
   }
   DepOut.os() << "\n";
   DepOut.keep();
@@ -99,23 +102,41 @@ int llvm::TableGenMain(char *argv0, TableGenMainFn *MainFn) {
   if (Parser.ParseFile())
     return 1;
 
-  std::error_code EC;
-  ToolOutputFile Out(OutputFilename, EC, sys::fs::OF_None);
-  if (EC)
-    return reportError(argv0, "error opening " + OutputFilename + ":" +
-                                  EC.message() + "\n");
+  // Write output to memory.
+  std::string OutString;
+  raw_string_ostream Out(OutString);
+  if (MainFn(Out, Records))
+    return 1;
+
+  // Always write the depfile, even if the main output hasn't changed.
+  // If it's missing, Ninja considers the output dirty.  If this was below
+  // the early exit below and someone deleted the .inc.d file but not the .inc
+  // file, tablegen would never write the depfile.
   if (!DependFilename.empty()) {
     if (int Ret = createDependencyFile(Parser, argv0))
       return Ret;
   }
 
-  if (MainFn(Out.os(), Records))
-    return 1;
+  if (WriteIfChanged) {
+    // Only updates the real output file if there are any differences.
+    // This prevents recompilation of all the files depending on it if there
+    // aren't any.
+    if (auto ExistingOrErr = MemoryBuffer::getFile(OutputFilename))
+      if (std::move(ExistingOrErr.get())->getBuffer() == Out.str())
+        return 0;
+  }
+
+  std::error_code EC;
+  ToolOutputFile OutFile(OutputFilename, EC, sys::fs::OF_None);
+  if (EC)
+    return reportError(argv0, "error opening " + OutputFilename + ":" +
+                                  EC.message() + "\n");
+  OutFile.os() << Out.str();
 
   if (ErrorsPrinted > 0)
     return reportError(argv0, Twine(ErrorsPrinted) + " errors.\n");
 
   // Declare success.
-  Out.keep();
+  OutFile.keep();
   return 0;
 }

@@ -12,5 +12,4 @@ const base::Feature kSupervisedUserIframeFilter{
 const base::Feature kSupervisedUserInitiatedExtensionInstall{
     "SupervisedUserInitiatedExtensionInstall",
     base::FEATURE_DISABLED_BY_DEFAULT};
-
 }

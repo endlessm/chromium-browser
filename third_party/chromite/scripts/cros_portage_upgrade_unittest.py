@@ -394,6 +394,10 @@ class PInfoTest(cros_test_lib.OutputTestCase):
   def testEqAndNe(self):
     pinfo1 = cpu.PInfo(category='SomeCat', user_arg='SomeArg')
 
+    # We do redundant tests because we implement the comparison methods
+    # ourselves, and we want to make sure they work.  The 2nd option here
+    # here is Python 3 specific, so we have to suppress for Python 2.
+    # pylint: disable=bad-option-value,comparison-with-itself
     self.assertEqual(pinfo1, pinfo1)
     self.assertTrue(pinfo1 == pinfo1)
     self.assertFalse(pinfo1 != pinfo1)
@@ -1839,15 +1843,12 @@ class GiveEmergeResultsTest(CpuTestBase):
     mocked_upgrader._AreEmergeable.return_value = (ok, None, None)
 
     # Verify.
-    result = None
     with self.OutputCapturer():
       if error:
         self.assertRaises(error, cpu.Upgrader._GiveEmergeResults,
                           mocked_upgrader, pinfolist)
       else:
-        result = cpu.Upgrader._GiveEmergeResults(mocked_upgrader, pinfolist)
-
-    return result
+        cpu.Upgrader._GiveEmergeResults(mocked_upgrader, pinfolist)
 
   def testGiveEmergeResultsUnmaskedOK(self):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4', upgraded_unmasked=True),
@@ -1869,19 +1870,16 @@ class GiveEmergeResultsTest(CpuTestBase):
     mocked_upgrader._AreEmergeable.return_value = emergeable_tuple
 
     # Verify.
-    result = None
     with self.OutputCapturer():
       if error:
         self.assertRaises(error, cpu.Upgrader._GiveEmergeResults,
                           mocked_upgrader, pinfolist)
       else:
-        result = cpu.Upgrader._GiveEmergeResults(mocked_upgrader, pinfolist)
+        cpu.Upgrader._GiveEmergeResults(mocked_upgrader, pinfolist)
 
     if not ok:
       self.assertEqual(sorted(mocked_upgrader._GiveMaskedError.call_args_list),
                        sorted(mock.call(x, 'some-output') for x in masked_cpvs))
-
-    return result
 
   def testGiveEmergeResultsMaskedOK(self):
     pinfolist = [cpu.PInfo(upgraded_cpv='abc/def-4', upgraded_unmasked=False),
@@ -2109,7 +2107,8 @@ class UpgradePackageTest(CpuTestBase):
           cmd = ['egencache', '--update', '--repo=portage-stable',
                  pinfo.package]
           run_calls.append(mock.call(cmd, print_cmd=False, redirect_stdout=True,
-                                     combine_stdout_stderr=True))
+                                     combine_stdout_stderr=True,
+                                     encoding='utf-8'))
 
     # Verify.
     with self.OutputCapturer():
@@ -2313,7 +2312,7 @@ class VerifyPackageTest(CpuTestBase):
     run_mock.assert_called_once_with(
         ['equery', '-C', 'which', '--include-masked', cpv], error_code_ok=True,
         extra_env=envvars, print_cmd=False, redirect_stdout=True,
-        combine_stdout_stderr=True)
+        combine_stdout_stderr=True, encoding='utf-8')
 
   def testVerifyEbuildOverlayGood(self):
     cpv = 'foo/bar-2'
@@ -2361,7 +2360,7 @@ class VerifyPackageTest(CpuTestBase):
     run_mock.assert_called_once_with(
         ['equery', '-qCN', 'list', '-F', '$mask|$cpv:$slot', '-op', cpv],
         error_code_ok=True, extra_env='envvars', print_cmd=False,
-        redirect_stdout=True, combine_stdout_stderr=True)
+        redirect_stdout=True, combine_stdout_stderr=True, encoding='utf-8')
 
   def testGetMaskBitsUnmaskedStable(self):
     output = '  |foo/bar-2.7.0:0'
@@ -2539,7 +2538,7 @@ class CommitTest(CpuTestBase):
     # - Body corresponding to upgrade_lines.
     # - BUG= line (with space after '=' to invalidate it).
     # - TEST= line (with space after '=' to invalidate it).
-    body = r'\n'.join([re.sub(r'\s+', r'\s', line) for line in upgrade_lines])
+    body = r'\n'.join(re.sub(r'\s+', r'\\s', line) for line in upgrade_lines)
     regexp = re.compile(r"""^efg:\supgraded\spackage\sto\supstream\n # Summary
                             ^\s*\n                            # Blank line
                             %s\n                              # Body
@@ -2564,7 +2563,7 @@ class CommitTest(CpuTestBase):
     # - Body corresponding to upgrade_lines.
     # - BUG= line (with space after '=' to invalidate it).
     # - TEST= line (with space after '=' to invalidate it).
-    body = r'\n'.join([re.sub(r'\s+', r'\s', line) for line in upgrade_lines])
+    body = r'\n'.join(re.sub(r'\s+', r'\\s', line) for line in upgrade_lines)
     regexp = re.compile(r"""^efg,\spqr,\suvw:\supgraded\spackages.*\n # Summary
                             ^\s*\n                            # Blank line
                             %s\n                              # Body
@@ -2595,7 +2594,7 @@ class CommitTest(CpuTestBase):
     # - Body corresponding to upgrade_lines.
     # - BUG= line (with space after '=' to invalidate it).
     # - TEST= line (with space after '=' to invalidate it).
-    body = r'\n'.join([re.sub(r'\s+', r'\s', line) for line in upgrade_lines])
+    body = r'\n'.join(re.sub(r'\s+', r'\\s', line) for line in upgrade_lines)
     regexp = re.compile(r"""^Upgraded\s.*10.*\spackages\n     # Summary
                             ^\s*\n                            # Blank line
                             %s\n                              # Body
@@ -3060,7 +3059,7 @@ class GetPreOrderDepGraphTest(CpuTestBase):
     pm_argv.append('--root-deps')
     deps = depgraph.DepGraphGenerator()
     deps.Initialize(pm_argv)
-    deps_tree, deps_info = deps.GenDependencyTree()
+    deps_tree, deps_info, _ = deps.GenDependencyTree()
     deps_graph = deps.GenDependencyGraph(deps_tree, deps_info)
 
     deps_list = cpu.Upgrader._GetPreOrderDepGraph(deps_graph)

@@ -1171,7 +1171,7 @@ static unsigned enforceKnownAlignment(Value *V, unsigned Alignment,
     if (!GO->canIncreaseAlignment())
       return Alignment;
 
-    GO->setAlignment(PrefAlign);
+    GO->setAlignment(MaybeAlign(PrefAlign));
     return PrefAlign;
   }
 
@@ -1611,6 +1611,11 @@ bool llvm::salvageDebugInfo(Instruction &I) {
   return salvageDebugInfoForDbgValues(I, DbgUsers);
 }
 
+void llvm::salvageDebugInfoOrMarkUndef(Instruction &I) {
+  if (!salvageDebugInfo(I))
+    replaceDbgUsesWithUndef(&I);
+}
+
 bool llvm::salvageDebugInfoForDbgValues(
     Instruction &I, ArrayRef<DbgVariableIntrinsic *> DbgUsers) {
   auto &Ctx = I.getContext();
@@ -1727,7 +1732,7 @@ DIExpression *llvm::salvageDebugInfoImpl(Instruction &I,
 using DbgValReplacement = Optional<DIExpression *>;
 
 /// Point debug users of \p From to \p To using exprs given by \p RewriteExpr,
-/// possibly moving/deleting users to prevent use-before-def. Returns true if
+/// possibly moving/undefing users to prevent use-before-def. Returns true if
 /// changes are made.
 static bool rewriteDebugUsers(
     Instruction &From, Value &To, Instruction &DomPoint, DominatorTree &DT,
@@ -1740,7 +1745,7 @@ static bool rewriteDebugUsers(
 
   // Prevent use-before-def of To.
   bool Changed = false;
-  SmallPtrSet<DbgVariableIntrinsic *, 1> DeleteOrSalvage;
+  SmallPtrSet<DbgVariableIntrinsic *, 1> UndefOrSalvage;
   if (isa<Instruction>(&To)) {
     bool DomPointAfterFrom = From.getNextNonDebugInstruction() == &DomPoint;
 
@@ -1755,14 +1760,14 @@ static bool rewriteDebugUsers(
       // Users which otherwise aren't dominated by the replacement value must
       // be salvaged or deleted.
       } else if (!DT.dominates(&DomPoint, DII)) {
-        DeleteOrSalvage.insert(DII);
+        UndefOrSalvage.insert(DII);
       }
     }
   }
 
   // Update debug users without use-before-def risk.
   for (auto *DII : Users) {
-    if (DeleteOrSalvage.count(DII))
+    if (UndefOrSalvage.count(DII))
       continue;
 
     LLVMContext &Ctx = DII->getContext();
@@ -1776,18 +1781,10 @@ static bool rewriteDebugUsers(
     Changed = true;
   }
 
-  if (!DeleteOrSalvage.empty()) {
+  if (!UndefOrSalvage.empty()) {
     // Try to salvage the remaining debug users.
-    Changed |= salvageDebugInfo(From);
-
-    // Delete the debug users which weren't salvaged.
-    for (auto *DII : DeleteOrSalvage) {
-      if (DII->getVariableLocation() == &From) {
-        LLVM_DEBUG(dbgs() << "Erased UseBeforeDef:  " << *DII << '\n');
-        DII->eraseFromParent();
-        Changed = true;
-      }
-    }
+    salvageDebugInfoOrMarkUndef(From);
+    Changed = true;
   }
 
   return Changed;
@@ -1862,10 +1859,8 @@ bool llvm::replaceAllDbgUsesWith(Instruction &From, Value &To,
         return None;
 
       bool Signed = *Signedness == DIBasicType::Signedness::Signed;
-      dwarf::TypeKind TK = Signed ? dwarf::DW_ATE_signed : dwarf::DW_ATE_unsigned;
-      SmallVector<uint64_t, 8> Ops({dwarf::DW_OP_LLVM_convert, ToBits, TK,
-                                   dwarf::DW_OP_LLVM_convert, FromBits, TK});
-      return DIExpression::appendToStack(DII.getExpression(), Ops);
+      return DIExpression::appendExt(DII.getExpression(), ToBits, FromBits,
+                                     Signed);
     };
     return rewriteDebugUsers(From, To, DomPoint, DT, SignOrZeroExt);
   }
@@ -2210,12 +2205,10 @@ void llvm::removeUnwindEdge(BasicBlock *BB, DomTreeUpdater *DTU) {
 
 /// removeUnreachableBlocks - Remove blocks that are not reachable, even
 /// if they are in a dead cycle.  Return true if a change was made, false
-/// otherwise. If `LVI` is passed, this function preserves LazyValueInfo
-/// after modifying the CFG.
-bool llvm::removeUnreachableBlocks(Function &F, LazyValueInfo *LVI,
-                                   DomTreeUpdater *DTU,
+/// otherwise.
+bool llvm::removeUnreachableBlocks(Function &F, DomTreeUpdater *DTU,
                                    MemorySSAUpdater *MSSAU) {
-  SmallPtrSet<BasicBlock*, 16> Reachable;
+  SmallPtrSet<BasicBlock *, 16> Reachable;
   bool Changed = markAliveBlocks(F, Reachable, DTU);
 
   // If there are unreachable blocks in the CFG...
@@ -2223,21 +2216,21 @@ bool llvm::removeUnreachableBlocks(Function &F, LazyValueInfo *LVI,
     return Changed;
 
   assert(Reachable.size() < F.size());
-  NumRemoved += F.size()-Reachable.size();
+  NumRemoved += F.size() - Reachable.size();
 
   SmallSetVector<BasicBlock *, 8> DeadBlockSet;
-  for (Function::iterator I = ++F.begin(), E = F.end(); I != E; ++I) {
-    auto *BB = &*I;
-    if (Reachable.count(BB))
+  for (BasicBlock &BB : F) {
+    // Skip reachable basic blocks
+    if (Reachable.find(&BB) != Reachable.end())
       continue;
-    DeadBlockSet.insert(BB);
+    DeadBlockSet.insert(&BB);
   }
 
   if (MSSAU)
     MSSAU->removeBlocks(DeadBlockSet);
 
   // Loop over all of the basic blocks that are not reachable, dropping all of
-  // their internal references. Update DTU and LVI if available.
+  // their internal references. Update DTU if available.
   std::vector<DominatorTree::UpdateType> Updates;
   for (auto *BB : DeadBlockSet) {
     for (BasicBlock *Successor : successors(BB)) {
@@ -2246,26 +2239,18 @@ bool llvm::removeUnreachableBlocks(Function &F, LazyValueInfo *LVI,
       if (DTU)
         Updates.push_back({DominatorTree::Delete, BB, Successor});
     }
-    if (LVI)
-      LVI->eraseBlock(BB);
     BB->dropAllReferences();
-  }
-  for (Function::iterator I = ++F.begin(); I != F.end();) {
-    auto *BB = &*I;
-    if (Reachable.count(BB)) {
-      ++I;
-      continue;
-    }
     if (DTU) {
-      // Remove the terminator of BB to clear the successor list of BB.
-      if (BB->getTerminator())
-        BB->getInstList().pop_back();
+      Instruction *TI = BB->getTerminator();
+      assert(TI && "Basic block should have a terminator");
+      // Terminators like invoke can have users. We have to replace their users,
+      // before removing them.
+      if (!TI->use_empty())
+        TI->replaceAllUsesWith(UndefValue::get(TI->getType()));
+      TI->eraseFromParent();
       new UnreachableInst(BB->getContext(), BB);
       assert(succ_empty(BB) && "The successor list of BB isn't empty before "
                                "applying corresponding DTU updates.");
-      ++I;
-    } else {
-      I = F.getBasicBlockList().erase(I);
     }
   }
 
@@ -2281,7 +2266,11 @@ bool llvm::removeUnreachableBlocks(Function &F, LazyValueInfo *LVI,
     }
     if (!Deleted)
       return false;
+  } else {
+    for (auto *BB : DeadBlockSet)
+      BB->eraseFromParent();
   }
+
   return true;
 }
 

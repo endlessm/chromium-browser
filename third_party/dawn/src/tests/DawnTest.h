@@ -16,7 +16,7 @@
 #define TESTS_DAWNTEST_H_
 
 #include "dawn/dawn_proc_table.h"
-#include "dawn/dawncpp.h"
+#include "dawn/webgpu_cpp.h"
 #include "dawn_native/DawnNative.h"
 
 #include <gtest/gtest.h>
@@ -74,6 +74,14 @@ struct RGBA8 {
     bool operator!=(const RGBA8& other) const;
 
     uint8_t r, g, b, a;
+
+    static const RGBA8 kZero;
+    static const RGBA8 kBlack;
+    static const RGBA8 kRed;
+    static const RGBA8 kGreen;
+    static const RGBA8 kBlue;
+    static const RGBA8 kYellow;
+    static const RGBA8 kWhite;
 };
 std::ostream& operator<<(std::ostream& stream, const RGBA8& color);
 
@@ -122,22 +130,29 @@ class DawnTestEnvironment : public testing::Environment {
     static void SetEnvironment(DawnTestEnvironment* env);
 
     void SetUp() override;
+    void TearDown() override;
 
     bool UsesWire() const;
     bool IsBackendValidationEnabled() const;
+    bool IsDawnValidationSkipped() const;
+    bool IsSpvcBeingUsed() const;
     dawn_native::Instance* GetInstance() const;
     bool HasVendorIdFilter() const;
     uint32_t GetVendorIdFilter() const;
+
+  protected:
+    std::unique_ptr<dawn_native::Instance> mInstance;
 
   private:
     void DiscoverOpenGLAdapter();
 
     bool mUseWire = false;
     bool mEnableBackendValidation = false;
+    bool mSkipDawnValidation = false;
+    bool mUseSpvc = false;
     bool mBeginCaptureOnStartup = false;
     bool mHasVendorIdFilter = false;
     uint32_t mVendorIdFilter = 0;
-    std::unique_ptr<dawn_native::Instance> mInstance;
 };
 
 class DawnTestBase {
@@ -168,6 +183,8 @@ class DawnTestBase {
 
     bool UsesWire() const;
     bool IsBackendValidationEnabled() const;
+    bool IsDawnValidationSkipped() const;
+    bool IsSpvcBeingUsed() const;
 
     void StartExpectDeviceError();
     bool EndExpectDeviceError();
@@ -178,22 +195,22 @@ class DawnTestBase {
     dawn_native::PCIInfo GetPCIInfo() const;
 
   protected:
-    dawn::Device device;
-    dawn::Queue queue;
+    wgpu::Device device;
+    wgpu::Queue queue;
 
     DawnProcTable backendProcs = {};
-    DawnDevice backendDevice = nullptr;
+    WGPUDevice backendDevice = nullptr;
 
     // Helper methods to implement the EXPECT_ macros
     std::ostringstream& AddBufferExpectation(const char* file,
                                              int line,
-                                             const dawn::Buffer& buffer,
+                                             const wgpu::Buffer& buffer,
                                              uint64_t offset,
                                              uint64_t size,
                                              detail::Expectation* expectation);
     std::ostringstream& AddTextureExpectation(const char* file,
                                               int line,
-                                              const dawn::Texture& texture,
+                                              const wgpu::Texture& texture,
                                               uint32_t x,
                                               uint32_t y,
                                               uint32_t width,
@@ -225,13 +242,13 @@ class DawnTestBase {
     std::unique_ptr<utils::TerribleCommandBuffer> mS2cBuf;
 
     // Tracking for validation errors
-    static void OnDeviceError(DawnErrorType type, const char* message, void* userdata);
+    static void OnDeviceError(WGPUErrorType type, const char* message, void* userdata);
     bool mExpectError = false;
     bool mError = false;
 
     // MapRead buffers used to get data for the expectations
     struct ReadbackSlot {
-        dawn::Buffer buffer;
+        wgpu::Buffer buffer;
         uint64_t bufferSize;
         const void* mappedData = nullptr;
     };
@@ -239,7 +256,7 @@ class DawnTestBase {
 
     // Maps all the buffers and fill ReadbackSlot::mappedData
     void MapSlotsSynchronously();
-    static void SlotMapReadCallback(DawnBufferMapAsyncStatus status,
+    static void SlotMapReadCallback(WGPUBufferMapAsyncStatus status,
                                     const void* data,
                                     uint64_t dataLength,
                                     void* userdata);
@@ -247,7 +264,7 @@ class DawnTestBase {
 
     // Reserve space where the data for an expectation can be copied
     struct ReadbackReservation {
-        dawn::Buffer buffer;
+        wgpu::Buffer buffer;
         size_t slot;
         uint64_t offset;
     };

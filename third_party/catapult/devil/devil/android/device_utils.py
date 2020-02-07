@@ -63,7 +63,7 @@ _DEFAULT_TIMEOUT = 30
 _DEFAULT_RETRIES = 3
 
 # A sentinel object for default values
-# TODO(jbudorick,perezju): revisit how default values are handled by
+# TODO(jbudorick): revisit how default values are handled by
 # the timeout_retry decorators.
 DEFAULT = object()
 
@@ -221,6 +221,7 @@ _SPECIAL_ROOT_DEVICE_LIST = [
     'walleye', # Pixel 2
     'crosshatch', # Pixel 3 XL
     'blueline', # Pixel 3
+    'sdk_goog3_x86', # Crow emulator
 ]
 _SPECIAL_ROOT_DEVICE_LIST += ['aosp_%s' % _d for _d in
                               _SPECIAL_ROOT_DEVICE_LIST]
@@ -299,7 +300,8 @@ def RestartServer():
 
   adb_wrapper.AdbWrapper.KillServer()
   if not timeout_retry.WaitFor(adb_killed, wait_period=1, max_tries=5):
-    # TODO(perezju): raise an exception after fixng http://crbug.com/442319
+    # TODO(crbug.com/442319): Switch this to raise an exception if we
+    # figure out why sometimes not all adb servers on bots get killed.
     logger.warning('Failed to kill adb server')
   adb_wrapper.AdbWrapper.StartServer()
   if not timeout_retry.WaitFor(adb_started, wait_period=1, max_tries=5):
@@ -353,6 +355,58 @@ def _FormatPartialOutputError(output):
   else:
     message.extend('- %s' % line for line in lines)
   return '\n'.join(message)
+
+
+_PushableComponents = collections.namedtuple(
+    '_PushableComponents', ('host', 'device', 'collapse'))
+
+
+def _IterPushableComponents(host_path, device_path):
+  """Yields a sequence of paths that can be pushed directly via adb push.
+
+  `adb push` doesn't currently handle pushing directories that contain
+  symlinks: https://bit.ly/2pMBlW5
+
+  To circumvent this issue, we get the smallest set of files and/or
+  directories that can be pushed without attempting to push a directory
+  that contains a symlink.
+
+  This function does so by recursing through |host_path|. Each call
+  yields 3-tuples that include the smallest set of (host, device) path pairs
+  that can be passed to adb push and a bool indicating whether the parent
+  directory can be pushed -- i.e., if True, the host path is neither a
+  symlink nor a directory that contains a symlink.
+
+  Args:
+    host_path: an absolute path of a file or directory on the host
+    device_path: an absolute path of a file or directory on the device
+  Yields:
+    3-tuples containing
+      host (str): the host path, with symlinks dereferenced
+      device (str): the device path
+      collapse (bool): whether this entity permits its parent to be pushed
+        in its entirety. (Parents need permission from all child entities
+        in order to be pushed in their entirety.)
+  """
+  if os.path.isfile(host_path):
+    yield _PushableComponents(
+        os.path.realpath(host_path), device_path,
+        not os.path.islink(host_path))
+  else:
+    components = []
+    for child in os.listdir(host_path):
+      components.extend(
+          _IterPushableComponents(
+              os.path.join(host_path, child),
+              posixpath.join(device_path, child)))
+
+    if all(c.collapse for c in components):
+      yield _PushableComponents(
+          os.path.realpath(host_path), device_path,
+          not os.path.islink(host_path))
+    else:
+      for c in components:
+        yield c
 
 
 class DeviceUtils(object):
@@ -1167,8 +1221,8 @@ class DeviceUtils(object):
     This behaviour is consistent with that of command runners in cmd_helper as
     well as Python's own subprocess.Popen.
 
-    TODO(perezju) Change the default of |check_return| to True when callers
-      have switched to the new behaviour.
+    TODO(crbug.com/1029769) Change the default of |check_return| to True when
+    callers have switched to the new behaviour.
 
     Args:
       cmd: A sequence containing the command to run and its arguments, or a
@@ -1260,6 +1314,7 @@ class DeviceUtils(object):
 
     if isinstance(cmd, basestring):
       if not shell:
+        # TODO(crbug.com/1029769): Make this an error instead.
         logger.warning(
             'The command to run should preferably be passed as a sequence of'
             ' args. If shell features are needed (pipes, wildcards, variables)'
@@ -1577,8 +1632,8 @@ class DeviceUtils(object):
 
   @decorators.WithTimeoutAndRetriesFromInstance(
       min_default_timeout=PUSH_CHANGED_FILES_DEFAULT_TIMEOUT)
-  def PushChangedFiles(self, host_device_tuples, timeout=None,
-                       retries=None, delete_device_stale=False):
+  def PushChangedFiles(self, host_device_tuples, delete_device_stale=False,
+                       timeout=None, retries=None):
     """Push files to the device, skipping files that don't need updating.
 
     When a directory is pushed, it is traversed recursively on the host and
@@ -1591,15 +1646,28 @@ class DeviceUtils(object):
         |host_path| is an absolute path of a file or directory on the host
         that should be minimially pushed to the device, and |device_path| is
         an absolute path of the destination on the device.
+      delete_device_stale: option to delete stale files on device
       timeout: timeout in seconds
       retries: number of retries
-      delete_device_stale: option to delete stale files on device
 
     Raises:
       CommandFailedError on failure.
       CommandTimeoutError on timeout.
       DeviceUnreachableError on missing device.
     """
+    # TODO(crbug.com/1005504): Experiment with this on physical devices after
+    # upgrading devil's default adb beyond 1.0.39.
+    # TODO(crbug.com/1020716): disabled as can result in extra directory.
+    enable_push_sync = False
+
+    if enable_push_sync:
+      try:
+        self._PushChangedFilesSync(host_device_tuples)
+        return
+      except device_errors.AdbVersionError as e:
+        # If we don't meet the adb requirements, fall back to the previous
+        # sync-unaware implementation.
+        logging.warning(str(e))
 
     all_changed_files = []
     all_stale_files = []
@@ -1648,8 +1716,18 @@ class DeviceUtils(object):
     for func in cache_commit_funcs:
       func()
 
+  def _PushChangedFilesSync(self, host_device_tuples):
+    """Push changed files via `adb sync`.
+
+    Args:
+      host_device_tuples: Same as PushChangedFiles.
+    """
+    for h, d in host_device_tuples:
+      for ph, pd, _ in _IterPushableComponents(h, d):
+        self.adb.Push(ph, pd, sync=True)
+
   def _GetChangedAndStaleFiles(self, host_path, device_path, track_stale=False):
-    """Get files to push and delete
+    """Get files to push and delete.
 
     Args:
       host_path: an absolute path of a file or directory on the host
@@ -2418,7 +2496,10 @@ class DeviceUtils(object):
 
   @property
   def pixel_density(self):
-    return int(self.GetProp('ro.sf.lcd_density', cache=True))
+    density = self.GetProp('ro.sf.lcd_density', cache=True)
+    if not density and self.adb.is_emulator:
+      density = self.GetProp('qemu.sf.lcd_density', cache=True)
+    return int(density)
 
   @property
   def build_description(self):
@@ -2593,8 +2674,8 @@ class DeviceUtils(object):
     prop_cache = self._cache['getprop']
     if property_name in prop_cache:
       del prop_cache[property_name]
-    # TODO(perezju) remove the option and make the check mandatory, but using a
-    # single shell script to both set- and getprop.
+    # TODO(crbug.com/1029772) remove the option and make the check mandatory,
+    # but using a single shell script to both set- and getprop.
     if check and value != self.GetProp(property_name, cache=False):
       raise device_errors.CommandFailedError(
           'Unable to set property %r on the device to %r'
@@ -3296,9 +3377,7 @@ class DeviceUtils(object):
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def GrantPermissions(self, package, permissions, timeout=None, retries=None):
-    # Permissions only need to be set on M and above because of the changes to
-    # the permission model.
-    if not permissions or self.build_version_sdk < version_codes.MARSHMALLOW:
+    if not permissions:
       return
 
     permissions = set(

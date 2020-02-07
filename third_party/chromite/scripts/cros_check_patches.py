@@ -151,7 +151,7 @@ class PatchReporter(object):
     Returns:
       An int representing the total number of discrepancies found.
     """
-    expected_patches = set(self.patches.keys())
+    expected_patches = set(self.patches)
     observed_patches = set(observed_patches)
     missing_patches = sorted(list(expected_patches - observed_patches))
     unexpected_patches = sorted(list(observed_patches - expected_patches))
@@ -227,7 +227,7 @@ def main(argv):
 
   deps = depgraph.DepGraphGenerator()
   deps.Initialize(depgraph_argv)
-  deps_tree, deps_info = deps.GenDependencyTree()
+  deps_tree, deps_info, _ = deps.GenDependencyTree()
   deps_map = deps.GenDependencyGraph(deps_tree, deps_info)
 
   reporter = PatchReporter(config, overlay_dir, ebuild_cmd, equery_cmd,
@@ -237,5 +237,5 @@ def main(argv):
 
   print('Packages analyzed: %d' % reporter.package_count)
   print('Patches observed: %d' % len(observed))
-  print('Patches expected: %d' % len(reporter.patches.keys()))
+  print('Patches expected: %d' % len(reporter.patches))
   sys.exit(diff_count)

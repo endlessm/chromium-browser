@@ -79,10 +79,18 @@ class BASE_NODE {
     // Track command buffers that this object is bound to
     //  binding initialized when cmd referencing object is bound to command buffer
     //  binding removed when command buffer is reset or destroyed
-    // When an object is destroyed, any bound cbs are set to INVALID
-    std::unordered_set<CMD_BUFFER_STATE *> cb_bindings;
+    // When an object is destroyed, any bound cbs are set to INVALID.
+    // "int" value is an index into object_bindings where the corresponding
+    // backpointer to this node is stored.
+    small_unordered_map<CMD_BUFFER_STATE *, int, 8> cb_bindings;
+    // Set to true when the API-level object is destroyed, but this object may
+    // hang around until its shared_ptr refcount goes to zero.
+    bool destroyed;
 
-    BASE_NODE() { in_use.store(0); };
+    BASE_NODE() {
+        in_use.store(0);
+        destroyed = false;
+    };
 };
 
 // Track command pools and their command buffers
@@ -115,6 +123,7 @@ static inline bool QueueFamilyIsSpecial(const uint32_t queue_family_index) {
 
 static inline bool QueueFamilyIsIgnored(uint32_t queue_family_index) { return queue_family_index == VK_QUEUE_FAMILY_IGNORED; }
 
+// Intentionally ignore VulkanTypedHandle::node, it is optional
 inline bool operator==(const VulkanTypedHandle &a, const VulkanTypedHandle &b) NOEXCEPT {
     return a.handle == b.handle && a.type == b.type;
 }
@@ -217,15 +226,23 @@ class BINDABLE : public BASE_NODE {
     VkMemoryRequirements requirements;
     // bool to track if memory requirements were checked
     bool memory_requirements_checked;
+    // Tracks external memory types creating resource
+    VkExternalMemoryHandleTypeFlags external_memory_handle;
     // Sparse binding data, initially just tracking MEM_BINDING per mem object
     //  There's more data for sparse bindings so need better long-term solution
     // TODO : Need to update solution to track all sparse binding data
     std::unordered_set<MEM_BINDING> sparse_bindings;
 
-    std::unordered_set<VkDeviceMemory> bound_memory_set_;
+    small_unordered_set<VkDeviceMemory, 1> bound_memory_set_;
 
     BINDABLE()
-        : sparse(false), binding{}, requirements{}, memory_requirements_checked(false), sparse_bindings{}, bound_memory_set_{} {};
+        : sparse(false),
+          binding{},
+          requirements{},
+          memory_requirements_checked(false),
+          external_memory_handle(0),
+          sparse_bindings{},
+          bound_memory_set_{} {};
 
     // Update the cached set of memory bindings.
     // Code that changes binding.mem or sparse_bindings must call UpdateBoundMemorySet()
@@ -242,7 +259,7 @@ class BINDABLE : public BASE_NODE {
 
     // Return unordered set of memory objects that are bound
     // Instead of creating a set from scratch each query, return the cached one
-    const std::unordered_set<VkDeviceMemory> &GetBoundMemory() const { return bound_memory_set_; }
+    const small_unordered_set<VkDeviceMemory, 1> &GetBoundMemory() const { return bound_memory_set_; }
 };
 
 class BUFFER_STATE : public BINDABLE {
@@ -262,6 +279,11 @@ class BUFFER_STATE : public BINDABLE {
         if (createInfo.flags & VK_BUFFER_CREATE_SPARSE_BINDING_BIT) {
             sparse = true;
         }
+
+        auto *externalMemoryInfo = lvl_find_in_chain<VkExternalMemoryBufferCreateInfo>(pCreateInfo->pNext);
+        if (externalMemoryInfo) {
+            external_memory_handle = externalMemoryInfo->handleTypes;
+        }
     };
 
     BUFFER_STATE(BUFFER_STATE const &rh_obj) = delete;
@@ -278,7 +300,9 @@ class BUFFER_VIEW_STATE : public BASE_NODE {
   public:
     VkBufferView buffer_view;
     VkBufferViewCreateInfo create_info;
-    BUFFER_VIEW_STATE(VkBufferView bv, const VkBufferViewCreateInfo *ci) : buffer_view(bv), create_info(*ci){};
+    std::shared_ptr<BUFFER_STATE> buffer_state;
+    BUFFER_VIEW_STATE(const std::shared_ptr<BUFFER_STATE> &bf, VkBufferView bv, const VkBufferViewCreateInfo *ci)
+        : buffer_view(bv), create_info(*ci), buffer_state(bf){};
     BUFFER_VIEW_STATE(const BUFFER_VIEW_STATE &rh_obj) = delete;
 };
 
@@ -379,7 +403,8 @@ class IMAGE_VIEW_STATE : public BASE_NODE {
     VkSampleCountFlagBits samples;
     unsigned descriptor_format_bits;
     VkSamplerYcbcrConversion samplerConversion;  // Handle of the ycbcr sampler conversion the image was created with, if any
-    IMAGE_VIEW_STATE(const IMAGE_STATE *image_state, VkImageView iv, const VkImageViewCreateInfo *ci);
+    std::shared_ptr<IMAGE_STATE> image_state;
+    IMAGE_VIEW_STATE(const std::shared_ptr<IMAGE_STATE> &image_state, VkImageView iv, const VkImageViewCreateInfo *ci);
     IMAGE_VIEW_STATE(const IMAGE_VIEW_STATE &rh_obj) = delete;
 };
 
@@ -450,12 +475,16 @@ struct DEVICE_MEMORY_STATE : public BASE_NODE {
           p_driver_data(0){};
 };
 
-class SWAPCHAIN_NODE {
+struct SWAPCHAIN_IMAGE {
+    VkImage image;
+    std::unordered_set<VkImage> bound_images;
+};
+
+class SWAPCHAIN_NODE : public BASE_NODE {
   public:
     safe_VkSwapchainCreateInfoKHR createInfo;
     VkSwapchainKHR swapchain;
-    std::vector<VkImage> images;
-    std::unordered_set<VkImage> bound_images;
+    std::vector<SWAPCHAIN_IMAGE> images;
     bool retired = false;
     bool shared_presentable = false;
     CALL_STATE vkGetSwapchainImagesKHRState = UNCALLED;
@@ -1034,10 +1063,35 @@ struct QueryObject {
     // These next two fields are *not* used in hash or comparison, they are effectively a data payload
     uint32_t index;  // must be zero if !indexed
     bool indexed;
-    QueryObject(VkQueryPool pool_, uint32_t query_) : pool(pool_), query(query_), index(0), indexed(false) {}
-    QueryObject(VkQueryPool pool_, uint32_t query_, uint32_t index_) : pool(pool_), query(query_), index(index_), indexed(true) {}
+    // Command index in the command buffer where the end of the query was
+    // recorded (equal to the number of commands in the command buffer before
+    // the end of the query).
+    uint64_t endCommandIndex;
+
+    QueryObject(VkQueryPool pool_, uint32_t query_) : pool(pool_), query(query_), index(0), indexed(false), endCommandIndex(0) {}
+    QueryObject(VkQueryPool pool_, uint32_t query_, uint32_t index_)
+        : pool(pool_), query(query_), index(index_), indexed(true), endCommandIndex(0) {}
+    QueryObject(const QueryObject &obj)
+        : pool(obj.pool), query(obj.query), index(obj.index), indexed(obj.indexed), endCommandIndex(obj.endCommandIndex) {}
     bool operator<(const QueryObject &rhs) const { return (pool == rhs.pool) ? query < rhs.query : pool < rhs.pool; }
 };
+
+inline bool operator==(const QueryObject &query1, const QueryObject &query2) {
+    return ((query1.pool == query2.pool) && (query1.query == query2.query));
+}
+
+struct QueryObjectPass {
+    QueryObject obj;
+    uint32_t perf_pass;
+
+    QueryObjectPass(const QueryObject &obj_, uint32_t perf_pass_) : obj(obj_), perf_pass(perf_pass_) {}
+    QueryObjectPass(const QueryObjectPass &obj_) : obj(obj_.obj), perf_pass(obj_.perf_pass) {}
+    bool operator<(const QueryObjectPass &rhs) const { return (obj == rhs.obj) ? perf_pass < rhs.perf_pass : obj < rhs.obj; }
+};
+
+inline bool operator==(const QueryObjectPass &query1, const QueryObjectPass &query2) {
+    return ((query1.obj == query2.obj) && (query1.perf_pass == query2.perf_pass));
+}
 
 enum QueryState {
     QUERYSTATE_UNKNOWN,    // Initial state.
@@ -1074,15 +1128,18 @@ inline const char *string_QueryResultType(QueryResultType result_type) {
     return "UNKNOWN QUERY STATE";  // Unreachable.
 }
 
-inline bool operator==(const QueryObject &query1, const QueryObject &query2) {
-    return ((query1.pool == query2.pool) && (query1.query == query2.query));
-}
-
 namespace std {
 template <>
 struct hash<QueryObject> {
     size_t operator()(QueryObject query) const throw() {
         return hash<uint64_t>()((uint64_t)(query.pool)) ^ hash<uint32_t>()(query.query);
+    }
+};
+
+template <>
+struct hash<QueryObjectPass> {
+    size_t operator()(QueryObjectPass query) const throw() {
+        return hash<QueryObject>()(query.obj) ^ hash<uint32_t>()(query.perf_pass);
     }
 };
 }  // namespace std
@@ -1151,7 +1208,7 @@ using PipelineLayoutCompatDict = hash_util::Dictionary<PipelineLayoutCompatDef, 
 using PipelineLayoutCompatId = PipelineLayoutCompatDict::Id;
 
 // Store layouts and pushconstants for PipelineLayout
-struct PIPELINE_LAYOUT_STATE {
+struct PIPELINE_LAYOUT_STATE : public BASE_NODE {
     VkPipelineLayout layout;
     std::vector<std::shared_ptr<cvdescriptorset::DescriptorSetLayout const>> set_layouts;
     PushConstantRangesId push_constant_ranges;
@@ -1191,21 +1248,23 @@ class PIPELINE_STATE : public BASE_NODE {
     safe_VkComputePipelineCreateInfo computePipelineCI;
     safe_VkRayTracingPipelineCreateInfoNV raytracingPipelineCI;
     // Hold shared ptr to RP in case RP itself is destroyed
-    std::shared_ptr<RENDER_PASS_STATE> rp_state;
+    std::shared_ptr<const RENDER_PASS_STATE> rp_state;
     // Flag of which shader stages are active for this pipeline
     uint32_t active_shaders;
     uint32_t duplicate_shaders;
     // Capture which slots (set#->bindings) are actually used by the shaders of this pipeline
     std::unordered_map<uint32_t, BindingReqMap> active_slots;
+    uint32_t max_active_slot;  // the highest set number in active_slots for pipeline layout compatibility checks
     // Additional metadata needed by pipeline_state initialization and validation
     std::vector<StageState> stage_state;
     // Vtx input info (if any)
     std::vector<VkVertexInputBindingDescription> vertex_binding_descriptions_;
     std::vector<VkVertexInputAttributeDescription> vertex_attribute_descriptions_;
+    std::vector<VkDeviceSize> vertex_attribute_alignments_;
     std::unordered_map<uint32_t, uint32_t> vertex_binding_to_index_map_;
     std::vector<VkPipelineColorBlendAttachmentState> attachments;
     bool blendConstantsEnabled;  // Blend constants enabled for any attachments
-    PIPELINE_LAYOUT_STATE pipeline_layout;
+    std::shared_ptr<const PIPELINE_LAYOUT_STATE> pipeline_layout;
     VkPrimitiveTopology topology_at_rasterizer;
 
     // Default constructor
@@ -1218,6 +1277,7 @@ class PIPELINE_STATE : public BASE_NODE {
           active_shaders(0),
           duplicate_shaders(0),
           active_slots(),
+          max_active_slot(0),
           vertex_binding_descriptions_(),
           vertex_attribute_descriptions_(),
           vertex_binding_to_index_map_(),
@@ -1236,10 +1296,10 @@ class PIPELINE_STATE : public BASE_NODE {
         stage_state.clear();
     }
 
-    void initGraphicsPipeline(ValidationStateTracker *state_data, const VkGraphicsPipelineCreateInfo *pCreateInfo,
-                              std::shared_ptr<RENDER_PASS_STATE> &&rpstate);
-    void initComputePipeline(ValidationStateTracker *state_data, const VkComputePipelineCreateInfo *pCreateInfo);
-    void initRayTracingPipelineNV(ValidationStateTracker *state_data, const VkRayTracingPipelineCreateInfoNV *pCreateInfo);
+    void initGraphicsPipeline(const ValidationStateTracker *state_data, const VkGraphicsPipelineCreateInfo *pCreateInfo,
+                              std::shared_ptr<const RENDER_PASS_STATE> &&rpstate);
+    void initComputePipeline(const ValidationStateTracker *state_data, const VkComputePipelineCreateInfo *pCreateInfo);
+    void initRayTracingPipelineNV(const ValidationStateTracker *state_data, const VkRayTracingPipelineCreateInfoNV *pCreateInfo);
 
     inline VkPipelineBindPoint getPipelineType() const {
         if (graphicsPipelineCI.sType == VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO)
@@ -1454,6 +1514,10 @@ struct QFOTransferCBScoreboards {
     QFOTransferCBScoreboard<Barrier> release;
 };
 
+typedef std::map<QueryObject, QueryState> QueryMap;
+typedef std::map<QueryObjectPass, QueryState> QueryPassMap;
+typedef std::unordered_map<VkEvent, VkPipelineStageFlags> EventToStageMap;
+
 // Cmd Buffer Wrapper Struct - TODO : This desperately needs its own class
 struct CMD_BUFFER_STATE : public BASE_NODE {
     VkCommandBuffer commandBuffer;
@@ -1461,12 +1525,15 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     VkCommandBufferBeginInfo beginInfo;
     VkCommandBufferInheritanceInfo inheritanceInfo;
     VkDevice device;  // device this CB belongs to
+    std::shared_ptr<const COMMAND_POOL_STATE> command_pool;
     bool hasDrawCmd;
     bool hasTraceRaysCmd;
     bool hasBuildAccelerationStructureCmd;
     bool hasDispatchCmd;
-    CB_STATE state;        // Track cmd buffer update state
-    uint64_t submitCount;  // Number of times CB has been submitted
+
+    CB_STATE state;         // Track cmd buffer update state
+    uint64_t commandCount;  // Number of commands recorded
+    uint64_t submitCount;   // Number of times CB has been submitted
     typedef uint64_t ImageLayoutUpdateCount;
     ImageLayoutUpdateCount image_layout_change_count;  // The sequence number for changes to image layout (for cached validation)
     CBStatusFlags status;                              // Track status of various bindings on cmd buffer
@@ -1477,6 +1544,10 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     //  each individual CMD_NODE referencing its own "lastBound" state
     // Store last bound state for Gfx & Compute pipeline bind points
     std::map<uint32_t, LAST_BOUND_STATE> lastBound;
+
+    using Bindings = std::map<uint32_t, descriptor_req>;
+    using Pipelines_Bindings = std::map<VkPipeline, Bindings>;
+    std::unordered_map<VkDescriptorSet, Pipelines_Bindings> validate_descriptorsets_in_queuesubmit;
 
     uint32_t viewportMask;
     uint32_t scissorMask;
@@ -1491,7 +1562,7 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     std::unordered_set<VkFramebuffer> framebuffers;
     // Unified data structs to track objects bound to this command buffer as well as object
     //  dependencies that have been broken : either destroyed objects, or updated descriptor sets
-    std::unordered_set<VulkanTypedHandle> object_bindings;
+    std::vector<VulkanTypedHandle> object_bindings;
     std::vector<VulkanTypedHandle> broken_bindings;
 
     QFOTransferBarrierSets<VkBufferMemoryBarrier> qfo_transfer_buffer_barriers;
@@ -1500,13 +1571,10 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     std::unordered_set<VkEvent> waitedEvents;
     std::vector<VkEvent> writeEventsBeforeWait;
     std::vector<VkEvent> events;
-    std::map<QueryObject, QueryState> queryToStateMap;
     std::unordered_set<QueryObject> activeQueries;
     std::unordered_set<QueryObject> startedQueries;
     typedef std::unordered_map<VkImage, std::unique_ptr<ImageSubresourceLayoutMap>> ImageLayoutMap;
     ImageLayoutMap image_layout_map;
-    std::unordered_map<VkEvent, VkPipelineStageFlags> eventToStageMap;
-    std::vector<CBVertexBufferBindingInfo> cb_vertex_buffer_binding_info;
     CBVertexBufferBindingInfo current_vertex_buffer_binding_info;
     bool vertex_buffer_used;  // Track for perf warning to make sure any bound vtx buffer used
     VkCommandBuffer primaryCommandBuffer;
@@ -1514,15 +1582,20 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     // If secondary, the primary command buffers we will be called by.
     std::unordered_set<CMD_BUFFER_STATE *> linkedCommandBuffers;
     // Validation functions run at primary CB queue submit time
-    std::vector<std::function<bool()>> queue_submit_functions;
+    std::vector<std::function<bool(const ValidationStateTracker *device_data, const class QUEUE_STATE *queue_state)>>
+        queue_submit_functions;
     // Validation functions run when secondary CB is executed in primary
     std::vector<std::function<bool(const CMD_BUFFER_STATE *, VkFramebuffer)>> cmd_execute_commands_functions;
-    std::unordered_set<VkDeviceMemory> memObjs;
-    std::vector<std::function<bool(VkQueue)>> eventUpdates;
-    std::vector<std::function<bool(VkQueue)>> queryUpdates;
+    std::vector<
+        std::function<bool(const ValidationStateTracker *device_data, bool do_validate, EventToStageMap *localEventToStageMap)>>
+        eventUpdates;
+    std::vector<std::function<bool(const ValidationStateTracker *device_data, bool do_validate, QueryMap *localQueryToStateMap)>>
+        queryUpdates;
     std::unordered_set<cvdescriptorset::DescriptorSet *> validated_descriptor_sets;
     // Contents valid only after an index buffer is bound (CBSTATUS_INDEX_BUFFER_BOUND set)
     IndexBufferBinding index_buffer_binding;
+    bool performance_lock_acquired = false;
+    bool performance_lock_released = false;
 
     // Cache of current insert label...
     LoggingLabel debug_label;
@@ -1557,18 +1630,20 @@ struct SEMAPHORE_WAIT {
 struct CB_SUBMISSION {
     CB_SUBMISSION(std::vector<VkCommandBuffer> const &cbs, std::vector<SEMAPHORE_WAIT> const &waitSemaphores,
                   std::vector<VkSemaphore> const &signalSemaphores, std::vector<VkSemaphore> const &externalSemaphores,
-                  VkFence fence)
+                  VkFence fence, uint32_t perf_submit_pass)
         : cbs(cbs),
           waitSemaphores(waitSemaphores),
           signalSemaphores(signalSemaphores),
           externalSemaphores(externalSemaphores),
-          fence(fence) {}
+          fence(fence),
+          perf_submit_pass(perf_submit_pass) {}
 
     std::vector<VkCommandBuffer> cbs;
     std::vector<SEMAPHORE_WAIT> waitSemaphores;
     std::vector<VkSemaphore> signalSemaphores;
     std::vector<VkSemaphore> externalSemaphores;
     VkFence fence;
+    uint32_t perf_submit_pass;
 };
 
 struct IMAGE_LAYOUT_STATE {
@@ -1585,7 +1660,7 @@ class FRAMEBUFFER_STATE : public BASE_NODE {
   public:
     VkFramebuffer framebuffer;
     safe_VkFramebufferCreateInfo createInfo;
-    std::shared_ptr<RENDER_PASS_STATE> rp_state;
+    std::shared_ptr<const RENDER_PASS_STATE> rp_state;
     FRAMEBUFFER_STATE(VkFramebuffer fb, const VkFramebufferCreateInfo *pCreateInfo, std::shared_ptr<RENDER_PASS_STATE> &&rpstate)
         : framebuffer(fb), createInfo(pCreateInfo), rp_state(rpstate){};
 };
@@ -1608,7 +1683,6 @@ struct DeviceFeatures {
     VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
     VkPhysicalDeviceBufferAddressFeaturesEXT buffer_address;
     VkPhysicalDeviceCooperativeMatrixFeaturesNV cooperative_matrix_features;
-    VkPhysicalDeviceFloatControlsPropertiesKHR float_controls;
     VkPhysicalDeviceHostQueryResetFeaturesEXT host_query_reset_features;
     VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV fragment_shader_barycentric_features;
@@ -1620,24 +1694,19 @@ struct DeviceFeatures {
     VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_exe_props_features;
     VkPhysicalDeviceDedicatedAllocationImageAliasingFeaturesNV dedicated_allocation_image_aliasing_features;
     VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
+    VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layouts_features;
+    VkPhysicalDevicePerformanceQueryFeaturesKHR performance_query_features;
+    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
 };
 
 enum RenderPassCreateVersion { RENDER_PASS_VERSION_1 = 0, RENDER_PASS_VERSION_2 = 1 };
-
-struct ShaderTracker {
-    VkPipeline pipeline;
-    VkShaderModule shader_module;
-    std::vector<unsigned int> pgm;
-};
+enum CommandVersion { CMD_VERSION_1 = 0, CMD_VERSION_2 = 1 };
 
 enum BarrierOperationsType {
     kAllAcquire,  // All Barrier operations are "ownership acquire" operations
     kAllRelease,  // All Barrier operations are "ownership release" operations
     kGeneral,     // Either no ownership operations or a mix of ownership operation types and/or non-ownership operations
 };
-
-std::shared_ptr<cvdescriptorset::DescriptorSetLayout const> const GetDescriptorSetLayout(const ValidationStateTracker *,
-                                                                                         VkDescriptorSetLayout);
 
 ImageSubresourceLayoutMap *GetImageSubresourceLayoutMap(CMD_BUFFER_STATE *cb_state, const IMAGE_STATE &image_state);
 const ImageSubresourceLayoutMap *GetImageSubresourceLayoutMap(const CMD_BUFFER_STATE *cb_state, VkImage image);

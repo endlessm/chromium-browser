@@ -215,6 +215,10 @@ TEST_F(NotificationPlatformBridgeMacTest, TestNotificationVerifyOrigin) {
   // If however the origin is not present the response should be fine.
   [response removeObjectForKey:notification_constants::kNotificationOrigin];
   EXPECT_TRUE(NotificationPlatformBridgeMac::VerifyNotificationData(response));
+
+  // Empty origin should be fine.
+  [response setValue:@"" forKey:notification_constants::kNotificationOrigin];
+  EXPECT_TRUE(NotificationPlatformBridgeMac::VerifyNotificationData(response));
 }
 
 TEST_F(NotificationPlatformBridgeMacTest, TestDisplayNoButtons) {

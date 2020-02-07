@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <memory>
+#include <string>
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
@@ -12,12 +13,14 @@
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_dialog_delegate.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/fake_deep_scanning_dialog_delegate.h"
+#include "chrome/browser/safe_browsing/dm_token_utils.h"
 #include "chrome/browser/ui/tab_contents/chrome_web_contents_view_handle_drop.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/safe_browsing/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/features.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/drop_data.h"
 #include "content/public/test/browser_task_environment.h"
@@ -51,7 +54,7 @@ class ChromeWebContentsViewDelegateHandleOnPerformDrop : public testing::Test {
     if (!enable)
       return;
 
-    EnableFeature(safe_browsing::kDeepScanningOfUploads);
+    EnableFeature(safe_browsing::kContentComplianceEnabled);
 
     run_loop_.reset(new base::RunLoop());
 
@@ -66,7 +69,8 @@ class ChromeWebContentsViewDelegateHandleOnPerformDrop : public testing::Test {
         },
         scan_succeeds);
 
-    safe_browsing::DeepScanningDialogDelegate::SetDMTokenForTesting("dm_token");
+    safe_browsing::SetDMTokenForTesting(
+        policy::DMToken::CreateValidTokenForTesting("dm_token"));
     safe_browsing::DeepScanningDialogDelegate::SetFactoryForTesting(
         base::BindRepeating(
             &safe_browsing::FakeDeepScanningDialogDelegate::Create,
@@ -165,10 +169,10 @@ TEST_F(ChromeWebContentsViewDelegateHandleOnPerformDrop, FileContents) {
 // Make sure DropData::filenames is handled correctly.
 TEST_F(ChromeWebContentsViewDelegateHandleOnPerformDrop, Files) {
   content::DropData data;
-  data.filenames.emplace_back(base::FilePath(FILE_PATH_LITERAL("C:\\Foo")),
-                              base::FilePath(FILE_PATH_LITERAL("Foo")));
-  data.filenames.emplace_back(base::FilePath(FILE_PATH_LITERAL("C:\\Bar")),
-                              base::FilePath(FILE_PATH_LITERAL("Bar")));
+  data.filenames.emplace_back(base::FilePath(FILE_PATH_LITERAL("C:\\Foo.doc")),
+                              base::FilePath(FILE_PATH_LITERAL("Foo.doc")));
+  data.filenames.emplace_back(base::FilePath(FILE_PATH_LITERAL("C:\\Bar.doc")),
+                              base::FilePath(FILE_PATH_LITERAL("Bar.doc")));
   RunTest(data, /*enable=*/false, /*scan_succeeds=*/true);
   RunTest(data, /*enable=*/true, /*scan_succeeds=*/false);
   RunTest(data, /*enable=*/true, /*scan_succeeds=*/true);

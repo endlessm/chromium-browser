@@ -6,11 +6,10 @@ package org.chromium.chrome.features.start_surface;
 
 import androidx.annotation.NonNull;
 
-import com.google.android.libraries.feed.api.client.knowncontent.ContentMetadata;
-
 import org.chromium.chrome.browser.feed.FeedLoggingBridge;
 import org.chromium.chrome.browser.feed.FeedOfflineIndicator;
 import org.chromium.chrome.browser.feed.action.FeedActionHandler;
+import org.chromium.chrome.browser.feed.library.api.client.knowncontent.ContentMetadata;
 import org.chromium.chrome.browser.native_page.NativePageNavigationDelegate;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 
@@ -32,6 +31,16 @@ class ExploreSurfaceActionHandler extends FeedActionHandler {
 
     @Override
     public boolean canDownloadUrl() {
+        return false;
+    }
+
+    @Override
+    public boolean canOpenUrlInIncognitoMode() {
+        return false;
+    }
+
+    @Override
+    public boolean canOpenUrlInNewTab() {
         return false;
     }
 

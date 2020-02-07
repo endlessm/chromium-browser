@@ -60,13 +60,13 @@
 #include "chrome/browser/extensions/install_verifier.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/lookalikes/safety_tips/safety_tip_test_utils.h"
 #include "chrome/browser/metrics/subprocess_metrics_provider.h"
 #include "chrome/browser/permissions/permission_request_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
+#include "chrome/browser/reputation/safety_tip_test_utils.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -308,7 +308,7 @@ class PercentWaiter : public download::DownloadItem::Observer {
   download::DownloadItem* item_;
   bool waiting_ = false;
   bool error_ = false;
-  int prev_percent_ = 0;
+  int prev_percent_ = -1;
 
   DISALLOW_COPY_AND_ASSIGN(PercentWaiter);
 };
@@ -421,13 +421,34 @@ class SimpleDownloadManagerCoordinatorWaiter
     base::RunLoop run_loop;
     completion_closure_ = run_loop.QuitClosure();
     run_loop.Run();
-    return;
   }
+
+  // Wait for a particular number of download to be created.
+  void WaitForDownloadCreation(int num_download_created) {
+    if (num_download_created_ >= num_download_created)
+      return;
+    num_download_to_wait_ = num_download_created;
+    base::RunLoop run_loop;
+    download_creation_closure_ = run_loop.QuitClosure();
+    run_loop.Run();
+  }
+
+  int num_download_created() const { return num_download_created_; }
+
+  void reset_num_download_created() { num_download_created_ = 0; }
 
  private:
   void OnDownloadsInitialized(bool active_downloads_only) override {
     if (completion_closure_)
       std::move(completion_closure_).Run();
+  }
+
+  void OnDownloadCreated(download::DownloadItem* item) override {
+    num_download_created_++;
+    if (download_creation_closure_ &&
+        num_download_created_ >= num_download_to_wait_) {
+      std::move(download_creation_closure_).Run();
+    }
   }
 
   void OnManagerGoingDown(
@@ -439,6 +460,9 @@ class SimpleDownloadManagerCoordinatorWaiter
 
   download::SimpleDownloadManagerCoordinator* coordinator_;
   base::OnceClosure completion_closure_;
+  base::OnceClosure download_creation_closure_;
+  int num_download_created_ = 0;
+  int num_download_to_wait_ = 0;
 };
 
 void CreateCompletedDownload(content::DownloadManager* download_manager,
@@ -829,12 +853,11 @@ class DownloadTest : public InProcessBrowserTest {
                  : embedded_test_server()->GetURL(
                        content::SlowDownloadHttpResponse::kUnknownSizeUrl));
     GURL finish_url = embedded_test_server()->GetURL(
-        content::SlowDownloadHttpResponse::kFinishDownloadUrl);
+        content::SlowDownloadHttpResponse::kFinishSlowResponseUrl);
 
     // TODO(ahendrickson) -- |expected_title_in_progress| and
     // |expected_title_finished| need to be checked.
-    base::FilePath filename;
-    net::FileURLToFilePath(url, &filename);
+    base::FilePath filename = base::FilePath::FromUTF8Unsafe(url.path());
     base::string16 expected_title_in_progress(
         base::ASCIIToUTF16(partial_indication) + filename.LossyDisplayName());
     base::string16 expected_title_finished(
@@ -870,10 +893,8 @@ class DownloadTest : public InProcessBrowserTest {
 
     // TODO(ahendrickson): check download status text after downloading.
 
-    base::FilePath basefilename(filename.BaseName());
-    net::FileURLToFilePath(url, &filename);
     base::FilePath download_path =
-        GetDownloadDirectory(browser).Append(basefilename);
+        GetDownloadDirectory(browser).Append(filename.BaseName());
 
     bool downloaded_path_exists = base::PathExists(download_path);
     EXPECT_TRUE(downloaded_path_exists);
@@ -881,8 +902,9 @@ class DownloadTest : public InProcessBrowserTest {
       return false;
 
     // Check the file contents.
-    size_t file_size = content::SlowDownloadHttpResponse::kFirstDownloadSize +
-                       content::SlowDownloadHttpResponse::kSecondDownloadSize;
+    size_t file_size =
+        content::SlowDownloadHttpResponse::kFirstResponsePartSize +
+        content::SlowDownloadHttpResponse::kSecondResponsePartSize;
     std::string expected_contents(file_size, '*');
     EXPECT_TRUE(VerifyFile(download_path, expected_contents, file_size));
 
@@ -1135,6 +1157,7 @@ class DownloadTest : public InProcessBrowserTest {
     base::FilePath destination_folder = GetDownloadDirectory(browser());
     DVLOG(1) << " " << __FUNCTION__ << "()"
              << " folder = '" << destination_folder.value() << "'";
+    base::ScopedAllowBlockingForTesting allow_blocking;
     base::FilePermissionRestorer permission_restorer(destination_folder);
     EXPECT_TRUE(base::MakeFileUnwritable(destination_folder));
 
@@ -2083,7 +2106,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, MAYBE_DownloadHistoryCheck) {
 
   // Finsih the download.
   GURL finish_url = embedded_test_server()->GetURL(
-      content::SlowDownloadHttpResponse::kFinishDownloadUrl);
+      content::SlowDownloadHttpResponse::kFinishSlowResponseUrl);
   ui_test_utils::NavigateToURL(browser(), finish_url);
 
   download_observer->WaitForFinished();
@@ -2113,8 +2136,8 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, MAYBE_DownloadHistoryCheck) {
   EXPECT_GE(end, row1.end_time);
   EXPECT_EQ(0, row1.received_bytes);  // There's no ETag. So the intermediate
                                       // state is discarded.
-  EXPECT_EQ(content::SlowDownloadHttpResponse::kFirstDownloadSize +
-                content::SlowDownloadHttpResponse::kSecondDownloadSize,
+  EXPECT_EQ(content::SlowDownloadHttpResponse::kFirstResponsePartSize +
+                content::SlowDownloadHttpResponse::kSecondResponsePartSize,
             row1.total_bytes);
   EXPECT_EQ(history::DownloadState::INTERRUPTED, row1.state);
   EXPECT_EQ(history::ToHistoryDownloadInterruptReason(
@@ -2611,7 +2634,15 @@ class DownloadTestWithHistogramTester : public DownloadTest {
   std::unique_ptr<URLLoaderInterceptor> url_loader_interceptor_;
 };
 
-IN_PROC_BROWSER_TEST_F(DownloadTestWithHistogramTester, SavePageNonHTMLViaGet) {
+// Flaky on Linux and Windows. https://crbug.com/1028371
+#if defined(OS_LINUX) || defined(OS_WIN)
+#define MAYBE_SavePageNonHTMLViaGet DISABLED_SavePageNonHTMLViaGet
+#else
+#define MAYBE_SavePageNonHTMLViaGet SavePageNonHTMLViaGet
+#endif
+
+IN_PROC_BROWSER_TEST_F(DownloadTestWithHistogramTester,
+                       MAYBE_SavePageNonHTMLViaGet) {
   embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
   ASSERT_TRUE(embedded_test_server()->Start());
   EnableFileChooser(true);
@@ -2652,7 +2683,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTestWithHistogramTester, SavePageNonHTMLViaGet) {
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::WebContextMenuData::kMediaTypeImage;
+  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
   context_menu_params.src_url = url;
   context_menu_params.page_url = url;
   TestRenderViewContextMenu menu(
@@ -2719,7 +2750,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, MAYBE_SaveLargeImage) {
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::WebContextMenuData::kMediaTypeImage;
+  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
   context_menu_params.src_url = GURL(data_url);
   context_menu_params.page_url = url;
   TestRenderViewContextMenu menu(
@@ -2823,7 +2854,7 @@ IN_PROC_BROWSER_TEST_F(DownloadTest, SavePageNonHTMLViaPost) {
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::WebContextMenuData::kMediaTypeImage;
+  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
   context_menu_params.src_url = jpeg_url;
   context_menu_params.page_url = jpeg_url;
   TestRenderViewContextMenu menu(web_contents->GetMainFrame(),
@@ -3321,7 +3352,7 @@ IN_PROC_BROWSER_TEST_P(DownloadReferrerPolicyTest,
           DownloadManagerForBrowser(browser()), 1,
           content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_FAIL));
   content::ContextMenuParams context_menu_params;
-  context_menu_params.media_type = blink::WebContextMenuData::kMediaTypeImage;
+  context_menu_params.media_type = blink::ContextMenuDataMediaType::kImage;
   context_menu_params.page_url = url;
   context_menu_params.src_url = img_url;
   TestRenderViewContextMenu menu(
@@ -4117,6 +4148,49 @@ IN_PROC_BROWSER_TEST_F(DownloadWakeLockTest, WakeLockAcquireAndCancel) {
                    device::mojom::WakeLockType::kPreventAppSuspension));
 }
 
+// Downloading a data URL that's bigger than url::kMaxURLChars should work.
+IN_PROC_BROWSER_TEST_F(DownloadTest, DownloadLargeDataURL) {
+  embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  auto completion_observer =
+      std::make_unique<content::DownloadTestObserverTerminal>(
+          DownloadManagerForBrowser(browser()), 1,
+          content::DownloadTestObserver::ON_DANGEROUS_DOWNLOAD_IGNORE);
+
+  // Navigating to large_data_url.html will trigger a download of a data URL
+  // that is larger than 2MB.
+  GURL url = embedded_test_server()->GetURL("/downloads/large_data_url.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  base::FilePath data_file = ui_test_utils::GetTestFilePath(
+      base::FilePath().AppendASCII("downloads"),
+      base::FilePath().AppendASCII("large_image.png"));
+  std::string png_data;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    CHECK(base::ReadFileToString(data_file, &png_data));
+  }
+
+  completion_observer->WaitForFinished();
+  EXPECT_EQ(
+      1u, completion_observer->NumDownloadsSeenInState(DownloadItem::COMPLETE));
+
+  // Validate that the correct file was downloaded via the context menu.
+  std::vector<DownloadItem*> download_items;
+  GetDownloads(browser(), &download_items);
+  ASSERT_EQ(base::FilePath(FILE_PATH_LITERAL("large.png")),
+            download_items[0]->GetFileNameToReportUser());
+
+  std::string downloaded_data;
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    CHECK(base::ReadFileToString(download_items[0]->GetFullPath(),
+                                 &downloaded_data));
+  }
+  ASSERT_EQ(downloaded_data, png_data);
+}
+
 // Testing the behavior of resuming with only in-progress download manager.
 class InProgressDownloadTest : public DownloadTest {
  public:
@@ -4195,6 +4269,63 @@ IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
   ASSERT_TRUE(waiter.WaitForFinished());
   download::DownloadItem* history_download = manager->GetDownloadByGuid(guid);
   CHECK_EQ(download, history_download);
+}
+
+// Check that InProgressDownloadManager can handle transient downloads with the
+// same GUID.
+IN_PROC_BROWSER_TEST_F(InProgressDownloadTest,
+                       DownloadURLWithInProgressManager) {
+  embedded_test_server()->ServeFilesFromDirectory(GetTestDataDirectory());
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL url = embedded_test_server()->GetURL("/downloads/a_zip_file.zip");
+  base::FilePath origin(OriginFile(
+      base::FilePath(FILE_PATH_LITERAL("downloads/a_zip_file.zip"))));
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  ASSERT_TRUE(base::PathExists(origin));
+  std::string guid = base::GenerateGUID();
+
+  // Wait for in-progress download manager to initialize.
+  download::InProgressDownloadManager* in_progress_manager =
+      DownloadManagerUtils::GetInProgressDownloadManager(
+          browser()->profile()->GetProfileKey());
+  download::SimpleDownloadManagerCoordinator* coordinator =
+      SimpleDownloadManagerCoordinatorFactory::GetForKey(
+          browser()->profile()->GetProfileKey());
+  SimpleDownloadManagerCoordinatorWaiter coordinator_waiter(coordinator);
+  coordinator_waiter.WaitForInitialization();
+
+  base::FilePath target_path;
+  ASSERT_TRUE(
+      base::PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS, &target_path));
+  target_path =
+      target_path.Append(base::FilePath(FILE_PATH_LITERAL("a_zip_file.zip")));
+  std::vector<GURL> url_chain;
+  url_chain.emplace_back(url);
+  // Kick off 2 download with the same GUID
+  auto params = std::make_unique<DownloadUrlParameters>(
+      url, TRAFFIC_ANNOTATION_FOR_TESTS, net::NetworkIsolationKey());
+  params->set_guid(guid);
+  params->set_file_path(target_path);
+  params->set_transient(true);
+  params->set_require_safety_checks(false);
+  in_progress_manager->DownloadUrl(std::move(params));
+  auto params2 = std::make_unique<DownloadUrlParameters>(
+      url, TRAFFIC_ANNOTATION_FOR_TESTS, net::NetworkIsolationKey());
+  params2->set_guid(guid);
+  params2->set_file_path(target_path);
+  params2->set_transient(true);
+  params2->set_require_safety_checks(false);
+  in_progress_manager->DownloadUrl(std::move(params2));
+  coordinator_waiter.WaitForDownloadCreation(1);
+  download::DownloadItem* download = coordinator->GetDownloadByGuid(guid);
+  ASSERT_TRUE(download);
+
+  PercentWaiter waiter(download);
+  // Download should continue and complete.
+  ASSERT_TRUE(waiter.WaitForFinished());
+
+  // Only 1 download is created above, no more new downloads are created.
+  ASSERT_EQ(coordinator_waiter.num_download_created(), 1);
 }
 
 #if BUILDFLAG(FULL_SAFE_BROWSING)

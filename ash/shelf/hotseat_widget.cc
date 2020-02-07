@@ -6,10 +6,12 @@
 
 #include "ash/focus_cycler.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
+#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/wallpaper_controller_observer.h"
 #include "ash/shelf/scrollable_shelf_view.h"
+#include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shelf/shelf_view.h"
 #include "ash/shell.h"
@@ -17,6 +19,9 @@
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "chromeos/constants/chromeos_switches.h"
+#include "ui/aura/scoped_window_targeter.h"
+#include "ui/aura/window_targeter.h"
+#include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/color_analysis.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
@@ -31,11 +36,52 @@ bool IsScrollableShelfEnabled() {
   return chromeos::switches::ShouldShowScrollableShelf();
 }
 
-bool ShouldShowHotseat() {
-  return chromeos::switches::ShouldShowShelfHotseat() &&
-         Shell::Get()->tablet_mode_controller() &&
-         Shell::Get()->tablet_mode_controller()->InTabletMode();
-}
+// Custom window targeter for the hotseat. Used so the hotseat only processes
+// events that land on the visible portion of the hotseat, and only while the
+// hotseat is not animating.
+class HotseatWindowTargeter : public aura::WindowTargeter {
+ public:
+  explicit HotseatWindowTargeter(HotseatWidget* hotseat_widget)
+      : hotseat_widget_(hotseat_widget) {}
+  ~HotseatWindowTargeter() override = default;
+
+  HotseatWindowTargeter(const HotseatWindowTargeter& other) = delete;
+  HotseatWindowTargeter& operator=(const HotseatWindowTargeter& rhs) = delete;
+
+  // aura::WindowTargeter:
+  bool SubtreeShouldBeExploredForEvent(aura::Window* window,
+                                       const ui::LocatedEvent& event) override {
+    // Do not handle events if the hotseat window is animating as it may animate
+    // over other items which want to process events.
+    if (hotseat_widget_->GetLayer()->GetAnimator()->is_animating())
+      return false;
+    return aura::WindowTargeter::SubtreeShouldBeExploredForEvent(window, event);
+  }
+
+  bool GetHitTestRects(aura::Window* target,
+                       gfx::Rect* hit_test_rect_mouse,
+                       gfx::Rect* hit_test_rect_touch) const override {
+    // If the hotseat is not extended we can use the normal targeting as the
+    // hidden parts of the hotseat will not block non-shelf items from taking
+    // events.
+    if (target == hotseat_widget_->GetNativeWindow() &&
+        hotseat_widget_->state() == HotseatState::kExtended) {
+      // Shrink the hit bounds from the size of the window to the size of the
+      // hotseat opaque background.
+      gfx::Rect hit_bounds = target->bounds();
+      hit_bounds.ClampToCenteredSize(
+          hotseat_widget_->GetOpaqueBackgroundSize());
+      *hit_test_rect_mouse = *hit_test_rect_touch = hit_bounds;
+      return true;
+    }
+    return aura::WindowTargeter::GetHitTestRects(target, hit_test_rect_mouse,
+                                                 hit_test_rect_touch);
+  }
+
+ private:
+  // Unowned and guaranteed to be not null for the duration of |this|.
+  HotseatWidget* const hotseat_widget_;
+};
 
 }  // namespace
 
@@ -50,8 +96,12 @@ class HotseatWidget::DelegateView : public views::WidgetDelegateView,
   // Initializes the view.
   void Init(ScrollableShelfView* scrollable_shelf_view,
             ui::Layer* parent_layer);
+
   // Updates the hotseat background.
   void UpdateOpaqueBackground();
+
+  void SetOpaqueBackground(const gfx::Rect& opaque_background_bounds);
+
   // Updates the hotseat background when tablet mode changes.
   void OnTabletModeChanged();
 
@@ -65,8 +115,10 @@ class HotseatWidget::DelegateView : public views::WidgetDelegateView,
   void set_focus_cycler(FocusCycler* focus_cycler) {
     focus_cycler_ = focus_cycler;
   }
+
  private:
   void SetParentLayer(ui::Layer* layer);
+
   FocusCycler* focus_cycler_ = nullptr;
   // A background layer that may be visible depending on HotseatState.
   ui::Layer opaque_background_;
@@ -100,10 +152,17 @@ void HotseatWidget::DelegateView::Init(
 }
 
 void HotseatWidget::DelegateView::UpdateOpaqueBackground() {
-  if (!ShouldShowHotseat()) {
+  if (!HotseatWidget::ShouldShowHotseatBackground()) {
     opaque_background_.SetVisible(false);
     return;
   }
+
+  SetOpaqueBackground(scrollable_shelf_view_->GetHotseatBackgroundBounds());
+}
+
+void HotseatWidget::DelegateView::SetOpaqueBackground(
+    const gfx::Rect& background_bounds) {
+  DCHECK(HotseatWidget::ShouldShowHotseatBackground());
 
   opaque_background_.SetVisible(true);
   opaque_background_.SetColor(ShelfConfig::Get()->GetDefaultShelfColor());
@@ -113,12 +172,13 @@ void HotseatWidget::DelegateView::UpdateOpaqueBackground() {
   if (opaque_background_.rounded_corner_radii() != rounded_corners)
     opaque_background_.SetRoundedCornerRadius(rounded_corners);
 
-  gfx::Rect background_bounds =
-      scrollable_shelf_view_->GetHotseatBackgroundBounds();
   if (opaque_background_.bounds() != background_bounds)
     opaque_background_.SetBounds(background_bounds);
 
-  opaque_background_.SetBackgroundBlur(ShelfConfig::Get()->shelf_blur_radius());
+  if (features::IsBackgroundBlurEnabled()) {
+    opaque_background_.SetBackgroundBlur(
+        ShelfConfig::Get()->shelf_blur_radius());
+  }
 }
 
 void HotseatWidget::DelegateView::OnTabletModeChanged() {
@@ -157,6 +217,12 @@ HotseatWidget::~HotseatWidget() {
   ShelfConfig::Get()->RemoveObserver(this);
 }
 
+bool HotseatWidget::ShouldShowHotseatBackground() {
+  return chromeos::switches::ShouldShowShelfHotseat() &&
+         Shell::Get()->tablet_mode_controller() &&
+         Shell::Get()->tablet_mode_controller()->InTabletMode();
+}
+
 void HotseatWidget::Initialize(aura::Window* container, Shelf* shelf) {
   DCHECK(container);
   DCHECK(shelf);
@@ -164,7 +230,7 @@ void HotseatWidget::Initialize(aura::Window* container, Shelf* shelf) {
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.name = "HotseatWidget";
   params.delegate = delegate_view_;
-  params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
+  params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.parent = container;
   Init(std::move(params));
@@ -175,11 +241,15 @@ void HotseatWidget::Initialize(aura::Window* container, Shelf* shelf) {
     scrollable_shelf_view_ = GetContentsView()->AddChildView(
         std::make_unique<ScrollableShelfView>(ShelfModel::Get(), shelf));
     scrollable_shelf_view_->Init();
+
+    hotseat_window_targeter_ = std::make_unique<aura::ScopedWindowTargeter>(
+        GetNativeWindow(), std::make_unique<HotseatWindowTargeter>(this));
   } else {
     // The shelf view observes the shelf model and creates icons as items are
     // added to the model.
     shelf_view_ = GetContentsView()->AddChildView(std::make_unique<ShelfView>(
-        ShelfModel::Get(), shelf, /*drag_and_drop_host=*/nullptr));
+        ShelfModel::Get(), shelf, /*drag_and_drop_host=*/nullptr,
+        /*shelf_button_delegate=*/nullptr));
     shelf_view_->Init();
   }
   delegate_view_->Init(scrollable_shelf_view(), GetLayer());
@@ -213,21 +283,6 @@ bool HotseatWidget::OnNativeWidgetActivationChanged(bool active) {
 
 void HotseatWidget::OnShelfConfigUpdated() {
   set_manually_extended(false);
-}
-
-ShelfView* HotseatWidget::GetShelfView() {
-  if (IsScrollableShelfEnabled()) {
-    DCHECK(scrollable_shelf_view_);
-    return scrollable_shelf_view_->shelf_view();
-  }
-
-  DCHECK(shelf_view_);
-  return shelf_view_;
-}
-
-const ShelfView* HotseatWidget::GetShelfView() const {
-  return const_cast<const ShelfView*>(
-      const_cast<HotseatWidget*>(this)->GetShelfView());
 }
 
 bool HotseatWidget::IsShowingOverflowBubble() const {
@@ -267,14 +322,68 @@ void HotseatWidget::OnTabletModeChanged() {
   delegate_view_->OnTabletModeChanged();
 }
 
-void HotseatWidget::UpdateOpaqueBackground() {
-  delegate_view_->UpdateOpaqueBackground();
+float HotseatWidget::CalculateOpacity() {
+  const float target_opacity =
+      GetShelfView()->shelf()->shelf_layout_manager()->GetOpacity();
+  return (state() == HotseatState::kExtended) ? 1.0f  // fully opaque
+                                              : target_opacity;
+}
+
+void HotseatWidget::SetOpaqueBackground(
+    const gfx::Rect& opaque_background_bounds) {
+  delegate_view_->SetOpaqueBackground(opaque_background_bounds);
+}
+
+void HotseatWidget::UpdateLayout(bool animate) {
+  ui::Layer* layer = GetNativeView()->layer();
+  ui::ScopedLayerAnimationSettings animation_setter(layer->GetAnimator());
+  animation_setter.SetTransitionDuration(
+      animate ? ShelfConfig::Get()->shelf_animation_duration()
+              : base::TimeDelta::FromMilliseconds(0));
+  animation_setter.SetTweenType(gfx::Tween::EASE_OUT);
+  animation_setter.SetPreemptionStrategy(
+      ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
+
+  layer->SetOpacity(CalculateOpacity());
+  SetBounds(
+      GetShelfView()->shelf()->shelf_layout_manager()->GetHotseatBounds());
+}
+
+gfx::Size HotseatWidget::GetOpaqueBackgroundSize() const {
+  DCHECK(scrollable_shelf_view_);
+  return scrollable_shelf_view_->GetHotseatBackgroundBounds().size();
 }
 
 void HotseatWidget::SetFocusCycler(FocusCycler* focus_cycler) {
   delegate_view_->set_focus_cycler(focus_cycler);
   if (focus_cycler)
     focus_cycler->AddWidget(this);
+}
+
+ShelfView* HotseatWidget::GetShelfView() {
+  if (IsScrollableShelfEnabled()) {
+    DCHECK(scrollable_shelf_view_);
+    return scrollable_shelf_view_->shelf_view();
+  }
+
+  DCHECK(shelf_view_);
+  return shelf_view_;
+}
+
+bool HotseatWidget::IsShowingShelfMenu() const {
+  return GetShelfView()->IsShowingMenu();
+}
+
+const ShelfView* HotseatWidget::GetShelfView() const {
+  return const_cast<const ShelfView*>(
+      const_cast<HotseatWidget*>(this)->GetShelfView());
+}
+
+void HotseatWidget::SetState(HotseatState state) {
+  if (state_ == state)
+    return;
+
+  state_ = state;
 }
 
 }  // namespace ash

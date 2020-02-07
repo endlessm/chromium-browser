@@ -39,6 +39,11 @@ LOCALHOST = 'localhost'
 LOCALHOST_IP = '127.0.0.1'
 ROOT_ACCOUNT = 'root'
 
+# IP used for testing that is a valid IP address, but would fail quickly if
+# actually used for any real operation (e.g. pinging or making connections).
+# https://en.wikipedia.org/wiki/IPv4#Special-use_addresses
+TEST_IP = '0.1.2.3'
+
 REBOOT_MAX_WAIT = 180
 REBOOT_SSH_CONNECT_TIMEOUT = 2
 REBOOT_SSH_CONNECT_ATTEMPTS = 2
@@ -148,7 +153,9 @@ def GetUnusedPort(ip=LOCALHOST, family=socket.AF_INET,
     s.bind((ip, 0))
     return s.getsockname()[1]
   except (socket.error, OSError):
-    if s:
+    pass
+  finally:
+    if s is not None:
       s.close()
 
 
@@ -340,6 +347,7 @@ class RemoteAccess(object):
       the ssh_error_ok flag.
     """
     kwargs.setdefault('capture_output', True)
+    kwargs.setdefault('encoding', 'utf-8')
     kwargs.setdefault('debug_level', self.debug_level)
     # Force English SSH messages. SSHConnectionError.IsKnownHostsMismatch()
     # requires English errors to detect a known_hosts key mismatch error.

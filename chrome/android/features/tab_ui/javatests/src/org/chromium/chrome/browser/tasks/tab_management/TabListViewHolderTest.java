@@ -28,6 +28,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.Callback;
+import org.chromium.chrome.browser.flags.FeatureUtilities;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
 import org.chromium.chrome.tab_ui.R;
@@ -117,6 +118,7 @@ public class TabListViewHolderTest extends DummyUiActivityTestCase {
     @Override
     public void setUpTest() throws Exception {
         super.setUpTest();
+        FeatureUtilities.enableTabThumbnailAspectRatioForTesting(false);
         ViewGroup view = new LinearLayout(getActivity());
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -157,12 +159,14 @@ public class TabListViewHolderTest extends DummyUiActivityTestCase {
                                 mSelectedTabBackgroundDrawableId)
                         .build();
 
-        mGridMCP = PropertyModelChangeProcessor.create(
-                mGridModel, mTabGridView, TabGridViewBinder::bindClosableTab);
-        mStripMCP = PropertyModelChangeProcessor.create(
-                mStripModel, mTabStripView, TabStripViewBinder::bind);
-        mSelectableMCP = PropertyModelChangeProcessor.create(
-                mSelectableModel, mSelectableTabGridView, TabGridViewBinder::bindSelectableTab);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mGridMCP = PropertyModelChangeProcessor.create(
+                    mGridModel, mTabGridView, TabGridViewBinder::bindClosableTab);
+            mStripMCP = PropertyModelChangeProcessor.create(
+                    mStripModel, mTabStripView, TabStripViewBinder::bind);
+            mSelectableMCP = PropertyModelChangeProcessor.create(
+                    mSelectableModel, mSelectableTabGridView, TabGridViewBinder::bindSelectableTab);
+        });
     }
 
     private void testGridSelected(ViewGroup holder, PropertyModel model) {
@@ -484,6 +488,7 @@ public class TabListViewHolderTest extends DummyUiActivityTestCase {
         mStripMCP.destroy();
         mGridMCP.destroy();
         mSelectableMCP.destroy();
+        FeatureUtilities.enableTabThumbnailAspectRatioForTesting(null);
         super.tearDownTest();
     }
 }

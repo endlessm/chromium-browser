@@ -19,11 +19,14 @@
  * Author: Dave Houlton <daveh@lunarg.com>
  */
 
+#define NOMINMAX
+
 #include "shader_validation.h"
 
 #include <cassert>
 #include <chrono>
 #include <cinttypes>
+#include <cmath>
 #include <map>
 #include <sstream>
 #include <string>
@@ -1001,35 +1004,43 @@ static bool ValidateFsOutputsAgainstRenderPass(debug_report_data const *report_d
 
     const auto rpci = pipeline->rp_state->createInfo.ptr();
 
-    std::map<uint32_t, const VkAttachmentDescription2KHR *> color_attachments;
+    struct Attachment {
+        const VkAttachmentReference2KHR *reference = nullptr;
+        const VkAttachmentDescription2KHR *attachment = nullptr;
+        const interface_var *output = nullptr;
+    };
+    std::map<uint32_t, Attachment> location_map;
+
     const auto subpass = rpci->pSubpasses[subpass_index];
     for (uint32_t i = 0; i < subpass.colorAttachmentCount; ++i) {
-        const uint32_t attachment = subpass.pColorAttachments[i].attachment;
-        if (attachment != VK_ATTACHMENT_UNUSED && rpci->pAttachments[attachment].format != VK_FORMAT_UNDEFINED) {
-            color_attachments[i] = &rpci->pAttachments[attachment];
+        auto const &reference = subpass.pColorAttachments[i];
+        location_map[i].reference = &reference;
+        if (reference.attachment != VK_ATTACHMENT_UNUSED &&
+            rpci->pAttachments[reference.attachment].format != VK_FORMAT_UNDEFINED) {
+            location_map[i].attachment = &rpci->pAttachments[reference.attachment];
         }
     }
 
     // TODO: dual source blend index (spv::DecIndex, zero if not provided)
 
     const auto outputs = CollectInterfaceByLocation(fs, entrypoint, spv::StorageClassOutput, false);
-
-    struct AttachmentOutputPair {
-        const VkAttachmentDescription2KHR *attachment = nullptr;
-        const interface_var *output = nullptr;
-    };
-    std::map<uint32_t, AttachmentOutputPair> location_map;
-    for (const auto &attachment_it : color_attachments) location_map[attachment_it.first].attachment = attachment_it.second;
-    for (const auto &output_it : outputs) location_map[output_it.first.first].output = &output_it.second;
+    for (const auto &output_it : outputs) {
+        auto const location = output_it.first.first;
+        location_map[location].output = &output_it.second;
+    }
 
     const bool alphaToCoverageEnabled = pipeline->graphicsPipelineCI.pMultisampleState != NULL &&
                                         pipeline->graphicsPipelineCI.pMultisampleState->alphaToCoverageEnable == VK_TRUE;
 
     for (const auto location_it : location_map) {
+        const auto reference = location_it.second.reference;
+        if (reference != nullptr && reference->attachment == VK_ATTACHMENT_UNUSED) {
+            continue;
+        }
+
         const auto location = location_it.first;
         const auto attachment = location_it.second.attachment;
         const auto output = location_it.second.output;
-
         if (attachment && !output) {
             if (pipeline->attachments[location].colorWriteMask != 0) {
                 skip |=
@@ -1540,8 +1551,6 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
             : IsEnabled([=](const DeviceFeatures &features) { return features.scalar_block_layout_features.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceCooperativeMatrixFeaturesNV::*ptr)
             : IsEnabled([=](const DeviceFeatures &features) { return features.cooperative_matrix_features.*ptr; }) {}
-        FeaturePointer(VkBool32 VkPhysicalDeviceFloatControlsPropertiesKHR::*ptr)
-            : IsEnabled([=](const DeviceFeatures &features) { return features.float_controls.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR::*ptr)
             : IsEnabled([=](const DeviceFeatures &features) { return features.uniform_buffer_standard_layout.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::*ptr)
@@ -1627,6 +1636,7 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
         {spv::CapabilitySubgroupVoteKHR, {VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_ext_shader_subgroup_vote }},
         {spv::CapabilityGroupNonUniformPartitionedNV, {VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_nv_shader_subgroup_partitioned}},
         {spv::CapabilityInt64Atomics, {VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_khr_shader_atomic_int64 }},
+        {spv::CapabilityShaderClockKHR, {VK_KHR_SHADER_CLOCK_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_khr_shader_clock }},
 
         {spv::CapabilityComputeDerivativeGroupQuadsNV, {"VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::computeDerivativeGroupQuads", &VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::computeDerivativeGroupQuads, &DeviceExtensions::vk_nv_compute_shader_derivatives}},
         {spv::CapabilityComputeDerivativeGroupLinearNV, {"VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::computeDerivativeGroupLinear", &VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::computeDerivativeGroupLinear, &DeviceExtensions::vk_nv_compute_shader_derivatives}},
@@ -1646,21 +1656,11 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
 
         {spv::CapabilityCooperativeMatrixNV, {"VkPhysicalDeviceCooperativeMatrixFeaturesNV::cooperativeMatrix", &VkPhysicalDeviceCooperativeMatrixFeaturesNV::cooperativeMatrix, &DeviceExtensions::vk_nv_cooperative_matrix}},
 
-        {spv::CapabilitySignedZeroInfNanPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserveFloat16", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserveFloat16, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilitySignedZeroInfNanPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserveFloat32", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserveFloat32, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilitySignedZeroInfNanPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserveFloat64", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserveFloat64, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityDenormPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserveFloat16", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserveFloat16, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityDenormPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserveFloat32", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserveFloat32, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityDenormPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserveFloat64", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserveFloat64, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityDenormFlushToZero, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZeroFloat16", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZeroFloat16, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityDenormFlushToZero, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZeroFloat32", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZeroFloat32, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityDenormFlushToZero, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZeroFloat64", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZeroFloat64, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityRoundingModeRTE, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTEFloat16", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTEFloat16, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityRoundingModeRTE, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTEFloat32", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTEFloat32, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityRoundingModeRTE, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTEFloat64", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTEFloat64, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityRoundingModeRTZ, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZFloat16", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZFloat16, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityRoundingModeRTZ, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZFloat32", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZFloat32, &DeviceExtensions::vk_khr_shader_float_controls}},
-        {spv::CapabilityRoundingModeRTZ, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZFloat64", &VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZFloat64, &DeviceExtensions::vk_khr_shader_float_controls}},
+        {spv::CapabilitySignedZeroInfNanPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderSignedZeroInfNanPreserve", nullptr, &DeviceExtensions::vk_khr_shader_float_controls}},
+        {spv::CapabilityDenormPreserve, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormPreserve", nullptr, &DeviceExtensions::vk_khr_shader_float_controls}},
+        {spv::CapabilityDenormFlushToZero, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderDenormFlushToZero", nullptr, &DeviceExtensions::vk_khr_shader_float_controls}},
+        {spv::CapabilityRoundingModeRTE, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTE", nullptr, &DeviceExtensions::vk_khr_shader_float_controls}},
+        {spv::CapabilityRoundingModeRTZ, {"VkPhysicalDeviceFloatControlsPropertiesKHR::shaderRoundingModeRTZ", nullptr, &DeviceExtensions::vk_khr_shader_float_controls}},
 
         {spv::CapabilityFragmentShaderSampleInterlockEXT,       {"VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderSampleInterlock",       &VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderSampleInterlock,         &DeviceExtensions::vk_ext_fragment_shader_interlock}},
         {spv::CapabilityFragmentShaderPixelInterlockEXT,        {"VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderPixelInterlock",        &VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderPixelInterlock,          &DeviceExtensions::vk_ext_fragment_shader_interlock}},
@@ -1710,7 +1710,9 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
                     extension_names += "]";
                     skip |= RequireExtension(report_data, has_ext, extension_names.c_str());
                 }
-            } else {  // Do group non-uniform checks
+            }
+
+            {  // Do group non-uniform checks
                 const VkSubgroupFeatureFlags supportedOperations = phys_dev_ext_props.subgroup_props.supportedOperations;
                 const VkSubgroupFeatureFlags supportedStages = phys_dev_ext_props.subgroup_props.supportedStages;
 
@@ -1914,6 +1916,8 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
 
     uint32_t numVertices = 0;
 
+    auto entrypointVariables = FindEntrypointInterfaces(entrypoint);
+
     for (auto insn : *src) {
         switch (insn.opcode()) {
             // Find all Patch decorations
@@ -1931,7 +1935,9 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
             case spv::OpVariable: {
                 Variable var = {};
                 var.storageClass = insn.word(3);
-                if (var.storageClass == spv::StorageClassInput || var.storageClass == spv::StorageClassOutput) {
+                if ((var.storageClass == spv::StorageClassInput || var.storageClass == spv::StorageClassOutput) &&
+                    // Only include variables in the entrypoint's interface
+                    find(entrypointVariables.begin(), entrypointVariables.end(), insn.word(2)) != entrypointVariables.end()) {
                     var.baseTypePtrID = insn.word(1);
                     var.ID = insn.word(2);
                     variables.push_back(var);
@@ -1961,6 +1967,51 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
          pStage->stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT || pStage->stage == VK_SHADER_STAGE_GEOMETRY_BIT);
 
     uint32_t numCompIn = 0, numCompOut = 0;
+    int maxCompIn = 0, maxCompOut = 0;
+
+    auto inputs = CollectInterfaceByLocation(src, entrypoint, spv::StorageClassInput, strip_input_array_level);
+    auto outputs = CollectInterfaceByLocation(src, entrypoint, spv::StorageClassOutput, strip_output_array_level);
+
+    // Find max component location used for input variables.
+    for (auto &var : inputs) {
+        int location = var.first.first;
+        int component = var.first.second;
+        interface_var &iv = var.second;
+
+        // Only need to look at the first location, since we use the type's whole size
+        if (iv.offset != 0) {
+            continue;
+        }
+
+        if (iv.is_patch) {
+            continue;
+        }
+
+        int numComponents = GetComponentsConsumedByType(src, iv.type_id, strip_input_array_level);
+        maxCompIn = std::max(maxCompIn, location * 4 + component + numComponents);
+    }
+
+    // Find max component location used for output variables.
+    for (auto &var : outputs) {
+        int location = var.first.first;
+        int component = var.first.second;
+        interface_var &iv = var.second;
+
+        // Only need to look at the first location, since we use the type's whole size
+        if (iv.offset != 0) {
+            continue;
+        }
+
+        if (iv.is_patch) {
+            continue;
+        }
+
+        int numComponents = GetComponentsConsumedByType(src, iv.type_id, strip_output_array_level);
+        maxCompOut = std::max(maxCompOut, location * 4 + component + numComponents);
+    }
+
+    // XXX TODO: Would be nice to rewrite this to use CollectInterfaceByLocation (or something similar),
+    // but that doesn't include builtins.
     for (auto &var : variables) {
         // Check if the variable is a patch. Patches can also be members of blocks,
         // but if they are then the top-level arrayness has already been stripped
@@ -1984,6 +2035,13 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 "components by %u components",
                                 limits.maxVertexOutputComponents, numCompOut - limits.maxVertexOutputComponents);
             }
+            if (maxCompOut > (int)limits.maxVertexOutputComponents) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                                HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                                "Invalid Pipeline CreateInfo State: Vertex shader output variable uses location that "
+                                "exceeds component limit VkPhysicalDeviceLimits::maxVertexOutputComponents (%u)",
+                                limits.maxVertexOutputComponents);
+            }
             break;
 
         case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
@@ -1996,6 +2054,14 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 limits.maxTessellationControlPerVertexInputComponents,
                                 numCompIn - limits.maxTessellationControlPerVertexInputComponents);
             }
+            if (maxCompIn > (int)limits.maxTessellationControlPerVertexInputComponents) {
+                skip |=
+                    log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                            HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                            "Invalid Pipeline CreateInfo State: Tessellation control shader input variable uses location that "
+                            "exceeds component limit VkPhysicalDeviceLimits::maxTessellationControlPerVertexInputComponents (%u)",
+                            limits.maxTessellationControlPerVertexInputComponents);
+            }
             if (numCompOut > limits.maxTessellationControlPerVertexOutputComponents) {
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
                                 HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
@@ -2004,6 +2070,14 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 "components by %u components",
                                 limits.maxTessellationControlPerVertexOutputComponents,
                                 numCompOut - limits.maxTessellationControlPerVertexOutputComponents);
+            }
+            if (maxCompOut > (int)limits.maxTessellationControlPerVertexOutputComponents) {
+                skip |=
+                    log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                            HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                            "Invalid Pipeline CreateInfo State: Tessellation control shader output variable uses location that "
+                            "exceeds component limit VkPhysicalDeviceLimits::maxTessellationControlPerVertexOutputComponents (%u)",
+                            limits.maxTessellationControlPerVertexOutputComponents);
             }
             break;
 
@@ -2017,6 +2091,14 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 limits.maxTessellationEvaluationInputComponents,
                                 numCompIn - limits.maxTessellationEvaluationInputComponents);
             }
+            if (maxCompIn > (int)limits.maxTessellationEvaluationInputComponents) {
+                skip |=
+                    log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                            HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                            "Invalid Pipeline CreateInfo State: Tessellation evaluation shader input variable uses location that "
+                            "exceeds component limit VkPhysicalDeviceLimits::maxTessellationEvaluationInputComponents (%u)",
+                            limits.maxTessellationEvaluationInputComponents);
+            }
             if (numCompOut > limits.maxTessellationEvaluationOutputComponents) {
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
                                 HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
@@ -2025,6 +2107,14 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 "components by %u components",
                                 limits.maxTessellationEvaluationOutputComponents,
                                 numCompOut - limits.maxTessellationEvaluationOutputComponents);
+            }
+            if (maxCompOut > (int)limits.maxTessellationEvaluationOutputComponents) {
+                skip |=
+                    log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                            HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                            "Invalid Pipeline CreateInfo State: Tessellation evaluation shader output variable uses location that "
+                            "exceeds component limit VkPhysicalDeviceLimits::maxTessellationEvaluationOutputComponents (%u)",
+                            limits.maxTessellationEvaluationOutputComponents);
             }
             break;
 
@@ -2037,6 +2127,13 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 "components by %u components",
                                 limits.maxGeometryInputComponents, numCompIn - limits.maxGeometryInputComponents);
             }
+            if (maxCompIn > (int)limits.maxGeometryInputComponents) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                                HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                                "Invalid Pipeline CreateInfo State: Geometry shader input variable uses location that "
+                                "exceeds component limit VkPhysicalDeviceLimits::maxGeometryInputComponents (%u)",
+                                limits.maxGeometryInputComponents);
+            }
             if (numCompOut > limits.maxGeometryOutputComponents) {
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
                                 HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
@@ -2044,6 +2141,13 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 "VkPhysicalDeviceLimits::maxGeometryOutputComponents of %u "
                                 "components by %u components",
                                 limits.maxGeometryOutputComponents, numCompOut - limits.maxGeometryOutputComponents);
+            }
+            if (maxCompOut > (int)limits.maxGeometryOutputComponents) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                                HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                                "Invalid Pipeline CreateInfo State: Geometry shader output variable uses location that "
+                                "exceeds component limit VkPhysicalDeviceLimits::maxGeometryOutputComponents (%u)",
+                                limits.maxGeometryOutputComponents);
             }
             if (numCompOut * numVertices > limits.maxGeometryTotalOutputComponents) {
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
@@ -2064,6 +2168,13 @@ bool CoreChecks::ValidateShaderStageInputOutputLimits(SHADER_MODULE_STATE const 
                                 "VkPhysicalDeviceLimits::maxFragmentInputComponents of %u "
                                 "components by %u components",
                                 limits.maxFragmentInputComponents, numCompIn - limits.maxFragmentInputComponents);
+            }
+            if (maxCompIn > (int)limits.maxFragmentInputComponents) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT,
+                                HandleToUint64(pipeline->pipeline), kVUID_Core_Shader_ExceedDeviceLimit,
+                                "Invalid Pipeline CreateInfo State: Fragment shader input variable uses location that "
+                                "exceeds component limit VkPhysicalDeviceLimits::maxFragmentInputComponents (%u)",
+                                limits.maxFragmentInputComponents);
             }
             break;
 
@@ -2374,9 +2485,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
             switch (mode) {
                 case spv::ExecutionModeSignedZeroInfNanPreserve: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !enabled_features.float_controls.shaderSignedZeroInfNanPreserveFloat16) ||
-                        (bit_width == 32 && !enabled_features.float_controls.shaderSignedZeroInfNanPreserveFloat32) ||
-                        (bit_width == 64 && !enabled_features.float_controls.shaderSignedZeroInfNanPreserveFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderSignedZeroInfNanPreserveFloat16) ||
+                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderSignedZeroInfNanPreserveFloat32) ||
+                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderSignedZeroInfNanPreserveFloat64)) {
                         skip |=
                             log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                     kVUID_Core_Shader_FeatureNotEnabled,
@@ -2388,9 +2499,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeDenormPreserve: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !enabled_features.float_controls.shaderDenormPreserveFloat16) ||
-                        (bit_width == 32 && !enabled_features.float_controls.shaderDenormPreserveFloat32) ||
-                        (bit_width == 64 && !enabled_features.float_controls.shaderDenormPreserveFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderDenormPreserveFloat16) ||
+                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderDenormPreserveFloat32) ||
+                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderDenormPreserveFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires DenormPreserve for bit width %d but it is not enabled on the device",
@@ -2401,7 +2512,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first denorm execution mode found
                         first_denorm_execution_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_denorm_execution_mode.first != mode && first_denorm_execution_mode.second != bit_width) {
-                        switch (enabled_features.float_controls.denormBehaviorIndependence) {
+                        switch (phys_dev_ext_props.float_controls_props.denormBehaviorIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2432,9 +2543,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeDenormFlushToZero: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !enabled_features.float_controls.shaderDenormFlushToZeroFloat16) ||
-                        (bit_width == 32 && !enabled_features.float_controls.shaderDenormFlushToZeroFloat32) ||
-                        (bit_width == 64 && !enabled_features.float_controls.shaderDenormFlushToZeroFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderDenormFlushToZeroFloat16) ||
+                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderDenormFlushToZeroFloat32) ||
+                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderDenormFlushToZeroFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires DenormFlushToZero for bit width %d but it is not enabled on the device",
@@ -2445,7 +2556,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first denorm execution mode found
                         first_denorm_execution_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_denorm_execution_mode.first != mode && first_denorm_execution_mode.second != bit_width) {
-                        switch (enabled_features.float_controls.denormBehaviorIndependence) {
+                        switch (phys_dev_ext_props.float_controls_props.denormBehaviorIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2476,9 +2587,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeRoundingModeRTE: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !enabled_features.float_controls.shaderRoundingModeRTEFloat16) ||
-                        (bit_width == 32 && !enabled_features.float_controls.shaderRoundingModeRTEFloat32) ||
-                        (bit_width == 64 && !enabled_features.float_controls.shaderRoundingModeRTEFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTEFloat16) ||
+                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTEFloat32) ||
+                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTEFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires RoundingModeRTE for bit width %d but it is not enabled on the device",
@@ -2489,7 +2600,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first rounding mode found
                         first_rounding_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_rounding_mode.first != mode && first_rounding_mode.second != bit_width) {
-                        switch (enabled_features.float_controls.roundingModeIndependence) {
+                        switch (phys_dev_ext_props.float_controls_props.roundingModeIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2520,9 +2631,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeRoundingModeRTZ: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !enabled_features.float_controls.shaderRoundingModeRTZFloat16) ||
-                        (bit_width == 32 && !enabled_features.float_controls.shaderRoundingModeRTZFloat32) ||
-                        (bit_width == 64 && !enabled_features.float_controls.shaderRoundingModeRTZFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTZFloat16) ||
+                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTZFloat32) ||
+                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTZFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires RoundingModeRTZ for bit width %d but it is not enabled on the device",
@@ -2533,7 +2644,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first rounding mode found
                         first_rounding_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_rounding_mode.first != mode && first_rounding_mode.second != bit_width) {
-                        switch (enabled_features.float_controls.roundingModeIndependence) {
+                        switch (phys_dev_ext_props.float_controls_props.roundingModeIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2792,6 +2903,72 @@ bool CoreChecks::ValidatePipelineShaderStage(VkPipelineShaderStageCreateInfo con
                         report_data->FormatHandle(module->vk_shader_module).c_str(), string_VkShaderStageFlagBits(pStage->stage));
     }
 
+    // If specialization-constant values are given and specialization-constant instructions are present in the shader, the
+    // specializations should be applied and validated.
+    if (pStage->pSpecializationInfo != nullptr && pStage->pSpecializationInfo->mapEntryCount > 0 &&
+        pStage->pSpecializationInfo->pMapEntries != nullptr && module->has_specialization_constants) {
+        // Gather the specialization-constant values.
+        auto const &specialization_info = pStage->pSpecializationInfo;
+        std::unordered_map<uint32_t, std::vector<uint32_t>> id_value_map;
+        id_value_map.reserve(specialization_info->mapEntryCount);
+        for (auto i = 0u; i < specialization_info->mapEntryCount; ++i) {
+            auto const &map_entry = specialization_info->pMapEntries[i];
+            assert(map_entry.size % 4 == 0);
+
+            auto const begin = reinterpret_cast<uint32_t const *>(specialization_info->pData) + map_entry.offset / 4;
+            auto const end = begin + map_entry.size / 4;
+            id_value_map.emplace(map_entry.constantID, std::vector<uint32_t>(begin, end));
+        }
+
+        // Apply the specialization-constant values and revalidate the shader module.
+        spv_target_env const spirv_environment = ((api_version >= VK_API_VERSION_1_1) ? SPV_ENV_VULKAN_1_1 : SPV_ENV_VULKAN_1_0);
+        spvtools::Optimizer optimizer(spirv_environment);
+        spvtools::MessageConsumer consumer = [&skip, &module, &pStage, this](spv_message_level_t level, const char *source,
+                                                                             const spv_position_t &position, const char *message) {
+            skip |= log_msg(
+                report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                "VUID-VkPipelineShaderStageCreateInfo-module-parameter", "%s does not contain valid spirv for stage %s. %s",
+                report_data->FormatHandle(module->vk_shader_module).c_str(), string_VkShaderStageFlagBits(pStage->stage), message);
+        };
+        optimizer.SetMessageConsumer(consumer);
+        optimizer.RegisterPass(spvtools::CreateSetSpecConstantDefaultValuePass(id_value_map));
+        optimizer.RegisterPass(spvtools::CreateFreezeSpecConstantValuePass());
+        std::vector<uint32_t> specialized_spirv;
+        auto const optimized =
+            optimizer.Run(module->words.data(), module->words.size(), &specialized_spirv, spvtools::ValidatorOptions(), true);
+        assert(optimized == true);
+
+        if (optimized) {
+            spv_context ctx = spvContextCreate(spirv_environment);
+            spv_const_binary_t binary{specialized_spirv.data(), specialized_spirv.size()};
+            spv_diagnostic diag = nullptr;
+            spv_validator_options options = spvValidatorOptionsCreate();
+            if (device_extensions.vk_khr_relaxed_block_layout) {
+                spvValidatorOptionsSetRelaxBlockLayout(options, true);
+            }
+            if (device_extensions.vk_khr_uniform_buffer_standard_layout &&
+                enabled_features.uniform_buffer_standard_layout.uniformBufferStandardLayout == VK_TRUE) {
+                spvValidatorOptionsSetUniformBufferStandardLayout(options, true);
+            }
+            if (device_extensions.vk_ext_scalar_block_layout &&
+                enabled_features.scalar_block_layout_features.scalarBlockLayout == VK_TRUE) {
+                spvValidatorOptionsSetScalarBlockLayout(options, true);
+            }
+            auto const spv_valid = spvValidateWithOptions(ctx, options, &binary, &diag);
+            if (spv_valid != SPV_SUCCESS) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkPipelineShaderStageCreateInfo-module-parameter",
+                                "After specialization was applied, %s does not contain valid spirv for stage %s.",
+                                report_data->FormatHandle(module->vk_shader_module).c_str(),
+                                string_VkShaderStageFlagBits(pStage->stage));
+            }
+
+            spvValidatorOptionsDestroy(options);
+            spvDiagnosticDestroy(diag);
+            spvContextDestroy(ctx);
+        }
+    }
+
     // Check the entrypoint
     if (entrypoint == module->end()) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
@@ -2814,7 +2991,7 @@ bool CoreChecks::ValidatePipelineShaderStage(VkPipelineShaderStageCreateInfo con
     skip |= ValidateShaderStageGroupNonUniform(module, pStage->stage);
     skip |= ValidateExecutionModes(module, entrypoint);
     skip |= ValidateSpecializationOffsets(report_data, pStage);
-    skip |= ValidatePushConstantUsage(report_data, pipeline->pipeline_layout.push_constant_ranges.get(), module, accessible_ids,
+    skip |= ValidatePushConstantUsage(report_data, pipeline->pipeline_layout->push_constant_ranges.get(), module, accessible_ids,
                                       pStage->stage);
     if (check_point_size && !pipeline->graphicsPipelineCI.pRasterizationState->rasterizerDiscardEnable) {
         skip |= ValidatePointListShaderState(pipeline, module, entrypoint, pStage->stage);
@@ -2824,7 +3001,7 @@ bool CoreChecks::ValidatePipelineShaderStage(VkPipelineShaderStageCreateInfo con
     // Validate descriptor use
     for (auto use : descriptor_uses) {
         // Verify given pipelineLayout has requested setLayout with requested binding
-        const auto &binding = GetDescriptorBinding(&pipeline->pipeline_layout, use.first);
+        const auto &binding = GetDescriptorBinding(pipeline->pipeline_layout.get(), use.first);
         unsigned required_descriptor_count;
         std::set<uint32_t> descriptor_types = TypeToDescriptorTypeSet(module, use.second.type_id, required_descriptor_count);
 
@@ -3021,7 +3198,6 @@ bool CoreChecks::ValidateGraphicsPipelineShaderState(const PIPELINE_STATE *pipel
         shaders[stage_id] = GetShaderModuleState(pStage->module);
         entrypoints[stage_id] = FindEntrypoint(shaders[stage_id], pStage->pName, pStage->stage);
         skip |= ValidatePipelineShaderStage(pStage, pipeline, pipeline->stage_state[i], shaders[stage_id], entrypoints[stage_id],
-
                                             (pointlist_stage_mask == pStage->stage));
     }
 
@@ -3078,13 +3254,77 @@ bool CoreChecks::ValidateComputePipeline(PIPELINE_STATE *pipeline) const {
 
 bool CoreChecks::ValidateRayTracingPipelineNV(PIPELINE_STATE *pipeline) const {
     bool skip = false;
+
+    if (pipeline->raytracingPipelineCI.maxRecursionDepth > phys_dev_ext_props.ray_tracing_props.maxRecursionDepth) {
+        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                        "VUID-VkRayTracingPipelineCreateInfoNV-maxRecursionDepth-02412", ": %d > %d",
+                        pipeline->raytracingPipelineCI.maxRecursionDepth, phys_dev_ext_props.ray_tracing_props.maxRecursionDepth);
+    }
+
+    const auto *stages = pipeline->raytracingPipelineCI.ptr()->pStages;
+    const auto *groups = pipeline->raytracingPipelineCI.ptr()->pGroups;
+
+    uint32_t raygen_stages_found = 0;
     for (uint32_t stage_index = 0; stage_index < pipeline->raytracingPipelineCI.stageCount; stage_index++) {
-        const auto &stage = pipeline->raytracingPipelineCI.ptr()->pStages[stage_index];
+        const auto &stage = stages[stage_index];
 
         const SHADER_MODULE_STATE *module = GetShaderModuleState(stage.module);
         const spirv_inst_iter entrypoint = FindEntrypoint(module, stage.pName, stage.stage);
 
         skip |= ValidatePipelineShaderStage(&stage, pipeline, pipeline->stage_state[stage_index], module, entrypoint, false);
+
+        if (stage.stage == VK_SHADER_STAGE_RAYGEN_BIT_NV) {
+            raygen_stages_found++;
+        }
+    }
+    if (raygen_stages_found != 1) {
+        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                        "VUID-VkRayTracingPipelineCreateInfoNV-stage-02408", " : %d raygen stages specified", raygen_stages_found);
+    }
+
+    for (uint32_t group_index = 0; group_index < pipeline->raytracingPipelineCI.groupCount; group_index++) {
+        const auto &group = groups[group_index];
+
+        if (group.type == VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV) {
+            if (group.generalShader >= pipeline->raytracingPipelineCI.stageCount ||
+                (stages[group.generalShader].stage != VK_SHADER_STAGE_RAYGEN_BIT_NV &&
+                 stages[group.generalShader].stage != VK_SHADER_STAGE_MISS_BIT_NV &&
+                 stages[group.generalShader].stage != VK_SHADER_STAGE_CALLABLE_BIT_NV)) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02413", ": pGroups[%d]", group_index);
+            }
+            if (group.anyHitShader != VK_SHADER_UNUSED_NV || group.closestHitShader != VK_SHADER_UNUSED_NV ||
+                group.intersectionShader != VK_SHADER_UNUSED_NV) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02414", ": pGroups[%d]", group_index);
+            }
+        } else if (group.type == VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_NV) {
+            if (group.intersectionShader >= pipeline->raytracingPipelineCI.stageCount ||
+                stages[group.intersectionShader].stage != VK_SHADER_STAGE_INTERSECTION_BIT_NV) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02415", ": pGroups[%d]", group_index);
+            }
+        } else if (group.type == VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV) {
+            if (group.intersectionShader != VK_SHADER_UNUSED_NV) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02416", ": pGroups[%d]", group_index);
+            }
+        }
+
+        if (group.type == VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_NV ||
+            group.type == VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV) {
+            if (group.anyHitShader != VK_SHADER_UNUSED_NV && (group.anyHitShader >= pipeline->raytracingPipelineCI.stageCount ||
+                                                              stages[group.anyHitShader].stage != VK_SHADER_STAGE_ANY_HIT_BIT_NV)) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkRayTracingShaderGroupCreateInfoNV-anyHitShader-02418", ": pGroups[%d]", group_index);
+            }
+            if (group.closestHitShader != VK_SHADER_UNUSED_NV &&
+                (group.closestHitShader >= pipeline->raytracingPipelineCI.stageCount ||
+                 stages[group.closestHitShader].stage != VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV)) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkRayTracingShaderGroupCreateInfoNV-closestHitShader-02417", ": pGroups[%d]", group_index);
+            }
+        }
     }
     return skip;
 }
@@ -3100,7 +3340,7 @@ static ValidationCache *GetValidationCacheInfo(VkShaderModuleCreateInfo const *p
 }
 
 bool CoreChecks::PreCallValidateCreateShaderModule(VkDevice device, const VkShaderModuleCreateInfo *pCreateInfo,
-                                                   const VkAllocationCallbacks *pAllocator, VkShaderModule *pShaderModule) {
+                                                   const VkAllocationCallbacks *pAllocator, VkShaderModule *pShaderModule) const {
     bool skip = false;
     spv_result_t spv_valid = SPV_SUCCESS;
 
@@ -3123,10 +3363,15 @@ bool CoreChecks::PreCallValidateCreateShaderModule(VkDevice device, const VkShad
             if (cache->Contains(hash)) return false;
         }
 
-        // Use SPIRV-Tools validator to try and catch any issues with the module itself
+        // Use SPIRV-Tools validator to try and catch any issues with the module itself. If specialization constants are present,
+        // the default values will be used during validation.
         spv_target_env spirv_environment = SPV_ENV_VULKAN_1_0;
         if (api_version >= VK_API_VERSION_1_1) {
-            spirv_environment = SPV_ENV_VULKAN_1_1;
+            if (device_extensions.vk_khr_spirv_1_4) {
+                spirv_environment = SPV_ENV_VULKAN_1_1_SPIRV_1_4;
+            } else {
+                spirv_environment = SPV_ENV_VULKAN_1_1;
+            }
         }
         spv_context ctx = spvContextCreate(spirv_environment);
         spv_const_binary_t binary{pCreateInfo->pCode, pCreateInfo->codeSize / sizeof(uint32_t)};
@@ -3163,16 +3408,6 @@ bool CoreChecks::PreCallValidateCreateShaderModule(VkDevice device, const VkShad
     }
 
     return skip;
-}
-
-void CoreChecks::PreCallRecordCreateShaderModule(VkDevice device, const VkShaderModuleCreateInfo *pCreateInfo,
-                                                 const VkAllocationCallbacks *pAllocator, VkShaderModule *pShaderModule,
-                                                 void *csm_state_data) {
-    create_shader_module_api_state *csm_state = reinterpret_cast<create_shader_module_api_state *>(csm_state_data);
-    if (enabled.gpu_validation) {
-        GpuPreCallCreateShaderModule(pCreateInfo, pAllocator, pShaderModule, &csm_state->unique_shader_id,
-                                     &csm_state->instrumented_create_info, &csm_state->instrumented_pgm);
-    }
 }
 
 bool CoreChecks::ValidateComputeWorkGroupSizes(const SHADER_MODULE_STATE *shader) const {

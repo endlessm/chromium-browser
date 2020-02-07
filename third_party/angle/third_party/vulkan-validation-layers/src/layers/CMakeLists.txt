@@ -74,7 +74,8 @@ if(BUILD_LAYER_SUPPORT_FILES)
 endif()
 
 set(TARGET_NAMES
-    VkLayer_khronos_validation)
+    VkLayer_khronos_validation
+    VkLayer_standard_validation)
 
 if(BUILD_LAYERS)
     # Install the layer json files
@@ -160,6 +161,7 @@ endif()
 set(CHASSIS_LIBRARY_FILES
     generated/chassis.cpp
     generated/layer_chassis_dispatch.cpp
+    generated/command_counter_helper.cpp
     state_tracker.cpp)
 
 set(CORE_VALIDATION_LIBRARY_FILES
@@ -190,6 +192,10 @@ set(BEST_PRACTICES_LIBRARY_FILES
     best_practices.cpp
     best_practices.h)
 
+set(GPU_ASSISTED_LIBRARY_FILES
+    gpu_validation.cpp
+    gpu_validation.h)
+
 if(BUILD_LAYERS)
     AddVkLayer(khronos_validation ""
         ${CHASSIS_LIBRARY_FILES}
@@ -197,7 +203,8 @@ if(BUILD_LAYERS)
         ${OBJECT_LIFETIMES_LIBRARY_FILES}
         ${THREAD_SAFETY_LIBRARY_FILES}
         ${STATELESS_VALIDATION_LIBRARY_FILES}
-        ${BEST_PRACTICES_LIBRARY_FILES})
+        ${BEST_PRACTICES_LIBRARY_FILES}
+        ${GPU_ASSISTED_LIBRARY_FILES})
 
     # Khronos validation additional dependencies
     target_include_directories(VkLayer_khronos_validation PRIVATE ${GLSLANG_SPIRV_INCLUDE_DIR})
@@ -226,7 +233,7 @@ if(BUILD_LAYERS)
                 -DRELATIVE_LAYER_BINARY="${RELATIVE_PATH_PREFIX}$<TARGET_FILE_NAME:${TARGET_NAME}>")
             # If this json file is a metalayer, make the output path match core validation, and there is no layer binary file
         else()
-            set(CONFIG_DEFINES ${CONFIG_DEFINES} -DOUTPUT_FILE="$<TARGET_FILE_DIR:VkLayer_core_validation>/${TARGET_NAME}.json")
+            set(CONFIG_DEFINES ${CONFIG_DEFINES} -DOUTPUT_FILE="$<TARGET_FILE_DIR:VkLayer_khronos_validation>/${TARGET_NAME}.json")
         endif()
         add_custom_target(${TARGET_NAME}-json ALL
                           COMMAND ${CMAKE_COMMAND} ${CONFIG_DEFINES} -P "${CMAKE_CURRENT_BINARY_DIR}/generator.cmake")

@@ -10,10 +10,8 @@ https://gerrit-review.googlesource.com/Documentation/rest-api.html
 
 from __future__ import print_function
 
-import base64
 import datetime
 import json
-import netrc
 import os
 import re
 import socket
@@ -30,7 +28,6 @@ import six
 from six.moves import html_parser as HTMLParser
 from six.moves import http_client as httplib
 from six.moves import http_cookiejar as cookielib
-from six.moves import StringIO
 from six.moves import urllib
 
 from chromite.lib import constants
@@ -89,28 +86,6 @@ class ErrorParser(HTMLParser.HTMLParser):
 
 
 @memoize.Memoize
-def _GetNetRC():
-  try:
-    return netrc.netrc(None)
-  except (IOError, netrc.NetrcParseError):
-    try:
-      return netrc.netrc(os.devnull)
-    except IOError:
-      return None
-
-
-def _NetRCAuthenticators(host):
-  """Returns the authenticators, if any, for the given |host|.
-
-  Args:
-    host: A hostname
-  """
-  net_rc = _GetNetRC()
-  if net_rc:
-    return net_rc.authenticators(host)
-
-
-@memoize.Memoize
 def _GetAppCredentials():
   """Returns the singleton Appengine credentials for gerrit code review."""
   return gce.AppAssertionCredentials(
@@ -127,11 +102,11 @@ GIT_PROTOCOL = 'https'
 
 # The GOB conflict errors which could be ignorable.
 GOB_CONFLICT_ERRORS = (
-    r'change is closed',
-    r'Cannot reduce vote on labels for closed change'
+    br'change is closed',
+    br'Cannot reduce vote on labels for closed change',
 )
 
-GOB_CONFLICT_ERRORS_RE = re.compile('|'.join(GOB_CONFLICT_ERRORS),
+GOB_CONFLICT_ERRORS_RE = re.compile(br'|'.join(GOB_CONFLICT_ERRORS),
                                     re.IGNORECASE)
 
 GOB_ERROR_REASON_CLOSED_CHANGE = 'CLOSED CHANGE'
@@ -203,13 +178,7 @@ def CreateHttpConn(host, path, reqtype='GET', headers=None, body=None):
   """Opens an https connection to a gerrit service, and sends a request."""
   path = '/a/' + path.lstrip('/')
   headers = headers or {}
-  bare_host = host.partition(':')[0]
-  auth = _NetRCAuthenticators(bare_host)
-  if auth:
-    headers.setdefault(
-        'Authorization',
-        'Basic %s' % base64.b64encode('%s:%s' % (auth[0], auth[2])))
-  elif _InAppengine():
+  if _InAppengine():
     # TODO(phobbs) how can we choose to only run this on GCE / AppEngine?
     credentials = _GetAppCredentials()
     try:
@@ -222,11 +191,11 @@ def CreateHttpConn(host, path, reqtype='GET', headers=None, body=None):
     except httplib2.ServerNotFoundError as e:
       pass
 
-  if 'Authorization' not in headers:
-    logging.debug('No netrc file or Appengine credentials found.')
   if 'Cookie' not in headers:
     cookies = GetCookies(host, path)
     headers['Cookie'] = '; '.join('%s=%s' % (n, v) for n, v in cookies.items())
+  elif 'Authorization' not in headers:
+    logging.debug('No gitcookies file or Appengine credentials found.')
 
   if 'User-Agent' not in headers:
     # We may not be in a git repository.
@@ -271,7 +240,7 @@ def _InAppengine():
 
 def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
              ignore_204=False, ignore_404=True):
-  """Fetches the http response from the specified URL into a string buffer.
+  """Fetches the http response from the specified URL.
 
   Args:
     host: The hostname of the Gerrit service.
@@ -288,7 +257,7 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
                 want the API to return None rather than raise an Exception.
 
   Returns:
-    A string buffer containing the connection's reply.
+    The connection's reply, as bytes.
   """
   @timeout_util.TimeoutDecorator(REQUEST_TIMEOUT_SECONDS)
   def _FetchUrlHelper():
@@ -307,18 +276,13 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
       # This exception is used to confirm expected response status.
       raise GOBError(http_status=response.status, reason=response.reason)
     if response.status == 404 and ignore_404:
-      return StringIO()
+      return b''
     elif response.status == 200:
-      return StringIO(response_body)
+      return response_body
 
     # Bad responses.
     logging.debug('response msg:\n%s', response.msg)
     http_version = 'HTTP/%s' % ('1.1' if response.version == 11 else '1.0')
-    ep = ErrorParser()
-    ep.feed(str(response_body))
-    ep.close()
-    parsed_div = ep.ParsedDiv()
-
     msg = ('%s %s %s\n%s %d %s\nResponse body: %r' %
            (reqtype, conn.req_params['url'], http_version,
             http_version, response.status, response.reason,
@@ -336,13 +300,13 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
     home = os.environ.get('HOME', '~')
     url = 'https://%s/new-password' % host
     if response.status in (302, 303, 307):
-      err_prefix = ('Redirect found; missing/bad %s/.netrc credentials or '
+      err_prefix = ('Redirect found; missing/bad %s/.gitcookies credentials or '
                     'permissions (0600)?\n See %s' % (home, url))
     elif response.status in (400,):
       err_prefix = 'Permission error; talk to the admins of the GoB instance'
     elif response.status in (401,):
-      err_prefix = ('Authorization error; missing/bad %s/.netrc credentials or '
-                    'permissions (0600)?\n See %s' % (home, url))
+      err_prefix = ('Authorization error; missing/bad %s/.gitcookies '
+                    'credentials or permissions (0600)?\n See %s' % (home, url))
     elif response.status in (422,):
       err_prefix = ('Bad request body?')
 
@@ -350,6 +314,10 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
 
     # If GOB output contained expected error message, reduce log visibility of
     # raw GOB output reported below.
+    ep = ErrorParser()
+    ep.feed(response_body.decode('utf-8'))
+    ep.close()
+    parsed_div = ep.ParsedDiv()
     if parsed_div:
       logging.warning('GOB Error:\n%s', parsed_div)
       logging_function = logging.debug
@@ -389,14 +357,18 @@ def FetchUrlJson(*args, **kwargs):
   See FetchUrl for arguments.
   """
   fh = FetchUrl(*args, **kwargs)
-  # The first line of the response should always be: )]}'
-  s = fh.readline()
-  if s and s.rstrip() != ")]}'":
-    raise GOBError(http_status=200, reason='Unexpected json output: %s' % s)
-  s = fh.read()
-  if not s:
+
+  # In case ignore_404 is True, we want to return None instead of
+  # raising an exception.
+  if not fh:
     return None
-  return json.loads(s)
+
+  # The first line of the response should always be: )]}'
+  if not fh.startswith(b")]}'"):
+    raise GOBError(http_status=200, reason='Unexpected json output: %r' % fh)
+
+  _, _, json_data = fh.partition(b'\n')
+  return json.loads(json_data)
 
 
 def QueryChanges(host, param_dict, first_param=None, limit=None, o_params=None,

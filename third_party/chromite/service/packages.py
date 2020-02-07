@@ -15,13 +15,17 @@ import os
 import re
 import sys
 
+from google.protobuf import json_format
 
+from chromite.api.gen.config import replication_config_pb2
+from chromite.cbuildbot import manifest_version
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import portage_util
+from chromite.lib import replication_lib
 from chromite.lib import uprev_lib
 
 if cros_build_lib.IsInsideChroot():
@@ -332,48 +336,6 @@ def uprev_kernel_afdo(*_args, **_kwargs):
   return result
 
 
-@uprevs_versioned_package('afdo/chrome-profiles')
-def uprev_chrome_afdo(*_args, **_kwargs):
-  """Updates chrome ebuilds with versions from chrome_afdo.json.
-
-  See: uprev_versioned_package.
-
-  Raises:
-    EbuildManifestError: When ebuild manifest does not complete successfuly.
-  """
-  path = os.path.join(constants.SOURCE_ROOT, 'src', 'third_party',
-                      'toolchain-utils', 'afdo_metadata', 'chrome_afdo.json')
-
-  with open(path, 'r') as f:
-    versions = json.load(f)
-
-  path = os.path.join('src', 'third_party', 'chromiumos-overlay',
-                      'chromeos-base', 'chromeos-chrome')
-  ebuild_path = os.path.join(constants.SOURCE_ROOT, path,
-                             'chromeos-chrome-9999.ebuild')
-  chroot_ebuild_path = os.path.join(constants.CHROOT_SOURCE_ROOT, path,
-                                    'chromeos-chrome-9999.ebuild')
-
-  result = UprevVersionedPackageResult()
-  for version, version_info in versions.items():
-    afdo_profile_version = version_info['name']
-    varname = 'AFDO_FILE["%s"]' % version
-    patch_ebuild_vars(ebuild_path, {varname: afdo_profile_version})
-
-  try:
-    cmd = ['ebuild', chroot_ebuild_path, 'manifest', '--force']
-    cros_build_lib.run(cmd, enter_chroot=True)
-  except cros_build_lib.RunCommandError as e:
-    raise EbuildManifestError(
-        'Error encountered when regenerating the manifest for ebuild: %s\n%s' %
-        (chroot_ebuild_path, e), e)
-
-  manifest_path = os.path.join(constants.SOURCE_ROOT, path, 'Manifest')
-  result.add_result('chromeos-chrome', [ebuild_path, manifest_path])
-
-  return result
-
-
 @uprevs_versioned_package(constants.CHROME_CP)
 def uprev_chrome(build_targets, refs, chroot):
   """Uprev chrome and its related packages.
@@ -397,6 +359,48 @@ def uprev_chrome(build_targets, refs, chroot):
     uprev_manager.uprev(package)
 
   return result.add_result(chrome_version, uprev_manager.modified_ebuilds)
+
+
+@uprevs_versioned_package('chromeos-base/chromeos-config-bsp-coral-private')
+def replicate_private_config(_build_targets, refs, _chroot):
+  """Replicate a private cros_config change to the corresponding public config.
+
+    See uprev_versioned_package for args
+  """
+  # TODO(crbug.com/1020262): Generalize this to other packages.
+  package = 'chromeos-base/chromeos-config-bsp-coral-private'
+
+  if len(refs) != 1:
+    raise ValueError('Expected exactly one ref, actual %s' % refs)
+
+  # Expect a replication_config.jsonpb in the package root.
+  package_root = os.path.join(constants.SOURCE_ROOT, refs[0].path, package)
+  replication_config_path = os.path.join(package_root,
+                                         'replication_config.jsonpb')
+
+  try:
+    replication_config = json_format.Parse(
+        osutils.ReadFile(replication_config_path),
+        replication_config_pb2.ReplicationConfig())
+  except IOError:
+    raise ValueError('Expected ReplicationConfig missing at %s' %
+                     replication_config_path)
+
+  replication_lib.Replicate(replication_config)
+
+  modified_files = [
+      rule.destination_path
+      for rule in replication_config.file_replication_rules
+  ]
+
+  # TODO(crbug.com/1021241): Use cros_config_schema to generate platform JSON
+  # and C files.
+
+  # Use the private repo's commit hash as the new version.
+  new_private_version = refs[0].revision
+
+  return UprevVersionedPackageResult().add_result(new_private_version,
+                                                  modified_files)
 
 
 def get_best_visible(atom, build_target=None):
@@ -431,7 +435,7 @@ def builds(atom, build_target, packages=None):
   """Check if |build_target| builds |atom| (has it in its depgraph)."""
   cros_build_lib.AssertInsideChroot()
 
-  graph = dependency.GetBuildDependency(build_target.name, packages)
+  graph, _sdk_graph = dependency.GetBuildDependency(build_target.name, packages)
   return any(atom in package for package in graph['package_deps'])
 
 
@@ -441,8 +445,18 @@ def determine_chrome_version(build_target):
   Args:
     build_target (build_target_util.BuildTarget): The board build target.
   """
-  cpv = portage_util.PortageqBestVisible(constants.CHROME_CP, build_target.name,
-                                         cwd=constants.SOURCE_ROOT)
+  # TODO(crbug/1019770): Long term we should not need the try/catch here once
+  # the builds function above only returns True for chrome when
+  # determine_chrome_version will succeed.
+  try:
+    cpv = portage_util.PortageqBestVisible(constants.CHROME_CP,
+                                           build_target.name,
+                                           cwd=constants.SOURCE_ROOT)
+  except cros_build_lib.RunCommandError as e:
+    # Return None because portage failed when trying to determine the chrome
+    # version.
+    logging.warning('Caught exception in determine_chrome_package: %s', e)
+    return None
   # Something like 78.0.3877.4_rc -> 78.0.3877.4
   return cpv.version_no_rev.partition('_')[0]
 
@@ -453,13 +467,19 @@ def determine_android_package(board):
   Args:
     board: The board name this is specific to.
   """
-  packages = portage_util.GetPackageDependencies(board, 'virtual/target-os')
-  # We assume there is only one Android package in the depgraph.
-  for package in packages:
-    if package.startswith('chromeos-base/android-container-') or \
-       package.startswith('chromeos-base/android-vm-'):
-      return package
-  return None
+  try:
+    packages = portage_util.GetPackageDependencies(board, 'virtual/target-os')
+    # We assume there is only one Android package in the depgraph.
+    for package in packages:
+      if package.startswith('chromeos-base/android-container-') or \
+         package.startswith('chromeos-base/android-vm-'):
+        return package
+    return None
+  except cros_build_lib.RunCommandError as e:
+    # Return None because a command (likely portage) failed when trying to
+    # determine the package.
+    logging.warning('Caught exception in determine_android_package: %s', e)
+    return None
 
 
 def determine_android_version(boards=None):
@@ -521,6 +541,7 @@ def determine_android_branch(board):
 
 
 def determine_android_target(board):
+  """Returns the Android target in use by the active container ebuild."""
   try:
     android_package = determine_android_package(board)
   except cros_build_lib.RunCommandError:
@@ -536,3 +557,25 @@ def determine_android_target(board):
   raise NoAndroidTargetError(
       'Android Target cannot be determined for the package: %s' %
       android_package)
+
+
+def determine_platform_version():
+  """Returns the platform version from the source root."""
+  # Platform version is something like '12575.0.0'.
+  version = manifest_version.VersionInfo.from_repo(constants.SOURCE_ROOT)
+  return version.VersionString()
+
+
+def determine_milestone_version():
+  """Returns the platform version from the source root."""
+  # Milestone version is something like '79'.
+  version = manifest_version.VersionInfo.from_repo(constants.SOURCE_ROOT)
+  return version.chrome_branch
+
+def determine_full_version():
+  """Returns the full version from the source root."""
+  # Full version is something like 'R79-12575.0.0'.
+  milestone_version = determine_milestone_version()
+  platform_version = determine_platform_version()
+  full_version = ('R%s-%s' % (milestone_version, platform_version))
+  return full_version

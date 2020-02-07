@@ -452,7 +452,7 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
   // Origin is not actually required but if it's there it should be a valid one.
   NSString* origin =
       [response objectForKey:notification_constants::kNotificationOrigin];
-  if (origin) {
+  if (origin && origin.length) {
     std::string notificationOrigin = base::SysNSStringToUTF8(origin);
     GURL url(notificationOrigin);
     if (!url.is_valid())

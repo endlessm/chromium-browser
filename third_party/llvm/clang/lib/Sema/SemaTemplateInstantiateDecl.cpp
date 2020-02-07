@@ -394,9 +394,41 @@ static void instantiateOMPDeclareVariantAttr(
           S.ConvertDeclToDeclGroup(New), VariantFuncRef.get(), Attr.getRange());
   if (!DeclVarData)
     return;
-  // Instantiate the attribute.
-  Sema::OpenMPDeclareVariantCtsSelectorData Data(
-      Attr.getCtxSelectorSet(), Attr.getCtxSelector(), Attr.getImplVendor());
+  SmallVector<Sema::OMPCtxSelectorData, 4> Data;
+  for (unsigned I = 0, E = Attr.scores_size(); I < E; ++I) {
+    ExprResult Score;
+    if (Expr *E = *std::next(Attr.scores_begin(), I))
+      Score = Subst(E);
+    // Instantiate the attribute.
+    auto CtxSet = static_cast<OpenMPContextSelectorSetKind>(
+        *std::next(Attr.ctxSelectorSets_begin(), I));
+    auto Ctx = static_cast<OpenMPContextSelectorKind>(
+        *std::next(Attr.ctxSelectors_begin(), I));
+    switch (CtxSet) {
+    case OMP_CTX_SET_implementation:
+      switch (Ctx) {
+      case OMP_CTX_vendor:
+        Data.emplace_back(CtxSet, Ctx, Score, Attr.implVendors());
+        break;
+      case OMP_CTX_kind:
+      case OMP_CTX_unknown:
+        llvm_unreachable("Unexpected context selector kind.");
+      }
+      break;
+    case OMP_CTX_SET_device:
+      switch (Ctx) {
+      case OMP_CTX_kind:
+        Data.emplace_back(CtxSet, Ctx, Score, Attr.deviceKinds());
+        break;
+      case OMP_CTX_vendor:
+      case OMP_CTX_unknown:
+        llvm_unreachable("Unexpected context selector kind.");
+      }
+      break;
+    case OMP_CTX_SET_unknown:
+      llvm_unreachable("Unexpected context selector set kind.");
+    }
+  }
   S.ActOnOpenMPDeclareVariantDirective(DeclVarData.getValue().first,
                                        DeclVarData.getValue().second,
                                        Attr.getRange(), Data);
@@ -897,6 +929,9 @@ Decl *TemplateDeclInstantiator::VisitVarDecl(VarDecl *D,
   if (SemaRef.getLangOpts().ObjCAutoRefCount &&
       SemaRef.inferObjCARCLifetime(Var))
     Var->setInvalidDecl();
+
+  if (SemaRef.getLangOpts().OpenCL)
+    SemaRef.deduceOpenCLAddressSpace(Var);
 
   // Substitute the nested name specifier, if any.
   if (SubstQualifier(D, Var))
@@ -2042,6 +2077,11 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
     }
   }
 
+  if (D->isExplicitlyDefaulted())
+    SemaRef.SetDeclDefaulted(Function, D->getLocation());
+  if (D->isDeleted())
+    SemaRef.SetDeclDeleted(Function, D->getLocation());
+
   if (Function->isLocalExternDecl() && !Function->getPreviousDecl())
     DC->makeDeclVisibleInContext(PrincipalDecl);
 
@@ -2049,7 +2089,6 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(FunctionDecl *D,
       PrincipalDecl->isInIdentifierNamespace(Decl::IDNS_Ordinary))
     PrincipalDecl->setNonMemberOperator();
 
-  assert(!D->isDefaulted() && "only methods should be defaulted");
   return Function;
 }
 
@@ -3031,6 +3070,17 @@ Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
   } else {
     SubstReductionType = D->getType();
   }
+  Expr *Combiner = D->getCombiner();
+  Expr *Init = D->getInitializer();
+  const bool CombinerRequiresInstantiation =
+      Combiner &&
+      (Combiner->isValueDependent() || Combiner->isInstantiationDependent() ||
+       Combiner->isTypeDependent() ||
+       Combiner->containsUnexpandedParameterPack());
+  const bool InitRequiresInstantiation =
+      Init &&
+      (Init->isValueDependent() || Init->isInstantiationDependent() ||
+       Init->isTypeDependent() || Init->containsUnexpandedParameterPack());
   if (SubstReductionType.isNull())
     return nullptr;
   bool IsCorrect = !SubstReductionType.isNull();
@@ -3048,11 +3098,12 @@ Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
       PrevDeclInScope);
   auto *NewDRD = cast<OMPDeclareReductionDecl>(DRD.get().getSingleDecl());
   SemaRef.CurrentInstantiationScope->InstantiatedLocal(D, NewDRD);
-  if (!RequiresInstantiation) {
-    if (Expr *Combiner = D->getCombiner()) {
+  if (!RequiresInstantiation && !CombinerRequiresInstantiation &&
+      !InitRequiresInstantiation) {
+    if (Combiner) {
       NewDRD->setCombinerData(D->getCombinerIn(), D->getCombinerOut());
       NewDRD->setCombiner(Combiner);
-      if (Expr *Init = D->getInitializer()) {
+      if (Init) {
         NewDRD->setInitializerData(D->getInitOrig(), D->getInitPriv());
         NewDRD->setInitializer(Init, D->getInitializerKind());
       }
@@ -3064,22 +3115,32 @@ Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
   Expr *SubstCombiner = nullptr;
   Expr *SubstInitializer = nullptr;
   // Combiners instantiation sequence.
-  if (D->getCombiner()) {
-    SemaRef.ActOnOpenMPDeclareReductionCombinerStart(
-        /*S=*/nullptr, NewDRD);
-    SemaRef.CurrentInstantiationScope->InstantiatedLocal(
-        cast<DeclRefExpr>(D->getCombinerIn())->getDecl(),
-        cast<DeclRefExpr>(NewDRD->getCombinerIn())->getDecl());
-    SemaRef.CurrentInstantiationScope->InstantiatedLocal(
-        cast<DeclRefExpr>(D->getCombinerOut())->getDecl(),
-        cast<DeclRefExpr>(NewDRD->getCombinerOut())->getDecl());
-    auto *ThisContext = dyn_cast_or_null<CXXRecordDecl>(Owner);
-    Sema::CXXThisScopeRAII ThisScope(SemaRef, ThisContext, Qualifiers(),
-                                     ThisContext);
-    SubstCombiner = SemaRef.SubstExpr(D->getCombiner(), TemplateArgs).get();
-    SemaRef.ActOnOpenMPDeclareReductionCombinerEnd(NewDRD, SubstCombiner);
-    // Initializers instantiation sequence.
-    if (D->getInitializer()) {
+  if (Combiner) {
+    if (!CombinerRequiresInstantiation) {
+      NewDRD->setCombinerData(D->getCombinerIn(), D->getCombinerOut());
+      NewDRD->setCombiner(Combiner);
+    } else {
+      SemaRef.ActOnOpenMPDeclareReductionCombinerStart(
+          /*S=*/nullptr, NewDRD);
+      SemaRef.CurrentInstantiationScope->InstantiatedLocal(
+          cast<DeclRefExpr>(D->getCombinerIn())->getDecl(),
+          cast<DeclRefExpr>(NewDRD->getCombinerIn())->getDecl());
+      SemaRef.CurrentInstantiationScope->InstantiatedLocal(
+          cast<DeclRefExpr>(D->getCombinerOut())->getDecl(),
+          cast<DeclRefExpr>(NewDRD->getCombinerOut())->getDecl());
+      auto *ThisContext = dyn_cast_or_null<CXXRecordDecl>(Owner);
+      Sema::CXXThisScopeRAII ThisScope(SemaRef, ThisContext, Qualifiers(),
+                                       ThisContext);
+      SubstCombiner = SemaRef.SubstExpr(Combiner, TemplateArgs).get();
+      SemaRef.ActOnOpenMPDeclareReductionCombinerEnd(NewDRD, SubstCombiner);
+    }
+  }
+  // Initializers instantiation sequence.
+  if (Init) {
+    if (!InitRequiresInstantiation) {
+      NewDRD->setInitializerData(D->getInitOrig(), D->getInitPriv());
+      NewDRD->setInitializer(Init, D->getInitializerKind());
+    } else {
       VarDecl *OmpPrivParm =
           SemaRef.ActOnOpenMPDeclareReductionInitializerStart(
               /*S=*/nullptr, NewDRD);
@@ -3090,27 +3151,29 @@ Decl *TemplateDeclInstantiator::VisitOMPDeclareReductionDecl(
           cast<DeclRefExpr>(D->getInitPriv())->getDecl(),
           cast<DeclRefExpr>(NewDRD->getInitPriv())->getDecl());
       if (D->getInitializerKind() == OMPDeclareReductionDecl::CallInit) {
-        SubstInitializer =
-            SemaRef.SubstExpr(D->getInitializer(), TemplateArgs).get();
+        SubstInitializer = SemaRef.SubstExpr(Init, TemplateArgs).get();
       } else {
-        IsCorrect = IsCorrect && OmpPrivParm->hasInit();
+        auto *OldPrivParm =
+            cast<VarDecl>(cast<DeclRefExpr>(D->getInitPriv())->getDecl());
+        IsCorrect = IsCorrect && OldPrivParm->hasInit();
+        if (IsCorrect)
+          SemaRef.InstantiateVariableInitializer(OmpPrivParm, OldPrivParm,
+                                                 TemplateArgs);
       }
       SemaRef.ActOnOpenMPDeclareReductionInitializerEnd(
           NewDRD, SubstInitializer, OmpPrivParm);
     }
-    IsCorrect =
-        IsCorrect && SubstCombiner &&
-        (!D->getInitializer() ||
-         (D->getInitializerKind() == OMPDeclareReductionDecl::CallInit &&
-          SubstInitializer) ||
-         (D->getInitializerKind() != OMPDeclareReductionDecl::CallInit &&
-          !SubstInitializer && !SubstInitializer));
-  } else {
-    IsCorrect = false;
   }
+  IsCorrect = IsCorrect && (!CombinerRequiresInstantiation || SubstCombiner) &&
+              (!InitRequiresInstantiation ||
+               (!Init ||
+                (D->getInitializerKind() == OMPDeclareReductionDecl::CallInit &&
+                 SubstInitializer) ||
+                (D->getInitializerKind() != OMPDeclareReductionDecl::CallInit &&
+                 !SubstInitializer)));
 
-  (void)SemaRef.ActOnOpenMPDeclareReductionDirectiveEnd(/*S=*/nullptr, DRD,
-                                                        IsCorrect);
+  (void)SemaRef.ActOnOpenMPDeclareReductionDirectiveEnd(
+      /*S=*/nullptr, DRD, IsCorrect && !D->isInvalidDecl());
 
   return NewDRD;
 }
@@ -3508,14 +3571,21 @@ TemplateDeclInstantiator::SubstTemplateParams(TemplateParameterList *L) {
   if (Invalid)
     return nullptr;
 
-  // Note: we substitute into associated constraints later
-  Expr *const UninstantiatedRequiresClause = L->getRequiresClause();
+  // FIXME: Concepts: Substitution into requires clause should only happen when
+  // checking satisfaction.
+  Expr *InstRequiresClause = nullptr;
+  if (Expr *E = L->getRequiresClause()) {
+    ExprResult Res = SemaRef.SubstExpr(E, TemplateArgs);
+    if (Res.isInvalid() || !Res.isUsable()) {
+      return nullptr;
+    }
+    InstRequiresClause = Res.get();
+  }
 
   TemplateParameterList *InstL
     = TemplateParameterList::Create(SemaRef.Context, L->getTemplateLoc(),
                                     L->getLAngleLoc(), Params,
-                                    L->getRAngleLoc(),
-                                    UninstantiatedRequiresClause);
+                                    L->getRAngleLoc(), InstRequiresClause);
   return InstL;
 }
 
@@ -4002,9 +4072,6 @@ void Sema::InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
 bool
 TemplateDeclInstantiator::InitFunctionInstantiation(FunctionDecl *New,
                                                     FunctionDecl *Tmpl) {
-  if (Tmpl->isDeleted())
-    New->setDeletedAsWritten();
-
   New->setImplicit(Tmpl->isImplicit());
 
   // Forward the mangling number from the template to the instantiated decl.

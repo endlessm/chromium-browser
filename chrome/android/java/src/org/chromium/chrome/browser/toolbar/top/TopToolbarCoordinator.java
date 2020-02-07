@@ -13,16 +13,16 @@ import android.widget.ImageButton;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
+import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ThemeColorProvider;
-import org.chromium.chrome.browser.appmenu.AppMenuButtonHelper;
 import org.chromium.chrome.browser.compositor.Invalidator;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.findinpage.FindToolbar;
 import org.chromium.chrome.browser.fullscreen.BrowserStateBrowserControlsVisibilityDelegate;
+import org.chromium.chrome.browser.flags.FeatureUtilities;
 import org.chromium.chrome.browser.omnibox.LocationBar;
 import org.chromium.chrome.browser.partnercustomizations.HomepageManager;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
@@ -32,13 +32,12 @@ import org.chromium.chrome.browser.toolbar.TabCountProvider;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
 import org.chromium.chrome.browser.toolbar.ToolbarProgressBar;
 import org.chromium.chrome.browser.toolbar.ToolbarTabController;
+import org.chromium.chrome.browser.ui.appmenu.AppMenuButtonHelper;
 
 /**
  * A coordinator for the top toolbar component.
  */
 public class TopToolbarCoordinator implements Toolbar {
-    static final int TAB_SWITCHER_MODE_NORMAL_ANIMATION_DURATION_MS = 200;
-    static final int TAB_SWITCHER_MODE_GTS_ANIMATION_DURATION_MS = 150;
 
     /**
      * Observes toolbar URL expansion percentage change.
@@ -60,6 +59,11 @@ public class TopToolbarCoordinator implements Toolbar {
      * after ToolbarLayout is inflated.
      */
     private @Nullable TabSwitcherModeTTCoordinatorPhone mTabSwitcherModeCoordinatorPhone;
+    /**
+     * The coordinator for the start surface mode toolbar (phones only) if the StartSurface is
+     * enabled. This will be lazily created after ToolbarLayout is inflated.
+     */
+    private @Nullable StartSurfaceToolbarCoordinator mStartSurfaceToolbarCoordinator;
 
     private HomepageManager.HomepageStateListener mHomepageStateListener =
             new HomepageManager.HomepageStateListener() {
@@ -78,8 +82,15 @@ public class TopToolbarCoordinator implements Toolbar {
             ToolbarControlContainer controlContainer, ToolbarLayout toolbarLayout) {
         mToolbarLayout = toolbarLayout;
         if (mToolbarLayout instanceof ToolbarPhone) {
-            mTabSwitcherModeCoordinatorPhone = new TabSwitcherModeTTCoordinatorPhone(
-                    controlContainer.getRootView().findViewById(R.id.tab_switcher_toolbar_stub));
+            if (FeatureUtilities.isStartSurfaceEnabled()) {
+                mStartSurfaceToolbarCoordinator = new StartSurfaceToolbarCoordinator(
+                        controlContainer.getRootView().findViewById(
+                                R.id.tab_switcher_toolbar_stub));
+            } else {
+                mTabSwitcherModeCoordinatorPhone = new TabSwitcherModeTTCoordinatorPhone(
+                        controlContainer.getRootView().findViewById(
+                                R.id.tab_switcher_toolbar_stub));
+            }
         }
         controlContainer.setToolbar(this);
         HomepageManager.getInstance().addListener(mHomepageStateListener);
@@ -102,6 +113,8 @@ public class TopToolbarCoordinator implements Toolbar {
         mToolbarLayout.setAppMenuButtonHelper(appMenuButtonHelper);
         if (mTabSwitcherModeCoordinatorPhone != null) {
             mTabSwitcherModeCoordinatorPhone.setAppMenuButtonHelper(appMenuButtonHelper);
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.setAppMenuButtonHelper(appMenuButtonHelper);
         }
     }
 
@@ -129,6 +142,11 @@ public class TopToolbarCoordinator implements Toolbar {
             mTabSwitcherModeCoordinatorPhone.setOnTabSwitcherClickHandler(tabSwitcherClickHandler);
             mTabSwitcherModeCoordinatorPhone.setOnNewTabClickHandler(newTabClickHandler);
             mTabSwitcherModeCoordinatorPhone.setTabModelSelector(tabModelSelector);
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.setOnNewTabClickHandler(newTabClickHandler);
+            mStartSurfaceToolbarCoordinator.setTabModelSelector(tabModelSelector);
+            mStartSurfaceToolbarCoordinator.setOverviewModeBehavior(overviewModeBehavior);
+            mStartSurfaceToolbarCoordinator.onNativeLibraryReady();
         }
 
         mToolbarLayout.setTabModelSelector(tabModelSelector);
@@ -174,6 +192,8 @@ public class TopToolbarCoordinator implements Toolbar {
         mToolbarLayout.destroy();
         if (mTabSwitcherModeCoordinatorPhone != null) {
             mTabSwitcherModeCoordinatorPhone.destroy();
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.destroy();
         }
     }
 
@@ -215,13 +235,14 @@ public class TopToolbarCoordinator implements Toolbar {
 
     @Override
     public void updateTabSwitcherToolbarState(boolean requestToShow) {
-        if (mTabSwitcherModeCoordinatorPhone == null
+        // TODO(https://crbug.com/1041123): Investigate whether isInOverviewAndShowingOmnibox check
+        // is needed.
+        if (mStartSurfaceToolbarCoordinator == null
                 || mToolbarLayout.getToolbarDataProvider() == null
                 || !mToolbarLayout.getToolbarDataProvider().isInOverviewAndShowingOmnibox()) {
             return;
         }
-
-        mTabSwitcherModeCoordinatorPhone.setTabSwitcherToolbarVisibility(requestToShow);
+        mStartSurfaceToolbarCoordinator.setStartSurfaceToolbarVisibility(requestToShow);
     }
 
     @Override
@@ -315,6 +336,8 @@ public class TopToolbarCoordinator implements Toolbar {
         mToolbarLayout.onAccessibilityStatusChanged(enabled);
         if (mTabSwitcherModeCoordinatorPhone != null) {
             mTabSwitcherModeCoordinatorPhone.onAccessibilityStatusChanged(enabled);
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.onAccessibilityStatusChanged(enabled);
         }
     }
 
@@ -425,6 +448,8 @@ public class TopToolbarCoordinator implements Toolbar {
         mToolbarLayout.setTabSwitcherMode(inTabSwitcherMode, showToolbar, delayAnimation);
         if (mTabSwitcherModeCoordinatorPhone != null) {
             mTabSwitcherModeCoordinatorPhone.setTabSwitcherMode(inTabSwitcherMode);
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.setStartSurfaceMode(inTabSwitcherMode);
         }
     }
 
@@ -453,6 +478,8 @@ public class TopToolbarCoordinator implements Toolbar {
     public void setIncognitoStateProvider(IncognitoStateProvider provider) {
         if (mTabSwitcherModeCoordinatorPhone != null) {
             mTabSwitcherModeCoordinatorPhone.setIncognitoStateProvider(provider);
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.setIncognitoStateProvider(provider);
         }
     }
 
@@ -608,6 +635,11 @@ public class TopToolbarCoordinator implements Toolbar {
      */
     public void onBottomToolbarVisibilityChanged(boolean isVisible) {
         mToolbarLayout.onBottomToolbarVisibilityChanged(isVisible);
+        if (mTabSwitcherModeCoordinatorPhone != null) {
+            mTabSwitcherModeCoordinatorPhone.onBottomToolbarVisibilityChanged(isVisible);
+        } else if (mStartSurfaceToolbarCoordinator != null) {
+            mStartSurfaceToolbarCoordinator.onBottomToolbarVisibilityChanged(isVisible);
+        }
     }
 
     /**

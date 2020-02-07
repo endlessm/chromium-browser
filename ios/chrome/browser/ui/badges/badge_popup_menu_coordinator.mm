@@ -109,6 +109,14 @@
           displayModalInfobar:InfobarType::kInfobarTypePasswordUpdate];
       break;
     }
+    case PopupMenuActionShowSaveCardOptions: {
+      [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypeSaveCard];
+      break;
+    }
+    case PopupMenuActionShowTranslateOptions: {
+      [self.dispatcher displayModalInfobar:InfobarType::kInfobarTypeTranslate];
+      break;
+    }
     default:
       NOTREACHED() << "Unexpected identifier";
       break;

@@ -135,6 +135,8 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_INFO_NV";
         case VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR:
             return "VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR";
+        case VK_STRUCTURE_TYPE_ACQUIRE_PROFILING_LOCK_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_ACQUIRE_PROFILING_LOCK_INFO_KHR";
         case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID:
             return "VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID";
         case VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID:
@@ -147,8 +149,12 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_APPLICATION_INFO";
         case VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR:
             return "VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2_KHR";
+        case VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR:
+            return "VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR";
         case VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR:
             return "VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2_KHR";
+        case VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR:
+            return "VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR";
         case VK_STRUCTURE_TYPE_BIND_ACCELERATION_STRUCTURE_MEMORY_INFO_NV:
             return "VK_STRUCTURE_TYPE_BIND_ACCELERATION_STRUCTURE_MEMORY_INFO_NV";
         case VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_DEVICE_GROUP_INFO:
@@ -471,10 +477,16 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_OBJECT_TABLE_CREATE_INFO_NVX";
         case VK_STRUCTURE_TYPE_PERFORMANCE_CONFIGURATION_ACQUIRE_INFO_INTEL:
             return "VK_STRUCTURE_TYPE_PERFORMANCE_CONFIGURATION_ACQUIRE_INFO_INTEL";
+        case VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR:
+            return "VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR";
+        case VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR:
+            return "VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR";
         case VK_STRUCTURE_TYPE_PERFORMANCE_MARKER_INFO_INTEL:
             return "VK_STRUCTURE_TYPE_PERFORMANCE_MARKER_INFO_INTEL";
         case VK_STRUCTURE_TYPE_PERFORMANCE_OVERRIDE_INFO_INTEL:
             return "VK_STRUCTURE_TYPE_PERFORMANCE_OVERRIDE_INFO_INTEL";
+        case VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR";
         case VK_STRUCTURE_TYPE_PERFORMANCE_STREAM_MARKER_INFO_INTEL:
             return "VK_STRUCTURE_TYPE_PERFORMANCE_STREAM_MARKER_INFO_INTEL";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES:
@@ -587,6 +599,10 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR:
+            return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR:
+            return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES:
@@ -611,8 +627,12 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLE_LOCATIONS_PROPERTIES_EXT";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR:
+            return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES_KHR";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR:
+            return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_2_AMD:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_2_AMD";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CORE_PROPERTIES_AMD:
@@ -653,6 +673,10 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES_EXT";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES_EXT:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXTURE_COMPRESSION_ASTC_HDR_FEATURES_EXT";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR:
+            return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR";
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR:
+            return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES_KHR";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT:
             return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT";
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT:
@@ -761,6 +785,8 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO";
         case VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO_INTEL:
             return "VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO_INTEL";
+        case VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR";
         case VK_STRUCTURE_TYPE_QUEUE_FAMILY_CHECKPOINT_PROPERTIES_NV:
             return "VK_STRUCTURE_TYPE_QUEUE_FAMILY_CHECKPOINT_PROPERTIES_NV";
         case VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2:
@@ -803,6 +829,12 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR";
         case VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR:
             return "VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR";
+        case VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO_KHR";
+        case VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR";
+        case VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR";
         case VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO:
             return "VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO";
         case VK_STRUCTURE_TYPE_SHADER_MODULE_VALIDATION_CACHE_CREATE_INFO_EXT:
@@ -849,6 +881,8 @@ static inline const char* string_VkStructureType(VkStructureType input_value)
             return "VK_STRUCTURE_TYPE_SWAPCHAIN_DISPLAY_NATIVE_HDR_CREATE_INFO_AMD";
         case VK_STRUCTURE_TYPE_TEXTURE_LOD_GATHER_FORMAT_PROPERTIES_AMD:
             return "VK_STRUCTURE_TYPE_TEXTURE_LOD_GATHER_FORMAT_PROPERTIES_AMD";
+        case VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR:
+            return "VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR";
         case VK_STRUCTURE_TYPE_VALIDATION_CACHE_CREATE_INFO_EXT:
             return "VK_STRUCTURE_TYPE_VALIDATION_CACHE_CREATE_INFO_EXT";
         case VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT:
@@ -2015,6 +2049,8 @@ static inline const char* string_VkQueryType(VkQueryType input_value)
             return "VK_QUERY_TYPE_OCCLUSION";
         case VK_QUERY_TYPE_PERFORMANCE_QUERY_INTEL:
             return "VK_QUERY_TYPE_PERFORMANCE_QUERY_INTEL";
+        case VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR:
+            return "VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR";
         case VK_QUERY_TYPE_PIPELINE_STATISTICS:
             return "VK_QUERY_TYPE_PIPELINE_STATISTICS";
         case VK_QUERY_TYPE_TIMESTAMP:
@@ -2213,8 +2249,12 @@ static inline const char* string_VkImageLayout(VkImageLayout input_value)
     {
         case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
             return "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL";
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR:
+            return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR";
         case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
             return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL";
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR:
+            return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR";
         case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
             return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL";
         case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
@@ -2235,6 +2275,10 @@ static inline const char* string_VkImageLayout(VkImageLayout input_value)
             return "VK_IMAGE_LAYOUT_SHADING_RATE_OPTIMAL_NV";
         case VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR:
             return "VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR";
+        case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR:
+            return "VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR";
+        case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR:
+            return "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR";
         case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
             return "VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL";
         case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
@@ -2335,8 +2379,8 @@ static inline const char* string_VkPipelineCreateFlagBits(VkPipelineCreateFlagBi
             return "VK_PIPELINE_CREATE_DERIVATIVE_BIT";
         case VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT:
             return "VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT";
-        case VK_PIPELINE_CREATE_DISPATCH_BASE:
-            return "VK_PIPELINE_CREATE_DISPATCH_BASE";
+        case VK_PIPELINE_CREATE_DISPATCH_BASE_BIT:
+            return "VK_PIPELINE_CREATE_DISPATCH_BASE_BIT";
         case VK_PIPELINE_CREATE_VIEW_INDEX_FROM_DEVICE_INDEX_BIT:
             return "VK_PIPELINE_CREATE_VIEW_INDEX_FROM_DEVICE_INDEX_BIT";
         default:
@@ -4634,6 +4678,102 @@ static inline std::string string_VkFenceImportFlagsKHR(VkFenceImportFlagsKHR inp
     return ret;
 }
 
+static inline const char* string_VkPerformanceCounterUnitKHR(VkPerformanceCounterUnitKHR input_value)
+{
+    switch ((VkPerformanceCounterUnitKHR)input_value)
+    {
+        case VK_PERFORMANCE_COUNTER_UNIT_AMPS_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_AMPS_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_BYTES_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_BYTES_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_BYTES_PER_SECOND_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_BYTES_PER_SECOND_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_CYCLES_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_CYCLES_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_GENERIC_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_GENERIC_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_HERTZ_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_HERTZ_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_KELVIN_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_KELVIN_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_NANOSECONDS_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_NANOSECONDS_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_PERCENTAGE_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_PERCENTAGE_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_VOLTS_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_VOLTS_KHR";
+        case VK_PERFORMANCE_COUNTER_UNIT_WATTS_KHR:
+            return "VK_PERFORMANCE_COUNTER_UNIT_WATTS_KHR";
+        default:
+            return "Unhandled VkPerformanceCounterUnitKHR";
+    }
+}
+
+static inline const char* string_VkPerformanceCounterScopeKHR(VkPerformanceCounterScopeKHR input_value)
+{
+    switch ((VkPerformanceCounterScopeKHR)input_value)
+    {
+        case VK_QUERY_SCOPE_COMMAND_BUFFER_KHR:
+            return "VK_QUERY_SCOPE_COMMAND_BUFFER_KHR";
+        case VK_QUERY_SCOPE_COMMAND_KHR:
+            return "VK_QUERY_SCOPE_COMMAND_KHR";
+        case VK_QUERY_SCOPE_RENDER_PASS_KHR:
+            return "VK_QUERY_SCOPE_RENDER_PASS_KHR";
+        default:
+            return "Unhandled VkPerformanceCounterScopeKHR";
+    }
+}
+
+static inline const char* string_VkPerformanceCounterStorageKHR(VkPerformanceCounterStorageKHR input_value)
+{
+    switch ((VkPerformanceCounterStorageKHR)input_value)
+    {
+        case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR:
+            return "VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR";
+        case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR:
+            return "VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR";
+        case VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR:
+            return "VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR";
+        case VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR:
+            return "VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR";
+        case VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR:
+            return "VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR";
+        case VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR:
+            return "VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR";
+        default:
+            return "Unhandled VkPerformanceCounterStorageKHR";
+    }
+}
+
+static inline const char* string_VkPerformanceCounterDescriptionFlagBitsKHR(VkPerformanceCounterDescriptionFlagBitsKHR input_value)
+{
+    switch ((VkPerformanceCounterDescriptionFlagBitsKHR)input_value)
+    {
+        case VK_PERFORMANCE_COUNTER_DESCRIPTION_CONCURRENTLY_IMPACTED_KHR:
+            return "VK_PERFORMANCE_COUNTER_DESCRIPTION_CONCURRENTLY_IMPACTED_KHR";
+        case VK_PERFORMANCE_COUNTER_DESCRIPTION_PERFORMANCE_IMPACTING_KHR:
+            return "VK_PERFORMANCE_COUNTER_DESCRIPTION_PERFORMANCE_IMPACTING_KHR";
+        default:
+            return "Unhandled VkPerformanceCounterDescriptionFlagBitsKHR";
+    }
+}
+
+static inline std::string string_VkPerformanceCounterDescriptionFlagsKHR(VkPerformanceCounterDescriptionFlagsKHR input_value)
+{
+    std::string ret;
+    int index = 0;
+    while(input_value) {
+        if (input_value & 1) {
+            if( !ret.empty()) ret.append("|");
+            ret.append(string_VkPerformanceCounterDescriptionFlagBitsKHR(static_cast<VkPerformanceCounterDescriptionFlagBitsKHR>(1 << index)));
+        }
+        ++index;
+        input_value >>= 1;
+    }
+    if( ret.empty()) ret.append(string_VkPerformanceCounterDescriptionFlagBitsKHR(static_cast<VkPerformanceCounterDescriptionFlagBitsKHR>(0)));
+    return ret;
+}
+
 static inline const char* string_VkPointClippingBehaviorKHR(VkPointClippingBehaviorKHR input_value)
 {
     switch ((VkPointClippingBehaviorKHR)input_value)
@@ -4785,6 +4925,46 @@ static inline std::string string_VkResolveModeFlagsKHR(VkResolveModeFlagsKHR inp
         input_value >>= 1;
     }
     if( ret.empty()) ret.append(string_VkResolveModeFlagBitsKHR(static_cast<VkResolveModeFlagBitsKHR>(0)));
+    return ret;
+}
+
+static inline const char* string_VkSemaphoreTypeKHR(VkSemaphoreTypeKHR input_value)
+{
+    switch ((VkSemaphoreTypeKHR)input_value)
+    {
+        case VK_SEMAPHORE_TYPE_BINARY_KHR:
+            return "VK_SEMAPHORE_TYPE_BINARY_KHR";
+        case VK_SEMAPHORE_TYPE_TIMELINE_KHR:
+            return "VK_SEMAPHORE_TYPE_TIMELINE_KHR";
+        default:
+            return "Unhandled VkSemaphoreTypeKHR";
+    }
+}
+
+static inline const char* string_VkSemaphoreWaitFlagBitsKHR(VkSemaphoreWaitFlagBitsKHR input_value)
+{
+    switch ((VkSemaphoreWaitFlagBitsKHR)input_value)
+    {
+        case VK_SEMAPHORE_WAIT_ANY_BIT_KHR:
+            return "VK_SEMAPHORE_WAIT_ANY_BIT_KHR";
+        default:
+            return "Unhandled VkSemaphoreWaitFlagBitsKHR";
+    }
+}
+
+static inline std::string string_VkSemaphoreWaitFlagsKHR(VkSemaphoreWaitFlagsKHR input_value)
+{
+    std::string ret;
+    int index = 0;
+    while(input_value) {
+        if (input_value & 1) {
+            if( !ret.empty()) ret.append("|");
+            ret.append(string_VkSemaphoreWaitFlagBitsKHR(static_cast<VkSemaphoreWaitFlagBitsKHR>(1 << index)));
+        }
+        ++index;
+        input_value >>= 1;
+    }
+    if( ret.empty()) ret.append(string_VkSemaphoreWaitFlagBitsKHR(static_cast<VkSemaphoreWaitFlagBitsKHR>(0)));
     return ret;
 }
 

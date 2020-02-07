@@ -37,6 +37,8 @@ CHROMITE_BIN_DIR = os.path.join(CHROMITE_DIR, 'bin')
 PATH_TO_CBUILDBOT = os.path.join(CHROMITE_BIN_SUBDIR, 'cbuildbot')
 DEFAULT_CHROOT_DIR = 'chroot'
 DEFAULT_CHROOT_PATH = os.path.join(SOURCE_ROOT, DEFAULT_CHROOT_DIR)
+TERMINA_TOOLS_DIR = os.path.join(
+    SOURCE_ROOT, 'src/platform/container-guest-tools/termina')
 
 # These constants are defined and used in the die_hook that logs failed
 # packages: 'cros_log_failed_packages' in profiles/base/profile.bashrc in
@@ -259,7 +261,6 @@ MON_REPO_SELFUPDATE_FAILURE_COUNT = ('chromeos/cbuildbot/repo/'
 MON_REPO_INIT_RETRY_COUNT = 'chromeos/cbuildbot/repo/init_retry_count'
 MON_REPO_MANIFEST_FAILURE_COUNT = ('chromeos/cbuildbot/repo/'
                                    'manifest_failure_count')
-MON_GIT_FETCH_COUNT = 'chromeos/cbuildbot/git/fetch_count'
 MON_BB_RETRY_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
                             'retry_build_count')
 MON_BB_CANCEL_BATCH_BUILDS_COUNT = ('chromeos/cbuildbot/buildbucket/'
@@ -268,7 +269,6 @@ MON_BB_CANCEL_PRE_CQ_BUILD_COUNT = ('chromeos/cbuildbot/buildbucket/'
                                     'cancel_pre_cq_build_count')
 MON_EXPORT_TO_GCLOUD = 'chromeos/cbuildbot/export_to_gcloud'
 MON_CL_REJECT_COUNT = 'chromeos/cbuildbot/change/rejected_count'
-MON_GS_ERROR = 'chromeos/gs/error_count'
 
 # Stage Categorization for failed stages metric.
 UNCATEGORIZED_STAGE = 'Uncategorized'
@@ -349,10 +349,14 @@ INTERNAL_GERRIT_URL = 'https://%s' % INTERNAL_GERRIT_HOST
 DEFAULT_CTS_TEST_XML_MAP = {
     'cheets_CTS_': 'test_result.xml',
     'cheets_GTS.': 'test_result.xml',
+    'cheets_GTS_': 'test_result.xml',
 }
 # Google Storage bucket URI to store results in.
 DEFAULT_CTS_RESULTS_GSURI = 'gs://chromeos-cts-results/'
 DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
+
+ANDROID_CONTAINER_PACKAGE_KEYWORD = 'android-container'
+ANDROID_VM_PACKAGE_KEYWORD = 'android-vm'
 
 ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
@@ -361,6 +365,9 @@ ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
 ANDROID_PI_BUILD_BRANCH = 'git_pi-arc'
 ANDROID_QT_BUILD_BRANCH = 'git_qt-arc-dev'
 ANDROID_VMPI_BUILD_BRANCH = 'git_pi-arcvm-dev'
+ANDROID_VMMST_BUILD_BRANCH = 'git_master-arc-dev'
+assert ANDROID_VMMST_BUILD_BRANCH == ANDROID_MST_BUILD_BRANCH
+
 ANDROID_GTS_BUILD_TARGETS = {
     # "gts_arm64" is the build maintained by GMS team.
     'XTS': ('linux-gts_arm64', r'\.zip$'),
@@ -421,8 +428,17 @@ ANDROID_QT_BUILD_TARGETS = {
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
 ANDROID_VMPI_BUILD_TARGETS = {
-    'ARM_USERDEBUG': ('linux-bertha_arm-userdebug', r'\.zip$'),
-    'X86_USERDEBUG': ('linux-bertha_x86-userdebug', r'\.zip$'),
+    # For XkbToKcmConverter, see the comment in ANDROID_PI_BUILD_TARGETS.
+    'ARM_USERDEBUG': ('linux-bertha_arm-userdebug',
+                      r'(\.zip|/XkbToKcmConverter)$'),
+    'X86_USERDEBUG': ('linux-bertha_x86-userdebug',
+                      r'(\.zip|/XkbToKcmConverter)$'),
+    'X86_64_USERDEBUG': ('linux-bertha_x86_64-userdebug', r'\.zip$'),
+}
+ANDROID_VMMST_BUILD_TARGETS = {
+    # For XkbToKcmConverter, see the comment in ANDROID_PI_BUILD_TARGETS.
+    'X86_USERDEBUG': ('linux-bertha_x86-userdebug',
+                      r'(\.zip|/XkbToKcmConverter)$'),
     'X86_64_USERDEBUG': ('linux-bertha_x86_64-userdebug', r'\.zip$'),
 }
 
@@ -660,8 +676,8 @@ VALID_BUILD_TYPES = (
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
     # Betty is the designated board to run vmtest on N.
-    # betty-arcnext is disabled pending decreasing its runtime
-    # 'betty-arcnext-pre-cq',           # vm board    arcnext
+    # betty-pi-arc is disabled pending decreasing its runtime
+    # 'betty-pi-arc-pre-cq',           # vm board    arcnext
     'betty-pre-cq',                   # vm board    vmtest
     'eve-no-vmtest-pre-cq',           # kabylake    cheets_64 vulkan(Intel)
     'fizz-no-vmtest-pre-cq',          # kabylake
@@ -925,7 +941,6 @@ GERRIT_ON_BORG_LABELS = {
     'Code-Review': 'CRVW',
     'Commit-Queue': 'COMR',
     'Verified': 'VRIF',
-    'Legacy-Commit-Queue': 'LCQ',
 }
 
 # Actions that a CQ run can take on a CL
@@ -1130,6 +1145,10 @@ VM_DISK_PREFIX = 'chromiumos_qemu_disk.bin'
 VM_MEM_PREFIX = 'chromiumos_qemu_mem.bin'
 VM_NUM_RETRIES = 0
 TAST_VM_TEST_RESULTS = 'tast_vm_test_results_%(attempt)s'
+BASE_GUEST_VM_DIR = 'guest-vm-base'
+TEST_GUEST_VM_DIR = 'guest-vm-test'
+BASE_GUEST_VM_TAR = '%s.tar.xz' % BASE_GUEST_VM_DIR
+TEST_GUEST_VM_TAR = '%s.tar.xz' % TEST_GUEST_VM_DIR
 
 TEST_IMAGE_NAME = 'chromiumos_test_image'
 TEST_IMAGE_TAR = '%s.tar.xz' % TEST_IMAGE_NAME
@@ -1197,10 +1216,10 @@ CHROME_GARDENER_REVIEW_EMAIL = 'chrome-os-gardeners@google.com'
 CQ_MASTER = 'master-paladin'
 CANARY_MASTER = 'master-release'
 PFQ_MASTER = 'master-chromium-pfq'
-BINHOST_PRE_CQ = 'binhost-pre-cq'
 WIFICELL_PRE_CQ = 'wificell-pre-cq'
 BLUESTREAK_PRE_CQ = 'bluestreak-pre-cq'
 MST_ANDROID_PFQ_MASTER = 'master-mst-android-pfq'
+VMMST_ANDROID_PFQ_MASTER = 'master-vmmst-android-pfq'
 NYC_ANDROID_PFQ_MASTER = 'master-nyc-android-pfq'
 PI_ANDROID_PFQ_MASTER = 'master-pi-android-pfq'
 VMPI_ANDROID_PFQ_MASTER = 'master-vmpi-android-pfq'
@@ -1283,6 +1302,13 @@ PART_ROOT_A = 'ROOT-A'
 PART_ROOT_B = 'ROOT-B'
 PART_KERN_A = 'KERN-A'
 PART_KERN_B = 'KERN-B'
+
+# Quick provision payloads. These file names should never be changed, otherwise
+# very bad things can happen :). The reason is we have already uploaded these
+# files with these names for all boards. So if the name changes, all scripts
+# that have been using this need to handle both cases to be backward compatible.
+QUICK_PROVISION_PAYLOAD_KERNEL = 'full_dev_part_KERN.bin.gz'
+QUICK_PROVISION_PAYLOAD_ROOTFS = 'full_dev_part_ROOT.bin.gz'
 
 # Mock build and stage IDs.
 MOCK_STAGE_ID = 313377

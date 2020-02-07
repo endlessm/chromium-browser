@@ -73,7 +73,7 @@ TEST_F(VkLayerTest, PipelineNotBound) {
     VkPipeline badPipeline = CastToHandle<VkPipeline, uintptr_t>(0xbaadb1be);
 
     m_commandBuffer->begin();
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, badPipeline);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, badPipeline);
 
     m_errorMonitor->VerifyFound();
 }
@@ -92,7 +92,7 @@ TEST_F(VkLayerTest, PipelineWrongBindPointGraphics) {
     pipe.CreateComputePipeline();
 
     m_commandBuffer->begin();
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
 
     m_errorMonitor->VerifyFound();
 }
@@ -111,7 +111,7 @@ TEST_F(VkLayerTest, PipelineWrongBindPointCompute) {
     pipe.CreateGraphicsPipeline();
 
     m_commandBuffer->begin();
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline_);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline_);
 
     m_errorMonitor->VerifyFound();
 }
@@ -151,7 +151,7 @@ TEST_F(VkLayerTest, PipelineWrongBindPointRayTracing) {
     pipe.CreateGraphicsPipeline();
 
     m_commandBuffer->begin();
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, pipe.pipeline_);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_RAY_TRACING_NV, pipe.pipeline_);
 
     m_errorMonitor->VerifyFound();
 }
@@ -234,7 +234,7 @@ TEST_F(VkLayerTest, DisabledIndependentBlend) {
     rpci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 
     VkRenderPass renderpass;
-    vkCreateRenderPass(m_device->device(), &rpci, NULL, &renderpass);
+    vk::CreateRenderPass(m_device->device(), &rpci, NULL, &renderpass);
     VkShaderObj vs(m_device, bindStateVertShaderText, VK_SHADER_STAGE_VERTEX_BIT, this);
     pipeline.AddShader(&vs);
 
@@ -247,7 +247,7 @@ TEST_F(VkLayerTest, DisabledIndependentBlend) {
     pipeline.AddColorAttachment(1, att_state2);
     pipeline.CreateVKPipeline(descriptorSet.GetPipelineLayout(), renderpass);
     m_errorMonitor->VerifyFound();
-    vkDestroyRenderPass(m_device->device(), renderpass, NULL);
+    vk::DestroyRenderPass(m_device->device(), renderpass, NULL);
 }
 
 // Is the Pipeline compatible with the expectations of the Renderpass/subpasses?
@@ -547,7 +547,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExceedsSetLimit) {
     ds_layout_ci.bindingCount = 1;
     ds_layout_ci.pBindings = &layout_binding;
     VkDescriptorSetLayout ds_layout = {};
-    VkResult err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    VkResult err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     // Create an array of DSLs, one larger than the physical limit
@@ -562,11 +562,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExceedsSetLimit) {
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-setLayoutCount-00286");
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
 
     // Clean up
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 }
 
 TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
@@ -626,7 +626,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    VkResult err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    VkResult err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00287");
@@ -638,11 +638,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01682");  // expect all-stages sum too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00240 - too many uniform buffer type descriptors in vertex stage
     dslb_vec.clear();
@@ -658,7 +658,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00288");
@@ -670,11 +670,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01679");  // expect all-stages sum too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00242 - too many storage buffer type descriptors in compute stage
     dslb_vec.clear();
@@ -693,7 +693,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00289");
@@ -705,11 +705,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01680");  // expect all-stages sum too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00244 - too many sampled image type descriptors in multiple stages
     dslb_vec.clear();
@@ -729,7 +729,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00290");
@@ -741,11 +741,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01677");  // expect all-stages sum too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00246 - too many storage image type descriptors in fragment stage
     dslb_vec.clear();
@@ -761,7 +761,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00291");
@@ -769,11 +769,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01683");  // expect all-stages sum too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d18 - too many input attachments in fragment stage
     dslb_vec.clear();
@@ -785,7 +785,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01676");
@@ -793,11 +793,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessPerStageDescriptors) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01684");  // expect all-stages sum too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 }
 
 TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
@@ -857,7 +857,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    VkResult err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    VkResult err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01677");
@@ -876,11 +876,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
             VK_DEBUG_REPORT_ERROR_BIT_EXT,
             "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00290");  // Expect max per-stage sampled image count exceeds limits
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d1c - too many uniform buffer type descriptors overall
     dslb_vec.clear();
@@ -893,7 +893,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01678");
@@ -901,11 +901,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00288");  // expect max-per-stage too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d1e - too many dynamic uniform buffer type descriptors overall
     dslb_vec.clear();
@@ -918,7 +918,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01679");
@@ -926,11 +926,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00288");  // expect max-per-stage too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d20 - too many storage buffer type descriptors overall
     dslb_vec.clear();
@@ -943,7 +943,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01680");
@@ -951,11 +951,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00289");  // expect max-per-stage too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d22 - too many dynamic storage buffer type descriptors overall
     dslb_vec.clear();
@@ -968,7 +968,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01681");
@@ -976,11 +976,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00289");  // expect max-per-stage too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d24 - too many sampled image type descriptors overall
     dslb_vec.clear();
@@ -1004,7 +1004,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01682");
@@ -1013,11 +1013,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
             VK_DEBUG_REPORT_ERROR_BIT_EXT,
             "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00290");  // Expect max-per-stage sampled images to exceed limits
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d26 - too many storage image type descriptors overall
     dslb_vec.clear();
@@ -1035,7 +1035,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01683");
@@ -1043,11 +1043,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00291");  // expect max-per-stage too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 
     // VU 0fe00d28 - too many input attachment type descriptors overall
     dslb_vec.clear();
@@ -1060,7 +1060,7 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
 
     ds_layout_ci.bindingCount = dslb_vec.size();
     ds_layout_ci.pBindings = dslb_vec.data();
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL, &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01684");
@@ -1068,11 +1068,11 @@ TEST_F(VkLayerTest, CreatePipelineLayoutExcessDescriptorsOverall) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-01676");  // expect max-per-stage too
     }
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);  // Unnecessary but harmless if test passed
     pipeline_layout = VK_NULL_HANDLE;
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
 }
 
 TEST_F(VkLayerTest, InvalidCmdBufferPipelineDestroyed) {
@@ -1089,7 +1089,7 @@ TEST_F(VkLayerTest, InvalidCmdBufferPipelineDestroyed) {
 
         // Bind helper pipeline to command buffer
         m_commandBuffer->begin();
-        vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, helper.pipeline_);
+        vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, helper.pipeline_);
         m_commandBuffer->end();
 
         // pipeline will be destroyed when helper goes out of scope
@@ -1118,7 +1118,7 @@ TEST_F(VkLayerTest, InvalidPipeline) {
     // Attempt to bind an invalid Pipeline to a valid Command Buffer
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdBindPipeline-pipeline-parameter");
     m_commandBuffer->begin();
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, bad_pipeline);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, bad_pipeline);
     m_errorMonitor->VerifyFound();
 
     // Try each of the 6 flavors of Draw()
@@ -1139,16 +1139,16 @@ TEST_F(VkLayerTest, InvalidPipeline) {
     ci.size = 1024;
     buffer.init(*m_device, ci);
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndirect-None-02700");
-    vkCmdDrawIndirect(m_commandBuffer->handle(), buffer.handle(), 0, 1, 0);
+    vk::CmdDrawIndirect(m_commandBuffer->handle(), buffer.handle(), 0, 1, 0);
     m_errorMonitor->VerifyFound();
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndexedIndirect-None-02700");
-    vkCmdDrawIndexedIndirect(m_commandBuffer->handle(), buffer.handle(), 0, 1, 0);
+    vk::CmdDrawIndexedIndirect(m_commandBuffer->handle(), buffer.handle(), 0, 1, 0);
     m_errorMonitor->VerifyFound();
 
     if (has_khr_indirect) {
         auto fpCmdDrawIndirectCountKHR =
-            (PFN_vkCmdDrawIndirectCountKHR)vkGetDeviceProcAddr(m_device->device(), "vkCmdDrawIndirectCountKHR");
+            (PFN_vkCmdDrawIndirectCountKHR)vk::GetDeviceProcAddr(m_device->device(), "vkCmdDrawIndirectCountKHR");
         ASSERT_NE(fpCmdDrawIndirectCountKHR, nullptr);
 
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndirectCountKHR-None-02700");
@@ -1157,7 +1157,7 @@ TEST_F(VkLayerTest, InvalidPipeline) {
         m_errorMonitor->VerifyFound();
 
         auto fpCmdDrawIndexedIndirectCountKHR =
-            (PFN_vkCmdDrawIndexedIndirectCountKHR)vkGetDeviceProcAddr(m_device->device(), "vkCmdDrawIndexedIndirectCountKHR");
+            (PFN_vkCmdDrawIndexedIndirectCountKHR)vk::GetDeviceProcAddr(m_device->device(), "vkCmdDrawIndexedIndirectCountKHR");
         ASSERT_NE(fpCmdDrawIndexedIndirectCountKHR, nullptr);
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndexedIndirectCountKHR-None-02700");
         // stride must be a multiple of 4 and must be greater than or equal to sizeof(VkDrawIndexedIndirectCommand)
@@ -1166,14 +1166,14 @@ TEST_F(VkLayerTest, InvalidPipeline) {
     }
 
     // Also try the Dispatch variants
-    vkCmdEndRenderPass(m_commandBuffer->handle());  // Compute submissions must be outside a renderpass
+    vk::CmdEndRenderPass(m_commandBuffer->handle());  // Compute submissions must be outside a renderpass
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatch-None-02700");
-    vkCmdDispatch(m_commandBuffer->handle(), 0, 0, 0);
+    vk::CmdDispatch(m_commandBuffer->handle(), 0, 0, 0);
     m_errorMonitor->VerifyFound();
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatchIndirect-None-02700");
-    vkCmdDispatchIndirect(m_commandBuffer->handle(), buffer.handle(), 0);
+    vk::CmdDispatchIndirect(m_commandBuffer->handle(), buffer.handle(), 0);
     m_errorMonitor->VerifyFound();
 }
 
@@ -1253,24 +1253,24 @@ TEST_F(VkLayerTest, CmdDispatchExceedLimits) {
 
     // Bind pipeline to command buffer
     m_commandBuffer->begin();
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline_);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipe.pipeline_);
 
     // Dispatch counts that exceed device limits
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatch-groupCountX-00386");
-    vkCmdDispatch(m_commandBuffer->handle(), x_count_limit + 1, y_count_limit, z_count_limit);
+    vk::CmdDispatch(m_commandBuffer->handle(), x_count_limit + 1, y_count_limit, z_count_limit);
     m_errorMonitor->VerifyFound();
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatch-groupCountY-00387");
-    vkCmdDispatch(m_commandBuffer->handle(), x_count_limit, y_count_limit + 1, z_count_limit);
+    vk::CmdDispatch(m_commandBuffer->handle(), x_count_limit, y_count_limit + 1, z_count_limit);
     m_errorMonitor->VerifyFound();
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatch-groupCountZ-00388");
-    vkCmdDispatch(m_commandBuffer->handle(), x_count_limit, y_count_limit, z_count_limit + 1);
+    vk::CmdDispatch(m_commandBuffer->handle(), x_count_limit, y_count_limit, z_count_limit + 1);
     m_errorMonitor->VerifyFound();
 
     if (khx_dg_ext_available) {
         PFN_vkCmdDispatchBaseKHR fp_vkCmdDispatchBaseKHR =
-            (PFN_vkCmdDispatchBaseKHR)vkGetInstanceProcAddr(instance(), "vkCmdDispatchBaseKHR");
+            (PFN_vkCmdDispatchBaseKHR)vk::GetInstanceProcAddr(instance(), "vkCmdDispatchBaseKHR");
 
         // Base equals or exceeds limit
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatchBase-baseGroupX-00421");
@@ -1456,7 +1456,7 @@ TEST_F(VkLayerTest, CreateGraphicsPipelineWithBadBasePointer) {
 
     VkPipelineLayout pipeline_layout;
     auto pipeline_layout_create_info = lvl_init_struct<VkPipelineLayoutCreateInfo>();
-    VkResult err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_create_info, nullptr, &pipeline_layout);
+    VkResult err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_create_info, nullptr, &pipeline_layout);
     ASSERT_VK_SUCCESS(err);
 
     VkPipelineRasterizationStateCreateInfo pipeline_rasterization_state_create_info =
@@ -1488,16 +1488,16 @@ TEST_F(VkLayerTest, CreateGraphicsPipelineWithBadBasePointer) {
 
     VkPipeline pipeline;
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkGraphicsPipelineCreateInfo-flags-00722");
-    vkCreateGraphicsPipelines(m_device->handle(), VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &pipeline);
+    vk::CreateGraphicsPipelines(m_device->handle(), VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &pipeline);
     m_errorMonitor->VerifyFound();
 
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     graphics_pipeline_create_info.basePipelineIndex = 6;
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkGraphicsPipelineCreateInfo-flags-00723");
-    vkCreateGraphicsPipelines(m_device->handle(), VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &pipeline);
+    vk::CreateGraphicsPipelines(m_device->handle(), VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &pipeline);
     m_errorMonitor->VerifyFound();
 
-    vkDestroyPipelineLayout(m_device->handle(), pipeline_layout, nullptr);
+    vk::DestroyPipelineLayout(m_device->handle(), pipeline_layout, nullptr);
 }
 
 TEST_F(VkLayerTest, VertexAttributeDivisorExtension) {
@@ -1533,7 +1533,7 @@ TEST_F(VkLayerTest, VertexAttributeDivisorExtension) {
     VkPhysicalDeviceProperties2 pd_props2 = {};
     pd_props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     pd_props2.pNext = &pdvad_props;
-    vkGetPhysicalDeviceProperties2(gpu(), &pd_props2);
+    vk::GetPhysicalDeviceProperties2(gpu(), &pd_props2);
 
     VkVertexInputBindingDivisorDescriptionEXT vibdd = {};
     VkPipelineVertexInputDivisorStateCreateInfoEXT pvids_ci = {};
@@ -1632,7 +1632,7 @@ TEST_F(VkLayerTest, VertexAttributeDivisorDisabled) {
     VkPhysicalDeviceProperties2 pd_props2 = {};
     pd_props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     pd_props2.pNext = &pdvad_props;
-    vkGetPhysicalDeviceProperties2(gpu(), &pd_props2);
+    vk::GetPhysicalDeviceProperties2(gpu(), &pd_props2);
 
     VkVertexInputBindingDivisorDescriptionEXT vibdd = {};
     vibdd.binding = 0;
@@ -1733,7 +1733,7 @@ primitive ");
         ds_pool_ci.pPoolSizes = &ds_type_count;
 
     VkDescriptorPool ds_pool;
-    err = vkCreateDescriptorPool(m_device->device(),
+    err = vk::CreateDescriptorPool(m_device->device(),
 VK_DESCRIPTOR_POOL_USAGE_NON_FREE, 1, &ds_pool_ci, NULL, &ds_pool);
     ASSERT_VK_SUCCESS(err);
 
@@ -1752,12 +1752,12 @@ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
         ds_layout_ci.pBindings = &dsl_binding;
 
     VkDescriptorSetLayout ds_layout;
-    err = vkCreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL,
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_ci, NULL,
 &ds_layout);
     ASSERT_VK_SUCCESS(err);
 
     VkDescriptorSet descriptorSet;
-    err = vkAllocateDescriptorSets(m_device->device(), ds_pool,
+    err = vk::AllocateDescriptorSets(m_device->device(), ds_pool,
 VK_DESCRIPTOR_SET_USAGE_NON_FREE, 1, &ds_layout, &descriptorSet);
     ASSERT_VK_SUCCESS(err);
 
@@ -1769,7 +1769,7 @@ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipeline_layout_ci.pSetLayouts = &ds_layout;
 
     VkPipelineLayout pipeline_layout;
-    err = vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL,
+    err = vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL,
 &pipeline_layout);
     ASSERT_VK_SUCCESS(err);
 
@@ -1835,18 +1835,18 @@ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     VkPipeline pipeline;
     VkPipelineCache pipelineCache;
 
-    err = vkCreatePipelineCache(m_device->device(), &pc_ci, NULL,
+    err = vk::CreatePipelineCache(m_device->device(), &pc_ci, NULL,
 &pipelineCache);
     ASSERT_VK_SUCCESS(err);
-    err = vkCreateGraphicsPipelines(m_device->device(), pipelineCache, 1,
+    err = vk::CreateGraphicsPipelines(m_device->device(), pipelineCache, 1,
 &gp_ci, NULL, &pipeline);
 
     m_errorMonitor->VerifyFound();
 
-    vkDestroyPipelineCache(m_device->device(), pipelineCache, NULL);
-    vkDestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);
-    vkDestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
-    vkDestroyDescriptorPool(m_device->device(), ds_pool, NULL);
+    vk::DestroyPipelineCache(m_device->device(), pipelineCache, NULL);
+    vk::DestroyPipelineLayout(m_device->device(), pipeline_layout, NULL);
+    vk::DestroyDescriptorSetLayout(m_device->device(), ds_layout, NULL);
+    vk::DestroyDescriptorPool(m_device->device(), ds_pool, NULL);
 }
 */
 
@@ -2293,16 +2293,16 @@ TEST_F(VkLayerTest, DynViewportAndScissorUndefinedDrawState) {
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                          "Dynamic viewport(s) 0 are used by pipeline state object, ");
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_dyn_vp.handle());
-    vkCmdSetViewport(m_commandBuffer->handle(), 1, 1,
-                     &m_viewports[0]);  // Forgetting to set needed 0th viewport (PSO viewportCount == 1)
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_dyn_vp.handle());
+    vk::CmdSetViewport(m_commandBuffer->handle(), 1, 1,
+                       &m_viewports[0]);  // Forgetting to set needed 0th viewport (PSO viewportCount == 1)
     m_commandBuffer->Draw(1, 0, 0, 0);
     m_errorMonitor->VerifyFound();
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "Dynamic scissor(s) 0 are used by pipeline state object, ");
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_dyn_sc.handle());
-    vkCmdSetScissor(m_commandBuffer->handle(), 1, 1,
-                    &m_scissors[0]);  // Forgetting to set needed 0th scissor (PSO scissorCount == 1)
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_dyn_sc.handle());
+    vk::CmdSetScissor(m_commandBuffer->handle(), 1, 1,
+                      &m_scissors[0]);  // Forgetting to set needed 0th scissor (PSO scissorCount == 1)
     m_commandBuffer->Draw(1, 0, 0, 0);
     m_errorMonitor->VerifyFound();
 
@@ -2325,12 +2325,12 @@ TEST_F(VkLayerTest, PSOLineWidthInvalid) {
                                           "VUID-VkGraphicsPipelineCreateInfo-pDynamicStates-00749");
     }
 
-    // test vkCmdSetLineWidth
+    // test vk::CmdSetLineWidth
     m_commandBuffer->begin();
 
     for (const auto test_case : test_cases) {
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdSetLineWidth-lineWidth-00788");
-        vkCmdSetLineWidth(m_commandBuffer->handle(), test_case);
+        vk::CmdSetLineWidth(m_commandBuffer->handle(), test_case);
         m_errorMonitor->VerifyFound();
     }
 }
@@ -2429,12 +2429,12 @@ TEST_F(VkLayerTest, VUID_VkVertexInputAttributeDescription_offset_00622) {
     uint32_t maxVertexInputAttributeOffset = 0;
     {
         VkPhysicalDeviceProperties device_props = {};
-        vkGetPhysicalDeviceProperties(gpu(), &device_props);
+        vk::GetPhysicalDeviceProperties(gpu(), &device_props);
         maxVertexInputAttributeOffset = device_props.limits.maxVertexInputAttributeOffset;
         if (maxVertexInputAttributeOffset == 0xFFFFFFFF) {
             // Attempt to artificially lower maximum offset
             PFN_vkSetPhysicalDeviceLimitsEXT fpvkSetPhysicalDeviceLimitsEXT =
-                (PFN_vkSetPhysicalDeviceLimitsEXT)vkGetInstanceProcAddr(instance(), "vkSetPhysicalDeviceLimitsEXT");
+                (PFN_vkSetPhysicalDeviceLimitsEXT)vk::GetInstanceProcAddr(instance(), "vkSetPhysicalDeviceLimitsEXT");
             if (!fpvkSetPhysicalDeviceLimitsEXT) {
                 printf("%s All offsets are valid & device_profile_api not found; skipped.\n", kSkipPrefix);
                 return;
@@ -2502,12 +2502,12 @@ TEST_F(VkLayerTest, NumSamplesMismatch) {
 
     m_commandBuffer->begin();
     m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle());
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle());
 
     VkViewport viewport = {0, 0, 16, 16, 0, 1};
-    vkCmdSetViewport(m_commandBuffer->handle(), 0, 1, &viewport);
+    vk::CmdSetViewport(m_commandBuffer->handle(), 0, 1, &viewport);
     VkRect2D scissor = {{0, 0}, {16, 16}};
-    vkCmdSetScissor(m_commandBuffer->handle(), 0, 1, &scissor);
+    vk::CmdSetScissor(m_commandBuffer->handle(), 0, 1, &scissor);
 
     // Render triangle (the error should trigger on the attempt to draw).
     m_commandBuffer->Draw(3, 1, 0, 0);
@@ -2564,16 +2564,10 @@ TEST_F(VkLayerTest, CmdClearAttachmentTests) {
     color_attachment.colorAttachment = 0;
     VkClearRect clear_rect = {{{0, 0}, {(uint32_t)m_width, (uint32_t)m_height}}, 0, 1};
 
-    // Call for full-sized FB Color attachment prior to issuing a Draw
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
-                                         "UNASSIGNED-CoreValidation-DrawState-ClearCmdBeforeDraw");
-    vkCmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
-    m_errorMonitor->VerifyFound();
-
     clear_rect.rect.extent.width = renderPassBeginInfo().renderArea.extent.width + 4;
     clear_rect.rect.extent.height = clear_rect.rect.extent.height / 2;
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdClearAttachments-pRects-00016");
-    vkCmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
+    vk::CmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
     m_errorMonitor->VerifyFound();
 
     // baseLayer >= view layers
@@ -2581,7 +2575,7 @@ TEST_F(VkLayerTest, CmdClearAttachmentTests) {
     clear_rect.baseArrayLayer = 1;
     clear_rect.layerCount = 1;
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdClearAttachments-pRects-00017");
-    vkCmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
+    vk::CmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
     m_errorMonitor->VerifyFound();
 
     // baseLayer + layerCount > view layers
@@ -2589,7 +2583,7 @@ TEST_F(VkLayerTest, CmdClearAttachmentTests) {
     clear_rect.baseArrayLayer = 0;
     clear_rect.layerCount = 2;
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdClearAttachments-pRects-00017");
-    vkCmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
+    vk::CmdClearAttachments(m_commandBuffer->handle(), 1, &color_attachment, 1, &clear_rect);
     m_errorMonitor->VerifyFound();
 
     m_commandBuffer->EndRenderPass();
@@ -2620,7 +2614,7 @@ TEST_F(VkLayerTest, VtxBufferBadIndex) {
 
     m_commandBuffer->begin();
     m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
-    vkCmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
     // Don't care about actual data, just need to get to draw to flag error
     const float vbo_data[3] = {1.f, 0.f, 1.f};
     VkConstantBufferObj vbo(m_device, sizeof(vbo_data), (const void *)&vbo_data, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -2816,7 +2810,7 @@ TEST_F(VkLayerTest, InvalidSPIRVCodeSize) {
     moduleCreateInfo.pCode = (const uint32_t *)&spv;
     moduleCreateInfo.codeSize = 4;
     moduleCreateInfo.flags = 0;
-    vkCreateShaderModule(m_device->device(), &moduleCreateInfo, NULL, &module);
+    vk::CreateShaderModule(m_device->device(), &moduleCreateInfo, NULL, &module);
 
     m_errorMonitor->VerifyFound();
 
@@ -2826,12 +2820,12 @@ TEST_F(VkLayerTest, InvalidSPIRVCodeSize) {
     VkShaderModule shader_module;
     module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     module_create_info.pNext = NULL;
-    this->GLSLtoSPV(VK_SHADER_STAGE_VERTEX_BIT, bindStateVertShaderText, shader);
+    this->GLSLtoSPV(&m_device->props.limits, VK_SHADER_STAGE_VERTEX_BIT, bindStateVertShaderText, shader);
     module_create_info.pCode = shader.data();
     // Introduce failure by making codeSize a non-multiple of 4
     module_create_info.codeSize = shader.size() * sizeof(unsigned int) - 1;
     module_create_info.flags = 0;
-    vkCreateShaderModule(m_device->handle(), &module_create_info, NULL, &shader_module);
+    vk::CreateShaderModule(m_device->handle(), &module_create_info, NULL, &shader_module);
 
     m_errorMonitor->VerifyFound();
 }
@@ -2857,7 +2851,7 @@ TEST_F(VkLayerTest, InvalidSPIRVMagic) {
     moduleCreateInfo.pCode = (const uint32_t *)&spv;
     moduleCreateInfo.codeSize = sizeof(spv) + 16;
     moduleCreateInfo.flags = 0;
-    vkCreateShaderModule(m_device->device(), &moduleCreateInfo, NULL, &module);
+    vk::CreateShaderModule(m_device->device(), &moduleCreateInfo, NULL, &module);
 
     m_errorMonitor->VerifyFound();
 }
@@ -2882,6 +2876,65 @@ TEST_F(VkLayerTest, CreatePipelineVertexOutputNotConsumed) {
     };
     CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
                                       "not consumed by fragment shader");
+}
+
+TEST_F(VkLayerTest, CreatePipelineCheckShaderSpecializationApplied) {
+    TEST_DESCRIPTION(
+        "Make sure specialization constants get applied during shader validation by using a value that breaks compilation.");
+
+    ASSERT_NO_FATAL_FAILURE(Init());
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    // Size an array using a specialization constant of default value equal to 1.
+    std::string const fs_src = R"(
+               OpCapability Shader
+          %1 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main "main"
+               OpExecutionMode %main OriginUpperLeft
+               OpSource GLSL 450
+               OpName %main "main"
+               OpName %size "size"
+               OpName %array "array"
+               OpDecorate %size SpecId 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+        %int = OpTypeInt 32 1
+       %size = OpSpecConstant %int 1
+%_arr_float_size = OpTypeArray %float %size
+%_ptr_Function__arr_float_size = OpTypePointer Function %_arr_float_size
+      %int_0 = OpConstant %int 0
+    %float_0 = OpConstant %float 0
+%_ptr_Function_float = OpTypePointer Function %float
+       %main = OpFunction %void None %3
+          %5 = OpLabel
+      %array = OpVariable %_ptr_Function__arr_float_size Function
+         %15 = OpAccessChain %_ptr_Function_float %array %int_0
+               OpStore %15 %float_0
+               OpReturn
+               OpFunctionEnd)";
+    VkShaderObj fs(m_device, fs_src, VK_SHADER_STAGE_FRAGMENT_BIT, this);
+
+    // Set the specialization constant to 0.
+    const VkSpecializationMapEntry entry = {
+        0,                // id
+        0,                // offset
+        sizeof(uint32_t)  // size
+    };
+    uint32_t data = 0;
+    const VkSpecializationInfo specialization_info = {
+        1,
+        &entry,
+        1 * sizeof(uint32_t),
+        &data,
+    };
+
+    const auto set_info = [&](CreatePipelineHelper &helper) {
+        helper.shader_stages_ = {helper.vs_->GetStageCreateInfo(), fs.GetStageCreateInfo()};
+        helper.shader_stages_[1].pSpecializationInfo = &specialization_info;
+    };
+    CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "does not contain valid spirv");
 }
 
 TEST_F(VkLayerTest, CreatePipelineCheckShaderBadSpecializationOffsetOutOfBounds) {
@@ -3120,10 +3173,10 @@ TEST_F(VkLayerTest, CreateShaderModuleCheckBadCapability) {
     module_create_info.codeSize = spv.size() * sizeof(unsigned int);
     module_create_info.flags = 0;
 
-    VkResult err = vkCreateShaderModule(m_device->handle(), &module_create_info, NULL, &shader_module);
+    VkResult err = vk::CreateShaderModule(m_device->handle(), &module_create_info, NULL, &shader_module);
     m_errorMonitor->VerifyFound();
     if (err == VK_SUCCESS) {
-        vkDestroyShaderModule(m_device->handle(), shader_module, NULL);
+        vk::DestroyShaderModule(m_device->handle(), shader_module, NULL);
     }
 }
 
@@ -3579,14 +3632,14 @@ TEST_F(VkLayerTest, CreatePipelineDepthStencilRequired) {
     VkSubpassDescription subpass = {0, VK_PIPELINE_BIND_POINT_GRAPHICS, 0, nullptr, 1, &refs[0], nullptr, &refs[1], 0, nullptr};
     VkRenderPassCreateInfo rpci = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, nullptr, 0, 2, attachments, 1, &subpass, 0, nullptr};
     VkRenderPass rp;
-    VkResult err = vkCreateRenderPass(m_device->device(), &rpci, nullptr, &rp);
+    VkResult err = vk::CreateRenderPass(m_device->device(), &rpci, nullptr, &rp);
     ASSERT_VK_SUCCESS(err);
 
     pipe.CreateVKPipeline(descriptorSet.GetPipelineLayout(), rp);
 
     m_errorMonitor->VerifyFound();
 
-    vkDestroyRenderPass(m_device->device(), rp, nullptr);
+    vk::DestroyRenderPass(m_device->device(), rp, nullptr);
 }
 
 TEST_F(VkLayerTest, CreatePipelineTessPatchDecorationMismatch) {
@@ -3899,25 +3952,31 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxVertexOutputComponents) {
     ASSERT_NO_FATAL_FAILURE(Init());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
-    for (int overflow = 0; overflow < 2; ++overflow) {
+    // overflow == 0: no overflow, 1: too many components, 2: location number too large
+    for (int overflow = 0; overflow < 3; ++overflow) {
         m_errorMonitor->Reset();
 
         const uint32_t maxVsOutComp = m_device->props.limits.maxVertexOutputComponents + overflow;
         std::string vsSourceStr = "#version 450\n\n";
         const uint32_t numVec4 = maxVsOutComp / 4;
         uint32_t location = 0;
-        for (uint32_t i = 0; i < numVec4; i++) {
-            vsSourceStr += "layout(location=" + std::to_string(location) + ") out vec4 v" + std::to_string(i) + ";\n";
-            location += 1;
-        }
-        const uint32_t remainder = maxVsOutComp % 4;
-        if (remainder != 0) {
-            if (remainder == 1) {
-                vsSourceStr += "layout(location=" + std::to_string(location) + ") out float" + " vn;\n";
-            } else {
-                vsSourceStr += "layout(location=" + std::to_string(location) + ") out vec" + std::to_string(remainder) + " vn;\n";
+        if (overflow == 2) {
+            vsSourceStr += "layout(location=" + std::to_string(numVec4 + 1) + ") out vec4 vn;\n";
+        } else {
+            for (uint32_t i = 0; i < numVec4; i++) {
+                vsSourceStr += "layout(location=" + std::to_string(location) + ") out vec4 v" + std::to_string(i) + ";\n";
+                location += 1;
             }
-            location += 1;
+            const uint32_t remainder = maxVsOutComp % 4;
+            if (remainder != 0) {
+                if (remainder == 1) {
+                    vsSourceStr += "layout(location=" + std::to_string(location) + ") out float" + " vn;\n";
+                } else {
+                    vsSourceStr +=
+                        "layout(location=" + std::to_string(location) + ") out vec" + std::to_string(remainder) + " vn;\n";
+                }
+                location += 1;
+            }
         }
         vsSourceStr +=
             "void main(){\n"
@@ -3938,11 +3997,25 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxVertexOutputComponents) {
         const auto set_info = [&](CreatePipelineHelper &helper) {
             helper.shader_stages_ = {vs.GetStageCreateInfo(), fs.GetStageCreateInfo()};
         };
-        if (overflow) {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                              "Vertex shader exceeds VkPhysicalDeviceLimits::maxVertexOutputComponents", false);
-        } else {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+
+        switch (overflow) {
+            case 2:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                                  "Vertex shader output variable uses location that exceeds component limit "
+                                                  "VkPhysicalDeviceLimits::maxVertexOutputComponents");
+                break;
+            case 1:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Vertex shader exceeds VkPhysicalDeviceLimits::maxVertexOutputComponents",
+                                   "Vertex shader output variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxVertexOutputComponents"});
+                break;
+            default:
+                assert(0);
+            case 0:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+                break;
         }
     }
 }
@@ -3955,10 +4028,11 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationControlInputOutputCompone
     ASSERT_NO_FATAL_FAILURE(Init());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
-    for (int overflow = 0; overflow < 2; ++overflow) {
+    // overflow == 0: no overflow, 1: too many components, 2: location number too large
+    for (int overflow = 0; overflow < 3; ++overflow) {
         m_errorMonitor->Reset();
         VkPhysicalDeviceFeatures feat;
-        vkGetPhysicalDeviceFeatures(gpu(), &feat);
+        vk::GetPhysicalDeviceFeatures(gpu(), &feat);
         if (!feat.tessellationShader) {
             printf("%s tessellation shader stage(s) unsupported.\n", kSkipPrefix);
             return;
@@ -3972,38 +4046,46 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationControlInputOutputCompone
         const uint32_t maxTescInComp = m_device->props.limits.maxTessellationControlPerVertexInputComponents + overflow;
         const uint32_t numInVec4 = maxTescInComp / 4;
         uint32_t inLocation = 0;
-        for (uint32_t i = 0; i < numInVec4; i++) {
-            tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
-            inLocation += 1;
-        }
-        const uint32_t inRemainder = maxTescInComp % 4;
-        if (inRemainder != 0) {
-            if (inRemainder == 1) {
-                tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
-            } else {
-                tcsSourceStr +=
-                    "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+        if (overflow == 2) {
+            tcsSourceStr += "layout(location=" + std::to_string(numInVec4 + 1) + ") in vec4 vnIn[];\n";
+        } else {
+            for (uint32_t i = 0; i < numInVec4; i++) {
+                tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
+                inLocation += 1;
             }
-            inLocation += 1;
+            const uint32_t inRemainder = maxTescInComp % 4;
+            if (inRemainder != 0) {
+                if (inRemainder == 1) {
+                    tcsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
+                } else {
+                    tcsSourceStr +=
+                        "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+                }
+                inLocation += 1;
+            }
         }
 
         // Output components
         const uint32_t maxTescOutComp = m_device->props.limits.maxTessellationControlPerVertexOutputComponents + overflow;
         const uint32_t numOutVec4 = maxTescOutComp / 4;
         uint32_t outLocation = 0;
-        for (uint32_t i = 0; i < numOutVec4; i++) {
-            tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out[3];\n";
-            outLocation += 1;
-        }
-        const uint32_t outRemainder = maxTescOutComp % 4;
-        if (outRemainder != 0) {
-            if (outRemainder == 1) {
-                tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut[3];\n";
-            } else {
-                tcsSourceStr +=
-                    "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) + " vnOut[3];\n";
+        if (overflow == 2) {
+            tcsSourceStr += "layout(location=" + std::to_string(numOutVec4 + 1) + ") out vec4 vnOut[3];\n";
+        } else {
+            for (uint32_t i = 0; i < numOutVec4; i++) {
+                tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out[3];\n";
+                outLocation += 1;
             }
-            outLocation += 1;
+            const uint32_t outRemainder = maxTescOutComp % 4;
+            if (outRemainder != 0) {
+                if (outRemainder == 1) {
+                    tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut[3];\n";
+                } else {
+                    tcsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) +
+                                    " vnOut[3];\n";
+                }
+                outLocation += 1;
+            }
         }
 
         tcsSourceStr += "layout(vertices=3) out;\n";
@@ -4037,14 +4119,33 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationControlInputOutputCompone
             helper.gp_ci_.pTessellationState = &tessInfo;
             helper.gp_ci_.pInputAssemblyState = &inputAssemblyInfo;
         };
-        if (overflow) {
-            CreatePipelineHelper::OneshotTest(
-                *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                vector<string>{
-                    "Tessellation control shader exceeds VkPhysicalDeviceLimits::maxTessellationControlPerVertexInputComponents",
-                    "Tessellation control shader exceeds VkPhysicalDeviceLimits::maxTessellationControlPerVertexOutputComponents"});
-        } else {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+
+        switch (overflow) {
+            case 2:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Tessellation control shader input variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxTessellationControlPerVertexInputComponents",
+                                   "Tessellation control shader output variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxTessellationControlPerVertexOutputComponents"});
+                break;
+            case 1:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Tessellation control shader exceeds "
+                                   "VkPhysicalDeviceLimits::maxTessellationControlPerVertexInputComponents",
+                                   "Tessellation control shader exceeds "
+                                   "VkPhysicalDeviceLimits::maxTessellationControlPerVertexOutputComponents",
+                                   "Tessellation control shader input variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxTessellationControlPerVertexInputComponents",
+                                   "Tessellation control shader output variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxTessellationControlPerVertexOutputComponents"});
+                break;
+            default:
+                assert(0);
+            case 0:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+                break;
         }
     }
 }
@@ -4057,10 +4158,11 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationEvaluationInputOutputComp
     ASSERT_NO_FATAL_FAILURE(Init());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
-    for (int overflow = 0; overflow < 2; ++overflow) {
+    // overflow == 0: no overflow, 1: too many components, 2: location number too large
+    for (int overflow = 0; overflow < 3; ++overflow) {
         m_errorMonitor->Reset();
         VkPhysicalDeviceFeatures feat;
-        vkGetPhysicalDeviceFeatures(gpu(), &feat);
+        vk::GetPhysicalDeviceFeatures(gpu(), &feat);
         if (!feat.tessellationShader) {
             printf("%s tessellation shader stage(s) unsupported.\n", kSkipPrefix);
             return;
@@ -4076,38 +4178,46 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationEvaluationInputOutputComp
         const uint32_t maxTeseInComp = m_device->props.limits.maxTessellationEvaluationInputComponents + overflow;
         const uint32_t numInVec4 = maxTeseInComp / 4;
         uint32_t inLocation = 0;
-        for (uint32_t i = 0; i < numInVec4; i++) {
-            tesSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
-            inLocation += 1;
-        }
-        const uint32_t inRemainder = maxTeseInComp % 4;
-        if (inRemainder != 0) {
-            if (inRemainder == 1) {
-                tesSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
-            } else {
-                tesSourceStr +=
-                    "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+        if (overflow == 2) {
+            tesSourceStr += "layout(location=" + std::to_string(numInVec4 + 1) + ") in vec4 vnIn[];\n";
+        } else {
+            for (uint32_t i = 0; i < numInVec4; i++) {
+                tesSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
+                inLocation += 1;
             }
-            inLocation += 1;
+            const uint32_t inRemainder = maxTeseInComp % 4;
+            if (inRemainder != 0) {
+                if (inRemainder == 1) {
+                    tesSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
+                } else {
+                    tesSourceStr +=
+                        "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+                }
+                inLocation += 1;
+            }
         }
 
         // Output components
         const uint32_t maxTeseOutComp = m_device->props.limits.maxTessellationEvaluationOutputComponents + overflow;
         const uint32_t numOutVec4 = maxTeseOutComp / 4;
         uint32_t outLocation = 0;
-        for (uint32_t i = 0; i < numOutVec4; i++) {
-            tesSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out;\n";
-            outLocation += 1;
-        }
-        const uint32_t outRemainder = maxTeseOutComp % 4;
-        if (outRemainder != 0) {
-            if (outRemainder == 1) {
-                tesSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut;\n";
-            } else {
-                tesSourceStr +=
-                    "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) + " vnOut;\n";
+        if (overflow == 2) {
+            tesSourceStr += "layout(location=" + std::to_string(numOutVec4 + 1) + ") out vec4 vnOut;\n";
+        } else {
+            for (uint32_t i = 0; i < numOutVec4; i++) {
+                tesSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out;\n";
+                outLocation += 1;
             }
-            outLocation += 1;
+            const uint32_t outRemainder = maxTeseOutComp % 4;
+            if (outRemainder != 0) {
+                if (outRemainder == 1) {
+                    tesSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut;\n";
+                } else {
+                    tesSourceStr +=
+                        "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) + " vnOut;\n";
+                }
+                outLocation += 1;
+            }
         }
 
         // Finalize
@@ -4140,14 +4250,32 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxTessellationEvaluationInputOutputComp
             helper.gp_ci_.pTessellationState = &tessInfo;
             helper.gp_ci_.pInputAssemblyState = &inputAssemblyInfo;
         };
-        if (overflow) {
-            CreatePipelineHelper::OneshotTest(
-                *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                vector<string>{
-                    "Tessellation evaluation shader exceeds VkPhysicalDeviceLimits::maxTessellationEvaluationInputComponents",
-                    "Tessellation evaluation shader exceeds VkPhysicalDeviceLimits::maxTessellationEvaluationOutputComponents"});
-        } else {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+
+        switch (overflow) {
+            case 2:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Tessellation evaluation shader input variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxTessellationEvaluationInputComponents",
+                                   "Tessellation evaluation shader output variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxTessellationEvaluationOutputComponents"});
+                break;
+            case 1:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{
+                        "Tessellation evaluation shader exceeds VkPhysicalDeviceLimits::maxTessellationEvaluationInputComponents",
+                        "Tessellation evaluation shader exceeds VkPhysicalDeviceLimits::maxTessellationEvaluationOutputComponents",
+                        "Tessellation evaluation shader input variable uses location that exceeds component limit "
+                        "VkPhysicalDeviceLimits::maxTessellationEvaluationInputComponents",
+                        "Tessellation evaluation shader output variable uses location that exceeds component limit "
+                        "VkPhysicalDeviceLimits::maxTessellationEvaluationOutputComponents"});
+                break;
+            default:
+                assert(0);
+            case 0:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+                break;
         }
     }
 }
@@ -4160,10 +4288,11 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxGeometryInputOutputComponents) {
     ASSERT_NO_FATAL_FAILURE(Init());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
-    for (int overflow = 0; overflow < 2; ++overflow) {
+    // overflow == 0: no overflow, 1: too many components, 2: location number too large
+    for (int overflow = 0; overflow < 3; ++overflow) {
         m_errorMonitor->Reset();
         VkPhysicalDeviceFeatures feat;
-        vkGetPhysicalDeviceFeatures(gpu(), &feat);
+        vk::GetPhysicalDeviceFeatures(gpu(), &feat);
         if (!feat.geometryShader) {
             printf("%s geometry shader stage unsupported.\n", kSkipPrefix);
             return;
@@ -4179,38 +4308,46 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxGeometryInputOutputComponents) {
         const uint32_t maxGeomInComp = m_device->props.limits.maxGeometryInputComponents + overflow;
         const uint32_t numInVec4 = maxGeomInComp / 4;
         uint32_t inLocation = 0;
-        for (uint32_t i = 0; i < numInVec4; i++) {
-            gsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
-            inLocation += 1;
-        }
-        const uint32_t inRemainder = maxGeomInComp % 4;
-        if (inRemainder != 0) {
-            if (inRemainder == 1) {
-                gsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
-            } else {
-                gsSourceStr +=
-                    "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+        if (overflow == 2) {
+            gsSourceStr += "layout(location=" + std::to_string(numInVec4 + 1) + ") in vec4 vnIn[];\n";
+        } else {
+            for (uint32_t i = 0; i < numInVec4; i++) {
+                gsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in vec4 v" + std::to_string(i) + "In[];\n";
+                inLocation += 1;
             }
-            inLocation += 1;
+            const uint32_t inRemainder = maxGeomInComp % 4;
+            if (inRemainder != 0) {
+                if (inRemainder == 1) {
+                    gsSourceStr += "layout(location=" + std::to_string(inLocation) + ") in float" + " vnIn[];\n";
+                } else {
+                    gsSourceStr +=
+                        "layout(location=" + std::to_string(inLocation) + ") in vec" + std::to_string(inRemainder) + " vnIn[];\n";
+                }
+                inLocation += 1;
+            }
         }
 
         // Output components
         const uint32_t maxGeomOutComp = m_device->props.limits.maxGeometryOutputComponents + overflow;
         const uint32_t numOutVec4 = maxGeomOutComp / 4;
         uint32_t outLocation = 0;
-        for (uint32_t i = 0; i < numOutVec4; i++) {
-            gsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out;\n";
-            outLocation += 1;
-        }
-        const uint32_t outRemainder = maxGeomOutComp % 4;
-        if (outRemainder != 0) {
-            if (outRemainder == 1) {
-                gsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut;\n";
-            } else {
-                gsSourceStr +=
-                    "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) + " vnOut;\n";
+        if (overflow == 2) {
+            gsSourceStr += "layout(location=" + std::to_string(numOutVec4) + ") out vec4 vnOut;\n";
+        } else {
+            for (uint32_t i = 0; i < numOutVec4; i++) {
+                gsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out vec4 v" + std::to_string(i) + "Out;\n";
+                outLocation += 1;
             }
-            outLocation += 1;
+            const uint32_t outRemainder = maxGeomOutComp % 4;
+            if (outRemainder != 0) {
+                if (outRemainder == 1) {
+                    gsSourceStr += "layout(location=" + std::to_string(outLocation) + ") out float" + " vnOut;\n";
+                } else {
+                    gsSourceStr +=
+                        "layout(location=" + std::to_string(outLocation) + ") out vec" + std::to_string(outRemainder) + " vnOut;\n";
+                }
+                outLocation += 1;
+            }
         }
 
         // Finalize
@@ -4228,14 +4365,32 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxGeometryInputOutputComponents) {
         const auto set_info = [&](CreatePipelineHelper &helper) {
             helper.shader_stages_ = {helper.vs_->GetStageCreateInfo(), gs.GetStageCreateInfo(), helper.fs_->GetStageCreateInfo()};
         };
-        if (overflow) {
-            CreatePipelineHelper::OneshotTest(
-                *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                vector<string>{"Geometry shader exceeds VkPhysicalDeviceLimits::maxGeometryInputComponents",
-                               "Geometry shader exceeds VkPhysicalDeviceLimits::maxGeometryOutputComponents",
-                               "Geometry shader exceeds VkPhysicalDeviceLimits::maxGeometryTotalOutputComponents"});
-        } else {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+
+        switch (overflow) {
+            case 2:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Geometry shader input variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxGeometryInputComponents",
+                                   "Geometry shader output variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxGeometryOutputComponents"});
+                break;
+            case 1:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Geometry shader exceeds VkPhysicalDeviceLimits::maxGeometryInputComponents",
+                                   "Geometry shader exceeds VkPhysicalDeviceLimits::maxGeometryOutputComponents",
+                                   "Geometry shader input variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxGeometryInputComponents",
+                                   "Geometry shader output variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxGeometryOutputComponents",
+                                   "Geometry shader exceeds VkPhysicalDeviceLimits::maxGeometryTotalOutputComponents"});
+                break;
+            default:
+                assert(0);
+            case 0:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+                break;
         }
     }
 }
@@ -4247,25 +4402,31 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxFragmentInputComponents) {
     ASSERT_NO_FATAL_FAILURE(Init());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
-    for (int overflow = 0; overflow < 2; ++overflow) {
+    // overflow == 0: no overflow, 1: too many components, 2: location number too large
+    for (int overflow = 0; overflow < 3; ++overflow) {
         m_errorMonitor->Reset();
 
         const uint32_t maxFsInComp = m_device->props.limits.maxFragmentInputComponents + overflow;
         std::string fsSourceStr = "#version 450\n\n";
         const uint32_t numVec4 = maxFsInComp / 4;
         uint32_t location = 0;
-        for (uint32_t i = 0; i < numVec4; i++) {
-            fsSourceStr += "layout(location=" + std::to_string(location) + ") in vec4 v" + std::to_string(i) + ";\n";
-            location += 1;
-        }
-        const uint32_t remainder = maxFsInComp % 4;
-        if (remainder != 0) {
-            if (remainder == 1) {
-                fsSourceStr += "layout(location=" + std::to_string(location) + ") in float" + " vn;\n";
-            } else {
-                fsSourceStr += "layout(location=" + std::to_string(location) + ") in vec" + std::to_string(remainder) + " vn;\n";
+        if (overflow == 2) {
+            fsSourceStr += "layout(location=" + std::to_string(numVec4 + 1) + ") in float" + " vn;\n";
+        } else {
+            for (uint32_t i = 0; i < numVec4; i++) {
+                fsSourceStr += "layout(location=" + std::to_string(location) + ") in vec4 v" + std::to_string(i) + ";\n";
+                location += 1;
             }
-            location += 1;
+            const uint32_t remainder = maxFsInComp % 4;
+            if (remainder != 0) {
+                if (remainder == 1) {
+                    fsSourceStr += "layout(location=" + std::to_string(location) + ") in float" + " vn;\n";
+                } else {
+                    fsSourceStr +=
+                        "layout(location=" + std::to_string(location) + ") in vec" + std::to_string(remainder) + " vn;\n";
+                }
+                location += 1;
+            }
         }
         fsSourceStr +=
             "layout(location=0) out vec4 color;"
@@ -4279,12 +4440,24 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxFragmentInputComponents) {
         const auto set_info = [&](CreatePipelineHelper &helper) {
             helper.shader_stages_ = {helper.vs_->GetStageCreateInfo(), fs.GetStageCreateInfo()};
         };
-        if (overflow) {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                              "Fragment shader exceeds "
-                                              "VkPhysicalDeviceLimits::maxFragmentInputComponents");
-        } else {
-            CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+        switch (overflow) {
+            case 2:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                                  "Fragment shader input variable uses location that exceeds component limit "
+                                                  "VkPhysicalDeviceLimits::maxFragmentInputComponents");
+                break;
+            case 1:
+                CreatePipelineHelper::OneshotTest(
+                    *this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                    vector<string>{"Fragment shader exceeds VkPhysicalDeviceLimits::maxFragmentInputComponents",
+                                   "Fragment shader input variable uses location that exceeds component limit "
+                                   "VkPhysicalDeviceLimits::maxFragmentInputComponents"});
+                break;
+            default:
+                assert(0);
+            case 0:
+                CreatePipelineHelper::OneshotTest(*this, set_info, VK_DEBUG_REPORT_ERROR_BIT_EXT, "", true);
+                break;
         }
     }
 }
@@ -4300,7 +4473,7 @@ TEST_F(VkLayerTest, CreatePipelineExceedMaxGeometryInstanceVertexCount) {
     for (int overflow = 0; overflow < 2; ++overflow) {
         m_errorMonitor->Reset();
         VkPhysicalDeviceFeatures feat;
-        vkGetPhysicalDeviceFeatures(gpu(), &feat);
+        vk::GetPhysicalDeviceFeatures(gpu(), &feat);
         if (!feat.geometryShader) {
             printf("%s geometry shader stage unsupported.\n", kSkipPrefix);
             return;
@@ -4483,7 +4656,7 @@ TEST_F(VkLayerTest, CreatePipelineInputAttachmentTypeMismatch) {
 
     VkRenderPassCreateInfo rpci = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, nullptr, 0, 2, descs, 1, &sd, 0, nullptr};
     VkRenderPass rp;
-    VkResult err = vkCreateRenderPass(m_device->device(), &rpci, nullptr, &rp);
+    VkResult err = vk::CreateRenderPass(m_device->device(), &rpci, nullptr, &rp);
     ASSERT_VK_SUCCESS(err);
 
     // error here.
@@ -4491,7 +4664,7 @@ TEST_F(VkLayerTest, CreatePipelineInputAttachmentTypeMismatch) {
 
     m_errorMonitor->VerifyFound();
 
-    vkDestroyRenderPass(m_device->device(), rp, nullptr);
+    vk::DestroyRenderPass(m_device->device(), rp, nullptr);
 }
 
 TEST_F(VkLayerTest, CreatePipelineInputAttachmentMissingArray) {
@@ -4620,7 +4793,7 @@ TEST_F(VkLayerTest, MultiplePushDescriptorSets) {
     pipeline_layout_ci.pSetLayouts = ds_vk_layouts.data();
 
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineLayoutCreateInfo-pSetLayouts-00293");
-    vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
     m_errorMonitor->VerifyFound();
 }
 
@@ -4734,7 +4907,7 @@ TEST_F(VkLayerTest, FramebufferMixedSamplesNV) {
 
         m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                              "VUID-VkSubpassDescription-pDepthStencilAttachment-01418");
-        VkResult err = vkCreateRenderPass(m_device->device(), &rpi, nullptr, &rp);
+        VkResult err = vk::CreateRenderPass(m_device->device(), &rpi, nullptr, &rp);
         m_errorMonitor->VerifyNotFound();
 
         ASSERT_VK_SUCCESS(err);
@@ -4767,7 +4940,7 @@ TEST_F(VkLayerTest, FramebufferMixedSamplesNV) {
         CreatePipelineHelper::OneshotTest(*this, break_samples, VK_DEBUG_REPORT_ERROR_BIT_EXT, test_case.vuid,
                                           test_case.positiveTest);
 
-        vkDestroyRenderPass(m_device->device(), rp, nullptr);
+        vk::DestroyRenderPass(m_device->device(), rp, nullptr);
     }
 }
 
@@ -4787,8 +4960,8 @@ TEST_F(VkLayerTest, FramebufferMixedSamples) {
 
     std::vector<TestCase> test_cases = {
         {VK_SAMPLE_COUNT_2_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT,
-         false},  // Fails vkCreateRenderPass and vkCreateGraphicsPipeline
-        {VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, false},  // Fails vkCreateGraphicsPipeline
+         false},  // Fails vk::CreateRenderPass and vk::CreateGraphicsPipeline
+        {VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_8_BIT, false},  // Fails vk::CreateGraphicsPipeline
         {VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_4_BIT, true}    // Pass
     };
 
@@ -4829,7 +5002,7 @@ TEST_F(VkLayerTest, FramebufferMixedSamples) {
                                                  "VUID-VkSubpassDescription-pDepthStencilAttachment-01418");
         }
 
-        VkResult err = vkCreateRenderPass(m_device->device(), &rpi, nullptr, &rp);
+        VkResult err = vk::CreateRenderPass(m_device->device(), &rpi, nullptr, &rp);
 
         if (test_case.color_samples == test_case.depth_samples) {
             m_errorMonitor->VerifyNotFound();
@@ -4852,7 +5025,7 @@ TEST_F(VkLayerTest, FramebufferMixedSamples) {
         CreatePipelineHelper::OneshotTest(*this, break_samples, VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                           "VUID-VkGraphicsPipelineCreateInfo-subpass-00757", test_case.positiveTest);
 
-        vkDestroyRenderPass(m_device->device(), rp, nullptr);
+        vk::DestroyRenderPass(m_device->device(), rp, nullptr);
     }
 }
 
@@ -4928,7 +5101,7 @@ TEST_F(VkLayerTest, FragmentCoverageToColorNV) {
         cbi.pAttachments = cba.data();
 
         VkRenderPass rp;
-        VkResult err = vkCreateRenderPass(m_device->device(), &rpi, nullptr, &rp);
+        VkResult err = vk::CreateRenderPass(m_device->device(), &rpi, nullptr, &rp);
         ASSERT_VK_SUCCESS(err);
 
         VkPipelineCoverageToColorStateCreateInfoNV cci = {VK_STRUCTURE_TYPE_PIPELINE_COVERAGE_TO_COLOR_STATE_CREATE_INFO_NV};
@@ -4946,7 +5119,7 @@ TEST_F(VkLayerTest, FragmentCoverageToColorNV) {
                                           "VUID-VkPipelineCoverageToColorStateCreateInfoNV-coverageToColorEnable-01404",
                                           test_case.positive);
 
-        vkDestroyRenderPass(m_device->device(), rp, nullptr);
+        vk::DestroyRenderPass(m_device->device(), rp, nullptr);
     }
 }
 
@@ -5047,7 +5220,7 @@ TEST_F(VkLayerTest, CooperativeMatrixNV) {
     }
 
     PFN_vkGetPhysicalDeviceFeatures2KHR vkGetPhysicalDeviceFeatures2KHR =
-        (PFN_vkGetPhysicalDeviceFeatures2KHR)vkGetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
+        (PFN_vkGetPhysicalDeviceFeatures2KHR)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
     ASSERT_TRUE(vkGetPhysicalDeviceFeatures2KHR != nullptr);
 
     auto float16_features = lvl_init_struct<VkPhysicalDeviceFloat16Int8FeaturesKHR>();
@@ -5101,8 +5274,12 @@ TEST_F(VkLayerTest, CooperativeMatrixNV) {
     pipe.cs_.reset(new VkShaderObj(m_device, csSource, VK_SHADER_STAGE_COMPUTE_BIT, this, "main", false, &specInfo));
     pipe.InitState();
     pipe.pipeline_layout_ = VkPipelineLayoutObj(m_device, {});
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkPipelineShaderStageCreateInfo-module-parameter");
+    pipe.CreateComputePipeline();
+    m_errorMonitor->VerifyFound();
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "UNASSIGNED-CoreValidation-Shader-CooperativeMatrixType");
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "UNASSIGNED-CoreValidation-Shader-CooperativeMatrixMulAdd");
+    m_errorMonitor->SetUnexpectedError("VUID-VkPipelineShaderStageCreateInfo-module-parameter");
     pipe.CreateComputePipeline();
     m_errorMonitor->VerifyFound();
 }
@@ -5136,7 +5313,7 @@ TEST_F(VkLayerTest, SubgroupSupportedOperations) {
     pipeline_layout_ci.setLayoutCount = 0;
     pipeline_layout_ci.pSetLayouts = VK_NULL_HANDLE;
     VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
-    vkCreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
+    vk::CreatePipelineLayout(m_device->device(), &pipeline_layout_ci, NULL, &pipeline_layout);
 
     const std::pair<const char *, VkSubgroupFeatureFlagBits> capabilities[] = {
         {"GroupNonUniform", VK_SUBGROUP_FEATURE_BASIC_BIT},
@@ -5204,7 +5381,7 @@ TEST_F(VkLayerTest, SubgroupSupportedOperations) {
             module_create_info.codeSize = spv.size() * sizeof(unsigned int);
             module_create_info.flags = 0;
 
-            VkResult result = vkCreateShaderModule(m_device->handle(), &module_create_info, NULL, &shader_module[i]);
+            VkResult result = vk::CreateShaderModule(m_device->handle(), &module_create_info, NULL, &shader_module[i]);
 
             // NOTE: It appears that for the case of invalid capabilities some drivers (recent AMD) fail at CreateShaderModule time.
             //       Likely the capability test should be moved up to CSM time, implementing ShaderModuleCreateInfo-pCode-01090
@@ -5242,8 +5419,8 @@ TEST_F(VkLayerTest, SubgroupSupportedOperations) {
             }
 
             VkPipeline cs_pipeline;
-            vkCreateComputePipelines(device(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &cs_pipeline);
-            vkDestroyPipeline(device(), cs_pipeline, nullptr);
+            vk::CreateComputePipelines(device(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &cs_pipeline);
+            vk::DestroyPipeline(device(), cs_pipeline, nullptr);
 
             m_errorMonitor->VerifyFound();
         }
@@ -5278,12 +5455,12 @@ TEST_F(VkLayerTest, SubgroupSupportedOperations) {
             m_errorMonitor->VerifyFound();
         }
 
-        vkDestroyShaderModule(device(), shader_module[0], nullptr);
-        vkDestroyShaderModule(device(), shader_module[1], nullptr);
-        vkDestroyShaderModule(device(), shader_module[2], nullptr);
+        vk::DestroyShaderModule(device(), shader_module[0], nullptr);
+        vk::DestroyShaderModule(device(), shader_module[1], nullptr);
+        vk::DestroyShaderModule(device(), shader_module[2], nullptr);
     }
 
-    vkDestroyPipelineLayout(device(), pipeline_layout, nullptr);
+    vk::DestroyPipelineLayout(device(), pipeline_layout, nullptr);
 }
 
 TEST_F(VkLayerTest, SubgroupRequired) {
@@ -5357,7 +5534,7 @@ TEST_F(VkLayerTest, SubgroupExtendedTypesEnabled) {
     }
 
     PFN_vkGetPhysicalDeviceFeatures2KHR vkGetPhysicalDeviceFeatures2KHR =
-        (PFN_vkGetPhysicalDeviceFeatures2KHR)vkGetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
+        (PFN_vkGetPhysicalDeviceFeatures2KHR)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
     ASSERT_TRUE(vkGetPhysicalDeviceFeatures2KHR != nullptr);
 
     auto float16_features = lvl_init_struct<VkPhysicalDeviceFloat16Int8FeaturesKHR>();
@@ -5423,7 +5600,7 @@ TEST_F(VkLayerTest, SubgroupExtendedTypesDisabled) {
     }
 
     PFN_vkGetPhysicalDeviceFeatures2KHR vkGetPhysicalDeviceFeatures2KHR =
-        (PFN_vkGetPhysicalDeviceFeatures2KHR)vkGetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
+        (PFN_vkGetPhysicalDeviceFeatures2KHR)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
     ASSERT_TRUE(vkGetPhysicalDeviceFeatures2KHR != nullptr);
 
     auto float16_features = lvl_init_struct<VkPhysicalDeviceFloat16Int8FeaturesKHR>();
@@ -5484,6 +5661,8 @@ TEST_F(VkLayerTest, GraphicsPipelineStageCreationFeedbackCount) {
 
     auto feedback_info = lvl_init_struct<VkPipelineCreationFeedbackCreateInfoEXT>();
     VkPipelineCreationFeedbackEXT feedbacks[3] = {};
+    // Set flags to known value that the driver has to overwrite
+    feedbacks[0].flags = VK_PIPELINE_CREATION_FEEDBACK_FLAG_BITS_MAX_ENUM_EXT;
 
     feedback_info.pPipelineCreationFeedback = &feedbacks[0];
     feedback_info.pipelineStageCreationFeedbackCount = 2;
@@ -5494,6 +5673,16 @@ TEST_F(VkLayerTest, GraphicsPipelineStageCreationFeedbackCount) {
     CreatePipelineHelper::OneshotTest(*this, set_feedback, VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                       "VUID-VkPipelineCreationFeedbackCreateInfoEXT-pipelineStageCreationFeedbackCount-02668",
                                       true);
+
+    if (DeviceIsMockICD() || DeviceSimulation()) {
+        printf("%s Driver data writeback check not supported by MockICD, skipping.\n", kSkipPrefix);
+    } else {
+        m_errorMonitor->ExpectSuccess();
+        if (feedback_info.pPipelineCreationFeedback->flags == VK_PIPELINE_CREATION_FEEDBACK_FLAG_BITS_MAX_ENUM_EXT) {
+            m_errorMonitor->SetError("ValidationLayers did not return GraphicsPipelineFeedback driver data properly.");
+        }
+        m_errorMonitor->VerifyNotFound();
+    }
 
     feedback_info.pipelineStageCreationFeedbackCount = 1;
     CreatePipelineHelper::OneshotTest(*this, set_feedback, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -5728,9 +5917,9 @@ TEST_F(VkLayerTest, CreatePipelineCheckComputeShaderDerivativesEnabled) {
         "enabled on the device");
 
     VkPipeline pipe = VK_NULL_HANDLE;
-    vkCreateComputePipelines(test_device.device(), VK_NULL_HANDLE, 1, &cpci, nullptr, &pipe);
+    vk::CreateComputePipelines(test_device.device(), VK_NULL_HANDLE, 1, &cpci, nullptr, &pipe);
     m_errorMonitor->VerifyFound();
-    vkDestroyPipeline(test_device.device(), pipe, nullptr);
+    vk::DestroyPipeline(test_device.device(), pipe, nullptr);
     m_errorMonitor->VerifyFound();
 }
 
@@ -5745,7 +5934,7 @@ TEST_F(VkLayerTest, CreatePipelineCheckFragmentShaderInterlockEnabled) {
         //       in order to create the error below
     } else {
         // We skip this test if the extension is not supported by the driver as in some cases this will cause
-        // the vkCreateShaderModule to fail without generating an error message
+        // the vk::CreateShaderModule to fail without generating an error message
         printf("%s Extension %s is not supported.\n", kSkipPrefix, VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);
         return;
     }
@@ -5802,7 +5991,7 @@ TEST_F(VkLayerTest, CreatePipelineCheckDemoteToHelperInvocation) {
         //       in order to create the error below
     } else {
         // We skip this test if the extension is not supported by the driver as in some cases this will cause
-        // the vkCreateShaderModule to fail without generating an error message
+        // the vk::CreateShaderModule to fail without generating an error message
         printf("%s Extension %s is not supported.\n", kSkipPrefix, VK_EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION_EXTENSION_NAME);
         return;
     }
@@ -5870,7 +6059,7 @@ TEST_F(VkLayerTest, CreatePipelineCheckLineRasterization) {
     }
 
     PFN_vkGetPhysicalDeviceFeatures2KHR vkGetPhysicalDeviceFeatures2KHR =
-        (PFN_vkGetPhysicalDeviceFeatures2KHR)vkGetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
+        (PFN_vkGetPhysicalDeviceFeatures2KHR)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
     ASSERT_TRUE(vkGetPhysicalDeviceFeatures2KHR != nullptr);
 
     auto line_rasterization_features = lvl_init_struct<VkPhysicalDeviceLineRasterizationFeaturesEXT>();
@@ -5941,7 +6130,7 @@ TEST_F(VkLayerTest, CreatePipelineCheckLineRasterization) {
                                   "VUID-VkPipelineRasterizationLineStateCreateInfoEXT-stippledLineEnable-02774"});
 
     PFN_vkCmdSetLineStippleEXT vkCmdSetLineStippleEXT =
-        (PFN_vkCmdSetLineStippleEXT)vkGetDeviceProcAddr(m_device->device(), "vkCmdSetLineStippleEXT");
+        (PFN_vkCmdSetLineStippleEXT)vk::GetDeviceProcAddr(m_device->device(), "vkCmdSetLineStippleEXT");
     ASSERT_TRUE(vkCmdSetLineStippleEXT != nullptr);
 
     m_commandBuffer->begin();
@@ -5996,4 +6185,725 @@ TEST_F(VkLayerTest, FillRectangleNV) {
     polygon_mode = VK_POLYGON_MODE_FILL_RECTANGLE_NV;
     CreatePipelineHelper::OneshotTest(*this, set_polygon_mode, VK_DEBUG_REPORT_ERROR_BIT_EXT,
                                       "VUID-VkPipelineRasterizationStateCreateInfo-polygonMode-01507", true);
+}
+
+TEST_F(VkLayerTest, NotCompatibleForSet) {
+    TEST_DESCRIPTION("Check that validation path catches pipeline layout inconsistencies for bind vs. dispatch");
+    m_errorMonitor->ExpectSuccess();
+    ASSERT_NO_FATAL_FAILURE(Init());
+
+    auto c_queue = m_device->GetDefaultComputeQueue();
+    if (nullptr == c_queue) {
+        printf("Compute not supported, skipping test\n");
+        return;
+    }
+
+    uint32_t qfi = 0;
+    VkBufferCreateInfo bci = {};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    bci.size = 4;
+    bci.queueFamilyIndexCount = 1;
+    bci.pQueueFamilyIndices = &qfi;
+    VkBufferObj storage_buffer;
+    VkMemoryPropertyFlags mem_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    storage_buffer.init(*m_device, bci, mem_props);
+
+    VkBufferObj uniform_buffer;
+    bci.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bci.size = 20;
+    uniform_buffer.init(*m_device, bci, mem_props);
+
+    OneOffDescriptorSet::Bindings binding_defs = {
+        {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr},
+    };
+    const VkDescriptorSetLayoutObj pipeline_dsl(m_device, binding_defs);
+    const VkPipelineLayoutObj pipeline_layout(m_device, {&pipeline_dsl});
+
+    // We now will use a slightly different Layout definition for the descriptors we acutally bind with (but that would still be
+    // correct for the shader
+    binding_defs[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    OneOffDescriptorSet binding_descriptor_set(m_device, binding_defs);
+    const VkPipelineLayoutObj binding_pipeline_layout(m_device, {&binding_descriptor_set.layout_});
+
+    VkDescriptorBufferInfo storage_buffer_info = {storage_buffer.handle(), 0, sizeof(uint32_t)};
+    VkDescriptorBufferInfo uniform_buffer_info = {uniform_buffer.handle(), 0, 5 * sizeof(uint32_t)};
+
+    VkWriteDescriptorSet descriptor_writes[2] = {};
+    descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptor_writes[0].dstSet = binding_descriptor_set.set_;
+    descriptor_writes[0].dstBinding = 0;
+    descriptor_writes[0].descriptorCount = 1;
+    descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptor_writes[0].pBufferInfo = &storage_buffer_info;
+
+    descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptor_writes[1].dstSet = binding_descriptor_set.set_;
+    descriptor_writes[1].dstBinding = 1;
+    descriptor_writes[1].descriptorCount = 1;  // Write 4 bytes to val
+    descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_writes[1].pBufferInfo = &uniform_buffer_info;
+    vk::UpdateDescriptorSets(m_device->device(), 2, descriptor_writes, 0, NULL);
+
+    char const *csSource =
+        "#version 450\n"
+        "#extension GL_EXT_nonuniform_qualifier : enable\n "
+        "layout(set = 0, binding = 0) buffer StorageBuffer { uint index; } u_index;"
+        "layout(set = 0, binding = 1) uniform UniformStruct { ivec4 dummy; int val; } ubo;\n"
+
+        "void main() {\n"
+        "    u_index.index = ubo.val;\n"
+        "}\n";
+
+    VkShaderObj shader_module(m_device, csSource, VK_SHADER_STAGE_COMPUTE_BIT, this);
+
+    VkPipelineShaderStageCreateInfo stage;
+    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stage.pNext = nullptr;
+    stage.flags = 0;
+    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = shader_module.handle();
+    stage.pName = "main";
+    stage.pSpecializationInfo = nullptr;
+
+    // CreateComputePipelines
+    VkComputePipelineCreateInfo pipeline_info = {};
+    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipeline_info.pNext = nullptr;
+    pipeline_info.flags = 0;
+    pipeline_info.layout = pipeline_layout.handle();
+    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+    pipeline_info.basePipelineIndex = -1;
+    pipeline_info.stage = stage;
+
+    VkPipeline c_pipeline;
+    vk::CreateComputePipelines(device(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &c_pipeline);
+
+    m_commandBuffer->begin();
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, c_pipeline);
+    vk::CmdBindDescriptorSets(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, binding_pipeline_layout.handle(), 0, 1,
+                              &binding_descriptor_set.set_, 0, nullptr);
+    m_errorMonitor->VerifyNotFound();
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDispatch-None-02697");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                         "UNASSIGNED-CoreValidation-DrawState-PipelineLayoutsIncompatible");
+    vk::CmdDispatch(m_commandBuffer->handle(), 1, 1, 1);
+    m_errorMonitor->VerifyFound();
+    m_commandBuffer->end();
+
+    vk::DestroyPipeline(device(), c_pipeline, nullptr);
+}
+
+TEST_F(VkLayerTest, RayTracingPipelineShaderGroups) {
+    TEST_DESCRIPTION("Validate shader groups during ray-tracing pipeline creation");
+
+    if (InstanceExtensionSupported(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)) {
+        m_instance_extension_names.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    } else {
+        printf("%s Extension %s is not supported.\n", kSkipPrefix, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+        return;
+    }
+    ASSERT_NO_FATAL_FAILURE(InitFramework(myDbgFunc, m_errorMonitor));
+
+    if (DeviceExtensionSupported(gpu(), nullptr, VK_NV_RAY_TRACING_EXTENSION_NAME)) {
+        m_device_extension_names.push_back(VK_NV_RAY_TRACING_EXTENSION_NAME);
+        m_device_extension_names.push_back(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+    } else {
+        printf("%s Extension %s is not supported.\n", kSkipPrefix, VK_NV_RAY_TRACING_EXTENSION_NAME);
+        return;
+    }
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    const VkPipelineLayoutObj empty_pipeline_layout(m_device, {});
+
+    const std::string empty_shader = R"glsl(#version 460
+        #extension GL_NV_ray_tracing : require
+        void main() {}
+    )glsl";
+
+    VkShaderObj rgen_shader(m_device, empty_shader.c_str(), VK_SHADER_STAGE_RAYGEN_BIT_NV, this, "main");
+    VkShaderObj ahit_shader(m_device, empty_shader.c_str(), VK_SHADER_STAGE_ANY_HIT_BIT_NV, this, "main");
+    VkShaderObj chit_shader(m_device, empty_shader.c_str(), VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV, this, "main");
+    VkShaderObj miss_shader(m_device, empty_shader.c_str(), VK_SHADER_STAGE_MISS_BIT_NV, this, "main");
+    VkShaderObj intr_shader(m_device, empty_shader.c_str(), VK_SHADER_STAGE_INTERSECTION_BIT_NV, this, "main");
+    VkShaderObj call_shader(m_device, empty_shader.c_str(), VK_SHADER_STAGE_CALLABLE_BIT_NV, this, "main");
+
+    m_errorMonitor->VerifyNotFound();
+
+    PFN_vkCreateRayTracingPipelinesNV vkCreateRayTracingPipelinesNV =
+        reinterpret_cast<PFN_vkCreateRayTracingPipelinesNV>(vk::GetInstanceProcAddr(instance(), "vkCreateRayTracingPipelinesNV"));
+    ASSERT_TRUE(vkCreateRayTracingPipelinesNV != nullptr);
+
+    VkPipeline pipeline = VK_NULL_HANDLE;
+
+    // No raygen stage
+    {
+        VkPipelineShaderStageCreateInfo stage_create_info = {};
+        stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_info.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV;
+        stage_create_info.module = chit_shader.handle();
+        stage_create_info.pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_info = {};
+        group_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_info.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_info.generalShader = VK_SHADER_UNUSED_NV;
+        group_create_info.closestHitShader = 0;
+        group_create_info.anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_info.intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 1;
+        pipeline_ci.pStages = &stage_create_info;
+        pipeline_ci.groupCount = 1;
+        pipeline_ci.pGroups = &group_create_info;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingPipelineCreateInfoNV-stage-02408");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Two raygen stages
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[1].module = rgen_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = 1;
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingPipelineCreateInfoNV-stage-02408");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // General shader index doesn't exist
+    {
+        VkPipelineShaderStageCreateInfo stage_create_info = {};
+        stage_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_info.stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_info.module = rgen_shader.handle();
+        stage_create_info.pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_info = {};
+        group_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_info.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_info.generalShader = 1;  // Bad index here
+        group_create_info.closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_info.anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_info.intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 1;
+        pipeline_ci.pStages = &stage_create_info;
+        pipeline_ci.groupCount = 1;
+        pipeline_ci.pGroups = &group_create_info;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02413");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // General shader index doesn't correspond to a raygen/miss/callable shader
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV;
+        stage_create_infos[1].module = chit_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[1].generalShader = 1;  // Index 1 corresponds to a closest hit shader
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02413");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // General shader group should not specify non general shader
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV;
+        stage_create_infos[1].module = chit_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[1].generalShader = 0;
+        group_create_infos[1].closestHitShader = 0;  // This should not be set for a general shader group
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02414");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Intersection shader invalid index
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_INTERSECTION_BIT_NV;
+        stage_create_infos[1].module = intr_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = 5;  // invalid index
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02415");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Intersection shader index does not correspond to intersection shader
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_INTERSECTION_BIT_NV;
+        stage_create_infos[1].module = intr_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = 0;  // Index 0 corresponds to a raygen shader
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02415");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Intersection shader must not be specified for triangle hit group
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_INTERSECTION_BIT_NV;
+        stage_create_infos[1].module = intr_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = 1;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkRayTracingShaderGroupCreateInfoNV-type-02416");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Any hit shader index invalid
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_ANY_HIT_BIT_NV;
+        stage_create_infos[1].module = ahit_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = 5;  // Invalid index
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                             "VUID-VkRayTracingShaderGroupCreateInfoNV-anyHitShader-02418");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Any hit shader index does not correspond to an any hit shader
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV;
+        stage_create_infos[1].module = chit_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].anyHitShader = 1;  // Index 1 corresponds to a closest hit shader
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                             "VUID-VkRayTracingShaderGroupCreateInfoNV-anyHitShader-02418");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Closest hit shader index invalid
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_NV;
+        stage_create_infos[1].module = chit_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = 5;  // Invalid index
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                             "VUID-VkRayTracingShaderGroupCreateInfoNV-closestHitShader-02417");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+
+    // Closest hit shader index does not correspond to an closest hit shader
+    {
+        VkPipelineShaderStageCreateInfo stage_create_infos[2] = {};
+        stage_create_infos[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_NV;
+        stage_create_infos[0].module = rgen_shader.handle();
+        stage_create_infos[0].pName = "main";
+
+        stage_create_infos[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage_create_infos[1].stage = VK_SHADER_STAGE_ANY_HIT_BIT_NV;
+        stage_create_infos[1].module = ahit_shader.handle();
+        stage_create_infos[1].pName = "main";
+
+        VkRayTracingShaderGroupCreateInfoNV group_create_infos[2] = {};
+        group_create_infos[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_NV;
+        group_create_infos[0].generalShader = 0;
+        group_create_infos[0].closestHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[0].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        group_create_infos[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_NV;
+        group_create_infos[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_NV;
+        group_create_infos[1].generalShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].closestHitShader = 1;  // Index 1 corresponds to an any hit shader
+        group_create_infos[1].anyHitShader = VK_SHADER_UNUSED_NV;
+        group_create_infos[1].intersectionShader = VK_SHADER_UNUSED_NV;
+
+        VkRayTracingPipelineCreateInfoNV pipeline_ci = {};
+        pipeline_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_NV;
+        pipeline_ci.stageCount = 2;
+        pipeline_ci.pStages = stage_create_infos;
+        pipeline_ci.groupCount = 2;
+        pipeline_ci.pGroups = group_create_infos;
+        pipeline_ci.layout = empty_pipeline_layout.handle();
+
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                             "VUID-VkRayTracingShaderGroupCreateInfoNV-closestHitShader-02417");
+        vkCreateRayTracingPipelinesNV(m_device->handle(), VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline);
+        m_errorMonitor->VerifyFound();
+    }
+}
+
+TEST_F(VkLayerTest, PipelineStageConditionalRenderingWithWrongQueue) {
+    TEST_DESCRIPTION("Run CmdPipelineBarrier with VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT and wrong VkQueueFlagBits");
+    ASSERT_NO_FATAL_FAILURE(Init());
+    // m_device->m_queue = m_device->dma_queues()[0]->handle();
+    uint32_t only_transfer_queueFamilyIndex = UINT32_MAX;
+
+    const auto q_props = vk_testing::PhysicalDevice(gpu()).queue_properties();
+    ASSERT_TRUE(q_props.size() > 0);
+    ASSERT_TRUE(q_props[0].queueCount > 0);
+
+    for (uint32_t i = 0; i < (uint32_t)q_props.size(); i++) {
+        if (q_props[i].queueFlags == VK_QUEUE_TRANSFER_BIT) {
+            only_transfer_queueFamilyIndex = i;
+            break;
+        }
+    }
+
+    if (only_transfer_queueFamilyIndex == UINT32_MAX) {
+        printf("%s Only VK_QUEUE_TRANSFER_BIT Queue is not supported.\n", kSkipPrefix);
+        return;
+    }
+
+    // A renderpass with a single subpass that declared a self-dependency
+    VkAttachmentDescription attach[] = {
+        {0, VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
+         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_IMAGE_LAYOUT_UNDEFINED,
+         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+    };
+    VkAttachmentReference ref = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription subpasses[] = {
+        {0, VK_PIPELINE_BIND_POINT_GRAPHICS, 0, nullptr, 1, &ref, nullptr, nullptr, 0, nullptr},
+    };
+
+    VkSubpassDependency dependency = {0,
+                                      0,
+                                      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                                      VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT,
+                                      VK_ACCESS_SHADER_WRITE_BIT,
+                                      VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT,
+                                      (VkDependencyFlags)0};
+    VkRenderPassCreateInfo rpci = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, nullptr, 0, 1, attach, 1, subpasses, 1, &dependency};
+    VkRenderPass rp;
+
+    vk::CreateRenderPass(m_device->device(), &rpci, nullptr, &rp);
+
+    VkImageObj image(m_device);
+    image.Init(32, 32, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+    VkImageView imageView = image.targetView(VK_FORMAT_R8G8B8A8_UNORM);
+
+    VkFramebufferCreateInfo fbci = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO, nullptr, 0, rp, 1, &imageView, 32, 32, 1};
+    VkFramebuffer fb;
+    vk::CreateFramebuffer(m_device->device(), &fbci, nullptr, &fb);
+
+    VkCommandPoolObj commandPool(m_device, only_transfer_queueFamilyIndex);
+    VkCommandBufferObj commandBuffer(m_device, &commandPool);
+
+    commandBuffer.begin();
+    VkRenderPassBeginInfo rpbi = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                                  nullptr,
+                                  rp,
+                                  fb,
+                                  {{
+                                       0,
+                                       0,
+                                   },
+                                   {32, 32}},
+                                  0,
+                                  nullptr};
+    vk::CmdBeginRenderPass(commandBuffer.handle(), &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkImageMemoryBarrier imb = {};
+    imb.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    imb.pNext = nullptr;
+    imb.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    imb.dstAccessMask = VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+    imb.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imb.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imb.image = image.handle();
+    imb.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    imb.subresourceRange.baseMipLevel = 0;
+    imb.subresourceRange.levelCount = 1;
+    imb.subresourceRange.baseArrayLayer = 0;
+    imb.subresourceRange.layerCount = 1;
+
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdPipelineBarrier-srcStageMask-01183");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdPipelineBarrier-srcStageMask-01183");
+    vk::CmdPipelineBarrier(commandBuffer.handle(), VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                           VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT, 0, 0, nullptr, 0, nullptr, 1, &imb);
+    m_errorMonitor->VerifyFound();
+
+    vk::CmdEndRenderPass(commandBuffer.handle());
+    commandBuffer.end();
+    vk::DestroyRenderPass(m_device->device(), rp, nullptr);
+    vk::DestroyFramebuffer(m_device->device(), fb, nullptr);
 }

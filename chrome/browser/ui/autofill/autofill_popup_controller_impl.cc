@@ -161,6 +161,7 @@ void AutofillPopupControllerImpl::UpdateDataListValues(
   DCHECK_EQ(suggestions_.size(), elided_values_.size());
   DCHECK_EQ(suggestions_.size(), elided_labels_.size());
 
+  selected_line_.reset();
   // Remove all the old data list values, which should always be at the top of
   // the list if they are present.
   while (!suggestions_.empty() &&
@@ -361,14 +362,12 @@ const std::vector<Suggestion> AutofillPopupControllerImpl::GetSuggestions() {
 #if !defined(OS_ANDROID)
 int AutofillPopupControllerImpl::GetElidedValueWidthForRow(int row) {
   return gfx::GetStringWidth(GetElidedValueAt(row),
-                             layout_model_.GetValueFontListForRow(row),
-                             typesetter_);
+                             layout_model_.GetValueFontListForRow(row));
 }
 
 int AutofillPopupControllerImpl::GetElidedLabelWidthForRow(int row) {
   return gfx::GetStringWidth(GetElidedLabelAt(row),
-                             layout_model_.GetLabelFontListForRow(row),
-                             typesetter_);
+                             layout_model_.GetLabelFontListForRow(row));
 }
 #endif
 
@@ -529,11 +528,9 @@ void AutofillPopupControllerImpl::ElideValueAndLabelForRow(
     int row,
     int available_width) {
   int value_width = gfx::GetStringWidth(
-      suggestions_[row].value, layout_model_.GetValueFontListForRow(row),
-      typesetter_);
+      suggestions_[row].value, layout_model_.GetValueFontListForRow(row));
   int label_width = gfx::GetStringWidth(
-      suggestions_[row].label, layout_model_.GetLabelFontListForRow(row),
-      typesetter_);
+      suggestions_[row].label, layout_model_.GetLabelFontListForRow(row));
   int total_text_length = value_width + label_width;
 
   // The line can have no strings if it represents a UI element, such as
@@ -545,12 +542,12 @@ void AutofillPopupControllerImpl::ElideValueAndLabelForRow(
   int value_size = available_width * value_width / total_text_length;
   elided_values_[row] = gfx::ElideText(
       suggestions_[row].value, layout_model_.GetValueFontListForRow(row),
-      value_size, gfx::ELIDE_TAIL, typesetter_);
+      value_size, gfx::ELIDE_TAIL);
 
   int label_size = available_width * label_width / total_text_length;
   elided_labels_[row] = gfx::ElideText(
       suggestions_[row].label, layout_model_.GetLabelFontListForRow(row),
-      label_size, gfx::ELIDE_TAIL, typesetter_);
+      label_size, gfx::ELIDE_TAIL);
 }
 #endif
 

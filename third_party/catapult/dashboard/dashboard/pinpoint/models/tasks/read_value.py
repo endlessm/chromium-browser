@@ -20,8 +20,8 @@ from dashboard.pinpoint.models.tasks import find_isolate
 from dashboard.pinpoint.models.tasks import run_test
 from tracing.value import histogram_set
 
-HistogramOptions = collections.namedtuple('HistogramOptions',
-                                          ('tir_label', 'story', 'statistic'))
+HistogramOptions = collections.namedtuple(
+    'HistogramOptions', ('grouping_label', 'story', 'statistic'))
 
 GraphJsonOptions = collections.namedtuple('GraphJsonOptions',
                                           ('chart', 'trace'))
@@ -99,20 +99,36 @@ class ReadValueEvaluator(
 
   def HandleHistogramSets(self, task, histogram_dicts):
     histogram_name = task.payload.get('benchmark')
-    tir_label = task.payload.get('histogram_options', {}).get('tir_label', '')
-    story = task.payload.get('histogram_options', {}).get('story', '')
-    statistic = task.payload.get('histogram_options', {}).get('statistic', '')
+    histogram_options = task.payload.get('histogram_options', {})
+    grouping_label = histogram_options.get('grouping_label', '')
+    story = histogram_options.get('story', '')
+    statistic = histogram_options.get('statistic', '')
     histograms = histogram_set.HistogramSet()
     histograms.ImportDicts(histogram_dicts)
     histograms_by_path = read_value_quest.CreateHistogramSetByTestPathDict(
         histograms)
+    histograms_by_path_optional_grouping_label = (
+        read_value_quest.CreateHistogramSetByTestPathDict(
+            histograms, ignore_grouping_label=True))
     trace_urls = read_value_quest.FindTraceUrls(histograms)
-    test_path_to_match = histogram_helpers.ComputeTestPathFromComponents(
-        histogram_name, tir_label=tir_label, story_name=story)
-    logging.debug('Test path to match: %s', test_path_to_match)
-    result_values = read_value_quest.ExtractValuesFromHistograms(
-        test_path_to_match, histograms_by_path, histogram_name, tir_label,
-        story, statistic)
+    test_paths_to_match = set([
+        histogram_helpers.ComputeTestPathFromComponents(
+            histogram_name, grouping_label=grouping_label, story_name=story),
+        histogram_helpers.ComputeTestPathFromComponents(
+            histogram_name,
+            grouping_label=grouping_label,
+            story_name=story,
+            needs_escape=False)
+    ])
+    logging.debug('Test paths to match: %s', test_paths_to_match)
+    try:
+      result_values = read_value_quest.ExtractValuesFromHistograms(
+          test_paths_to_match, histograms_by_path, histogram_name,
+          grouping_label, story, statistic)
+    except errors.ReadValueNotFound:
+      result_values = read_value_quest.ExtractValuesFromHistograms(
+          test_paths_to_match, histograms_by_path_optional_grouping_label,
+          histogram_name, None, story, statistic)
     logging.debug('Results: %s', result_values)
     task.payload.update({
         'result_values': result_values,
@@ -159,6 +175,34 @@ class Evaluator(evaluators.FilteringEvaluator):
                         ReadValueEvaluator(job))))
 
 
+def ResultSerializer(task, _, accumulator):
+  results = accumulator.setdefault(task.id, {})
+  results.update({
+      'completed':
+          task.status in {'completed', 'failed', 'cancelled'},
+      'exception':
+          ','.join(e.get('reason') for e in task.payload.get('errors', []))
+          or None,
+      'details': []
+  })
+
+  trace_urls = task.payload.get('trace_urls')
+  if trace_urls:
+    results['details'].extend(trace_urls)
+
+
+class Serializer(evaluators.FilteringEvaluator):
+
+  def __init__(self):
+    super(Serializer, self).__init__(
+        predicate=evaluators.All(
+            evaluators.TaskTypeEq('read_value'),
+            evaluators.TaskStatusIn(
+                {'ongoing', 'failed', 'completed', 'cancelled'}),
+        ),
+        delegate=ResultSerializer)
+
+
 def CreateGraph(options):
   if not isinstance(options, TaskOptions):
     raise ValueError('options must be an instance of read_value.TaskOptions')
@@ -185,7 +229,7 @@ def CreateGraph(options):
               'mode': options.mode,
               'results_filename': path,
               'histogram_options': {
-                  'tir_label': options.histogram_options.tir_label,
+                  'grouping_label': options.histogram_options.grouping_label,
                   'story': options.histogram_options.story,
                   'statistic': options.histogram_options.statistic,
               },
@@ -194,6 +238,7 @@ def CreateGraph(options):
                   'trace': options.graph_json_options.trace
               },
               'change': options.test_options.build_options.change.AsDict(),
+              'index': attempt,
           }), task_module.Dependency(from_=read_value_id, to=run_test_id))
 
   for vertex, edge in GenerateVertexAndDep(options.test_options.attempts):

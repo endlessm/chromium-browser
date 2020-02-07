@@ -14,7 +14,6 @@ import os
 from chromite.cbuildbot import afdo
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -22,16 +21,12 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
 from chromite.lib import gs
-from chromite.lib import hwtest_results
 from chromite.lib import image_test_lib
 from chromite.lib import osutils
-from chromite.lib import path_util
 from chromite.lib import parallel
 from chromite.lib import perf_uploader
 from chromite.lib import portage_util
 from chromite.lib import timeout_util
-
-PRE_CQ = validation_pool.PRE_CQ
 
 
 class UnitTestStage(generic_stages.BoardSpecificBuilderStage,
@@ -164,47 +159,6 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
 
     return super(HWTestStage, self)._HandleStageException(exc_info)
 
-  def ReportHWTestResults(self, json_dump_dict, build_id, db):
-    """Report HWTests results to cidb.
-
-    Args:
-      json_dump_dict: A dict containing the command json dump results.
-      build_id: The build id (string) of this build.
-      db: An instance of cidb.CIDBConnection.
-
-    Returns:
-      How many results are reported to CIDB.
-    """
-    if not json_dump_dict:
-      logging.info('No json dump found, no HWTest results to report')
-      return
-
-    if not db:
-      logging.info('No DB instance found, not reporting HWTest results.')
-      return
-
-    results = []
-    for test_name, value in json_dump_dict.get('tests', dict()).items():
-      status = value.get('status')
-      result = constants.HWTEST_STATUS_OTHER
-      if status == 'GOOD':
-        result = constants.HWTEST_STATUS_PASS
-      elif status == 'FAIL':
-        result = constants.HWTEST_STATUS_FAIL
-      elif status == 'ABORT':
-        result = constants.HWTEST_STATUS_ABORT
-      else:
-        logging.info('Unknown status for test %s:%s', test_name, result)
-
-      results.append(
-          hwtest_results.HWTestResult.FromReport(build_id, test_name, result))
-
-    if results:
-      logging.info('Reporting hwtest results: %s ', results)
-      db.InsertHWTestResults(results)
-
-    return len(results)
-
   def WaitUntilReady(self):
     """Wait until payloads and test artifacts are ready or not."""
     # Wait for UploadHWTestArtifacts to generate and upload the artifacts.
@@ -270,13 +224,6 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     if config_lib.IsCanaryType(self._run.config.build_type):
       skip_duts_check = True
 
-    build_identifier, db = self._run.GetCIDBHandle()
-    build_id = build_identifier.cidb_id
-
-    test_args = None
-    if config_lib.IsCQType(self._run.config.build_type):
-      test_args = {'fast': 'True'}
-
     cmd_result = commands.RunHWTestSuite(
         build,
         self.suite_config.suite,
@@ -296,10 +243,7 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         debug=not self.TestsEnabled(self._run),
         skip_duts_check=skip_duts_check,
         job_keyvals=self.GetJobKeyvals(),
-        test_args=test_args)
-
-    if config_lib.IsCQType(self._run.config.build_type):
-      self.ReportHWTestResults(cmd_result.json_dump_result, build_id, db)
+        test_args=None)
 
     if cmd_result.to_raise:
       raise cmd_result.to_raise
@@ -338,17 +282,6 @@ class SkylabHWTestStage(HWTestStage):
 
     if cmd_result.to_raise:
       raise cmd_result.to_raise
-
-
-class ASyncHWTestStage(HWTestStage, generic_stages.ForgivingBuilderStage):
-  """Stage that fires and forgets hw test suites to the Autotest lab."""
-
-  stage_name = 'ASyncHWTest'
-  category = constants.TEST_INFRA_STAGE
-
-  def __init__(self, *args, **kwargs):
-    super(ASyncHWTestStage, self).__init__(*args, **kwargs)
-    self.wait_for_results = False
 
 
 class ASyncSkylabHWTestStage(SkylabHWTestStage,
@@ -428,43 +361,6 @@ class ImageTestStage(generic_stages.BoardSpecificBuilderStage,
           test_name,
           cros_version=cros_ver,
           chrome_version=chrome_ver)
-
-
-class BinhostTestStage(generic_stages.BuilderStage):
-  """Stage that verifies Chrome prebuilts."""
-
-  config_name = 'binhost_test'
-  category = constants.CI_INFRA_STAGE
-
-  def PerformStage(self):
-    # Verify our binhosts.
-    # Don't check for incremental compatibility when we uprev chrome.
-    incremental = not (self._run.config.chrome_rev or
-                       self._run.options.chrome_rev)
-    commands.RunBinhostTest(self._build_root, incremental=incremental)
-
-
-class CrosSigningTestStage(generic_stages.BuilderStage):
-  """Stage that runs the signer unittests.
-
-  This requires an internal source code checkout.
-  """
-
-  category = constants.CI_INFRA_STAGE
-
-  def PerformStage(self):
-    """Run the cros-signing unittests on each distinct branch.
-
-    This runs the cros-signing unittests for each distinct branch in set of
-    changes.
-    """
-    # The branch for the changes is buried in the metadata for the build.
-    changes = self._run.attrs.metadata.GetDict().get('changes', [])
-    branches = set()
-    for change in changes:
-      if change['project'] == 'chromeos/cros-signing':
-        branches.add(change['branch'])
-    commands.RunCrosSigningTests(self._build_root, branches=branches)
 
 
 class UnexpectedTryjobResult(Exception):
@@ -576,43 +472,6 @@ class CbuildbotLaunchTestStage(generic_stages.BuilderStage):
           'release-R68-10718.B',
           'success-build',
           expect_success=True)
-
-
-class ChromiteTestStage(generic_stages.BuilderStage):
-  """Stage that runs Chromite tests, excluding network tests."""
-
-  category = constants.CI_INFRA_STAGE
-
-  def PerformStage(self):
-    """Run the chromite unittests."""
-    buildroot_chromite = path_util.ToChrootPath(
-        os.path.join(self._build_root, 'chromite'))
-
-    cmd = [
-        os.path.join(buildroot_chromite, 'run_tests'),
-        # TODO(crbug.com/682381): When tests can pass, add '--network',
-    ]
-    # TODO: Remove enter_chroot=True when we have virtualenv support.
-    # Until then, we skip all chromite tests outside the chroot.
-    cros_build_lib.run(cmd, enter_chroot=True)
-
-
-class CidbIntegrationTestStage(generic_stages.BuilderStage):
-  """Stage that runs the CIDB integration tests."""
-
-  category = constants.CI_INFRA_STAGE
-
-  def PerformStage(self):
-    """Run the CIDB integration tests."""
-    buildroot_chromite = path_util.ToChrootPath(
-        os.path.join(self._build_root, 'chromite'))
-
-    cmd = [
-        os.path.join(buildroot_chromite, 'lib', 'cidb_integration_test'),
-        '-v',
-        # '--network'  Doesn't work in a build, yet.
-    ]
-    cros_build_lib.run(cmd, enter_chroot=True)
 
 
 class DebugInfoTestStage(generic_stages.BoardSpecificBuilderStage,

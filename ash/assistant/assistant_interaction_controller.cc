@@ -13,8 +13,9 @@
 #include "ash/assistant/model/assistant_interaction_model_observer.h"
 #include "ash/assistant/model/assistant_query.h"
 #include "ash/assistant/model/assistant_response.h"
-#include "ash/assistant/model/assistant_ui_element.h"
 #include "ash/assistant/model/assistant_ui_model.h"
+#include "ash/assistant/model/ui/assistant_card_element.h"
+#include "ash/assistant/model/ui/assistant_text_element.h"
 #include "ash/assistant/ui/assistant_ui_constants.h"
 #include "ash/assistant/util/assistant_util.h"
 #include "ash/assistant/util/deep_link_util.h"
@@ -130,9 +131,8 @@ void AssistantInteractionController::OnDeepLinkReceived(
     assistant_controller_->ui_controller()->ShowUi(
         AssistantEntryPoint::kDeepLink);
 
-    // Currently the only way to trigger this deeplink is via suggestion chip.
-    // TODO(b/119841827): Use source specified from deep link.
-    StartScreenContextInteraction(AssistantQuerySource::kSuggestionChip);
+    // The "What's on my screen" chip initiates a screen context interaction.
+    StartScreenContextInteraction(AssistantQuerySource::kWhatsOnMyScreen);
     return;
   }
 
@@ -273,7 +273,7 @@ void AssistantInteractionController::OnHighlighterEnabledChanged(
       // Skip setting input modality to stylus when the embedded Assistant
       // feature is enabled to prevent highlighter aborting sessions in
       // OnUiModeChanged.
-      if (!app_list_features::IsEmbeddedAssistantUIEnabled())
+      if (!app_list_features::IsAssistantLauncherUIEnabled())
         model_.SetInputModality(InputModality::kStylus);
       break;
     case HighlighterEnabledState::kDisabledByUser:
@@ -407,8 +407,8 @@ void AssistantInteractionController::OnInteractionStarted(
     // set the pending query from outside of the interaction lifecycle, the
     // pending query type will always be |kNull| here.
     if (model_.pending_query().type() == AssistantQueryType::kNull) {
-      model_.SetPendingQuery(
-          std::make_unique<AssistantTextQuery>(metadata->query));
+      model_.SetPendingQuery(std::make_unique<AssistantTextQuery>(
+          metadata->query, metadata->source));
     }
     model_.CommitPendingQuery();
     model_.SetMicState(MicState::kClosed);
@@ -527,9 +527,13 @@ void AssistantInteractionController::OnSuggestionChipPressed(
   // is because suggestion chips pressed after a voice query should continue to
   // return TTS, as really the text interaction is just a continuation of the
   // user's preceding voice interaction.
-  StartTextInteraction(suggestion->text, /*allow_tts=*/model_.response() &&
-                                             model_.response()->has_tts(),
-                       /*query_source=*/AssistantQuerySource::kSuggestionChip);
+  StartTextInteraction(
+      suggestion->text,
+      /*allow_tts=*/model_.response() && model_.response()->has_tts(),
+      /*query_source=*/suggestion->type ==
+              AssistantSuggestionType::kConversationStarter
+          ? AssistantQuerySource::kConversationStarter
+          : AssistantQuerySource::kSuggestionChip);
 }
 
 void AssistantInteractionController::OnSuggestionsResponse(
@@ -801,7 +805,7 @@ void AssistantInteractionController::OnUiVisible(
     should_attempt_warmer_welcome_ = false;
     // When the embedded Assistant feature is enabled, we call ShowUi(kStylus)
     // OnHighlighterSelectionRecognized. But we are not actually using stylus.
-    if (!app_list_features::IsEmbeddedAssistantUIEnabled())
+    if (!app_list_features::IsAssistantLauncherUIEnabled())
       model_.SetInputModality(InputModality::kStylus);
     return;
   }
@@ -874,10 +878,12 @@ void AssistantInteractionController::StartProactiveSuggestionsInteraction(
   const std::string& description = proactive_suggestions->description();
   const std::string& search_query = proactive_suggestions->search_query();
 
-  model_.SetPendingQuery(std::make_unique<AssistantTextQuery>(description));
+  model_.SetPendingQuery(std::make_unique<AssistantTextQuery>(
+      description, AssistantQuerySource::kProactiveSuggestions));
 
   OnInteractionStarted(AssistantInteractionMetadata::New(
-      AssistantInteractionType::kText, /*query=*/description));
+      AssistantInteractionType::kText,
+      AssistantQuerySource::kProactiveSuggestions, /*query=*/description));
 
   OnHtmlResponse(proactive_suggestions->html(), /*fallback=*/std::string());
 
@@ -912,7 +918,7 @@ void AssistantInteractionController::StartTextInteraction(
   model_.SetPendingQuery(
       std::make_unique<AssistantTextQuery>(text, query_source));
 
-  assistant_->StartTextInteraction(text, allow_tts);
+  assistant_->StartTextInteraction(text, query_source, allow_tts);
 }
 
 void AssistantInteractionController::StartVoiceInteraction() {

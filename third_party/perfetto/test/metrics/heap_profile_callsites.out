@@ -2,6 +2,10 @@ heap_profile_callsites {
   instance_stats {
     pid: 2
     process_name: "system_server"
+    process {
+      name: "system_server"
+      uid: 1000
+    }
     callsites {
       hash: -2067767828047084124
       parent_hash: 3061552492032359760
@@ -58,5 +62,7 @@ heap_profile_callsites {
         delta_bytes: 1090
       }
     }
+    profile_delta_bytes: 1090
+    profile_total_bytes: 2100
   }
 }

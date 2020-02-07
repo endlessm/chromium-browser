@@ -15,8 +15,10 @@ import static org.mockito.Mockito.verify;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.CredentialProperties.CREDENTIAL;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.CredentialProperties.FORMATTED_ORIGIN;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.CredentialProperties.ON_CLICK_LISTENER;
+import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.FooterProperties.BRANDING_MESSAGE_ID;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.HeaderProperties.FORMATTED_URL;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.HeaderProperties.ORIGIN_SECURE;
+import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.HeaderProperties.SINGLE_CREDENTIAL;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.ON_CLICK_MANAGE;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.SHEET_ITEMS;
 import static org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.VISIBLE;
@@ -42,11 +44,11 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.ScalableTimeout;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
+import org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.FooterProperties;
 import org.chromium.chrome.browser.touch_to_fill.TouchToFillProperties.HeaderProperties;
 import org.chromium.chrome.browser.touch_to_fill.data.Credential;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.SheetState;
-import org.chromium.chrome.browser.widget.bottomsheet.BottomSheet.StateChangeReason;
+import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController;
+import org.chromium.chrome.browser.widget.bottomsheet.BottomSheetController.SheetState;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -64,11 +66,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class TouchToFillViewTest {
-    private static final Credential ANA = new Credential("Ana", "S3cr3t", "Ana", "", false);
+    private static final Credential ANA = new Credential("Ana", "S3cr3t", "Ana", "", false, false);
     private static final Credential NO_ONE =
-            new Credential("", "***", "No Username", "m.example.xyz", true);
+            new Credential("", "***", "No Username", "m.example.xyz", true, false);
     private static final Credential BOB =
-            new Credential("Bob", "***", "Bob", "mobile.example.xyz", true);
+            new Credential("Bob", "***", "Bob", "mobile.example.xyz", true, false);
 
     @Mock
     private Callback<Integer> mDismissHandler;
@@ -98,13 +100,55 @@ public class TouchToFillViewTest {
     public void testVisibilityChangedByModel() {
         // After setting the visibility to true, the view should exist and be visible.
         TestThreadUtils.runOnUiThreadBlocking(() -> mModel.set(VISIBLE, true));
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
         assertThat(mTouchToFillView.getContentView().isShown(), is(true));
 
         // After hiding the view, the view should still exist but be invisible.
         TestThreadUtils.runOnUiThreadBlocking(() -> mModel.set(VISIBLE, false));
-        pollUiThread(() -> getBottomSheetState() == SheetState.HIDDEN);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HIDDEN);
         assertThat(mTouchToFillView.getContentView().isShown(), is(false));
+    }
+
+    @Test
+    @MediumTest
+    public void testSingleCredentialTitleDisplayed() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.get(SHEET_ITEMS)
+                    .add(new MVCListAdapter.ListItem(TouchToFillProperties.ItemType.HEADER,
+                            new PropertyModel.Builder(HeaderProperties.ALL_KEYS)
+                                    .with(SINGLE_CREDENTIAL, true)
+                                    .with(FORMATTED_URL, "www.example.org")
+                                    .with(ORIGIN_SECURE, true)
+                                    .build()));
+            mModel.set(VISIBLE, true);
+        });
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
+        TextView title =
+                mTouchToFillView.getContentView().findViewById(R.id.touch_to_fill_sheet_title);
+
+        assertThat(title.getText(),
+                is(getActivity().getString(R.string.touch_to_fill_sheet_title_single)));
+    }
+
+    @Test
+    @MediumTest
+    public void testMultiCredentialTitleDisplayed() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.get(SHEET_ITEMS)
+                    .add(new MVCListAdapter.ListItem(TouchToFillProperties.ItemType.HEADER,
+                            new PropertyModel.Builder(HeaderProperties.ALL_KEYS)
+                                    .with(SINGLE_CREDENTIAL, false)
+                                    .with(FORMATTED_URL, "www.example.org")
+                                    .with(ORIGIN_SECURE, true)
+                                    .build()));
+            mModel.set(VISIBLE, true);
+        });
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
+        TextView title =
+                mTouchToFillView.getContentView().findViewById(R.id.touch_to_fill_sheet_title);
+
+        assertThat(
+                title.getText(), is(getActivity().getString(R.string.touch_to_fill_sheet_title)));
     }
 
     @Test
@@ -119,7 +163,7 @@ public class TouchToFillViewTest {
                                     .build()));
             mModel.set(VISIBLE, true);
         });
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
         TextView subtitle =
                 mTouchToFillView.getContentView().findViewById(R.id.touch_to_fill_sheet_subtitle);
 
@@ -138,11 +182,51 @@ public class TouchToFillViewTest {
                                     .build()));
             mModel.set(VISIBLE, true);
         });
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
         TextView subtitle =
                 mTouchToFillView.getContentView().findViewById(R.id.touch_to_fill_sheet_subtitle);
 
         assertThat(subtitle.getText(), is(getFormattedNotSecureSubtitle("m.example.org")));
+    }
+
+    @Test
+    @MediumTest
+    public void testBrandingVariationZeroHides() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.get(SHEET_ITEMS)
+                    .add(new MVCListAdapter.ListItem(TouchToFillProperties.ItemType.FOOTER,
+                            new PropertyModel.Builder(FooterProperties.ALL_KEYS)
+                                    .with(BRANDING_MESSAGE_ID, 0)
+                                    .build()));
+            mModel.set(VISIBLE, true);
+        });
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
+        TextView brandingMessage =
+                mTouchToFillView.getContentView().findViewById(R.id.touch_to_fill_branding_message);
+
+        assertThat(brandingMessage.getVisibility(), is(View.GONE));
+    }
+
+    @Test
+    @MediumTest
+    public void testBrandingVariationOneDisplayed() {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.get(SHEET_ITEMS)
+                    .add(new MVCListAdapter.ListItem(TouchToFillProperties.ItemType.FOOTER,
+                            new PropertyModel.Builder(FooterProperties.ALL_KEYS)
+                                    .with(BRANDING_MESSAGE_ID,
+                                            R.string.touch_to_fill_branding_variation_1)
+                                    .build()));
+            mModel.set(VISIBLE, true);
+        });
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
+        TextView brandingMessage =
+                mTouchToFillView.getContentView().findViewById(R.id.touch_to_fill_branding_message);
+
+        String expectedBrandingMessage =
+                String.format(getActivity().getString(R.string.touch_to_fill_branding_variation_1),
+                        getActivity().getString(org.chromium.chrome.R.string.app_name));
+        assertThat(brandingMessage.getText(), is(expectedBrandingMessage));
     }
 
     @Test
@@ -155,7 +239,7 @@ public class TouchToFillViewTest {
                             buildCredentialItem(BOB)));
         });
 
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
         assertThat(getCredentials().getChildCount(), is(3));
         assertThat(getCredentialOriginAt(0).getVisibility(), is(View.GONE));
         assertThat(getCredentialNameAt(0).getText(), is(ANA.getFormattedUsername()));
@@ -183,7 +267,7 @@ public class TouchToFillViewTest {
             mModel.get(SHEET_ITEMS).addAll(Collections.singletonList(buildCredentialItem(ANA)));
             mModel.set(VISIBLE, true);
         });
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
 
         assertNotNull(getCredentials().getChildAt(0));
 
@@ -202,7 +286,7 @@ public class TouchToFillViewTest {
                             buildConfirmationButton(ANA)));
             mModel.set(VISIBLE, true);
         });
-        pollUiThread(() -> getBottomSheetState() == BottomSheet.SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
 
         assertNotNull(getCredentials().getChildAt(0));
         assertNotNull(getCredentials().getChildAt(1));
@@ -220,10 +304,12 @@ public class TouchToFillViewTest {
             mModel.set(ON_CLICK_MANAGE, () -> manageButtonClicked.set(true));
             mModel.set(VISIBLE, true);
         });
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
 
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { getActivity().getBottomSheet().setSheetState(SheetState.FULL, false); });
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            getActivity().getBottomSheetController().setSheetStateForTesting(
+                    SheetState.FULL, false);
+        });
         pollUiThread(() -> getBottomSheetState() == SheetState.FULL);
 
         TextView manageButton = mTouchToFillView.getContentView().findViewById(
@@ -237,10 +323,10 @@ public class TouchToFillViewTest {
     @MediumTest
     public void testDismissesWhenHidden() {
         TestThreadUtils.runOnUiThreadBlocking(() -> mModel.set(VISIBLE, true));
-        pollUiThread(() -> getBottomSheetState() == SheetState.HALF);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HALF);
         TestThreadUtils.runOnUiThreadBlocking(() -> mModel.set(VISIBLE, false));
-        pollUiThread(() -> getBottomSheetState() == SheetState.HIDDEN);
-        verify(mDismissHandler).onResult(StateChangeReason.NONE);
+        pollUiThread(() -> getBottomSheetState() == BottomSheetController.SheetState.HIDDEN);
+        verify(mDismissHandler).onResult(BottomSheetController.StateChangeReason.NONE);
     }
 
     private ChromeActivity getActivity() {
@@ -252,8 +338,7 @@ public class TouchToFillViewTest {
     }
 
     private @SheetState int getBottomSheetState() {
-        pollUiThread(() -> getActivity().getBottomSheet() != null);
-        return getActivity().getBottomSheet().getSheetState();
+        return getActivity().getBottomSheetController().getSheetState();
     }
 
     private RecyclerView getCredentials() {

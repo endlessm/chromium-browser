@@ -38,8 +38,11 @@
 #include <utility>
 #include <set>
 #include <vector>
+#include <cassert>
 
 #include <vulkan/vulkan.h>
+
+#define VK_VERSION_1_1_NAME "VK_VERSION_1_1"
 
 struct InstanceExtensions {
     bool vk_feature_version_1_1{false};
@@ -138,7 +141,8 @@ struct InstanceExtensions {
                            {&InstanceExtensions::vk_khr_surface, VK_KHR_SURFACE_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_SURFACE_EXTENSION_NAME, InstanceInfo(&InstanceExtensions::vk_khr_surface, {})),
             std::make_pair(VK_KHR_SURFACE_PROTECTED_CAPABILITIES_EXTENSION_NAME, InstanceInfo(&InstanceExtensions::vk_khr_surface_protected_capabilities, {{
-                           {&InstanceExtensions::vk_khr_get_surface_capabilities_2, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME}}})),
+                           {&InstanceExtensions::vk_khr_get_surface_capabilities_2, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME},
+                           {&InstanceExtensions::vk_feature_version_1_1, VK_VERSION_1_1_NAME}}})),
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
             std::make_pair(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME, InstanceInfo(&InstanceExtensions::vk_khr_wayland_surface, {{
                            {&InstanceExtensions::vk_khr_surface, VK_KHR_SURFACE_EXTENSION_NAME}}})),
@@ -380,20 +384,25 @@ struct DeviceExtensions : public InstanceExtensions {
     bool vk_khr_maintenance2{false};
     bool vk_khr_maintenance3{false};
     bool vk_khr_multiview{false};
+    bool vk_khr_performance_query{false};
     bool vk_khr_pipeline_executable_properties{false};
     bool vk_khr_push_descriptor{false};
     bool vk_khr_relaxed_block_layout{false};
     bool vk_khr_sampler_mirror_clamp_to_edge{false};
     bool vk_khr_sampler_ycbcr_conversion{false};
+    bool vk_khr_separate_depth_stencil_layouts{false};
     bool vk_khr_shader_atomic_int64{false};
+    bool vk_khr_shader_clock{false};
     bool vk_khr_shader_draw_parameters{false};
     bool vk_khr_shader_float16_int8{false};
     bool vk_khr_shader_float_controls{false};
     bool vk_khr_shader_subgroup_extended_types{false};
     bool vk_khr_shared_presentable_image{false};
+    bool vk_khr_spirv_1_4{false};
     bool vk_khr_storage_buffer_storage_class{false};
     bool vk_khr_swapchain{false};
     bool vk_khr_swapchain_mutable_format{false};
+    bool vk_khr_timeline_semaphore{false};
     bool vk_khr_uniform_buffer_standard_layout{false};
     bool vk_khr_variable_pointers{false};
     bool vk_khr_vulkan_memory_model{false};
@@ -555,7 +564,8 @@ struct DeviceExtensions : public InstanceExtensions {
             std::make_pair(VK_EXT_SHADER_SUBGROUP_BALLOT_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_shader_subgroup_ballot, {})),
             std::make_pair(VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_shader_subgroup_vote, {})),
             std::make_pair(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_shader_viewport_index_layer, {})),
-            std::make_pair(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_subgroup_size_control, {})),
+            std::make_pair(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_subgroup_size_control, {{
+                           {&DeviceExtensions::vk_feature_version_1_1, VK_VERSION_1_1_NAME}}})),
             std::make_pair(VK_EXT_TEXEL_BUFFER_ALIGNMENT_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_texel_buffer_alignment, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_EXT_TEXTURE_COMPRESSION_ASTC_HDR_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_ext_texture_compression_astc_hdr, {{
@@ -642,6 +652,8 @@ struct DeviceExtensions : public InstanceExtensions {
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_MULTIVIEW_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_multiview, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
+            std::make_pair(VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_performance_query, {{
+                           {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_pipeline_executable_properties, {})),
             std::make_pair(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_push_descriptor, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
@@ -652,18 +664,27 @@ struct DeviceExtensions : public InstanceExtensions {
                            {&DeviceExtensions::vk_khr_bind_memory_2, VK_KHR_BIND_MEMORY_2_EXTENSION_NAME},
                            {&DeviceExtensions::vk_khr_get_memory_requirements_2, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME},
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
+            std::make_pair(VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_separate_depth_stencil_layouts, {{
+                           {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME},
+                           {&DeviceExtensions::vk_khr_create_renderpass_2, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_atomic_int64, {{
+                           {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
+            std::make_pair(VK_KHR_SHADER_CLOCK_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_clock, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_draw_parameters, {})),
             std::make_pair(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_float16_int8, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_float_controls, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
-            std::make_pair(VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_subgroup_extended_types, {})),
+            std::make_pair(VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shader_subgroup_extended_types, {{
+                           {&DeviceExtensions::vk_feature_version_1_1, VK_VERSION_1_1_NAME}}})),
             std::make_pair(VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_shared_presentable_image, {{
                            {&DeviceExtensions::vk_khr_swapchain, VK_KHR_SWAPCHAIN_EXTENSION_NAME},
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME},
                            {&DeviceExtensions::vk_khr_get_surface_capabilities_2, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME}}})),
+            std::make_pair(VK_KHR_SPIRV_1_4_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_spirv_1_4, {{
+                           {&DeviceExtensions::vk_khr_shader_float_controls, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME},
+                           {&DeviceExtensions::vk_feature_version_1_1, VK_VERSION_1_1_NAME}}})),
             std::make_pair(VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_storage_buffer_storage_class, {})),
             std::make_pair(VK_KHR_SWAPCHAIN_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_swapchain, {{
                            {&DeviceExtensions::vk_khr_surface, VK_KHR_SURFACE_EXTENSION_NAME}}})),
@@ -671,6 +692,8 @@ struct DeviceExtensions : public InstanceExtensions {
                            {&DeviceExtensions::vk_khr_swapchain, VK_KHR_SWAPCHAIN_EXTENSION_NAME},
                            {&DeviceExtensions::vk_khr_maintenance2, VK_KHR_MAINTENANCE2_EXTENSION_NAME},
                            {&DeviceExtensions::vk_khr_image_format_list, VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME}}})),
+            std::make_pair(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_timeline_semaphore, {{
+                           {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_uniform_buffer_standard_layout, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_khr_variable_pointers, {{
@@ -723,8 +746,10 @@ struct DeviceExtensions : public InstanceExtensions {
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_NV_SHADER_IMAGE_FOOTPRINT_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_shader_image_footprint, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
-            std::make_pair(VK_NV_SHADER_SM_BUILTINS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_shader_sm_builtins, {})),
-            std::make_pair(VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_shader_subgroup_partitioned, {})),
+            std::make_pair(VK_NV_SHADER_SM_BUILTINS_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_shader_sm_builtins, {{
+                           {&DeviceExtensions::vk_feature_version_1_1, VK_VERSION_1_1_NAME}}})),
+            std::make_pair(VK_NV_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_shader_subgroup_partitioned, {{
+                           {&DeviceExtensions::vk_feature_version_1_1, VK_VERSION_1_1_NAME}}})),
             std::make_pair(VK_NV_SHADING_RATE_IMAGE_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_shading_rate_image, {{
                            {&DeviceExtensions::vk_khr_get_physical_device_properties_2, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME}}})),
             std::make_pair(VK_NV_VIEWPORT_ARRAY2_EXTENSION_NAME, DeviceInfo(&DeviceExtensions::vk_nv_viewport_array2, {})),
@@ -914,20 +939,25 @@ static const std::set<std::string> kDeviceExtensionNames = {
     VK_KHR_MAINTENANCE2_EXTENSION_NAME,
     VK_KHR_MAINTENANCE3_EXTENSION_NAME,
     VK_KHR_MULTIVIEW_EXTENSION_NAME,
+    VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME,
     VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME,
     VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
     VK_KHR_RELAXED_BLOCK_LAYOUT_EXTENSION_NAME,
     VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME,
     VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+    VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_EXTENSION_NAME,
     VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME,
+    VK_KHR_SHADER_CLOCK_EXTENSION_NAME,
     VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
     VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
     VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
     VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME,
     VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME,
+    VK_KHR_SPIRV_1_4_EXTENSION_NAME,
     VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME,
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME,
+    VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME,
     VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME,
     VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME,

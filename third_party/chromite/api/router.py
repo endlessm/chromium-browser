@@ -14,11 +14,8 @@ from __future__ import print_function
 import importlib
 import os
 
-# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
-# pylint: disable=no-name-in-module
 from google.protobuf import json_format
 from google.protobuf import symbol_database
-# pylint: enable=no-name-in-module
 
 from chromite.api import controller
 from chromite.api import field_handler
@@ -30,6 +27,7 @@ from chromite.api.gen.chromite.api import build_api_pb2
 from chromite.api.gen.chromite.api import depgraph_pb2
 from chromite.api.gen.chromite.api import image_pb2
 from chromite.api.gen.chromite.api import packages_pb2
+from chromite.api.gen.chromite.api import payload_pb2
 from chromite.api.gen.chromite.api import sdk_pb2
 from chromite.api.gen.chromite.api import sysroot_pb2
 from chromite.api.gen.chromite.api import test_pb2
@@ -329,6 +327,7 @@ def RegisterServices(router):
   router.Register(depgraph_pb2)
   router.Register(image_pb2)
   router.Register(packages_pb2)
+  router.Register(payload_pb2)
   router.Register(sdk_pb2)
   router.Register(sysroot_pb2)
   router.Register(test_pb2)

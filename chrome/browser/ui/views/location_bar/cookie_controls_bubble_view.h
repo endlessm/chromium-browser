@@ -62,7 +62,6 @@ class CookieControlsBubbleView : public LocationBarBubbleDelegateView,
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
   void Init() override;
   base::string16 GetWindowTitle() const override;
-  std::unique_ptr<views::View> CreateExtraView() override;
   bool ShouldShowWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
   void WindowClosing() override;
@@ -85,7 +84,8 @@ class CookieControlsBubbleView : public LocationBarBubbleDelegateView,
 
   views::ImageView* header_view_ = nullptr;
   views::Label* text_ = nullptr;
-  views::Link* not_working_link_ = nullptr;
+  views::View* extra_view_ = nullptr;
+  views::Link* show_cookies_link_ = nullptr;
 
   ScopedObserver<CookieControlsController, CookieControlsView> observer_{this};
 

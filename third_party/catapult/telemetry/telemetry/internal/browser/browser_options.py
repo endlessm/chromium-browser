@@ -175,10 +175,14 @@ class BrowserFinderOptions(optparse.Values):
         'test is executed at maximum CPU speed in order to minimize noise '
         '(specially important for dashboards / continuous builds). '
         'This option prevents Telemetry from tweaking such platform settings.')
+    # TODO(crbug.com/1025207): Rename this to --support-apk
     group.add_option(
         '--webview-embedder-apk',
+        action="append",
+        default=[],
         help='When running tests on android webview, more than one apk needs to'
-        ' be installed. The apk running the test is said to embed webview.')
+        ' be installed. The apk running the test is said to embed webview. More'
+        ' than one apk may be specified if needed.')
     parser.add_option_group(group)
 
     # Remote platform options
@@ -316,6 +320,17 @@ class BrowserFinderOptions(optparse.Values):
       return ret
     parser.parse_args = ParseArgs
     return parser
+
+  def IsBrowserTypeRelevant(self, browser_type):
+    """Determines if the browser_type is worth initializing.
+
+    This check is used to sidestep any unnecessary work involved with searching
+    for a browser that might not actually be needed. For example, this check
+    could be used to prevent Telemetry from searching for a Clank browser if
+    browser_type is android-weblayer.
+    """
+    return (browser_type == self.browser_type or
+            self.browser_type in ('list', 'any',))
 
   # TODO(eakuefner): Factor this out into OptionBuilder pattern
   def BuildRemotePlatformOptions(self):

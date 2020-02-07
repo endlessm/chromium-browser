@@ -549,16 +549,13 @@ class Sysroot(object):
       local_binhosts = cros_build_lib.run(
           [os.path.join(constants.CHROMITE_BIN_DIR,
                         'cros_generate_local_binhosts'), '--board=%s' % board],
-          print_cmd=False, capture_output=True).output
+          print_cmd=False, capture_output=True, encoding='utf-8').stdout
       return '\n'.join([local_binhosts,
                         'PORTAGE_BINHOST="$LOCAL_BINHOST"'])
 
     config = []
     postsubmit_binhost, postsubmit_binhost_internal = self._PostsubmitBinhosts(
         board)
-    # TODO(crbug.com/965244) Remove when full post-submit swap has completed.
-    parallel_postsubmit_binhost, parallel_postsubmit_binhost_internal = \
-      self._PostsubmitBinhosts(board, binhost_type='PARALLEL_POSTSUBMIT')
 
     config.append("""
 # FULL_BINHOST is populated by the full builders. It is listed first because it
@@ -584,33 +581,13 @@ source %s
 PORTAGE_BINHOST="$PORTAGE_BINHOST $POSTSUBMIT_BINHOST"
 """ % postsubmit_binhost_internal)
 
-    if parallel_postsubmit_binhost:
-      config.append("""
-# PARALLEL_POSTSUBMIT_BINHOST is populated by the Parallel CQ postsubmit
-# builders. If the same package is provided by both the parallel postsubmit and
-# postsubmit builders, the package is downloaded from the parallel postsubmit
-# binhost.
-source %s
-PORTAGE_BINHOST="$PORTAGE_BINHOST $PARALLEL_POSTSUBMIT_BINHOST"
-""" % parallel_postsubmit_binhost)
-
-    if parallel_postsubmit_binhost_internal:
-      config.append("""
-# The internal PARALLEL_POSTSUBMIT_BINHOST is populated by the internal Parallel
-# CQ postsubmit builders. It takes priority over the public parallel postsubmit
-# binhost.
-source %s
-PORTAGE_BINHOST="$PORTAGE_BINHOST $PARALLEL_POSTSUBMIT_BINHOST"
-""" % parallel_postsubmit_binhost_internal)
-
     return '\n'.join(config)
 
-  def _PostsubmitBinhosts(self, board=None, binhost_type=None):
+  def _PostsubmitBinhosts(self, board=None):
     """Returns the postsubmit binhost to use.
 
     Args:
       board (str): Board name.
-      binhost_type (str): Override the binhost type in the file name.
     """
     prefixes = []
     # The preference of picking the binhost file for a board is in the same
@@ -631,8 +608,7 @@ PORTAGE_BINHOST="$PORTAGE_BINHOST $PARALLEL_POSTSUBMIT_BINHOST"
     if arch in _ARCH_MAPPING:
       prefixes.append(_ARCH_MAPPING[arch])
 
-    binhost_type = binhost_type or 'POSTSUBMIT'
-    filenames = ['%s-%s_BINHOST.conf' % (p, binhost_type) for p in prefixes]
+    filenames = ['%s-POSTSUBMIT_BINHOST.conf' % p for p in prefixes]
 
     external = internal = None
     for filename in filenames:
@@ -739,7 +715,7 @@ PORTAGE_BINHOST="$PORTAGE_BINHOST $PARALLEL_POSTSUBMIT_BINHOST"
       cwd = os.path.normpath(self._Path('..'))
       try:
         result = cros_build_lib.sudo_run(['mktemp', '-d', '-p', cwd],
-                                         print_cmd=False,
+                                         print_cmd=False, encoding='utf-8',
                                          redirect_stdout=True, cwd=cwd)
       except cros_build_lib.RunCommandError:
         # Fall back to a synchronous delete just in case.

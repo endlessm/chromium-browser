@@ -13,7 +13,7 @@
 //  NVIDIA AMD INTEL
 //  DEBUG RELEASE
 //  D3D9 D3D11 OPENGL GLES VULKAN
-//  NEXUS5X PIXEL2
+//  NEXUS5X PIXEL2ORXL
 //  QUADROP400
 //
 //
@@ -103,8 +103,8 @@
 2222 D3D11 NVIDIA : dEQP-GLES3.functional.texture.mipmap.cube.min_lod.linear_nearest = FAIL
 2222 D3D11 NVIDIA : dEQP-GLES3.functional.texture.mipmap.cube.min_lod.nearest_nearest = FAIL
 
-// Failing everywhere
-2322 : dEQP-GLES3.functional.shaders.metamorphic.* = FAIL
+// Flaky on Win7 D3D11 NVIDIA
+4070 WIN7 D3D11 NVIDIA : dEQP-GLES3.functional.rasterization.flatshading.triangles = FAIL
 
 // Vertex attribute aliasing is not supported on D3D
 3467 D3D9 : dEQP-GLES3.functional.attribute_location.bind_aliasing.cond* = FAIL
@@ -517,6 +517,7 @@
 3308 NEXUS5X GLES : dEQP-GLES3.functional.transform_feedback.random.interleaved.lines.3 = FAIL
 3308 NEXUS5X GLES : dEQP-GLES3.functional.transform_feedback.random.interleaved.triangles.8 = FAIL
 3308 NEXUS5X GLES : dEQP-GLES3.functional.transform_feedback.random.interleaved.triangles.10 = FAIL
+2322 NEXUS5X GLES : dEQP-GLES3.functional.shaders.metamorphic.* = SKIP
 
 // Seems to fail on all desktop GL
 2960 OPENGL : dEQP-GLES3.functional.fbo.blit.default_framebuffer.srgb8_alpha8 = FAIL
@@ -549,13 +550,6 @@
 // Flat shading:
 3430 VULKAN : dEQP-GLES3.functional.rasterization.flatshading.* = FAIL
 
-// Instanced rendering:
-2672 VULKAN : dEQP-GLES3.functional.draw.draw_arrays_instanced.line_loop.* = SKIP
-2672 VULKAN : dEQP-GLES3.functional.draw.draw_elements_instanced.line_loop.* = SKIP
-2672 VULKAN : dEQP-GLES3.functional.draw.random.* = SKIP
-// - Primitive restart with line loops:
-2672 VULKAN : dEQP-GLES3.functional.primitive_restart.*.line_loop.*instanced = SKIP
-
 // Misc unimplemented:
 
 // Failures on newer NVIDIA drivers (411.95) and passes on older drivers (388.16).  Passes on 418.12 on Linux.
@@ -570,5 +564,34 @@
 2830 ANDROID VULKAN : dEQP-GLES3.functional.rasterization.primitives.line* = FAIL
 2808 ANDROID VULKAN : dEQP-GLES3.functional.shaders.builtin_variable.fragcoord_w = FAIL
 
+// Pixel driver issues
+4024 PIXEL2ORXL VULKAN : dEQP-GLES3.functional.draw.random.5 = SKIP
+4024 PIXEL2ORXL VULKAN : dEQP-GLES3.functional.draw.random.49 = SKIP
+4024 PIXEL2ORXL VULKAN : dEQP-GLES3.functional.draw.random.96 = FAIL
+
 // Fixed in later driver versions.
 2727 VULKAN ANDROID : dEQP-GLES3.functional.shaders.builtin_variable.pointcoord = FAIL
+
+//  New or broken formats in ES 3.0, may be it relates to VK_IMAGE_USAGE_STORAGE_BIT
+3816 VULKAN PIXEL2ORXL : dEQP-GLES3.functional.texture.specification.texstorage3d.format.rgba16* = FAIL
+3816 VULKAN PIXEL2ORXL : dEQP-GLES3.functional.texture.specification.texstorage3d.format.rgb16* = FAIL
+3816 VULKAN PIXEL2ORXL : dEQP-GLES3.functional.texture.specification.texstorage3d.format.rg32* = FAIL
+
+// Fails only with SwiftShader:
+
+// These only fail for a 565 config
+4016 SWIFTSHADER : dEQP-GLES3.functional.fragment_ops.interaction.basic_shader.27 = FAIL
+4016 SWIFTSHADER : dEQP-GLES3.functional.fragment_ops.interaction.basic_shader.80 = FAIL
+
+// These only fail on Android
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_pointer.render.nested_structs_arrays.sampler2D_samplerCube_both = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_pointer.render.nested_structs_arrays.sampler2D_samplerCube_fragment = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_pointer.render.nested_structs_arrays.sampler2D_samplerCube_vertex = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_pointer.render.struct_in_array.sampler2D_samplerCube_both = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_pointer.render.struct_in_array.sampler2D_samplerCube_fragment = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_pointer.render.struct_in_array.sampler2D_samplerCube_vertex = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_value.render.nested_structs_arrays.sampler2D_samplerCube_both = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_value.render.nested_structs_arrays.sampler2D_samplerCube_fragment = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_value.render.nested_structs_arrays.sampler2D_samplerCube_vertex = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_value.render.struct_in_array.sampler2D_samplerCube_both = FAIL
+4045 SWIFTSHADER : dEQP-GLES3.functional.uniform_api.value.assigned.by_value.render.struct_in_array.sampler2D_samplerCube_fragment = FAIL

@@ -34,7 +34,7 @@ config("vulkan_internal_config") {
   if (is_clang || !is_win) {
     cflags = [ "-Wno-unused-function" ]
   }
-  if (is_linux) {
+  if (is_linux || is_mac) {
     defines += [
       "SYSCONFDIR=\"/etc\"",
       "FALLBACK_CONFIG_DIRS=\"/etc/xdg\"",
@@ -51,7 +51,10 @@ config("vulkan_loader_config") {
     "loader/generated",
     "loader",
   ]
-  defines = [ "API_NAME=\"Vulkan\"" ]
+  defines = [
+    "API_NAME=\"Vulkan\"",
+    "USE_UNSAFE_FILE_SEARCH=1"
+  ]
 
   if (is_win) {
     cflags = [ "/wd4201" ]
@@ -97,6 +100,8 @@ if (!is_android) {
       sources += [
         "loader/dirent_on_windows.c",
         "loader/dirent_on_windows.h",
+        "loader/dxgi_loader.c",
+        "loader/dxgi_loader.h",
       ]
       if (!is_clang) {
         cflags = [
@@ -112,6 +117,12 @@ if (!is_android) {
           "/wd4996",  # Unsafe stdlib function
         ]
       }
+      if (is_clang) {
+          cflags = [ "-Wno-incompatible-pointer-types" ]
+      }
+    }
+    if (is_mac) {
+      libs = [ "CoreFoundation.framework" ]
     }
     public_deps = [
       "$vulkan_headers_dir:vulkan_headers",

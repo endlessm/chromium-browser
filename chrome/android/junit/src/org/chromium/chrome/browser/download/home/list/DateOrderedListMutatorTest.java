@@ -28,6 +28,8 @@ import org.chromium.chrome.browser.download.home.StableIds;
 import org.chromium.chrome.browser.download.home.filter.OfflineItemFilterSource;
 import org.chromium.chrome.browser.download.home.list.ListItem.OfflineItemListItem;
 import org.chromium.chrome.browser.download.home.list.ListItem.SectionHeaderListItem;
+import org.chromium.chrome.browser.download.home.list.mutator.DateOrderedListMutator;
+import org.chromium.chrome.browser.download.home.list.mutator.ListMutationController;
 import org.chromium.components.offline_items_collection.OfflineItem;
 import org.chromium.components.offline_items_collection.OfflineItemFilter;
 import org.chromium.components.offline_items_collection.OfflineItemState;
@@ -60,6 +62,7 @@ public class DateOrderedListMutatorTest {
         Map<String, Boolean> testFeatures = new HashMap<>();
         testFeatures.put(ChromeFeatureList.DOWNLOAD_OFFLINE_CONTENT_PROVIDER, true);
         testFeatures.put(ChromeFeatureList.DOWNLOAD_RENAME, false);
+        testFeatures.put(ChromeFeatureList.CONTENT_INDEXING_DOWNLOAD_HOME, false);
         ChromeFeatureList.setTestFeatures(testFeatures);
     }
 
@@ -150,7 +153,7 @@ public class DateOrderedListMutatorTest {
         DateOrderedListMutator list = createMutatorWithJustNowProvider();
 
         Assert.assertEquals(2, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 1, 1, 1), item1);
     }
 
@@ -164,18 +167,54 @@ public class DateOrderedListMutatorTest {
      */
     @Test
     public void testMultipleSectionsInJustNowSection() {
-        OfflineItem item1 = buildItem("1", buildCalendar(2018, 1, 1, 1), OfflineItemFilter.VIDEO);
-        OfflineItem item2 = buildItem("2", buildCalendar(2018, 1, 1, 1), OfflineItemFilter.AUDIO);
+        Calendar calendar = buildCalendar(2018, 1, 1, 1);
+        OfflineItem item1 = buildItem("1", calendar, OfflineItemFilter.VIDEO);
+        OfflineItem item2 = buildItem("2", calendar, OfflineItemFilter.AUDIO);
         item1.state = OfflineItemState.IN_PROGRESS;
-        item2.state = OfflineItemState.IN_PROGRESS;
+        item2.state = OfflineItemState.COMPLETE;
         item2.completionTimeMs = item2.creationTimeMs;
         when(mSource.getItems()).thenReturn(CollectionUtil.newArrayList(item1, item2));
-        DateOrderedListMutator list = createMutatorWithJustNowProvider();
+        DateOrderedListMutator list =
+                createMutatorWithJustNowProvider(buildJustNowProvider(calendar.getTime()));
 
         Assert.assertEquals(3, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 1, 1, 1), item1);
         assertOfflineItem(mModel.get(2), buildCalendar(2018, 1, 1, 1), item2);
+    }
+
+    /**
+     * Action                               List
+     * 1. Set(item1 @ 0:10 1/2/2018         [ DATE    Just Now,
+     *              Video COMPLETE,
+     *        item2 @ 23:55 1/1/2018         [ DATE    Just Now,
+     *              Video COMPLETE,
+     *
+     *        item3 @ 10:00 1/1/2018           DATE    1/1/2018
+     *              Audio COMPLETE)           item3   @ 1:00 1/1/2018 ]
+     */
+    @Test
+    public void testRecentItemBeforeMidnightShowsInJustNowSection() {
+        Calendar calendar1 = CalendarFactory.get();
+        calendar1.set(2018, 1, 2, 0, 10);
+        Calendar calendar2 = CalendarFactory.get();
+        calendar2.set(2018, 1, 1, 23, 50);
+        OfflineItem item1 = buildItem("1", calendar1, OfflineItemFilter.VIDEO);
+        OfflineItem item2 = buildItem("2", calendar2, OfflineItemFilter.AUDIO);
+        OfflineItem item3 = buildItem("3", buildCalendar(2018, 1, 1, 10), OfflineItemFilter.AUDIO);
+        item1.completionTimeMs = item1.creationTimeMs;
+        item2.completionTimeMs = item2.creationTimeMs;
+        when(mSource.getItems()).thenReturn(CollectionUtil.newArrayList(item1, item2, item3));
+
+        Calendar now = CalendarFactory.get();
+        now.set(2018, 1, 2, 0, 15);
+        createMutatorWithJustNowProvider(buildJustNowProvider(now.getTime()));
+        Assert.assertEquals(5, mModel.size());
+        assertJustNowSection(mModel.get(0));
+        assertOfflineItem(mModel.get(1), calendar1, item1);
+        assertOfflineItem(mModel.get(2), calendar2, item2);
+        assertSectionHeader(mModel.get(3), buildCalendar(2018, 1, 1, 0), true);
+        assertOfflineItem(mModel.get(4), buildCalendar(2018, 1, 1, 10), item3);
     }
 
     /**
@@ -202,7 +241,7 @@ public class DateOrderedListMutatorTest {
         mModel.addObserver(mObserver);
 
         Assert.assertEquals(2, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 1, 1, 1), item1);
 
         // Resume the download.
@@ -212,18 +251,18 @@ public class DateOrderedListMutatorTest {
         list.onItemUpdated(item1, update1);
 
         Assert.assertEquals(2, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 1, 1, 1), update1);
 
         // Complete the download.
         OfflineItem update2 = buildItem("1", buildCalendar(2018, 1, 1, 1), OfflineItemFilter.VIDEO);
         update2.state = OfflineItemState.COMPLETE;
-        update2.completionTimeMs = update2.creationTimeMs;
+        update2.completionTimeMs = new Date().getTime();
         when(mSource.getItems()).thenReturn(CollectionUtil.newArrayList(update2));
         list.onItemUpdated(update1, update2);
 
         Assert.assertEquals(2, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 1, 1, 1), update2);
 
         // Too much time has passed since completion of the download.
@@ -234,7 +273,7 @@ public class DateOrderedListMutatorTest {
         list.onItemUpdated(update2, update3);
 
         Assert.assertEquals(2, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 1, 1, 1), update3);
     }
 
@@ -255,7 +294,7 @@ public class DateOrderedListMutatorTest {
         DateOrderedListMutator list = createMutatorWithJustNowProvider();
 
         Assert.assertEquals(4, mModel.size());
-        assertJustNowSection(mModel.get(0), false);
+        assertJustNowSection(mModel.get(0));
         assertOfflineItem(mModel.get(1), buildCalendar(2018, 2, 1, 1), item1);
         assertSectionHeader(mModel.get(2), buildCalendar(2018, 1, 1, 0), true);
         assertOfflineItem(mModel.get(3), buildCalendar(2018, 1, 1, 1), item2);
@@ -876,20 +915,45 @@ public class DateOrderedListMutatorTest {
         return item;
     }
 
+    private DownloadManagerUiConfig createConfig() {
+        return new DownloadManagerUiConfig.Builder().build();
+    }
+
+    private JustNowProvider buildJustNowProvider(Date overrideNow) {
+        JustNowProvider justNowProvider = new JustNowProvider(createConfig()) {
+            @Override
+            protected Date now() {
+                return overrideNow;
+            }
+        };
+        return justNowProvider;
+    }
+
     private DateOrderedListMutator createMutatorWithoutJustNowProvider() {
-        DownloadManagerUiConfig config = new DownloadManagerUiConfig.Builder().build();
+        DownloadManagerUiConfig config = createConfig();
         JustNowProvider justNowProvider = new JustNowProvider(config) {
             @Override
             public boolean isJustNowItem(OfflineItem item) {
                 return false;
             }
         };
-        return new DateOrderedListMutator(mSource, mModel, config, justNowProvider);
+        DateOrderedListMutator mutator =
+                new DateOrderedListMutator(mSource, mModel, justNowProvider);
+        new ListMutationController(config, justNowProvider, mutator, mModel);
+        return mutator;
     }
 
     private DateOrderedListMutator createMutatorWithJustNowProvider() {
-        DownloadManagerUiConfig config = new DownloadManagerUiConfig.Builder().build();
-        return new DateOrderedListMutator(mSource, mModel, config, new JustNowProvider(config));
+        JustNowProvider justNowProvider = new JustNowProvider(createConfig());
+        return createMutatorWithJustNowProvider(justNowProvider);
+    }
+
+    private DateOrderedListMutator createMutatorWithJustNowProvider(
+            JustNowProvider justNowProvider) {
+        DateOrderedListMutator mutator =
+                new DateOrderedListMutator(mSource, mModel, justNowProvider);
+        new ListMutationController(createConfig(), justNowProvider, mutator, mModel);
+        return mutator;
     }
 
     private static void assertDatesAreEqual(Date date, Calendar calendar) {
@@ -912,14 +976,14 @@ public class DateOrderedListMutatorTest {
         assertDatesAreEqual(sectionHeader.date, calendar);
         Assert.assertEquals(
                 SectionHeaderListItem.generateStableId(calendar.getTimeInMillis()), item.stableId);
-        Assert.assertEquals(sectionHeader.showDivider, showDivider);
+        Assert.assertEquals(sectionHeader.showTopDivider, showDivider);
     }
 
-    private static void assertJustNowSection(ListItem item, boolean showDivider) {
+    private static void assertJustNowSection(ListItem item) {
         Assert.assertTrue(item instanceof SectionHeaderListItem);
         SectionHeaderListItem sectionHeader = (SectionHeaderListItem) item;
         Assert.assertTrue(sectionHeader.isJustNow);
-        Assert.assertEquals(sectionHeader.showDivider, showDivider);
+        Assert.assertEquals(false, sectionHeader.showTopDivider);
         Assert.assertEquals(StableIds.JUST_NOW_SECTION, item.stableId);
     }
 }

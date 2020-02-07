@@ -39,7 +39,6 @@ OPENSSL_MSVC_PRAGMA(comment(lib, "Ws2_32.lib"))
 
 #include <openssl/aead.h>
 #include <openssl/bio.h>
-#include <openssl/buf.h>
 #include <openssl/bytestring.h>
 #include <openssl/cipher.h>
 #include <openssl/crypto.h>
@@ -670,13 +669,12 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume,
     return false;
   }
 
-  if (config->expect_pq_experiment_signal !=
-      !!SSL_pq_experiment_signal_seen(ssl)) {
-    fprintf(stderr, "Got %sPQ experiment signal, but wanted opposite. \n",
-            SSL_pq_experiment_signal_seen(ssl) ? "" : "no ");
+  if ((config->expect_hrr && !SSL_used_hello_retry_request(ssl)) ||
+      (config->expect_no_hrr && SSL_used_hello_retry_request(ssl))) {
+    fprintf(stderr, "Got %sHRR, but wanted opposite.\n",
+            SSL_used_hello_retry_request(ssl) ? "" : "no ");
     return false;
   }
-
   return true;
 }
 

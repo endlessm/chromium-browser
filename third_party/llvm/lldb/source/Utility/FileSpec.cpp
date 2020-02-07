@@ -174,16 +174,6 @@ bool needsNormalization(const llvm::StringRef &path) {
 
 
 }
-// Assignment operator.
-const FileSpec &FileSpec::operator=(const FileSpec &rhs) {
-  if (this != &rhs) {
-    m_directory = rhs.m_directory;
-    m_filename = rhs.m_filename;
-    m_is_resolved = rhs.m_is_resolved;
-    m_style = rhs.m_style;
-  }
-  return *this;
-}
 
 void FileSpec::SetFile(llvm::StringRef pathname) { SetFile(pathname, m_style); }
 
@@ -312,20 +302,10 @@ int FileSpec::Compare(const FileSpec &a, const FileSpec &b, bool full) {
 }
 
 bool FileSpec::Equal(const FileSpec &a, const FileSpec &b, bool full) {
-  // case sensitivity of equality test
-  const bool case_sensitive = a.IsCaseSensitive() || b.IsCaseSensitive();
+  if (full || (a.GetDirectory() && b.GetDirectory()))
+    return a == b;
 
-  const bool filenames_equal = ConstString::Equals(a.m_filename,
-                                                   b.m_filename,
-                                                   case_sensitive);
-
-  if (!filenames_equal)
-    return false;
-
-  if (!full && (a.GetDirectory().IsEmpty() || b.GetDirectory().IsEmpty()))
-    return filenames_equal;
-
-  return a == b;
+  return a.FileEquals(b);
 }
 
 llvm::Optional<FileSpec::Style> FileSpec::GuessPathStyle(llvm::StringRef absolute_path) {

@@ -5,7 +5,6 @@
 #include "chrome/browser/chrome_browser_main_android.h"
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
 #include "base/message_loop/message_loop_current.h"
 #include "base/path_service.h"
 #include "base/task/post_task.h"
@@ -76,6 +75,7 @@ void ChromeBrowserMainPartsAndroid::PostEarlyInitialization() {
   profile_manager_android_.reset(new ProfileManagerAndroid());
   g_browser_process->profile_manager()->AddObserver(
       profile_manager_android_.get());
+  ChromeBrowserMainParts::PostEarlyInitialization();
 }
 
 void ChromeBrowserMainPartsAndroid::PostBrowserStart() {

@@ -7,6 +7,7 @@ import itertools
 import logging
 import optparse
 import os
+import re
 import shutil
 import sys
 import time
@@ -14,13 +15,13 @@ import time
 import py_utils
 from py_utils import cloud_storage  # pylint: disable=import-error
 from py_utils import logging_util  # pylint: disable=import-error
+from py_utils.constants import exit_codes
 
 from telemetry.core import exceptions
 from telemetry.internal.actions import page_action
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.browser import browser_finder_exceptions
 from telemetry.internal.results import results_options
-from telemetry.internal.results import results_processor
 from telemetry.internal.util import exception_formatter
 from telemetry import page
 from telemetry.page import legacy_page_test
@@ -38,6 +39,11 @@ _UNHANDLEABLE_ERRORS = (
     KeyboardInterrupt,
     ImportError,
     MemoryError)
+
+
+# Benchmark names must match this regex. Note it has to be kept in sync with
+# the corresponding pattern defined in tools/perf/core/perf_data_generator.py.
+_RE_VALID_TEST_SUITE_NAME = r'^[\w._-]+$'
 
 
 class ArchiveError(Exception):
@@ -91,12 +97,6 @@ def AddCommandLineArgs(parser):
                     'until the device CPU has cooled down. If '
                     'not specified, this wait is disabled. '
                     'Device must be supported. ')
-  # TODO(crbug.com/985103): Move this to story_filter.py.
-  parser.add_option('--run-full-story-set', action='store_true', default=False,
-                    help='Whether to run the complete set of stories instead '
-                    'of an abridged version. Note that if the story set '
-                    'does not provide the information required to abridge it, '
-                    'then this argument will have no impact.')
 
 
 def ProcessCommandLineArgs(parser, args, environment=None):
@@ -199,8 +199,7 @@ def _GetPossibleBrowser(finder_options):
   return possible_browser
 
 
-def RunStorySet(test, story_set, finder_options, results, max_failures=None,
-                max_num_values=sys.maxint):
+def RunStorySet(test, story_set, finder_options, results, max_failures=None):
   """Runs a test against a story_set with the given options.
 
   Stop execution for unexpected exceptions such as KeyboardInterrupt. Some
@@ -216,8 +215,6 @@ def RunStorySet(test, story_set, finder_options, results, max_failures=None,
       the entire story run. It's overriden by finder_options.max_failures
       if given.
     expectations: Benchmark expectations used to determine disabled stories.
-    max_num_values: Max number of legacy values allowed before aborting the
-      story run.
   """
   stories = story_set.stories
   for s in stories:
@@ -230,8 +227,9 @@ def RunStorySet(test, story_set, finder_options, results, max_failures=None,
   platform_tags = possible_browser.GetTypExpectationsTags()
   logging.info('The following expectations condition tags were generated %s',
                str(platform_tags))
+  abridged_story_set_tag = story_set.GetAbridgedStorySetTagFilter()
   story_filter = story_filter_module.StoryFilterFactory.BuildStoryFilter(
-      results.benchmark_name, platform_tags)
+      results.benchmark_name, platform_tags, abridged_story_set_tag)
   stories = story_filter.FilterStories(stories)
   wpr_archive_info = story_set.wpr_archive_info
   # Sort the stories based on the archive name, to minimize how often the
@@ -278,16 +276,7 @@ def RunStorySet(test, story_set, finder_options, results, max_failures=None,
   if effective_max_failures is None:
     effective_max_failures = max_failures
 
-  if not finder_options.run_full_story_set:
-    tag_filter = story_set.GetAbridgedStorySetTagFilter()
-    if tag_filter:
-      logging.warn('Running an abridged set of stories (tagged {%s}), '
-                   'use --run-full-story-set if you need to run all stories' %
-                   tag_filter)
-      stories = [story for story in stories if tag_filter in story.tags]
-
   state = None
-  device_info_diags = {}
   # TODO(crbug.com/866458): unwind the nested blocks
   # pylint: disable=too-many-nested-blocks
   try:
@@ -302,73 +291,58 @@ def RunStorySet(test, story_set, finder_options, results, max_failures=None,
           state = story_set.shared_state_class(
               test, finder_options.Copy(), story_set, possible_browser)
 
-        results.WillRunPage(story, storyset_repeat_counter)
+        with results.CreateStoryRun(story, storyset_repeat_counter):
+          skip_reason = story_filter.ShouldSkip(story)
+          if skip_reason:
+            results.Skip(skip_reason)
+            continue
 
-        skip_reason = story_filter.ShouldSkip(story)
-        if skip_reason:
-          results.Skip(skip_reason)
-          results.DidRunPage(story)
-          continue
+          if results.benchmark_interrupted:
+            results.Skip(results.benchmark_interruption, expected=False)
+            continue
 
-        if results.benchmark_interrupted:
-          results.Skip(results.benchmark_interruption, is_expected=False)
-          results.DidRunPage(story)
-          continue
-
-        try:
-          if state.platform:
-            state.platform.WaitForBatteryTemperature(35)
-            if finder_options.wait_for_cpu_temp:
-              state.platform.WaitForCpuTemperature(38.0)
-            _WaitForThermalThrottlingIfNeeded(state.platform)
-          _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
-
-          num_values = sum(1 for _ in results.IterAllLegacyValues())
-          # TODO(#4259): Convert this to an exception-based failure
-          if num_values > max_num_values:
-            msg = 'Too many values: %d > %d' % (num_values, max_num_values)
-            logging.error(msg)
-            results.Fail(msg)
-
-          device_info_diags = _MakeDeviceInfoDiagnostics(state)
-        except _UNHANDLEABLE_ERRORS as exc:
-          interruption = (
-              'Benchmark execution interrupted by a fatal exception: %r' % exc)
-          results.InterruptBenchmark(interruption)
-          exception_formatter.PrintFormattedException()
-        except Exception:  # pylint: disable=broad-except
-          logging.exception('Exception raised during story run.')
-          results.Fail(sys.exc_info())
-          # For all other errors, try to give the rest of stories a chance
-          # to run by tearing down the state and creating a new state instance
-          # in the next iteration.
           try:
-            # If TearDownState raises, do not catch the exception.
-            # (The Error was saved as a failure value.)
-            state.TearDownState()
-          except Exception as exc:  # pylint: disable=broad-except
+            if state.platform:
+              state.platform.WaitForBatteryTemperature(35)
+              if finder_options.wait_for_cpu_temp:
+                state.platform.WaitForCpuTemperature(38.0)
+              _WaitForThermalThrottlingIfNeeded(state.platform)
+            _RunStoryAndProcessErrorIfNeeded(story, results, state, test)
+          except _UNHANDLEABLE_ERRORS as exc:
             interruption = (
                 'Benchmark execution interrupted by a fatal exception: %r' %
                 exc)
             results.InterruptBenchmark(interruption)
             exception_formatter.PrintFormattedException()
+          except Exception:  # pylint: disable=broad-except
+            logging.exception('Exception raised during story run.')
+            results.Fail(sys.exc_info())
+            # For all other errors, try to give the rest of stories a chance
+            # to run by tearing down the state and creating a new state
+            # instance in the next iteration.
+            try:
+              # If TearDownState raises, do not catch the exception.
+              # (The Error was saved as a failure value.)
+              state.TearDownState()
+            except Exception as exc:  # pylint: disable=broad-except
+              interruption = (
+                  'Benchmark execution interrupted by a fatal exception: %r' %
+                  exc)
+              results.InterruptBenchmark(interruption)
+              exception_formatter.PrintFormattedException()
+            finally:
+              # Later finally-blocks use state, so ensure it is cleared.
+              state = None
           finally:
-            # Later finally-blocks use state, so ensure it is cleared.
-            state = None
-        finally:
-          if state and state.platform:
-            _CheckThermalThrottling(state.platform)
-          results.DidRunPage(story)
+            if state and state.platform:
+              _CheckThermalThrottling(state.platform)
+
         if (effective_max_failures is not None and
             results.num_failed > effective_max_failures):
           interruption = (
               'Too many stories failed. Aborting the rest of the stories.')
           results.InterruptBenchmark(interruption)
   finally:
-    results_processor.ComputeTimelineBasedMetrics(results)
-    results.PopulateHistogramSet()
-    results.AddSharedDiagnostics(**device_info_diags)
-
     if state:
       has_existing_exception = sys.exc_info() != (None, None, None)
       try:
@@ -403,15 +377,16 @@ def RunBenchmark(benchmark, finder_options):
   """Run this test with the given options.
 
   Returns:
-    -1 if the benchmark was skipped,
-    0 for success
-    1 if there was a failure
-    2 if there was an uncaught exception.
+    An exit code from exit_codes module describing what happened.
   """
+  benchmark_name = benchmark.Name()
+  if not re.match(_RE_VALID_TEST_SUITE_NAME, benchmark_name):
+    logging.fatal('Invalid benchmark name: %s', benchmark_name)
+    return 2  # exit_codes.FATAL_ERROR
   benchmark.CustomizeOptions(finder_options)
   with results_options.CreateResults(
       finder_options,
-      benchmark_name=benchmark.Name(),
+      benchmark_name=benchmark_name,
       benchmark_description=benchmark.Description(),
       report_progress=not finder_options.suppress_gtest_report) as results:
 
@@ -419,9 +394,9 @@ def RunBenchmark(benchmark, finder_options):
     if not possible_browser:
       print ('No browser of type "%s" found for running benchmark "%s".' % (
           finder_options.browser_options.browser_type, benchmark.Name()))
-      return -1
+      return exit_codes.ALL_TESTS_SKIPPED
     if not _ShouldRunBenchmark(benchmark, possible_browser, finder_options):
-      return -1
+      return exit_codes.ALL_TESTS_SKIPPED
 
     test = benchmark.CreatePageTest(finder_options)
     test.__name__ = benchmark.__class__.__name__
@@ -433,34 +408,33 @@ def RunBenchmark(benchmark, finder_options):
         raise Exception(
             'PageTest must be used with StorySet containing only '
             'telemetry.page.Page stories.')
-    try:
-      RunStorySet(
-          test, story_set, finder_options, results, benchmark.max_failures,
-          max_num_values=benchmark.MAX_NUM_VALUES)
-      if results.benchmark_interrupted:
-        return_code = 2
-      elif results.had_failures:
-        return_code = 1
-      elif results.had_successes:
-        return_code = 0
-      else:
-        return_code = -1  # All stories were skipped.
-    except Exception as exc: # pylint: disable=broad-except
-      interruption = 'Benchmark execution interrupted: %r' % exc
-      results.InterruptBenchmark(interruption)
-      exception_formatter.PrintFormattedException()
-      return_code = 2
 
-    # TODO(crbug.com/981349): merge two calls to AddSharedDiagnostics
-    # (see RunStorySet() method for the second one).
     results.AddSharedDiagnostics(
+        architecture=possible_browser.platform.GetArchName(),
+        device_id=possible_browser.platform.GetDeviceId(),
+        os_name=possible_browser.platform.GetOSName(),
+        os_version=possible_browser.platform.GetOSVersionName(),
         owners=benchmark.GetOwners(),
         bug_components=benchmark.GetBugComponents(),
         documentation_urls=benchmark.GetDocumentationLinks(),
     )
 
-    if finder_options.upload_results:
-      results_processor.UploadArtifactsToCloud(results)
+    try:
+      RunStorySet(
+          test, story_set, finder_options, results, benchmark.max_failures)
+      if results.benchmark_interrupted:
+        return_code = exit_codes.FATAL_ERROR
+      elif results.had_failures:
+        return_code = exit_codes.TEST_FAILURE
+      elif results.had_successes:
+        return_code = exit_codes.SUCCESS
+      else:
+        return_code = exit_codes.ALL_TESTS_SKIPPED
+    except Exception as exc: # pylint: disable=broad-except
+      interruption = 'Benchmark execution interrupted: %r' % exc
+      results.InterruptBenchmark(interruption)
+      exception_formatter.PrintFormattedException()
+      return_code = exit_codes.FATAL_ERROR
   return return_code
 
 def _UpdateAndCheckArchives(archive_data_file, wpr_archive_info,
@@ -548,17 +522,3 @@ def _CheckThermalThrottling(platform):
   if platform.HasBeenThermallyThrottled():
     logging.warning('Device has been thermally throttled during '
                     'performance tests, results will vary.')
-
-def _MakeDeviceInfoDiagnostics(state):
-  if not state or not state.platform:
-    return {}
-
-  # This used to include data for reserved_infos.MEMORY_AMOUNTS, but it was
-  # found that platform.GetSystemTotalPhysicalMemory() does not give
-  # consistent results. See crbug.com/854676 for details.
-  return {
-      'architecture': state.platform.GetArchName(),
-      'device_id': state.platform.GetDeviceId(),
-      'os_name': state.platform.GetOSName(),
-      'os_version': state.platform.GetOSVersionName(),
-  }

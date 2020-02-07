@@ -42,6 +42,7 @@ DISPLAY_LABEL_CQ = 'cq'
 DISPLAY_LABEL_RELEASE = 'release'
 DISPLAY_LABEL_CHROME_PFQ = 'chrome_pfq'
 DISPLAY_LABEL_MST_ANDROID_PFQ = 'mst_android_pfq'
+DISPLAY_LABEL_VMMST_ANDROID_PFQ = 'vmmst_android_pfq'
 DISPLAY_LABEL_MNC_ANDROID_PFQ = 'mnc_android_pfq'
 DISPLAY_LABEL_NYC_ANDROID_PFQ = 'nyc_android_pfq'
 DISPLAY_LABEL_PI_ANDROID_PFQ = 'pi_android_pfq'
@@ -65,6 +66,7 @@ ALL_DISPLAY_LABEL = {
     DISPLAY_LABEL_RELEASE,
     DISPLAY_LABEL_CHROME_PFQ,
     DISPLAY_LABEL_MST_ANDROID_PFQ,
+    DISPLAY_LABEL_VMMST_ANDROID_PFQ,
     DISPLAY_LABEL_MNC_ANDROID_PFQ,
     DISPLAY_LABEL_NYC_ANDROID_PFQ,
     DISPLAY_LABEL_PI_ANDROID_PFQ,
@@ -1464,7 +1466,7 @@ class SiteConfig(dict):
     """
     slave_map = self.GetSlaveConfigMapForMaster(
         master_config, options=options, important_only=important_only)
-    return slave_map.values()
+    return list(slave_map.values())
 
   #
   # Methods used when creating a Config programatically.
@@ -1902,9 +1904,18 @@ def GetNonUniBuildLabBoardName(board):
   # Those special string represent special configuration used in the image,
   # and should run on DUT without those string.
   # We strip those string from the board so that lab can handle it correctly.
-  SPECIAL_SUFFIX = ['-arcnext$', '-arcvm$', '-kernelnext$']
+  SPECIAL_SUFFIX = [
+      '-arcnext$', '-arcvm$', '-kernelnext$', '-kvm$', '-ndktranslation$',
+      '-cfm$', '-campfire$'
+  ]
+  # ARM64 userspace boards use 64 suffix but can't put that in list above
+  # because of collisions with boards like kevin-arc64.
+  ARM64_BOARDS = ['cheza64', 'kevin64']
   for suffix in SPECIAL_SUFFIX:
     board = re.sub(suffix, '', board)
+  if board in ARM64_BOARDS:
+    # Remove '64' suffix from the board name.
+    board = board[:-2]
   return board
 
 

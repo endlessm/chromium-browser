@@ -25,10 +25,22 @@ public class SecurityStateModel {
         return SecurityStateModelJni.get().getSecurityLevelForWebContents(webContents);
     }
 
+    /**
+     * Returns whether to use a danger icon instead of an info icon in the URL bar for the WARNING
+     * security level.
+     *
+     * @return Whether to downgrade the info icon to a danger triangle for the WARNING security
+     *         level.
+     */
+    public static boolean shouldShowDangerTriangleForWarningLevel() {
+        return SecurityStateModelJni.get().shouldShowDangerTriangleForWarningLevel();
+    }
+
     private SecurityStateModel() {}
 
     @NativeMethods
     interface Natives {
         int getSecurityLevelForWebContents(WebContents webContents);
+        boolean shouldShowDangerTriangleForWarningLevel();
     }
 }

@@ -7,6 +7,7 @@ from __future__ import division
 from __future__ import absolute_import
 
 import collections
+import itertools
 import json
 import logging
 import ntpath
@@ -25,19 +26,19 @@ from tracing.value.diagnostics import reserved_infos
 class ReadHistogramsJsonValue(quest.Quest):
 
   def __init__(self, results_filename, hist_name=None,
-               tir_label=None, story=None, statistic=None):
+               grouping_label=None, trace_or_story=None, statistic=None):
     self._results_filename = results_filename
     self._hist_name = hist_name
-    self._tir_label = tir_label
-    self._story = story
+    self._grouping_label = grouping_label
+    self._trace_or_story = trace_or_story
     self._statistic = statistic
 
   def __eq__(self, other):
     return (isinstance(other, type(self)) and
             self._results_filename == other._results_filename and
             self._hist_name == other._hist_name and
-            self._tir_label == other._tir_label and
-            self._story == other._story and
+            self._grouping_label == other._grouping_label and
+            self.trace_or_story == other.trace_or_story and
             self._statistic == other._statistic)
 
   def __str__(self):
@@ -47,12 +48,18 @@ class ReadHistogramsJsonValue(quest.Quest):
   def metric(self):
     return self._hist_name
 
+  @property
+  def trace_or_story(self):
+    if getattr(self, '_trace_or_story', None) is None:
+      self._trace_or_story = getattr(self, '_trace', None)
+    return self._trace_or_story
+
   def Start(self, change, isolate_server, isolate_hash):
     del change
 
     return _ReadHistogramsJsonValueExecution(
-        self._results_filename, self._hist_name, self._tir_label,
-        self._story, self._statistic, isolate_server, isolate_hash)
+        self._results_filename, self._hist_name, self._grouping_label,
+        self.trace_or_story, self._statistic, isolate_server, isolate_hash)
 
   @classmethod
   def FromDict(cls, arguments):
@@ -65,27 +72,42 @@ class ReadHistogramsJsonValue(quest.Quest):
       results_filename = posixpath.join(benchmark, 'perf_results.json')
 
     chart = arguments.get('chart')
-    tir_label = arguments.get('tir_label')
-    trace = arguments.get('trace')
+    # TODO(crbug.com/974237): Only read from 'grouping_label' when enough time
+    # has passed and clients no longer write the 'tir_label' only.
+    grouping_label = (arguments.get('grouping_label') or
+                      arguments.get('tir_label'))
+
+    # Some benchmarks do not have a 'trace' associated with them, but do have a
+    # 'story' which the Dashboard can sometimes provide. Let's support getting
+    # the story in case the 'trace' is not provided. See crbug.com/1023408 for
+    # more details in the investigation.
+    trace_or_story = (arguments.get('trace') or arguments.get('story'))
     statistic = arguments.get('statistic')
 
-    return cls(results_filename, chart, tir_label, trace, statistic)
+    return cls(results_filename, chart, grouping_label, trace_or_story,
+               statistic)
 
 
 class _ReadHistogramsJsonValueExecution(execution.Execution):
 
-  def __init__(self, results_filename, hist_name, tir_label,
-               story, statistic, isolate_server, isolate_hash):
+  def __init__(self, results_filename, hist_name, grouping_label,
+               trace_or_story, statistic, isolate_server, isolate_hash):
     super(_ReadHistogramsJsonValueExecution, self).__init__()
     self._results_filename = results_filename
     self._hist_name = hist_name
-    self._tir_label = tir_label
-    self._story = story
+    self._grouping_label = grouping_label
+    self._trace_or_story = trace_or_story
     self._statistic = statistic
     self._isolate_server = isolate_server
     self._isolate_hash = isolate_hash
 
     self._trace_urls = []
+
+  @property
+  def trace_or_story(self):
+    if getattr(self, '_trace_or_story', None) is None:
+      self._trace_or_story = getattr(self, '_trace', '')
+    return self._trace_or_story
 
   def _AsDict(self):
     return [{
@@ -101,41 +123,62 @@ class _ReadHistogramsJsonValueExecution(execution.Execution):
     histograms.ImportDicts(histogram_dicts)
 
     histograms_by_path = CreateHistogramSetByTestPathDict(histograms)
+    histograms_by_path_optional_grouping_label = (
+        CreateHistogramSetByTestPathDict(
+            histograms, ignore_grouping_label=True))
     self._trace_urls = FindTraceUrls(histograms)
 
-    test_path_to_match = histogram_helpers.ComputeTestPathFromComponents(
-        self._hist_name, tir_label=self._tir_label, story_name=self._story)
-    logging.debug('Test path to match: %s', test_path_to_match)
+    test_paths_to_match = set([
+        histogram_helpers.ComputeTestPathFromComponents(
+            self._hist_name,
+            grouping_label=self._grouping_label,
+            story_name=self._trace_or_story),
+        histogram_helpers.ComputeTestPathFromComponents(
+            self._hist_name,
+            grouping_label=self._grouping_label,
+            story_name=self._trace_or_story,
+            needs_escape=False)])
+    logging.debug('Test paths to match: %s', test_paths_to_match)
 
     # Have to pull out either the raw sample values, or the statistic
-    result_values = ExtractValuesFromHistograms(test_path_to_match,
-                                                histograms_by_path,
-                                                self._hist_name,
-                                                self._tir_label, self._story,
-                                                self._statistic)
+    try:
+      result_values = ExtractValuesFromHistograms(
+          test_paths_to_match, histograms_by_path, self._hist_name,
+          self._grouping_label, self._trace_or_story, self._statistic)
+    except errors.ReadValueNotFound:
+      # In case we didn't find any result_values, we should try finding the
+      # histograms without the grouping label applied.
+      result_values = ExtractValuesFromHistograms(
+          test_paths_to_match, histograms_by_path_optional_grouping_label,
+          self._hist_name, None, self._trace_or_story,
+          self._statistic)
 
     self._Complete(result_values=tuple(result_values))
 
 
-def ExtractValuesFromHistograms(test_path_to_match, histograms_by_path,
-                                histogram_name, tir_label, story, statistic):
+def ExtractValuesFromHistograms(test_paths_to_match, histograms_by_path,
+                                histogram_name, grouping_label, story,
+                                statistic):
   result_values = []
-  matching_histograms = []
-  if test_path_to_match in histograms_by_path:
-    matching_histograms = histograms_by_path.get(test_path_to_match, [])
-
-    logging.debug('Found %s matching histograms', len(matching_histograms))
-
+  matching_histograms = list(itertools.chain.from_iterable(
+      histograms_by_path.get(histogram) for histogram in test_paths_to_match
+      if histogram in histograms_by_path
+  ))
+  logging.debug('Histograms in results: %s', histograms_by_path.keys())
+  if matching_histograms:
+    logging.debug('Found %s matching histograms: %s', len(matching_histograms),
+                  [h.name for h in matching_histograms])
     for h in matching_histograms:
       result_values.extend(_GetValuesOrStatistic(statistic, h))
   elif histogram_name:
     # Histograms don't exist, which means this is summary
     summary_value = []
     for test_path, histograms_for_test_path in histograms_by_path.items():
-      if test_path.startswith(test_path_to_match):
-        for h in histograms_for_test_path:
-          summary_value.extend(_GetValuesOrStatistic(statistic, h))
-          matching_histograms.append(h)
+      for test_path_to_match in test_paths_to_match:
+        if test_path.startswith(test_path_to_match):
+          for h in histograms_for_test_path:
+            summary_value.extend(_GetValuesOrStatistic(statistic, h))
+            matching_histograms.append(h)
 
     logging.debug('Found %s matching summary histograms',
                   len(matching_histograms))
@@ -149,8 +192,8 @@ def ExtractValuesFromHistograms(test_path_to_match, histograms_by_path,
       raise errors.ReadValueNoValues()
     else:
       conditions = {'histogram': histogram_name}
-      if tir_label:
-        conditions['tir_label'] = tir_label
+      if grouping_label:
+        conditions['grouping_label'] = grouping_label
       if story:
         conditions['story'] = story
       reason = ', '.join(list(':'.join(i) for i in conditions.items()))
@@ -158,13 +201,13 @@ def ExtractValuesFromHistograms(test_path_to_match, histograms_by_path,
   return result_values
 
 
-def CreateHistogramSetByTestPathDict(histograms):
+def CreateHistogramSetByTestPathDict(histograms, ignore_grouping_label=False):
   histograms_by_path = collections.defaultdict(list)
-
   for h in histograms:
-    histograms_by_path[histogram_helpers.ComputeTestPath(h)].append(h)
-
+    histograms_by_path[histogram_helpers.ComputeTestPath(
+        h, ignore_grouping_label)].append(h)
   return histograms_by_path
+
 
 def FindTraceUrls(histograms):
   # Get and cache any trace URLs.

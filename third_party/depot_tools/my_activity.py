@@ -21,23 +21,13 @@ Example:
 # check those details to determine if there was activity in the given period.
 # This means that query time scales mostly with (today() - begin).
 
-# [VPYTHON:BEGIN]
-# wheel: <
-#   name: "infra/python/wheels/python-dateutil-py2_py3"
-#   version: "version:2.7.3"
-# >
-# wheel: <
-#   name: "infra/python/wheels/six-py2_py3"
-#   version: "version:1.10.0"
-# >
-# [VPYTHON:END]
-
 from __future__ import print_function
 
 import collections
 import contextlib
 from datetime import datetime
 from datetime import timedelta
+import httplib2
 import itertools
 import json
 import logging
@@ -54,7 +44,6 @@ import auth
 import fix_encoding
 import gerrit_util
 
-from third_party import httplib2
 
 try:
   import dateutil  # pylint: disable=import-error
@@ -179,6 +168,7 @@ class MyActivity(object):
     self.referenced_issues = []
     self.google_code_auth_token = None
     self.access_errors = set()
+    self.skip_servers = (options.skip_servers.split(','))
 
   def show_progress(self, how='.'):
     if sys.stdout.isatty():
@@ -227,6 +217,8 @@ class MyActivity(object):
       return []
 
   def gerrit_search(self, instance, owner=None, reviewer=None):
+    if instance['url'] in self.skip_servers:
+      return []
     max_age = datetime.today() - self.modified_after
     filters = ['-age:%ss' % (max_age.days * 24 * 3600 + max_age.seconds)]
     if owner:
@@ -292,12 +284,10 @@ class MyActivity(object):
     return ret
 
   def monorail_get_auth_http(self):
-    auth_config = auth.extract_auth_config_from_options(self.options)
-    authenticator = auth.get_authenticator(auth_config)
     # Manually use a long timeout (10m); for some users who have a
     # long history on the issue tracker, whatever the default timeout
     # is is reached.
-    return authenticator.authorize(httplib2.Http(timeout=600))
+    return auth.Authenticator().authorize(httplib2.Http(timeout=600))
 
   def filter_modified_monorail_issue(self, issue):
     """Precisely checks if an issue has been modified in the time range.
@@ -738,6 +728,11 @@ def main():
            'combination with --changes-by-issue when you only want to list '
            'issues that have also been modified in the same time period.')
   parser.add_option(
+      '--skip_servers',
+      action='store',
+      default='',
+      help='A comma separated list of gerrit and rietveld servers to ignore')
+  parser.add_option(
       '--skip-own-issues-without-changes',
       action='store_true',
       help='Skips listing own issues without changes when showing changes '
@@ -809,7 +804,6 @@ def main():
       '-j', '--json', action='store_true',
       help='Output json data (overrides other format options)')
   parser.add_option_group(output_format_group)
-  auth.add_auth_options(parser)
 
   parser.add_option(
       '-v', '--verbose',
@@ -925,8 +919,8 @@ def main():
       my_activity.get_issues()
     if not options.no_referenced_issues:
       my_activity.get_referenced_issues()
-  except auth.AuthenticationError as e:
-    logging.error('auth.AuthenticationError: %s', e)
+  except auth.LoginRequiredError as e:
+    logging.error('auth.LoginRequiredError: %s', e)
 
   my_activity.show_progress('\n')
 

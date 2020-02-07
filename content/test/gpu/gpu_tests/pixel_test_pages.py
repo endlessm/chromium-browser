@@ -36,7 +36,8 @@ class PixelTestPage(object):
   """
   def __init__(self, url, name, test_rect, tolerance=2, browser_args=None,
                expected_colors=None, gpu_process_disabled=False,
-               optional_action=None, other_args=None, grace_period_end=None):
+               optional_action=None, restart_browser_after_test=False,
+               other_args=None, grace_period_end=None):
     super(PixelTestPage, self).__init__()
     self.url = url
     self.name = name
@@ -54,12 +55,16 @@ class PixelTestPage(object):
     # disabled. To prevent regressions, only allow the GPU information
     # to be incomplete in these cases.
     self.gpu_process_disabled = gpu_process_disabled
-    # One of the tests (WebGLSadCanvas) requires custom actions to
-    # be run. These are specified as a string which is the name of a
-    # method to call in PixelIntegrationTest. For example if the
-    # action here is "CrashGpuProcess" then it would be defined in a
+    # Some of the tests require custom actions to be run. These are
+    # specified as a string which is the name of a method to call in
+    # PixelIntegrationTest. For example if the action here is
+    # "CrashGpuProcess" then it would be defined in a
     # "_CrashGpuProcess" method in PixelIntegrationTest.
     self.optional_action = optional_action
+    # Whether the browser should be forcibly restarted after the test
+    # runs. The browser is always restarted after running tests with
+    # optional_actions.
+    self.restart_browser_after_test = restart_browser_after_test
     # These are used to pass additional arguments to the test harness.
     # VideoPathTraceTest and OverlayModeTest support the following boolean
     # arguments: expect_yuy2, zero_copy, video_is_rotated, and no_overlay.
@@ -780,7 +785,12 @@ class PixelTestPages(object):
             'size': [1, 1],
             'color': [255, 215, 0],
           }
-        ])
+        ]),
+      PixelTestPage(
+        'pixel_precision_rounded_corner.html',
+        base_name + '_PrecisionRoundedCorner',
+        test_rect=[0, 0, 400, 400],
+        browser_args=browser_args)
     ]
 
   # Pages that should be run with experimental canvas features.
@@ -1167,6 +1177,57 @@ class PixelTestPages(object):
             # 'color': [101, 76, 12],
           },
         ]),
+    ]
+
+  # Pages that should be run only on dual-GPU MacBook Pros (at the
+  # present time, anyway).
+  @staticmethod
+  def DualGPUMacSpecificPages(base_name):
+    return [
+      PixelTestPage(
+        'pixel_webgl_high_to_low_power.html',
+        base_name + '_WebGLHighToLowPower',
+        test_rect=[0, 0, 300, 300],
+        tolerance=3,
+        expected_colors=[
+          {
+            'comment': 'solid green',
+            'location': [100, 100],
+            'size': [100, 100],
+            'color': [0, 255, 0],
+          }
+        ],
+        optional_action='RunTestWithHighPerformanceTab'),
+
+      PixelTestPage(
+        'pixel_webgl_low_to_high_power.html',
+        base_name + '_WebGLLowToHighPower',
+        test_rect=[0, 0, 300, 300],
+        tolerance=3,
+        expected_colors=[
+          {
+            'comment': 'solid green',
+            'location': [100, 100],
+            'size': [100, 100],
+            'color': [0, 255, 0],
+          }
+        ],
+        restart_browser_after_test=True),
+
+      PixelTestPage(
+        'pixel_webgl_low_to_high_power_alpha_false.html',
+        base_name + '_WebGLLowToHighPowerAlphaFalse',
+        test_rect=[0, 0, 300, 300],
+        tolerance=3,
+        expected_colors=[
+          {
+            'comment': 'solid green',
+            'location': [100, 100],
+            'size': [100, 100],
+            'color': [0, 255, 0],
+          }
+        ],
+        restart_browser_after_test=True),
     ]
 
   @staticmethod

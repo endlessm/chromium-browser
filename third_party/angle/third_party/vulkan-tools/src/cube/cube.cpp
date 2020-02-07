@@ -22,6 +22,8 @@
 #include <X11/Xutil.h>
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 #include <linux/input.h>
+#include "xdg-shell-client-header.h"
+#include "xdg-decoration-client-header.h"
 #endif
 
 #include <cassert>
@@ -263,7 +265,7 @@ struct Demo {
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
     void run();
     void create_window();
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
     void run();
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
     vk::Result create_display_surface();
@@ -289,13 +291,17 @@ struct Demo {
     wl_registry *registry;
     wl_compositor *compositor;
     wl_surface *window;
-    wl_shell *shell;
-    wl_shell_surface *shell_surface;
+    xdg_wm_base *wm_base;
+    zxdg_decoration_manager_v1 *xdg_decoration_mgr;
+    zxdg_toplevel_decoration_v1 *toplevel_decoration;
+    xdg_surface *window_surface;
+    bool xdg_surface_has_been_configured;
+    xdg_toplevel *window_toplevel;
     wl_seat *seat;
     wl_pointer *pointer;
     wl_keyboard *keyboard;
-#elif (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK))
-    void *window;
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+    void *caMetalLayer;
 #endif
 
     vk::SurfaceKHR surface;
@@ -418,7 +424,7 @@ static void pointer_handle_button(void *data, struct wl_pointer *wl_pointer, uin
                                   uint32_t state) {
     Demo *demo = (Demo *)data;
     if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-        wl_shell_surface_move(demo->shell_surface, demo->seat, serial);
+        xdg_toplevel_move(demo->window_toplevel, demo->seat, serial);
     }
 }
 
@@ -486,16 +492,24 @@ static const wl_seat_listener seat_listener = {
     seat_handle_capabilities,
 };
 
+static void wm_base_ping(void *data, xdg_wm_base *xdg_wm_base, uint32_t serial) { xdg_wm_base_pong(xdg_wm_base, serial); }
+
+static const struct xdg_wm_base_listener wm_base_listener = {wm_base_ping};
+
 static void registry_handle_global(void *data, wl_registry *registry, uint32_t id, const char *interface, uint32_t version) {
     Demo *demo = (Demo *)data;
     // pickup wayland objects when they appear
-    if (strcmp(interface, "wl_compositor") == 0) {
+    if (strcmp(interface, wl_compositor_interface.name) == 0) {
         demo->compositor = (wl_compositor *)wl_registry_bind(registry, id, &wl_compositor_interface, 1);
-    } else if (strcmp(interface, "wl_shell") == 0) {
-        demo->shell = (wl_shell *)wl_registry_bind(registry, id, &wl_shell_interface, 1);
-    } else if (strcmp(interface, "wl_seat") == 0) {
+    } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
+        demo->wm_base = (xdg_wm_base *)wl_registry_bind(registry, id, &xdg_wm_base_interface, 1);
+        xdg_wm_base_add_listener(demo->wm_base, &wm_base_listener, nullptr);
+    } else if (strcmp(interface, wl_seat_interface.name) == 0) {
         demo->seat = (wl_seat *)wl_registry_bind(registry, id, &wl_seat_interface, 1);
         wl_seat_add_listener(demo->seat, &seat_listener, demo);
+    } else if (strcmp(interface, zxdg_decoration_manager_v1_interface.name) == 0) {
+        demo->xdg_decoration_mgr =
+            (zxdg_decoration_manager_v1 *)wl_registry_bind(registry, id, &zxdg_decoration_manager_v1_interface, 1);
     }
 }
 
@@ -525,8 +539,12 @@ Demo::Demo()
       registry{nullptr},
       compositor{nullptr},
       window{nullptr},
-      shell{nullptr},
-      shell_surface{nullptr},
+      wm_base{nullptr},
+      xdg_decoration_mgr{nullptr},
+      toplevel_decoration{nullptr},
+      window_surface{nullptr},
+      xdg_surface_has_been_configured{false},
+      window_toplevel{nullptr},
       seat{nullptr},
       pointer{nullptr},
       keyboard{nullptr},
@@ -669,9 +687,14 @@ void Demo::cleanup() {
     wl_keyboard_destroy(keyboard);
     wl_pointer_destroy(pointer);
     wl_seat_destroy(seat);
-    wl_shell_surface_destroy(shell_surface);
+    xdg_toplevel_destroy(window_toplevel);
+    xdg_surface_destroy(window_surface);
     wl_surface_destroy(window);
-    wl_shell_destroy(shell);
+    xdg_wm_base_destroy(wm_base);
+    if (xdg_decoration_mgr) {
+        zxdg_toplevel_decoration_v1_destroy(toplevel_decoration);
+        zxdg_decoration_manager_v1_destroy(xdg_decoration_mgr);
+    }
     wl_compositor_destroy(compositor);
     wl_registry_destroy(registry);
     wl_display_disconnect(display);
@@ -827,9 +850,23 @@ void Demo::draw_build_cmd(vk::CommandBuffer commandBuffer) {
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline_layout, 0, 1,
                                      &swapchain_image_resources[current_buffer].descriptor_set, 0, nullptr);
-
-    auto const viewport =
-        vk::Viewport().setWidth((float)width).setHeight((float)height).setMinDepth((float)0.0f).setMaxDepth((float)1.0f);
+    float viewport_dimension;
+    float viewport_x = 0.0f;
+    float viewport_y = 0.0f;
+    if (width < height) {
+        viewport_dimension = (float)width;
+        viewport_y = (height - width) / 2.0f;
+    } else {
+        viewport_dimension = (float)height;
+        viewport_x = (width - height) / 2.0f;
+    }
+    auto const viewport = vk::Viewport()
+                              .setX(viewport_x)
+                              .setY(viewport_y)
+                              .setWidth((float)viewport_dimension)
+                              .setHeight((float)viewport_dimension)
+                              .setMinDepth((float)0.0f)
+                              .setMaxDepth((float)1.0f);
     commandBuffer.setViewport(0, 1, &viewport);
 
     vk::Rect2D const scissor(vk::Offset2D(0, 0), vk::Extent2D(width, height));
@@ -908,12 +945,6 @@ void Demo::init(int argc, char **argv) {
     presentMode = vk::PresentModeKHR::eFifo;
     frameCount = UINT32_MAX;
     use_xlib = false;
-
-#if defined(VK_USE_PLATFORM_MACOS_MVK)
-    // MoltenVK may not allow host coherent mapping to linear tiled images
-    // Force the use of a staging buffer to be safe
-    use_staging_buffer = true;
-#endif
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--use_staging") == 0) {
@@ -1106,15 +1137,10 @@ void Demo::init_vk() {
                 platformSurfaceExtFound = 1;
                 extension_names[enabled_extension_count++] = VK_KHR_DISPLAY_EXTENSION_NAME;
             }
-#elif defined(VK_USE_PLATFORM_IOS_MVK)
-            if (!strcmp(VK_MVK_IOS_SURFACE_EXTENSION_NAME, instance_extensions[i].extensionName)) {
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+            if (!strcmp(VK_EXT_METAL_SURFACE_EXTENSION_NAME, instance_extensions[i].extensionName)) {
                 platformSurfaceExtFound = 1;
-                extension_names[enabled_extension_count++] = VK_MVK_IOS_SURFACE_EXTENSION_NAME;
-            }
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
-            if (!strcmp(VK_MVK_MACOS_SURFACE_EXTENSION_NAME, instance_extensions[i].extensionName)) {
-                platformSurfaceExtFound = 1;
-                extension_names[enabled_extension_count++] = VK_MVK_MACOS_SURFACE_EXTENSION_NAME;
+                extension_names[enabled_extension_count++] = VK_EXT_METAL_SURFACE_EXTENSION_NAME;
             }
 
 #endif
@@ -1161,15 +1187,8 @@ void Demo::init_vk() {
                  "Do you have a compatible Vulkan installable client driver (ICD) installed?\n"
                  "Please look at the Getting Started guide for additional information.\n",
                  "vkCreateInstance Failure");
-#elif defined(VK_USE_PLATFORM_IOS_MVK)
-        ERR_EXIT("vkEnumerateInstanceExtensionProperties failed to find the " VK_MVK_IOS_SURFACE_EXTENSION_NAME
-                 " extension.\n\nDo you have a compatible "
-                 "Vulkan installable client driver (ICD) installed?\nPlease "
-                 "look at the Getting Started guide for additional "
-                 "information.\n",
-                 "vkCreateInstance Failure");
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
-        ERR_EXIT("vkEnumerateInstanceExtensionProperties failed to find the " VK_MVK_MACOS_SURFACE_EXTENSION_NAME
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
+        ERR_EXIT("vkEnumerateInstanceExtensionProperties failed to find the " VK_EXT_METAL_SURFACE_EXTENSION_NAME
                  " extension.\n\nDo you have a compatible "
                  "Vulkan installable client driver (ICD) installed?\nPlease "
                  "look at the Getting Started guide for additional "
@@ -1306,18 +1325,11 @@ void Demo::create_surface() {
         auto result = inst.createXcbSurfaceKHR(&createInfo, nullptr, &surface);
         VERIFY(result == vk::Result::eSuccess);
     }
-#elif defined(VK_USE_PLATFORM_IOS_MVK)
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
     {
-        auto const createInfo = vk::IOSSurfaceCreateInfoMVK().setPView(nullptr);
+        auto const createInfo = vk::MetalSurfaceCreateInfoEXT().setPLayer(static_cast<CAMetalLayer *>(caMetalLayer));
 
-        auto result = inst.createIOSSurfaceMVK(&createInfo, nullptr, &surface);
-        VERIFY(result == vk::Result::eSuccess);
-    }
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
-    {
-        auto const createInfo = vk::MacOSSurfaceCreateInfoMVK().setPView(window);
-
-        auto result = inst.createMacOSSurfaceMVK(&createInfo, nullptr, &surface);
+        auto result = inst.createMetalSurfaceEXT(&createInfo, nullptr, &surface);
         VERIFY(result == vk::Result::eSuccess);
     }
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
@@ -2696,7 +2708,39 @@ void Demo::run() {
     }
 }
 
+static void handle_surface_configure(void *data, xdg_surface *xdg_surface, uint32_t serial) {
+    Demo *demo = (Demo *)data;
+    xdg_surface_ack_configure(xdg_surface, serial);
+    if (demo->xdg_surface_has_been_configured) {
+        demo->resize();
+    }
+    demo->xdg_surface_has_been_configured = true;
+}
+
+static const xdg_surface_listener surface_listener = {handle_surface_configure};
+
+static void handle_toplevel_configure(void *data, xdg_toplevel *xdg_toplevel, int32_t width, int32_t height,
+                                      struct wl_array *states) {
+    Demo *demo = (Demo *)data;
+    demo->width = width;
+    demo->height = height;
+    // This will be followed by a surface configure
+}
+
+static void handle_toplevel_close(void *data, xdg_toplevel *xdg_toplevel) {
+    Demo *demo = (Demo *)data;
+    demo->quit = true;
+}
+
+static const xdg_toplevel_listener toplevel_listener = {handle_toplevel_configure, handle_toplevel_close};
+
 void Demo::create_window() {
+    if (!wm_base) {
+        printf("Compositor did not provide the standard protocol xdg-wm-base\n");
+        fflush(stdout);
+        exit(1);
+    }
+
     window = wl_compositor_create_surface(compositor);
     if (!window) {
         printf("Can not create wayland_surface from compositor!\n");
@@ -2704,18 +2748,30 @@ void Demo::create_window() {
         exit(1);
     }
 
-    shell_surface = wl_shell_get_shell_surface(shell, window);
-    if (!shell_surface) {
-        printf("Can not get shell_surface from wayland_surface!\n");
+    window_surface = xdg_wm_base_get_xdg_surface(wm_base, window);
+    if (!window_surface) {
+        printf("Can not get xdg_surface from wayland_surface!\n");
         fflush(stdout);
         exit(1);
     }
+    window_toplevel = xdg_surface_get_toplevel(window_surface);
+    if (!window_toplevel) {
+        printf("Can not allocate xdg_toplevel for xdg_surface!\n");
+        fflush(stdout);
+        exit(1);
+    }
+    xdg_surface_add_listener(window_surface, &surface_listener, this);
+    xdg_toplevel_add_listener(window_toplevel, &toplevel_listener, this);
+    xdg_toplevel_set_title(window_toplevel, APP_SHORT_NAME);
+    if (xdg_decoration_mgr) {
+        // if supported, let the compositor render titlebars for us
+        toplevel_decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(xdg_decoration_mgr, window_toplevel);
+        zxdg_toplevel_decoration_v1_set_mode(toplevel_decoration, ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+    }
 
-    wl_shell_surface_add_listener(shell_surface, &shell_surface_listener, this);
-    wl_shell_surface_set_toplevel(shell_surface);
-    wl_shell_surface_set_title(shell_surface, APP_SHORT_NAME);
+    wl_surface_commit(window);
 }
-#elif defined(VK_USE_PLATFORM_MACOS_MVK)
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
 void Demo::run() {
     draw();
     curFrame++;
@@ -3049,12 +3105,12 @@ int main(int argc, char **argv) {
     return validation_error;
 }
 
-#elif defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK)
+#elif defined(VK_USE_PLATFORM_METAL_EXT)
 
 // Global function invoked from NS or UI views and controllers to create demo
-static void demo_main(struct Demo &demo, void *view, int argc, const char *argv[]) {
+static void demo_main(struct Demo &demo, void *caMetalLayer, int argc, const char *argv[]) {
     demo.init(argc, (char **)argv);
-    demo.window = view;
+    demo.caMetalLayer = caMetalLayer;
     demo.init_vk_swapchain();
     demo.prepare();
     demo.spin_angle = 0.4f;

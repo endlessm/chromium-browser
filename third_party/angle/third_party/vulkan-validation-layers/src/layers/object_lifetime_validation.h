@@ -20,18 +20,6 @@
  * Author: Tobin Ehlis <tobine@google.com>
  */
 
-// shared_mutex support added in MSVC 2015 update 2
-#if defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 190023918 && NTDDI_VERSION > NTDDI_WIN10_RS2
-#include <shared_mutex>
-typedef std::shared_mutex object_lifetime_mutex_t;
-typedef std::shared_lock<object_lifetime_mutex_t> read_object_lifetime_mutex_t;
-typedef std::unique_lock<object_lifetime_mutex_t> write_object_lifetime_mutex_t;
-#else
-typedef std::mutex object_lifetime_mutex_t;
-typedef std::unique_lock<object_lifetime_mutex_t> read_object_lifetime_mutex_t;
-typedef std::unique_lock<object_lifetime_mutex_t> write_object_lifetime_mutex_t;
-#endif
-
 // Suppress unused warning on Linux
 #if defined(__GNUC__)
 #define DECORATE_UNUSED __attribute__((unused))
@@ -74,13 +62,12 @@ class ObjectLifetimes : public ValidationObject {
     // Override chassis read/write locks for this validation object
     // This override takes a deferred lock. i.e. it is not acquired.
     // This class does its own locking with a shared mutex.
-    virtual std::unique_lock<std::mutex> write_lock() {
-        return std::unique_lock<std::mutex>(validation_object_mutex, std::defer_lock);
-    }
+    virtual read_lock_guard_t read_lock() { return read_lock_guard_t(validation_object_mutex, std::defer_lock); }
+    virtual write_lock_guard_t write_lock() { return write_lock_guard_t(validation_object_mutex, std::defer_lock); }
 
-    object_lifetime_mutex_t object_lifetime_mutex;
-    write_object_lifetime_mutex_t write_shared_lock() { return write_object_lifetime_mutex_t(object_lifetime_mutex); }
-    read_object_lifetime_mutex_t read_shared_lock() { return read_object_lifetime_mutex_t(object_lifetime_mutex); }
+    mutable ReadWriteLock object_lifetime_mutex;
+    write_lock_guard_t write_shared_lock() { return write_lock_guard_t(object_lifetime_mutex); }
+    read_lock_guard_t read_shared_lock() const { return read_lock_guard_t(object_lifetime_mutex); }
 
     std::atomic<uint64_t> num_objects[kVulkanObjectTypeMax + 1];
     std::atomic<uint64_t> num_total_objects;
@@ -107,11 +94,11 @@ class ObjectLifetimes : public ValidationObject {
         }
     }
 
-    bool ReportUndestroyedInstanceObjects(VkInstance instance, const std::string &error_code);
-    bool ReportUndestroyedDeviceObjects(VkDevice device, const std::string &error_code);
+    bool ReportUndestroyedInstanceObjects(VkInstance instance, const std::string &error_code) const;
+    bool ReportUndestroyedDeviceObjects(VkDevice device, const std::string &error_code) const;
 
-    bool ReportLeakedDeviceObjects(VkDevice device, VulkanObjectType object_type, const std::string &error_code);
-    bool ReportLeakedInstanceObjects(VkInstance instance, VulkanObjectType object_type, const std::string &error_code);
+    bool ReportLeakedDeviceObjects(VkDevice device, VulkanObjectType object_type, const std::string &error_code) const;
+    bool ReportLeakedInstanceObjects(VkInstance instance, VulkanObjectType object_type, const std::string &error_code) const;
 
     void DestroyUndestroyedObjects(VulkanObjectType object_type);
 
@@ -122,16 +109,16 @@ class ObjectLifetimes : public ValidationObject {
     void DestroyLeakedInstanceObjects();
     void DestroyLeakedDeviceObjects();
     bool ValidateDeviceObject(const VulkanTypedHandle &device_typed, const char *invalid_handle_code,
-                              const char *wrong_device_code);
+                              const char *wrong_device_code) const;
     void DestroyQueueDataStructures();
-    bool ValidateCommandBuffer(VkCommandPool command_pool, VkCommandBuffer command_buffer);
-    bool ValidateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSet descriptor_set);
-    bool ValidateSamplerObjects(const VkDescriptorSetLayoutCreateInfo *pCreateInfo);
-    bool ValidateDescriptorWrite(VkWriteDescriptorSet const *desc, bool isPush);
+    bool ValidateCommandBuffer(VkCommandPool command_pool, VkCommandBuffer command_buffer) const;
+    bool ValidateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSet descriptor_set) const;
+    bool ValidateSamplerObjects(const VkDescriptorSetLayoutCreateInfo *pCreateInfo) const;
+    bool ValidateDescriptorWrite(VkWriteDescriptorSet const *desc, bool isPush) const;
     bool ValidateAnonymousObject(uint64_t object, VkObjectType core_object_type, bool null_allowed, const char *invalid_handle_code,
-                                 const char *wrong_device_code);
+                                 const char *wrong_device_code) const;
 
-    ObjectLifetimes *GetObjectLifetimeData(std::vector<ValidationObject *> &object_dispatch) {
+    ObjectLifetimes *GetObjectLifetimeData(std::vector<ValidationObject *> &object_dispatch) const {
         for (auto layer_object : object_dispatch) {
             if (layer_object->container_type == LayerObjectTypeObjectTracker) {
                 return (reinterpret_cast<ObjectLifetimes *>(layer_object));
@@ -141,7 +128,7 @@ class ObjectLifetimes : public ValidationObject {
     };
 
     bool CheckObjectValidity(uint64_t object_handle, VulkanObjectType object_type, bool null_allowed,
-                             const char *invalid_handle_code, const char *wrong_device_code) {
+                             const char *invalid_handle_code, const char *wrong_device_code) const {
         VkDebugReportObjectTypeEXT debug_object_type = get_debug_report_enum[object_type];
 
         // Look for object in object map
@@ -184,7 +171,7 @@ class ObjectLifetimes : public ValidationObject {
 
     template <typename T1>
     bool ValidateObject(T1 object, VulkanObjectType object_type, bool null_allowed, const char *invalid_handle_code,
-                        const char *wrong_device_code) {
+                        const char *wrong_device_code) const {
         if (null_allowed && (object == VK_NULL_HANDLE)) {
             return false;
         }
@@ -254,7 +241,7 @@ class ObjectLifetimes : public ValidationObject {
 
     template <typename T1>
     bool ValidateDestroyObject(T1 object, VulkanObjectType object_type, const VkAllocationCallbacks *pAllocator,
-                               const char *expected_custom_allocator_code, const char *expected_default_allocator_code) {
+                               const char *expected_custom_allocator_code, const char *expected_default_allocator_code) const {
         auto object_handle = HandleToUint64(object);
         bool custom_allocator = pAllocator != nullptr;
         VkDebugReportObjectTypeEXT debug_object_type = get_debug_report_enum[object_type];

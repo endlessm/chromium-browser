@@ -23,10 +23,7 @@ import os
 import sys
 import threading
 
-# TODO(vapier): Re-enable check once we upgrade to pylint-1.8+.
-# pylint: disable=no-name-in-module
 from google.protobuf import timestamp_pb2
-# pylint: enable=no-name-in-module
 import six
 from six.moves import urllib
 
@@ -189,9 +186,6 @@ def to_units(number):
 
 def validate_root_service_url(url):
   """Raises ValueError if the URL doesn't look like https://<host>."""
-  # TODO(vapier): <pylint-1.9 is buggy w/urllib.parse.
-  # pylint: disable=too-many-function-args
-
   schemes = ('https', 'http')
   parsed = urllib.parse.urlparse(url)
   if parsed.scheme not in schemes:
