@@ -1,12 +1,67 @@
-chromium-browser (79.0.3945.130-0endless0) eos; urgency=medium
+chromium-browser (80.0.3987.87-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 80.0.3987.87
+    - CVE-2020-6381: Integer overflow in JavaScript.
+    - CVE-2020-6382: Type Confusion in JavaScript.
+    - CVE-2019-18197: Multiple vulnerabilities in XML.
+    - CVE-2019-19926: Inappropriate implementation in SQLite.
+    - CVE-2020-6385: Insufficient policy enforcement in storage.
+    - CVE-2019-19880, CVE-2019-19925: Multiple vulnerabilities in SQLite.
+    - CVE-2020-6387: Out of bounds write in WebRTC.
+    - CVE-2020-6388: Out of bounds memory access in WebAudio.
+    - CVE-2020-6389: Out of bounds write in WebRTC.
+    - CVE-2020-6390: Out of bounds memory access in streams.
+    - CVE-2020-6391: Insufficient validation of untrusted input in Blink.
+    - CVE-2020-6392: Insufficient policy enforcement in extensions.
+    - CVE-2020-6393: Insufficient policy enforcement in Blink.
+    - CVE-2020-6394: Insufficient policy enforcement in Blink.
+    - CVE-2020-6395: Out of bounds read in JavaScript.
+    - CVE-2020-6396: Inappropriate implementation in Skia.
+    - CVE-2020-6397: Incorrect security UI in sharing.
+    - CVE-2020-6398: Uninitialized use in PDFium.
+    - CVE-2020-6399: Insufficient policy enforcement in AppCache.
+    - CVE-2020-6400: Inappropriate implementation in CORS.
+    - CVE-2020-6401: Insufficient validation of untrusted input in Omnibox.
+    - CVE-2020-6402: Insufficient policy enforcement in downloads.
+    - CVE-2020-6403: Incorrect security UI in Omnibox.
+    - CVE-2020-6404: Inappropriate implementation in Blink.
+    - CVE-2020-6405: Out of bounds read in SQLite.
+    - CVE-2020-6406: Use after free in audio.
+    - CVE-2019-19923: Out of bounds memory access in SQLite.
+    - CVE-2020-6408: Insufficient policy enforcement in CORS.
+    - CVE-2020-6409: Inappropriate implementation in Omnibox.
+    - CVE-2020-6410: Insufficient policy enforcement in navigation.
+    - CVE-2020-6411: Insufficient validation of untrusted input in Omnibox.
+    - CVE-2020-6412: Insufficient validation of untrusted input in Omnibox.
+    - CVE-2020-6413: Inappropriate implementation in Blink.
+    - CVE-2020-6414: Insufficient policy enforcement in Safe Browsing.
+    - CVE-2020-6415: Inappropriate implementation in JavaScript.
+    - CVE-2020-6416: Insufficient data validation in streams.
+    - CVE-2020-6417: Inappropriate implementation in installer.
+  * debian/control: add nodejs-mozilla as a build dependency
+  * debian/patches/disable-sse2: refreshed
+  * debian/patches/fix-extra-arflags.patch: refreshed
+  * debian/patches/node-use-system-wide.patch: added
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/widevine-enable-version-string.patch: refreshed
+  * debian/tests/html5test: update test expectations for the removal
+    of the Web Components V0 APIs
+    (see https://www.chromestatus.com/feature/5144752345317376)
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 05 Feb 2020 10:50:42 +0100
+
+chromium-browser (79.0.3945.130-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 79.0.3945.130
     - CVE-2020-6378: Use-after-free in speech recognizer.
     - CVE-2020-6379: Use-after-free in speech recognizer.
     - CVE-2020-6380: Extension message verification error.
-    - CVE-2020-0601: Protections to mitigate Windows ECC certificate validation vulnerability
+  * debian/control: remove libgnome-keyring-dev build dependency (LP: #1828192)
+  * debian/rules: build with use_gnome_keyring=false
+  * debian/known_gn_gen_args-*: change use_gnome_keyring build flag to false
 
- -- Andre Moreira Magalhaes <andre.magalhaes@endlessm.com>  Fri, 17 Jan 2020 12:20:27 -0300
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Mon, 27 Jan 2020 17:44:47 +0100
 
 chromium-browser (79.0.3945.117-0ubuntu0.16.04.1) xenial; urgency=medium
 

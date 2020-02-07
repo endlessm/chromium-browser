@@ -74,6 +74,7 @@ common_defines+=\
 	use_gold=false \
 	use_libpci=true \
 	use_pulseaudio=true \
+	use_gnome_keyring=false \
 	use_sysroot=false \
 	use_system_harfbuzz=false \
 	use_system_libjpeg=false \
