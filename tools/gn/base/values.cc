@@ -130,7 +130,7 @@ Value::Value(int in_int) : type_(Type::INTEGER), int_value_(in_int) {}
 
 Value::Value(const char* in_string) : Value(std::string(in_string)) {}
 
-Value::Value(std::string_view in_string) : Value(std::string(in_string)) {}
+Value::Value(std::experimental::string_view in_string) : Value(std::string(in_string)) {}
 
 Value::Value(std::string&& in_string) noexcept
     : type_(Type::STRING), string_value_(std::move(in_string)) {
@@ -138,9 +138,9 @@ Value::Value(std::string&& in_string) noexcept
 }
 
 Value::Value(const char16_t* in_string16)
-    : Value(std::u16string_view(in_string16)) {}
+    : Value(std::experimental::u16string_view(in_string16)) {}
 
-Value::Value(std::u16string_view in_string16)
+Value::Value(std::experimental::u16string_view in_string16)
     : Value(UTF16ToUTF8(in_string16)) {}
 
 Value::Value(const BlobStorage& in_blob)
@@ -239,11 +239,11 @@ const Value::ListStorage& Value::GetList() const {
   return list_;
 }
 
-Value* Value::FindKey(std::string_view key) {
+Value* Value::FindKey(std::experimental::string_view key) {
   return const_cast<Value*>(static_cast<const Value*>(this)->FindKey(key));
 }
 
-const Value* Value::FindKey(std::string_view key) const {
+const Value* Value::FindKey(std::experimental::string_view key) const {
   CHECK(is_dict());
   auto found = dict_.find(key);
   if (found == dict_.end())
@@ -251,28 +251,28 @@ const Value* Value::FindKey(std::string_view key) const {
   return found->second.get();
 }
 
-Value* Value::FindKeyOfType(std::string_view key, Type type) {
+Value* Value::FindKeyOfType(std::experimental::string_view key, Type type) {
   return const_cast<Value*>(
       static_cast<const Value*>(this)->FindKeyOfType(key, type));
 }
 
-const Value* Value::FindKeyOfType(std::string_view key, Type type) const {
+const Value* Value::FindKeyOfType(std::experimental::string_view key, Type type) const {
   const Value* result = FindKey(key);
   if (!result || result->type() != type)
     return nullptr;
   return result;
 }
 
-bool Value::RemoveKey(std::string_view key) {
+bool Value::RemoveKey(std::experimental::string_view key) {
   CHECK(is_dict());
   // NOTE: Can't directly return dict_->erase(key) due to MSVC warning C4800.
   return dict_.erase(key) != 0;
 }
 
-Value* Value::SetKey(std::string_view key, Value value) {
+Value* Value::SetKey(std::experimental::string_view key, Value value) {
   CHECK(is_dict());
   // NOTE: We can't use |insert_or_assign| here, as only |try_emplace| does
-  // an explicit conversion from std::string_view to std::string if necessary.
+  // an explicit conversion from std::experimental::string_view to std::string if necessary.
   auto val_ptr = std::make_unique<Value>(std::move(value));
   auto result = dict_.try_emplace(key, std::move(val_ptr));
   if (!result.second) {
@@ -291,50 +291,50 @@ Value* Value::SetKey(std::string&& key, Value value) {
 }
 
 Value* Value::SetKey(const char* key, Value value) {
-  return SetKey(std::string_view(key), std::move(value));
+  return SetKey(std::experimental::string_view(key), std::move(value));
 }
 
-Value* Value::FindPath(std::initializer_list<std::string_view> path) {
+Value* Value::FindPath(std::initializer_list<std::experimental::string_view> path) {
   return const_cast<Value*>(const_cast<const Value*>(this)->FindPath(path));
 }
 
-Value* Value::FindPath(span<const std::string_view> path) {
+Value* Value::FindPath(span<const std::experimental::string_view> path) {
   return const_cast<Value*>(const_cast<const Value*>(this)->FindPath(path));
 }
 
 const Value* Value::FindPath(
-    std::initializer_list<std::string_view> path) const {
+    std::initializer_list<std::experimental::string_view> path) const {
   DCHECK_GE(path.size(), 2u) << "Use FindKey() for a path of length 1.";
   return FindPath(make_span(path.begin(), path.size()));
 }
 
-const Value* Value::FindPath(span<const std::string_view> path) const {
+const Value* Value::FindPath(span<const std::experimental::string_view> path) const {
   const Value* cur = this;
-  for (const std::string_view component : path) {
+  for (const std::experimental::string_view component : path) {
     if (!cur->is_dict() || (cur = cur->FindKey(component)) == nullptr)
       return nullptr;
   }
   return cur;
 }
 
-Value* Value::FindPathOfType(std::initializer_list<std::string_view> path,
+Value* Value::FindPathOfType(std::initializer_list<std::experimental::string_view> path,
                              Type type) {
   return const_cast<Value*>(
       const_cast<const Value*>(this)->FindPathOfType(path, type));
 }
 
-Value* Value::FindPathOfType(span<const std::string_view> path, Type type) {
+Value* Value::FindPathOfType(span<const std::experimental::string_view> path, Type type) {
   return const_cast<Value*>(
       const_cast<const Value*>(this)->FindPathOfType(path, type));
 }
 
-const Value* Value::FindPathOfType(std::initializer_list<std::string_view> path,
+const Value* Value::FindPathOfType(std::initializer_list<std::experimental::string_view> path,
                                    Type type) const {
   DCHECK_GE(path.size(), 2u) << "Use FindKeyOfType() for a path of length 1.";
   return FindPathOfType(make_span(path.begin(), path.size()), type);
 }
 
-const Value* Value::FindPathOfType(span<const std::string_view> path,
+const Value* Value::FindPathOfType(span<const std::experimental::string_view> path,
                                    Type type) const {
   const Value* result = FindPath(path);
   if (!result || result->type() != type)
@@ -342,25 +342,25 @@ const Value* Value::FindPathOfType(span<const std::string_view> path,
   return result;
 }
 
-Value* Value::SetPath(std::initializer_list<std::string_view> path,
+Value* Value::SetPath(std::initializer_list<std::experimental::string_view> path,
                       Value value) {
   DCHECK_GE(path.size(), 2u) << "Use SetKey() for a path of length 1.";
   return SetPath(make_span(path.begin(), path.size()), std::move(value));
 }
 
-Value* Value::SetPath(span<const std::string_view> path, Value value) {
+Value* Value::SetPath(span<const std::experimental::string_view> path, Value value) {
   DCHECK_NE(path.begin(), path.end());  // Can't be empty path.
 
   // Walk/construct intermediate dictionaries. The last element requires
   // special handling so skip it in this loop.
   Value* cur = this;
-  const std::string_view* cur_path = path.begin();
+  const std::experimental::string_view* cur_path = path.begin();
   for (; (cur_path + 1) < path.end(); ++cur_path) {
     if (!cur->is_dict())
       return nullptr;
 
     // Use lower_bound to avoid doing the search twice for missing keys.
-    const std::string_view path_component = *cur_path;
+    const std::experimental::string_view path_component = *cur_path;
     auto found = cur->dict_.lower_bound(path_component);
     if (found == cur->dict_.end() || found->first != path_component) {
       // No key found, insert one.
@@ -378,12 +378,12 @@ Value* Value::SetPath(span<const std::string_view> path, Value value) {
   return cur->SetKey(*cur_path, std::move(value));
 }
 
-bool Value::RemovePath(std::initializer_list<std::string_view> path) {
+bool Value::RemovePath(std::initializer_list<std::experimental::string_view> path) {
   DCHECK_GE(path.size(), 2u) << "Use RemoveKey() for a path of length 1.";
   return RemovePath(make_span(path.begin(), path.size()));
 }
 
-bool Value::RemovePath(span<const std::string_view> path) {
+bool Value::RemovePath(span<const std::experimental::string_view> path) {
   if (!is_dict() || path.empty())
     return false;
 
@@ -461,7 +461,7 @@ bool Value::GetAsString(const Value** out_value) const {
   return is_string();
 }
 
-bool Value::GetAsString(std::string_view* out_value) const {
+bool Value::GetAsString(std::experimental::string_view* out_value) const {
   if (out_value && is_string()) {
     *out_value = string_value_;
     return true;
@@ -664,7 +664,7 @@ DictionaryValue::DictionaryValue(const DictStorage& in_dict) : Value(in_dict) {}
 DictionaryValue::DictionaryValue(DictStorage&& in_dict) noexcept
     : Value(std::move(in_dict)) {}
 
-bool DictionaryValue::HasKey(std::string_view key) const {
+bool DictionaryValue::HasKey(std::experimental::string_view key) const {
   DCHECK(IsStringUTF8(key));
   auto current_entry = dict_.find(key);
   DCHECK((current_entry == dict_.end()) || current_entry->second);
@@ -675,18 +675,18 @@ void DictionaryValue::Clear() {
   dict_.clear();
 }
 
-Value* DictionaryValue::Set(std::string_view path,
+Value* DictionaryValue::Set(std::experimental::string_view path,
                             std::unique_ptr<Value> in_value) {
   DCHECK(IsStringUTF8(path));
   DCHECK(in_value);
 
-  std::string_view current_path(path);
+  std::experimental::string_view current_path(path);
   Value* current_dictionary = this;
   for (size_t delimiter_position = current_path.find('.');
-       delimiter_position != std::string_view::npos;
+       delimiter_position != std::experimental::string_view::npos;
        delimiter_position = current_path.find('.')) {
     // Assume that we're indexing into a dictionary.
-    std::string_view key = current_path.substr(0, delimiter_position);
+    std::experimental::string_view key = current_path.substr(0, delimiter_position);
     Value* child_dictionary =
         current_dictionary->FindKeyOfType(key, Type::DICTIONARY);
     if (!child_dictionary) {
@@ -702,40 +702,40 @@ Value* DictionaryValue::Set(std::string_view path,
       ->SetWithoutPathExpansion(current_path, std::move(in_value));
 }
 
-Value* DictionaryValue::SetBoolean(std::string_view path, bool in_value) {
+Value* DictionaryValue::SetBoolean(std::experimental::string_view path, bool in_value) {
   return Set(path, std::make_unique<Value>(in_value));
 }
 
-Value* DictionaryValue::SetInteger(std::string_view path, int in_value) {
+Value* DictionaryValue::SetInteger(std::experimental::string_view path, int in_value) {
   return Set(path, std::make_unique<Value>(in_value));
 }
 
-Value* DictionaryValue::SetString(std::string_view path,
-                                  std::string_view in_value) {
+Value* DictionaryValue::SetString(std::experimental::string_view path,
+                                  std::experimental::string_view in_value) {
   return Set(path, std::make_unique<Value>(in_value));
 }
 
-Value* DictionaryValue::SetString(std::string_view path,
+Value* DictionaryValue::SetString(std::experimental::string_view path,
                                   const std::u16string& in_value) {
   return Set(path, std::make_unique<Value>(in_value));
 }
 
 DictionaryValue* DictionaryValue::SetDictionary(
-    std::string_view path,
+    std::experimental::string_view path,
     std::unique_ptr<DictionaryValue> in_value) {
   return static_cast<DictionaryValue*>(Set(path, std::move(in_value)));
 }
 
-ListValue* DictionaryValue::SetList(std::string_view path,
+ListValue* DictionaryValue::SetList(std::experimental::string_view path,
                                     std::unique_ptr<ListValue> in_value) {
   return static_cast<ListValue*>(Set(path, std::move(in_value)));
 }
 
 Value* DictionaryValue::SetWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     std::unique_ptr<Value> in_value) {
   // NOTE: We can't use |insert_or_assign| here, as only |try_emplace| does
-  // an explicit conversion from std::string_view to std::string if necessary.
+  // an explicit conversion from std::experimental::string_view to std::string if necessary.
   auto result = dict_.try_emplace(key, std::move(in_value));
   if (!result.second) {
     // in_value is guaranteed to be still intact at this point.
@@ -744,10 +744,10 @@ Value* DictionaryValue::SetWithoutPathExpansion(
   return result.first->second.get();
 }
 
-bool DictionaryValue::Get(std::string_view path,
+bool DictionaryValue::Get(std::experimental::string_view path,
                           const Value** out_value) const {
   DCHECK(IsStringUTF8(path));
-  std::string_view current_path(path);
+  std::experimental::string_view current_path(path);
   const DictionaryValue* current_dictionary = this;
   for (size_t delimiter_position = current_path.find('.');
        delimiter_position != std::string::npos;
@@ -765,12 +765,12 @@ bool DictionaryValue::Get(std::string_view path,
   return current_dictionary->GetWithoutPathExpansion(current_path, out_value);
 }
 
-bool DictionaryValue::Get(std::string_view path, Value** out_value) {
+bool DictionaryValue::Get(std::experimental::string_view path, Value** out_value) {
   return static_cast<const DictionaryValue&>(*this).Get(
       path, const_cast<const Value**>(out_value));
 }
 
-bool DictionaryValue::GetBoolean(std::string_view path,
+bool DictionaryValue::GetBoolean(std::experimental::string_view path,
                                  bool* bool_value) const {
   const Value* value;
   if (!Get(path, &value))
@@ -779,7 +779,7 @@ bool DictionaryValue::GetBoolean(std::string_view path,
   return value->GetAsBoolean(bool_value);
 }
 
-bool DictionaryValue::GetInteger(std::string_view path, int* out_value) const {
+bool DictionaryValue::GetInteger(std::experimental::string_view path, int* out_value) const {
   const Value* value;
   if (!Get(path, &value))
     return false;
@@ -787,7 +787,7 @@ bool DictionaryValue::GetInteger(std::string_view path, int* out_value) const {
   return value->GetAsInteger(out_value);
 }
 
-bool DictionaryValue::GetString(std::string_view path,
+bool DictionaryValue::GetString(std::experimental::string_view path,
                                 std::string* out_value) const {
   const Value* value;
   if (!Get(path, &value))
@@ -796,7 +796,7 @@ bool DictionaryValue::GetString(std::string_view path,
   return value->GetAsString(out_value);
 }
 
-bool DictionaryValue::GetString(std::string_view path,
+bool DictionaryValue::GetString(std::experimental::string_view path,
                                 std::u16string* out_value) const {
   const Value* value;
   if (!Get(path, &value))
@@ -805,7 +805,7 @@ bool DictionaryValue::GetString(std::string_view path,
   return value->GetAsString(out_value);
 }
 
-bool DictionaryValue::GetStringASCII(std::string_view path,
+bool DictionaryValue::GetStringASCII(std::experimental::string_view path,
                                      std::string* out_value) const {
   std::string out;
   if (!GetString(path, &out))
@@ -820,7 +820,7 @@ bool DictionaryValue::GetStringASCII(std::string_view path,
   return true;
 }
 
-bool DictionaryValue::GetBinary(std::string_view path,
+bool DictionaryValue::GetBinary(std::experimental::string_view path,
                                 const Value** out_value) const {
   const Value* value;
   bool result = Get(path, &value);
@@ -833,12 +833,12 @@ bool DictionaryValue::GetBinary(std::string_view path,
   return true;
 }
 
-bool DictionaryValue::GetBinary(std::string_view path, Value** out_value) {
+bool DictionaryValue::GetBinary(std::experimental::string_view path, Value** out_value) {
   return static_cast<const DictionaryValue&>(*this).GetBinary(
       path, const_cast<const Value**>(out_value));
 }
 
-bool DictionaryValue::GetDictionary(std::string_view path,
+bool DictionaryValue::GetDictionary(std::experimental::string_view path,
                                     const DictionaryValue** out_value) const {
   const Value* value;
   bool result = Get(path, &value);
@@ -851,13 +851,13 @@ bool DictionaryValue::GetDictionary(std::string_view path,
   return true;
 }
 
-bool DictionaryValue::GetDictionary(std::string_view path,
+bool DictionaryValue::GetDictionary(std::experimental::string_view path,
                                     DictionaryValue** out_value) {
   return static_cast<const DictionaryValue&>(*this).GetDictionary(
       path, const_cast<const DictionaryValue**>(out_value));
 }
 
-bool DictionaryValue::GetList(std::string_view path,
+bool DictionaryValue::GetList(std::experimental::string_view path,
                               const ListValue** out_value) const {
   const Value* value;
   bool result = Get(path, &value);
@@ -870,12 +870,12 @@ bool DictionaryValue::GetList(std::string_view path,
   return true;
 }
 
-bool DictionaryValue::GetList(std::string_view path, ListValue** out_value) {
+bool DictionaryValue::GetList(std::experimental::string_view path, ListValue** out_value) {
   return static_cast<const DictionaryValue&>(*this).GetList(
       path, const_cast<const ListValue**>(out_value));
 }
 
-bool DictionaryValue::GetWithoutPathExpansion(std::string_view key,
+bool DictionaryValue::GetWithoutPathExpansion(std::experimental::string_view key,
                                               const Value** out_value) const {
   DCHECK(IsStringUTF8(key));
   auto entry_iterator = dict_.find(key);
@@ -887,13 +887,13 @@ bool DictionaryValue::GetWithoutPathExpansion(std::string_view key,
   return true;
 }
 
-bool DictionaryValue::GetWithoutPathExpansion(std::string_view key,
+bool DictionaryValue::GetWithoutPathExpansion(std::experimental::string_view key,
                                               Value** out_value) {
   return static_cast<const DictionaryValue&>(*this).GetWithoutPathExpansion(
       key, const_cast<const Value**>(out_value));
 }
 
-bool DictionaryValue::GetBooleanWithoutPathExpansion(std::string_view key,
+bool DictionaryValue::GetBooleanWithoutPathExpansion(std::experimental::string_view key,
                                                      bool* out_value) const {
   const Value* value;
   if (!GetWithoutPathExpansion(key, &value))
@@ -902,7 +902,7 @@ bool DictionaryValue::GetBooleanWithoutPathExpansion(std::string_view key,
   return value->GetAsBoolean(out_value);
 }
 
-bool DictionaryValue::GetIntegerWithoutPathExpansion(std::string_view key,
+bool DictionaryValue::GetIntegerWithoutPathExpansion(std::experimental::string_view key,
                                                      int* out_value) const {
   const Value* value;
   if (!GetWithoutPathExpansion(key, &value))
@@ -912,7 +912,7 @@ bool DictionaryValue::GetIntegerWithoutPathExpansion(std::string_view key,
 }
 
 bool DictionaryValue::GetStringWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     std::string* out_value) const {
   const Value* value;
   if (!GetWithoutPathExpansion(key, &value))
@@ -922,7 +922,7 @@ bool DictionaryValue::GetStringWithoutPathExpansion(
 }
 
 bool DictionaryValue::GetStringWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     std::u16string* out_value) const {
   const Value* value;
   if (!GetWithoutPathExpansion(key, &value))
@@ -932,7 +932,7 @@ bool DictionaryValue::GetStringWithoutPathExpansion(
 }
 
 bool DictionaryValue::GetDictionaryWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     const DictionaryValue** out_value) const {
   const Value* value;
   bool result = GetWithoutPathExpansion(key, &value);
@@ -946,7 +946,7 @@ bool DictionaryValue::GetDictionaryWithoutPathExpansion(
 }
 
 bool DictionaryValue::GetDictionaryWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     DictionaryValue** out_value) {
   const DictionaryValue& const_this =
       static_cast<const DictionaryValue&>(*this);
@@ -955,7 +955,7 @@ bool DictionaryValue::GetDictionaryWithoutPathExpansion(
 }
 
 bool DictionaryValue::GetListWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     const ListValue** out_value) const {
   const Value* value;
   bool result = GetWithoutPathExpansion(key, &value);
@@ -968,19 +968,19 @@ bool DictionaryValue::GetListWithoutPathExpansion(
   return true;
 }
 
-bool DictionaryValue::GetListWithoutPathExpansion(std::string_view key,
+bool DictionaryValue::GetListWithoutPathExpansion(std::experimental::string_view key,
                                                   ListValue** out_value) {
   return static_cast<const DictionaryValue&>(*this).GetListWithoutPathExpansion(
       key, const_cast<const ListValue**>(out_value));
 }
 
-bool DictionaryValue::Remove(std::string_view path,
+bool DictionaryValue::Remove(std::experimental::string_view path,
                              std::unique_ptr<Value>* out_value) {
   DCHECK(IsStringUTF8(path));
-  std::string_view current_path(path);
+  std::experimental::string_view current_path(path);
   DictionaryValue* current_dictionary = this;
   size_t delimiter_position = current_path.rfind('.');
-  if (delimiter_position != std::string_view::npos) {
+  if (delimiter_position != std::experimental::string_view::npos) {
     if (!GetDictionary(current_path.substr(0, delimiter_position),
                        &current_dictionary))
       return false;
@@ -992,7 +992,7 @@ bool DictionaryValue::Remove(std::string_view path,
 }
 
 bool DictionaryValue::RemoveWithoutPathExpansion(
-    std::string_view key,
+    std::experimental::string_view key,
     std::unique_ptr<Value>* out_value) {
   DCHECK(IsStringUTF8(key));
   auto entry_iterator = dict_.find(key);
@@ -1005,7 +1005,7 @@ bool DictionaryValue::RemoveWithoutPathExpansion(
   return true;
 }
 
-bool DictionaryValue::RemovePath(std::string_view path,
+bool DictionaryValue::RemovePath(std::experimental::string_view path,
                                  std::unique_ptr<Value>* out_value) {
   bool result = false;
   size_t delimiter_position = path.find('.');
@@ -1013,7 +1013,7 @@ bool DictionaryValue::RemovePath(std::string_view path,
   if (delimiter_position == std::string::npos)
     return RemoveWithoutPathExpansion(path, out_value);
 
-  std::string_view subdict_path = path.substr(0, delimiter_position);
+  std::experimental::string_view subdict_path = path.substr(0, delimiter_position);
   DictionaryValue* subdict = nullptr;
   if (!GetDictionary(subdict_path, &subdict))
     return false;
@@ -1233,7 +1233,7 @@ void ListValue::AppendInteger(int in_value) {
   list_.emplace_back(in_value);
 }
 
-void ListValue::AppendString(std::string_view in_value) {
+void ListValue::AppendString(std::experimental::string_view in_value) {
   list_.emplace_back(in_value);
 }
 

@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/macros.h"
 
@@ -27,7 +27,7 @@ class CIncludeIterator {
   // Fills in the string with the contents of the next include, and the
   // location with where it came from, and returns true, or returns false if
   // there are no more includes.
-  bool GetNextIncludeString(std::string_view* out, LocationRange* location);
+  bool GetNextIncludeString(std::experimental::string_view* out, LocationRange* location);
 
   // Maximum numbef of non-includes we'll tolerate before giving up. This does
   // not count comments or preprocessor.
@@ -36,12 +36,12 @@ class CIncludeIterator {
  private:
   // Returns false on EOF, otherwise fills in the given line and the one-based
   // line number into *line_number;
-  bool GetNextLine(std::string_view* line, int* line_number);
+  bool GetNextLine(std::experimental::string_view* line, int* line_number);
 
   const InputFile* input_file_;
 
   // This just points into input_file_.contents() for convenience.
-  std::string_view file_;
+  std::experimental::string_view file_;
 
   // 0-based offset into the file.
   size_t offset_ = 0;

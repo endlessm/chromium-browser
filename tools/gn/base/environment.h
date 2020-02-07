@@ -8,7 +8,7 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "util/build_config.h"
 
@@ -31,17 +31,17 @@ class Environment {
 
   // Gets an environment variable's value and stores it in |result|.
   // Returns false if the key is unset.
-  virtual bool GetVar(std::string_view variable_name, std::string* result) = 0;
+  virtual bool GetVar(std::experimental::string_view variable_name, std::string* result) = 0;
 
   // Syntactic sugar for GetVar(variable_name, nullptr);
-  virtual bool HasVar(std::string_view variable_name);
+  virtual bool HasVar(std::experimental::string_view variable_name);
 
   // Returns true on success, otherwise returns false.
-  virtual bool SetVar(std::string_view variable_name,
+  virtual bool SetVar(std::experimental::string_view variable_name,
                       const std::string& new_value) = 0;
 
   // Returns true on success, otherwise returns false.
-  virtual bool UnSetVar(std::string_view variable_name) = 0;
+  virtual bool UnSetVar(std::experimental::string_view variable_name) = 0;
 };
 
 #if defined(OS_WIN)

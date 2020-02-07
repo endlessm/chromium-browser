@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 #include "base/macros.h"
@@ -27,11 +27,11 @@ class Tokenizer {
   //
   // This is a helper function for error output so that the tokenizer's
   // notion of lines can be used elsewhere.
-  static size_t ByteOffsetOfNthLine(const std::string_view& buf, int n);
+  static size_t ByteOffsetOfNthLine(const std::experimental::string_view& buf, int n);
 
   // Returns true if the given offset of the string piece counts as a newline.
   // The offset must be in the buffer.
-  static bool IsNewline(const std::string_view& buffer, size_t offset);
+  static bool IsNewline(const std::experimental::string_view& buffer, size_t offset);
 
   static bool IsIdentifierFirstChar(char c);
 
@@ -77,7 +77,7 @@ class Tokenizer {
   std::vector<Token> tokens_;
 
   const InputFile* input_file_;
-  const std::string_view input_;
+  const std::experimental::string_view input_;
   Err* err_;
   size_t cur_ = 0;  // Byte offset into input buffer.
 

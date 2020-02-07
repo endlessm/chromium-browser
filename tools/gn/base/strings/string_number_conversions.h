@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 #include "util/build_config.h"
@@ -73,20 +73,20 @@ inline std::u16string Int64ToString16(int64_t value) {
 //  - Empty string.  |*output| will be set to 0.
 // WARNING: Will write to |output| even when returning false.
 //          Read the comments above carefully.
-bool StringToInt(std::string_view input, int* output);
-bool StringToInt(std::u16string_view input, int* output);
+bool StringToInt(std::experimental::string_view input, int* output);
+bool StringToInt(std::experimental::u16string_view input, int* output);
 
-bool StringToUint(std::string_view input, unsigned* output);
-bool StringToUint(std::u16string_view input, unsigned* output);
+bool StringToUint(std::experimental::string_view input, unsigned* output);
+bool StringToUint(std::experimental::u16string_view input, unsigned* output);
 
-bool StringToInt64(std::string_view input, int64_t* output);
-bool StringToInt64(std::u16string_view input, int64_t* output);
+bool StringToInt64(std::experimental::string_view input, int64_t* output);
+bool StringToInt64(std::experimental::u16string_view input, int64_t* output);
 
-bool StringToUint64(std::string_view input, uint64_t* output);
-bool StringToUint64(std::u16string_view input, uint64_t* output);
+bool StringToUint64(std::experimental::string_view input, uint64_t* output);
+bool StringToUint64(std::experimental::u16string_view input, uint64_t* output);
 
-bool StringToSizeT(std::string_view input, size_t* output);
-bool StringToSizeT(std::u16string_view input, size_t* output);
+bool StringToSizeT(std::experimental::string_view input, size_t* output);
+bool StringToSizeT(std::experimental::u16string_view input, size_t* output);
 
 // Hex encoding ----------------------------------------------------------------
 
@@ -101,30 +101,30 @@ std::string HexEncode(const void* bytes, size_t size);
 // Best effort conversion, see StringToInt above for restrictions.
 // Will only successful parse hex values that will fit into |output|, i.e.
 // -0x80000000 < |input| < 0x7FFFFFFF.
-bool HexStringToInt(std::string_view input, int* output);
+bool HexStringToInt(std::experimental::string_view input, int* output);
 
 // Best effort conversion, see StringToInt above for restrictions.
 // Will only successful parse hex values that will fit into |output|, i.e.
 // 0x00000000 < |input| < 0xFFFFFFFF.
 // The string is not required to start with 0x.
-bool HexStringToUInt(std::string_view input, uint32_t* output);
+bool HexStringToUInt(std::experimental::string_view input, uint32_t* output);
 
 // Best effort conversion, see StringToInt above for restrictions.
 // Will only successful parse hex values that will fit into |output|, i.e.
 // -0x8000000000000000 < |input| < 0x7FFFFFFFFFFFFFFF.
-bool HexStringToInt64(std::string_view input, int64_t* output);
+bool HexStringToInt64(std::experimental::string_view input, int64_t* output);
 
 // Best effort conversion, see StringToInt above for restrictions.
 // Will only successful parse hex values that will fit into |output|, i.e.
 // 0x0000000000000000 < |input| < 0xFFFFFFFFFFFFFFFF.
 // The string is not required to start with 0x.
-bool HexStringToUInt64(std::string_view input, uint64_t* output);
+bool HexStringToUInt64(std::experimental::string_view input, uint64_t* output);
 
 // Similar to the previous functions, except that output is a vector of bytes.
 // |*output| will contain as many bytes as were successfully parsed prior to the
 // error.  There is no overflow, but input.size() must be evenly divisible by 2.
 // Leading 0x or +/- are not allowed.
-bool HexStringToBytes(std::string_view input, std::vector<uint8_t>* output);
+bool HexStringToBytes(std::experimental::string_view input, std::vector<uint8_t>* output);
 
 }  // namespace base
 

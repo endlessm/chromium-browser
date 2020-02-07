@@ -5,7 +5,7 @@
 #ifndef TOOLS_GN_LABEL_PATTERN_H_
 #define TOOLS_GN_LABEL_PATTERN_H_
 
-#include <string_view>
+#include <experimental/string_view>
 
 #include "tools/gn/label.h"
 #include "tools/gn/source_dir.h"
@@ -30,7 +30,7 @@ class LabelPattern {
   LabelPattern();
   LabelPattern(Type type,
                const SourceDir& dir,
-               const std::string_view& name,
+               const std::experimental::string_view& name,
                const Label& toolchain_label);
   LabelPattern(const LabelPattern& other);
   ~LabelPattern();

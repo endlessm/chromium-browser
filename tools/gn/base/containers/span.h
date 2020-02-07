@@ -88,7 +88,7 @@ using EnableIfSpanCompatibleContainer =
 // own the underlying memory, so care must be taken to ensure that a span does
 // not outlive the backing store.
 //
-// span is somewhat analogous to std::string_view, but with arbitrary element
+// span is somewhat analogous to std::experimental::string_view, but with arbitrary element
 // types, allowing mutation if T is non-const.
 //
 // span is implicitly convertible from C++ arrays, as well as most [1]
