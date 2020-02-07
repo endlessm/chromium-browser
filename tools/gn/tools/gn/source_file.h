@@ -9,7 +9,7 @@
 
 #include <algorithm>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
@@ -78,9 +78,9 @@ class SourceFile {
   //
   // This function asserts that the file is actually source-absolute. The
   // return value points into our buffer.
-  std::string_view SourceAbsoluteWithOneSlash() const {
+  std::experimental::string_view SourceAbsoluteWithOneSlash() const {
     CHECK(is_source_absolute());
-    return std::string_view(&value_[1], value_.size() - 1);
+    return std::experimental::string_view(&value_[1], value_.size() - 1);
   }
 
   bool operator==(const SourceFile& other) const {

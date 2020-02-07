@@ -5,7 +5,7 @@
 #ifndef TOOLS_GN_TOKEN_H_
 #define TOOLS_GN_TOKEN_H_
 
-#include <string_view>
+#include <experimental/string_view>
 
 #include "tools/gn/location.h"
 
@@ -58,11 +58,11 @@ class Token {
   };
 
   Token();
-  Token(const Location& location, Type t, const std::string_view& v);
+  Token(const Location& location, Type t, const std::experimental::string_view& v);
   Token(const Token& other);
 
   Type type() const { return type_; }
-  const std::string_view& value() const { return value_; }
+  const std::experimental::string_view& value() const { return value_; }
   const Location& location() const { return location_; }
   void set_location(Location location) { location_ = location; }
   LocationRange range() const {
@@ -79,7 +79,7 @@ class Token {
 
  private:
   Type type_;
-  std::string_view value_;
+  std::experimental::string_view value_;
   Location location_;
 };
 

@@ -6,7 +6,7 @@
 #define TOOLS_GN_VARIABLES_H_
 
 #include <map>
-#include <string_view>
+#include <experimental/string_view>
 
 namespace variables {
 
@@ -336,7 +336,7 @@ struct VariableInfo {
   const char* help;
 };
 
-typedef std::map<std::string_view, VariableInfo> VariableInfoMap;
+typedef std::map<std::experimental::string_view, VariableInfo> VariableInfoMap;
 
 // Returns the built-in readonly variables.
 // Note: this is used only for help so this getter is not threadsafe.

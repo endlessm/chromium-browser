@@ -106,7 +106,7 @@
 
 #include <iosfwd>
 #include <string>
-#include <string_view>
+#include <experimental/string_view>
 #include <vector>
 
 #include "base/compiler_specific.h"
@@ -152,7 +152,7 @@ class FilePath {
 #endif  // OS_WIN
 
   using CharType = StringType::value_type;
-  using StringViewType = std::basic_string_view<CharType>;
+  using StringViewType = std::experimental::basic_string_view<CharType>;
 
   // Null-terminated array of separators used to separate components in
   // hierarchical paths.  Each character in this array is a valid separator,
@@ -283,7 +283,7 @@ class FilePath {
   // path == "C:\pics.old\jojo" suffix == " (1)", returns "C:\pics.old\jojo (1)"
   FilePath InsertBeforeExtension(StringViewType suffix) const
       WARN_UNUSED_RESULT;
-  FilePath InsertBeforeExtensionASCII(std::string_view suffix) const
+  FilePath InsertBeforeExtensionASCII(std::experimental::string_view suffix) const
       WARN_UNUSED_RESULT;
 
   // Adds |extension| to |file_name|. Returns the current FilePath if
@@ -311,7 +311,7 @@ class FilePath {
   // Linux, although it can use any 8-bit encoding for paths, we assume that
   // ASCII is a valid subset, regardless of the encoding, since many operating
   // system paths will always be ASCII.
-  FilePath AppendASCII(std::string_view component) const WARN_UNUSED_RESULT;
+  FilePath AppendASCII(std::experimental::string_view component) const WARN_UNUSED_RESULT;
 
   // Returns true if this FilePath contains an absolute path.  On Windows, an
   // absolute path begins with either a drive letter specification followed by

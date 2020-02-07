@@ -16,14 +16,14 @@
 namespace {
 
 // Return directory of |path| without the trailing directory separator.
-std::string_view FindDirNoTrailingSeparator(std::string_view path) {
-  std::string_view::size_type pos = path.find_last_of("/\\");
-  if (pos == std::string_view::npos)
-    return std::string_view();
-  return std::string_view(path.data(), pos);
+std::experimental::string_view FindDirNoTrailingSeparator(std::experimental::string_view path) {
+  std::experimental::string_view::size_type pos = path.find_last_of("/\\");
+  if (pos == std::experimental::string_view::npos)
+    return std::experimental::string_view();
+  return std::experimental::string_view(path.data(), pos);
 }
 
-bool IsSourceFileFromAssetsCatalog(std::string_view source,
+bool IsSourceFileFromAssetsCatalog(std::experimental::string_view source,
                                    SourceFile* asset_catalog) {
   // Check whether |source| matches one of the following pattern:
   //    .*\.xcassets/Contents.json
@@ -31,7 +31,7 @@ bool IsSourceFileFromAssetsCatalog(std::string_view source,
   //    .*\.xcassets/[^/]*\.imageset/[^/]*
   //    .*\.xcassets/[^/]*\.launchimage/[^/]*
   bool is_file_from_asset_catalog = false;
-  std::string_view dir = FindDirNoTrailingSeparator(source);
+  std::experimental::string_view dir = FindDirNoTrailingSeparator(source);
   if (base::EndsWith(source, "/Contents.json", base::CompareCase::SENSITIVE) &&
       base::EndsWith(dir, ".xcassets", base::CompareCase::SENSITIVE)) {
     is_file_from_asset_catalog = true;
