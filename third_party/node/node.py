@@ -7,7 +7,7 @@ import subprocess
 
 
 def GetBinaryPath():
-  return '/usr/lib/nodejs-mozilla/bin/node'
+  return '/usr/bin/node'
 
 
 def RunNode(cmd_parts, stdout=None):
