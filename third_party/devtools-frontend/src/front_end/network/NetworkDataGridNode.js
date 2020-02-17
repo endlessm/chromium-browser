@@ -71,6 +71,13 @@ Network.NetworkNode = class extends DataGrid.SortableDataGridNode {
   }
 
   /**
+   * @return {boolean}
+   */
+  _isFailed() {
+    return false;
+  }
+
+  /**
    * @return {string}
    * @suppressGlobalPropertiesCheck
    */
@@ -802,6 +809,7 @@ Network.NetworkRequestNode = class extends Network.NetworkNode {
   }
 
   /**
+   * @override
    * @return {boolean}
    */
   _isFailed() {

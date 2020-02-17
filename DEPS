@@ -40,7 +40,7 @@ gclient_gn_args = [
 
 
 vars = {
-  "buildspec_platforms": "linux64, mac64, win, win64, android",
+  "buildspec_platforms": "linux64, mac64, win, win64",
   # Variable that can be used to support multiple build scenarios, like having
   # Chromium specific targets in a client project's GN file or sync dependencies
   # conditionally etc.
@@ -177,7 +177,7 @@ vars = {
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling V8
   # and whatever else without interference from each other.
-  'v8_revision': 'fc55b9e7a591bff6c9ec020d97e2b11925c23af5',
+  'v8_revision': '54b76d1a1dbd1df7bc2d0dbaf9b1448210ef4cfd',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling swarming_client
   # and whatever else without interference from each other.
@@ -193,7 +193,7 @@ vars = {
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling PDFium
   # and whatever else without interference from each other.
-  'pdfium_revision': '4411ca1cdecfe304a7db169bc828a3f4fc1e65f5',
+  'pdfium_revision': 'b84f5d0308ecb8d84fc07605cedcb158187499b2',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling BoringSSL
   # and whatever else without interference from each other.
@@ -244,7 +244,7 @@ vars = {
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling devtools-frontend
   # and whatever else without interference from each other.
-  'devtools_frontend_revision': '1b0a7bc43b6949b68af6881679df097826e38fbe',
+  'devtools_frontend_revision': '0d4095e47ca0e972e04efecf7772a8d12b60c665',
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling libprotobuf-mutator
   # and whatever else without interference from each other.
@@ -753,6 +753,10 @@ deps = {
           {
               'package': 'chromium/third_party/android_sdk/public/tools-lint',
               'version': Var('android_sdk_tools-lint_version'),
+          },
+          {
+              'package': 'chromium/third_party/android_sdk/public/cmdline-tools',
+              'version': 'CR25ixsRhwuRnhdgDpGFyl9S0C_0HO9SUgFrwX46zq8C',
           },
       ],
       'condition': 'checkout_android_native_support',
@@ -1569,7 +1573,7 @@ deps = {
     Var('chromium_git') + '/v8/v8.git' + '@' +  Var('v8_revision'),
 
   'src-internal': {
-    'url': 'https://chrome-internal.googlesource.com/chrome/src-internal.git@c64a4479021e5a2be52e64f6b0f540ade3df1430',
+    'url': 'https://chrome-internal.googlesource.com/chrome/src-internal.git@f9414772a37aad63cfa3543e2fc79316f805fb70',
     'condition': 'checkout_src_internal',
   },
 
