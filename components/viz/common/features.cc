@@ -26,7 +26,7 @@ const base::Feature kUseSkiaForGLReadback{"UseSkiaForGLReadback",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Use the SkiaRenderer.
-#if defined(OS_LINUX) && !(defined(OS_CHROMEOS) || defined(IS_CHROMECAST))
+#if defined(OS_LINUX) && !(defined(OS_CHROMEOS) || defined(IS_CHROMECAST) || defined(ARCH_CPU_ARMEL))
 const base::Feature kUseSkiaRenderer{"UseSkiaRenderer",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
 #else
