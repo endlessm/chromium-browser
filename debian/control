@@ -44,7 +44,7 @@ Build-Depends:
 	libkrb5-dev,
 	libxkbcommon-dev,
 	libpam0g-dev,
-	libffi-dev,
+	libffi-dev (>= 3.3),
 	libgbm-dev,
 	libva-dev,
 	uuid-dev,
