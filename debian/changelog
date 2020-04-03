@@ -1,3 +1,12 @@
+chromium-browser (80.0.3987.162-0ubuntu0.16.04.1) xenial; urgency=medium
+
+  * Upstream release: 80.0.3987.162
+    - CVE-2020-6450: Use after free in WebAudio.
+    - CVE-2020-6451: Use after free in WebAudio.
+    - CVE-2020-6452: Heap buffer overflow in media.
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Wed, 01 Apr 2020 07:39:05 +0200
+
 chromium-browser (80.0.3987.149-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 80.0.3987.149
