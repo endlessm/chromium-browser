@@ -10,11 +10,17 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_management.h"
+#include "chrome/common/buildflags.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
 #include "extensions/strings/grit/extensions_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+#include "base/feature_list.h"
+#include "chrome/browser/supervised_user/supervised_user_features.h"
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 namespace extensions {
 
@@ -130,6 +136,16 @@ bool StandardManagementPolicyProvider::UserMayLoad(
       settings_->GetInstallationMode(extension);
   if (installation_mode == ExtensionManagement::INSTALLATION_BLOCKED ||
       installation_mode == ExtensionManagement::INSTALLATION_REMOVED) {
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+    if (base::FeatureList::IsEnabled(
+            supervised_users::kSupervisedUserAllowlistExtensionInstall) &&
+        settings_->IsChild() && settings_->BlacklistedByDefault() &&
+        extension->is_theme()) {
+      // Themes should always be allowed, to maintain current functionality that
+      // supervised users already possess.
+      return true;
+    }
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
     return ReturnLoadError(extension, error);
   }
 
