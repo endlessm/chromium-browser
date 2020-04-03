@@ -1,3 +1,9 @@
+chromium-browser (80.0.3987.163-0endless0) eos; urgency=medium
+
+  * Upstream release: 80.0.3987.163
+
+ -- Andre Moreira Magalhaes <andre@endlessm.com>  Fri, 03 Apr 2020 12:09:27 -0300
+
 chromium-browser (80.0.3987.162-0ubuntu0.16.04.1) xenial; urgency=medium
 
   * Upstream release: 80.0.3987.162
