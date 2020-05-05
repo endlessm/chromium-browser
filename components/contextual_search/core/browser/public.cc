@@ -10,9 +10,7 @@ const char kContextualSearchFieldTrialName[] = "ContextualSearch";
 
 // Longpress Resolve variations:
 const char kLongpressResolveParamName[] = "longpress_resolve_variation";
-const char kLongpressResolveHideOnScroll[] = "1";
-const char kLongpressResolvePrivacyAggressive[] = "2";
-const char kLongpressResolvePreserveTap[] = "3";
+const char kLongpressResolvePreserveTap[] = "1";
 
 // Contextual Cards variations and integration Api settings.
 const char kContextualCardsVersionParamName[] = "contextual_cards_version";
@@ -23,9 +21,5 @@ const int kContextualCardsUrlActionsIntegration = 3;
 const int kContextualCardsDefinitionsIntegration = 4;
 const int kContextualCardsTranslationsIntegration = 5;
 const int kContextualCardsDiagnosticIntegration = 99;
-
-const int kContextualCardsSimplifiedServerMixin = 100;
-const char kContextualCardsSimplifiedServerMixinChar[] = "100";
-const char kContextualCardsSimplifiedServerWithDiagnosticChar[] = "199";
 
 }  // namespace contextual_search

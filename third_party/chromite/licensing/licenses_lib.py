@@ -176,6 +176,12 @@ LICENCES_IGNORE = [
     '||',
 ]
 
+# The full names of packages which we want to generate license information for
+# even though they have an empty installation size.
+SIZE_EXEMPT_PACKAGES = [
+    'net-print/xerox-printing-license',
+]
+
 # Find the directory of this script.
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -355,7 +361,7 @@ class PackageInfo(object):
         cros_build_lib.GetSysroot(self.board), 'ebuild')
     return cros_build_lib.run(
         [ebuild_cmd, ebuild_path] + phases, print_cmd=debug,
-        redirect_stdout=True, encoding='utf-8')
+        stdout=True, encoding='utf-8')
 
   def _GetOverrideLicense(self):
     """Look in COPYRIGHT_ATTRIBUTION_DIR for license with copyright attribution.
@@ -461,7 +467,7 @@ class PackageInfo(object):
     # to find the MIT license:
     # dev-libs/libatomic_ops-7.2d/work/gc-7.2/libatomic_ops/doc/LICENSING.txt
     args = ['find', src_dir, '-type', 'f']
-    result = cros_build_lib.run(args, print_cmd=debug, redirect_stdout=True,
+    result = cros_build_lib.run(args, print_cmd=debug, stdout=True,
                                 encoding='utf-8')
     # Truncate results to look like this: swig-2.0.4/COPYRIGHT
     files = [x[len(src_dir):].lstrip('/') for x in result.stdout.splitlines()]
@@ -569,7 +575,7 @@ being scraped currently).""",
     args = [equery_cmd, '-q', '-C', 'which', self.fullnamerev]
     try:
       path = cros_build_lib.run(args, print_cmd=True, encoding='utf-8',
-                                redirect_stdout=True).output.strip()
+                                stdout=True).output.strip()
     except cros_build_lib.RunCommandError:
       path = None
 
@@ -610,8 +616,11 @@ being scraped currently).""",
     """
     # If the total size installed is zero, we installed no content to license.
     if _BuildInfo(build_info_dir, 'SIZE').strip() == '0':
-      self.skip = True
-      return
+      # Allow for license generation for the whitelisted empty packages.
+      if self.fullname not in SIZE_EXEMPT_PACKAGES:
+        logging.debug('Build directory is empty')
+        self.skip = True
+        return
 
     self.homepages = _BuildInfo(build_info_dir, 'HOMEPAGE').split()
     ebuild_license_names = _BuildInfo(build_info_dir, 'LICENSE').split()
@@ -1174,7 +1183,8 @@ after fixing the license.""" % (license_name, '\n'.join(set(stock + custom))))
                            pkg.fullnamerev)
 
     env = {
-        'name': '%s-%s' % (pkg.name, pkg.version),
+        'name': pkg.name,
+        'namerev': '%s-%s' % (pkg.name, pkg.version),
         'url': cgi.escape(pkg.homepages[0]) if pkg.homepages else '',
         'licenses_txt': cgi.escape('\n'.join(license_text)) or '',
         'licenses_ptr': '\n'.join(license_pointers) or '',
@@ -1273,7 +1283,7 @@ def ListInstalledPackages(board, all_packages=False):
         cros_build_lib.GetSysroot(board), 'equery')
     args = [equery_cmd, 'list', '*']
     packages = cros_build_lib.run(args, print_cmd=debug, encoding='utf-8',
-                                  redirect_stdout=True).output.splitlines()
+                                  stdout=True).output.splitlines()
   else:
     # The following returns all packages that were part of the build tree
     # (many get built or used during the build, but do not get shipped).
@@ -1284,7 +1294,7 @@ def ListInstalledPackages(board, all_packages=False):
     args = [emerge_cmd, '--with-bdeps=y', '--usepkgonly',
             '--emptytree', '--pretend', '--color=n', 'virtual/target-os']
     emerge = cros_build_lib.run(args, print_cmd=debug, encoding='utf-8',
-                                redirect_stdout=True).output.splitlines()
+                                stdout=True).output.splitlines()
     # Another option which we've decided not to use, is bdeps=n.  This outputs
     # just the packages we ship, but does not packages that were used to build
     # them, including a package like flex which generates a .a that is included

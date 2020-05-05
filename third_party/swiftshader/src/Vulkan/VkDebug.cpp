@@ -14,19 +14,20 @@
 
 #include "VkDebug.hpp"
 
-#include <string>
 #include <atomic>
-#include <stdarg.h>
+#include <cstdarg>
+#include <cstdio>
+#include <string>
 
 #if defined(__unix__)
-#define PTRACE
-#include <sys/types.h>
-#include <sys/ptrace.h>
+#	define PTRACE
+#	include <sys/ptrace.h>
+#	include <sys/types.h>
 #elif defined(_WIN32) || defined(_WIN64)
-#include <windows.h>
+#	include <windows.h>
 #elif defined(__APPLE__) || defined(__MACH__)
-#include <unistd.h>
-#include <sys/sysctl.h>
+#	include <sys/sysctl.h>
+#	include <unistd.h>
 #endif
 
 namespace {
@@ -37,12 +38,12 @@ bool IsUnderDebugger()
 	static bool checked = false;
 	static bool res = false;
 
-	if (!checked)
+	if(!checked)
 	{
 		// If a debugger is attached then we're already being ptraced and ptrace
 		// will return a non-zero value.
 		checked = true;
-		if (ptrace(PTRACE_TRACEME, 0, 1, 0) != 0)
+		if(ptrace(PTRACE_TRACEME, 0, 1, 0) != 0)
 		{
 			res = true;
 		}
@@ -83,15 +84,28 @@ bool IsUnderDebugger()
 #endif
 }
 
-}
+}  // anonymous namespace
 
-namespace vk
-{
+namespace vk {
 
 void tracev(const char *format, va_list args)
 {
 #ifndef SWIFTSHADER_DISABLE_TRACE
-	if(false)
+	const bool traceToDebugOut = false;
+	const bool traceToFile = false;
+
+	if(traceToDebugOut)
+	{
+		char buffer[2048];
+		vsnprintf(buffer, sizeof(buffer), format, args);
+#	if defined(_WIN32)
+		::OutputDebugString(buffer);
+#	else
+		printf("%s", buffer);
+#	endif
+	}
+
+	if(traceToFile)
 	{
 		FILE *file = fopen(TRACE_OUTPUT_FILE, "a");
 
@@ -101,7 +115,7 @@ void tracev(const char *format, va_list args)
 			fclose(file);
 		}
 	}
-#endif
+#endif  // SWIFTSHADER_DISABLE_TRACE
 }
 
 void trace(const char *format, ...)
@@ -141,11 +155,11 @@ void abort(const char *format, ...)
 
 void trace_assert(const char *format, ...)
 {
-	static std::atomic<bool> asserted = {false};
+	static std::atomic<bool> asserted = { false };
 	va_list vararg;
 	va_start(vararg, format);
 
-	if (IsUnderDebugger() && !asserted.exchange(true))
+	if(IsUnderDebugger() && !asserted.exchange(true))
 	{
 		// Abort after tracing and printing to stderr
 		tracev(format, vararg);
@@ -157,11 +171,11 @@ void trace_assert(const char *format, ...)
 
 		::abort();
 	}
-	else if (!asserted)
+	else if(!asserted)
 	{
 		tracev(format, vararg);
 		va_end(vararg);
 	}
 }
 
-}
+}  // namespace vk

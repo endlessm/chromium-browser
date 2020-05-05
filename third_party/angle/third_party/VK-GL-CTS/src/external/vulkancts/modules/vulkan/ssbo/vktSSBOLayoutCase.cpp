@@ -1028,6 +1028,17 @@ bool usesScalarLayout (const ShaderInterface& interface)
 	return false;
 }
 
+bool usesDescriptorIndexing(const ShaderInterface& interface)
+{
+	// If any of blocks has DESCRIPTOR_INDEXING flag
+	for (int ndx = 0; ndx < interface.getNumBlocks(); ++ndx)
+	{
+		if (interface.getBlock(ndx).getFlags() & LAYOUT_DESCRIPTOR_INDEXING)
+			return true;
+	}
+	return false;
+}
+
 struct Indent
 {
 	int level;
@@ -1111,7 +1122,9 @@ void generateDeclaration (std::ostream& src, const BufferBlock& block, int bindi
 		if (block.getInstanceName() != DE_NULL)
 		{
 			src << " " << block.getInstanceName();
-			if (block.isArray())
+			if (block.getFlags() & LAYOUT_DESCRIPTOR_INDEXING)
+				src << "[]";
+			else if (block.isArray())
 				src << "[" << block.getArraySize() << "]";
 		}
 		else
@@ -1275,7 +1288,9 @@ string getShaderName (const BufferBlock& block, int instanceNdx, const BufferVar
 	{
 		name << block.getInstanceName();
 
-		if (block.isArray())
+		if (block.getFlags() & LAYOUT_DESCRIPTOR_INDEXING)
+			name << "[nonuniformEXT(" << instanceNdx << ")]";
+		else if (block.isArray())
 			name << "[" << instanceNdx << "]";
 
 		name << ".";
@@ -1502,15 +1517,21 @@ string generateComputeShader (const ShaderInterface& interface, const BufferLayo
 {
 	std::ostringstream src;
 
-	if (uses16BitStorage(interface) || uses8BitStorage(interface) || usesRelaxedLayout(interface) || usesScalarLayout(interface))
+	if (uses16BitStorage(interface) || uses8BitStorage(interface) ||
+		usesRelaxedLayout(interface) || usesScalarLayout(interface) ||
+		usesDescriptorIndexing(interface))
+	{
 		src << "#version 450\n";
+	}
 	else
 		src << "#version 310 es\n";
+
 
 	src << "#extension GL_EXT_shader_16bit_storage : enable\n";
 	src << "#extension GL_EXT_shader_8bit_storage : enable\n";
 	src << "#extension GL_EXT_scalar_block_layout : enable\n";
 	src << "#extension GL_EXT_buffer_reference : enable\n";
+	src << "#extension GL_EXT_nonuniform_qualifier : enable\n";
 	src << "layout(local_size_x = 1) in;\n";
 	src << "\n";
 
@@ -2234,8 +2255,13 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 	vector<BlockDataPtr>  mappedBlockPtrs;
 
 	vk::VkFlags usageFlags = vk::VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	bool memoryDeviceAddress = false;
 	if (m_usePhysStorageBuffer)
-		usageFlags |= vk::VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_EXT;
+	{
+		usageFlags |= vk::VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+		if (m_context.isDeviceFunctionalitySupported("VK_KHR_buffer_device_address"))
+			memoryDeviceAddress = true;
+	}
 
 	// Upload base buffers
 	const std::vector<int> bufferSizes	= computeBufferSizes(m_interface, m_refLayout);
@@ -2256,7 +2282,7 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 				blockLocations[blockNdx] = BlockLocation(blockNdx, 0, bufferSize);
 
 				vk::Move<vk::VkBuffer>				buffer		= createBuffer(m_context, bufferSize, usageFlags);
-				de::MovePtr<vk::Allocation>			alloc		= allocateAndBindMemory(m_context, *buffer, vk::MemoryRequirement::HostVisible);
+				de::MovePtr<vk::Allocation>			alloc		= allocateAndBindMemory(m_context, *buffer, vk::MemoryRequirement::HostVisible | (memoryDeviceAddress ? vk::MemoryRequirement::DeviceAddress : vk::MemoryRequirement::Any));
 
 				descriptors[blockNdx] = makeDescriptorBufferInfo(*buffer, 0ull, bufferSize);
 
@@ -2288,7 +2314,7 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 
 			const int						totalBufferSize = curOffset;
 			vk::Move<vk::VkBuffer>			buffer			= createBuffer(m_context, totalBufferSize, usageFlags);
-			de::MovePtr<vk::Allocation>		alloc			= allocateAndBindMemory(m_context, *buffer, vk::MemoryRequirement::HostVisible);
+			de::MovePtr<vk::Allocation>		alloc			= allocateAndBindMemory(m_context, *buffer, vk::MemoryRequirement::HostVisible | (memoryDeviceAddress ? vk::MemoryRequirement::DeviceAddress : vk::MemoryRequirement::Any));
 
 			mapPtrs.push_back(alloc->getHostPtr());
 
@@ -2336,9 +2362,11 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 	// Query the buffer device addresses and push them via push constants
 	if (m_usePhysStorageBuffer)
 	{
-		vk::VkBufferDeviceAddressInfoEXT info =
+		const bool useKHR = m_context.isDeviceFunctionalitySupported("VK_KHR_buffer_device_address");
+
+		vk::VkBufferDeviceAddressInfoKHR info =
 		{
-			vk::VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT,	// VkStructureType	sType;
+			vk::VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,	// VkStructureType	sType;
 			DE_NULL,												// const void*		pNext;
 			0,														// VkBuffer			buffer
 		};
@@ -2346,7 +2374,11 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 		for (deUint32 i = 0; i < descriptors.size(); ++i)
 		{
 			info.buffer = descriptors[i].buffer;
-			vk::VkDeviceAddress addr = vk.getBufferDeviceAddressEXT(device, &info);
+			vk::VkDeviceAddress addr;
+			if (useKHR)
+				addr = vk.getBufferDeviceAddressKHR(device, &info);
+			else
+				addr = vk.getBufferDeviceAddressEXT(device, &info);
 			addr += descriptors[i].offset;
 			gpuAddrs.push_back(addr);
 		}
@@ -2371,7 +2403,7 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 		(vk::VkPipelineLayoutCreateFlags)0,
 		1u,													// deUint32						descriptorSetCount;
 		&*descriptorSetLayout,								// const VkDescriptorSetLayout*	pSetLayouts;
-        m_usePhysStorageBuffer ? 1u : 0u,					// deUint32						pushConstantRangeCount;
+		m_usePhysStorageBuffer ? 1u : 0u,					// deUint32						pushConstantRangeCount;
 		&pushConstRange,									// const VkPushConstantRange*	pPushConstantRanges;
 	};
 	vk::Move<vk::VkPipelineLayout> pipelineLayout(createPipelineLayout(vk, device, &pipelineLayoutParams));
@@ -2537,7 +2569,7 @@ void SSBOLayoutCase::initPrograms (vk::SourceCollections& programCollection) con
 
 TestInstance* SSBOLayoutCase::createInstance (Context& context) const
 {
-	if (!vk::isDeviceExtensionSupported(context.getUsedApiVersion(), context.getDeviceExtensions(), "VK_KHR_relaxed_block_layout") && usesRelaxedLayout(m_interface))
+	if (!context.isDeviceFunctionalitySupported("VK_KHR_relaxed_block_layout") && usesRelaxedLayout(m_interface))
 		TCU_THROW(NotSupportedError, "VK_KHR_relaxed_block_layout not supported");
 	if (!context.get16BitStorageFeatures().storageBuffer16BitAccess && uses16BitStorage(m_interface))
 		TCU_THROW(NotSupportedError, "storageBuffer16BitAccess not supported");
@@ -2545,8 +2577,10 @@ TestInstance* SSBOLayoutCase::createInstance (Context& context) const
 		TCU_THROW(NotSupportedError, "storageBuffer8BitAccess not supported");
 	if (!context.getScalarBlockLayoutFeatures().scalarBlockLayout && usesScalarLayout(m_interface))
 		TCU_THROW(NotSupportedError, "scalarBlockLayout not supported");
-	if (!context.getBufferDeviceAddressFeatures().bufferDeviceAddress && m_usePhysStorageBuffer)
+	if (m_usePhysStorageBuffer && !context.isBufferDeviceAddressSupported())
 		TCU_THROW(NotSupportedError, "Physical storage buffer pointers not supported");
+	if (!context.getDescriptorIndexingFeatures().shaderStorageBufferArrayNonUniformIndexing && usesDescriptorIndexing(m_interface))
+		TCU_THROW(NotSupportedError, "Descriptor indexing over storage buffer not supported");
 	return new SSBOLayoutCaseInstance(context, m_bufferMode, m_interface, m_refLayout, m_initialData, m_writeData, m_usePhysStorageBuffer);
 }
 

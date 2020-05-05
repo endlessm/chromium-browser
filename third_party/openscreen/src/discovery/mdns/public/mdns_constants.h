@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "platform/api/time.h"
+
 namespace openscreen {
 namespace discovery {
 
@@ -33,12 +35,11 @@ namespace discovery {
 // be forwarded outside local network. See RFC 6762, section 3.
 constexpr uint8_t kDefaultMulticastGroupIPv4[4] = {224, 0, 0, 251};
 
-// IPv6 group address for joining mDNS multicast group, given as byte array in
-// network-order. This is a link-local multicast address, so messages will not
-// be forwarded outside local network. See RFC 6762, section 3.
-constexpr uint8_t kDefaultMulticastGroupIPv6[16] = {
-    0xFF, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFB,
+// IPv6 group address for joining mDNS multicast group. This is a link-local
+// multicast address, so messages will not be forwarded outside local network.
+// See RFC 6762, section 3.
+constexpr uint16_t kDefaultMulticastGroupIPv6[8] = {
+    0xFF02, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x00FB,
 };
 
 // IPv4 group address for joining cast-specific site-local mDNS multicast group,
@@ -149,9 +150,18 @@ constexpr MessageType GetMessageType(uint16_t flags) {
   return (flags & kFlagResponse) ? MessageType::Response : MessageType::Query;
 }
 
-constexpr uint16_t MakeFlags(MessageType type) {
+constexpr bool IsMessageTruncated(uint16_t flags) {
+  return flags & kFlagTC;
+}
+
+constexpr uint16_t MakeFlags(MessageType type, bool is_truncated) {
   // RFC 6762 Section 18.2 and Section 18.4
-  return (type == MessageType::Response) ? (kFlagResponse | kFlagAA) : 0;
+  uint16_t flags =
+      (type == MessageType::Response) ? (kFlagResponse | kFlagAA) : 0;
+  if (is_truncated) {
+    flags |= kFlagTC;
+  }
+  return flags;
 }
 
 constexpr bool IsValidFlagsSection(uint16_t flags) {
@@ -282,6 +292,7 @@ enum class DnsType : uint16_t {
   kTXT = 16,
   kAAAA = 28,
   kSRV = 33,
+  kNSEC = 47,
   kANY = 255,  // Only allowed for QTYPE
 };
 
@@ -304,6 +315,14 @@ enum class ResponseType {
   kMulticast = 0,
   kUnicast = 1,
 };
+
+// These are the default TTL values for supported DNS Record types  as specified
+// by RFC 6762 section 10.
+constexpr std::chrono::seconds kPtrRecordTtl(120);
+constexpr std::chrono::seconds kSrvRecordTtl(120);
+constexpr std::chrono::seconds kARecordTtl(120);
+constexpr std::chrono::seconds kAAAARecordTtl(120);
+constexpr std::chrono::seconds kTXTRecordTtl(120);
 
 // DNS CLASS masks and values.
 // In mDNS the most significant bit of the RRCLASS for response records is
@@ -365,6 +384,19 @@ constexpr size_t kTXTMaxEntrySize = 255;
 // RDATA sections.
 // See RFC: https://tools.ietf.org/html/rfc6763#section-6.1
 constexpr uint8_t kTXTEmptyRdata = 0;
+
+// ============================================================================
+// Probing Constants
+// ============================================================================
+
+// RFC 6762 section 8.1 specifies that a probe should wait 250 ms between
+// subsequent probe queries.
+constexpr Clock::duration kDelayBetweenProbeQueries =
+    std::chrono::duration_cast<Clock::duration>(std::chrono::milliseconds{250});
+
+// RFC 6762 section 8.1 specifies that the probing phase should send out probe
+// requests 3 times before treating the probe as completed.
+constexpr int kProbeIterationCountBeforeSuccess = 3;
 
 }  // namespace discovery
 }  // namespace openscreen

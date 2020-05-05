@@ -21,7 +21,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
-#include "media/gpu/linux/platform_video_frame_utils.h"
+#include "media/gpu/chromeos/platform_video_frame_utils.h"
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
 
 namespace media {
@@ -65,9 +65,10 @@ void TestVDAVideoDecoder::Destroy() {
   // Invalidate all scheduled tasks.
   weak_this_factory_.InvalidateWeakPtrs();
 
+  decoder_ = nullptr;
+
   // Delete all video frames and related textures and the decoder.
   video_frames_.clear();
-  decoder_ = nullptr;
 
   delete this;
 }

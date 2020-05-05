@@ -13,6 +13,7 @@ import tempfile
 import time
 
 from devil.utils import cmd_helper
+from telemetry.util import cmd_util
 
 # Some developers' workflow includes running the Chrome process from
 # /usr/local/... instead of the default location. We have to check for both
@@ -22,85 +23,19 @@ _CHROME_PROCESS_REGEX = [re.compile(r'^/opt/google/chrome/chrome '),
 
 
 def RunCmd(args, cwd=None, quiet=False):
-  """Opens a subprocess to execute a program and returns its return value.
-
-  Args:
-    args: A string or a sequence of program arguments. The program to execute is
-      the string or the first item in the args sequence.
-    cwd: If not None, the subprocess's current directory will be changed to
-      |cwd| before it's executed.
-
-  Returns:
-    Return code from the command execution.
-  """
-  if not quiet:
-    logging.debug(' '.join(args) + ' ' + (cwd or ''))
-  with open(os.devnull, 'w') as devnull:
-    p = subprocess.Popen(args=args,
-                         cwd=cwd,
-                         stdout=devnull,
-                         stderr=devnull,
-                         stdin=devnull,
-                         shell=False)
-    return p.wait()
+  return cmd_util.RunCmd(args, cwd, quiet)
 
 
 def GetAllCmdOutput(args, cwd=None, quiet=False):
-  """Open a subprocess to execute a program and returns its output.
-
-  Args:
-    args: A string or a sequence of program arguments. The program to execute is
-      the string or the first item in the args sequence.
-    cwd: If not None, the subprocess's current directory will be changed to
-      |cwd| before it's executed.
-
-  Returns:
-    Captures and returns the command's stdout.
-    Prints the command's stderr to logger (which defaults to stdout).
-  """
-  if not quiet:
-    logging.debug(' '.join(args) + ' ' + (cwd or ''))
-  with open(os.devnull, 'w') as devnull:
-    p = subprocess.Popen(args=args,
-                         cwd=cwd,
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE,
-                         stdin=devnull)
-    stdout, stderr = p.communicate()
-    if not quiet:
-      logging.debug(' > stdout=[%s], stderr=[%s]', stdout, stderr)
-    return stdout, stderr
+  return cmd_util.GetAllCmdOutput(args, cwd, quiet)
 
 
 def StartCmd(args, cwd=None, quiet=False):
-  """Starts a subprocess to execute a program and returns its handle.
-
-  Args:
-    args: A string or a sequence of program arguments. The program to execute is
-      the string or the first item in the args sequence.
-    cwd: If not None, the subprocess's current directory will be changed to
-      |cwd| before it's executed.
-
-  Returns:
-     An instance of subprocess.Popen associated with the live process.
-  """
-  if not quiet:
-    logging.debug(' '.join(args) + ' ' + (cwd or ''))
-  return subprocess.Popen(args=args,
-                          cwd=cwd,
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
+  return cmd_util.StartCmd(args, cwd, quiet)
 
 
 def HasSSH():
-  try:
-    RunCmd(['ssh'], quiet=True)
-    RunCmd(['scp'], quiet=True)
-    logging.debug("HasSSH()->True")
-    return True
-  except OSError:
-    logging.debug("HasSSH()->False")
-    return False
+  return cmd_util.HasSSH()
 
 
 class LoginException(Exception):
@@ -132,6 +67,7 @@ class CrOSInterface(object):
     self._root_is_writable = False
     self._master_connection_open = False
     self._disable_strict_filenames = False
+    self._board = None
 
     if self.local:
       return
@@ -172,6 +108,11 @@ class CrOSInterface(object):
   @property
   def root_is_writable(self):
     return self._root_is_writable
+
+  # TODO(https://crbug.com/1043953): Remove this once the issue with the root
+  # partition randomly becoming read-only is fixed.
+  def ResetRootIsWritable(self):
+    self._root_is_writable = False
 
   def OpenConnection(self):
     """Opens a master connection to the device."""
@@ -679,6 +620,17 @@ class CrOSInterface(object):
   def GetDeviceTypeName(self):
     """DEVICETYPE in /etc/lsb-release is CHROMEBOOK, CHROMEBIT, etc."""
     return self.LsbReleaseValue(key='DEVICETYPE', default='CHROMEBOOK')
+
+  def GetBoard(self):
+    """Gets the name of the board of the device, e.g. "kevin".
+
+    Returns:
+      The name of the board as a string, or None if it can't be retrieved.
+    """
+    if self._board is None:
+      self._board = self.LsbReleaseValue(
+          key='CHROMEOS_RELEASE_BOARD', default=None)
+    return self._board
 
   def RestartUI(self, clear_enterprise_policy):
     logging.info('(Re)starting the ui (logs the user out)')

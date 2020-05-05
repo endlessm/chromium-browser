@@ -27,11 +27,13 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+import {ConsoleViewportElement} from './ConsoleViewport.js';  // eslint-disable-line no-unused-vars
+
 /**
- * @implements {Console.ConsoleViewportElement}
+ * @implements {ConsoleViewportElement}
  * @unrestricted
  */
-export default class ConsoleViewMessage {
+export class ConsoleViewMessage {
   /**
    * @param {!SDK.ConsoleMessage} consoleMessage
    * @param {!Components.Linkifier} linkifier
@@ -190,7 +192,7 @@ export default class ConsoleViewMessage {
     const columnDisplayNames = columnNames.map(name => name === rawValueColumnSymbol ? Common.UIString('Value') : name);
 
     if (flatValues.length) {
-      this._dataGrid = DataGrid.SortableDataGrid.create(columnDisplayNames, flatValues);
+      this._dataGrid = DataGrid.SortableDataGrid.create(columnDisplayNames, flatValues, ls`Console`);
       this._dataGrid.setStriped(true);
       this._dataGrid.setFocusable(false);
 
@@ -218,13 +220,13 @@ export default class ConsoleViewMessage {
           break;
         case SDK.ConsoleMessage.MessageType.Clear:
           messageElement = createElementWithClass('span', 'console-info');
-          if (Common.moduleSetting('preserveConsoleLog').get()) {
+          if (self.Common.settings.moduleSetting('preserveConsoleLog').get()) {
             messageElement.textContent = Common.UIString('console.clear() was prevented due to \'Preserve log\'');
           } else {
             messageElement.textContent = Common.UIString('Console was cleared');
           }
           messageElement.title =
-              ls`Clear all messages with ${UI.shortcutRegistry.shortcutTitleForAction('console.clear')}`;
+              ls`Clear all messages with ${self.UI.shortcutRegistry.shortcutTitleForAction('console.clear')}`;
           break;
         case SDK.ConsoleMessage.MessageType.Dir: {
           const obj = this._message.parameters ? this._message.parameters[0] : undefined;
@@ -369,21 +371,23 @@ export default class ConsoleViewMessage {
     clickableElement.appendChild(messageElement);
     const stackTraceElement = contentElement.createChild('div');
     const stackTracePreview = Components.JSPresentationUtils.buildStackTracePreviewContents(
-        this._message.runtimeModel().target(), this._linkifier, this._message.stackTrace);
+        this._message.runtimeModel().target(), this._linkifier, {stackTrace: this._message.stackTrace});
     stackTraceElement.appendChild(stackTracePreview.element);
     for (const linkElement of stackTracePreview.links) {
-      linkElement.tabIndex = -1;
       this._selectableChildren.push({element: linkElement, forceSelect: () => linkElement.focus()});
     }
     stackTraceElement.classList.add('hidden');
+    UI.ARIAUtils.markAsTreeitem(this.element());
+    UI.ARIAUtils.setExpanded(this.element(), false);
     this._expandTrace = expand => {
       icon.setIconType(expand ? 'smallicon-triangle-down' : 'smallicon-triangle-right');
       stackTraceElement.classList.toggle('hidden', !expand);
+      UI.ARIAUtils.setExpanded(this.element(), expand);
       this._traceExpanded = expand;
     };
 
     /**
-     * @this {!Console.ConsoleViewMessage}
+     * @this {!ConsoleViewMessage}
      * @param {?Event} event
      */
     function toggleStackTrace(event) {
@@ -414,7 +418,7 @@ export default class ConsoleViewMessage {
       return null;
     }
     return this._linkifier.linkifyScriptLocation(
-        this._message.runtimeModel().target(), null, url, lineNumber, columnNumber);
+        this._message.runtimeModel().target(), /* scriptId */ null, url, lineNumber, {columnNumber});
   }
 
   /**
@@ -440,7 +444,7 @@ export default class ConsoleViewMessage {
       return null;
     }
     return this._linkifier.linkifyScriptLocation(
-        this._message.runtimeModel().target(), scriptId, url, lineNumber, columnNumber);
+        this._message.runtimeModel().target(), scriptId, url, lineNumber, {columnNumber});
   }
 
   /**
@@ -578,12 +582,15 @@ export default class ConsoleViewMessage {
   /**
    * @param {!SDK.RemoteObject} obj
    * @return {!Element}
+   * @suppress {accessControls}
    */
   _formatParameterAsValue(obj) {
     const result = createElement('span');
     const description = obj.description || '';
     if (description.length > Console.ConsoleViewMessage._MaxTokenizableStringLength) {
-      result.appendChild(UI.createExpandableText(description, Console.ConsoleViewMessage._LongStringVisibleLength));
+      const propertyValue = new ObjectUI.ExpandableTextPropertyValue(
+          createElement('span'), description, Console.ConsoleViewMessage._LongStringVisibleLength);
+      result.appendChild(propertyValue.element);
     } else {
       result.createTextChild(description);
     }
@@ -645,7 +652,7 @@ export default class ConsoleViewMessage {
 
     /**
      * @param {!SDK.RemoteObject} targetFunction
-     * @this {Console.ConsoleViewMessage}
+     * @this {ConsoleViewMessage}
      */
     function formatTargetFunction(targetFunction) {
       const functionElement = createElement('span');
@@ -771,7 +778,7 @@ export default class ConsoleViewMessage {
 
     /**
      * @param {!SDK.CallFunctionResult} result
-     * @this {Console.ConsoleViewMessage}
+     * @this {ConsoleViewMessage}
      */
     function onInvokeGetterClick(result) {
       const wasThrown = result.wasThrown;
@@ -819,7 +826,7 @@ export default class ConsoleViewMessage {
      * @param {boolean} includePreview
      * @param {!SDK.RemoteObject} obj
      * @return {!Element}
-     * @this {Console.ConsoleViewMessage}
+     * @this {ConsoleViewMessage}
      */
     function parameterFormatter(force, includePreview, obj) {
       return this._formatParameter(obj, force, includePreview);
@@ -896,7 +903,7 @@ export default class ConsoleViewMessage {
     /**
      * @param {!Element} a
      * @param {*} b
-     * @this {!Console.ConsoleViewMessage}
+     * @this {!ConsoleViewMessage}
      * @return {!Element}
      */
     function append(a, b) {
@@ -954,7 +961,8 @@ export default class ConsoleViewMessage {
     element.style.setProperty('-webkit-text-stroke', '0', 'important');
     element.style.setProperty('text-decoration', 'underline', 'important');
 
-    const themedColor = UI.themeSupport.patchColorText('rgb(33%, 33%, 33%)', UI.ThemeSupport.ColorUsage.Foreground);
+    const themedColor =
+        self.UI.themeSupport.patchColorText('rgb(33%, 33%, 33%)', UI.ThemeSupport.ColorUsage.Foreground);
     element.style.setProperty('color', themedColor, 'important');
 
     let backgroundColor = 'hsl(0, 0%, 100%)';
@@ -964,7 +972,7 @@ export default class ConsoleViewMessage {
       backgroundColor = 'hsl(50, 100%, 95%)';
     }
     const themedBackgroundColor =
-        UI.themeSupport.patchColorText(backgroundColor, UI.ThemeSupport.ColorUsage.Background);
+        self.UI.themeSupport.patchColorText(backgroundColor, UI.ThemeSupport.ColorUsage.Background);
     element.style.setProperty('background-color', themedBackgroundColor, 'important');
   }
 
@@ -993,7 +1001,7 @@ export default class ConsoleViewMessage {
       return;
     }
 
-    if (Common.moduleSetting('consoleTimestampsEnabled').get()) {
+    if (self.Common.settings.moduleSetting('consoleTimestampsEnabled').get()) {
       if (!this._timestampElement) {
         this._timestampElement = createElementWithClass('span', 'console-timestamp');
       }
@@ -1534,7 +1542,7 @@ export default class ConsoleViewMessage {
     for (let i = 0; i < links.length; ++i) {
       formattedResult.appendChild(this._linkifyStringAsFragment(string.substring(start, links[i].positionLeft)));
       const scriptLocationLink = this._linkifier.linkifyScriptLocation(
-          debuggerModel.target(), null, links[i].url, links[i].lineNumber, links[i].columnNumber);
+          debuggerModel.target(), null, links[i].url, links[i].lineNumber, {columnNumber: links[i].columnNumber});
       scriptLocationLink.tabIndex = -1;
       this._selectableChildren.push({element: scriptLocationLink, forceSelect: () => scriptLocationLink.focus()});
       formattedResult.appendChild(scriptLocationLink);
@@ -1555,7 +1563,7 @@ export default class ConsoleViewMessage {
       if (!url) {
         return null;
       }
-      const parsedURL = url.asParsedURL();
+      const parsedURL = Common.ParsedURL.fromString(url);
       if (parsedURL) {
         return parsedURL.url;
       }
@@ -1570,13 +1578,18 @@ export default class ConsoleViewMessage {
    * @param {string} string
    * @param {function(string,string,number=,number=):!Node} linkifier
    * @return {!DocumentFragment}
+   * @suppress {accessControls}
    */
   _linkifyWithCustomLinkifier(string, linkifier) {
     if (string.length > Console.ConsoleViewMessage._MaxTokenizableStringLength) {
-      return UI.createExpandableText(string, Console.ConsoleViewMessage._LongStringVisibleLength);
+      const propertyValue = new ObjectUI.ExpandableTextPropertyValue(
+          createElement('span'), string, Console.ConsoleViewMessage._LongStringVisibleLength);
+      const fragment = createDocumentFragment();
+      fragment.appendChild(propertyValue.element);
+      return fragment;
     }
     const container = createDocumentFragment();
-    const tokens = Console.ConsoleViewMessage._tokenizeMessageText(string);
+    const tokens = ConsoleViewMessage._tokenizeMessageText(string);
     for (const token of tokens) {
       if (!token.text) {
         continue;
@@ -1618,9 +1631,10 @@ export default class ConsoleViewMessage {
   /**
    * @param {string} string
    * @return {!Array<{type: string, text: (string|undefined)}>}
+   * @suppress {accessControls}
    */
   static _tokenizeMessageText(string) {
-    if (!Console.ConsoleViewMessage._tokenizerRegexes) {
+    if (!ConsoleViewMessage._tokenizerRegexes) {
       const controlCodes = '\\u0000-\\u0020\\u007f-\\u009f';
       const linkStringRegex = new RegExp(
           '(?:[a-zA-Z][a-zA-Z0-9+.-]{2,}:\\/\\/|data:|www\\.)[^\\s' + controlCodes + '"]{2,}[^\\s' + controlCodes +
@@ -1638,15 +1652,14 @@ export default class ConsoleViewMessage {
       handlers.set(eventRegex, 'event');
       handlers.set(milestoneRegex, 'milestone');
       handlers.set(autofillRegex, 'autofill');
-      Console.ConsoleViewMessage._tokenizerRegexes = Array.from(handlers.keys());
-      Console.ConsoleViewMessage._tokenizerTypes = Array.from(handlers.values());
+      ConsoleViewMessage._tokenizerRegexes = Array.from(handlers.keys());
+      ConsoleViewMessage._tokenizerTypes = Array.from(handlers.values());
     }
     if (string.length > Console.ConsoleViewMessage._MaxTokenizableStringLength) {
       return [{text: string, type: undefined}];
     }
-    const results = TextUtils.TextUtils.splitStringByRegexes(string, Console.ConsoleViewMessage._tokenizerRegexes);
-    return results.map(
-        result => ({text: result.value, type: Console.ConsoleViewMessage._tokenizerTypes[result.regexIndex]}));
+    const results = TextUtils.TextUtils.splitStringByRegexes(string, ConsoleViewMessage._tokenizerRegexes);
+    return results.map(result => ({text: result.value, type: ConsoleViewMessage._tokenizerTypes[result.regexIndex]}));
   }
 
   /**
@@ -1663,7 +1676,7 @@ export default class ConsoleViewMessage {
    * @return {string}
    */
   groupTitle() {
-    const tokens = Console.ConsoleViewMessage._tokenizeMessageText(this._message.messageText);
+    const tokens = ConsoleViewMessage._tokenizeMessageText(this._message.messageText);
     const result = tokens.reduce((acc, token) => {
       let text = token.text;
       if (token.type === 'url') {
@@ -1776,29 +1789,3 @@ export const MaxLengthForLinks = 40;
 
 export const _MaxTokenizableStringLength = 10000;
 export const _LongStringVisibleLength = 5000;
-
-/* Legacy exported object */
-self.Console = self.Console || {};
-
-/* Legacy exported object */
-Console = Console || {};
-
-/**
- * @implements {Console.ConsoleViewportElement}
- * @unrestricted
- * @constructor
- */
-Console.ConsoleViewMessage = ConsoleViewMessage;
-
-/**
- * @constructor
- */
-Console.ConsoleGroupViewMessage = ConsoleGroupViewMessage;
-
-/**
- * @const
- * @type {number}
- */
-Console.ConsoleViewMessage.MaxLengthForLinks = MaxLengthForLinks;
-Console.ConsoleViewMessage._MaxTokenizableStringLength = _MaxTokenizableStringLength;
-Console.ConsoleViewMessage._LongStringVisibleLength = _LongStringVisibleLength;

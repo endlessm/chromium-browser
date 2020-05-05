@@ -58,7 +58,8 @@ void DebugDumpPageTask(const base::string16& doc_name,
                   base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
   page->metafile()->SaveTo(&file);
 }
-#else
+#endif  // defined(OS_WIN)
+
 void DebugDumpTask(const base::string16& doc_name,
                    const MetafilePlayer* metafile) {
   DCHECK(PrintedDocument::HasDebugDumpPath());
@@ -70,9 +71,12 @@ void DebugDumpTask(const base::string16& doc_name,
   base::FilePath path = PrintedDocument::CreateDebugDumpPath(name, kExtension);
   base::File file(path,
                   base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
+#if defined(OS_ANDROID)
+  metafile->SaveToFileDescriptor(file.GetPlatformFile());
+#else
   metafile->SaveTo(&file);
+#endif  // defined(OS_ANDROID)
 }
-#endif
 
 void DebugDumpDataTask(const base::string16& doc_name,
                        const base::FilePath::StringType& extension,
@@ -157,7 +161,15 @@ scoped_refptr<PrintedPage> PrintedDocument::GetPage(int page_number) {
   return page;
 }
 
-#else
+void PrintedDocument::DropPage(const PrintedPage* page) {
+  base::AutoLock lock(lock_);
+  PrintedPages::const_iterator it =
+      mutable_.pages_.find(page->page_number() - 1);
+  DCHECK_EQ(page, it->second.get());
+  mutable_.pages_.erase(it);
+}
+#endif  // defined(OS_WIN)
+
 void PrintedDocument::SetDocument(std::unique_ptr<MetafilePlayer> metafile,
                                   const gfx::Size& page_size,
                                   const gfx::Rect& page_content_rect) {
@@ -181,8 +193,6 @@ void PrintedDocument::SetDocument(std::unique_ptr<MetafilePlayer> metafile,
 const MetafilePlayer* PrintedDocument::GetMetafile() {
   return mutable_.metafile_.get();
 }
-
-#endif
 
 bool PrintedDocument::IsComplete() const {
   base::AutoLock lock(lock_);

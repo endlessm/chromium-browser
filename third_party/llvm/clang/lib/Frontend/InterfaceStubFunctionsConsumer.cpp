@@ -52,11 +52,16 @@ class InterfaceStubFunctionsConsumer : public ASTConsumer {
       if (!isVisible(ND))
         return true;
 
-      if (const VarDecl *VD = dyn_cast<VarDecl>(ND))
+      if (const VarDecl *VD = dyn_cast<VarDecl>(ND)) {
+        if (const auto *Parent = VD->getParentFunctionOrMethod())
+          if (isa<BlockDecl>(Parent) || isa<CXXMethodDecl>(Parent))
+            return true;
+
         if ((VD->getStorageClass() == StorageClass::SC_Extern) ||
             (VD->getStorageClass() == StorageClass::SC_Static &&
              VD->getParentFunctionOrMethod() == nullptr))
           return true;
+      }
 
       if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
         if (FD->isInlined() && !isa<CXXMethodDecl>(FD) &&
@@ -195,6 +200,10 @@ class InterfaceStubFunctionsConsumer : public ASTConsumer {
     case Decl::Kind::TemplateTemplateParm:
     case Decl::Kind::ClassTemplatePartialSpecialization:
     case Decl::Kind::IndirectField:
+    case Decl::Kind::ConstructorUsingShadow:
+    case Decl::Kind::CXXDeductionGuide:
+    case Decl::Kind::NamespaceAlias:
+    case Decl::Kind::UnresolvedUsingTypename:
       return true;
     case Decl::Kind::Var: {
       // Bail on any VarDecl that either has no named symbol.

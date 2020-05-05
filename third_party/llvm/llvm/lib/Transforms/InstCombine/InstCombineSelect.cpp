@@ -704,16 +704,24 @@ static Value *canonicalizeSaturatedSubtract(const ICmpInst *ICI,
   assert((Pred == ICmpInst::ICMP_UGE || Pred == ICmpInst::ICMP_UGT) &&
          "Unexpected isUnsigned predicate!");
 
-  // Account for swapped form of subtraction: ((a > b) ? b - a : 0).
+  // Ensure the sub is of the form:
+  //  (a > b) ? a - b : 0 -> usub.sat(a, b)
+  //  (a > b) ? b - a : 0 -> -usub.sat(a, b)
+  // Checking for both a-b and a+(-b) as a constant.
   bool IsNegative = false;
-  if (match(TrueVal, m_Sub(m_Specific(B), m_Specific(A))))
+  const APInt *C;
+  if (match(TrueVal, m_Sub(m_Specific(B), m_Specific(A))) ||
+      (match(A, m_APInt(C)) &&
+       match(TrueVal, m_Add(m_Specific(B), m_SpecificInt(-*C)))))
     IsNegative = true;
-  else if (!match(TrueVal, m_Sub(m_Specific(A), m_Specific(B))))
+  else if (!match(TrueVal, m_Sub(m_Specific(A), m_Specific(B))) &&
+           !(match(B, m_APInt(C)) &&
+             match(TrueVal, m_Add(m_Specific(A), m_SpecificInt(-*C)))))
     return nullptr;
 
-  // If sub is used anywhere else, we wouldn't be able to eliminate it
-  // afterwards.
-  if (!TrueVal->hasOneUse())
+  // If we are adding a negate and the sub and icmp are used anywhere else, we
+  // would end up with more instructions.
+  if (IsNegative && !TrueVal->hasOneUse() && !ICI->hasOneUse())
     return nullptr;
 
   // (a > b) ? a - b : 0 -> usub.sat(a, b)
@@ -2309,6 +2317,48 @@ static Instruction *foldSelectRotate(SelectInst &Sel) {
   return IntrinsicInst::Create(F, { TVal, TVal, ShAmt });
 }
 
+static Instruction *foldSelectToCopysign(SelectInst &Sel,
+                                         InstCombiner::BuilderTy &Builder) {
+  Value *Cond = Sel.getCondition();
+  Value *TVal = Sel.getTrueValue();
+  Value *FVal = Sel.getFalseValue();
+  Type *SelType = Sel.getType();
+
+  // Match select ?, TC, FC where the constants are equal but negated.
+  // TODO: Generalize to handle a negated variable operand?
+  const APFloat *TC, *FC;
+  if (!match(TVal, m_APFloat(TC)) || !match(FVal, m_APFloat(FC)) ||
+      !abs(*TC).bitwiseIsEqual(abs(*FC)))
+    return nullptr;
+
+  assert(TC != FC && "Expected equal select arms to simplify");
+
+  Value *X;
+  const APInt *C;
+  bool IsTrueIfSignSet;
+  ICmpInst::Predicate Pred;
+  if (!match(Cond, m_OneUse(m_ICmp(Pred, m_BitCast(m_Value(X)), m_APInt(C)))) ||
+      !isSignBitCheck(Pred, *C, IsTrueIfSignSet) || X->getType() != SelType)
+    return nullptr;
+
+  // If needed, negate the value that will be the sign argument of the copysign:
+  // (bitcast X) <  0 ? -TC :  TC --> copysign(TC,  X)
+  // (bitcast X) <  0 ?  TC : -TC --> copysign(TC, -X)
+  // (bitcast X) >= 0 ? -TC :  TC --> copysign(TC, -X)
+  // (bitcast X) >= 0 ?  TC : -TC --> copysign(TC,  X)
+  if (IsTrueIfSignSet ^ TC->isNegative())
+    X = Builder.CreateFNegFMF(X, &Sel);
+
+  // Canonicalize the magnitude argument as the positive constant since we do
+  // not care about its sign.
+  Value *MagArg = TC->isNegative() ? FVal : TVal;
+  Function *F = Intrinsic::getDeclaration(Sel.getModule(), Intrinsic::copysign,
+                                          Sel.getType());
+  Instruction *CopySign = IntrinsicInst::Create(F, { MagArg, X });
+  CopySign->setFastMathFlags(Sel.getFastMathFlags());
+  return CopySign;
+}
+
 Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
   Value *CondVal = SI.getCondition();
   Value *TrueVal = SI.getTrueValue();
@@ -2776,6 +2826,9 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
 
   if (Instruction *Rot = foldSelectRotate(SI))
     return Rot;
+
+  if (Instruction *Copysign = foldSelectToCopysign(SI, Builder))
+    return Copysign;
 
   return nullptr;
 }

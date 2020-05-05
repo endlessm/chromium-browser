@@ -16,7 +16,6 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_browser_client.h"
-#include "extensions/browser/mojo/interface_registration.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/renderer_startup_helper.h"
 #include "extensions/browser/url_loader_factory_manager.h"
@@ -91,8 +90,6 @@ void ExtensionWebContentsObserver::InitializeRenderFrame(
   render_frame_host->Send(new ExtensionMsg_NotifyRenderViewType(
       render_frame_host->GetRoutingID(), GetViewType(web_contents())));
 
-  ExtensionsBrowserClient::Get()->RegisterExtensionInterfaces(
-      &registry_, render_frame_host, frame_extension);
   ProcessManager::Get(browser_context_)
       ->RegisterRenderFrameHost(web_contents(), render_frame_host,
                                 frame_extension);

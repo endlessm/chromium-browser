@@ -1,10 +1,13 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+
 /**
  * @unrestricted
  */
-export default class ServerTiming {
+export class ServerTiming {
   /**
    * @param {string} metric
    * @param {?number} value
@@ -28,7 +31,7 @@ export default class ServerTiming {
 
     const serverTimings = rawServerTimingHeaders.reduce((memo, header) => {
       const timing = this.createFromHeaderValue(header.value);
-      memo.pushAll(timing.map(function(entry) {
+      memo.push(...timing.map(function(entry) {
         return new ServerTiming(
             entry.name, entry.hasOwnProperty('dur') ? entry.dur : null, entry.hasOwnProperty('desc') ? entry.desc : '');
       }));
@@ -133,18 +136,18 @@ export default class ServerTiming {
         if (parseParameter) {
           // paramName is valid
           if (entry.hasOwnProperty(paramName)) {
-            this.showWarning(ls`Duplicate parameter \"${paramName}\" ignored.`);
+            this.showWarning(ls`Duplicate parameter "${paramName}" ignored.`);
             continue;
           }
 
           if (paramValue === null) {
-            this.showWarning(ls`No value found for parameter \"${paramName}\".`);
+            this.showWarning(ls`No value found for parameter "${paramName}".`);
           }
 
           parseParameter.call(this, entry, paramValue);
         } else {
           // paramName is not valid
-          this.showWarning(ls`Unrecognized parameter \"${paramName}\".`);
+          this.showWarning(ls`Unrecognized parameter "${paramName}".`);
         }
       }
 
@@ -172,7 +175,7 @@ export default class ServerTiming {
           if (paramValue !== null) {
             const duration = parseFloat(paramValue);
             if (isNaN(duration)) {
-              this.showWarning(ls`Unable to parse \"${paramName}\" value \"${paramValue}\".`);
+              this.showWarning(ls`Unable to parse "${paramName}" value "${paramValue}".`);
               return;
             }
             entry.dur = duration;
@@ -193,15 +196,6 @@ export default class ServerTiming {
    * @param {string} msg
    */
   static showWarning(msg) {
-    Common.console.warn(Common.UIString(`ServerTiming: ${msg}`));
+    self.Common.console.warn(Common.UIString.UIString(`ServerTiming: ${msg}`));
   }
 }
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.ServerTiming = ServerTiming;

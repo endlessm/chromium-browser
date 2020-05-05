@@ -39,15 +39,15 @@ QuicSimpleServerSession::QuicSimpleServerSession(
 }
 
 QuicSimpleServerSession::~QuicSimpleServerSession() {
-  delete connection();
+  DeleteConnection();
 }
 
-QuicCryptoServerStreamBase*
+std::unique_ptr<QuicCryptoServerStreamBase>
 QuicSimpleServerSession::CreateQuicCryptoServerStream(
     const QuicCryptoServerConfig* crypto_config,
     QuicCompressedCertsCache* compressed_certs_cache) {
-  return new QuicCryptoServerStream(crypto_config, compressed_certs_cache, this,
-                                    stream_helper());
+  return CreateCryptoServerStream(crypto_config, compressed_certs_cache, this,
+                                  stream_helper());
 }
 
 void QuicSimpleServerSession::OnStreamFrame(const QuicStreamFrame& frame) {

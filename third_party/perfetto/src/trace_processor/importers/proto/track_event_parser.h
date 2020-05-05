@@ -18,6 +18,7 @@
 #define SRC_TRACE_PROCESSOR_IMPORTERS_PROTO_TRACK_EVENT_PARSER_H_
 
 #include "perfetto/protozero/field.h"
+#include "src/trace_processor/args_tracker.h"
 #include "src/trace_processor/slice_tracker.h"
 #include "src/trace_processor/trace_storage.h"
 
@@ -31,19 +32,26 @@ class TrackEvent_LegacyEvent_Decoder;
 
 namespace trace_processor {
 
-class PacketSequenceState;
+class PacketSequenceStateGeneration;
 class TraceProcessorContext;
 
 class TrackEventParser {
  public:
   explicit TrackEventParser(TraceProcessorContext* context);
 
+  void ParseTrackDescriptor(protozero::ConstBytes);
+  UniquePid ParseProcessDescriptor(protozero::ConstBytes);
+  UniqueTid ParseThreadDescriptor(protozero::ConstBytes);
+
   void ParseTrackEvent(int64_t ts,
                        int64_t tts,
                        int64_t ticount,
-                       PacketSequenceState*,
-                       size_t sequence_state_generation,
+                       PacketSequenceStateGeneration*,
                        protozero::ConstBytes);
+
+ private:
+  void ParseChromeProcessDescriptor(UniquePid upid, protozero::ConstBytes);
+  void ParseChromeThreadDescriptor(UniqueTid utid, protozero::ConstBytes);
   void ParseLegacyEventAsRawEvent(
       int64_t ts,
       int64_t tts,
@@ -52,45 +60,36 @@ class TrackEventParser {
       StringId category_id,
       StringId name_id,
       const protos::pbzero::TrackEvent_LegacyEvent_Decoder& legacy_event,
-      SliceTracker::SetArgsCallback args_callback);
+      SliceTracker::SetArgsCallback slice_args_callback);
   void ParseDebugAnnotationArgs(protozero::ConstBytes debug_annotation,
-                                PacketSequenceState*,
-                                size_t sequence_state_generation,
-                                ArgsTracker* args_tracker,
-                                RowId row);
+                                PacketSequenceStateGeneration*,
+                                ArgsTracker::BoundInserter* inserter);
   void ParseNestedValueArgs(protozero::ConstBytes nested_value,
                             base::StringView flat_key,
                             base::StringView key,
-                            ArgsTracker* args_tracker,
-                            RowId row);
+                            ArgsTracker::BoundInserter* inserter);
   void ParseTaskExecutionArgs(protozero::ConstBytes task_execution,
-                              PacketSequenceState*,
-                              size_t sequence_state_generation,
-                              ArgsTracker* args_tracker,
-                              RowId row);
+                              PacketSequenceStateGeneration*,
+                              ArgsTracker::BoundInserter* inserter);
   void ParseLogMessage(protozero::ConstBytes,
-                       PacketSequenceState*,
-                       size_t sequence_state_generation,
+                       PacketSequenceStateGeneration*,
                        int64_t,
                        base::Optional<UniqueTid>,
-                       ArgsTracker*,
-                       RowId);
+                       ArgsTracker::BoundInserter* inserter);
   void ParseCcScheduler(protozero::ConstBytes cc_scheduler,
-                        PacketSequenceState*,
-                        size_t sequence_state_generation,
-                        ArgsTracker*,
-                        RowId row);
+                        PacketSequenceStateGeneration*,
+                        ArgsTracker::BoundInserter* inserter);
   void ParseChromeUserEvent(protozero::ConstBytes chrome_user_event,
-                            ArgsTracker*,
-                            RowId);
+                            ArgsTracker::BoundInserter* inserter);
+  void ParseChromeLatencyInfo(protozero::ConstBytes chrome_latency_info,
+                              ArgsTracker::BoundInserter* inserter);
   void ParseChromeLegacyIpc(protozero::ConstBytes chrome_legacy_ipc,
-                            ArgsTracker*,
-                            RowId);
+                            ArgsTracker::BoundInserter* inserter);
   void ParseChromeKeyedService(protozero::ConstBytes chrome_keyed_service,
-                               ArgsTracker*,
-                               RowId);
+                               ArgsTracker::BoundInserter* inserter);
+  void ParseChromeHistogramSample(protozero::ConstBytes chrome_keyed_service,
+                                  ArgsTracker::BoundInserter* inserter);
 
- private:
   TraceProcessorContext* context_;
 
   const StringId task_file_name_args_key_id_;
@@ -98,7 +97,7 @@ class TrackEventParser {
   const StringId task_line_number_args_key_id_;
   const StringId log_message_body_key_id_;
   const StringId raw_legacy_event_id_;
-  const StringId legacy_event_original_tid_id_;
+  const StringId legacy_event_passthrough_utid_id_;
   const StringId legacy_event_category_key_id_;
   const StringId legacy_event_name_key_id_;
   const StringId legacy_event_phase_key_id_;
@@ -122,8 +121,14 @@ class TrackEventParser {
   const StringId chrome_legacy_ipc_class_args_key_id_;
   const StringId chrome_legacy_ipc_line_args_key_id_;
   const StringId chrome_keyed_service_name_args_key_id_;
+  const StringId chrome_histogram_sample_name_hash_args_key_id_;
+  const StringId chrome_histogram_sample_name_args_key_id_;
+  const StringId chrome_histogram_sample_sample_args_key_id_;
+  const StringId chrome_latency_info_trace_id_key_id_;
 
   std::array<StringId, 38> chrome_legacy_ipc_class_ids_;
+  std::array<StringId, 9> chrome_process_name_ids_;
+  std::array<StringId, 14> chrome_thread_name_ids_;
 };
 
 }  // namespace trace_processor

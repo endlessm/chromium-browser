@@ -111,6 +111,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
  public:
   DocumentLoader(LocalFrame*,
                  WebNavigationType navigation_type,
+                 ContentSecurityPolicy* content_security_policy,
                  std::unique_ptr<WebNavigationParams> navigation_params);
   ~DocumentLoader() override;
 
@@ -316,6 +317,10 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   const KURL& WebBundlePhysicalUrl() const { return web_bundle_physical_url_; }
 
+  bool LastSameDocumentNavigationWasBrowserInitiated() const {
+    return last_same_document_navigation_was_browser_initiated_;
+  }
+
  protected:
   Vector<KURL> redirect_chain_;
 
@@ -358,9 +363,17 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   FrameLoader& GetFrameLoader() const;
   LocalFrameClient& GetLocalFrameClient() const;
 
+  void ConsoleError(const String& message);
+
+  // Replace the current document with a empty one and the URL with a unique
+  // opaque origin.
+  void ReplaceWithEmptyDocument();
+
   ContentSecurityPolicy* CreateCSP(
       const ResourceResponse&,
       const base::Optional<WebOriginPolicy>& origin_policy);
+  DocumentPolicy::FeatureState CreateDocumentPolicy();
+
   void StartLoadingInternal();
   void FinishedLoading(base::TimeTicks finish_time);
   void CancelLoadAfterCSPDenied(const ResourceResponse&);
@@ -422,7 +435,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
       network::mojom::IPAddressSpace::kUnknown;
   bool grant_load_local_resources_ = false;
   base::Optional<blink::mojom::FetchCacheMode> force_fetch_cache_mode_;
-  base::Optional<FramePolicy> frame_policy_;
+  FramePolicy frame_policy_;
 
   // Params are saved in constructor and are cleared after StartLoading().
   // TODO(dgozman): remove once StartLoading is merged with constructor.
@@ -468,6 +481,9 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   std::unique_ptr<WebServiceWorkerNetworkProvider>
       service_worker_network_provider_;
+
+  bool was_blocked_by_document_policy_;
+  DocumentPolicy::FeatureState document_policy_;
 
   Member<ContentSecurityPolicy> content_security_policy_;
   ClientHintsPreferences client_hints_preferences_;
@@ -529,6 +545,10 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   const base::TickClock* clock_;
 
   Vector<OriginTrialFeature> initiator_origin_trial_features_;
+
+  // Whether this load request is a result of a browser initiated same-document
+  // navigation.
+  bool last_same_document_navigation_was_browser_initiated_ = false;
 };
 
 DECLARE_WEAK_IDENTIFIER_MAP(DocumentLoader);

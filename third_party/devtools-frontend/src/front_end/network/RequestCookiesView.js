@@ -28,7 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-Network.RequestCookiesView = class extends UI.Widget {
+export class RequestCookiesView extends UI.Widget {
   /**
    * @param {!SDK.NetworkRequest} request
    */
@@ -42,7 +42,7 @@ Network.RequestCookiesView = class extends UI.Widget {
     /** @type {?Array<!SDK.Cookie>} */
     this._detailedRequestCookies = null;
     this._showFilteredOutCookiesSetting =
-        Common.settings.createSetting('show-filtered-out-request-cookies', /* defaultValue */ false);
+        self.Common.settings.createSetting('show-filtered-out-request-cookies', /* defaultValue */ false);
 
     this._emptyWidget = new UI.EmptyWidget(Common.UIString('This request has no cookies.'));
     this._emptyWidget.show(this.element);
@@ -92,7 +92,7 @@ Network.RequestCookiesView = class extends UI.Widget {
     /** @type {!Map<!SDK.Cookie, !Array<!CookieTable.BlockedReason>>} */
     const requestCookieToBlockedReasons = new Map();
 
-    if (this._request.requestCookies) {
+    if (this._request.requestCookies.length) {
       requestCookies = this._request.requestCookies.slice();
 
       // request.requestCookies are generated from headers which are missing
@@ -147,7 +147,7 @@ Network.RequestCookiesView = class extends UI.Widget {
     /** @type {!Array<!SDK.NetworkRequest.BlockedSetCookieWithReason>} */
     const malformedResponseCookies = [];
 
-    if (this._request.responseCookies) {
+    if (this._request.responseCookies.length) {
       const blockedCookieLines = this._request.blockedResponseCookies().map(blockedCookie => blockedCookie.cookieLine);
       responseCookies = this._request.responseCookies.filter(cookie => {
         // remove the regular cookies that would overlap with blocked cookies
@@ -166,14 +166,16 @@ Network.RequestCookiesView = class extends UI.Widget {
           continue;
         }
 
-        const cookie = parsedCookies[0];
-        responseCookieToBlockedReasons.set(cookie, blockedCookie.blockedReasons.map(blockedReason => {
-          return {
-            attribute: SDK.NetworkRequest.setCookieBlockedReasonToAttribute(blockedReason),
-            uiString: SDK.NetworkRequest.setCookieBlockedReasonToUiString(blockedReason)
-          };
-        }));
-        responseCookies.push(cookie);
+        const cookie = blockedCookie.cookie || parsedCookies[0];
+        if (cookie) {
+          responseCookieToBlockedReasons.set(cookie, blockedCookie.blockedReasons.map(blockedReason => {
+            return {
+              attribute: SDK.NetworkRequest.setCookieBlockedReasonToAttribute(blockedReason),
+              uiString: SDK.NetworkRequest.setCookieBlockedReasonToUiString(blockedReason)
+            };
+          }));
+          responseCookies.push(cookie);
+        }
       }
     }
 
@@ -183,6 +185,13 @@ Network.RequestCookiesView = class extends UI.Widget {
   _refreshRequestCookiesView() {
     if (!this.isShowing()) {
       return;
+    }
+
+    const gotCookies = this._request.requestCookies.length || this._request.responseCookies.length;
+    if (gotCookies) {
+      this._emptyWidget.hideWidget();
+    } else {
+      this._emptyWidget.showWidget();
     }
 
     const {requestCookies, requestCookieToBlockedReasons} = this._getRequestCookies();
@@ -237,43 +246,21 @@ Network.RequestCookiesView = class extends UI.Widget {
    * @override
    */
   wasShown() {
-    this._request.addEventListener(SDK.NetworkRequest.Events.RequestHeadersChanged, this._cookiesUpdated, this);
-    this._request.addEventListener(SDK.NetworkRequest.Events.ResponseHeadersChanged, this._cookiesUpdated, this);
+    this._request.addEventListener(
+        SDK.NetworkRequest.Events.RequestHeadersChanged, this._refreshRequestCookiesView, this);
+    this._request.addEventListener(
+        SDK.NetworkRequest.Events.ResponseHeadersChanged, this._refreshRequestCookiesView, this);
 
-    if (this._gotCookies()) {
-      this._refreshRequestCookiesView();
-      this._emptyWidget.hideWidget();
-    } else {
-      this._emptyWidget.showWidget();
-    }
+    this._refreshRequestCookiesView();
   }
 
   /**
    * @override
    */
   willHide() {
-    this._request.removeEventListener(SDK.NetworkRequest.Events.RequestHeadersChanged, this._cookiesUpdated, this);
-    this._request.removeEventListener(SDK.NetworkRequest.Events.ResponseHeadersChanged, this._cookiesUpdated, this);
+    this._request.removeEventListener(
+        SDK.NetworkRequest.Events.RequestHeadersChanged, this._refreshRequestCookiesView, this);
+    this._request.removeEventListener(
+        SDK.NetworkRequest.Events.ResponseHeadersChanged, this._refreshRequestCookiesView, this);
   }
-
-  /**
-   * @return {boolean}
-   */
-  _gotCookies() {
-    return !!(this._request.requestCookies && this._request.requestCookies.length) ||
-        !!(this._request.responseCookies && this._request.responseCookies.length);
-  }
-
-  _cookiesUpdated() {
-    if (!this.isShowing()) {
-      return;
-    }
-
-    if (this._gotCookies()) {
-      this._refreshRequestCookiesView();
-      this._emptyWidget.hideWidget();
-    } else {
-      this._emptyWidget.showWidget();
-    }
-  }
-};
+}

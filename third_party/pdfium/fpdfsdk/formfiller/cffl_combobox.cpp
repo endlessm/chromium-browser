@@ -19,9 +19,6 @@
 CFFL_ComboBox::CFFL_ComboBox(CPDFSDK_FormFillEnvironment* pApp,
                              CPDFSDK_Widget* pWidget)
     : CFFL_TextObject(pApp, pWidget) {
-  m_State.nIndex = 0;
-  m_State.nStart = 0;
-  m_State.nEnd = 0;
 }
 
 CFFL_ComboBox::~CFFL_ComboBox() {
@@ -177,21 +174,6 @@ void CFFL_ComboBox::SetActionData(CPDFSDK_PageView* pPageView,
     default:
       break;
   }
-}
-
-bool CFFL_ComboBox::IsActionDataChanged(CPDF_AAction::AActionType type,
-                                        const CPDFSDK_FieldAction& faOld,
-                                        const CPDFSDK_FieldAction& faNew) {
-  switch (type) {
-    case CPDF_AAction::kKeyStroke:
-      return (!faOld.bFieldFull && faOld.nSelEnd != faNew.nSelEnd) ||
-             faOld.nSelStart != faNew.nSelStart ||
-             faOld.sChange != faNew.sChange;
-    default:
-      break;
-  }
-
-  return false;
 }
 
 void CFFL_ComboBox::SaveState(CPDFSDK_PageView* pPageView) {

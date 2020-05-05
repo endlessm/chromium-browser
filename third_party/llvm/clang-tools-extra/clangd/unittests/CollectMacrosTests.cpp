@@ -65,7 +65,7 @@ TEST(CollectMainFileMacros, SelectedMacros) {
         #define $2[[PREPEND]](X) MACRO##X()
         #define $3[[MACROA]]() 123
         int B = $1[[CONCAT]](MACRO);
-        int D = $2[[PREPEND]](A)
+        int D = $2[[PREPEND]](A);
       )cpp",
       R"cpp(
         // FIXME: Macro names in a definition are not detected.
@@ -88,7 +88,7 @@ TEST(CollectMainFileMacros, SelectedMacros) {
         break;
 
       auto Loc = getBeginningOfIdentifier(ExpectedRefs.begin()->start, SM,
-                                          AST.getASTContext().getLangOpts());
+                                          AST.getLangOpts());
       auto Macro = locateMacroAt(Loc, PP);
       assert(Macro);
       auto SID = getSymbolID(Macro->Name, Macro->Info, SM);

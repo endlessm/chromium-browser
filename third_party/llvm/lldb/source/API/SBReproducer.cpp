@@ -1,4 +1,4 @@
-//===-- SBReproducer.cpp ----------------------------------------*- C++ -*-===//
+//===-- SBReproducer.cpp --------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,8 +22,8 @@
 #include "lldb/API/SBFileSpec.h"
 #include "lldb/API/SBHostOS.h"
 #include "lldb/API/SBReproducer.h"
-
 #include "lldb/Host/FileSystem.h"
+#include "lldb/lldb-private.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -125,6 +125,10 @@ const char *SBReproducer::Capture(const char *path) {
 }
 
 const char *SBReproducer::Replay(const char *path) {
+  return SBReproducer::Replay(path, false);
+}
+
+const char *SBReproducer::Replay(const char *path, bool skip_version_check) {
   static std::string error;
   if (auto e = Reproducer::Initialize(ReproducerMode::Replay, FileSpec(path))) {
     error = llvm::toString(std::move(e));
@@ -135,6 +139,22 @@ const char *SBReproducer::Replay(const char *path) {
   if (!loader) {
     error = "unable to get replay loader.";
     return error.c_str();
+  }
+
+  if (!skip_version_check) {
+    llvm::Expected<std::string> version = loader->LoadBuffer<VersionProvider>();
+    if (!version) {
+      error = llvm::toString(version.takeError());
+      return error.c_str();
+    }
+    if (lldb_private::GetVersion() != llvm::StringRef(*version).rtrim()) {
+      error = "reproducer capture and replay version don't match:\n";
+      error.append("reproducer captured with:\n");
+      error.append(*version);
+      error.append("reproducer replayed with:\n");
+      error.append(lldb_private::GetVersion());
+      return error.c_str();
+    }
   }
 
   FileSpec file = loader->GetFile<SBProvider::Info>();
@@ -153,6 +173,15 @@ bool SBReproducer::Generate() {
   auto &r = Reproducer::Instance();
   if (auto generator = r.GetGenerator()) {
     generator->Keep();
+    return true;
+  }
+  return false;
+}
+
+bool SBReproducer::SetAutoGenerate(bool b) {
+  auto &r = Reproducer::Instance();
+  if (auto generator = r.GetGenerator()) {
+    generator->SetAutoGenerate(b);
     return true;
   }
   return false;

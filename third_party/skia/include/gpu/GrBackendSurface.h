@@ -49,6 +49,7 @@ public:
     GrBackendRenderTarget() {}
 
     bool isValid() const { return false; }
+    bool isFramebufferOnly() const { return false; }
 };
 #else
 
@@ -83,9 +84,7 @@ public:
     }
 #endif
 
-    static GrBackendFormat MakeMock(GrColorType colorType) {
-        return GrBackendFormat(colorType);
-    }
+    static GrBackendFormat MakeMock(GrColorType colorType, SkImage::CompressionType compression);
 
     bool operator==(const GrBackendFormat& that) const;
     bool operator!=(const GrBackendFormat& that) const { return !(*this == that); }
@@ -124,10 +123,12 @@ public:
 #endif
 
     /**
-     * If the backend API is Mock this gets the format as a GrColorType. Otherwise, returns
-     * GrColorType::kUnknown.
+     * If the backend API is not Mock these two calls will return kUnknown and kNone, respectively.
+     * Otherwise, if the compression type is kNone then the GrColorType will be valid. If the
+     * compression type is anything other then kNone than the GrColorType will be kUnknown.
      */
     GrColorType asMockColorType() const;
+    SkImage::CompressionType asMockCompressionType() const;
 
     // If possible, copies the GrBackendFormat and forces the texture type to be Texture2D. If the
     // GrBackendFormat was for Vulkan and it originally had a GrVkYcbcrConversionInfo, we will
@@ -154,7 +155,7 @@ private:
     GrBackendFormat(const GrMTLPixelFormat mtlFormat);
 #endif
 
-    GrBackendFormat(GrColorType colorType);
+    GrBackendFormat(GrColorType, SkImage::CompressionType);
 
     GrBackendApi fBackend = GrBackendApi::kMock;
     bool         fValid = false;
@@ -172,7 +173,10 @@ private:
 #ifdef SK_METAL
         GrMTLPixelFormat fMtlFormat;
 #endif
-        GrColorType      fMockColorType;
+        struct {
+            GrColorType              fColorType;
+            SkImage::CompressionType fCompressionType;
+        }                fMock;
     };
     GrTextureType fTextureType = GrTextureType::kNone;
 };
@@ -202,7 +206,7 @@ public:
 #ifdef SK_DAWN
     GrBackendTexture(int width,
                      int height,
-                     const GrDawnImageInfo& dawnInfo);
+                     const GrDawnTextureInfo& dawnInfo);
 #endif
 
     GrBackendTexture(int width,
@@ -230,9 +234,9 @@ public:
     void glTextureParametersModified();
 
 #ifdef SK_DAWN
-    // If the backend API is Dawn, copies a snapshot of the GrDawnImageInfo struct into the passed
+    // If the backend API is Dawn, copies a snapshot of the GrDawnTextureInfo struct into the passed
     // in pointer and returns true. Otherwise returns false if the backend API is not Dawn.
-    bool getDawnImageInfo(GrDawnImageInfo*) const;
+    bool getDawnTextureInfo(GrDawnTextureInfo*) const;
 #endif
 
     // If the backend API is Vulkan, copies a snapshot of the GrVkImageInfo struct into the passed
@@ -313,7 +317,7 @@ private:
     GrMtlTextureInfo fMtlInfo;
 #endif
 #ifdef SK_DAWN
-    GrDawnImageInfo  fDawnInfo;
+    GrDawnTextureInfo fDawnInfo;
 #endif
 };
 
@@ -334,7 +338,7 @@ public:
                           int height,
                           int sampleCnt,
                           int stencilBits,
-                          const GrDawnImageInfo& dawnInfo);
+                          const GrDawnRenderTargetInfo& dawnInfo);
 #endif
 
     /** Deprecated, use version that does not take stencil bits. */
@@ -368,15 +372,16 @@ public:
     int sampleCnt() const { return fSampleCnt; }
     int stencilBits() const { return fStencilBits; }
     GrBackendApi backend() const {return fBackend; }
+    bool isFramebufferOnly() const { return fFramebufferOnly; }
 
     // If the backend API is GL, copies a snapshot of the GrGLFramebufferInfo struct into the passed
     // in pointer and returns true. Otherwise returns false if the backend API is not GL.
     bool getGLFramebufferInfo(GrGLFramebufferInfo*) const;
 
 #ifdef SK_DAWN
-    // If the backend API is Dawn, copies a snapshot of the GrDawnImageInfo struct into the passed
-    // in pointer and returns true. Otherwise returns false if the backend API is not Dawn.
-    bool getDawnImageInfo(GrDawnImageInfo*) const;
+    // If the backend API is Dawn, copies a snapshot of the GrDawnRenderTargetInfo struct into the
+    // passed-in pointer and returns true. Otherwise returns false if the backend API is not Dawn.
+    bool getDawnRenderTargetInfo(GrDawnRenderTargetInfo*) const;
 #endif
 
     // If the backend API is Vulkan, copies a snapshot of the GrVkImageInfo struct into the passed
@@ -424,6 +429,7 @@ private:
     void cleanup();
 
     bool fIsValid;
+    bool fFramebufferOnly = false;
     int fWidth;         //<! width in pixels
     int fHeight;        //<! height in pixels
 
@@ -443,7 +449,7 @@ private:
     GrMtlTextureInfo fMtlInfo;
 #endif
 #ifdef SK_DAWN
-    GrDawnImageInfo  fDawnInfo;
+    GrDawnRenderTargetInfo  fDawnInfo;
 #endif
 };
 

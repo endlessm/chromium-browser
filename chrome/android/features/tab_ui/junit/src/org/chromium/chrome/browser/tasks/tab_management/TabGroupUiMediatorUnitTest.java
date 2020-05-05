@@ -41,19 +41,19 @@ import org.robolectric.annotation.Config;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.ThemeColorProvider;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabImpl;
+import org.chromium.chrome.browser.tab.TabLaunchType;
+import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
-import org.chromium.chrome.browser.tabmodel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelFilterProvider;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorImpl;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
-import org.chromium.chrome.browser.tabmodel.TabSelectionType;
 import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
 import org.chromium.chrome.browser.toolbar.bottom.BottomControlsCoordinator;
 import org.chromium.chrome.test.util.browser.Features;
@@ -335,7 +335,7 @@ public class TabGroupUiMediatorUnitTest {
     }
 
     @Test
-    public void tabSelection_NotSameGroup_SingleTab() {
+    public void tabSelection_NotSameGroup_GroupToSingleTab() {
         initAndAssertProperties(mTab2);
 
         // Mock selecting tab 1, and the last selected tab is tab 2 which is in different group.
@@ -347,7 +347,7 @@ public class TabGroupUiMediatorUnitTest {
     }
 
     @Test
-    public void tabSelection_NotSameGroup_TabGroup() {
+    public void tabSelection_NotSameGroup_GroupToGroup() {
         initAndAssertProperties(mTab2);
 
         // Mock that tab 1 is not a single tab.
@@ -361,6 +361,39 @@ public class TabGroupUiMediatorUnitTest {
 
         // Strip should be showing since we are selecting a group.
         verifyResetStrip(true, tabs);
+    }
+
+    @Test
+    public void tabSelection_NotSameGroup_SingleTabToGroup() {
+        initAndAssertProperties(mTab1);
+
+        // Mock that tab 2 is not a single tab.
+        List<Tab> tabGroup = mTabGroupModelFilter.getRelatedTabList(TAB2_ID);
+        assertThat(tabGroup.size(), equalTo(2));
+
+        // Mock selecting tab 2, and the last selected tab is tab 1 which is a single tab.
+        mTabModelObserverArgumentCaptor.getValue().didSelectTab(
+                mTab2, TabSelectionType.FROM_USER, TAB1_ID);
+
+        // Strip should be showing since we are selecting a group.
+        verifyResetStrip(true, tabGroup);
+    }
+
+    @Test
+    public void tabSelection_NotSameGroup_SingleTabToSingleTab() {
+        initAndAssertProperties(mTab1);
+
+        // Mock that new tab is a single tab.
+        TabImpl newTab = prepareTab(TAB4_ID, TAB4_ID);
+        List<Tab> tabs = new ArrayList<>(Arrays.asList(newTab));
+        doReturn(tabs).when(mTabGroupModelFilter).getRelatedTabList(TAB4_ID);
+
+        // Mock selecting new tab, and the last selected tab is tab 1 which is also a single tab.
+        mTabModelObserverArgumentCaptor.getValue().didSelectTab(
+                newTab, TabSelectionType.FROM_USER, TAB1_ID);
+
+        // Strip should not be showing since new tab is a single tab.
+        verifyResetStrip(false, null);
     }
 
     @Test

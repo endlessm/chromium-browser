@@ -2,18 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Category, IsLong} from './TimelineFilters.js';
+import {TimelineModeViewDelegate, TimelineSelection} from './TimelinePanel.js';  // eslint-disable-line no-unused-vars
+import {TimelineTreeView} from './TimelineTreeView.js';
+import {TimelineUIUtils} from './TimelineUIUtils.js';
+
 /**
  * @unrestricted
  */
-Timeline.EventsTimelineTreeView = class extends Timeline.TimelineTreeView {
+export class EventsTimelineTreeView extends TimelineTreeView {
   /**
-   * @param {!Timeline.TimelineModeViewDelegate} delegate
+   * @param {!TimelineModeViewDelegate} delegate
    */
   constructor(delegate) {
     super();
-    this._filtersControl = new Timeline.EventsTimelineTreeView.Filters();
-    this._filtersControl.addEventListener(
-        Timeline.EventsTimelineTreeView.Filters.Events.FilterChanged, this._onFilterChanged, this);
+    this._filtersControl = new Filters();
+    this._filtersControl.addEventListener(Filters.Events.FilterChanged, this._onFilterChanged, this);
     this.init();
     this._delegate = delegate;
     this._dataGrid.markColumnAsSortedBy('startTime', DataGrid.DataGrid.Order.Ascending);
@@ -31,11 +35,11 @@ Timeline.EventsTimelineTreeView = class extends Timeline.TimelineTreeView {
 
   /**
    * @override
-   * @param {!Timeline.TimelineSelection} selection
+   * @param {!TimelineSelection} selection
    */
   updateContents(selection) {
     super.updateContents(selection);
-    if (selection.type() === Timeline.TimelineSelection.Type.TraceEvent) {
+    if (selection.type() === TimelineSelection.Type.TraceEvent) {
       const event = /** @type {!SDK.TracingModel.Event} */ (selection.object());
       this._selectEvent(event, true);
     }
@@ -105,7 +109,7 @@ Timeline.EventsTimelineTreeView = class extends Timeline.TimelineTreeView {
 
   /**
    * @override
-   * @param {!Array<!DataGrid.DataGrid.ColumnDescriptor>} columns
+   * @param {!Array<!DataGrid.ColumnDescriptor>} columns
    */
   populateColumns(columns) {
     columns.push(
@@ -133,7 +137,7 @@ Timeline.EventsTimelineTreeView = class extends Timeline.TimelineTreeView {
     if (!traceEvent) {
       return false;
     }
-    Timeline.TimelineUIUtils.buildTraceEventDetails(traceEvent, this.model().timelineModel(), this._linkifier, false)
+    TimelineUIUtils.buildTraceEventDetails(traceEvent, this.model().timelineModel(), this._linkifier, false)
         .then(fragment => this._detailsView.element.appendChild(fragment));
     return true;
   }
@@ -145,16 +149,16 @@ Timeline.EventsTimelineTreeView = class extends Timeline.TimelineTreeView {
   _onHover(node) {
     this._delegate.highlightEvent(node && node.event);
   }
-};
+}
 
 /**
  * @unrestricted
  */
-Timeline.EventsTimelineTreeView.Filters = class extends Common.Object {
+export class Filters extends Common.Object {
   constructor() {
     super();
-    this._categoryFilter = new Timeline.TimelineFilters.Category();
-    this._durationFilter = new Timeline.TimelineFilters.IsLong();
+    this._categoryFilter = new Category();
+    this._durationFilter = new IsLong();
     this._filters = [this._categoryFilter, this._durationFilter];
   }
 
@@ -170,7 +174,7 @@ Timeline.EventsTimelineTreeView.Filters = class extends Common.Object {
    */
   populateToolbar(toolbar) {
     const durationFilterUI = new UI.ToolbarComboBox(durationFilterChanged.bind(this), ls`Duration filter`);
-    for (const durationMs of Timeline.EventsTimelineTreeView.Filters._durationFilterPresetsMs) {
+    for (const durationMs of Filters._durationFilterPresetsMs) {
       durationFilterUI.addOption(durationFilterUI.createOption(
           durationMs ? Common.UIString('\u2265 %d\xa0ms', durationMs) : Common.UIString('All'),
           String(durationMs)));
@@ -178,7 +182,7 @@ Timeline.EventsTimelineTreeView.Filters = class extends Common.Object {
     toolbar.appendToolbarItem(durationFilterUI);
 
     const categoryFiltersUI = {};
-    const categories = Timeline.TimelineUIUtils.categories();
+    const categories = TimelineUIUtils.categories();
     for (const categoryName in categories) {
       const category = categories[categoryName];
       if (!category.visible) {
@@ -193,7 +197,7 @@ Timeline.EventsTimelineTreeView.Filters = class extends Common.Object {
     }
 
     /**
-     * @this {Timeline.EventsTimelineTreeView.Filters}
+     * @this {Filters}
      */
     function durationFilterChanged() {
       const duration = durationFilterUI.selectedOption().value;
@@ -204,23 +208,23 @@ Timeline.EventsTimelineTreeView.Filters = class extends Common.Object {
 
     /**
      * @param {string} name
-     * @this {Timeline.EventsTimelineTreeView.Filters}
+     * @this {Filters}
      */
     function categoriesFilterChanged(name) {
-      const categories = Timeline.TimelineUIUtils.categories();
+      const categories = TimelineUIUtils.categories();
       categories[name].hidden = !categoryFiltersUI[name].checked();
       this._notifyFiltersChanged();
     }
   }
 
   _notifyFiltersChanged() {
-    this.dispatchEventToListeners(Timeline.EventsTimelineTreeView.Filters.Events.FilterChanged);
+    this.dispatchEventToListeners(Filters.Events.FilterChanged);
   }
-};
+}
 
-Timeline.EventsTimelineTreeView.Filters._durationFilterPresetsMs = [0, 1, 15];
+Filters._durationFilterPresetsMs = [0, 1, 15];
 
 /** @enum {symbol} */
-Timeline.EventsTimelineTreeView.Filters.Events = {
+Filters.Events = {
   FilterChanged: Symbol('FilterChanged')
 };

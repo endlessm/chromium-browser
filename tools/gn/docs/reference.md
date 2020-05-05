@@ -28,6 +28,7 @@
     *   [group: Declare a named group of targets.](#func_group)
     *   [loadable_module: Declare a loadable module target.](#func_loadable_module)
     *   [rust_library: Declare a Rust library target.](#func_rust_library)
+    *   [rust_proc_macro: Declare a Rust procedural macro target.](#func_rust_proc_macro)
     *   [shared_library: Declare a shared library target.](#func_shared_library)
     *   [source_set: Declare a source set target.](#func_source_set)
     *   [static_library: Declare a static library target.](#func_static_library)
@@ -55,7 +56,9 @@
     *   [set_defaults: Set default values for a target type.](#func_set_defaults)
     *   [set_sources_assignment_filter: Set a pattern to filter source files.](#func_set_sources_assignment_filter)
     *   [split_list: Splits a list into N different sub-lists.](#func_split_list)
+    *   [string_join: Concatenates a list of strings with a separator.](#func_string_join)
     *   [string_replace: Replaces substring in the given string.](#func_string_replace)
+    *   [string_split: Split string into a list of strings.](#func_string_split)
     *   [template: Define a template rule.](#func_template)
     *   [tool: Specify arguments to a toolchain tool.](#func_tool)
     *   [toolchain: Defines a toolchain.](#func_toolchain)
@@ -112,7 +115,9 @@
     *   [defines: [string list] C preprocessor defines.](#var_defines)
     *   [depfile: [string] File name for input dependencies for actions.](#var_depfile)
     *   [deps: [label list] Private linked dependencies.](#var_deps)
-    *   [edition: [string] The rustc edition to use in compiliation.](#var_edition)
+    *   [externs: [scope] Set of Rust crate-dependency pairs.](#var_externs)
+    *   [framework_dirs: [directory list] Additional framework search directories.](#var_framework_dirs)
+    *   [frameworks: [name list] Name of frameworks that must be linked.](#var_frameworks)
     *   [friend: [label pattern list] Allow targets to include private headers.](#var_friend)
     *   [include_dirs: [directory list] Additional include directories.](#var_include_dirs)
     *   [inputs: [file list] Additional compile-time dependencies.](#var_inputs)
@@ -194,6 +199,8 @@
      This filtering behavior is also known as "pruning" the list of compile
      targets.
 
+  If input_path is -, input is read from stdin.
+
   output_path is a path indicating where the results of the command are to be
   written. The results will be a file containing a JSON object with one or more
   of following fields:
@@ -226,6 +233,8 @@
    - "error": This will only be present if an error occurred, and will contain
      a string describing the error. This includes cases where the input file is
      not in the right format, or contains invalid targets.
+
+  If output_path is -, output is written to stdout.
 
   The command returns 1 if it is unable to read the input file or write the
   output file, or if there is something wrong with the build such that gen
@@ -349,6 +358,10 @@
       Generated files are normally not checked since they do not exist
       until after a build. With this flag, those generated files that
       can be found on disk are also checked.
+
+  --check-system
+     Check system style includes (using <angle brackets>) in addition to
+     "double quote" includes.
 ```
 
 #### **What gets checked**
@@ -372,8 +385,9 @@
     - Includes with a "nogncheck" annotation are skipped (see
       "gn help nogncheck").
 
-    - Only includes using "quotes" are checked. <brackets> are assumed to be
-      system includes.
+    - Includes using "quotes" are always checked.
+        If system style checking is enabled, includes using <angle brackets>
+        are also checked.
 
     - Include paths are assumed to be relative to any of the "include_dirs" for
       the target (including the implicit current dir).
@@ -484,6 +498,8 @@
   defines [--blame]
   depfile
   deps [--all] [--tree] (see below)
+  framework_dirs
+  frameworks
   include_dirs [--blame]
   inputs
   ldflags [--blame]
@@ -531,9 +547,9 @@
 ```
   --blame
       Used with any value specified on a config, this will name the config that
-      causes that target to get the flag. This doesn't currently work for libs
-      and lib_dirs because those are inherited and are more complicated to
-      figure out the blame (patches welcome).
+      causes that target to get the flag. This doesn't currently work for libs,
+      lib_dirs, frameworks and framework_dirs because those are inherited and
+      are more complicated to figure out the blame (patches welcome).
 ```
 
 #### **Configs**
@@ -672,8 +688,9 @@
   Or it can be a directory relative to the current directory such as:
       out/foo
 
-  "gn gen --check" is the same as running "gn check". See "gn help check"
-  for documentation on that mode.
+  "gn gen --check" is the same as running "gn check". "gn gen --check=system" is
+  the same as running "gn check --check-system".  See "gn help check" for
+  documentation on that mode.
 
   See "gn help switches" for the common command-line switches.
 ```
@@ -687,7 +704,7 @@
       Generate files for an IDE. Currently supported values:
       "eclipse" - Eclipse CDT settings file.
       "vs" - Visual Studio project/solution files.
-             (default Visual Studio version: 2017)
+             (default Visual Studio version: 2019)
       "vs2013" - Visual Studio 2013 project/solution files.
       "vs2015" - Visual Studio 2015 project/solution files.
       "vs2017" - Visual Studio 2017 project/solution files.
@@ -990,7 +1007,7 @@
 #### **Example**
 
 ```
-  gn path out/Default //base //tools/gn
+  gn path out/Default //base //gn
 ```
 ### <a name="cmd_refs"></a>**gn refs**
 
@@ -1077,7 +1094,7 @@
 #### **Examples (target input)**
 
 ```
-  gn refs out/Debug //tools/gn:gn
+  gn refs out/Debug //gn:gn
       Find all targets depending on the given exact target name.
 
   gn refs out/Debug //base:i18n --as=buildfiles | xargs gvim
@@ -1561,7 +1578,7 @@
   General: check_includes, configs, data, friend, inputs, metadata,
            output_name, output_extension, public, sources, testonly,
            visibility
-  Rust variables: aliased_deps, crate_root, crate_name, edition
+  Rust variables: aliased_deps, crate_root, crate_name
 ```
 ### <a name="func_generated_file"></a>**generated_file**: Declare a generated_file target.
 
@@ -1569,7 +1586,7 @@
   Writes data value(s) to disk on resolution. This target type mirrors some
   functionality of the write_file() function, but also provides the ability to
   collect metadata from its dependencies on resolution rather than writing out
-  parse time.
+  at parse time.
 
   The `outputs` variable is required to be a list with a single element,
   specifying the intended location of the output file.
@@ -1598,8 +1615,8 @@
         doom_melon = [ "enable" ]
         my_files = [ "foo.cpp" ]
 
-        // Note: this is functionally equivalent to not defining `my_barrier`
-        // at all in this target's metadata.
+        # Note: this is functionally equivalent to not defining `my_barrier`
+        # at all in this target's metadata.
         my_barrier = [ "" ]
       }
 
@@ -1755,7 +1772,7 @@
   General: check_includes, configs, data, friend, inputs, metadata,
            output_name, output_extension, public, sources, testonly,
            visibility
-  Rust variables: aliased_deps, crate_root, crate_name, crate_type, edition
+  Rust variables: aliased_deps, crate_root, crate_name, crate_type
 ```
 ### <a name="func_rust_library"></a>**rust_library**: Declare a Rust library target.
 
@@ -1787,7 +1804,42 @@
   General: check_includes, configs, data, friend, inputs, metadata,
            output_name, output_extension, public, sources, testonly,
            visibility
-  Rust variables: aliased_deps, crate_root, crate_name, edition
+  Rust variables: aliased_deps, crate_root, crate_name
+```
+### <a name="func_rust_proc_macro"></a>**rust_proc_macro**: Declare a Rust procedural macro target.
+
+```
+  A Rust procedural macro allows creating syntax extensions as execution of a
+  function. They are compiled as dynamic libraries and used by the compiler at
+  runtime.
+
+  Their use is the same as of other Rust libraries, but their build has some
+  additional restrictions in terms of supported flags.
+```
+
+#### **Language and compilation**
+
+```
+  The tools and commands used to create this target type will be
+  determined by the source files in its sources. Targets containing
+  multiple compiler-incompatible languages are not allowed (e.g. a
+  target containing both C and C++ sources is acceptable, but a
+  target containing C and Rust sources is not).
+```
+
+#### **Variables**
+
+```
+  Flags: cflags, cflags_c, cflags_cc, cflags_objc, cflags_objcc,
+         asmflags, defines, include_dirs, inputs, ldflags, lib_dirs,
+         libs, precompiled_header, precompiled_source, rustflags,
+         rustenv
+  Deps: data_deps, deps, public_deps
+  Dependent configs: all_dependent_configs, public_configs
+  General: check_includes, configs, data, friend, inputs, metadata,
+           output_name, output_extension, public, sources, testonly,
+           visibility
+  Rust variables: aliased_deps, crate_root, crate_name
 ```
 ### <a name="func_shared_library"></a>**shared_library**: Declare a shared library target.
 
@@ -1821,7 +1873,7 @@
   General: check_includes, configs, data, friend, inputs, metadata,
            output_name, output_extension, public, sources, testonly,
            visibility
-  Rust variables: aliased_deps, crate_root, crate_name, crate_type, edition
+  Rust variables: aliased_deps, crate_root, crate_name, crate_type
 ```
 ### <a name="func_source_set"></a>**source_set**: Declare a source set target.
 
@@ -1900,7 +1952,7 @@
   General: check_includes, configs, data, friend, inputs, metadata,
            output_name, output_extension, public, sources, testonly,
            visibility
-  Rust variables: aliased_deps, crate_root, crate_name, edition
+  Rust variables: aliased_deps, crate_root, crate_name
 
   The tools and commands used to create this target type will be
   determined by the source files in its sources. Targets containing
@@ -2042,8 +2094,9 @@
       the current scope is not (since the overrides haven't been applied yet).
 
    2. At the end of executing the block, any variables set within that scope
-      are saved globally as build arguments, with their current values being
-      saved as the "default value" for that argument.
+      are saved, with the values specified in the block used as the "default value"
+      for that argument. Once saved, these variables are available for override
+      via args.gn.
 
    3. User-defined overrides are applied. Anything set in "gn args" now
       overrides any default values. The resulting set of variables is promoted
@@ -2471,12 +2524,6 @@
   process_file_template will return for those inputs (see "gn help
   process_file_template").
 
-  binary targets (executables, libraries): this will return a list of the
-  resulting binary file(s). The "main output" (the actual binary or library)
-  will always be the 0th element in the result. Depending on the platform and
-  output type, there may be other output files as well (like import libraries)
-  which will follow.
-
   source sets and groups: this will return a list containing the path of the
   "stamp" file that Ninja will produce once all outputs are generated. This
   probably isn't very useful.
@@ -2612,7 +2659,7 @@
   toolchain("toolchain") {
     tool("link") {
       command = "..."
-      pool = ":link_pool($default_toolchain)")
+      pool = ":link_pool($default_toolchain)"
     }
   }
 ```
@@ -2962,6 +3009,22 @@
   Will print:
     [[1, 2], [3, 4], [5, 6]
 ```
+### <a name="func_string_join"></a>**string_join**: Concatenates a list of strings with a separator.
+
+```
+  result = string_join(separator, strings)
+
+  Concatenate a list of strings with intervening occurrences of separator.
+```
+
+#### **Examples**
+
+```
+    string_join("", ["a", "b", "c"])    --> "abc"
+    string_join("|", ["a", "b", "c"])   --> "a|b|c"
+    string_join(", ", ["a", "b", "c"])  --> "a, b, c"
+    string_join("s", ["", ""])          --> "s"
+```
 ### <a name="func_string_replace"></a>**string_replace**: Replaces substring in the given string.
 
 ```
@@ -2982,6 +3045,33 @@
 
   Will print:
     Hello, GN!
+```
+### <a name="func_string_split"></a>**string_split**: Split string into a list of strings.
+
+```
+  result = string_split(str[, sep])
+
+  Split string into all substrings separated by separator and returns a list
+  of the substrings between those separators.
+
+  If the separator argument is omitted, the split is by any whitespace, and
+  any leading/trailing whitespace is ignored; similar to Python's str.split().
+```
+
+#### **Examples without a separator (split on whitespace)**:
+
+```
+  string_split("")          --> []
+  string_split("a")         --> ["a"]
+  string_split(" aa  bb")   --> ["aa", "bb"]
+```
+
+#### **Examples with a separator (split on separators)**:
+
+```
+  string_split("", "|")           --> [""]
+  string_split("  a b  ", " ")    --> ["", "", "a", "b", "", ""]
+  string_split("aa+-bb+-c", "+-") --> ["aa", "bb", "c"]
 ```
 ### <a name="func_template"></a>**template**: Define a template rule.
 
@@ -3182,7 +3272,12 @@
       "compile_xcassets": [iOS, macOS] Tool to compile asset catalogs.
 
     Rust tools:
-      "rustc": Rust compiler and linker
+      "rust_bin": Tool for compiling Rust binaries
+      "rust_cdylib": Tool for compiling C-compatible dynamic libraries.
+      "rust_dylib": Tool for compiling Rust dynamic libraries.
+      "rust_macro": Tool for compiling Rust procedural macros.
+      "rust_rlib": Tool for compiling Rust libraries.
+      "rust_staticlib": Tool for compiling Rust static libraries.
 ```
 
 #### **Tool variables**
@@ -3259,7 +3354,7 @@
     rlib_output_extension [string, optional, rust tools only]
     dylib_output_extension [string, optional, rust tools only]
     cdylib_output_extension [string, optional, rust tools only]
-    proc_macro_output_extension [string, optional, rust tools only]
+    rust_proc_macro_output_extension [string, optional, rust tools only]
         Valid for: Rust tools
 
         These specify the default tool output for each of the crate types.
@@ -3274,12 +3369,32 @@
         Valid for: Linker tools except "alink"
 
         These strings will be prepended to the libraries and library search
-        directories, respectively, because linkers differ on how specify them.
+        directories, respectively, because linkers differ on how to specify
+        them.
+
         If you specified:
           lib_switch = "-l"
           lib_dir_switch = "-L"
-        then the "{{libs}}" expansion for [ "freetype", "expat"] would be
-        "-lfreetype -lexpat".
+        then the "{{libs}}" expansion for
+          [ "freetype", "expat" ]
+        would be
+          "-lfreetype -lexpat".
+
+    framework_switch [string, optional, link tools only]
+    framework_dir_switch [string, optional, link tools only]
+        Valid for: Linker tools
+
+        These strings will be prepended to the frameworks and framework search
+        path directories, respectively, because linkers differ on how to specify
+        them.
+
+        If you specified:
+          framework_switch = "-framework "
+          framework_dir_switch = "-F"
+        then the "{{libs}}" expansion for
+          [ "UIKit.framework", "$root_out_dir/Foo.framework" ]
+        would be
+          "-framework UIKit -F. -framework Foo"
 
     outputs  [list of strings with substitutions]
         Valid for: Linker and compiler tools (required)
@@ -3550,6 +3665,12 @@
 
         Example: "libfoo.so libbar.so"
 
+    {{frameworks}}
+        Shared libraries packaged as framework bundle. This is principally
+        used on Apple's platforms (macOS and iOS). All name must be ending
+        with ".framework" suffix; the suffix will be stripped when expanding
+        {{frameworks}} and each item will be preceded by "-framework".
+
   The static library ("alink") tool allows {{arflags}} plus the common tool
   substitutions.
 
@@ -3598,13 +3719,6 @@
     {{externs}}
         Expands to the list of --extern flags needed to include addition Rust
         libraries in this target. Includes any specified renamed dependencies.
-
-    {{rustc_output_extension}}
-        Expands to the output extension for this target's crate type.
-
-    {{rustc_output_prefix}}
-        Expands to the prefix for shared and static libraries. This should
-        generally be "lib". Empty for executable targets.
 
     {{rustdeps}}
         Expands to the list of -Ldependency=<path> strings needed to compile
@@ -5101,15 +5215,93 @@
 
   See also "public_deps".
 ```
-### <a name="var_edition"></a>**edition**: [string] The rustc edition to use in compiliation.
+### <a name="var_externs"></a>**externs**: [scope] Set of Rust crate-dependency pairs.
 
 ```
-  Valid for `rust_library` targets and `executable`, `static_library`,
-  `shared_library`, and `source_set` targets that contain Rust sources.
+  A list, each value being a scope indicating a pair of crate name and the path
+  to the Rust library.
 
-  This indicates the compiler edition to use in compilition. Should be a value
-  like "2015" or "2018", indiicating the appropriate value to pass to the
-  `--edition=<>` flag in rustc.
+  These libraries will be passed as `--extern crate_name=path` to compiler
+  invocation containing the current target.
+```
+
+#### **Examples**
+
+```
+    executable("foo") {
+      sources = [ "main.rs" ]
+      externs = [{
+        crate_name = "bar",
+        path = "path/to/bar.rlib"
+      }]
+    }
+
+  This target would compile the `foo` crate with the following `extern` flag:
+  `--extern bar=path/to/bar.rlib`.
+```
+### <a name="var_framework_dirs"></a>**framework_dirs**: [directory list] Additional framework search directories.
+
+```
+  A list of source directories.
+
+  The directories in this list will be added to the framework search path for
+  the files in the affected target.
+```
+
+#### **Ordering of flags and values**
+
+```
+  1. Those set on the current target (not in a config).
+  2. Those set on the "configs" on the target in order that the
+     configs appear in the list.
+  3. Those set on the "all_dependent_configs" on the target in order
+     that the configs appear in the list.
+  4. Those set on the "public_configs" on the target in order that
+     those configs appear in the list.
+  5. all_dependent_configs pulled from dependencies, in the order of
+     the "deps" list. This is done recursively. If a config appears
+     more than once, only the first occurence will be used.
+  6. public_configs pulled from dependencies, in the order of the
+     "deps" list. If a dependency is public, they will be applied
+     recursively.
+```
+
+#### **Example**
+
+```
+  framework_dirs = [ "src/include", "//third_party/foo" ]
+```
+### <a name="var_frameworks"></a>**frameworks**: [name list] Name of frameworks that must be linked.
+
+```
+  A list of framework names.
+
+  The frameworks named in that list will be linked with any dynamic link
+  type target.
+```
+
+#### **Ordering of flags and values**
+
+```
+  1. Those set on the current target (not in a config).
+  2. Those set on the "configs" on the target in order that the
+     configs appear in the list.
+  3. Those set on the "all_dependent_configs" on the target in order
+     that the configs appear in the list.
+  4. Those set on the "public_configs" on the target in order that
+     those configs appear in the list.
+  5. all_dependent_configs pulled from dependencies, in the order of
+     the "deps" list. This is done recursively. If a config appears
+     more than once, only the first occurence will be used.
+  6. public_configs pulled from dependencies, in the order of the
+     "deps" list. If a dependency is public, they will be applied
+     recursively.
+```
+
+#### **Example**
+
+```
+  frameworks = [ "Foundation.framework", "Foo.framework" ]
 ```
 ### <a name="var_friend"></a>**friend**: Allow targets to include private headers.
 
@@ -5447,7 +5639,7 @@
     }
   }
 ```
-### <a name="var_output_conversion"></a>**"output_conversion**: Data format for generated_file targets.
+### <a name="var_output_conversion"></a>**output_conversion**: Data format for generated_file targets.
 
 ```
   Controls how the "contents" of a generated_file target is formatted.
@@ -6241,6 +6433,14 @@
       The format of this list is identical to that of "visibility" so see "gn
       help visibility" for examples.
 
+  check_system_includes [optional]
+      Boolean to control whether system style includes are checked by default
+      when running "gn check" or "gn gen --check".  System style includes are
+      includes that use angle brackets <> instead of double quotes "". If this
+      setting is omitted or set to false, these includes will be ignored by
+      default. They can be checked explicitly by running
+      "gn check --check-system" or "gn gen --check=system"
+
   exec_script_whitelist [optional]
       A list of .gn/.gni files (not labels) that have permission to call the
       exec_script function. If this list is defined, calls to exec_script will
@@ -6828,7 +7028,7 @@
 ```
   Metadata is information attached to targets throughout the dependency tree. GN
   allows for the collection of this data into files written during the generation
-  step, enabing users to expose and aggregate this data based on the dependency
+  step, enabling users to expose and aggregate this data based on the dependency
   tree.
 ```
 
@@ -6837,17 +7037,17 @@
 ```
   Similar to the write_file() function, the generated_file target type
   creates a file in the specified location with the specified content. The
-  primary difference between the function and the target type is that the
+  primary difference between write_file() and this target type is that the
   write_file function does the file write at parse time, while the
   generated_file target type writes at target resolution time. See
   "gn help generated_file" for more detail.
 
-  When written at target resolution time, the generated_file enables GN to
+  When written at target resolution time, generated_file enables GN to
   collect and write aggregated metadata from dependents.
 
-  A generated_file target can declare either 'contents' (to write statically
-  known contents to a file) or 'data_keys'(to aggregate metadata and write the
-  result to a file). It can also specify 'walk_keys' (to restrict the metadata
+  A generated_file target can declare either 'contents' to write statically
+  known contents to a file or 'data_keys' to aggregate metadata and write the
+  result to a file. It can also specify 'walk_keys' (to restrict the metadata
   collection), 'output_conversion', and 'rebase'.
 ```
 
@@ -6855,22 +7055,23 @@
 
 ```
   Targets can declare a 'metadata' variable containing a scope, and this
-  metadata is collected and written to file by generated_file aggregation
-  targets. The 'metadata' scope must contain only list values, since the
-  aggregation step collects a list of these values.
+  metadata may be collected and written out to a file specified by
+  generated_file aggregation targets. The 'metadata' scope must contain
+  only list values since the aggregation step collects a list of these values.
 
   During the target resolution, generated_file targets will walk their
   dependencies recursively, collecting metadata based on the specified
   'data_keys'. 'data_keys' is specified as a list of strings, used by the walk
   to identify which variables in dependencies' 'metadata' scopes to collect.
 
-  The walk begins with the listed dependencies of the 'generated_file' target,
-  for each checking the "metadata" scope for any of the "data_keys". If
-  present, the data in those variables is appended to the aggregate list. Note
-  that this means that if more than one walk key is specified, the data in all
-  of them will be aggregated into one list. From there, the walk will then
-  recurse into the dependencies of each target it encounters, collecting the
-  specified metadata for each.
+  The walk begins with the listed dependencies of the 'generated_file' target.
+  The 'metadata' scope for each dependency is inspected for matching elements
+  of the 'generated_file' target's 'data_keys' list.  If a match is found, the
+  data from the dependent's matching key list is appended to the aggregate walk
+  list. Note that this means that if more than one walk key is specified, the
+  data in all of them will be aggregated into one list. From there, the walk
+  will then recurse into the dependencies of each target it encounters,
+  collecting the specified metadata for each.
 
   For example:
 
@@ -6903,10 +7104,10 @@
     bar.cpp
     baz.cpp
 
-  The dependency walk can be limited by using the "walk_keys". This is a list of
+  The dependency walk can be limited by using the 'walk_keys'. This is a list of
   labels that should be included in the walk. All labels specified here should
   also be in one of the deps lists. These keys act as barriers, where the walk
-  will only recurse into targets listed here. An empty list in all specified
+  will only recurse into the targets listed. An empty list in all specified
   barriers will end that portion of the walk.
 
     group("a") {

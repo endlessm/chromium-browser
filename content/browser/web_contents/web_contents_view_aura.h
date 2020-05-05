@@ -108,7 +108,8 @@ class CONTENT_EXPORT WebContentsViewAura
 
   void SizeChangedCommon(const gfx::Size& size);
 
-  void EndDrag(RenderWidgetHost* source_rwh, blink::WebDragOperationsMask ops);
+  void EndDrag(base::WeakPtr<RenderWidgetHostImpl> source_rwh_weak_ptr,
+               blink::WebDragOperationsMask ops);
 
   void InstallOverscrollControllerDelegate(RenderWidgetHostViewAura* view);
 
@@ -327,8 +328,6 @@ class CONTENT_EXPORT WebContentsViewAura
 
   bool init_rwhv_with_null_parent_for_testing_;
 
-  // Used to ensure that the drag and drop callbacks bound to this
-  // object are canceled when this object is destroyed.
   base::WeakPtrFactory<WebContentsViewAura> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WebContentsViewAura);

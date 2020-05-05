@@ -98,6 +98,8 @@ llvm::Optional<HighlightingKind> kindForDecl(const NamedDecl *D) {
   if (isa<TemplateTemplateParmDecl>(D) || isa<TemplateTypeParmDecl>(D) ||
       isa<NonTypeTemplateParmDecl>(D))
     return HighlightingKind::TemplateParameter;
+  if (isa<ConceptDecl>(D))
+    return HighlightingKind::Concept;
   return llvm::None;
 }
 llvm::Optional<HighlightingKind> kindForType(const Type *TP) {
@@ -258,6 +260,25 @@ public:
     return true;
   }
 
+  bool VisitDependentTemplateSpecializationTypeLoc(
+      DependentTemplateSpecializationTypeLoc L) {
+    H.addToken(L.getTemplateNameLoc(), HighlightingKind::DependentType);
+    return true;
+  }
+
+  // findExplicitReferences will walk nested-name-specifiers and
+  // find anything that can be resolved to a Decl. However, non-leaf
+  // components of nested-name-specifiers which are dependent names
+  // (kind "Identifier") cannot be resolved to a decl, so we visit
+  // them here.
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc Q) {
+    if (NestedNameSpecifier *NNS = Q.getNestedNameSpecifier()) {
+      if (NNS->getKind() == NestedNameSpecifier::Identifier)
+        H.addToken(Q.getLocalBeginLoc(), HighlightingKind::DependentType);
+    }
+    return RecursiveASTVisitor::TraverseNestedNameSpecifierLoc(Q);
+  }
+
 private:
   HighlightingsBuilder &H;
 };
@@ -373,6 +394,8 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, HighlightingKind K) {
     return OS << "Namespace";
   case HighlightingKind::TemplateParameter:
     return OS << "TemplateParameter";
+  case HighlightingKind::Concept:
+    return OS << "Concept";
   case HighlightingKind::Primitive:
     return OS << "Primitive";
   case HighlightingKind::Macro:
@@ -515,6 +538,8 @@ llvm::StringRef toTextMateScope(HighlightingKind Kind) {
     return "entity.name.namespace.cpp";
   case HighlightingKind::TemplateParameter:
     return "entity.name.type.template.cpp";
+  case HighlightingKind::Concept:
+    return "entity.name.type.concept.cpp";
   case HighlightingKind::Primitive:
     return "storage.type.primitive.cpp";
   case HighlightingKind::Macro:

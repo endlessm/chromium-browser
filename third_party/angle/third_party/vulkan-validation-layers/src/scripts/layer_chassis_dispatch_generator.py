@@ -1,9 +1,9 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2015-2019 The Khronos Group Inc.
-# Copyright (c) 2015-2019 Valve Corporation
-# Copyright (c) 2015-2019 LunarG, Inc.
-# Copyright (c) 2015-2019 Google Inc.
+# Copyright (c) 2015-2020 The Khronos Group Inc.
+# Copyright (c) 2015-2020 Valve Corporation
+# Copyright (c) 2015-2020 LunarG, Inc.
+# Copyright (c) 2015-2020 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -119,10 +119,10 @@ class LayerChassisDispatchOutputGenerator(OutputGenerator):
 // This file is ***GENERATED***.  Do Not Edit.
 // See layer_chassis_dispatch_generator.py for modifications.
 
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -259,6 +259,19 @@ VkResult DispatchCreateRenderPass2KHR(VkDevice device, const VkRenderPassCreateI
                                       const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     VkResult result = layer_data->device_dispatch_table.CreateRenderPass2KHR(device, pCreateInfo, pAllocator, pRenderPass);
+    if (!wrap_handles) return result;
+    if (VK_SUCCESS == result) {
+        write_lock_guard_t lock(dispatch_lock);
+        UpdateCreateRenderPassState(layer_data, pCreateInfo, *pRenderPass);
+        *pRenderPass = layer_data->WrapNew(*pRenderPass);
+    }
+    return result;
+}
+
+VkResult DispatchCreateRenderPass2(VkDevice device, const VkRenderPassCreateInfo2KHR *pCreateInfo,
+                                      const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    VkResult result = layer_data->device_dispatch_table.CreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
     if (!wrap_handles) return result;
     if (VK_SUCCESS == result) {
         write_lock_guard_t lock(dispatch_lock);
@@ -970,6 +983,23 @@ VkResult DispatchSetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsO
     return result;
 }
 
+VkResult DispatchGetPhysicalDeviceToolPropertiesEXT(
+    VkPhysicalDevice                            physicalDevice,
+    uint32_t*                                   pToolCount,
+    VkPhysicalDeviceToolPropertiesEXT*          pToolProperties)
+{
+    VkResult result = VK_SUCCESS;
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
+    if (layer_data->instance_dispatch_table.GetPhysicalDeviceToolPropertiesEXT == nullptr) {
+        // This layer is the terminator. Set pToolCount to zero.
+        *pToolCount = 0;
+    } else {
+        result = layer_data->instance_dispatch_table.GetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+    }
+
+    return result;
+}
+
 """
     # Separate generated text for source and headers
     ALL_SECTIONS = ['source_file', 'header_file']
@@ -1008,6 +1038,7 @@ VkResult DispatchSetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsO
             'vkDebugMarkerSetObjectNameEXT',
             'vkCreateRenderPass',
             'vkCreateRenderPass2KHR',
+            'vkCreateRenderPass2',
             'vkDestroyRenderPass',
             'vkSetDebugUtilsObjectNameEXT',
             'vkSetDebugUtilsObjectTagEXT',
@@ -1023,6 +1054,7 @@ VkResult DispatchSetDebugUtilsObjectNameEXT(VkDevice device, const VkDebugUtilsO
             'vkEnumerateDeviceExtensionProperties',
             'vkEnumerateDeviceLayerProperties',
             'vkEnumerateInstanceVersion',
+            'vkGetPhysicalDeviceToolPropertiesEXT',
             ]
         self.headerVersion = None
         # Internal state - accumulators for different inner block text

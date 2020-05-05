@@ -300,7 +300,7 @@ void HTMLConstructionSite::AttachLater(ContainerNode* parent,
   DCHECK(ScriptingContentIsAllowed(parser_content_policy_) || !element ||
          !element->IsScriptElement());
   DCHECK(PluginContentIsAllowed(parser_content_policy_) ||
-         !IsHTMLPlugInElement(child));
+         !IsA<HTMLPlugInElement>(child));
 
   HTMLConstructionSiteTask task(HTMLConstructionSiteTask::kInsert);
   task.parent = parent;
@@ -580,7 +580,7 @@ void HTMLConstructionSite::SetCompatibilityModeFromDoctype(
           "-//WebTechs//DTD Mozilla HTML//") ||
       DeprecatedEqualIgnoringCase(public_id,
                                   "-/W3C/DTD HTML 4.0 Transitional/EN") ||
-      DeprecatedEqualIgnoringCase(public_id, "HTML") ||
+      EqualIgnoringASCIICase(public_id, "HTML") ||
       DeprecatedEqualIgnoringCase(
           system_id,
           "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd") ||
@@ -919,8 +919,11 @@ Element* HTMLConstructionSite::CreateElement(
     // reactions stack."
     CEReactionsScope reactions;
 
-    // 7.
-    element = definition->CreateAutonomousCustomElementSync(document, tag_name);
+    // 7. Let element be the result of creating an element given document,
+    // localName, given namespace, null, and is. If will execute script is true,
+    // set the synchronous custom elements flag; otherwise, leave it unset.
+    element =
+        definition->CreateElement(document, tag_name, GetCreateElementFlags());
 
     // "8. Append each attribute in the given token to element." We don't use
     // setAttributes here because the custom element constructor may have

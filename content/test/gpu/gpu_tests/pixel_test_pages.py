@@ -156,6 +156,31 @@ class PixelTestPages(object):
         test_rect=[20, 20, 370, 370]),
 
       PixelTestPage(
+        'pixel_reflected_div.html',
+        base_name + '_ReflectedDiv',
+        test_rect=[0, 0, 100, 300],
+        expected_colors=[
+          {
+            'comment': 'inside original div, orange',
+            'location': [5, 5],
+            'size': [90, 90],
+            'color': [255, 128, 0],
+          },
+          {
+            'comment': 'outside both div and reflection, in between, white',
+            'location': [5, 105],
+            'size': [90, 90],
+            'color': [255, 255, 255],
+          },
+          {
+            'comment': 'inside reflection, orange',
+            'location': [5, 205],
+            'size': [90, 90],
+            'color': [255, 128, 0],
+          }
+        ]),
+
+      PixelTestPage(
         'pixel_canvas2d.html',
         base_name + '_Canvas2DRedBox',
         test_rect=[0, 0, 300, 300]),
@@ -665,6 +690,73 @@ class PixelTestPages(object):
           },
         ]),
 
+        PixelTestPage(
+          'pixel_webgl_read_pixels_tab_switch.html',
+          base_name + '_WebGLReadPixelsTabSwitch',
+          test_rect=[0, 0, 100, 100],
+          optional_action='SwitchTabs',
+          tolerance=3,
+          expected_colors=[
+            {
+              'comment': 'top left, red',
+              'location': [5, 5],
+              'size': [40, 40],
+              'color': [255, 0, 0],
+            },
+            {
+              'comment': 'bottom right, red',
+              'location': [55, 55],
+              'size': [40, 40],
+              'color': [255, 0, 0],
+            },
+            {
+              'comment': 'top right, blue',
+              'location': [55, 5],
+              'size': [40, 40],
+              'color': [0, 0, 255],
+            },
+            {
+              'comment': 'bottom left, green',
+              'location': [5, 55],
+              'size': [40, 40],
+              'color': [0, 255, 0],
+            },
+        ]),
+
+        PixelTestPage(
+          'pixel_webgl_read_pixels_tab_switch.html',
+          base_name + '_WebGLReadPixelsTabSwitch_SoftwareCompositing',
+          test_rect=[0, 0, 100, 100],
+          browser_args=sw_compositing_args,
+          optional_action='SwitchTabs',
+          tolerance=3,
+          expected_colors=[
+            {
+              'comment': 'top left, red',
+              'location': [5, 5],
+              'size': [40, 40],
+              'color': [255, 0, 0],
+            },
+            {
+              'comment': 'bottom right, red',
+              'location': [55, 55],
+              'size': [40, 40],
+              'color': [255, 0, 0],
+            },
+            {
+              'comment': 'top right, blue',
+              'location': [55, 5],
+              'size': [40, 40],
+              'color': [0, 0, 255],
+            },
+            {
+              'comment': 'bottom left, green',
+              'location': [5, 55],
+              'size': [40, 40],
+              'color': [0, 255, 0],
+            },
+        ]),
+
     ]
 
 
@@ -791,6 +883,22 @@ class PixelTestPages(object):
         base_name + '_PrecisionRoundedCorner',
         test_rect=[0, 0, 400, 400],
         browser_args=browser_args)
+    ]
+
+  # Pages that should be run with off-thread paint worklet flags.
+  @staticmethod
+  def PaintWorkletPages(base_name):
+    browser_args = [
+      '--enable-blink-features=OffMainThreadCSSPaint',
+      '--enable-gpu-rasterization',
+      '--enable-oop-rasterization']
+
+    return [
+      PixelTestPage(
+        'pixel_paintWorklet_transform.html',
+        base_name + '_PaintWorkletTransform',
+        test_rect=[0, 0, 200, 200],
+        browser_args=browser_args),
     ]
 
   # Pages that should be run with experimental canvas features.

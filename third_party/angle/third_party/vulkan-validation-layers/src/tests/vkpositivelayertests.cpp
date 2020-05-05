@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,47 @@
 // POSITIVE VALIDATION TESTS
 //
 // These tests do not expect to encounter ANY validation errors pass only if this is true
+
+TEST_F(VkPositiveLayerTest, ToolingExtension) {
+    TEST_DESCRIPTION("Call Tooling Extension and verify layer results");
+
+    ASSERT_NO_FATAL_FAILURE(InitFramework(myDbgFunc, m_errorMonitor));
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    m_errorMonitor->ExpectSuccess();
+    auto fpGetPhysicalDeviceToolPropertiesEXT =
+        (PFN_vkGetPhysicalDeviceToolPropertiesEXT)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceToolPropertiesEXT");
+
+    uint32_t tool_count = 0;
+    auto result = fpGetPhysicalDeviceToolPropertiesEXT(gpu(), &tool_count, nullptr);
+
+    if (tool_count <= 0) {
+        m_errorMonitor->SetError("Expected layer tooling data but received none");
+    }
+
+    auto tool_properties = new VkPhysicalDeviceToolPropertiesEXT[tool_count];
+    for (uint32_t i = 0; i < tool_count; i++) {
+        tool_properties[i].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TOOL_PROPERTIES_EXT;
+    }
+
+    bool found_validation_layer = false;
+
+    if (result == VK_SUCCESS) {
+        result = fpGetPhysicalDeviceToolPropertiesEXT(gpu(), &tool_count, tool_properties);
+
+        for (uint32_t i = 0; i < tool_count; i++) {
+            if (strcmp(tool_properties[0].name, "Khronos Validation Layer") == 0) {
+                found_validation_layer = true;
+                break;
+            }
+        }
+    }
+    if (!found_validation_layer) {
+        m_errorMonitor->SetError("Expected layer tooling data but received none");
+    }
+
+    m_errorMonitor->VerifyNotFound();
+}
 
 TEST_F(VkPositiveLayerTest, NullFunctionPointer) {
     TEST_DESCRIPTION("On 1_0 instance , call GetDeviceProcAddr on promoted 1_1 device-level entrypoint");
@@ -7805,14 +7846,125 @@ TEST_F(VkPositiveLayerTest, GetDevProcAddrNullPtr) {
     }
     m_errorMonitor->VerifyNotFound();
 }
+
+TEST_F(VkPositiveLayerTest, GetDevProcAddrExtensions) {
+    TEST_DESCRIPTION("Call GetDeviceProcAddr with and without extension enabled");
+    SetTargetApiVersion(VK_API_VERSION_1_1);
+    ASSERT_NO_FATAL_FAILURE(InitFramework(myDbgFunc, m_errorMonitor));
+    if (DeviceValidationVersion() < VK_API_VERSION_1_1) {
+        printf("%s GetDevProcAddrExtensions requires Vulkan 1.1+, skipping test\n", kSkipPrefix);
+        return;
+    }
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    m_errorMonitor->ExpectSuccess();
+    auto vkTrimCommandPool = vk::GetDeviceProcAddr(m_device->device(), "vkTrimCommandPool");
+    auto vkTrimCommandPoolKHR = vk::GetDeviceProcAddr(m_device->device(), "vkTrimCommandPoolKHR");
+    if (nullptr == vkTrimCommandPool) m_errorMonitor->SetError("Unexpected null pointer");
+    if (nullptr != vkTrimCommandPoolKHR) m_errorMonitor->SetError("Didn't receive expected null pointer");
+
+    const char *const extension = {VK_KHR_MAINTENANCE1_EXTENSION_NAME};
+    const float q_priority[] = {1.0f};
+    VkDeviceQueueCreateInfo queue_ci = {};
+    queue_ci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_ci.queueFamilyIndex = 0;
+    queue_ci.queueCount = 1;
+    queue_ci.pQueuePriorities = q_priority;
+
+    VkDeviceCreateInfo device_ci = {};
+    device_ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_ci.enabledExtensionCount = 1;
+    device_ci.ppEnabledExtensionNames = &extension;
+    device_ci.queueCreateInfoCount = 1;
+    device_ci.pQueueCreateInfos = &queue_ci;
+
+    VkDevice device;
+    vk::CreateDevice(gpu(), &device_ci, NULL, &device);
+
+    vkTrimCommandPoolKHR = vk::GetDeviceProcAddr(device, "vkTrimCommandPoolKHR");
+    if (nullptr == vkTrimCommandPoolKHR) m_errorMonitor->SetError("Unexpected null pointer");
+    m_errorMonitor->VerifyNotFound();
+    vk::DestroyDevice(device, nullptr);
+}
 #endif
+
+TEST_F(VkPositiveLayerTest, Vulkan12Features) {
+    TEST_DESCRIPTION("Enable feature via Vulkan12features struct");
+    SetTargetApiVersion(VK_API_VERSION_1_2);
+    ASSERT_NO_FATAL_FAILURE(InitFramework(myDbgFunc, m_errorMonitor));
+    if (DeviceValidationVersion() < VK_API_VERSION_1_2) {
+        printf("%s Vulkan12Struct requires Vulkan 1.2+, skipping test\n", kSkipPrefix);
+        return;
+    }
+
+    VkPhysicalDeviceFeatures2 features2 = {};
+    auto bda_features = lvl_init_struct<VkPhysicalDeviceBufferDeviceAddressFeatures>();
+    PFN_vkGetPhysicalDeviceFeatures2 vkGetPhysicalDeviceFeatures2 =
+        (PFN_vkGetPhysicalDeviceFeatures2)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2");
+    ASSERT_TRUE(vkGetPhysicalDeviceFeatures2 != nullptr);
+
+    features2 = lvl_init_struct<VkPhysicalDeviceFeatures2>(&bda_features);
+    vkGetPhysicalDeviceFeatures2(gpu(), &features2);
+
+    if (!bda_features.bufferDeviceAddress) {
+        printf("Buffer Device Address feature not supported, skipping test\n");
+        return;
+    }
+
+    m_errorMonitor->ExpectSuccess();
+    VkPhysicalDeviceVulkan12Features features12 = {};
+    features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    features12.bufferDeviceAddress = true;
+    features2.pNext = &features12;
+    ASSERT_NO_FATAL_FAILURE(InitState(nullptr, &features2));
+
+    uint32_t qfi = 0;
+    VkBufferCreateInfo bci = {};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    bci.size = 8;
+    bci.queueFamilyIndexCount = 1;
+    bci.pQueueFamilyIndices = &qfi;
+    VkBuffer buffer;
+    vk::CreateBuffer(m_device->device(), &bci, NULL, &buffer);
+    VkMemoryRequirements buffer_mem_reqs = {};
+    vk::GetBufferMemoryRequirements(m_device->device(), buffer, &buffer_mem_reqs);
+    VkMemoryAllocateInfo buffer_alloc_info = {};
+    buffer_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    buffer_alloc_info.allocationSize = buffer_mem_reqs.size;
+    m_device->phy().set_memory_type(buffer_mem_reqs.memoryTypeBits, &buffer_alloc_info, 0);
+    VkMemoryAllocateFlagsInfo alloc_flags = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};
+    alloc_flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
+    buffer_alloc_info.pNext = &alloc_flags;
+    VkDeviceMemory buffer_mem;
+    VkResult err = vk::AllocateMemory(m_device->device(), &buffer_alloc_info, NULL, &buffer_mem);
+    ASSERT_VK_SUCCESS(err);
+    vk::BindBufferMemory(m_device->device(), buffer, buffer_mem, 0);
+
+    VkBufferDeviceAddressInfo bda_info = {};
+    bda_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    bda_info.buffer = buffer;
+    auto vkGetBufferDeviceAddress =
+        (PFN_vkGetBufferDeviceAddress)vk::GetDeviceProcAddr(m_device->device(), "vkGetBufferDeviceAddress");
+    ASSERT_TRUE(vkGetBufferDeviceAddress != nullptr);
+    vkGetBufferDeviceAddress(m_device->device(), &bda_info);
+    m_errorMonitor->VerifyNotFound();
+
+    // Also verify that we don't get the KHR extension address without enabling the KHR extension
+    auto vkGetBufferDeviceAddressKHR =
+        (PFN_vkGetBufferDeviceAddressKHR)vk::GetDeviceProcAddr(m_device->device(), "vkGetBufferDeviceAddressKHR");
+    if (nullptr != vkGetBufferDeviceAddressKHR) m_errorMonitor->SetError("Didn't receive expected null pointer");
+    m_errorMonitor->VerifyNotFound();
+    vk::DestroyBuffer(m_device->device(), buffer, NULL);
+    vk::FreeMemory(m_device->device(), buffer_mem, NULL);
+}
 
 TEST_F(VkPositiveLayerTest, CmdCopySwapchainImage) {
     TEST_DESCRIPTION("Run vkCmdCopyImage with a swapchain image");
 
 #if defined(VK_USE_PLATFORM_ANDROID_KHR)
     printf(
-        "%s According to VUID-01631, VkBindImageMemoryInfo-memory should be NULL. But Android will crash if memory is NULL, "
+        "%s According to valid usage, VkBindImageMemoryInfo-memory should be NULL. But Android will crash if memory is NULL, "
         "skipping CmdCopySwapchainImage test\n",
         kSkipPrefix);
     return;
@@ -7910,7 +8062,7 @@ TEST_F(VkPositiveLayerTest, TransferImageToSwapchainDeviceGroup) {
 
 #if defined(VK_USE_PLATFORM_ANDROID_KHR)
     printf(
-        "%s According to VUID-01631, VkBindImageMemoryInfo-memory should be NULL. But Android will crash if memory is NULL, "
+        "%s According to valid usage, VkBindImageMemoryInfo-memory should be NULL. But Android will crash if memory is NULL, "
         "skipping test\n",
         kSkipPrefix);
     return;
@@ -8703,4 +8855,47 @@ TEST_F(VkPositiveLayerTest, PipelineStageConditionalRendering) {
     m_commandBuffer->end();
     vk::DestroyRenderPass(m_device->device(), rp, nullptr);
     vk::DestroyFramebuffer(m_device->device(), fb, nullptr);
+}
+
+TEST_F(VkPositiveLayerTest, CreatePipelineOverlappingPushConstantRange) {
+    TEST_DESCRIPTION("Test overlapping push-constant ranges.");
+
+    m_errorMonitor->ExpectSuccess();
+
+    ASSERT_NO_FATAL_FAILURE(Init());
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    char const *const vsSource =
+        "#version 450\n"
+        "\n"
+        "layout(push_constant, std430) uniform foo { float x[8]; } constants;\n"
+        "void main(){\n"
+        "   gl_Position = vec4(constants.x[0]);\n"
+        "}\n";
+
+    char const *const fsSource =
+        "#version 450\n"
+        "\n"
+        "layout(push_constant, std430) uniform foo { float x[4]; } constants;\n"
+        "void main(){\n"
+        "}\n";
+
+    VkShaderObj const vs(m_device, vsSource, VK_SHADER_STAGE_VERTEX_BIT, this);
+    VkShaderObj const fs(m_device, fsSource, VK_SHADER_STAGE_FRAGMENT_BIT, this);
+
+    VkPushConstantRange push_constant_ranges[2]{{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float) * 8},
+                                                {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float) * 4}};
+
+    VkPipelineLayoutCreateInfo const pipeline_layout_info{
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, nullptr, 0, 0, nullptr, 2, push_constant_ranges};
+
+    CreatePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.shader_stages_ = {vs.GetStageCreateInfo(), fs.GetStageCreateInfo()};
+    pipe.pipeline_layout_ci_ = pipeline_layout_info;
+    pipe.InitState();
+
+    pipe.CreateGraphicsPipeline();
+
+    m_errorMonitor->VerifyNotFound();
 }

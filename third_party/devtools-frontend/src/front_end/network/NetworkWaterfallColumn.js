@@ -1,9 +1,14 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-Network.NetworkWaterfallColumn = class extends UI.VBox {
+
+import {NetworkNode} from './NetworkDataGridNode.js';              // eslint-disable-line no-unused-vars
+import {NetworkTimeCalculator} from './NetworkTimeCalculator.js';  // eslint-disable-line no-unused-vars
+import {RequestTimeRangeNames, RequestTimingView} from './RequestTimingView.js';
+
+export class NetworkWaterfallColumn extends UI.VBox {
   /**
-   * @param {!Network.NetworkTimeCalculator} calculator
+   * @param {!NetworkTimeCalculator} calculator
    */
   constructor(calculator) {
     // TODO(allada) Make this a shadowDOM when the NetworkWaterfallColumn gets moved into NetworkLogViewColumns.
@@ -40,10 +45,10 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     this._popoverHelper.setHasPadding(true);
     this._popoverHelper.setTimeout(300, 300);
 
-    /** @type {!Array<!Network.NetworkNode>} */
+    /** @type {!Array<!NetworkNode>} */
     this._nodes = [];
 
-    /** @type {?Network.NetworkNode} */
+    /** @type {?NetworkNode} */
     this._hoveredNode = null;
 
     /** @type {!Map<string, !Array<number>>} */
@@ -56,23 +61,23 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     this.element.addEventListener('mouseleave', event => this._setHoveredNode(null, false), true);
     this.element.addEventListener('click', this._onClick.bind(this), true);
 
-    this._styleForTimeRangeName = Network.NetworkWaterfallColumn._buildRequestTimeRangeStyle();
+    this._styleForTimeRangeName = NetworkWaterfallColumn._buildRequestTimeRangeStyle();
 
-    const resourceStyleTuple = Network.NetworkWaterfallColumn._buildResourceTypeStyle();
-    /** @type {!Map<!Common.ResourceType, !Network.NetworkWaterfallColumn._LayerStyle>} */
+    const resourceStyleTuple = NetworkWaterfallColumn._buildResourceTypeStyle();
+    /** @type {!Map<!Common.ResourceType, !NetworkWaterfallColumn._LayerStyle>} */
     this._styleForWaitingResourceType = resourceStyleTuple[0];
-    /** @type {!Map<!Common.ResourceType, !Network.NetworkWaterfallColumn._LayerStyle>} */
+    /** @type {!Map<!Common.ResourceType, !NetworkWaterfallColumn._LayerStyle>} */
     this._styleForDownloadingResourceType = resourceStyleTuple[1];
 
-    const baseLineColor = UI.themeSupport.patchColorText('#a5a5a5', UI.ThemeSupport.ColorUsage.Foreground);
-    /** @type {!Network.NetworkWaterfallColumn._LayerStyle} */
+    const baseLineColor = self.UI.themeSupport.patchColorText('#a5a5a5', UI.ThemeSupport.ColorUsage.Foreground);
+    /** @type {!NetworkWaterfallColumn._LayerStyle} */
     this._wiskerStyle = {borderColor: baseLineColor, lineWidth: 1};
-    /** @type {!Network.NetworkWaterfallColumn._LayerStyle} */
+    /** @type {!NetworkWaterfallColumn._LayerStyle} */
     this._hoverDetailsStyle = {fillStyle: baseLineColor, lineWidth: 1, borderColor: baseLineColor};
 
-    /** @type {!Map<!Network.NetworkWaterfallColumn._LayerStyle, !Path2D>} */
+    /** @type {!Map<!NetworkWaterfallColumn._LayerStyle, !Path2D>} */
     this._pathForStyle = new Map();
-    /** @type {!Array<!Network.NetworkWaterfallColumn._TextLayer>} */
+    /** @type {!Array<!NetworkWaterfallColumn._TextLayer>} */
     this._textLayers = [];
 
     /** @type {?CSSStyleDeclaration} */
@@ -80,10 +85,10 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @return {!Map<!Network.RequestTimeRangeNames, !Network.NetworkWaterfallColumn._LayerStyle>}
+   * @return {!Map<!RequestTimeRangeNames, !NetworkWaterfallColumn._LayerStyle>}
    */
   static _buildRequestTimeRangeStyle() {
-    const types = Network.RequestTimeRangeNames;
+    const types = RequestTimeRangeNames;
     const styleMap = new Map();
     styleMap.set(types.Connecting, {fillStyle: '#FF9800'});
     styleMap.set(types.SSL, {fillStyle: '#9C27B0'});
@@ -102,7 +107,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @return {!Array<!Map<!Common.ResourceType, !Network.NetworkWaterfallColumn._LayerStyle>>}
+   * @return {!Array<!Map<!Common.ResourceType, !NetworkWaterfallColumn._LayerStyle>>}
    */
   static _buildResourceTypeStyle() {
     const baseResourceTypeColors = new Map([
@@ -207,13 +212,14 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     if (!request) {
       return null;
     }
-    const useTimingBars = !Common.moduleSetting('networkColorCodeResourceTypes').get() && !this._calculator.startAtZero;
+    const useTimingBars =
+        !self.Common.settings.moduleSetting('networkColorCodeResourceTypes').get() && !this._calculator.startAtZero;
     let range;
     let start;
     let end;
     if (useTimingBars) {
-      range = Network.RequestTimingView.calculateRequestTimeRanges(request, 0)
-                  .find(data => data.name === Network.RequestTimeRangeNames.Total);
+      range = RequestTimingView.calculateRequestTimeRanges(request, 0)
+                  .find(data => data.name === RequestTimeRangeNames.Total);
       start = this._timeToPosition(range.start);
       end = this._timeToPosition(range.end);
     } else {
@@ -250,7 +256,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
       box: anchorBox,
       show: popover => {
         const content =
-            Network.RequestTimingView.createTimingTable(/** @type {!SDK.NetworkRequest} */ (request), this._calculator);
+            RequestTimingView.createTimingTable(/** @type {!SDK.NetworkRequest} */ (request), this._calculator);
         popover.contentElement.appendChild(content);
         return Promise.resolve(true);
       }
@@ -258,7 +264,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @param {?Network.NetworkNode} node
+   * @param {?NetworkNode} node
    * @param {boolean} highlightInitiatorChain
    */
   _setHoveredNode(node, highlightInitiatorChain) {
@@ -272,7 +278,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @param {?Network.NetworkNode} node
+   * @param {?NetworkNode} node
    * @returns {boolean}
    */
   _setSelectedNode(node) {
@@ -312,7 +318,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @param {!Network.NetworkTimeCalculator} calculator
+   * @param {!NetworkTimeCalculator} calculator
    */
   setCalculator(calculator) {
     this._calculator = calculator;
@@ -321,7 +327,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   /**
    * @param {number} x
    * @param {number} y
-   * @return {?Network.NetworkNode}
+   * @return {?NetworkNode}
    */
   getNodeFromPoint(x, y) {
     if (y <= this._headerHeight) {
@@ -340,7 +346,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   /**
    * @param {number=} scrollTop
    * @param {!Map<string, !Array<number>>=} eventDividers
-   * @param {!Array<!Network.NetworkNode>=} nodes
+   * @param {!Array<!NetworkNode>=} nodes
    */
   update(scrollTop, eventDividers, nodes) {
     if (scrollTop !== undefined && this._scrollTop !== scrollTop) {
@@ -406,7 +412,8 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   _draw() {
-    const useTimingBars = !Common.moduleSetting('networkColorCodeResourceTypes').get() && !this._calculator.startAtZero;
+    const useTimingBars =
+        !self.Common.settings.moduleSetting('networkColorCodeResourceTypes').get() && !this._calculator.startAtZero;
     const nodes = this._nodes;
     const context = this._canvas.getContext('2d');
     context.save();
@@ -423,7 +430,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
       this._decorateRow(context, node, rowOffset - this._scrollTop);
       let drawNodes = [];
       if (node.hasChildren() && !node.expanded) {
-        drawNodes = /** @type {!Array<!Network.NetworkNode>} */ (node.flatChildren());
+        drawNodes = /** @type {!Array<!NetworkNode>} */ (node.flatChildren());
       }
       drawNodes.push(node);
       for (const drawNode of drawNodes) {
@@ -437,7 +444,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     this._drawLayers(context);
 
     context.save();
-    context.fillStyle = UI.themeSupport.patchColorText('#888', UI.ThemeSupport.ColorUsage.Foreground);
+    context.fillStyle = self.UI.themeSupport.patchColorText('#888', UI.ThemeSupport.ColorUsage.Foreground);
     for (const textData of this._textLayers) {
       context.fillText(textData.text, textData.x, textData.y);
     }
@@ -462,7 +469,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
    */
   _drawLayers(context) {
     for (const entry of this._pathForStyle) {
-      const style = /** @type {!Network.NetworkWaterfallColumn._LayerStyle} */ (entry[0]);
+      const style = /** @type {!NetworkWaterfallColumn._LayerStyle} */ (entry[0]);
       const path = /** @type {!Path2D} */ (entry[1]);
       context.save();
       context.beginPath();
@@ -499,11 +506,11 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @param {!Network.RequestTimeRangeNames=} type
+   * @param {!RequestTimeRangeNames=} type
    * @return {number}
    */
   _getBarHeight(type) {
-    const types = Network.RequestTimeRangeNames;
+    const types = RequestTimeRangeNames;
     switch (type) {
       case types.Connecting:
       case types.SSL:
@@ -535,7 +542,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
 
   /**
    * @param {!CanvasRenderingContext2D} context
-   * @param {!Network.NetworkNode} node
+   * @param {!NetworkNode} node
    * @param {number} y
    */
   _buildSimplifiedBarLayers(context, node, y) {
@@ -594,8 +601,8 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     }
 
     if (!this._calculator.startAtZero) {
-      const queueingRange = Network.RequestTimingView.calculateRequestTimeRanges(request, 0)
-                                .find(data => data.name === Network.RequestTimeRangeNames.Total);
+      const queueingRange = RequestTimingView.calculateRequestTimeRanges(request, 0)
+                                .find(data => data.name === RequestTimeRangeNames.Total);
       const leftLabelWidth = labels ? context.measureText(labels.left).width : 0;
       const leftTextPlacedInBar = leftLabelWidth < ranges.mid - ranges.start;
       const wiskerTextPadding = 13;
@@ -615,7 +622,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
   }
 
   /**
-   * @param {!Network.NetworkNode} node
+   * @param {!NetworkNode} node
    * @param {number} y
    */
   _buildTimingBarLayers(node, y) {
@@ -623,9 +630,9 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     if (!request) {
       return;
     }
-    const ranges = Network.RequestTimingView.calculateRequestTimeRanges(request, 0);
+    const ranges = RequestTimingView.calculateRequestTimeRanges(request, 0);
     for (const range of ranges) {
-      if (range.name === Network.RequestTimeRangeNames.Total || range.name === Network.RequestTimeRangeNames.Sending ||
+      if (range.name === RequestTimeRangeNames.Total || range.name === RequestTimeRangeNames.Sending ||
           range.end - range.start === 0) {
         continue;
       }
@@ -643,7 +650,7 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
 
   /**
    * @param {!CanvasRenderingContext2D} context
-   * @param {!Network.NetworkNode} node
+   * @param {!NetworkNode} node
    * @param {number} y
    */
   _decorateRow(context, node, y) {
@@ -663,10 +670,4 @@ Network.NetworkWaterfallColumn = class extends UI.VBox {
     context.fill();
     context.restore();
   }
-};
-
-/** @typedef {!{fillStyle: (string|undefined), lineWidth: (number|undefined), borderColor: (string|undefined)}} */
-Network.NetworkWaterfallColumn._LayerStyle;
-
-/** @typedef {!{x: number, y: number, text: string}} */
-Network.NetworkWaterfallColumn._TextLayer;
+}

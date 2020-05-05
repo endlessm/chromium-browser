@@ -68,17 +68,16 @@ public:
     }
 
 protected:
-    bool init(sk_sp<const GrCaps> caps, sk_sp<GrSkSLFPFactoryCache> FPFactoryCache) override {
-        SkASSERT(caps && !FPFactoryCache);
+    bool init(sk_sp<const GrCaps> caps) override {
+        SkASSERT(caps);
         SkASSERT(!fThreadSafeProxy);
 
-        FPFactoryCache.reset(new GrSkSLFPFactoryCache());
         fThreadSafeProxy = GrContextThreadSafeProxyPriv::Make(this->backend(),
                                                               this->options(),
                                                               this->contextID(),
-                                                              caps, FPFactoryCache);
+                                                              caps);
 
-        if (!INHERITED::init(std::move(caps), std::move(FPFactoryCache))) {
+        if (!INHERITED::init(std::move(caps))) {
             return false;
         }
 
@@ -146,7 +145,7 @@ sk_sp<GrContext> GrContext::MakeGL(sk_sp<const GrGLInterface> interface,
         return nullptr;
     }
 
-    if (!context->init(context->fGpu->refCaps(), nullptr)) {
+    if (!context->init(context->fGpu->refCaps())) {
         return nullptr;
     }
     return context;
@@ -167,9 +166,16 @@ sk_sp<GrContext> GrContext::MakeMock(const GrMockOptions* mockOptions,
         return nullptr;
     }
 
-    if (!context->init(context->fGpu->refCaps(), nullptr)) {
+    if (!context->init(context->fGpu->refCaps())) {
         return nullptr;
     }
+
+#if GR_TEST_UTILS
+    if (mockOptions && mockOptions->fFailTextureAllocations) {
+        context->testingOnly_setSuppressAllocationWarnings();
+    }
+#endif
+
     return context;
 }
 
@@ -193,7 +199,7 @@ sk_sp<GrContext> GrContext::MakeVulkan(const GrVkBackendContext& backendContext,
         return nullptr;
     }
 
-    if (!context->init(context->fGpu->refCaps(), nullptr)) {
+    if (!context->init(context->fGpu->refCaps())) {
         return nullptr;
     }
     return context;
@@ -216,7 +222,7 @@ sk_sp<GrContext> GrContext::MakeMetal(void* device, void* queue, const GrContext
         return nullptr;
     }
 
-    if (!context->init(context->fGpu->refCaps(), nullptr)) {
+    if (!context->init(context->fGpu->refCaps())) {
         return nullptr;
     }
     return context;
@@ -237,7 +243,7 @@ sk_sp<GrContext> GrContext::MakeDawn(const wgpu::Device& device, const GrContext
         return nullptr;
     }
 
-    if (!context->init(context->fGpu->refCaps(), nullptr)) {
+    if (!context->init(context->fGpu->refCaps())) {
         return nullptr;
     }
     return context;

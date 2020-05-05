@@ -15,18 +15,18 @@
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/tls_handshaker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
-// An implementation of QuicCryptoServerStream::HandshakerDelegate which uses
+// An implementation of QuicCryptoServerStreamBase which uses
 // TLS 1.3 for the crypto handshake protocol.
 class QUIC_EXPORT_PRIVATE TlsServerHandshaker
     : public TlsHandshaker,
       public TlsServerConnection::Delegate,
-      public QuicCryptoServerStream::HandshakerDelegate {
+      public QuicCryptoServerStreamBase {
  public:
-  TlsServerHandshaker(QuicCryptoStream* stream,
-                      QuicSession* session,
+  TlsServerHandshaker(QuicSession* session,
                       SSL_CTX* ssl_ctx,
                       ProofSource* proof_source);
   TlsServerHandshaker(const TlsServerHandshaker&) = delete;
@@ -34,7 +34,7 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
 
   ~TlsServerHandshaker() override;
 
-  // From QuicCryptoServerStream::HandshakerDelegate
+  // From QuicCryptoServerStreamBase
   void CancelOutstandingCallbacks() override;
   bool GetBase64SHA256ClientChannelID(std::string* output) const override;
   void SendServerConfigUpdate(
@@ -47,14 +47,17 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   void SetPreviousCachedNetworkParams(
       CachedNetworkParameters cached_network_params) override;
   void OnPacketDecrypted(EncryptionLevel level) override;
+  void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakeDoneReceived() override;
   bool ShouldSendExpectCTHeader() const override;
 
-  // From QuicCryptoServerStream::HandshakerDelegate and TlsHandshaker
+  // From QuicCryptoServerStreamBase and TlsHandshaker
   bool encryption_established() const override;
-  bool handshake_confirmed() const override;
+  bool one_rtt_keys_available() const override;
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
+  HandshakeState GetHandshakeState() const override;
   size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
 
  protected:
@@ -74,11 +77,12 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
                  uint8_t* out_len,
                  const uint8_t* in,
                  unsigned in_len) override;
-  ssl_private_key_result_t PrivateKeySign(uint8_t* out,
-                                          size_t* out_len,
-                                          size_t max_out,
-                                          uint16_t sig_alg,
-                                          QuicStringPiece in) override;
+  ssl_private_key_result_t PrivateKeySign(
+      uint8_t* out,
+      size_t* out_len,
+      size_t max_out,
+      uint16_t sig_alg,
+      quiche::QuicheStringPiece in) override;
   ssl_private_key_result_t PrivateKeyComplete(uint8_t* out,
                                               size_t* out_len,
                                               size_t max_out) override;
@@ -124,7 +128,7 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   std::string cert_verify_sig_;
 
   bool encryption_established_ = false;
-  bool handshake_confirmed_ = false;
+  bool one_rtt_keys_available_ = false;
   bool valid_alpn_received_ = false;
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters>
       crypto_negotiated_params_;

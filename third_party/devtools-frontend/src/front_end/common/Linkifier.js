@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/** @typedef {{tooltip: (string|undefined), preventKeyboardFocus: (boolean|undefined)}} */
+export let Options;
+
 /**
  * @interface
  */
@@ -26,15 +29,3 @@ export class Linkifier {
     return self.runtime.extension(Linkifier, object).instance().then(linkifier => linkifier.linkify(object, options));
   }
 }
-
-/* Legacy exported object */
-self.Common = self.Common || {};
-Common = Common || {};
-
-/**
- * @interface
- */
-Common.Linkifier = Linkifier;
-
-/** @typedef {{tooltip: (string|undefined), preventKeyboardFocus: (boolean|undefined)}} */
-Common.Linkifier.Options;

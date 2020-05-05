@@ -23,6 +23,7 @@
 #include "src/gpu/glsl/GrGLSLVarying.h"
 #include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
 #include "src/gpu/ops/GrMeshDrawOp.h"
+#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 
 namespace {
 
@@ -235,8 +236,11 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        flushState->executeDrawsAndUploadsForMeshDrawOp(
-                this, chainBounds, GrProcessorSet::MakeEmptySet());
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 GrProcessorSet::MakeEmptySet(),
+                                                                 GrPipeline::InputFlags::kNone);
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
     Mode fMode;
@@ -270,7 +274,7 @@ public:
         GrOpMemoryPool* pool = context->priv().opMemoryPool();
 
         auto p3 = SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB,
-                                        SkNamedGamut::kDCIP3);
+                                        SkNamedGamut::kDisplayP3);
         auto xform = GrColorSpaceXform::Make(sk_srgb_singleton(), kUnpremul_SkAlphaType,
                                              p3.get(),            kUnpremul_SkAlphaType);
 
@@ -278,8 +282,8 @@ public:
         const int kDrawsPerLoop = 32;
 
         for (int i = 0; i < loops; ++i) {
-            auto rtc = context->priv().makeDeferredRenderTargetContext(
-                    SkBackingFit::kApprox, 100, 100, GrColorType::kRGBA_8888, p3);
+            auto rtc = GrRenderTargetContext::Make(
+                    context, GrColorType::kRGBA_8888, p3, SkBackingFit::kApprox, {100, 100});
             SkASSERT(rtc);
 
             for (int j = 0; j < kDrawsPerLoop; ++j) {

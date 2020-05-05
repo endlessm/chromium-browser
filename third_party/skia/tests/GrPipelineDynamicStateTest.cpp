@@ -10,7 +10,6 @@
 
 #include "include/gpu/GrContext.h"
 #include "include/private/GrRecordingContext.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/gpu/GrColor.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
@@ -184,8 +183,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrPipelineDynamicStateTest, reporter, ctxInfo
     GrContext* context = ctxInfo.grContext();
     GrResourceProvider* rp = context->priv().resourceProvider();
 
-    auto rtc = context->priv().makeDeferredRenderTargetContext(
-            SkBackingFit::kExact, kScreenSize, kScreenSize, GrColorType::kRGBA_8888, nullptr);
+    auto rtc = GrRenderTargetContext::Make(
+            context, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
+            {kScreenSize, kScreenSize});
     if (!rtc) {
         ERRORF(reporter, "could not create render target context.");
         return;

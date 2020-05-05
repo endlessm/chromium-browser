@@ -1,6 +1,10 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+import {Widget} from './Widget.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @interface
  */
@@ -15,9 +19,9 @@ export class TextEditorFactory {
 /**
  * @interface
  */
-export class TextEditor extends Common.EventTarget {
+export class TextEditor extends Common.EventTarget.EventTarget {
   /**
-   * @return {!UI.Widget}
+   * @return {!Widget}
    */
   widget() {
   }
@@ -112,44 +116,3 @@ export const Events = {
   TextChanged: Symbol('TextChanged'),
   SuggestionChanged: Symbol('SuggestionChanged')
 };
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @interface */
-UI.TextEditor = TextEditor;
-
-/** @interface */
-UI.TextEditorFactory = TextEditorFactory;
-
-/** @enum {symbol} */
-UI.TextEditor.Events = Events;
-
-/**
- * @typedef {{
-  *  bracketMatchingSetting: (!Common.Setting|undefined),
-  *  devtoolsAccessibleName: (string|undefined),
-  *  lineNumbers: boolean,
-  *  lineWrapping: boolean,
-  *  mimeType: (string|undefined),
-  *  autoHeight: (boolean|undefined),
-  *  padBottom: (boolean|undefined),
-  *  maxHighlightLength: (number|undefined),
-  *  placeholder: (string|undefined)
-  * }}
-  */
-UI.TextEditor.Options;
-
-/**
-  * @typedef {{
-  *     substituteRangeCallback: ((function(number, number):?TextUtils.TextRange)|undefined),
-  *     tooltipCallback: ((function(number, number):!Promise<?Element>)|undefined),
-  *     suggestionsCallback: ((function(!TextUtils.TextRange, !TextUtils.TextRange, boolean=):?Promise.<!UI.SuggestBox.Suggestions>)|undefined),
-  *     isWordChar: ((function(string):boolean)|undefined),
-  *     anchorBehavior: (UI.GlassPane.AnchorBehavior|undefined)
-  * }}
-  */
-UI.AutocompleteConfig;

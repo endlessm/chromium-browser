@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {EditorAction, Events, SourcesView} from './SourcesView.js';  // eslint-disable-line no-unused-vars
+
 /**
- * @implements {Sources.SourcesView.EditorAction}
+ * @implements {EditorAction}
  * @unrestricted
  */
-Sources.ScriptFormatterEditorAction = class {
+export class ScriptFormatterEditorAction {
   constructor() {
     /** @type {!Set<string>} */
     this._pathsToFormatOnLoad = new Set();
@@ -20,7 +22,7 @@ Sources.ScriptFormatterEditorAction = class {
     this._updateButton(uiSourceCode);
 
     if (this._isFormatableScript(uiSourceCode) && this._pathsToFormatOnLoad.has(uiSourceCode.url()) &&
-        !Sources.sourceFormatter.hasFormatted(uiSourceCode)) {
+        !Formatter.sourceFormatter.hasFormatted(uiSourceCode)) {
       this._showFormatted(uiSourceCode);
     }
   }
@@ -35,7 +37,7 @@ Sources.ScriptFormatterEditorAction = class {
     if (wasSelected) {
       this._updateButton(null);
     }
-    const original = Sources.sourceFormatter.discardFormattedUISourceCode(uiSourceCode);
+    const original = Formatter.sourceFormatter.discardFormattedUISourceCode(uiSourceCode);
     if (original) {
       this._pathsToFormatOnLoad.delete(original.url());
     }
@@ -50,7 +52,7 @@ Sources.ScriptFormatterEditorAction = class {
 
   /**
    * @override
-   * @param {!Sources.SourcesView} sourcesView
+   * @param {!SourcesView} sourcesView
    * @return {!UI.ToolbarButton}
    */
   button(sourcesView) {
@@ -59,8 +61,8 @@ Sources.ScriptFormatterEditorAction = class {
     }
 
     this._sourcesView = sourcesView;
-    this._sourcesView.addEventListener(Sources.SourcesView.Events.EditorSelected, this._editorSelected.bind(this));
-    this._sourcesView.addEventListener(Sources.SourcesView.Events.EditorClosed, this._editorClosed.bind(this));
+    this._sourcesView.addEventListener(Events.EditorSelected, this._editorSelected.bind(this));
+    this._sourcesView.addEventListener(Events.EditorClosed, this._editorClosed.bind(this));
 
     this._button = new UI.ToolbarButton(Common.UIString('Pretty print'), 'largeicon-pretty-print');
     this._button.addEventListener(UI.ToolbarButton.Events.Click, this._toggleFormatScriptSource, this);
@@ -83,7 +85,7 @@ Sources.ScriptFormatterEditorAction = class {
     if (uiSourceCode.project().type() === Workspace.projectTypes.Formatter) {
       return false;
     }
-    if (Persistence.persistence.binding(uiSourceCode)) {
+    if (self.Persistence.persistence.binding(uiSourceCode)) {
       return false;
     }
     return uiSourceCode.contentType().hasScripts();
@@ -105,7 +107,7 @@ Sources.ScriptFormatterEditorAction = class {
    * @param {!Workspace.UISourceCode} uiSourceCode
    */
   async _showFormatted(uiSourceCode) {
-    const formatData = await Sources.sourceFormatter.format(uiSourceCode);
+    const formatData = await Formatter.sourceFormatter.format(uiSourceCode);
     if (uiSourceCode !== this._sourcesView.currentUISourceCode()) {
       return;
     }
@@ -117,4 +119,4 @@ Sources.ScriptFormatterEditorAction = class {
     }
     this._sourcesView.showSourceLocation(formatData.formattedSourceCode, start[0], start[1]);
   }
-};
+}

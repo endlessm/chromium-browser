@@ -31,12 +31,14 @@
 #if defined(OS_ANDROID)
 #include "base/android/apk_assets.h"
 #include "base/android/bundle_utils.h"
+#include "base/android/java_exception_reporter.h"
 #include "base/android/locale_utils.h"
 #include "base/i18n/rtl.h"
 #include "base/posix/global_descriptors.h"
 #include "content/public/browser/android/compositor.h"
 #include "ui/base/resource/resource_bundle_android.h"
 #include "ui/base/ui_base_switches.h"
+#include "weblayer/browser/android/exception_filter.h"
 #include "weblayer/browser/android_descriptors.h"
 #include "weblayer/common/crash_reporter/crash_keys.h"
 #include "weblayer/common/crash_reporter/crash_reporter_client.h"
@@ -117,7 +119,8 @@ bool ContentMainDelegateImpl::BasicStartupComplete(int* exit_code) {
   cl->AppendSwitch(switches::kDisableNotifications);
   cl->AppendSwitch(switches::kDisableSpeechSynthesisAPI);
   cl->AppendSwitch(switches::kDisableSpeechAPI);
-  cl->AppendSwitch(switches::kDisablePermissionsAPI);
+  if (!cl->HasSwitch(switches::kWebLayerFakePermissions))
+    cl->AppendSwitch(switches::kDisablePermissionsAPI);
   cl->AppendSwitch(switches::kDisablePresentationAPI);
   cl->AppendSwitch(switches::kDisableRemotePlaybackAPI);
 #if defined(OS_ANDROID)
@@ -137,8 +140,6 @@ bool ContentMainDelegateImpl::BasicStartupComplete(int* exit_code) {
 
   InitLogging(&params_);
 
-  content_client_ = std::make_unique<ContentClientImpl>();
-  SetContentClient(content_client_.get());
   RegisterPathProvider();
 
   return false;
@@ -153,7 +154,7 @@ void ContentMainDelegateImpl::PreSandboxStartup() {
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
-  bool is_browser_process =
+  const bool is_browser_process =
       command_line.GetSwitchValueASCII(switches::kProcessType).empty();
   if (is_browser_process &&
       command_line.HasSwitch(switches::kWebLayerUserDataDir)) {
@@ -176,6 +177,10 @@ void ContentMainDelegateImpl::PreSandboxStartup() {
 
 #if defined(OS_ANDROID)
   EnableCrashReporter(command_line.GetSwitchValueASCII(switches::kProcessType));
+  if (is_browser_process) {
+    base::android::SetJavaExceptionFilter(
+        base::BindRepeating(&WebLayerJavaExceptionFilter));
+  }
   SetWebLayerCrashKeys();
 #endif
 }
@@ -290,6 +295,11 @@ void ContentMainDelegateImpl::InitializeResourceBundle() {
   pak_file = pak_file.AppendASCII(params_.pak_name);
   ui::ResourceBundle::InitSharedInstanceWithPakPath(pak_file);
 #endif
+}
+
+content::ContentClient* ContentMainDelegateImpl::CreateContentClient() {
+  content_client_ = std::make_unique<ContentClientImpl>();
+  return content_client_.get();
 }
 
 content::ContentBrowserClient*

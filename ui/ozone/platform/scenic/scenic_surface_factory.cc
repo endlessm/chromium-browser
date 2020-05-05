@@ -123,7 +123,7 @@ ScenicSurfaceFactory::CreatePlatformWindowSurface(
 
 std::unique_ptr<SurfaceOzoneCanvas> ScenicSurfaceFactory::CreateCanvasForWidget(
     gfx::AcceleratedWidget widget,
-    base::TaskRunner* task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   ScenicSurface* surface = GetSurface(widget);
   return std::make_unique<ScenicWindowCanvas>(surface);
 }
@@ -133,7 +133,9 @@ scoped_refptr<gfx::NativePixmap> ScenicSurfaceFactory::CreateNativePixmap(
     VkDevice vk_device,
     gfx::Size size,
     gfx::BufferFormat format,
-    gfx::BufferUsage usage) {
+    gfx::BufferUsage usage,
+    base::Optional<gfx::Size> framebuffer_size) {
+  DCHECK(!framebuffer_size || framebuffer_size == size);
   auto collection = sysmem_buffer_manager_.CreateCollection(vk_device, size,
                                                             format, usage, 1);
   if (!collection)

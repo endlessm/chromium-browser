@@ -30,6 +30,7 @@
 #include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
 #include "src/gpu/ops/GrDashOp.h"
 #include "src/gpu/ops/GrMeshDrawOp.h"
+#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 
 using AAMode = GrDashOp::AAMode;
 
@@ -261,12 +262,7 @@ public:
     GrProcessorSet::Analysis finalize(
             const GrCaps& caps, const GrAppliedClip* clip, bool hasMixedSampledCoverage,
             GrClampType clampType) override {
-        GrProcessorAnalysisCoverage coverage;
-        if (AAMode::kNone == fAAMode && !clip->numClipCoverageFragmentProcessors()) {
-            coverage = GrProcessorAnalysisCoverage::kNone;
-        } else {
-            coverage = GrProcessorAnalysisCoverage::kSingleChannel;
-        }
+        GrProcessorAnalysisCoverage coverage = GrProcessorAnalysisCoverage::kSingleChannel;
         auto analysis = fProcessorSet.finalize(
                 fColor, coverage, clip, fStencilSettings, hasMixedSampledCoverage, caps, clampType,
                 &fColor);
@@ -632,11 +628,17 @@ private:
         if (AAMode::kCoverageWithMSAA == fAAMode) {
             pipelineFlags |= GrPipeline::InputFlags::kHWAntialias;
         }
-        flushState->executeDrawsAndUploadsForMeshDrawOp(
-                this, chainBounds, std::move(fProcessorSet), pipelineFlags, fStencilSettings);
+
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 std::move(fProcessorSet),
+                                                                 pipelineFlags,
+                                                                 fStencilSettings);
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         DashOp* that = t->cast<DashOp>();
         if (fProcessorSet != that->fProcessorSet) {
             return CombineResult::kCannotCombine;
@@ -659,7 +661,7 @@ private:
             return CombineResult::kCannotCombine;
         }
 
-        if (fUsesLocalCoords && !this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
+        if (fUsesLocalCoords && !SkMatrixPriv::CheapEqual(this->viewMatrix(), that->viewMatrix())) {
             return CombineResult::kCannotCombine;
         }
 

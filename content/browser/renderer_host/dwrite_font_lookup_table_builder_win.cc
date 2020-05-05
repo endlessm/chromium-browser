@@ -23,6 +23,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
@@ -134,14 +135,13 @@ DWriteFontLookupTableBuilder::DWriteFontLookupTableBuilder()
 }
 
 void DWriteFontLookupTableBuilder::ResetCallbacksAccessTaskRunner() {
-  callbacks_access_task_runner_ = base::CreateSequencedTaskRunner({
-    base::ThreadPool(),
+  callbacks_access_task_runner_ = base::ThreadPool::CreateSequencedTaskRunner({
+    base::TaskPriority::USER_VISIBLE,
 #if DCHECK_IS_ON()
         // Needed for DCHECK in DuplicateMemoryRegion() which performs file
         // operations to detect cache directory.
         base::MayBlock(),
 #endif
-        base::TaskPriority::USER_VISIBLE,
         base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN
   });
   DETACH_FROM_SEQUENCE(callbacks_access_sequence_checker_);

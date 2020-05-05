@@ -39,6 +39,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
+#include "third_party/blink/renderer/platform/loader/cors/cors.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_context.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_utils.h"
@@ -101,21 +102,27 @@ class BeaconBlob final : public Beacon {
     DCHECK(data_);
 
     scoped_refptr<EncodedFormData> entity_body = EncodedFormData::Create();
-    if (data_->HasBackingFile())
-      entity_body->AppendFile(To<File>(data_.Get())->GetPath());
-    else
+    if (data_->HasBackingFile()) {
+      entity_body->AppendFile(To<File>(data_)->GetPath(),
+                              To<File>(data_)->LastModifiedTime());
+    } else {
       entity_body->AppendBlob(data_->Uuid(), data_->GetBlobDataHandle());
+    }
 
     request.SetHttpBody(std::move(entity_body));
 
-    if (!content_type_.IsEmpty())
+    if (!content_type_.IsEmpty()) {
+      if (!cors::IsCorsSafelistedContentType(content_type_)) {
+        request.SetMode(network::mojom::blink::RequestMode::kCors);
+      }
       request.SetHTTPContentType(content_type_);
+    }
   }
 
   const AtomicString GetContentType() const override { return content_type_; }
 
  private:
-  const Member<Blob> data_;
+  Blob* const data_;
   AtomicString content_type_;
 };
 
@@ -144,7 +151,7 @@ class BeaconDOMArrayBufferView final : public Beacon {
   const AtomicString GetContentType() const override { return g_null_atom; }
 
  private:
-  const Member<DOMArrayBufferView> data_;
+  DOMArrayBufferView* const data_;
 };
 
 class BeaconFormData final : public Beacon {
@@ -165,7 +172,7 @@ class BeaconFormData final : public Beacon {
   const AtomicString GetContentType() const override { return content_type_; }
 
  private:
-  const Member<FormData> data_;
+  FormData* const data_;
   scoped_refptr<EncodedFormData> entity_body_;
   AtomicString content_type_;
 };
@@ -253,6 +260,7 @@ void PingLoader::SendViolationReport(LocalFrame* frame,
   request.SetHttpBody(std::move(report));
   request.SetCredentialsMode(network::mojom::CredentialsMode::kSameOrigin);
   request.SetRequestContext(mojom::RequestContextType::CSP_REPORT);
+  request.SetRequestDestination(network::mojom::RequestDestination::kReport);
   request.SetRequestorOrigin(frame->GetDocument()->GetSecurityOrigin());
   request.SetRedirectMode(network::mojom::RedirectMode::kError);
   FetchParameters params(request);

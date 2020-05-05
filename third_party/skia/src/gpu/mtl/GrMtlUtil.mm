@@ -22,98 +22,6 @@
 
 #define PRINT_MSL 0 // print out the MSL code generated
 
-bool GrPixelConfigToMTLFormat(GrPixelConfig config, MTLPixelFormat* format) {
-    MTLPixelFormat dontCare;
-    if (!format) {
-        format = &dontCare;
-    }
-
-    switch (config) {
-        case kUnknown_GrPixelConfig:
-            return false;
-        case kRGBA_8888_GrPixelConfig:
-            *format = MTLPixelFormatRGBA8Unorm;
-            return true;
-        case kRGB_888_GrPixelConfig:
-            *format = MTLPixelFormatRGBA8Unorm;
-            return true;
-        case kRGB_888X_GrPixelConfig:
-            *format = MTLPixelFormatRGBA8Unorm;
-            return true;
-        case kRG_88_GrPixelConfig:
-            *format = MTLPixelFormatRG8Unorm;
-            return true;
-        case kBGRA_8888_GrPixelConfig:
-            *format = MTLPixelFormatBGRA8Unorm;
-            return true;
-        case kSRGBA_8888_GrPixelConfig:
-            *format = MTLPixelFormatRGBA8Unorm_sRGB;
-            return true;
-        case kRGBA_1010102_GrPixelConfig:
-            *format = MTLPixelFormatRGB10A2Unorm;
-            return true;
-        case kRGB_565_GrPixelConfig:
-#ifdef SK_BUILD_FOR_IOS
-            *format = MTLPixelFormatB5G6R5Unorm;
-            return true;
-#else
-            return false;
-#endif
-        case kRGBA_4444_GrPixelConfig:
-#ifdef SK_BUILD_FOR_IOS
-            *format = MTLPixelFormatABGR4Unorm;
-            return true;
-#else
-            return false;
-#endif
-        case kAlpha_8_GrPixelConfig: // fall through
-        case kAlpha_8_as_Red_GrPixelConfig:
-            *format = MTLPixelFormatR8Unorm;
-            return true;
-        case kAlpha_8_as_Alpha_GrPixelConfig:
-            *format = MTLPixelFormatA8Unorm;
-            return true;
-        case kGray_8_GrPixelConfig: // fall through
-        case kGray_8_as_Red_GrPixelConfig:
-            *format = MTLPixelFormatR8Unorm;
-            return true;
-        case kGray_8_as_Lum_GrPixelConfig:
-            return false;
-        case kRGBA_half_GrPixelConfig:
-            *format = MTLPixelFormatRGBA16Float;
-            return true;
-        case kRGBA_half_Clamped_GrPixelConfig:
-            *format = MTLPixelFormatRGBA16Float;
-            return true;
-        case kAlpha_half_GrPixelConfig: // fall through
-        case kAlpha_half_as_Red_GrPixelConfig:
-            *format = MTLPixelFormatR16Float;
-            return true;
-        case kAlpha_half_as_Lum_GrPixelConfig:
-            return false;
-        case kRGB_ETC1_GrPixelConfig:
-#ifdef SK_BUILD_FOR_IOS
-            *format = MTLPixelFormatETC2_RGB8;
-            return true;
-#else
-            return false;
-#endif
-        case kAlpha_16_GrPixelConfig:
-            *format = MTLPixelFormatR16Unorm;
-            return true;
-        case kRG_1616_GrPixelConfig:
-            *format = MTLPixelFormatRG16Unorm;
-            return true;
-        case kRGBA_16161616_GrPixelConfig:
-            *format = MTLPixelFormatRGBA16Unorm;
-            return true;
-        case kRG_half_GrPixelConfig:
-            *format = MTLPixelFormatRG16Float;
-            return true;
-    }
-    SK_ABORT("Unexpected config");
-}
-
 MTLTextureDescriptor* GrGetMTLTextureDescriptor(id<MTLTexture> mtlTexture) {
     MTLTextureDescriptor* texDesc = [[MTLTextureDescriptor alloc] init];
     texDesc.textureType = mtlTexture.textureType;
@@ -142,14 +50,15 @@ void print_msl(const char* source) {
 }
 #endif
 
-id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
-                                         const char* shaderString,
-                                         SkSL::Program::Kind kind,
-                                         const SkSL::Program::Settings& settings,
-                                         SkSL::Program::Inputs* outInputs) {
+id<MTLLibrary> GrGenerateMtlShaderLibrary(const GrMtlGpu* gpu,
+                                          const SkSL::String& shaderString,
+                                          SkSL::Program::Kind kind,
+                                          const SkSL::Program::Settings& settings,
+                                          SkSL::String* mslShader,
+                                          SkSL::Program::Inputs* outInputs) {
     std::unique_ptr<SkSL::Program> program =
             gpu->shaderCompiler()->convertProgram(kind,
-                                                  SkSL::String(shaderString),
+                                                  shaderString,
                                                   settings);
 
     if (!program) {
@@ -159,13 +68,18 @@ id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
     }
 
     *outInputs = program->fInputs;
-    SkSL::String code;
-    if (!gpu->shaderCompiler()->toMetal(*program, &code)) {
+    if (!gpu->shaderCompiler()->toMetal(*program, mslShader)) {
         SkDebugf("%s\n", gpu->shaderCompiler()->errorText().c_str());
         SkASSERT(false);
         return nil;
     }
-    NSString* mtlCode = [[NSString alloc] initWithCString: code.c_str()
+
+    return GrCompileMtlShaderLibrary(gpu, *mslShader);
+}
+
+id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
+                                         const SkSL::String& shaderString) {
+    NSString* mtlCode = [[NSString alloc] initWithCString: shaderString.c_str()
                                                  encoding: NSASCIIStringEncoding];
 #if PRINT_MSL
     print_msl([mtlCode cStringUsingEncoding: NSASCIIStringEncoding]);
@@ -188,7 +102,7 @@ id<MTLLibrary> GrCompileMtlShaderLibrary(const GrMtlGpu* gpu,
                                                                    error: &error];
     if (error) {
         SkDebugf("Error compiling MSL shader: %s\n%s\n",
-                 code.c_str(),
+                 shaderString.c_str(),
                  [[error localizedDescription] cStringUsingEncoding: NSASCIIStringEncoding]);
         return nil;
     }
@@ -291,23 +205,26 @@ bool GrMtlFormatIsCompressed(MTLPixelFormat mtlFormat) {
 #ifdef SK_BUILD_FOR_IOS
         case MTLPixelFormatETC2_RGB8:
             return true;
+#else
+        case MTLPixelFormatBC1_RGBA:
+            return true;
 #endif
         default:
             return false;
     }
 }
 
-bool GrMtlFormatToCompressionType(MTLPixelFormat mtlFormat,
-                                  SkImage::CompressionType* compressionType) {
+SkImage::CompressionType GrMtlFormatToCompressionType(MTLPixelFormat mtlFormat) {
     switch (mtlFormat) {
 #ifdef SK_BUILD_FOR_IOS
-        case MTLPixelFormatETC2_RGB8:
-            *compressionType = SkImage::kETC1_CompressionType;
-            return true;
+        case MTLPixelFormatETC2_RGB8: return SkImage::CompressionType::kETC2_RGB8_UNORM;
+#else
+        case MTLPixelFormatBC1_RGBA:  return SkImage::CompressionType::kBC1_RGBA8_UNORM;
 #endif
-        default:
-            return false;
+        default:                      return SkImage::CompressionType::kNone;
     }
+
+    SkUNREACHABLE;
 }
 
 #if GR_TEST_UTILS
@@ -336,12 +253,14 @@ const char* GrMtlFormatToStr(GrMTLPixelFormat mtlFormat) {
         case MTLPixelFormatR16Unorm:        return "R16Unorm";
         case MTLPixelFormatRG16Unorm:       return "RG16Unorm";
 #ifdef SK_BUILD_FOR_IOS
-        case MTLPixelFormatETC2_RGB8:      return "ETC2_RGB8";
+        case MTLPixelFormatETC2_RGB8:       return "ETC2_RGB8";
+#else
+        case MTLPixelFormatBC1_RGBA:        return "BC1_RGBA";
 #endif
-        case MTLPixelFormatRGBA16Unorm:    return "RGBA16Unorm";
-        case MTLPixelFormatRG16Float:      return "RG16Float";
+        case MTLPixelFormatRGBA16Unorm:     return "RGBA16Unorm";
+        case MTLPixelFormatRG16Float:       return "RG16Float";
 
-        default:                           return "Unknown";
+        default:                            return "Unknown";
     }
 }
 

@@ -36,6 +36,10 @@
 #include "base/file_descriptor_posix.h"
 #endif
 
+#if defined(OS_ANDROID)
+#include "base/files/file_util.h"
+#endif  // defined(OS_ANDROID)
+
 namespace {
 
 bool WriteAssetToBuffer(const SkStreamAsset* asset, void* buffer, size_t size) {
@@ -178,7 +182,7 @@ bool MetafileSkia::FinishDocument() {
   cc::PlaybackParams::CustomDataRasterCallback custom_callback;
   switch (data_->type) {
     case SkiaDocumentType::PDF:
-      doc = MakePdfDocument(printing::GetAgent(), &stream);
+      doc = MakePdfDocument(printing::GetAgent(), accessibility_tree_, &stream);
       break;
     case SkiaDocumentType::MSKP:
       SkSerialProcs procs = SerializationProcs(&data_->subframe_content_info);
@@ -291,6 +295,29 @@ bool MetafileSkia::RenderPage(unsigned int page_number,
 }
 #endif
 
+#if defined(OS_ANDROID)
+bool MetafileSkia::SaveToFileDescriptor(int fd) const {
+  if (GetDataSize() == 0u)
+    return false;
+
+  std::unique_ptr<SkStreamAsset> asset(data_->data_stream->duplicate());
+
+  static constexpr size_t kMaximumBufferSize = 1024 * 1024;
+  std::vector<uint8_t> buffer(std::min(kMaximumBufferSize, asset->getLength()));
+  do {
+    size_t read_size = asset->read(&buffer[0], buffer.size());
+    if (read_size == 0u)
+      break;
+    DCHECK_GE(buffer.size(), read_size);
+    if (!base::WriteFileDescriptor(
+            fd, reinterpret_cast<const char*>(buffer.data()), read_size)) {
+      return false;
+    }
+  } while (!asset->isAtEnd());
+
+  return true;
+}
+#else
 bool MetafileSkia::SaveTo(base::File* file) const {
   if (GetDataSize() == 0U)
     return false;
@@ -313,6 +340,7 @@ bool MetafileSkia::SaveTo(base::File* file) const {
 
   return true;
 }
+#endif  // defined(OS_ANDROID)
 
 std::unique_ptr<MetafileSkia> MetafileSkia::GetMetafileForCurrentPage(
     SkiaDocumentType type) {

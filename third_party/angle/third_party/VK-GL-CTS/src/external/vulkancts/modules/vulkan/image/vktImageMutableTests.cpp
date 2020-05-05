@@ -867,7 +867,7 @@ class UploadDownloadExecutor
 public:
 	UploadDownloadExecutor(Context& context, VkDevice device, VkQueue queue, deUint32 queueFamilyIndex, const CaseDef& caseSpec) :
 	m_caseDef(caseSpec),
-	m_haveMaintenance2(isDeviceExtensionSupported(context.getUsedApiVersion(), context.getDeviceExtensions(), "VK_KHR_maintenance2")),
+	m_haveMaintenance2(context.isDeviceFunctionalitySupported("VK_KHR_maintenance2")),
 	m_vk(context.getDeviceInterface()),
 	m_device(device),
 	m_queue(queue),
@@ -1651,7 +1651,7 @@ void checkSupport (Context& context, const CaseDef caseDef)
 
 	// If this is a VK_KHR_image_format_list test, check that the extension is supported
 	if (caseDef.isFormatListTest)
-		context.requireDeviceExtension("VK_KHR_image_format_list");
+		context.requireDeviceFunctionality("VK_KHR_image_format_list");
 
 	// Check required features on the format for the required upload/download methods
 	VkFormatProperties	imageFormatProps, viewFormatProps;
@@ -1696,17 +1696,10 @@ void checkSupport (Context& context, const CaseDef caseDef)
 		break;
 	}
 
-	if ((viewFormatFeatureFlags & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
-		isStorageImageExtendedFormat(caseDef.viewFormat) &&
-		!getPhysicalDeviceFeatures(vki, physDevice).shaderStorageImageExtendedFormats)
-	{
-		TCU_THROW(NotSupportedError, "View format requires shaderStorageImageExtended");
-	}
-
 	if ((viewFormatProps.optimalTilingFeatures & viewFormatFeatureFlags) != viewFormatFeatureFlags)
 		TCU_THROW(NotSupportedError, "View format doesn't support upload/download method");
 
-	const bool haveMaintenance2 = isDeviceExtensionSupported(context.getUsedApiVersion(), context.getDeviceExtensions(), "VK_KHR_maintenance2");
+	const bool haveMaintenance2 = context.isDeviceFunctionalitySupported("VK_KHR_maintenance2");
 
 	// We don't use the base image for anything other than transfer
 	// operations so there are no features to check.  However, The Vulkan
@@ -1872,39 +1865,6 @@ Move<VkDevice> createDeviceWithWsi(const PlatformInterface&		vkp,
 	}
 
 	return createCustomDevice(enableValidation, vkp, instance, vki, physicalDevice, &deviceParams, pAllocator);
-}
-
-deUint32 getNumQueueFamilyIndices(const InstanceInterface& vki, VkPhysicalDevice physicalDevice)
-{
-	deUint32	numFamilies = 0;
-
-	vki.getPhysicalDeviceQueueFamilyProperties(physicalDevice, &numFamilies, DE_NULL);
-
-	return numFamilies;
-}
-
-vector<deUint32> getSupportedQueueFamilyIndices(const InstanceInterface& vki, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
-{
-	const deUint32		numTotalFamilyIndices = getNumQueueFamilyIndices(vki, physicalDevice);
-	vector<deUint32>	supportedFamilyIndices;
-
-	for (deUint32 queueFamilyNdx = 0; queueFamilyNdx < numTotalFamilyIndices; ++queueFamilyNdx)
-	{
-		if (getPhysicalDeviceSurfaceSupport(vki, physicalDevice, queueFamilyNdx, surface) != VK_FALSE)
-			supportedFamilyIndices.push_back(queueFamilyNdx);
-	}
-
-	return supportedFamilyIndices;
-}
-
-deUint32 chooseQueueFamilyIndex(const InstanceInterface& vki, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
-{
-	const vector<deUint32>	supportedFamilyIndices = getSupportedQueueFamilyIndices(vki, physicalDevice, surface);
-
-	if (supportedFamilyIndices.empty())
-		TCU_THROW(NotSupportedError, "Device doesn't support presentation");
-
-	return supportedFamilyIndices[0];
 }
 
 struct InstanceHelper

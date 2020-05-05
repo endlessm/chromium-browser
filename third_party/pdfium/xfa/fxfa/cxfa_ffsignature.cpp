@@ -51,8 +51,10 @@ bool CXFA_FFSignature::AcceptsFocusOnButtonDown(uint32_t dwFlags,
   return false;
 }
 
-void CXFA_FFSignature::OnLButtonDown(uint32_t dwFlags,
-                                     const CFX_PointF& point) {}
+bool CXFA_FFSignature::OnLButtonDown(uint32_t dwFlags,
+                                     const CFX_PointF& point) {
+  return false;
+}
 
 bool CXFA_FFSignature::OnLButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
   return false;
@@ -73,8 +75,10 @@ bool CXFA_FFSignature::OnMouseWheel(uint32_t dwFlags,
   return false;
 }
 
-void CXFA_FFSignature::OnRButtonDown(uint32_t dwFlags,
-                                     const CFX_PointF& point) {}
+bool CXFA_FFSignature::OnRButtonDown(uint32_t dwFlags,
+                                     const CFX_PointF& point) {
+  return false;
+}
 
 bool CXFA_FFSignature::OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
   return false;
@@ -97,12 +101,10 @@ bool CXFA_FFSignature::OnChar(uint32_t dwChar, uint32_t dwFlags) {
   return false;
 }
 
-FWL_WidgetHit CXFA_FFSignature::OnHitTest(const CFX_PointF& point) {
-  if (GetNormalWidget() && GetNormalWidget()->HitTest(FWLToClient(point)) !=
-                               FWL_WidgetHit::Unknown) {
+FWL_WidgetHit CXFA_FFSignature::HitTest(const CFX_PointF& point) {
+  auto* pNorm = GetNormalWidget();
+  if (pNorm && pNorm->HitTest(FWLToClient(point)) != FWL_WidgetHit::Unknown)
     return FWL_WidgetHit::Client;
-  }
-
   if (!GetRectWithoutRotate().Contains(point))
     return FWL_WidgetHit::Unknown;
   if (m_rtCaption.Contains(point))

@@ -137,6 +137,9 @@ class EmbedderTest : public ::testing::Test,
   // Same as UnloadPage(), but does not fire form events.
   void UnloadPageNoEvents(FPDF_PAGE page);
 
+  // Apply standard highlighting color/alpha to forms.
+  void SetInitialFormFieldHighlight(FPDF_FORMHANDLE form);
+
   // RenderLoadedPageWithFlags() with no flags.
   ScopedFPDFBitmap RenderLoadedPage(FPDF_PAGE page);
 
@@ -177,6 +180,9 @@ class EmbedderTest : public ::testing::Test,
   static std::string GetPostScriptFromEmf(pdfium::span<const uint8_t> emf_data);
 #endif  // defined(OS_WIN)
 
+  // Return bytes for each of the FPDFBitmap_* format types.
+  static int BytesPerPixelForFormat(int format);
+
  protected:
   using PageNumberToHandleMap = std::map<int, FPDF_PAGE>;
 
@@ -191,12 +197,13 @@ class EmbedderTest : public ::testing::Test,
   FPDF_FORMHANDLE SetupFormFillEnvironment(FPDF_DOCUMENT doc,
                                            JavaScriptOption javascript_option);
 
-  // Return the hash of |bitmap|.
+  // Return the hash of only the pixels in |bitmap|. i.e. Excluding the gap, if
+  // any, at the end of a row where the stride is larger than width * bpp.
   static std::string HashBitmap(FPDF_BITMAP bitmap);
 
 #ifndef NDEBUG
   // For debugging purposes.
-  // Write |bitmap| to a png file.
+  // Write |bitmap| as a PNG to |filename|.
   static void WriteBitmapToPng(FPDF_BITMAP bitmap, const std::string& filename);
 #endif
 
@@ -229,8 +236,14 @@ class EmbedderTest : public ::testing::Test,
 
   void SetWholeFileAvailable();
 
-  void OpenPDFFileForWrite(const char* filename);
+#ifndef NDEBUG
+  // For debugging purposes.
+  // While open, write any data that gets passed to WriteBlockCallback() to
+  // |filename|. This is typically used to capture data from FPDF_SaveAsCopy()
+  // calls.
+  void OpenPDFFileForWrite(const std::string& filename);
   void ClosePDFFileForWrite();
+#endif
 
   std::unique_ptr<Delegate> default_delegate_;
   Delegate* delegate_;

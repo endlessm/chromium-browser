@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_coordinator.h"
+#import "ios/chrome/browser/ui/infobars/coordinators/infobar_coordinator+subclassing.h"
 
 #include "base/mac/foundation_util.h"
 #import "ios/chrome/browser/ui/fullscreen/animated_scoped_fullscreen_disabler.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller_factory.h"
+#import "ios/chrome/browser/ui/fullscreen/fullscreen_controller.h"
+#import "ios/chrome/browser/ui/infobars/banners/infobar_banner_accessibility_util.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_presentation_state.h"
 #import "ios/chrome/browser/ui/infobars/coordinators/infobar_coordinator_implementation.h"
 #import "ios/chrome/browser/ui/infobars/infobar_badge_ui_delegate.h"
@@ -16,6 +18,7 @@
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_banner_transition_driver.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_positioner.h"
 #import "ios/chrome/browser/ui/infobars/presentation/infobar_modal_transition_driver.h"
+#import "ios/chrome/browser/ui/toolbar/public/features.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/util/ui_util.h"
 
@@ -24,9 +27,8 @@
 #endif
 
 namespace {
-// Banner View constants.
-const CGFloat kiPhoneBannerOverlapWithOmnibox = 5.0;
-const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
+// Banner View constant.
+const CGFloat kBannerOverlapWithOmnibox = 5.0;
 }  // namespace
 
 @interface InfobarCoordinator () <InfobarCoordinatorImplementation,
@@ -34,13 +36,11 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
                                   InfobarModalPositioner> {
   // The AnimatedFullscreenDisable disables fullscreen by displaying the
   // Toolbar/s when an Infobar banner is presented.
-  std::unique_ptr<AnimatedScopedFullscreenDisabler> animatedFullscreenDisabler_;
+  std::unique_ptr<AnimatedScopedFullscreenDisabler> _animatedFullscreenDisabler;
 }
 
 // Delegate that holds the Infobar information and actions.
 @property(nonatomic, readonly) infobars::InfoBarDelegate* infobarDelegate;
-// NavigationController that contains the modalViewController.
-@property(nonatomic, weak) UINavigationController* modalNavigationController;
 // The transition delegate used by the Coordinator to present the InfobarBanner.
 // nil if no Banner is being presented.
 @property(nonatomic, strong)
@@ -51,6 +51,8 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
     InfobarModalTransitionDriver* modalTransitionDriver;
 // Readwrite redefinition.
 @property(nonatomic, assign, readwrite) BOOL bannerWasPresented;
+// YES if the banner is in the process of being dismissed.
+@property(nonatomic, assign) BOOL bannerIsBeingDismissed;
 // Completion block used to dismiss the banner after a set period of time. This
 // needs to be created by dispatch_block_create() since it may get cancelled.
 @property(nonatomic, copy) dispatch_block_t dismissBannerBlock;
@@ -88,7 +90,8 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 #pragma mark - Public Methods.
 
 - (void)stop {
-  animatedFullscreenDisabler_ = nullptr;
+  _animatedFullscreenDisabler = nullptr;
+  _badgeDelegate = nil;
   _infobarDelegate = nil;
 }
 
@@ -106,11 +109,10 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   }
 
   // Make sure to display the Toolbar/s before presenting the Banner.
-  animatedFullscreenDisabler_ =
+  _animatedFullscreenDisabler =
       std::make_unique<AnimatedScopedFullscreenDisabler>(
-          FullscreenControllerFactory::GetInstance()->GetForBrowserState(
-              self.browserState));
-  animatedFullscreenDisabler_->StartAnimation();
+          FullscreenController::FromBrowserState(self.browserState));
+  _animatedFullscreenDisabler->StartAnimation();
 
   [self.bannerViewController
       setModalPresentationStyle:UIModalPresentationCustom];
@@ -136,11 +138,13 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
                            weakSelf.baseViewController
                                                             presenting:YES];
                    weakSelf.bannerWasPresented = YES;
+                   // Set to NO for each Banner this coordinator might present.
+                   weakSelf.bannerIsBeingDismissed = NO;
                    weakSelf.infobarBannerState =
                        InfobarBannerPresentationState::Presented;
                    [weakSelf.badgeDelegate
-                       infobarBannerWasPresented:self.infobarType
-                                     forWebState:self.webState];
+                       infobarBannerWasPresented:weakSelf.infobarType
+                                     forWebState:weakSelf.webState];
                    [weakSelf infobarBannerWasPresented];
                    if (completion)
                      completion();
@@ -189,15 +193,10 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   if (self.baseViewController.presentedViewController &&
       self.baseViewController.presentedViewController ==
           self.bannerViewController) {
-    [self dismissInfobarBanner:self animated:NO completion:modalPresentation];
+    [self dismissInfobarBannerAnimated:NO completion:modalPresentation];
   } else {
     modalPresentation();
   }
-}
-
-- (void)dismissInfobarBannerAnimated:(BOOL)animated
-                          completion:(void (^)())completion {
-  [self dismissInfobarBanner:self animated:animated completion:completion];
 }
 
 #pragma mark - Protocols
@@ -207,16 +206,16 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 - (void)removeView {
   // Do not animate the dismissal since the Coordinator might have been stopped
   // and the animation can cause undefined behavior.
-  [self dismissInfobarBanner:self animated:NO completion:nil];
+  [self dismissInfobarBannerAnimated:NO completion:nil];
 }
 
 - (void)detachView {
   // Do not animate the dismissals since the Coordinator might have been stopped
   // and the animation can cause undefined behavior.
   if (self.bannerViewController)
-    [self dismissInfobarBanner:self animated:NO completion:nil];
+    [self dismissInfobarBannerAnimated:NO completion:nil];
   if (self.modalViewController)
-    [self dismissInfobarModal:self animated:NO completion:nil];
+    [self dismissInfobarModalAnimated:NO];
   [self stop];
 }
 
@@ -233,7 +232,7 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   // If the Banner Button will present the Modal then the banner shouldn't be
   // dismissed.
   if (![self infobarBannerActionWillPresentModal]) {
-    [self dismissInfobarBanner:sender animated:YES completion:nil];
+    [self dismissInfobarBannerAnimated:YES completion:nil];
   }
 }
 
@@ -250,28 +249,10 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
                      }];
 }
 
-- (void)dismissInfobarBanner:(id)sender
-                    animated:(BOOL)animated
-                  completion:(void (^)())completion
-               userInitiated:(BOOL)userInitiated {
-  DCHECK(self.baseViewController);
-  // Make sure the banner is completely presented before trying to dismiss it.
-  [self.bannerTransitionDriver completePresentationTransitionIfRunning];
-
-  if (self.baseViewController.presentedViewController &&
-      self.baseViewController.presentedViewController ==
-          self.bannerViewController) {
-    [self infobarBannerWillBeDismissed:userInitiated];
-    [self.baseViewController
-        dismissViewControllerAnimated:animated
-                           completion:^{
-                             if (completion)
-                               completion();
-                           }];
-  } else {
-    if (completion)
-      completion();
-  }
+- (void)dismissInfobarBannerForUserInteraction:(BOOL)userInitiated {
+  [self dismissInfobarBannerAnimated:YES
+                       userInitiated:userInitiated
+                          completion:nil];
 }
 
 - (void)infobarBannerWasDismissed {
@@ -281,7 +262,7 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   [self.badgeDelegate infobarBannerWasDismissed:self.infobarType
                                     forWebState:self.webState];
   self.bannerTransitionDriver = nil;
-  animatedFullscreenDisabler_ = nullptr;
+  _animatedFullscreenDisabler = nullptr;
   [self infobarWasDismissed];
   if (!self.infobarActionInProgress) {
     // Only inform InfobarContainer that the Infobar banner presentation is
@@ -298,23 +279,12 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
   NamedGuide* omniboxGuide =
       [NamedGuide guideWithName:kOmniboxGuide
                            view:self.baseViewController.view];
-  UIView* omniboxView = omniboxGuide.constrainedView;
-  CGRect omniboxFrame = omniboxView.frame;
+  UIView* omniboxView = omniboxGuide.owningView;
+  CGRect omniboxFrame = [omniboxView convertRect:omniboxGuide.layoutFrame
+                                          toView:self.baseViewController.view];
 
-  // TODO(crbug.com/964136): The TabStrip on iPad is pushing down the Omnibox
-  // view. On iPad when the TabStrip is visible convert the Omnibox frame to the
-  // self.baseViewController.view coordinate system.
-  CGFloat bannerOverlap = kiPhoneBannerOverlapWithOmnibox;
-  NamedGuide* tabStripGuide =
-      [NamedGuide guideWithName:kTabStripTabSwitcherGuide
-                           view:self.baseViewController.view];
-  if (tabStripGuide.constrainedFrame.size.height) {
-    omniboxFrame = [omniboxView convertRect:omniboxView.frame
-                                     toView:self.baseViewController.view];
-    bannerOverlap = kiPadBannerOverlapWithOmnibox;
-  }
-
-  return omniboxFrame.origin.y + omniboxFrame.size.height - bannerOverlap;
+  return omniboxFrame.origin.y + omniboxFrame.size.height -
+         kBannerOverlapWithOmnibox;
 }
 
 - (UIView*)bannerView {
@@ -323,49 +293,20 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 
 #pragma mark InfobarModalDelegate
 
-- (void)modalInfobarButtonWasAccepted:(id)sender {
+- (void)modalInfobarButtonWasAccepted:(id)infobarModal {
   [self performInfobarAction];
   if ([self isInfobarAccepted]) {
     [self.badgeDelegate infobarWasAccepted:self.infobarType
                                forWebState:self.webState];
   }
-  [self dismissInfobarModal:sender animated:YES completion:nil];
+  [self dismissInfobarModalAnimated:YES];
 }
 
-- (void)dismissInfobarModal:(id)sender
-                   animated:(BOOL)animated
-                 completion:(ProceduralBlock)completion {
-  DCHECK(self.baseViewController);
-  if (self.baseViewController.presentedViewController) {
-    // If the Modal is being presented by the Banner, call dismiss on it.
-    // This way the modal dismissal will animate correctly and the completion
-    // block cleans up the banner correctly.
-    if (self.baseViewController.presentedViewController ==
-        self.bannerViewController) {
-      __weak __typeof(self) weakSelf = self;
-      [self.bannerViewController
-          dismissViewControllerAnimated:animated
-                             completion:^{
-                               [weakSelf
-                                   dismissInfobarBannerAnimated:NO
-                                                     completion:completion];
-                             }];
-
-    } else if (self.baseViewController.presentedViewController ==
-               self.modalNavigationController) {
-      [self.baseViewController dismissViewControllerAnimated:animated
-                                                  completion:^{
-                                                    if (completion)
-                                                      completion();
-                                                  }];
-    }
-  } else {
-    if (completion)
-      completion();
-  }
+- (void)dismissInfobarModal:(id)infobarModal {
+  [self dismissInfobarModalAnimated:YES];
 }
 
-- (void)modalInfobarWasDismissed:(id)sender {
+- (void)modalInfobarWasDismissed:(id)infobarModal {
   self.modalTransitionDriver = nil;
 
   // If InfobarBanner is being presented it means that this Modal was presented
@@ -449,6 +390,11 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
 - (void)presentInfobarModalFrom:(UIViewController*)presentingViewController
                          driver:(InfobarModalTransitionDriver*)driver
                      completion:(ProceduralBlock)completion {
+  // |self.modalViewController| only exists while one its being presented, if
+  // this is the case early return since there's one already being presented.
+  if (self.modalViewController)
+    return;
+
   BOOL infobarWasConfigured = [self configureModalViewController];
   if (!infobarWasConfigured) {
     if (driver.transitionMode == InfobarModalTransitionBanner) {
@@ -462,7 +408,6 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
       initWithRootViewController:self.modalViewController];
   navController.transitioningDelegate = driver;
   navController.modalPresentationStyle = UIModalPresentationCustom;
-  self.modalNavigationController = navController;
   [presentingViewController presentViewController:navController
                                          animated:YES
                                        completion:completion];
@@ -476,34 +421,87 @@ const CGFloat kiPadBannerOverlapWithOmnibox = 10.0;
             (UIViewController*)presentingViewController
                                              presenting:(BOOL)presenting {
   if (presenting) {
-    // Set the banner's superview accessibilityViewIsModal property to NO. This
-    // will allow the selection of the banner sibling views e.g. the
-    // presentingViewController views.
-    self.bannerViewController.view.superview.accessibilityViewIsModal = NO;
-
-    // Make sure the banner is an accessibility element of the
-    // PresentingViewController.
-    presentingViewController.accessibilityElements =
-        @[ self.bannerViewController.view, presentingViewController.view ];
-
-    // Finally, focus the banner.
-    UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification,
-                                    self.bannerViewController.view);
+    UpdateBannerAccessibilityForPresentation(presentingViewController,
+                                             self.bannerViewController.view);
   } else {
-    // Remove the Banner as an A11y element.
-    presentingViewController.accessibilityElements =
-        @[ presentingViewController.view ];
+    UpdateBannerAccessibilityForDismissal(presentingViewController);
   }
 }
 
+#pragma mark - Dismissal Helpers
+
 // Helper method for non-user initiated InfobarBanner dismissals.
-- (void)dismissInfobarBanner:(id)sender
-                    animated:(BOOL)animated
-                  completion:(void (^)())completion {
-  [self dismissInfobarBanner:sender
-                    animated:animated
-                  completion:completion
-               userInitiated:NO];
+- (void)dismissInfobarBannerAnimated:(BOOL)animated
+                          completion:(void (^)())completion {
+  [self dismissInfobarBannerAnimated:animated
+                       userInitiated:NO
+                          completion:completion];
+}
+
+// Helper for banner dismissals.
+- (void)dismissInfobarBannerAnimated:(BOOL)animated
+                       userInitiated:(BOOL)userInitiated
+                          completion:(void (^)())completion {
+  DCHECK(self.baseViewController);
+  // Make sure the banner is completely presented before trying to dismiss it.
+  [self.bannerTransitionDriver completePresentationTransitionIfRunning];
+
+  // The banner dismiss can be triggered concurrently due to different events
+  // like swiping it up, entering the TabSwitcher, presenting another VC or the
+  // InfobarDelelgate being destroyed. Trying to dismiss it twice might cause a
+  // UIKit crash on iOS12.
+  if (!self.bannerIsBeingDismissed &&
+      self.baseViewController.presentedViewController &&
+      self.baseViewController.presentedViewController ==
+          self.bannerViewController) {
+    self.bannerIsBeingDismissed = YES;
+    [self infobarBannerWillBeDismissed:userInitiated];
+    [self.baseViewController dismissViewControllerAnimated:YES
+                                                completion:completion];
+  } else if (completion) {
+    completion();
+  }
+}
+
+- (void)dismissInfobarModalAnimated:(BOOL)animated {
+  [self dismissInfobarModalAnimated:animated completion:nil];
+}
+
+@end
+
+@implementation InfobarCoordinator (Subclassing)
+
+- (void)dismissInfobarModalAnimated:(BOOL)animated
+                         completion:(ProceduralBlock)completion {
+  DCHECK(self.baseViewController);
+  UIViewController* presentedViewController =
+      self.baseViewController.presentedViewController;
+  if (!presentedViewController) {
+    if (completion)
+      completion();
+    return;
+  }
+  // If the Modal is being presented by the Banner, call dismiss on it.
+  // This way the modal dismissal will animate correctly and the completion
+  // block cleans up the banner correctly.
+  if (self.baseViewController.presentedViewController ==
+      self.bannerViewController) {
+    __weak __typeof(self) weakSelf = self;
+    [self.bannerViewController
+        dismissViewControllerAnimated:animated
+                           completion:^{
+                             [weakSelf dismissInfobarBannerAnimated:NO
+                                                         completion:completion];
+                           }];
+
+  } else if (presentedViewController ==
+             self.modalViewController.navigationController) {
+    [self.baseViewController dismissViewControllerAnimated:animated
+                                                completion:^{
+                                                  if (completion)
+                                                    completion();
+                                                }];
+  }
 }
 
 @end

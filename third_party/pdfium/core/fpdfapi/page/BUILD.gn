@@ -27,10 +27,8 @@ source_set("page") {
     "cpdf_contentparser.h",
     "cpdf_devicecs.cpp",
     "cpdf_devicecs.h",
-    "cpdf_dibbase.cpp",
-    "cpdf_dibbase.h",
-    "cpdf_dibtransferfunc.cpp",
-    "cpdf_dibtransferfunc.h",
+    "cpdf_dib.cpp",
+    "cpdf_dib.h",
     "cpdf_docpagedata.cpp",
     "cpdf_docpagedata.h",
     "cpdf_expintfunc.cpp",
@@ -95,6 +93,8 @@ source_set("page") {
     "cpdf_tilingpattern.h",
     "cpdf_transferfunc.cpp",
     "cpdf_transferfunc.h",
+    "cpdf_transferfuncdib.cpp",
+    "cpdf_transferfuncdib.h",
     "cpdf_transparency.cpp",
     "cpdf_transparency.h",
     "ipdf_page.h",
@@ -123,8 +123,6 @@ pdfium_unittest_source_set("unittests") {
     "cpdf_streamcontentparser_unittest.cpp",
     "cpdf_streamparser_unittest.cpp",
   ]
-  deps = [
-    ":page",
-  ]
+  deps = [ ":page" ]
   pdfium_root_dir = "../../../"
 }

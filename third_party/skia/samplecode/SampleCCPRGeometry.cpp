@@ -13,7 +13,6 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "samplecode/Sample.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkRectPriv.h"
 #include "src/gpu/GrClip.h"
 #include "src/gpu/GrContextPriv.h"
@@ -112,7 +111,7 @@ private:
         return "[Testing/Sample code] CCPRGeometryView::VisualizeCoverageCountFP";
     }
     std::unique_ptr<GrFragmentProcessor> clone() const override {
-        return skstd::make_unique<VisualizeCoverageCountFP>();
+        return std::make_unique<VisualizeCoverageCountFP>();
     }
     void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override {}
     bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
@@ -184,9 +183,10 @@ void CCPRGeometryView::onDrawContent(SkCanvas* canvas) {
 
         GrOpMemoryPool* pool = ctx->priv().opMemoryPool();
 
-        auto ccbuff = ctx->priv().makeDeferredRenderTargetContext(SkBackingFit::kApprox,
-                                                                  this->width(), this->height(),
-                                                                  GrColorType::kAlpha_F16, nullptr);
+        int width = this->width();
+        int height = this->height();
+        auto ccbuff = GrRenderTargetContext::Make(
+                ctx, GrColorType::kAlpha_F16, nullptr, SkBackingFit::kApprox, {width, height});
         SkASSERT(ccbuff);
         ccbuff->clear(nullptr, SK_PMColor4fTRANSPARENT,
                       GrRenderTargetContext::CanClearFullscreen::kYes);
@@ -194,11 +194,10 @@ void CCPRGeometryView::onDrawContent(SkCanvas* canvas) {
 
         // Visualize coverage count in main canvas.
         GrPaint paint;
+        paint.addColorFragmentProcessor(GrTextureEffect::Make(sk_ref_sp(ccbuff->asTextureProxy()),
+                                                              ccbuff->colorInfo().alphaType()));
         paint.addColorFragmentProcessor(
-                GrSimpleTextureEffect::Make(sk_ref_sp(ccbuff->asTextureProxy()),
-                                            ccbuff->colorInfo().alphaType(), SkMatrix::I()));
-        paint.addColorFragmentProcessor(
-                skstd::make_unique<VisualizeCoverageCountFP>());
+                std::make_unique<VisualizeCoverageCountFP>());
         paint.setPorterDuffXPFactory(SkBlendMode::kSrcOver);
         rtc->drawRect(GrNoClip(), std::move(paint), GrAA::kNo, SkMatrix::I(),
                       SkRect::MakeIWH(this->width(), this->height()));
@@ -340,9 +339,9 @@ void CCPRGeometryView::DrawCoverageCountOp::onExecute(GrOpFlushState* state,
 
     std::unique_ptr<GrCCCoverageProcessor> proc;
     if (state->caps().shaderCaps()->geometryShaderSupport()) {
-        proc = skstd::make_unique<GrGSCoverageProcessor>();
+        proc = std::make_unique<GrGSCoverageProcessor>();
     } else {
-        proc = skstd::make_unique<GrVSCoverageProcessor>();
+        proc = std::make_unique<GrVSCoverageProcessor>();
     }
 
     if (!fView->fDoStroke) {

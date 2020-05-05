@@ -17,8 +17,8 @@
 #include "chrome/common/chrome_switches.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/safe_browsing/db/v4_local_database_manager.h"
-#include "components/safe_browsing/verdict_cache_manager.h"
+#include "components/safe_browsing/core/db/v4_local_database_manager.h"
+#include "components/safe_browsing/core/verdict_cache_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/preferences/public/mojom/tracked_preference_validation_delegate.mojom.h"
@@ -86,8 +86,7 @@ VerdictCacheManager* ServicesDelegate::GetVerdictCacheManager(
     Profile* profile) const {
   DCHECK(profile);
   auto it = cache_manager_map_.find(profile);
-  DCHECK(it != cache_manager_map_.end());
-  return it->second.get();
+  return it != cache_manager_map_.end() ? it->second.get() : nullptr;
 }
 
 }  // namespace safe_browsing

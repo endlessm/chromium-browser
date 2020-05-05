@@ -126,7 +126,7 @@ LOADER_PLATFORM_THREAD_ONCE_DECLARATION(once_init);
 
 // This loader supports Vulkan API version 1.1
 uint32_t loader_major_version = 1;
-uint32_t loader_minor_version = 1;
+uint32_t loader_minor_version = 2;
 
 void *loader_instance_heap_alloc(const struct loader_instance *instance, size_t size, VkSystemAllocationScope alloc_scope) {
     void *pMemory = NULL;
@@ -577,7 +577,7 @@ static bool loaderAddJsonEntry(const struct loader_instance *inst,
 //
 // This function looks for filename in given device handle, filename is then added to return list
 // function return true if filename was appended to reg_data list
-// If error occures result is updated with failure reason
+// If error occurs result is updated with failure reason
 bool loaderGetDeviceRegistryEntry(const struct loader_instance *inst, char **reg_data, PDWORD total_size, DEVINST dev_id,
                                   LPCSTR value_name, VkResult *result) {
     HKEY hkrKey = INVALID_HANDLE_VALUE;
@@ -959,7 +959,7 @@ VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *locati
 
                             if (!found_gpu) {
                                 loader_log(inst, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, 0,
-                                           "Dropping driver %s as no corresponduing DXGI adapter was found", name);
+                                           "Dropping driver %s as no corresponding DXGI adapter was found", name);
                                 continue;
                             }
                         }
@@ -971,7 +971,7 @@ VkResult loaderGetRegistryFiles(const struct loader_instance *inst, char *locati
                         found = true;
                     } else {
                         // At this point the reg_data variable contains other JSON paths, likely from the PNP/device section
-                        // of the registry that we want to have precendence over this non-device specific section of the registry.
+                        // of the registry that we want to have precedence over this non-device specific section of the registry.
                         // To make sure we avoid enumerating old JSON files/drivers that might be present in the non-device specific
                         // area of the registry when a newer device specific JSON file is present, do a check before adding.
                         // Find the file name, without path, of the JSON file found in the non-device specific registry location.
@@ -2422,7 +2422,7 @@ static void loader_debug_init(void) {
 }
 
 void loader_initialize(void) {
-    // initialize mutexs
+    // initialize mutexes
     loader_platform_thread_create_mutex(&loader_lock);
     loader_platform_thread_create_mutex(&loader_json_lock);
 
@@ -2449,7 +2449,7 @@ struct loader_data_files {
 };
 
 void loader_release() {
-    // release mutexs
+    // release mutexes
     loader_platform_thread_delete_mutex(&loader_lock);
     loader_platform_thread_delete_mutex(&loader_json_lock);
 }
@@ -3948,7 +3948,7 @@ out:
 }
 
 #ifdef _WIN32
-// Read manifest JSON files uing the Windows driver interface
+// Read manifest JSON files using the Windows driver interface
 static VkResult ReadManifestsFromD3DAdapters(const struct loader_instance *inst, char **reg_data, PDWORD reg_data_size,
                                              const wchar_t *value_name) {
     VkResult result = VK_INCOMPLETE;
@@ -3993,7 +3993,7 @@ static VkResult ReadManifestsFromD3DAdapters(const struct loader_instance *inst,
             .value_type = REG_MULTI_SZ,
             .physical_adapter_index = 0,
         };
-        wcsncpy(filename_info.value_name, value_name, sizeof(filename_info.value_name) / sizeof(DWORD));
+        wcsncpy(filename_info.value_name, value_name, sizeof(filename_info.value_name) / sizeof(WCHAR));
         LoaderQueryAdapterInfo query_info = {
             .handle = adapters.adapters[i].handle,
             .type = LOADER_QUERY_TYPE_REGISTRY,
@@ -6186,7 +6186,7 @@ VkResult loader_validate_device_extensions(struct loader_instance *this_instance
 }
 
 // Terminator functions for the Instance chain
-// All named terminator_<Vulakn API name>
+// All named terminator_<Vulkan API name>
 VKAPI_ATTR VkResult VKAPI_CALL terminator_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
                                                          const VkAllocationCallbacks *pAllocator, VkInstance *pInstance) {
     struct loader_icd_term *icd_term;
@@ -7368,7 +7368,7 @@ out:
     return result;
 }
 
-#if defined(_WIN32) && defined(LOADER_DYNAMIC_LIB)
+#if defined(_WIN32)
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:

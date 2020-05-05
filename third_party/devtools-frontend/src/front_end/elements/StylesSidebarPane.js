@@ -26,15 +26,20 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+import {ColorSwatchPopoverIcon, ShadowSwatchPopoverHelper} from './ColorSwatchPopoverIcon.js';
+import {linkifyDeferredNodeReference} from './DOMLinkifier.js';
+import {ElementsSidebarPane} from './ElementsSidebarPane.js';
+import {StylePropertyHighlighter} from './StylePropertyHighlighter.js';
+import {StylePropertyTreeElement} from './StylePropertyTreeElement.js';
 
-export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
+export class StylesSidebarPane extends ElementsSidebarPane {
   constructor() {
     super(true /* delegatesFocus */);
     this.setMinimumSize(96, 26);
     this.registerRequiredCSS('elements/stylesSidebarPane.css');
 
-    Common.moduleSetting('colorFormat').addChangeListener(this.update.bind(this));
-    Common.moduleSetting('textEditorIndent').addChangeListener(this.update.bind(this));
+    self.Common.settings.moduleSetting('colorFormat').addChangeListener(this.update.bind(this));
+    self.Common.settings.moduleSetting('textEditorIndent').addChangeListener(this.update.bind(this));
 
     /** @type {?UI.Widget} */
     this._currentToolbarPane = null;
@@ -57,7 +62,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
 
     this._swatchPopoverHelper = new InlineEditor.SwatchPopoverHelper();
     this._linkifier = new Components.Linkifier(_maxLinkLength, /* useLinkDecorator */ true);
-    /** @type {?Elements.StylePropertyHighlighter} */
+    /** @type {?StylePropertyHighlighter} */
     this._decorator = null;
     this._userOperation = false;
     this._isEditingStyle = false;
@@ -71,7 +76,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
     this._sectionBlocks = [];
     this._needsForceUpdate = false;
     StylesSidebarPane._instance = this;
-    UI.context.addFlavorChangeListener(SDK.DOMNode, this.forceUpdate, this);
+    self.UI.context.addFlavorChangeListener(SDK.DOMNode, this.forceUpdate, this);
     this.contentElement.addEventListener('copy', this._clipboardCopy.bind(this));
     this._resizeThrottler = new Common.Throttler(100);
   }
@@ -198,7 +203,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
    * @param {!SDK.CSSProperty} cssProperty
    */
   revealProperty(cssProperty) {
-    this._decorator = new Elements.StylePropertyHighlighter(this, cssProperty);
+    this._decorator = new StylePropertyHighlighter(this, cssProperty);
     this._decorator.perform();
     this.update();
   }
@@ -317,7 +322,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
 
   /**
    * @param {!StylePropertiesSection} editedSection
-   * @param {!Elements.StylePropertyTreeElement=} editedTreeElement
+   * @param {!StylePropertyTreeElement=} editedTreeElement
    */
   _refreshUpdate(editedSection, editedTreeElement) {
     if (editedTreeElement) {
@@ -403,7 +408,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
 
   /**
    * @param {boolean} editing
-   * @param {!Elements.StylePropertyTreeElement=} treeElement
+   * @param {!StylePropertyTreeElement=} treeElement
    */
   setEditingStyle(editing, treeElement) {
     if (this._isEditingStyle === editing) {
@@ -415,7 +420,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
   }
 
   /**
-   * @param {?Elements.StylePropertyTreeElement} treeElement
+   * @param {?StylePropertyTreeElement} treeElement
    */
   _setActiveProperty(treeElement) {
     if (this._isActivePropertyHighlighted) {
@@ -497,7 +502,7 @@ export default class StylesSidebarPane extends Elements.ElementsSidebarPane {
    * @return {!Promise}
    */
   async _innerRebuildUpdate(matchedStyles) {
-    // Elements.ElementsSidebarPane's throttler schedules this method. Usually,
+    // ElementsSidebarPane's throttler schedules this method. Usually,
     // rebuild is suppressed while editing (see onCSSModelChanged()), but we need a
     // 'force' flag since the currently running throttler process cannot be canceled.
     if (this._needsForceUpdate) {
@@ -999,7 +1004,7 @@ export class StylePropertiesSection {
     }
 
     if (header && header.ownerNode) {
-      const link = Elements.DOMLinkifier.linkifyDeferredNodeReference(header.ownerNode, {preventKeyboardFocus: true});
+      const link = linkifyDeferredNodeReference(header.ownerNode, {preventKeyboardFocus: true});
       link.textContent = '<style>';
       return link;
     }
@@ -1115,8 +1120,8 @@ export class StylePropertiesSection {
     this._setSectionHovered(hasCtrlOrMeta);
 
     const treeElement = this.propertiesTreeOutline.treeElementFromEvent(event);
-    if (treeElement instanceof Elements.StylePropertyTreeElement) {
-      this._parentPane._setActiveProperty(/** @type {!Elements.StylePropertyTreeElement} */ (treeElement));
+    if (treeElement instanceof StylePropertyTreeElement) {
+      this._parentPane._setActiveProperty(/** @type {!StylePropertyTreeElement} */ (treeElement));
     } else {
       this._parentPane._setActiveProperty(null);
     }
@@ -1322,7 +1327,7 @@ export class StylePropertiesSection {
     treeElement.property.name = propertyName;
     treeElement.property.value = '0 0 black';
     treeElement.updateTitle();
-    const shadowSwatchPopoverHelper = Elements.ShadowSwatchPopoverHelper.forTreeElement(treeElement);
+    const shadowSwatchPopoverHelper = ShadowSwatchPopoverHelper.forTreeElement(treeElement);
     if (shadowSwatchPopoverHelper) {
       shadowSwatchPopoverHelper.showPopover();
     }
@@ -1337,7 +1342,7 @@ export class StylePropertiesSection {
     treeElement.property.name = 'color';
     treeElement.property.value = 'black';
     treeElement.updateTitle();
-    const colorSwatch = Elements.ColorSwatchPopoverIcon.forTreeElement(treeElement);
+    const colorSwatch = ColorSwatchPopoverIcon.forTreeElement(treeElement);
     if (colorSwatch) {
       colorSwatch.showPopover();
     }
@@ -1352,7 +1357,7 @@ export class StylePropertiesSection {
     treeElement.property.name = 'background-color';
     treeElement.property.value = 'white';
     treeElement.updateTitle();
-    const colorSwatch = Elements.ColorSwatchPopoverIcon.forTreeElement(treeElement);
+    const colorSwatch = ColorSwatchPopoverIcon.forTreeElement(treeElement);
     if (colorSwatch) {
       colorSwatch.showPopover();
     }
@@ -1468,14 +1473,14 @@ export class StylePropertiesSection {
   }
 
   /**
-   * @param {!Elements.StylePropertyTreeElement} editedTreeElement
+   * @param {!StylePropertyTreeElement} editedTreeElement
    */
   refreshUpdate(editedTreeElement) {
     this._parentPane._refreshUpdate(this, editedTreeElement);
   }
 
   /**
-   * @param {!Elements.StylePropertyTreeElement} editedTreeElement
+   * @param {!StylePropertyTreeElement} editedTreeElement
    */
   _updateVarFunctions(editedTreeElement) {
     let child = this.propertiesTreeOutline.firstChild();
@@ -1538,7 +1543,7 @@ export class StylePropertiesSection {
       if (style.parentRule && style.parentRule.isUserAgent() && inherited) {
         continue;
       }
-      const item = new Elements.StylePropertyTreeElement(
+      const item = new StylePropertyTreeElement(
           this._parentPane, this._matchedStyles, property, isShorthand, inherited, overloaded, false);
       this.propertiesTreeOutline.appendChild(item);
     }
@@ -1692,12 +1697,12 @@ export class StylePropertiesSection {
 
   /**
    * @param {number=} index
-   * @return {!Elements.StylePropertyTreeElement}
+   * @return {!StylePropertyTreeElement}
    */
   addNewBlankProperty(index = this.propertiesTreeOutline.rootElement().childCount()) {
     const property = this._style.newBlankProperty(index);
-    const item = new Elements.StylePropertyTreeElement(
-        this._parentPane, this._matchedStyles, property, false, false, false, true);
+    const item =
+        new StylePropertyTreeElement(this._parentPane, this._matchedStyles, property, false, false, false, true);
     this.propertiesTreeOutline.insertChild(item, property.index);
     return item;
   }
@@ -1746,7 +1751,7 @@ export class StylePropertiesSection {
         event.consume(true);
         return;
       }
-      const uiLocation = Bindings.cssWorkspaceBinding.rawLocationToUILocation(location);
+      const uiLocation = self.Bindings.cssWorkspaceBinding.rawLocationToUILocation(location);
       if (uiLocation) {
         Common.Revealer.reveal(uiLocation);
       }
@@ -1831,7 +1836,10 @@ export class StylePropertiesSection {
 
     // This gets deleted in finishOperation(), which is called both on success and failure.
     this._parentPane.setUserOperation(true);
-    this._parentPane.cssModel().setMediaText(media.styleSheetId, media.range, newContent).then(userCallback.bind(this));
+    const cssModel = this._parentPane.cssModel();
+    if (cssModel) {
+      cssModel.setMediaText(media.styleSheetId, media.range, newContent).then(userCallback.bind(this));
+    }
   }
 
   _editingMediaTextCommittedForTest() {
@@ -1860,6 +1868,9 @@ export class StylePropertiesSection {
    */
   _navigateToSelectorSource(index, focus) {
     const cssModel = this._parentPane.cssModel();
+    if (!cssModel) {
+      return;
+    }
     const rule = this._style.parentRule;
     const header = cssModel.styleSheetHeaderForId(/** @type {string} */ (rule.styleSheetId));
     if (!header) {
@@ -1874,7 +1885,7 @@ export class StylePropertiesSection {
    * @param {boolean} focus
    */
   static _revealSelectorSource(rawLocation, focus) {
-    const uiLocation = Bindings.cssWorkspaceBinding.rawLocationToUILocation(rawLocation);
+    const uiLocation = self.Bindings.cssWorkspaceBinding.rawLocationToUILocation(rawLocation);
     if (uiLocation) {
       Common.Revealer.reveal(uiLocation, !focus);
     }
@@ -2154,7 +2165,9 @@ export class BlankStylePropertiesSection extends StylePropertiesSection {
 
     const cssModel = this._parentPane.cssModel();
     const ruleText = this._rulePrefix() + newContent + ' {}';
-    cssModel.addRule(this._styleSheetId, ruleText, this._ruleLocation).then(onRuleAdded.bind(this));
+    if (cssModel) {
+      cssModel.addRule(this._styleSheetId, ruleText, this._ruleLocation).then(onRuleAdded.bind(this));
+    }
   }
 
   /**
@@ -2267,7 +2280,7 @@ export class KeyframePropertiesSection extends StylePropertiesSection {
 
 export class CSSPropertyPrompt extends UI.TextPrompt {
   /**
-   * @param {!Elements.StylePropertyTreeElement} treeElement
+   * @param {!StylePropertyTreeElement} treeElement
    * @param {boolean} isEditingName
    */
   constructor(treeElement, isEditingName) {
@@ -2603,27 +2616,32 @@ export class StylesSidebarPropertyRenderer {
       return valueElement;
     }
 
-    if (this._shadowHandler && (this._propertyName === 'box-shadow' || this._propertyName === 'text-shadow' ||
-                                this._propertyName === '-webkit-box-shadow') &&
+    const metadata = SDK.cssMetadata();
+
+    if (this._shadowHandler && metadata.isShadowProperty(this._propertyName) &&
         !SDK.CSSMetadata.VariableRegex.test(this._propertyValue)) {
       valueElement.appendChild(this._shadowHandler(this._propertyValue, this._propertyName));
       valueElement.normalize();
       return valueElement;
     }
 
-    if (this._gridHandler && SDK.cssMetadata().isGridAreaDefiningProperty(this._propertyName)) {
+    if (this._gridHandler && metadata.isGridAreaDefiningProperty(this._propertyName)) {
       valueElement.appendChild(this._gridHandler(this._propertyValue, this._propertyName));
       valueElement.normalize();
       return valueElement;
     }
 
+    if (metadata.isStringProperty(this._propertyName)) {
+      valueElement.title = unescapeCssString(this._propertyValue);
+    }
+
     const regexes = [SDK.CSSMetadata.VariableRegex, SDK.CSSMetadata.URLRegex];
     const processors = [this._varHandler, this._processURL.bind(this)];
-    if (this._bezierHandler && SDK.cssMetadata().isBezierAwareProperty(this._propertyName)) {
+    if (this._bezierHandler && metadata.isBezierAwareProperty(this._propertyName)) {
       regexes.push(UI.Geometry.CubicBezier.Regex);
       processors.push(this._bezierHandler);
     }
-    if (this._colorHandler && SDK.cssMetadata().isColorAwareProperty(this._propertyName)) {
+    if (this._colorHandler && metadata.isColorAwareProperty(this._propertyName)) {
       regexes.push(Common.Color.Regex);
       processors.push(this._colorHandler);
     }
@@ -2656,7 +2674,15 @@ export class StylesSidebarPropertyRenderer {
     } else if (this._node) {
       hrefUrl = this._node.resolveURL(url);
     }
-    container.appendChild(Components.Linkifier.linkifyURL(hrefUrl || url, {text: url, preventClick: true}));
+    container.appendChild(Components.Linkifier.linkifyURL(hrefUrl || url, {
+      text: url,
+      preventClick: true,
+      // crbug.com/1027168
+      // We rely on CSS text-overflow: ellipsis to hide long URLs in the Style panel,
+      // so that we don't have to keep two versions (original vs. trimmed) of URL
+      // at the same time, which complicates both StylesSidebarPane and StylePropertyTreeElement.
+      bypassURLTrimming: true,
+    }));
     container.createTextChild(')');
     return container;
   }
@@ -2673,14 +2699,14 @@ export class ButtonProvider {
     this._button.element.appendChild(longclickTriangle);
 
     new UI.LongClickController(this._button.element, this._longClicked.bind(this));
-    UI.context.addFlavorChangeListener(SDK.DOMNode, onNodeChanged.bind(this));
+    self.UI.context.addFlavorChangeListener(SDK.DOMNode, onNodeChanged.bind(this));
     onNodeChanged.call(this);
 
     /**
      * @this {ButtonProvider}
      */
     function onNodeChanged() {
-      let node = UI.context.flavor(SDK.DOMNode);
+      let node = self.UI.context.flavor(SDK.DOMNode);
       node = node ? node.enclosingElementOrSelf() : null;
       this._button.setEnabled(!!node);
     }
@@ -2694,10 +2720,10 @@ export class ButtonProvider {
   }
 
   /**
-   * @param {!Event} e
+   * @param {!Event} event
    */
-  _longClicked(e) {
-    StylesSidebarPane._instance._onAddButtonLongClick(e);
+  _longClicked(event) {
+    StylesSidebarPane._instance._onAddButtonLongClick(event);
   }
 
   /**
@@ -2708,35 +2734,3 @@ export class ButtonProvider {
     return this._button;
   }
 }
-
-/* Legacy exported object */
-self.Elements = self.Elements || {};
-
-/* Legacy exported object */
-Elements = Elements || {};
-
-/** @constructor */
-Elements.StylesSidebarPane = StylesSidebarPane;
-
-Elements.StylesSidebarPane._maxLinkLength = _maxLinkLength;
-
-/** @constructor */
-Elements.StylesSidebarPane.CSSPropertyPrompt = CSSPropertyPrompt;
-
-/** @constructor */
-Elements.StylesSidebarPane.ButtonProvider = ButtonProvider;
-
-/** @constructor */
-Elements.SectionBlock = SectionBlock;
-
-/** @constructor */
-Elements.StylePropertiesSection = StylePropertiesSection;
-
-/** @constructor */
-Elements.BlankStylePropertiesSection = BlankStylePropertiesSection;
-
-/** @constructor */
-Elements.KeyframePropertiesSection = KeyframePropertiesSection;
-
-/** @constructor */
-Elements.StylesSidebarPropertyRenderer = StylesSidebarPropertyRenderer;

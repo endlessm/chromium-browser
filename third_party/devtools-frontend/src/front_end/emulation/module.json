@@ -183,7 +183,10 @@
         "ui",
         "mobile_throttling"
     ],
-    "scripts": [
+    "scripts": [],
+    "modules": [
+        "emulation.js",
+        "emulation-legacy.js",
         "AdvancedApp.js",
         "EmulatedDevices.js",
         "DevicesSettingsTab.js",

@@ -26,10 +26,10 @@
 /**
  * @unrestricted
  */
-Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
+export class ProfileDataGridNode extends DataGrid.DataGridNode {
   /**
    * @param {!SDK.ProfileNode} profileNode
-   * @param {!Profiler.ProfileDataGridTree} owningTree
+   * @param {!ProfileDataGridTree} owningTree
    * @param {boolean} hasChildren
    */
   constructor(profileNode, owningTree, hasChildren) {
@@ -41,7 +41,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
 
     this.profileNode = profileNode;
     this.tree = owningTree;
-    /** @type {!Map<string, !Profiler.ProfileDataGridNode>} */
+    /** @type {!Map<string, !ProfileDataGridNode>} */
     this.childrenByCallUID = new Map();
     this.lastComparator = null;
 
@@ -56,7 +56,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   }
 
   /**
-   * @param {!Array<!Array<!Profiler.ProfileDataGridNode>>} gridNodeGroups
+   * @param {!Array<!Array<!ProfileDataGridNode>>} gridNodeGroups
    * @param {function(!T, !T)} comparator
    * @param {boolean} force
    * @template T
@@ -97,8 +97,8 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode|!Profiler.ProfileDataGridTree} container
-   * @param {!Profiler.ProfileDataGridNode} child
+   * @param {!ProfileDataGridNode|!ProfileDataGridTree} container
+   * @param {!ProfileDataGridNode} child
    * @param {boolean} shouldAbsorb
    */
   static merge(container, child, shouldAbsorb) {
@@ -128,7 +128,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
       const existingChild = container.childrenByCallUID.get(orphanedChild.callUID);
 
       if (existingChild) {
-        existingChild.merge(/** @type{!Profiler.ProfileDataGridNode} */ (orphanedChild), false);
+        existingChild.merge(/** @type{!ProfileDataGridNode} */ (orphanedChild), false);
       } else {
         container.appendChild(orphanedChild);
       }
@@ -136,7 +136,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode|!Profiler.ProfileDataGridTree} container
+   * @param {!ProfileDataGridNode|!ProfileDataGridTree} container
    */
   static populate(container) {
     if (container._populated) {
@@ -162,12 +162,12 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
     let cell;
     switch (columnId) {
       case 'self':
-        cell = this._createValueCell(this.self, this.selfPercent);
+        cell = this._createValueCell(this.self, this.selfPercent, columnId);
         cell.classList.toggle('highlight', this._searchMatchedSelfColumn);
         break;
 
       case 'total':
-        cell = this._createValueCell(this.total, this.totalPercent);
+        cell = this._createValueCell(this.total, this.totalPercent, columnId);
         cell.classList.toggle('highlight', this._searchMatchedTotalColumn);
         break;
 
@@ -203,9 +203,10 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   /**
    * @param {number} value
    * @param {number} percent
+   * @param {string} columnId
    * @return {!Element}
    */
-  _createValueCell(value, percent) {
+  _createValueCell(value, percent, columnId) {
     const cell = createElementWithClass('td', 'numeric-column');
     const div = cell.createChild('div', 'profile-multiple-values');
     const valueSpan = div.createChild('span');
@@ -214,10 +215,8 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
     const percentSpan = div.createChild('span', 'percent-column');
     const percentText = this.tree._formatter.formatPercent(percent, this);
     percentSpan.textContent = percentText;
-    UI.ARIAUtils.markAsHidden(valueSpan);
-    UI.ARIAUtils.markAsHidden(percentSpan);
     const valueAccessibleText = this.tree._formatter.formatValueAccessibleText(value, this);
-    UI.ARIAUtils.setAccessibleName(div, ls`${valueAccessibleText}, ${percentText}`);
+    this.setCellAccessibleName(ls`${valueAccessibleText}, ${percentText}`, cell, columnId);
     return cell;
   }
 
@@ -227,7 +226,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
    * @template T
    */
   sort(comparator, force) {
-    return Profiler.ProfileDataGridNode.sort([[this]], comparator, force);
+    return ProfileDataGridNode.sort([[this]], comparator, force);
   }
 
   /**
@@ -238,8 +237,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   insertChild(profileDataGridNode, index) {
     super.insertChild(profileDataGridNode, index);
 
-    this.childrenByCallUID.set(
-        profileDataGridNode.callUID, /** @type {!Profiler.ProfileDataGridNode} */ (profileDataGridNode));
+    this.childrenByCallUID.set(profileDataGridNode.callUID, /** @type {!ProfileDataGridNode} */ (profileDataGridNode));
   }
 
   /**
@@ -249,7 +247,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   removeChild(profileDataGridNode) {
     super.removeChild(profileDataGridNode);
 
-    this.childrenByCallUID.delete((/** @type {!Profiler.ProfileDataGridNode} */ (profileDataGridNode)).callUID);
+    this.childrenByCallUID.delete((/** @type {!ProfileDataGridNode} */ (profileDataGridNode)).callUID);
   }
 
   /**
@@ -262,8 +260,8 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode} node
-   * @return {?Profiler.ProfileDataGridNode}
+   * @param {!ProfileDataGridNode} node
+   * @return {?ProfileDataGridNode}
    */
   findChild(node) {
     if (!node) {
@@ -284,7 +282,7 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
    * @override
    */
   populate() {
-    Profiler.ProfileDataGridNode.populate(this);
+    ProfileDataGridNode.populate(this);
   }
 
   /**
@@ -332,22 +330,22 @@ Profiler.ProfileDataGridNode = class extends DataGrid.DataGridNode {
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode} child
+   * @param {!ProfileDataGridNode} child
    * @param {boolean} shouldAbsorb
    */
   merge(child, shouldAbsorb) {
-    Profiler.ProfileDataGridNode.merge(this, child, shouldAbsorb);
+    ProfileDataGridNode.merge(this, child, shouldAbsorb);
   }
-};
+}
 
 
 /**
  * @implements {UI.Searchable}
  * @unrestricted
  */
-Profiler.ProfileDataGridTree = class {
+export class ProfileDataGridTree {
   /**
-   * @param {!Profiler.ProfileDataGridNode.Formatter} formatter
+   * @param {!Formatter} formatter
    * @param {!UI.SearchableView} searchableView
    * @param {number} total
    */
@@ -368,7 +366,7 @@ Profiler.ProfileDataGridTree = class {
    * @return {function(!Object.<string, *>, !Object.<string, *>)}
    */
   static propertyComparator(property, isAscending) {
-    let comparator = Profiler.ProfileDataGridTree.propertyComparators[(isAscending ? 1 : 0)][property];
+    let comparator = ProfileDataGridTree.propertyComparators[(isAscending ? 1 : 0)][property];
 
     if (!comparator) {
       if (isAscending) {
@@ -397,7 +395,7 @@ Profiler.ProfileDataGridTree = class {
         };
       }
 
-      Profiler.ProfileDataGridTree.propertyComparators[(isAscending ? 1 : 0)][property] = comparator;
+      ProfileDataGridTree.propertyComparators[(isAscending ? 1 : 0)][property] = comparator;
     }
 
     return comparator;
@@ -425,8 +423,8 @@ Profiler.ProfileDataGridTree = class {
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode} node
-   * @return {?Profiler.ProfileDataGridNode}
+   * @param {!ProfileDataGridNode} node
+   * @return {?ProfileDataGridNode}
    */
   findChild(node) {
     if (!node) {
@@ -441,7 +439,7 @@ Profiler.ProfileDataGridTree = class {
    * @template T
    */
   sort(comparator, force) {
-    return Profiler.ProfileDataGridNode.sort([[this]], comparator, force);
+    return ProfileDataGridNode.sort([[this]], comparator, force);
   }
 
   /**
@@ -476,7 +474,7 @@ Profiler.ProfileDataGridTree = class {
 
   /**
    * @param {!UI.SearchableView.SearchConfig} searchConfig
-   * @return {?function(!Profiler.ProfileDataGridNode):boolean}
+   * @return {?function(!ProfileDataGridNode):boolean}
    */
   _matchFunction(searchConfig) {
     const query = searchConfig.query.trim();
@@ -510,7 +508,7 @@ Profiler.ProfileDataGridTree = class {
     const matcher = createPlainTextSearchRegex(query, 'i');
 
     /**
-     * @param {!Profiler.ProfileDataGridNode} profileDataGridNode
+     * @param {!ProfileDataGridNode} profileDataGridNode
      * @return {boolean}
      */
     function matchesQuery(profileDataGridNode) {
@@ -679,40 +677,41 @@ Profiler.ProfileDataGridTree = class {
     profileNode.revealAndSelect();
     this._searchableView.updateCurrentMatchIndex(index);
   }
-};
+}
 
-Profiler.ProfileDataGridTree.propertyComparators = [{}, {}];
+ProfileDataGridTree.propertyComparators = [{}, {}];
 
 
 /**
  * @interface
  */
-Profiler.ProfileDataGridNode.Formatter = function() {};
-
-Profiler.ProfileDataGridNode.Formatter.prototype = {
+export class Formatter {
   /**
    * @param {number} value
-   * @param {!Profiler.ProfileDataGridNode} node
+   * @param {!ProfileDataGridNode} node
    * @return {string}
    */
-  formatValue(value, node) {},
-
-  /**
-   * @param {number} value
-   * @return {string}
-   */
-  formatValueAccessibleText(value) {},
+  formatValue(value, node) {
+  }
 
   /**
    * @param {number} value
-   * @param {!Profiler.ProfileDataGridNode} node
    * @return {string}
    */
-  formatPercent(value, node) {},
+  formatValueAccessibleText(value) {
+  }
 
   /**
-   * @param  {!Profiler.ProfileDataGridNode} node
+   * @param {number} value
+   * @param {!ProfileDataGridNode} node
+   * @return {string}
+   */
+  formatPercent(value, node) {
+  }
+
+  /**
+   * @param  {!ProfileDataGridNode} node
    * @return {?Element}
    */
   linkifyNode(node) {}
-};
+}

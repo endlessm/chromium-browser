@@ -65,11 +65,10 @@ NGSimplifiedLayoutAlgorithm::NGSimplifiedLayoutAlgorithm(
     container_builder_.SetIsPushedByFloats();
   container_builder_.SetAdjoiningObjectTypes(result.AdjoiningObjectTypes());
 
-  for (const auto& request : ConstraintSpace().BaselineRequests()) {
-    base::Optional<LayoutUnit> baseline = physical_fragment.Baseline(request);
-    if (baseline)
-      container_builder_.AddBaseline(request, *baseline);
-  }
+  if (physical_fragment.Baseline())
+    container_builder_.SetBaseline(*physical_fragment.Baseline());
+  if (physical_fragment.LastBaseline())
+    container_builder_.SetLastBaseline(*physical_fragment.LastBaseline());
 
   container_builder_.SetBlockSize(ComputeBlockSizeForFragment(
       ConstraintSpace(), Style(),

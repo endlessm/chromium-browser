@@ -40,8 +40,6 @@ enum ActionType {
   GenSubtarget,
   GenIntrinsicEnums,
   GenIntrinsicImpl,
-  GenTgtIntrinsicEnums,
-  GenTgtIntrinsicImpl,
   PrintEnums,
   PrintSets,
   GenOptParserDefs,
@@ -62,6 +60,12 @@ namespace llvm {
 /// Storage for TimeRegionsOpt as a global so that backends aren't required to
 /// include CommandLine.h
 bool TimeRegions = false;
+cl::opt<bool> EmitLongStrLiterals(
+    "long-string-literals",
+    cl::desc("when emitting large string tables, prefer string literals over "
+             "comma-separated char literals. This can be a readability and "
+             "compile-time performance win, but upsets some compilers"),
+    cl::Hidden, cl::init(true));
 } // end namespace llvm
 
 namespace {
@@ -102,10 +106,6 @@ cl::opt<ActionType> Action(
                    "Generate intrinsic enums"),
         clEnumValN(GenIntrinsicImpl, "gen-intrinsic-impl",
                    "Generate intrinsic information"),
-        clEnumValN(GenTgtIntrinsicEnums, "gen-tgt-intrinsic-enums",
-                   "Generate target intrinsic enums"),
-        clEnumValN(GenTgtIntrinsicImpl, "gen-tgt-intrinsic-impl",
-                   "Generate target intrinsic information"),
         clEnumValN(PrintEnums, "print-enums", "Print enum values for a class"),
         clEnumValN(PrintSets, "print-sets",
                    "Print expanded sets for testing DAG exprs"),
@@ -195,12 +195,6 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
     break;
   case GenIntrinsicImpl:
     EmitIntrinsicImpl(Records, OS);
-    break;
-  case GenTgtIntrinsicEnums:
-    EmitIntrinsicEnums(Records, OS, true);
-    break;
-  case GenTgtIntrinsicImpl:
-    EmitIntrinsicImpl(Records, OS, true);
     break;
   case GenOptParserDefs:
     EmitOptParser(Records, OS);

@@ -17,6 +17,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -26,7 +27,6 @@ typedef uint32_t QuicHeaderId;
 typedef uint32_t QuicMessageId;
 typedef uint64_t QuicDatagramFlowId;
 
-// TODO(fkastenholz): Should update this to 64 bits for V99.
 typedef uint32_t QuicStreamId;
 
 // Count of stream IDs. Used in MAX_STREAMS and STREAMS_BLOCKED
@@ -220,6 +220,7 @@ enum QuicFrameType : uint8_t {
   MESSAGE_FRAME,
   NEW_TOKEN_FRAME,
   RETIRE_CONNECTION_ID_FRAME,
+  HANDSHAKE_DONE_FRAME,
 
   NUM_FRAME_TYPES
 };
@@ -256,10 +257,8 @@ enum QuicIetfFrameType : uint8_t {
   IETF_MAX_STREAM_DATA = 0x11,
   IETF_MAX_STREAMS_BIDIRECTIONAL = 0x12,
   IETF_MAX_STREAMS_UNIDIRECTIONAL = 0x13,
-  IETF_BLOCKED = 0x14,  // TODO(fkastenholz): Should, eventually, be renamed to
-                        // IETF_DATA_BLOCKED
-  IETF_STREAM_BLOCKED = 0x15,  // TODO(fkastenholz): Should, eventually, be
-                               // renamed to IETF_STREAM_DATA_BLOCKED
+  IETF_DATA_BLOCKED = 0x14,
+  IETF_STREAM_DATA_BLOCKED = 0x15,
   IETF_STREAMS_BLOCKED_BIDIRECTIONAL = 0x16,
   IETF_STREAMS_BLOCKED_UNIDIRECTIONAL = 0x17,
   IETF_NEW_CONNECTION_ID = 0x18,
@@ -271,6 +270,8 @@ enum QuicIetfFrameType : uint8_t {
   // errors.
   IETF_CONNECTION_CLOSE = 0x1c,
   IETF_APPLICATION_CLOSE = 0x1d,
+
+  IETF_HANDSHAKE_DONE = 0x1e,
 
   // The MESSAGE frame type has not yet been fully standardized.
   // QUIC versions starting with 46 and before 99 use 0x20-0x21.
@@ -404,6 +405,16 @@ enum LossDetectionType : uint8_t {
   kIetfLossDetection,  // IETF style loss detection.
 };
 
+// TODO(fayang): Remove this when deprecating
+// quic_default_on_ietf_loss_detection.
+inline LossDetectionType GetDefaultLossDetectionType() {
+  if (GetQuicRestartFlag(quic_default_on_ietf_loss_detection)) {
+    QUIC_RESTART_FLAG_COUNT(quic_default_on_ietf_loss_detection);
+    return kIetfLossDetection;
+  }
+  return kNack;
+}
+
 // EncryptionLevel enumerates the stages of encryption that a QUIC connection
 // progresses through. When retransmitting a packet, the encryption level needs
 // to be specified so that it is retransmitted at a level which the peer can
@@ -422,6 +433,15 @@ inline bool EncryptionLevelIsValid(EncryptionLevel level) {
 }
 
 QUIC_EXPORT_PRIVATE std::string EncryptionLevelToString(EncryptionLevel level);
+
+// Enumeration of whether a server endpoint will request a client certificate,
+// and whether that endpoint requires a valid client certificate to establish a
+// connection.
+enum class ClientCertMode {
+  kNone,     // Do not request a client certificate.  Default server behavior.
+  kRequest,  // Request a certificate, but allow unauthenticated connections.
+  kRequire,  // Require clients to provide a valid certificate.
+};
 
 enum AddressChangeType : uint8_t {
   // IP address and port remain unchanged.
@@ -709,6 +729,27 @@ QUIC_EXPORT_PRIVATE std::ostream& operator<<(
 
 QUIC_EXPORT_PRIVATE std::string QuicConnectionCloseTypeString(
     QuicConnectionCloseType type);
+
+// Indicate handshake state of a connection.
+enum HandshakeState {
+  // Initial state.
+  HANDSHAKE_START,
+  // Only used in IETF QUIC with TLS handshake. State proceeds to
+  // HANDSHAKE_PROCESSED after a packet of HANDSHAKE packet number space
+  // gets successfully processed, and the initial key can be dropped.
+  HANDSHAKE_PROCESSED,
+  // In QUIC crypto, state proceeds to HANDSHAKE_COMPLETE if client receives
+  // SHLO or server successfully processes an ENCRYPTION_FORWARD_SECURE
+  // packet, such that the handshake packets can be neutered. In IETF QUIC
+  // with TLS handshake, state proceeds to HANDSHAKE_COMPLETE once the client
+  // has both 1-RTT send and receive keys.
+  HANDSHAKE_COMPLETE,
+  // Only used in IETF QUIC with TLS handshake. State proceeds to
+  // HANDSHAKE_CONFIRMED if 1) a client receives HANDSHAKE_DONE frame or
+  // acknowledgment for 1-RTT packet or 2) server has
+  // 1-RTT send and receive keys.
+  HANDSHAKE_CONFIRMED,
+};
 
 }  // namespace quic
 

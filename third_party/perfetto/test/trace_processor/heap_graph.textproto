@@ -47,11 +47,17 @@ packet {
       reference_field_id: 2
       reference_object_id: 0x01
     }
+    objects {
+      id: 0x05
+      type_id: 4
+      self_size: 256
+    }
     continued: true
     index: 1
   }
 }
 packet {
+  trusted_packet_sequence_id: 999
   heap_graph {
     pid: 2
     type_names {
@@ -65,6 +71,10 @@ packet {
     type_names {
       iid: 3
       str: "a"
+    }
+    type_names {
+      iid: 4
+      str: "a[]"
     }
     field_names {
       iid: 1

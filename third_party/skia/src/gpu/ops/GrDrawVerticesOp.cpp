@@ -78,7 +78,7 @@ private:
                GrPrimitiveType::kPoints == fPrimitiveType;
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps&) override;
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*, const GrCaps&) override;
 
     struct Mesh {
         SkPMColor4f fColor;  // Used if this->hasPerVertexColors() is false.
@@ -512,10 +512,15 @@ void DrawVerticesOp::drawVertices(Target* target,
 }
 
 void DrawVerticesOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
-    fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+    auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                             fHelper.detachProcessorSet(),
+                                                             fHelper.pipelineFlags());
+
+    flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
 }
 
-GrOp::CombineResult DrawVerticesOp::onCombineIfPossible(GrOp* t, const GrCaps& caps) {
+GrOp::CombineResult DrawVerticesOp::onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                                        const GrCaps& caps) {
     DrawVerticesOp* that = t->cast<DrawVerticesOp>();
 
     if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
@@ -558,7 +563,7 @@ GrOp::CombineResult DrawVerticesOp::onCombineIfPossible(GrOp* t, const GrCaps& c
     }
     // Check whether we are about to acquire a mesh with a different view matrix.
     if (!this->hasMultipleViewMatrices() &&
-        !this->fMeshes[0].fViewMatrix.cheapEqualTo(that->fMeshes[0].fViewMatrix)) {
+        !SkMatrixPriv::CheapEqual(this->fMeshes[0].fViewMatrix, that->fMeshes[0].fViewMatrix)) {
         fFlags |= kHasMultipleViewMatrices_Flag;
     }
 
@@ -607,6 +612,7 @@ static uint32_t seed_vertices(GrPrimitiveType type) {
         case GrPrimitiveType::kLines:
         case GrPrimitiveType::kLineStrip:
             return 2;
+        case GrPrimitiveType::kPatches:
         case GrPrimitiveType::kPath:
             SkASSERT(0);
             return 0;
@@ -624,6 +630,7 @@ static uint32_t primitive_vertices(GrPrimitiveType type) {
         case GrPrimitiveType::kPoints:
         case GrPrimitiveType::kLineStrip:
             return 1;
+        case GrPrimitiveType::kPatches:
         case GrPrimitiveType::kPath:
             SkASSERT(0);
             return 0;
@@ -659,10 +666,14 @@ static void randomize_params(size_t count, size_t maxVertex, SkScalar min, SkSca
 }
 
 GR_DRAW_OP_TEST_DEFINE(DrawVerticesOp) {
-    GrPrimitiveType type;
-    do {
-       type = GrPrimitiveType(random->nextULessThan(kNumGrPrimitiveTypes));
-    } while (type == GrPrimitiveType::kPath);
+    GrPrimitiveType types[] = {
+        GrPrimitiveType::kTriangles,
+        GrPrimitiveType::kTriangleStrip,
+        GrPrimitiveType::kPoints,
+        GrPrimitiveType::kLines,
+        GrPrimitiveType::kLineStrip
+    };
+    auto type = types[random->nextULessThan(SK_ARRAY_COUNT(types))];
 
     uint32_t primitiveCount = random->nextRangeU(1, 100);
 

@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2013-2019 The Khronos Group Inc.
+# Copyright (c) 2013-2020 The Khronos Group Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 # used in generation.
 
 import re
+import os
 
 from conventions import ConventionsBase
 
@@ -52,14 +53,19 @@ MAIN_RE = re.compile(
 
 
 class VulkanConventions(ConventionsBase):
-    def formatExtension(self, name):
-        """Mark up a name as an extension for the spec."""
-        return '`<<{}>>`'.format(name)
-
     @property
     def null(self):
         """Preferred spelling of NULL."""
         return '`NULL`'
+
+    @property
+    def struct_macro(self):
+        """Get the appropriate format macro for a structure.
+
+        Primarily affects generated valid usage statements.
+        """
+
+        return 'slink:'
 
     @property
     def constFlagBits(self):
@@ -169,7 +175,7 @@ class VulkanConventions(ConventionsBase):
            instead. N.b. this may need to change on a per-refpage basis if
            there are multiple documents involved.
         """
-        return 'https://www.khronos.org/registry/vulkan/specs/1.1-extensions/html/vkspec.html'
+        return 'https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html'
 
     @property
     def xml_api_name(self):
@@ -205,8 +211,8 @@ class VulkanConventions(ConventionsBase):
 
     @property
     def spec_reflow_path(self):
-        """Return the relative path to the spec source folder to reflow"""
-        return '.'
+        """Return the path to the spec source folder to reflow"""
+        return os.getcwd()
 
     @property
     def spec_no_reflow_dirs(self):
@@ -237,3 +243,19 @@ class VulkanConventions(ConventionsBase):
         generate a VK_ERROR_FORMAT_NOT_SUPPORTED code."""
 
         return True
+
+    def extension_include_string(self, ext):
+        """Return format string for include:: line for an extension appendix
+           file. ext is an object with the following members:
+            - name - extension string string
+            - vendor - vendor portion of name
+            - barename - remainder of name"""
+
+        return 'include::{{appendices}}/{name}{suffix}[]'.format(
+                name=ext.name, suffix=self.file_suffix)
+
+    @property
+    def refpage_generated_include_path(self):
+        """Return path relative to the generated reference pages, to the
+           generated API include files."""
+        return "{generated}"

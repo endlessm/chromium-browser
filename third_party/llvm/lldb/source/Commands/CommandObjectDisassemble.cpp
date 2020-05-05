@@ -1,4 +1,4 @@
-//===-- CommandObjectDisassemble.cpp ----------------------------*- C++ -*-===//
+//===-- CommandObjectDisassemble.cpp --------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,16 +10,13 @@
 #include "lldb/Core/AddressRange.h"
 #include "lldb/Core/Disassembler.h"
 #include "lldb/Core/Module.h"
-#include "lldb/Core/SourceManager.h"
 #include "lldb/Host/OptionParser.h"
-#include "lldb/Interpreter/CommandCompletions.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/Interpreter/OptionArgParser.h"
 #include "lldb/Interpreter/Options.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/Symbol.h"
-#include "lldb/Target/Process.h"
 #include "lldb/Target/SectionLoadList.h"
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"

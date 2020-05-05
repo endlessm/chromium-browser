@@ -5,10 +5,11 @@
 #ifndef PLATFORM_BASE_TRACE_LOGGING_TYPES_H_
 #define PLATFORM_BASE_TRACE_LOGGING_TYPES_H_
 
-#include "absl/types/optional.h"
+#include <stdint.h>
+
+#include <limits>
 
 namespace openscreen {
-namespace platform {
 
 // Define TraceId type here since other TraceLogging files import it.
 using TraceId = uint64_t;
@@ -62,7 +63,6 @@ struct TraceCategory {
   };
 };
 
-}  // namespace platform
 }  // namespace openscreen
 
 #endif  // PLATFORM_BASE_TRACE_LOGGING_TYPES_H_

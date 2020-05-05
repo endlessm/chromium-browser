@@ -6,9 +6,11 @@
 
 #include <sys/types.h>
 
+#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
+#include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -49,14 +51,37 @@ size_t QuicTransportStream::Read(std::string* output) {
   return bytes_read;
 }
 
-bool QuicTransportStream::Write(QuicStringPiece data) {
+bool QuicTransportStream::Write(quiche::QuicheStringPiece data) {
   if (!CanWrite()) {
     return false;
   }
 
-  // TODO(vasilvv): use WriteMemSlices()
-  WriteOrBufferData(data, /*fin=*/false, nullptr);
-  return true;
+  QuicUniqueBufferPtr buffer = MakeUniqueBuffer(
+      session()->connection()->helper()->GetStreamSendBufferAllocator(),
+      data.size());
+  memcpy(buffer.get(), data.data(), data.size());
+  QuicMemSlice memslice(std::move(buffer), data.size());
+  QuicConsumedData consumed =
+      WriteMemSlices(QuicMemSliceSpan(&memslice), /*fin=*/false);
+
+  if (consumed.bytes_consumed == data.size()) {
+    return true;
+  }
+  if (consumed.bytes_consumed == 0) {
+    return false;
+  }
+  // QuicTransportStream::Write() is an all-or-nothing write API.  To achieve
+  // that property, it relies on WriteMemSlices() being an all-or-nothing API.
+  // If WriteMemSlices() fails to provide that guarantee, we have no way to
+  // communicate a partial write to the caller, and thus it's safer to just
+  // close the connection.
+  QUIC_BUG << "WriteMemSlices() unexpectedly partially consumed the input "
+              "data, provided: "
+           << data.size() << ", written: " << consumed.bytes_consumed;
+  CloseConnectionWithDetails(
+      QUIC_INTERNAL_ERROR,
+      "WriteMemSlices() unexpectedly partially consumed the input data");
+  return false;
 }
 
 bool QuicTransportStream::SendFin() {
@@ -64,12 +89,16 @@ bool QuicTransportStream::SendFin() {
     return false;
   }
 
-  WriteOrBufferData(QuicStringPiece(), /*fin=*/true, nullptr);
-  return true;
+  QuicMemSlice empty;
+  QuicConsumedData consumed =
+      WriteMemSlices(QuicMemSliceSpan(&empty), /*fin=*/true);
+  DCHECK_EQ(consumed.bytes_consumed, 0u);
+  return consumed.fin_consumed;
 }
 
 bool QuicTransportStream::CanWrite() const {
-  return session_interface_->IsSessionReady() && CanWriteNewData();
+  return session_interface_->IsSessionReady() && CanWriteNewData() &&
+         !write_side_closed();
 }
 
 size_t QuicTransportStream::ReadableBytes() const {

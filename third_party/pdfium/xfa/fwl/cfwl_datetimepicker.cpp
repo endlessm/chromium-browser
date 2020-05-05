@@ -25,12 +25,7 @@ const int kDateTimePickerHeight = 20;
 
 }  // namespace
 CFWL_DateTimePicker::CFWL_DateTimePicker(const CFWL_App* app)
-    : CFWL_Widget(app, pdfium::MakeUnique<CFWL_WidgetProperties>(), nullptr),
-      m_iBtnState(1),
-      m_iYear(-1),
-      m_iMonth(-1),
-      m_iDay(-1),
-      m_bLBtnDown(false) {
+    : CFWL_Widget(app, pdfium::MakeUnique<CFWL_WidgetProperties>(), nullptr) {
   m_pProperties->m_dwStyleExes = FWL_STYLEEXT_DTP_ShortDateFormat;
 
   auto monthProp = pdfium::MakeUnique<CFWL_WidgetProperties>();
@@ -217,17 +212,10 @@ void CFWL_DateTimePicker::DrawDropDownButton(CXFA_Graphics* pGraphics,
 WideString CFWL_DateTimePicker::FormatDateString(int32_t iYear,
                                                  int32_t iMonth,
                                                  int32_t iDay) {
-  if ((m_pProperties->m_dwStyleExes & FWL_STYLEEXT_DTP_ShortDateFormat) ==
-      FWL_STYLEEXT_DTP_ShortDateFormat) {
+  if (m_pProperties->m_dwStyleExes & FWL_STYLEEXT_DTP_ShortDateFormat)
     return WideString::Format(L"%d-%d-%d", iYear, iMonth, iDay);
-  }
 
-  if ((m_pProperties->m_dwStyleExes & FWL_STYLEEXT_DTP_LongDateFormat) ==
-      FWL_STYLEEXT_DTP_LongDateFormat) {
-    return WideString::Format(L"%d Year %d Month %d Day", iYear, iMonth, iDay);
-  }
-
-  return WideString();
+  return WideString::Format(L"%d Year %d Month %d Day", iYear, iMonth, iDay);
 }
 
 void CFWL_DateTimePicker::ShowMonthCalendar(bool bActivate) {

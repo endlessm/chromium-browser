@@ -27,21 +27,24 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import {UISourceCodeFrame} from './UISourceCodeFrame.js';
+
 /**
  * @implements {UI.ActionDelegate}
  * @implements {UI.ToolbarItem.ItemsProvider}
  * @implements {UI.ContextMenu.Provider}
  * @unrestricted
  */
-Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
+export class WatchExpressionsSidebarPane extends UI.ThrottledWidget {
   constructor() {
     super(true);
     this.registerRequiredCSS('object_ui/objectValue.css');
     this.registerRequiredCSS('sources/watchExpressionsSidebarPane.css');
 
-    /** @type {!Array.<!Sources.WatchExpression>} */
+    /** @type {!Array.<!WatchExpression>} */
     this._watchExpressions = [];
-    this._watchExpressionsSetting = Common.settings.createLocalSetting('watchExpressions', []);
+    this._watchExpressionsSetting = self.Common.settings.createLocalSetting('watchExpressions', []);
 
     this._addButton = new UI.ToolbarButton(ls`Add watch expression`, 'largeicon-add');
     this._addButton.addEventListener(UI.ToolbarButton.Events.Click, this._addButtonClicked.bind(this));
@@ -55,8 +58,8 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
     this._treeOutline.setShowSelectionOnKeyboardFocus(/* show */ true);
     this._expandController = new ObjectUI.ObjectPropertiesSectionsTreeExpandController(this._treeOutline);
 
-    UI.context.addFlavorChangeListener(SDK.ExecutionContext, this.update, this);
-    UI.context.addFlavorChangeListener(SDK.DebuggerModel.CallFrame, this.update, this);
+    self.UI.context.addFlavorChangeListener(SDK.ExecutionContext, this.update, this);
+    self.UI.context.addFlavorChangeListener(SDK.DebuggerModel.CallFrame, this.update, this);
     this._linkifier = new Components.Linkifier();
     this.update();
   }
@@ -100,7 +103,7 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
   }
 
   async _addButtonClicked() {
-    await UI.viewManager.showView('sources.watch');
+    await self.UI.viewManager.showView('sources.watch');
     this._createWatchExpression(null).startEditing();
   }
 
@@ -130,14 +133,13 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
 
   /**
    * @param {?string} expression
-   * @return {!Sources.WatchExpression}
+   * @return {!WatchExpression}
    */
   _createWatchExpression(expression) {
     this._emptyElement.classList.add('hidden');
     this.contentElement.appendChild(this._treeOutline.element);
-    const watchExpression = new Sources.WatchExpression(expression, this._expandController, this._linkifier);
-    watchExpression.addEventListener(
-        Sources.WatchExpression.Events.ExpressionUpdated, this._watchExpressionUpdated, this);
+    const watchExpression = new WatchExpression(expression, this._expandController, this._linkifier);
+    watchExpression.addEventListener(WatchExpression.Events.ExpressionUpdated, this._watchExpressionUpdated, this);
     this._treeOutline.appendChild(watchExpression.treeElement());
     this._watchExpressions.push(watchExpression);
     return watchExpression;
@@ -147,7 +149,7 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
    * @param {!Common.Event} event
    */
   _watchExpressionUpdated(event) {
-    const watchExpression = /** @type {!Sources.WatchExpression} */ (event.data);
+    const watchExpression = /** @type {!WatchExpression} */ (event.data);
     if (!watchExpression.expression()) {
       this._watchExpressions.remove(watchExpression);
       this._treeOutline.removeChild(watchExpression.treeElement());
@@ -208,7 +210,7 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
    * @param {string} expression
    */
   _focusAndAddExpressionToWatch(expression) {
-    UI.viewManager.showView('sources.watch');
+    self.UI.viewManager.showView('sources.watch');
     this.doUpdate();
     this._addExpressionToWatch(expression);
   }
@@ -228,7 +230,7 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    const frame = UI.context.flavor(Sources.UISourceCodeFrame);
+    const frame = self.UI.context.flavor(UISourceCodeFrame);
     if (!frame) {
       return false;
     }
@@ -256,19 +258,19 @@ Sources.WatchExpressionsSidebarPane = class extends UI.ThrottledWidget {
           ls`Add property path to watch`, this._addPropertyPathToWatch.bind(this, target));
     }
 
-    const frame = UI.context.flavor(Sources.UISourceCodeFrame);
+    const frame = self.UI.context.flavor(UISourceCodeFrame);
     if (!frame || frame.textEditor.selection().isEmpty()) {
       return;
     }
 
     contextMenu.debugSection().appendAction('sources.add-to-watch');
   }
-};
+}
 
 /**
  * @unrestricted
  */
-Sources.WatchExpression = class extends Common.Object {
+export class WatchExpression extends Common.Object {
   /**
    * @param {?string} expression
    * @param {!ObjectUI.ObjectPropertiesSectionsTreeExpandController} expandController
@@ -301,13 +303,13 @@ Sources.WatchExpression = class extends Common.Object {
   }
 
   update() {
-    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
+    const currentExecutionContext = self.UI.context.flavor(SDK.ExecutionContext);
     if (currentExecutionContext && this._expression) {
       currentExecutionContext
           .evaluate(
               {
                 expression: this._expression,
-                objectGroup: Sources.WatchExpression._watchObjectGroupId,
+                objectGroup: WatchExpression._watchObjectGroupId,
                 includeCommandLineAPI: false,
                 silent: true,
                 returnByValue: false,
@@ -377,7 +379,7 @@ Sources.WatchExpression = class extends Common.Object {
     }
     this._expression = newExpression;
     this.update();
-    this.dispatchEventToListeners(Sources.WatchExpression.Events.ExpressionUpdated, this);
+    this.dispatchEventToListeners(WatchExpression.Events.ExpressionUpdated, this);
   }
 
   /**
@@ -426,8 +428,9 @@ Sources.WatchExpression = class extends Common.Object {
       titleElement.classList.add('dimmed');
       this._valueElement.textContent = Common.UIString('<not available>');
     } else {
-      this._valueElement = ObjectUI.ObjectPropertiesSection.createValueElementWithCustomSupport(
+      const propertyValue = ObjectUI.ObjectPropertiesSection.createPropertyValueWithCustomSupport(
           expressionValue, !!exceptionDetails, false /* showPreview */, titleElement, this._linkifier);
+      this._valueElement = propertyValue.element;
     }
     const separatorElement = createElementWithClass('span', 'watch-expressions-separator');
     separatorElement.textContent = ': ';
@@ -477,7 +480,7 @@ Sources.WatchExpression = class extends Common.Object {
     }
 
     /**
-     * @this {Sources.WatchExpression}
+     * @this {WatchExpression}
      */
     function handleClick() {
       if (!this._treeElement) {
@@ -525,11 +528,11 @@ Sources.WatchExpression = class extends Common.Object {
   _copyValueButtonClicked() {
     Host.InspectorFrontendHost.copyText(this._valueElement.textContent);
   }
-};
+}
 
-Sources.WatchExpression._watchObjectGroupId = 'watch-group';
+WatchExpression._watchObjectGroupId = 'watch-group';
 
 /** @enum {symbol} */
-Sources.WatchExpression.Events = {
+WatchExpression.Events = {
   ExpressionUpdated: Symbol('ExpressionUpdated')
 };

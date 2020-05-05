@@ -108,9 +108,7 @@ uint32_t GetConvertVertexFlags(const UtilsVk::ConvertVertexParameters &params)
     // is not added to the build configuration file (to reduce binary size).  If necessary, add
     // IsBigEndian to ConvertVertex.comp.json and select the appropriate flag based on the
     // endian-ness test here.
-    uint32_t endiannessTest                       = 0;
-    *reinterpret_cast<uint8_t *>(&endiannessTest) = 1;
-    ASSERT(endiannessTest == 1);
+    ASSERT(IsLittleEndian());
 
     uint32_t flags = 0;
 
@@ -1206,8 +1204,8 @@ angle::Result UtilsVk::clearFramebuffer(ContextVk *contextVk,
     const gl::Rectangle &scissoredRenderArea = params.clearArea;
 
     vk::CommandBuffer *commandBuffer;
-    if (!framebuffer->appendToStartedRenderPass(contextVk->getCommandGraph(), scissoredRenderArea,
-                                                &commandBuffer))
+    if (!framebuffer->appendToStartedRenderPass(&contextVk->getResourceUseList(),
+                                                scissoredRenderArea, &commandBuffer))
     {
         ANGLE_TRY(framebuffer->startNewRenderPass(contextVk, scissoredRenderArea, &commandBuffer));
     }
@@ -1435,7 +1433,7 @@ angle::Result UtilsVk::blitResolveImpl(ContextVk *contextVk,
     }
 
     vk::CommandBuffer *commandBuffer;
-    if (!framebuffer->appendToStartedRenderPass(contextVk->getCommandGraph(), params.blitArea,
+    if (!framebuffer->appendToStartedRenderPass(&contextVk->getResourceUseList(), params.blitArea,
                                                 &commandBuffer))
     {
         ANGLE_TRY(framebuffer->startNewRenderPass(contextVk, params.blitArea, &commandBuffer));
@@ -1546,7 +1544,7 @@ angle::Result UtilsVk::stencilBlitResolveNoShaderExport(ContextVk *contextVk,
 
     ANGLE_TRY(
         blitBuffer.get().init(contextVk, blitBufferInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
-    blitBuffer.get().onGraphAccess(contextVk->getCommandGraph());
+    blitBuffer.get().onResourceAccess(&contextVk->getResourceUseList());
 
     BlitResolveStencilNoExportShaderParams shaderParams;
     if (isResolve)

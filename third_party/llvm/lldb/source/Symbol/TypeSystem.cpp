@@ -1,4 +1,4 @@
-//===-- TypeSystem.cpp ------------------------------------------*- C++ -*-===//
+//===-- TypeSystem.cpp ----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -86,6 +86,10 @@ TypeSystem::GetLValueReferenceType(lldb::opaque_compiler_type_t type) {
 
 CompilerType
 TypeSystem::GetRValueReferenceType(lldb::opaque_compiler_type_t type) {
+  return CompilerType();
+}
+
+CompilerType TypeSystem::GetAtomicType(lldb::opaque_compiler_type_t type) {
   return CompilerType();
 }
 

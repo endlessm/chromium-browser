@@ -206,6 +206,21 @@ inline PlatformParameters WithNoFixture(const PlatformParameters &params)
     withNoFixture.noFixture          = true;
     return withNoFixture;
 }
+
+inline PlatformParameters WithNoCommandGraph(const PlatformParameters &params)
+{
+    PlatformParameters withNoCommandGraph                = params;
+    withNoCommandGraph.eglParameters.commandGraphFeature = EGL_FALSE;
+    return withNoCommandGraph;
+}
+
+inline PlatformParameters WithNoTransformFeedback(const PlatformParameters &params)
+{
+    PlatformParameters withNoTransformFeedback                     = params;
+    withNoTransformFeedback.eglParameters.transformFeedbackFeature = EGL_FALSE;
+    return withNoTransformFeedback;
+}
+
 }  // namespace angle
 
 #endif  // ANGLE_TEST_CONFIGS_H_

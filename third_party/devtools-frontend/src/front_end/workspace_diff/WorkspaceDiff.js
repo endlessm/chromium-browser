@@ -266,7 +266,7 @@ export class UISourceCodeDiff extends Common.Object {
    */
   async _originalContent() {
     const originalNetworkContent =
-        Persistence.networkPersistenceManager.originalContentForUISourceCode(this._uiSourceCode);
+        self.Persistence.networkPersistenceManager.originalContentForUISourceCode(this._uiSourceCode);
     if (originalNetworkContent) {
       return originalNetworkContent;
     }
@@ -328,7 +328,7 @@ let _instance = null;
  */
 export function workspaceDiff() {
   if (!_instance) {
-    _instance = new WorkspaceDiffImpl(Workspace.workspace);
+    _instance = new WorkspaceDiffImpl(self.Workspace.workspace);
   }
   return _instance;
 }
@@ -343,25 +343,3 @@ export class DiffUILocation {
 }
 
 export const UpdateTimeout = 200;
-
-/* Legacy exported object */
-self.WorkspaceDiff = self.WorkspaceDiff || {};
-
-/* Legacy exported object */
-WorkspaceDiff = WorkspaceDiff || {};
-
-/** @constructor */
-WorkspaceDiff.WorkspaceDiff = WorkspaceDiffImpl;
-
-/** @constructor */
-WorkspaceDiff.WorkspaceDiff.UISourceCodeDiff = UISourceCodeDiff;
-
-WorkspaceDiff.WorkspaceDiff.UpdateTimeout = UpdateTimeout;
-
-/** @enum {symbol} */
-WorkspaceDiff.Events = Events;
-
-WorkspaceDiff.workspaceDiff = workspaceDiff;
-
-/** @constructor */
-WorkspaceDiff.DiffUILocation = DiffUILocation;

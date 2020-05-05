@@ -69,16 +69,14 @@ void QuicConfigPeer::SetReceivedDisableConnectionMigration(QuicConfig* config) {
 }
 
 // static
-void QuicConfigPeer::SetReceivedMaxIncomingBidirectionalStreams(
-    QuicConfig* config,
-    uint32_t max_streams) {
-  config->max_incoming_bidirectional_streams_.SetReceivedValue(max_streams);
+void QuicConfigPeer::SetReceivedMaxBidirectionalStreams(QuicConfig* config,
+                                                        uint32_t max_streams) {
+  config->max_bidirectional_streams_.SetReceivedValue(max_streams);
 }
 // static
-void QuicConfigPeer::SetReceivedMaxIncomingUnidirectionalStreams(
-    QuicConfig* config,
-    uint32_t max_streams) {
-  config->max_incoming_unidirectional_streams_.SetReceivedValue(max_streams);
+void QuicConfigPeer::SetReceivedMaxUnidirectionalStreams(QuicConfig* config,
+                                                         uint32_t max_streams) {
+  config->max_unidirectional_streams_.SetReceivedValue(max_streams);
 }
 
 // static
@@ -91,6 +89,12 @@ void QuicConfigPeer::SetConnectionOptionsToSend(QuicConfig* config,
 void QuicConfigPeer::SetReceivedStatelessResetToken(QuicConfig* config,
                                                     QuicUint128 token) {
   config->stateless_reset_token_.SetReceivedValue(token);
+}
+
+// static
+void QuicConfigPeer::SetReceivedMaxPacketSize(QuicConfig* config,
+                                              uint32_t max_packet_size) {
+  config->max_packet_size_.SetReceivedValue(max_packet_size);
 }
 
 }  // namespace test

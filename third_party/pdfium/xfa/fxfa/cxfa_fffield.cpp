@@ -37,17 +37,17 @@
 #include "xfa/fxgraphics/cxfa_gecolor.h"
 #include "xfa/fxgraphics/cxfa_gepath.h"
 
-namespace {
-
-CXFA_FFField* ToField(CXFA_ContentLayoutItem* pItem) {
-  return pItem ? static_cast<CXFA_FFField*>(pItem->GetFFWidget()) : nullptr;
-}
-
-}  // namespace
-
 CXFA_FFField::CXFA_FFField(CXFA_Node* pNode) : CXFA_FFWidget(pNode) {}
 
 CXFA_FFField::~CXFA_FFField() = default;
+
+CXFA_FFDropDown* CXFA_FFField::AsDropDown() {
+  return nullptr;
+}
+
+CXFA_FFField* CXFA_FFField::AsField() {
+  return this;
+}
 
 CFX_RectF CXFA_FFField::GetBBox(FocusOption focus) {
   if (focus == kDoNotDrawFocus)
@@ -160,13 +160,15 @@ void CXFA_FFField::SetEditScrollOffset() {
   }
 
   float fScrollOffset = 0;
-  CXFA_FFField* pPrev = ToField(GetLayoutItem()->GetPrev());
+  CXFA_ContentLayoutItem* pItem = GetLayoutItem()->GetPrev();
+  CXFA_FFField* pPrev = pItem ? ToField(pItem->GetFFWidget()) : nullptr;
   if (pPrev)
     fScrollOffset = -(m_pNode->GetUIMargin().top);
 
   while (pPrev) {
     fScrollOffset += pPrev->m_rtUI.height;
-    pPrev = ToField(pPrev->GetLayoutItem()->GetPrev());
+    pItem = pPrev->GetLayoutItem()->GetPrev();
+    pPrev = pItem ? ToField(pItem->GetFFWidget()) : nullptr;
   }
   static_cast<CFWL_Edit*>(GetNormalWidget())->SetScrollOffset(fScrollOffset);
 }
@@ -378,18 +380,22 @@ bool CXFA_FFField::OnMouseEnter() {
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::Enter));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnMouseExit() {
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::Leave));
-  return true;
+
+  return !!pWatched;
 }
 
 CFX_PointF CXFA_FFField::FWLToClient(const CFX_PointF& point) {
@@ -411,11 +417,14 @@ bool CXFA_FFField::AcceptsFocusOnButtonDown(uint32_t dwFlags,
   return true;
 }
 
-void CXFA_FFField::OnLButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+bool CXFA_FFField::OnLButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SetButtonDown(true);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::LeftButtonDown, dwFlags,
       FWLToClient(point)));
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnLButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
@@ -424,30 +433,36 @@ bool CXFA_FFField::OnLButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
   if (!IsButtonDown())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SetButtonDown(false);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::LeftButtonUp, dwFlags,
       FWLToClient(point)));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnLButtonDblClk(uint32_t dwFlags, const CFX_PointF& point) {
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::LeftButtonDblClk, dwFlags,
       FWLToClient(point)));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnMouseMove(uint32_t dwFlags, const CFX_PointF& point) {
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::Move, dwFlags, FWLToClient(point)));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnMouseWheel(uint32_t dwFlags,
@@ -456,16 +471,21 @@ bool CXFA_FFField::OnMouseWheel(uint32_t dwFlags,
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouseWheel>(
       GetNormalWidget(), dwFlags, FWLToClient(point), CFX_PointF(zDelta, 0)));
-  return true;
+
+  return !!pWatched;
 }
 
-void CXFA_FFField::OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+bool CXFA_FFField::OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SetButtonDown(true);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::RightButtonDown, dwFlags,
       FWLToClient(point)));
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
@@ -474,21 +494,25 @@ bool CXFA_FFField::OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
   if (!IsButtonDown())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SetButtonDown(false);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::RightButtonUp, dwFlags,
       FWLToClient(point)));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnRButtonDblClk(uint32_t dwFlags, const CFX_PointF& point) {
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::RightButtonDblClk, dwFlags,
       FWLToClient(point)));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnSetFocus(CXFA_FFWidget* pOldWidget) {
@@ -498,39 +522,48 @@ bool CXFA_FFField::OnSetFocus(CXFA_FFWidget* pOldWidget) {
   if (!GetNormalWidget())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(
       pdfium::MakeUnique<CFWL_MessageSetFocus>(nullptr, GetNormalWidget()));
   GetLayoutItem()->SetStatusBits(XFA_WidgetStatus_Focused);
   InvalidateRect();
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnKillFocus(CXFA_FFWidget* pNewWidget) {
+  ObservedPtr<CXFA_FFField> pWatched(this);
+  ObservedPtr<CXFA_FFWidget> pNewWatched(pNewWidget);
   if (GetNormalWidget()) {
     SendMessageToFWLWidget(
         pdfium::MakeUnique<CFWL_MessageKillFocus>(nullptr, GetNormalWidget()));
     GetLayoutItem()->ClearStatusBits(XFA_WidgetStatus_Focused);
     InvalidateRect();
   }
-  return CXFA_FFWidget::OnKillFocus(pNewWidget);
+  return pWatched && pNewWatched &&
+         CXFA_FFWidget::OnKillFocus(pNewWatched.Get());
 }
 
 bool CXFA_FFField::OnKeyDown(uint32_t dwKeyCode, uint32_t dwFlags) {
   if (!GetNormalWidget() || !GetDoc()->GetXFADoc()->IsInteractive())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageKey>(
       GetNormalWidget(), FWL_KeyCommand::KeyDown, dwFlags, dwKeyCode));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnKeyUp(uint32_t dwKeyCode, uint32_t dwFlags) {
   if (!GetNormalWidget() || !GetDoc()->GetXFADoc()->IsInteractive())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageKey>(
       GetNormalWidget(), FWL_KeyCommand::KeyUp, dwFlags, dwKeyCode));
-  return true;
+
+  return !!pWatched;
 }
 
 bool CXFA_FFField::OnChar(uint32_t dwChar, uint32_t dwFlags) {
@@ -543,17 +576,17 @@ bool CXFA_FFField::OnChar(uint32_t dwChar, uint32_t dwFlags) {
   if (!m_pNode->IsOpenAccess())
     return false;
 
+  ObservedPtr<CXFA_FFField> pWatched(this);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageKey>(
       GetNormalWidget(), FWL_KeyCommand::Char, dwFlags, dwChar));
-  return true;
+
+  return !!pWatched;
 }
 
-FWL_WidgetHit CXFA_FFField::OnHitTest(const CFX_PointF& point) {
-  if (GetNormalWidget() && GetNormalWidget()->HitTest(FWLToClient(point)) !=
-                               FWL_WidgetHit::Unknown) {
+FWL_WidgetHit CXFA_FFField::HitTest(const CFX_PointF& point) {
+  auto* pNorm = GetNormalWidget();
+  if (pNorm && pNorm->HitTest(FWLToClient(point)) != FWL_WidgetHit::Unknown)
     return FWL_WidgetHit::Client;
-  }
-
   if (!GetRectWithoutRotate().Contains(point))
     return FWL_WidgetHit::Unknown;
   if (m_rtCaption.Contains(point))
@@ -649,7 +682,7 @@ int32_t CXFA_FFField::CalculateNode(CXFA_Node* pNode) {
       if (version <= XFA_VERSION_204)
         return 1;
 
-      IXFA_AppProvider* pAppProvider = GetApp()->GetAppProvider();
+      IXFA_AppProvider* pAppProvider = GetAppProvider();
       if (pAppProvider) {
         pAppProvider->MsgBox(
             WideString::FromASCII("You are not allowed to modify this field."),
@@ -669,7 +702,7 @@ int32_t CXFA_FFField::CalculateNode(CXFA_Node* pNode) {
       if (pNode->IsUserInteractive())
         return 1;
 
-      IXFA_AppProvider* pAppProvider = GetApp()->GetAppProvider();
+      IXFA_AppProvider* pAppProvider = GetAppProvider();
       if (!pAppProvider)
         return 0;
 

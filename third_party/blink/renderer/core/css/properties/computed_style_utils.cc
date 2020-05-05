@@ -1485,30 +1485,27 @@ CSSValue* ComputedStyleUtils::ValueForTextDecorationSkipInk(
 CSSValue* ComputedStyleUtils::TouchActionFlagsToCSSValue(
     TouchAction touch_action) {
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
-  if (touch_action == TouchAction::kTouchActionAuto) {
+  if (touch_action == TouchAction::kAuto) {
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kAuto));
-  } else if (touch_action == TouchAction::kTouchActionNone) {
+  } else if (touch_action == TouchAction::kNone) {
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kNone));
-  } else if (touch_action == TouchAction::kTouchActionManipulation) {
+  } else if (touch_action == TouchAction::kManipulation) {
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kManipulation));
   } else {
-    if ((touch_action & TouchAction::kTouchActionPanX) ==
-        TouchAction::kTouchActionPanX)
+    if ((touch_action & TouchAction::kPanX) == TouchAction::kPanX)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPanX));
-    else if (touch_action & TouchAction::kTouchActionPanLeft)
+    else if ((touch_action & TouchAction::kPanLeft) != TouchAction::kNone)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPanLeft));
-    else if (touch_action & TouchAction::kTouchActionPanRight)
+    else if ((touch_action & TouchAction::kPanRight) != TouchAction::kNone)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPanRight));
-    if ((touch_action & TouchAction::kTouchActionPanY) ==
-        TouchAction::kTouchActionPanY)
+    if ((touch_action & TouchAction::kPanY) == TouchAction::kPanY)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPanY));
-    else if (touch_action & TouchAction::kTouchActionPanUp)
+    else if ((touch_action & TouchAction::kPanUp) != TouchAction::kNone)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPanUp));
-    else if (touch_action & TouchAction::kTouchActionPanDown)
+    else if ((touch_action & TouchAction::kPanDown) != TouchAction::kNone)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPanDown));
 
-    if ((touch_action & TouchAction::kTouchActionPinchZoom) ==
-        TouchAction::kTouchActionPinchZoom)
+    if ((touch_action & TouchAction::kPinchZoom) == TouchAction::kPinchZoom)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kPinchZoom));
   }
 
@@ -1620,8 +1617,8 @@ CSSValue* ComputedStyleUtils::CreateTimingFunctionValue(
     const TimingFunction* timing_function) {
   switch (timing_function->GetType()) {
     case TimingFunction::Type::CUBIC_BEZIER: {
-      const CubicBezierTimingFunction* bezier_timing_function =
-          ToCubicBezierTimingFunction(timing_function);
+      const auto* bezier_timing_function =
+          To<CubicBezierTimingFunction>(timing_function);
       if (bezier_timing_function->GetEaseType() !=
           CubicBezierTimingFunction::EaseType::CUSTOM) {
         CSSValueID value_id = CSSValueID::kInvalid;
@@ -1650,15 +1647,16 @@ CSSValue* ComputedStyleUtils::CreateTimingFunctionValue(
     }
 
     case TimingFunction::Type::STEPS: {
-      const StepsTimingFunction* steps_timing_function =
-          ToStepsTimingFunction(timing_function);
+      const auto* steps_timing_function =
+          To<StepsTimingFunction>(timing_function);
       StepsTimingFunction::StepPosition position =
           steps_timing_function->GetStepPosition();
       int steps = steps_timing_function->NumberOfSteps();
 
       // Canonical form of step timing function is step(n, type) or step(n) even
       // if initially parsed as step-start or step-end.
-      return cssvalue::CSSStepsTimingFunctionValue::Create(steps, position);
+      return MakeGarbageCollected<cssvalue::CSSStepsTimingFunctionValue>(
+          steps, position);
     }
 
     default:
@@ -1857,6 +1855,11 @@ CSSValueID ValueForQuoteType(const QuoteType quote_type) {
 
 CSSValue* ComputedStyleUtils::ValueForContentData(const ComputedStyle& style,
                                                   bool allow_visited_style) {
+  if (style.ContentPreventsBoxGeneration())
+    return CSSIdentifierValue::Create(CSSValueID::kNone);
+  if (style.ContentBehavesAsNormal())
+    return CSSIdentifierValue::Create(CSSValueID::kNormal);
+
   CSSValueList* outer_list = CSSValueList::CreateSlashSeparated();
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
 
@@ -1901,12 +1904,7 @@ CSSValue* ComputedStyleUtils::ValueForContentData(const ComputedStyle& style,
       NOTREACHED();
     }
   }
-  if (!list->length()) {
-    PseudoId pseudoId = style.StyleType();
-    if (pseudoId == kPseudoIdBefore || pseudoId == kPseudoIdAfter)
-      return CSSIdentifierValue::Create(CSSValueID::kNone);
-    return CSSIdentifierValue::Create(CSSValueID::kNormal);
-  }
+  DCHECK(list->length());
 
   outer_list->Append(*list);
   if (alt_text)
@@ -2041,7 +2039,8 @@ CSSValue* ComputedStyleUtils::AdjustSVGPaintForCurrentColor(
     const Color& current_color) {
   if (paint.type >= SVG_PAINTTYPE_URI_NONE) {
     CSSValueList* values = CSSValueList::CreateSpaceSeparated();
-    values->Append(*cssvalue::CSSURIValue::Create(paint.GetUrl()));
+    values->Append(
+        *MakeGarbageCollected<cssvalue::CSSURIValue>(paint.GetUrl()));
     if (paint.type == SVG_PAINTTYPE_URI_NONE)
       values->Append(*CSSIdentifierValue::Create(CSSValueID::kNone));
     else if (paint.type == SVG_PAINTTYPE_URI_CURRENTCOLOR)
@@ -2061,7 +2060,7 @@ CSSValue* ComputedStyleUtils::AdjustSVGPaintForCurrentColor(
 CSSValue* ComputedStyleUtils::ValueForSVGResource(
     const StyleSVGResource* resource) {
   if (resource)
-    return cssvalue::CSSURIValue::Create(resource->Url());
+    return MakeGarbageCollected<cssvalue::CSSURIValue>(resource->Url());
   return CSSIdentifierValue::Create(CSSValueID::kNone);
 }
 

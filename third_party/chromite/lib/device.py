@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import argparse
 import os
+import subprocess
 
 from chromite.cli.cros import cros_chrome_sdk
 from chromite.lib import commandline
@@ -68,7 +69,7 @@ class Device(object):
       result = retry_util.RetryException(
           exception=remote_access.SSHConnectionError,
           max_retry=10,
-          functor=lambda: self.RemoteCommand(cmd=['true']),
+          functor=lambda: self.remote_run(cmd=['true']),
           sleep=sleep)
     except remote_access.SSHConnectionError:
       raise DeviceError(
@@ -77,7 +78,7 @@ class Device(object):
     if result.returncode != 0:
       raise DeviceError('WaitForBoot failed: %s.' % result.error)
 
-  def RunCommand(self, cmd, **kwargs):
+  def run(self, cmd, **kwargs):
     """Use sudo_run or run as necessary.
 
     Args:
@@ -88,35 +89,35 @@ class Device(object):
       cros_build_lib.CommandResult object.
     """
     if self.dry_run:
-      return self._DryRunCommand(cmd)
+      return self._dry_run(cmd)
     elif self.use_sudo:
       return cros_build_lib.sudo_run(cmd, **kwargs)
     else:
       return cros_build_lib.run(cmd, **kwargs)
 
-  def RemoteCommand(self, cmd, stream_output=False, **kwargs):
+  def remote_run(self, cmd, stream_output=False, **kwargs):
     """Run a remote command.
 
     Args:
       cmd: command to run.
       stream_output: Stream output of long-running commands.
-      kwargs: additional args (see documentation for RemoteDevice.RunCommand).
+      kwargs: additional args (see documentation for RemoteDevice.run).
 
     Returns:
       cros_build_lib.CommandResult object.
     """
     if self.dry_run:
-      return self._DryRunCommand(cmd)
+      return self._dry_run(cmd)
     else:
-      kwargs.setdefault('error_code_ok', True)
+      kwargs.setdefault('check', False)
       if stream_output:
         kwargs.setdefault('capture_output', False)
       else:
-        kwargs.setdefault('combine_stdout_stderr', True)
+        kwargs.setdefault('stderr', subprocess.STDOUT)
         kwargs.setdefault('log_output', True)
-      return self.remote.RunCommand(cmd, debug_level=logging.INFO, **kwargs)
+      return self.remote.run(cmd, debug_level=logging.INFO, **kwargs)
 
-  def _DryRunCommand(self, cmd):
+  def _dry_run(self, cmd):
     """Print a command for dry_run.
 
     Args:

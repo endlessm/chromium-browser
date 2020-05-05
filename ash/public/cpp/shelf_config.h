@@ -8,11 +8,13 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/app_list/app_list_controller_observer.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
+#include "ash/system/model/virtual_keyboard_model.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/display/display_observer.h"
+#include "ui/gfx/animation/tween.h"
 
 namespace ash {
 
@@ -20,7 +22,8 @@ namespace ash {
 // values could change at runtime.
 class ASH_EXPORT ShelfConfig : public TabletModeObserver,
                                public AppListControllerObserver,
-                               public display::DisplayObserver {
+                               public display::DisplayObserver,
+                               public VirtualKeyboardModel::Observer {
  public:
   class Observer : public base::CheckedObserver {
    public:
@@ -43,12 +46,15 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   void Shutdown();
 
   // TabletModeObserver:
-  void OnTabletModeStarted() override;
+  void OnTabletModeStarting() override;
   void OnTabletModeEnded() override;
 
   // DisplayObserver:
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t changed_metrics) override;
+
+  // VirtualKeyboardModel::Observer:
+  void OnVirtualKeyboardVisibilityChanged() override;
 
   // AppListControllerObserver:
   void OnAppListVisibilityWillChange(bool shown, int64_t display_id) override;
@@ -146,8 +152,13 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   int mousewheel_scroll_offset_threshold() const {
     return mousewheel_scroll_offset_threshold_;
   }
+  int in_app_control_button_height_inset() const {
+    return in_app_control_button_height_inset_;
+  }
 
   bool is_dense() const { return is_dense_; }
+
+  bool shelf_controls_shown() const { return shelf_controls_shown_; }
 
   // Gets the current color for the shelf control buttons.
   SkColor GetShelfControlButtonColor() const;
@@ -158,6 +169,11 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   // Gets the shelf color when a window is maximized.
   SkColor GetMaximizedShelfColor() const;
 
+  // Calculates a themed color for shelf and system menu based on the wallpaper.
+  // Uses alpha value from the provided base_color, returns base_color unchanged
+  // if the wallpaper can not be used to generate a themed color.
+  SkColor GetThemedColorFromWallpaper(SkColor base_color) const;
+
   // Gets the default shelf color, calculated using the wallpaper color if
   // available.
   SkColor GetDefaultShelfColor() const;
@@ -165,23 +181,46 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   // Returns the current blur radius to use for the control buttons.
   int GetShelfControlButtonBlurRadius() const;
 
+  // The padding between the app icon and the end of the scrollable shelf.
+  int GetAppIconEndPadding() const;
+
+  // The animation time for dimming shelf icons, widgets, and buttons.
+  base::TimeDelta DimAnimationDuration() const;
+
+  // The tween type for dimming shelf icons, widgets, and buttons.
+  gfx::Tween::Type DimAnimationTween() const;
+
  private:
   friend class ShelfConfigTest;
+
+  class ShelfAccessibilityObserver;
 
   // Called whenever something has changed in the shelf configuration. Notifies
   // all observers.
   void OnShelfConfigUpdated();
 
-  // Updates |is_dense_| and notifies all observers of the update.
-  void UpdateIsDense();
+  // Updates |is_dense_|, |is_app_list_visible_|, and |shelf_controls_shown_|
+  // and notifies all observers of the update if the state changes.
+  // |app_list_visible| - The new app list visibility state.
+  void UpdateConfig(bool app_list_visible);
 
   // Gets the current shelf size.
   // |ignore_in_app_state| - Whether the returned shelf size should be
   //                         calculated as if is_in_app() returns false.
   int GetShelfSize(bool ignore_in_app_state) const;
 
+  // Updates shelf config - called when the accessibility state changes.
+  void UpdateConfigForAccessibilityState();
+
   // Whether shelf is currently standard or dense.
   bool is_dense_;
+
+  // Whether the shelf buttons (navigation controls, and overview tray button)
+  // should be shown.
+  bool shelf_controls_shown_;
+
+  // Whether virtual IME keyboard is shown.
+  bool is_virtual_keyboard_shown_;
 
   // Whether the app list (or home launcher in tablet mode) is visible.
   bool is_app_list_visible_;
@@ -249,6 +288,17 @@ class ASH_EXPORT ShelfConfig : public TabletModeObserver,
   // The threshold at which mousewheel and touchpad scrolls are either ignored
   // or acted upon.
   const int mousewheel_scroll_offset_threshold_;
+
+  // The height inset on the control buttons when in-app shelf is shown.
+  const int in_app_control_button_height_inset_;
+
+  // The padding between the app icon and the end of the scrollable shelf in
+  // tablet mode.
+  const int app_icon_end_padding_;
+
+  // Object responsible for observing accessibility settings relevant to shelf
+  // config.
+  std::unique_ptr<ShelfAccessibilityObserver> accessibility_observer_;
 
   base::ObserverList<Observer> observers_;
 

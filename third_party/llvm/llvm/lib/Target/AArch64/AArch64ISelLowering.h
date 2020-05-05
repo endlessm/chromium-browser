@@ -155,6 +155,14 @@ enum NodeType : unsigned {
   SMAXV,
   UMAXV,
 
+  SMAXV_PRED,
+  UMAXV_PRED,
+  SMINV_PRED,
+  UMINV_PRED,
+  ORV_PRED,
+  EORV_PRED,
+  ANDV_PRED,
+
   // Vector bitwise negation
   NOT,
 
@@ -196,6 +204,48 @@ enum NodeType : unsigned {
   UUNPKHI,
   UUNPKLO,
 
+  CLASTA_N,
+  CLASTB_N,
+  LASTA,
+  LASTB,
+  REV,
+  TBL,
+
+  INSR,
+  PTEST,
+  PTRUE,
+
+  LDNF1,
+  LDNF1S,
+  LDFF1,
+  LDFF1S,
+
+  // Unsigned gather loads.
+  GLD1,
+  GLD1_SCALED,
+  GLD1_UXTW,
+  GLD1_SXTW,
+  GLD1_UXTW_SCALED,
+  GLD1_SXTW_SCALED,
+  GLD1_IMM,
+
+  // Signed gather loads
+  GLD1S,
+  GLD1S_SCALED,
+  GLD1S_UXTW,
+  GLD1S_SXTW,
+  GLD1S_UXTW_SCALED,
+  GLD1S_SXTW_SCALED,
+  GLD1S_IMM,
+  // Scatter store
+  SST1,
+  SST1_SCALED,
+  SST1_UXTW,
+  SST1_SXTW,
+  SST1_UXTW_SCALED,
+  SST1_SXTW_SCALED,
+  SST1_IMM,
+
   // NEON Load/Store with post-increment base updates
   LD2post = ISD::FIRST_TARGET_MEMORY_OPCODE,
   LD3post,
@@ -224,8 +274,11 @@ enum NodeType : unsigned {
   STG,
   STZG,
   ST2G,
-  STZ2G
+  STZ2G,
 
+  LDP,
+  STP,
+  STNP
 };
 
 } // end namespace AArch64ISD
@@ -564,7 +617,8 @@ public:
   unsigned getNumInterleavedAccesses(VectorType *VecTy,
                                      const DataLayout &DL) const;
 
-  MachineMemOperand::Flags getMMOFlags(const Instruction &I) const override;
+  MachineMemOperand::Flags getTargetMMOFlags(
+    const Instruction &I) const override;
 
   bool functionArgumentNeedsConsecutiveRegisters(Type *Ty,
                                                  CallingConv::ID CallConv,
@@ -650,6 +704,8 @@ private:
   SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerDarwinGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerELFGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerELFTLSLocalExec(const GlobalValue *GV, SDValue ThreadBase,
+                               const SDLoc &DL, SelectionDAG &DAG) const;
   SDValue LowerELFTLSDescCallSeq(SDValue SymAddr, const SDLoc &DL,
                                  SelectionDAG &DAG) const;
   SDValue LowerWindowsGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -697,6 +753,7 @@ private:
   SDValue LowerVectorOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerCONCAT_VECTORS(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFSINCOS(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerVSCALE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVECREDUCE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerATOMIC_LOAD_SUB(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerATOMIC_LOAD_AND(SDValue Op, SelectionDAG &DAG) const;
@@ -715,7 +772,7 @@ private:
   unsigned combineRepeatedFPDivisors() const override;
 
   ConstraintType getConstraintType(StringRef Constraint) const override;
-  Register getRegisterByName(const char* RegName, EVT VT,
+  Register getRegisterByName(const char* RegName, LLT VT,
                              const MachineFunction &MF) const override;
 
   /// Examine constraint string and operand type and determine a weight value.

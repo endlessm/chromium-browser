@@ -160,6 +160,7 @@ config("angle_vulkan_lib_android") {
 group("angle_vulkan_entry_points") {
   public_configs = [ ":angle_vulkan_lib_android" ]
   public_deps = [
+    "$angle_root/src/third_party/volk:volk",
     "$angle_root/third_party/vulkan-headers/src:vulkan_headers",
   ]
   if (is_fuchsia) {
@@ -168,8 +169,10 @@ group("angle_vulkan_entry_points") {
       "//third_party/fuchsia-sdk:vulkan_base",
       "//third_party/fuchsia-sdk/sdk:vulkan",
     ]
-  } else if (!is_android) {
-    public_deps += [ "$angle_root/third_party/vulkan-loader/src:libvulkan" ]
+  } else if (!is_android && !is_ggp) {
+    data_deps = [
+      "$angle_root/third_party/vulkan-loader/src:libvulkan",
+    ]
   }
 }
 
@@ -192,6 +195,7 @@ angle_source_set("angle_vulkan_backend") {
   libs = []
   deps = [
     ":angle_vulkan_entry_points",
+    "$angle_root:angle_gpu_info_util",
     "$angle_root:angle_image_util",
     "$angle_root/third_party/vulkan-headers/src:vulkan_headers",
     "$angle_spirv_tools_dir:spvtools_val",
@@ -217,9 +221,11 @@ angle_source_set("angle_vulkan_backend") {
   import("vk_internal_shaders_autogen.gni")
   sources += angle_vulkan_internal_shaders
 
-  if (!is_android && !is_fuchsia) {
-    deps += [ "$angle_root/third_party/vulkan-loader/src:libvulkan" ]
-    data_deps += [ "$angle_root/third_party/vulkan-tools/src:VkICD_mock_icd" ]
+  if (!is_android && !is_fuchsia && !is_ggp) {
+    data_deps += [
+      "$angle_root/third_party/vulkan-loader/src:libvulkan",
+      "$angle_root/third_party/vulkan-tools/src:VkICD_mock_icd",
+    ]
   }
 
   if (angle_enable_vulkan_validation_layers) {

@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+
+import {Events, throttlingManager} from './ThrottlingManager.js';
+import {advancedMobilePresets, CustomConditions, mobilePresets, NoThrottlingConditions,} from './ThrottlingPresets.js';
+
 export class MobileThrottlingSelector {
   /**
    * @param {function(!Array<!MobileThrottling.MobileThrottlingConditionsGroup>):!MobileThrottling.ConditionsList} populateCallback
@@ -10,10 +16,9 @@ export class MobileThrottlingSelector {
   constructor(populateCallback, selectCallback) {
     this._populateCallback = populateCallback;
     this._selectCallback = selectCallback;
-    MobileThrottling.throttlingManager().addEventListener(
-        MobileThrottling.ThrottlingManager.Events.RateChanged, this._conditionsChanged, this);
-    SDK.multitargetNetworkManager.addEventListener(
-        SDK.MultitargetNetworkManager.Events.ConditionsChanged, this._conditionsChanged, this);
+    throttlingManager().addEventListener(Events.RateChanged, this._conditionsChanged, this);
+    self.SDK.multitargetNetworkManager.addEventListener(
+        SDK.NetworkManager.MultitargetNetworkManager.Events.ConditionsChanged, this._conditionsChanged, this);
     /** @type {!MobileThrottling.ConditionsList} */
     this._options = this._populateOptions();
     this._conditionsChanged();
@@ -23,23 +28,23 @@ export class MobileThrottlingSelector {
    * @param {!MobileThrottling.Conditions} conditions
    */
   optionSelected(conditions) {
-    SDK.multitargetNetworkManager.setNetworkConditions(conditions.network);
-    MobileThrottling.throttlingManager().setCPUThrottlingRate(conditions.cpuThrottlingRate);
+    self.SDK.multitargetNetworkManager.setNetworkConditions(conditions.network);
+    throttlingManager().setCPUThrottlingRate(conditions.cpuThrottlingRate);
   }
 
   /**
    * @return {!MobileThrottling.ConditionsList}
    */
   _populateOptions() {
-    const disabledGroup = {title: Common.UIString('Disabled'), items: [MobileThrottling.NoThrottlingConditions]};
-    const presetsGroup = {title: Common.UIString('Presets'), items: MobileThrottling.mobilePresets};
-    const advancedGroup = {title: Common.UIString('Advanced'), items: MobileThrottling.advancedMobilePresets};
+    const disabledGroup = {title: Common.UIString.UIString('Disabled'), items: [NoThrottlingConditions]};
+    const presetsGroup = {title: Common.UIString.UIString('Presets'), items: mobilePresets};
+    const advancedGroup = {title: Common.UIString.UIString('Advanced'), items: advancedMobilePresets};
     return this._populateCallback([disabledGroup, presetsGroup, advancedGroup]);
   }
 
   _conditionsChanged() {
-    const networkConditions = SDK.multitargetNetworkManager.networkConditions();
-    const cpuThrottlingRate = MobileThrottling.throttlingManager().cpuThrottlingRate();
+    const networkConditions = self.SDK.multitargetNetworkManager.networkConditions();
+    const cpuThrottlingRate = throttlingManager().cpuThrottlingRate();
     for (let index = 0; index < this._options.length; ++index) {
       const option = this._options[index];
       if (option && option.network === networkConditions && option.cpuThrottlingRate === cpuThrottlingRate) {
@@ -47,15 +52,6 @@ export class MobileThrottlingSelector {
         return;
       }
     }
-    this._selectCallback(this._options.indexOf(MobileThrottling.CustomConditions));
+    this._selectCallback(this._options.indexOf(CustomConditions));
   }
 }
-
-/* Legacy exported object */
-self.MobileThrottling = self.MobileThrottling || {};
-
-/* Legacy exported object */
-MobileThrottling = MobileThrottling || {};
-
-/** @constructor */
-MobileThrottling.MobileThrottlingSelector = MobileThrottlingSelector;

@@ -55,12 +55,13 @@ config("swiftshader_config") {
     # Diable some MSVC warnings.
     if (!is_clang) {
       cflags += [
+        "/wd4065", # switch statement contains 'default' but no 'case' labels
         "/wd4309", # Truncation of constant value. See PixelRoutine.cpp casts of signed shorts.
       ]
     }
   } else {
     cflags = [
-      "-std=c++11",
+      "-std=c++14",
       "-fno-exceptions",
       "-fno-operator-names",
     ]

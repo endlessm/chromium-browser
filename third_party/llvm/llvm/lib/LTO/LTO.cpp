@@ -467,7 +467,7 @@ BitcodeModule &InputFile::getSingleBitcodeModule() {
 }
 
 LTO::RegularLTOState::RegularLTOState(unsigned ParallelCodeGenParallelismLevel,
-                                      Config &Conf)
+                                      const Config &Conf)
     : ParallelCodeGenParallelismLevel(ParallelCodeGenParallelismLevel),
       Ctx(Conf), CombinedModule(std::make_unique<Module>("ld-temp.o", Ctx)),
       Mover(std::make_unique<IRMover>(*CombinedModule)) {}
@@ -982,6 +982,11 @@ Error LTO::runRegularLTO(AddStreamFn AddStream) {
     }
   }
 
+  // If allowed, upgrade public vcall visibility metadata to linkage unit
+  // visibility before whole program devirtualization in the optimizer.
+  updateVCallVisibilityInModule(*RegularLTO.CombinedModule,
+                                Conf.HasWholeProgramVisibility);
+
   if (Conf.PreOptModuleHook &&
       !Conf.PreOptModuleHook(0, *RegularLTO.CombinedModule))
     return Error::success();
@@ -1029,12 +1034,12 @@ ArrayRef<const char*> LTO::getRuntimeLibcallSymbols() {
 /// This class defines the interface to the ThinLTO backend.
 class lto::ThinBackendProc {
 protected:
-  Config &Conf;
+  const Config &Conf;
   ModuleSummaryIndex &CombinedIndex;
   const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries;
 
 public:
-  ThinBackendProc(Config &Conf, ModuleSummaryIndex &CombinedIndex,
+  ThinBackendProc(const Config &Conf, ModuleSummaryIndex &CombinedIndex,
                   const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries)
       : Conf(Conf), CombinedIndex(CombinedIndex),
         ModuleToDefinedGVSummaries(ModuleToDefinedGVSummaries) {}
@@ -1062,7 +1067,7 @@ class InProcessThinBackend : public ThinBackendProc {
 
 public:
   InProcessThinBackend(
-      Config &Conf, ModuleSummaryIndex &CombinedIndex,
+      const Config &Conf, ModuleSummaryIndex &CombinedIndex,
       unsigned ThinLTOParallelismLevel,
       const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
       AddStreamFn AddStream, NativeObjectCache Cache)
@@ -1160,7 +1165,7 @@ public:
 } // end anonymous namespace
 
 ThinBackend lto::createInProcessThinBackend(unsigned ParallelismLevel) {
-  return [=](Config &Conf, ModuleSummaryIndex &CombinedIndex,
+  return [=](const Config &Conf, ModuleSummaryIndex &CombinedIndex,
              const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
              AddStreamFn AddStream, NativeObjectCache Cache) {
     return std::make_unique<InProcessThinBackend>(
@@ -1198,7 +1203,7 @@ class WriteIndexesThinBackend : public ThinBackendProc {
 
 public:
   WriteIndexesThinBackend(
-      Config &Conf, ModuleSummaryIndex &CombinedIndex,
+      const Config &Conf, ModuleSummaryIndex &CombinedIndex,
       const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
       std::string OldPrefix, std::string NewPrefix, bool ShouldEmitImportsFiles,
       raw_fd_ostream *LinkedObjectsFile, lto::IndexWriteCallback OnWrite)
@@ -1250,7 +1255,7 @@ public:
 ThinBackend lto::createWriteIndexesThinBackend(
     std::string OldPrefix, std::string NewPrefix, bool ShouldEmitImportsFiles,
     raw_fd_ostream *LinkedObjectsFile, IndexWriteCallback OnWrite) {
-  return [=](Config &Conf, ModuleSummaryIndex &CombinedIndex,
+  return [=](const Config &Conf, ModuleSummaryIndex &CombinedIndex,
              const StringMap<GVSummaryMapTy> &ModuleToDefinedGVSummaries,
              AddStreamFn AddStream, NativeObjectCache Cache) {
     return std::make_unique<WriteIndexesThinBackend>(
@@ -1264,7 +1269,8 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
   if (ThinLTO.ModuleMap.empty())
     return Error::success();
 
-  if (Conf.CombinedIndexHook && !Conf.CombinedIndexHook(ThinLTO.CombinedIndex))
+  if (Conf.CombinedIndexHook &&
+      !Conf.CombinedIndexHook(ThinLTO.CombinedIndex, GUIDPreservedSymbols))
     return Error::success();
 
   // Collect for each module the list of function it defines (GUID ->
@@ -1297,6 +1303,11 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache,
     ThinLTO.CombinedIndex.dumpSCCs(outs());
 
   std::set<GlobalValue::GUID> ExportedGUIDs;
+
+  // If allowed, upgrade public vcall visibility to linkage unit visibility in
+  // the summaries before whole program devirtualization below.
+  updateVCallVisibilityInIndex(ThinLTO.CombinedIndex,
+                               Conf.HasWholeProgramVisibility);
 
   // Perform index-based WPD. This will return immediately if there are
   // no index entries in the typeIdMetadata map (e.g. if we are instead
@@ -1381,8 +1392,12 @@ lto::setupOptimizationRemarks(LLVMContext &Context, StringRef RemarksFilename,
                               StringRef RemarksPasses, StringRef RemarksFormat,
                               bool RemarksWithHotness, int Count) {
   std::string Filename = RemarksFilename;
+  // For ThinLTO, file.opt.<format> becomes
+  // file.opt.<format>.thin.<num>.<format>.
   if (!Filename.empty() && Count != -1)
-    Filename += ".thin." + llvm::utostr(Count) + ".yaml";
+    Filename =
+        (Twine(Filename) + ".thin." + llvm::utostr(Count) + "." + RemarksFormat)
+            .str();
 
   auto ResultOrErr = llvm::setupOptimizationRemarks(
       Context, Filename, RemarksPasses, RemarksFormat, RemarksWithHotness);

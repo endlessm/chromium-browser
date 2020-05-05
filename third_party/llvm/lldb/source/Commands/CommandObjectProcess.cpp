@@ -1,4 +1,4 @@
-//===-- CommandObjectProcess.cpp --------------------------------*- C++ -*-===//
+//===-- CommandObjectProcess.cpp ------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,7 +12,6 @@
 #include "lldb/Breakpoint/BreakpointSite.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Host/Host.h"
 #include "lldb/Host/OptionParser.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Interpreter/CommandInterpreter.h"

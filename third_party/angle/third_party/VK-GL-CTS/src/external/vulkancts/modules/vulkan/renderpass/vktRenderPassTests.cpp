@@ -32,6 +32,8 @@
 #include "vktRenderPassUnusedAttachmentTests.hpp"
 #include "vktRenderPassUnusedClearAttachmentTests.hpp"
 #include "vktRenderPassDepthStencilResolveTests.hpp"
+#include "vktRenderPassUnusedAttachmentSparseFillingTests.hpp"
+#include "vktRenderPassFragmentDensityMapTests.hpp"
 
 #include "vktTestCaseUtil.hpp"
 #include "vktTestGroupUtil.hpp"
@@ -4519,17 +4521,17 @@ tcu::TestStatus renderPassTest (Context& context, TestConfig config)
 	vector<SubpassRenderInfo>			subpassRenderInfo;
 
 	if (config.renderPassType == RENDERPASS_TYPE_RENDERPASS2)
-		context.requireDeviceExtension("VK_KHR_create_renderpass2");
+		context.requireDeviceFunctionality("VK_KHR_create_renderpass2");
 
 	if (config.allocationKind == ALLOCATION_KIND_DEDICATED)
 	{
-		if (!isDeviceExtensionSupported(context.getUsedApiVersion(), context.getDeviceExtensions(), "VK_KHR_dedicated_allocation"))
+		if (!context.isDeviceFunctionalitySupported("VK_KHR_dedicated_allocation"))
 			TCU_THROW(NotSupportedError, "VK_KHR_dedicated_allocation is not supported");
 	}
 
 	if (!renderPassInfo.getInputAspects().empty())
 	{
-		if (!isDeviceExtensionSupported(context.getUsedApiVersion(), context.getDeviceExtensions(), "VK_KHR_maintenance2"))
+		if (!context.isDeviceFunctionalitySupported("VK_KHR_maintenance2"))
 			TCU_THROW(NotSupportedError, "Extension VK_KHR_maintenance2 not supported.");
 	}
 
@@ -4590,7 +4592,7 @@ tcu::TestStatus renderPassTest (Context& context, TestConfig config)
 			}
 		}
 
-		if (requireDepthStencilLayout && !isDeviceExtensionSupported(context.getUsedApiVersion(), context.getDeviceExtensions(), "VK_KHR_maintenance2"))
+		if (requireDepthStencilLayout && !context.isDeviceFunctionalitySupported("VK_KHR_maintenance2"))
 			TCU_THROW(NotSupportedError, "VK_KHR_maintenance2 is not supported");
 	}
 
@@ -6989,6 +6991,7 @@ tcu::TestCaseGroup* createRenderPassTestsInternal (tcu::TestContext& testCtx, Re
 	suballocationTestGroup->addChild((renderPassType == RENDERPASS_TYPE_LEGACY) ? createRenderPassSparseRenderTargetTests(testCtx)	: createRenderPass2SparseRenderTargetTests(testCtx));
 	suballocationTestGroup->addChild(createRenderPassUnusedAttachmentTests(testCtx, renderPassType));
 	suballocationTestGroup->addChild(createRenderPassUnusedClearAttachmentTests(testCtx, renderPassType));
+	suballocationTestGroup->addChild(createRenderPassUnusedAttachmentSparseFillingTests(testCtx, renderPassType));
 
 	renderpassTests->addChild(suballocationTestGroup.release());
 	renderpassTests->addChild(dedicatedAllocationTestGroup.release());
@@ -6996,6 +6999,7 @@ tcu::TestCaseGroup* createRenderPassTestsInternal (tcu::TestContext& testCtx, Re
 	if (renderPassType != RENDERPASS_TYPE_LEGACY)
 	{
 		renderpassTests->addChild(createRenderPass2DepthStencilResolveTests(testCtx));
+		renderpassTests->addChild(createFragmentDensityMapTests(testCtx));
 	}
 
 	return renderpassTests.release();

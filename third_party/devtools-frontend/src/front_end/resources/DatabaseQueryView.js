@@ -26,7 +26,7 @@
 /**
  * @unrestricted
  */
-Resources.DatabaseQueryView = class extends UI.VBox {
+export class DatabaseQueryView extends UI.VBox {
   constructor(database) {
     super();
 
@@ -70,7 +70,7 @@ Resources.DatabaseQueryView = class extends UI.VBox {
     prefix = prefix.toLowerCase();
     const tableNames = await this.database.tableNames();
     return tableNames.map(name => name + ' ')
-        .concat(Resources.DatabaseQueryView._SQL_BUILT_INS)
+        .concat(SQL_BUILT_INS)
         .filter(proposal => proposal.toLowerCase().startsWith(prefix))
         .map(completion => ({text: completion}));
   }
@@ -83,7 +83,7 @@ Resources.DatabaseQueryView = class extends UI.VBox {
     this._prompt.clearAutocomplete();
 
     /**
-     * @this {Resources.DatabaseQueryView}
+     * @this {DatabaseQueryView}
      */
     function moveBackIfOutside() {
       delete this._selectionTimeout;
@@ -129,7 +129,7 @@ Resources.DatabaseQueryView = class extends UI.VBox {
   }
 
   _queryFinished(query, columnNames, values) {
-    const dataGrid = DataGrid.SortableDataGrid.create(columnNames, values);
+    const dataGrid = DataGrid.SortableDataGrid.create(columnNames, values, ls`Database Query`);
     const trimmedQuery = query.trim();
 
     let view = null;
@@ -142,7 +142,7 @@ Resources.DatabaseQueryView = class extends UI.VBox {
     this._appendViewQueryResult(trimmedQuery, view);
 
     if (trimmedQuery.match(/^create /i) || trimmedQuery.match(/^drop table /i)) {
-      this.dispatchEventToListeners(Resources.DatabaseQueryView.Events.SchemaUpdated, this.database);
+      this.dispatchEventToListeners(Events.SchemaUpdated, this.database);
     }
   }
 
@@ -192,14 +192,14 @@ Resources.DatabaseQueryView = class extends UI.VBox {
     element.appendChild(resultElement);
     return resultElement;
   }
-};
+}
 
 /** @enum {symbol} */
-Resources.DatabaseQueryView.Events = {
+export const Events = {
   SchemaUpdated: Symbol('SchemaUpdated')
 };
 
-Resources.DatabaseQueryView._SQL_BUILT_INS = [
+export const SQL_BUILT_INS = [
   'SELECT ', 'FROM ', 'WHERE ', 'LIMIT ', 'DELETE FROM ', 'CREATE ', 'DROP ', 'TABLE ', 'INDEX ', 'UPDATE ',
   'INSERT INTO ', 'VALUES ('
 ];

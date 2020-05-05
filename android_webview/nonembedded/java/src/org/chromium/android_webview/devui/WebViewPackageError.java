@@ -39,7 +39,7 @@ public class WebViewPackageError {
     public WebViewPackageError(Activity context, LinearLayout linearLayout) {
         mContext = context;
 
-        mErrorDialog = buildDifferentPackageErrorDialog(mContext.getPackageName());
+        mErrorDialog = buildDifferentPackageErrorDialog();
         mErrorMessage = new PersistentErrorView(context, PersistentErrorView.Type.WARNING)
                                 .prependToLinearLayout(linearLayout)
                                 .setText("Warning: different WebView provider - Tap for more info.")
@@ -78,12 +78,12 @@ public class WebViewPackageError {
         return !mContext.getPackageName().equals(systemWebViewPackage.packageName);
     }
 
-    private Dialog buildDifferentPackageErrorDialog(String currentWebViewPackage) {
+    private Dialog buildDifferentPackageErrorDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
         builder.setTitle("Wrong WebView DevTools")
                 .setMessage(String.format(Locale.US,
-                        "This app (%s) is not the selected system's WebView provider.",
-                        currentWebViewPackage));
+                        "This app (%s) is not the system's selected WebView provider.",
+                        WebViewPackageHelper.loadLabel(mContext)));
         builder.setPositiveButton("Open the current WebView provider", (dialog, id) -> {
             PackageInfo systemWebViewPackage =
                     WebViewPackageHelper.getCurrentWebViewPackage(mContext);
@@ -110,7 +110,7 @@ public class WebViewPackageError {
 
         // Switching WebView providers is possible from API >= 24.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            builder.setPositiveButton("Change WebView provider",
+            builder.setNeutralButton("Change WebView provider",
                     (dialog, id)
                             -> mContext.startActivity(
                                     new Intent(Settings.ACTION_WEBVIEW_SETTINGS)));

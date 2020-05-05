@@ -31,7 +31,10 @@
 /**
  * @unrestricted
  */
-PerfUI.TimelineOverviewPane = class extends UI.VBox {
+import {Events as OverviewGridEvents, OverviewGrid} from './OverviewGrid.js';
+import {Calculator} from './TimelineGrid.js';  // eslint-disable-line no-unused-vars
+
+export class TimelineOverviewPane extends UI.VBox {
   /**
    * @param {string} prefix
    */
@@ -39,8 +42,8 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
     super();
     this.element.id = prefix + '-overview-pane';
 
-    this._overviewCalculator = new PerfUI.TimelineOverviewCalculator();
-    this._overviewGrid = new PerfUI.OverviewGrid(prefix, this._overviewCalculator);
+    this._overviewCalculator = new TimelineOverviewCalculator();
+    this._overviewGrid = new OverviewGrid(prefix, this._overviewCalculator);
     this.element.appendChild(this._overviewGrid.element);
     this._cursorArea = this._overviewGrid.element.createChild('div', 'overview-grid-cursor-area');
     this._cursorElement = this._overviewGrid.element.createChild('div', 'overview-grid-cursor-position');
@@ -48,17 +51,21 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
     this._cursorArea.addEventListener('mouseleave', this._hideCursor.bind(this), true);
 
     this._overviewGrid.setResizeEnabled(false);
-    this._overviewGrid.addEventListener(PerfUI.OverviewGrid.Events.WindowChanged, this._onWindowChanged, this);
+    this._overviewGrid.addEventListener(OverviewGridEvents.WindowChanged, this._onWindowChanged, this);
     this._overviewGrid.setClickHandler(this._onClick.bind(this));
     this._overviewControls = [];
     this._markers = new Map();
 
-    this._overviewInfo = new PerfUI.TimelineOverviewPane.OverviewInfo(this._cursorElement);
+    this._overviewInfo = new OverviewInfo(this._cursorElement);
     this._updateThrottler = new Common.Throttler(100);
 
     this._cursorEnabled = false;
     this._cursorPosition = 0;
     this._lastWidth = 0;
+
+    this._windowStartTime = 0;
+    this._windowEndTime = Infinity;
+    this._muteOnWindowChanged = false;
   }
 
   /**
@@ -119,7 +126,7 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
   }
 
   /**
-   * @param {!Array.<!PerfUI.TimelineOverview>} overviewControls
+   * @param {!Array.<!TimelineOverview>} overviewControls
    */
   setOverviewControls(overviewControls) {
     for (let i = 0; i < this._overviewControls.length; ++i) {
@@ -147,7 +154,7 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
   scheduleUpdate() {
     this._updateThrottler.schedule(process.bind(this));
     /**
-     * @this {PerfUI.TimelineOverviewPane}
+     * @this {TimelineOverviewPane}
      * @return {!Promise.<undefined>}
      */
     function process() {
@@ -232,7 +239,7 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
     this._windowEndTime = event.data.rawEndValue;
     const windowTimes = {startTime: this._windowStartTime, endTime: this._windowEndTime};
 
-    this.dispatchEventToListeners(PerfUI.TimelineOverviewPane.Events.WindowChanged, windowTimes);
+    this.dispatchEventToListeners(Events.WindowChanged, windowTimes);
   }
 
   /**
@@ -246,8 +253,7 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
     this._windowStartTime = startTime;
     this._windowEndTime = endTime;
     this._updateWindow();
-    this.dispatchEventToListeners(
-        PerfUI.TimelineOverviewPane.Events.WindowChanged, {startTime: startTime, endTime: endTime});
+    this.dispatchEventToListeners(Events.WindowChanged, {startTime: startTime, endTime: endTime});
   }
 
   _updateWindow() {
@@ -264,18 +270,18 @@ PerfUI.TimelineOverviewPane = class extends UI.VBox {
     this._overviewGrid.setWindow(left, right);
     this._muteOnWindowChanged = false;
   }
-};
+}
 
 /** @enum {symbol} */
-PerfUI.TimelineOverviewPane.Events = {
+export const Events = {
   WindowChanged: Symbol('WindowChanged')
 };
 
 /**
- * @implements {PerfUI.TimelineGrid.Calculator}
+ * @implements {Calculator}
  * @unrestricted
  */
-PerfUI.TimelineOverviewCalculator = class {
+export class TimelineOverviewCalculator {
   constructor() {
     this.reset();
   }
@@ -358,47 +364,57 @@ PerfUI.TimelineOverviewCalculator = class {
   boundarySpan() {
     return this._maximumBoundary - this._minimumBoundary;
   }
-};
+}
 
 /**
  * @interface
  */
-PerfUI.TimelineOverview = function() {};
-
-PerfUI.TimelineOverview.prototype = {
+export class TimelineOverview {
   /**
    * @param {!Element} parentElement
    * @param {?Element=} insertBefore
    */
-  show(parentElement, insertBefore) {},
+  show(parentElement, insertBefore) {
+  }
 
-  update() {},
+  update() {
+  }
 
-  dispose() {},
+  dispose() {
+  }
 
-  reset() {},
+  reset() {
+  }
 
   /**
    * @param {number} x
    * @return {!Promise<?Element>}
    */
-  overviewInfoPromise(x) {},
+  overviewInfoPromise(x) {
+  }
 
   /**
    * @param {!Event} event
    * @return {boolean}
    */
-  onClick(event) {},
-};
+  onClick(event) {
+  }
+
+  /**
+   * @param {!TimelineOverviewCalculator} calculator
+   */
+  setCalculator(calculator) {
+  }
+}
 
 /**
- * @implements {PerfUI.TimelineOverview}
+ * @implements {TimelineOverview}
  * @unrestricted
  */
-PerfUI.TimelineOverviewBase = class extends UI.VBox {
+export class TimelineOverviewBase extends UI.VBox {
   constructor() {
     super();
-    /** @type {?PerfUI.TimelineOverviewCalculator} */
+    /** @type {?TimelineOverviewCalculator} */
     this._calculator = null;
     this._canvas = this.element.createChild('canvas', 'fill');
     this._context = this._canvas.getContext('2d');
@@ -421,7 +437,7 @@ PerfUI.TimelineOverviewBase = class extends UI.VBox {
 
   /**
    * @protected
-   * @return {?PerfUI.TimelineOverviewCalculator}
+   * @return {?TimelineOverviewCalculator}
    */
   calculator() {
     return this._calculator;
@@ -457,7 +473,8 @@ PerfUI.TimelineOverviewBase = class extends UI.VBox {
   }
 
   /**
-   * @param {!PerfUI.TimelineOverviewCalculator} calculator
+   * @override
+   * @param {!TimelineOverviewCalculator} calculator
    */
   setCalculator(calculator) {
     this._calculator = calculator;
@@ -486,9 +503,9 @@ PerfUI.TimelineOverviewBase = class extends UI.VBox {
     this._canvas.width = width * window.devicePixelRatio;
     this._canvas.height = height * window.devicePixelRatio;
   }
-};
+}
 
-PerfUI.TimelineOverviewPane.OverviewInfo = class {
+export class OverviewInfo {
   /**
    * @param {!Element} anchor
    */
@@ -525,4 +542,4 @@ PerfUI.TimelineOverviewPane.OverviewInfo = class {
     this._visible = false;
     this._glassPane.hide();
   }
-};
+}

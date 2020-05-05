@@ -20,6 +20,7 @@
 
 #include "third_party/blink/renderer/core/css/css_image_value.h"
 
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/css/css_markup.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -32,6 +33,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
+#include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
 
@@ -40,8 +42,8 @@ namespace blink {
 CSSImageValue::CSSImageValue(const AtomicString& raw_value,
                              const KURL& url,
                              const Referrer& referrer,
-                             StyleImage* image,
-                             OriginClean origin_clean)
+                             OriginClean origin_clean,
+                             StyleImage* image)
     : CSSValue(kImageClass),
       relative_url_(raw_value),
       referrer_(referrer),
@@ -90,6 +92,14 @@ StyleImage* CSSImageValue::CacheImage(
             WebLocalFrameClient::LazyLoadBehavior::kDeferredImage);
       }
       params.SetLazyImageDeferred();
+    }
+
+    if (base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect) &&
+        params.Url().ProtocolIsInHTTPFamily() &&
+        GetNetworkStateNotifier().SaveDataEnabled()) {
+      auto& resource_request = params.MutableResourceRequest();
+      resource_request.SetPreviewsState(resource_request.GetPreviewsState() |
+                                        WebURLRequest::kSubresourceRedirectOn);
     }
 
     if (origin_clean_ != OriginClean::kTrue)

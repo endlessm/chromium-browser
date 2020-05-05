@@ -302,7 +302,7 @@ bool TextureState::computeSamplerCompleteness(const SamplerState &samplerState,
     {
         return false;
     }
-    bool npotSupport = data.getExtensions().textureNPOT || data.getClientMajorVersion() >= 3;
+    bool npotSupport = data.getExtensions().textureNPOTOES || data.getClientMajorVersion() >= 3;
     if (!npotSupport)
     {
         if ((samplerState.getWrapS() != GL_CLAMP_TO_EDGE &&
@@ -639,7 +639,7 @@ void TextureState::clearImageDescs()
 }
 
 Texture::Texture(rx::GLImplFactory *factory, TextureID id, TextureType type)
-    : RefCountObject(id),
+    : RefCountObject(factory->generateSerial(), id),
       mState(type),
       mTexture(factory->createTexture(mState)),
       mImplObserver(this, rx::kTextureImageImplObserverMessageIndex),

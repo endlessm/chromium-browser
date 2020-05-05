@@ -5,6 +5,7 @@
 #import "ios/chrome/app/application_delegate/user_activity_handler.h"
 
 #import <CoreSpotlight/CoreSpotlight.h>
+#import <Intents/Intents.h>
 #import <UIKit/UIKit.h>
 
 #include "base/ios/block_types.h"
@@ -18,6 +19,7 @@
 #import "ios/chrome/app/application_delegate/startup_information.h"
 #import "ios/chrome/app/application_delegate/tab_opening.h"
 #include "ios/chrome/app/application_mode.h"
+#import "ios/chrome/app/intents/OpenInChromeIntent.h"
 #import "ios/chrome/app/spotlight/actions_spotlight_manager.h"
 #import "ios/chrome/app/spotlight/spotlight_util.h"
 #include "ios/chrome/app/startup/chrome_app_startup_parameters.h"
@@ -146,7 +148,25 @@ NSString* const kShortcutQRScanner = @"OpenQRScanner";
                 completeURL:GURL(kChromeUINewTabURL)];
     [startupParams setPostOpeningAction:FOCUS_OMNIBOX];
     [startupInformation setStartupParameters:startupParams];
-    return YES;
+    webpageURL =
+        [NSURL URLWithString:base::SysUTF8ToNSString(kChromeUINewTabURL)];
+  } else if ([userActivity.activityType
+                 isEqualToString:@"OpenInChromeIntent"]) {
+    base::RecordAction(UserMetricsAction("IOSLaunchedByOpenInChromeIntent"));
+    OpenInChromeIntent* intent = base::mac::ObjCCastStrict<OpenInChromeIntent>(
+        userActivity.interaction.intent);
+    if (!intent.url)
+      return NO;
+
+    GURL webpageGURL(net::GURLWithNSURL(intent.url));
+    if (!webpageGURL.is_valid())
+      return NO;
+
+    AppStartupParameters* startupParams =
+        [[AppStartupParameters alloc] initWithExternalURL:webpageGURL
+                                              completeURL:webpageGURL];
+    [startupInformation setStartupParameters:startupParams];
+    webpageURL = intent.url;
   } else {
     // Do nothing for unknown activity type.
     return NO;

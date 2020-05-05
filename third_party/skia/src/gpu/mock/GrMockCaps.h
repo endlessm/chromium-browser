@@ -40,21 +40,30 @@ public:
     }
 
     bool isFormatSRGB(const GrBackendFormat& format) const override {
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression != SkImage::CompressionType::kNone) {
+            return false;
+        }
+
         auto ct = format.asMockColorType();
         return GrGetColorTypeDesc(ct).encoding() == GrColorTypeEncoding::kSRGBUnorm;
     }
 
-    // Mock caps doesn't support any compressed formats right now
-    bool isFormatCompressed(const GrBackendFormat&,
-                            SkImage::CompressionType* compressionType = nullptr) const override {
-        return false;
+    SkImage::CompressionType compressionType(const GrBackendFormat& format) const override {
+        return format.asMockCompressionType();
     }
 
     bool isFormatTexturableAndUploadable(GrColorType,
                                          const GrBackendFormat& format) const override {
         return this->isFormatTexturable(format);
     }
+
     bool isFormatTexturable(const GrBackendFormat& format) const override {
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression != SkImage::CompressionType::kNone) {
+            return fOptions.fCompressedOptions[(int)compression].fTexturable;
+        }
+
         auto index = static_cast<int>(format.asMockColorType());
         return fOptions.fConfigOptions[index].fTexturable;
     }
@@ -75,6 +84,10 @@ public:
     }
 
     bool isFormatRenderable(const GrBackendFormat& format, int sampleCount) const override {
+        if (format.asMockCompressionType() != SkImage::CompressionType::kNone) {
+            return false;  // compressed formats are never renderable
+        }
+
         return sampleCount <= this->maxRenderTargetSampleCount(format.asMockColorType());
     }
 
@@ -94,6 +107,11 @@ public:
 
     int getRenderTargetSampleCount(int requestCount,
                                    const GrBackendFormat& format) const override {
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression != SkImage::CompressionType::kNone) {
+            return 0; // no compressed format is renderable
+        }
+
         return this->getRenderTargetSampleCount(requestCount, format.asMockColorType());
     }
 
@@ -110,10 +128,20 @@ public:
     }
 
     int maxRenderTargetSampleCount(const GrBackendFormat& format) const override {
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression != SkImage::CompressionType::kNone) {
+            return 0; // no compressed format is renderable
+        }
+
         return this->maxRenderTargetSampleCount(format.asMockColorType());
     }
 
     size_t bytesPerPixel(const GrBackendFormat& format) const override {
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression != SkImage::CompressionType::kNone) {
+            return 0;
+        }
+
         return GrColorTypeBytesPerPixel(format.asMockColorType());
     }
 
@@ -129,6 +157,11 @@ public:
 
     GrColorType getYUVAColorTypeFromBackendFormat(const GrBackendFormat& format,
                                                   bool isAlphaChannel) const override {
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression != SkImage::CompressionType::kNone) {
+            return GrColorType::kUnknown;
+        }
+
         return format.asMockColorType();
     }
 
@@ -136,12 +169,14 @@ public:
         return {};
     }
 
-    GrSwizzle getTextureSwizzle(const GrBackendFormat&, GrColorType) const override {
+    GrSwizzle getReadSwizzle(const GrBackendFormat&, GrColorType) const override {
         return GrSwizzle();
     }
     GrSwizzle getOutputSwizzle(const GrBackendFormat&, GrColorType) const override {
         return GrSwizzle();
     }
+
+    uint64_t computeFormatKey(const GrBackendFormat&) const override;
 
     GrProgramDesc makeDesc(const GrRenderTarget*, const GrProgramInfo&) const override;
 
@@ -156,18 +191,22 @@ private:
         return true;
     }
     GrBackendFormat onGetDefaultBackendFormat(GrColorType ct, GrRenderable) const override {
-        return GrBackendFormat::MakeMock(ct);
-    }
-
-    GrPixelConfig onGetConfigFromBackendFormat(const GrBackendFormat& format,
-                                               GrColorType) const override {
-        return GrColorTypeToPixelConfig(format.asMockColorType());
+        return GrBackendFormat::MakeMock(ct, SkImage::CompressionType::kNone);
     }
 
     bool onAreColorTypeAndFormatCompatible(GrColorType ct,
                                            const GrBackendFormat& format) const override {
         if (ct == GrColorType::kUnknown) {
             return false;
+        }
+
+        SkImage::CompressionType compression = format.asMockCompressionType();
+        if (compression == SkImage::CompressionType::kETC2_RGB8_UNORM ||
+            compression == SkImage::CompressionType::kBC1_RGB8_UNORM) {
+            return ct == GrColorType::kRGB_888x; // TODO: this may be too restrictive
+        }
+        if (compression == SkImage::CompressionType::kBC1_RGBA8_UNORM) {
+            return ct == GrColorType::kRGBA_8888;
         }
 
         return ct == format.asMockColorType();

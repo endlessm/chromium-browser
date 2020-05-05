@@ -21,7 +21,7 @@
 #include "LogChannelDWARF.h"
 #include "lldb/Core/ClangForward.h"
 #include "lldb/Core/PluginInterface.h"
-#include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/ClangASTImporter.h"
 
 #include <vector>
@@ -36,7 +36,7 @@ struct ParsedDWARFTypeAttributes;
 
 class DWARFASTParserClang : public DWARFASTParser {
 public:
-  DWARFASTParserClang(lldb_private::ClangASTContext &ast);
+  DWARFASTParserClang(lldb_private::TypeSystemClang &ast);
 
   ~DWARFASTParserClang() override;
 
@@ -82,7 +82,7 @@ protected:
       DIEToDeclMap;
   typedef llvm::DenseMap<const clang::Decl *, DIEPointerSet> DeclToDIEMap;
 
-  lldb_private::ClangASTContext &m_ast;
+  lldb_private::TypeSystemClang &m_ast;
   DIEToDeclMap m_die_to_decl;
   DeclToDIEMap m_decl_to_die;
   DIEToDeclContextMap m_die_to_decl_ctx;
@@ -97,11 +97,11 @@ protected:
   clang::NamespaceDecl *ResolveNamespaceDIE(const DWARFDIE &die);
 
   bool ParseTemplateDIE(const DWARFDIE &die,
-                        lldb_private::ClangASTContext::TemplateParameterInfos
+                        lldb_private::TypeSystemClang::TemplateParameterInfos
                             &template_param_infos);
   bool ParseTemplateParameterInfos(
       const DWARFDIE &parent_die,
-      lldb_private::ClangASTContext::TemplateParameterInfos
+      lldb_private::TypeSystemClang::TemplateParameterInfos
           &template_param_infos);
 
   bool ParseChildMembers(
@@ -170,6 +170,33 @@ protected:
   lldb::ModuleSP GetModuleForType(const DWARFDIE &die);
 
 private:
+  struct FieldInfo {
+    uint64_t bit_size = 0;
+    uint64_t bit_offset = 0;
+    bool is_bitfield = false;
+
+    FieldInfo() = default;
+
+    void SetIsBitfield(bool flag) { is_bitfield = flag; }
+    bool IsBitfield() { return is_bitfield; }
+
+    bool NextBitfieldOffsetIsValid(const uint64_t next_bit_offset) const {
+      // Any subsequent bitfields must not overlap and must be at a higher
+      // bit offset than any previous bitfield + size.
+      return (bit_size + bit_offset) <= next_bit_offset;
+    }
+  };
+
+  void
+  ParseSingleMember(const DWARFDIE &die, const DWARFDIE &parent_die,
+                    lldb_private::CompilerType &class_clang_type,
+                    const lldb::LanguageType class_language,
+                    std::vector<int> &member_accessibilities,
+                    lldb::AccessType &default_accessibility,
+                    DelayedPropertyList &delayed_properties,
+                    lldb_private::ClangASTImporter::LayoutInfo &layout_info,
+                    FieldInfo &last_field_info);
+
   bool CompleteRecordType(const DWARFDIE &die, lldb_private::Type *type,
                           lldb_private::CompilerType &clang_type);
   bool CompleteEnumType(const DWARFDIE &die, lldb_private::Type *type,
@@ -204,6 +231,7 @@ struct ParsedDWARFTypeAttributes {
   bool is_scoped_enum = false;
   bool is_vector = false;
   bool is_virtual = false;
+  bool is_objc_direct_call = false;
   bool exports_symbols = false;
   clang::StorageClass storage = clang::SC_None;
   const char *mangled_name = nullptr;

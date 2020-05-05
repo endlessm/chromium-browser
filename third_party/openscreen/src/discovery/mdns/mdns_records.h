@@ -5,10 +5,12 @@
 #ifndef DISCOVERY_MDNS_MDNS_RECORDS_H_
 #define DISCOVERY_MDNS_MDNS_RECORDS_H_
 
-#include <chrono>
+#include <algorithm>
+#include <chrono>  // NOLINT
 #include <functional>
 #include <initializer_list>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
@@ -192,7 +194,8 @@ class AAAARecordRdata {
   }
 
  private:
-  IPAddress ipv6_address_{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  IPAddress ipv6_address_{0x0000, 0x0000, 0x0000, 0x0000,
+                          0x0000, 0x0000, 0x0000, 0x0000};
 };
 
 // PTR record format (http://www.ietf.org/rfc/rfc1035.txt):
@@ -258,12 +261,71 @@ class TxtRecordRdata {
   std::vector<std::string> texts_;
 };
 
+// NSEC record format (https://tools.ietf.org/html/rfc4034#section-4).
+// In mDNS, this record type is used for representing negative responses to
+// queries.
+//
+// next_domain_name: The next domain to process. In mDNS, this value is expected
+// to match the record-level domain name in a negative response.
+//
+// An example of how the |types_| vector is serialized is as follows:
+// When encoding the following DNS types:
+// - A (value 1)
+// - MX (value 15)
+// - RRSIG (value 46)
+// - NSEC (value 47)
+// - TYPE1234 (value 1234)
+// The result would be:
+//          0x00 0x06 0x40 0x01 0x00 0x00 0x00 0x03
+//          0x04 0x1b 0x00 0x00 0x00 0x00 0x00 0x00
+//          0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+//          0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+//          0x00 0x00 0x00 0x00 0x20
+class NsecRecordRdata {
+ public:
+  NsecRecordRdata();
+
+  // Constructor that takes an arbitrary number of DnsType parameters.
+  // NOTE: If `types...` provide a valid set of parameters for an
+  // std::vector<DnsType> ctor call, this will compile. Do not use this ctor
+  // except to provide multiple DnsType parameters.
+  template <typename... Types>
+  NsecRecordRdata(DomainName next_domain_name, Types... types)
+      : NsecRecordRdata(std::move(next_domain_name),
+                        std::vector<DnsType>{types...}) {}
+  NsecRecordRdata(DomainName next_domain_name_, std::vector<DnsType> types);
+  NsecRecordRdata(const NsecRecordRdata& other);
+  NsecRecordRdata(NsecRecordRdata&& other);
+
+  NsecRecordRdata& operator=(const NsecRecordRdata& rhs);
+  NsecRecordRdata& operator=(NsecRecordRdata&& rhs);
+  bool operator==(const NsecRecordRdata& rhs) const;
+  bool operator!=(const NsecRecordRdata& rhs) const;
+
+  size_t MaxWireSize() const;
+
+  const DomainName& next_domain_name() const { return next_domain_name_; }
+  const std::vector<DnsType>& types() const { return types_; }
+  const std::vector<uint8_t>& encoded_types() const { return encoded_types_; }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const NsecRecordRdata& rdata) {
+    return H::combine(std::move(h), rdata.types_, rdata.next_domain_name_);
+  }
+
+ private:
+  std::vector<uint8_t> encoded_types_;
+  std::vector<DnsType> types_;
+  DomainName next_domain_name_;
+};
+
 using Rdata = absl::variant<RawRecordRdata,
                             SrvRecordRdata,
                             ARecordRdata,
                             AAAARecordRdata,
                             PtrRecordRdata,
-                            TxtRecordRdata>;
+                            TxtRecordRdata,
+                            NsecRecordRdata>;
 
 // Resource record top level format (http://www.ietf.org/rfc/rfc1035.txt):
 // name: the name of the node to which this resource record pertains.
@@ -290,6 +352,10 @@ class MdnsRecord {
   MdnsRecord& operator=(MdnsRecord&& rhs);
   bool operator==(const MdnsRecord& other) const;
   bool operator!=(const MdnsRecord& other) const;
+  bool operator<(const MdnsRecord& other) const;
+  bool operator>(const MdnsRecord& other) const;
+  bool operator<=(const MdnsRecord& other) const;
+  bool operator>=(const MdnsRecord& other) const;
 
   size_t MaxWireSize() const;
   const DomainName& name() const { return name_; }
@@ -316,6 +382,9 @@ class MdnsRecord {
   // as it is the first alternative type and it is default-constructible.
   Rdata rdata_;
 };
+
+// Creates an A or AAAA record as appropriate for the provided parameters.
+MdnsRecord CreateAddressRecord(DomainName name, const IPAddress& address);
 
 // Question top level format (http://www.ietf.org/rfc/rfc1035.txt):
 // name: a domain name which identifies the target resource set.
@@ -384,9 +453,23 @@ class MdnsMessage {
   void AddAuthorityRecord(MdnsRecord record);
   void AddAdditionalRecord(MdnsRecord record);
 
+  // Returns false if adding a new record would push the size of this message
+  // beyond kMaxMulticastMessageSize, and true otherwise.
+  bool CanAddRecord(const MdnsRecord& record);
+
+  // Sets the truncated bit (TC), as specified in RFC 1035 Section 4.1.1.
+  void set_truncated() { is_truncated_ = true; }
+
+  // Returns true if the provided message is an mDNS probe query as described in
+  // RFC 6762 section 8.1. Specifically, it examines whether any question in
+  // the 'questions' section is a query for which answers are present in the
+  // 'authority records' section of the same message.
+  bool IsProbeQuery() const;
+
   size_t MaxWireSize() const;
   uint16_t id() const { return id_; }
   MessageType type() const { return type_; }
+  bool is_truncated() const { return is_truncated_; }
   const std::vector<MdnsQuestion>& questions() const { return questions_; }
   const std::vector<MdnsRecord>& answers() const { return answers_; }
   const std::vector<MdnsRecord>& authority_records() const {
@@ -407,6 +490,7 @@ class MdnsMessage {
   // The mDNS header is 12 bytes long
   size_t max_wire_size_ = sizeof(Header);
   uint16_t id_ = 0;
+  bool is_truncated_ = false;
   MessageType type_ = MessageType::Query;
   std::vector<MdnsQuestion> questions_;
   std::vector<MdnsRecord> answers_;

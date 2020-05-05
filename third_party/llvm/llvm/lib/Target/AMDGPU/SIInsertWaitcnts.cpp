@@ -42,7 +42,9 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/CodeGen/MachineOperand.h"
+#include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
@@ -372,6 +374,8 @@ private:
   AMDGPU::IsaVersion IV;
 
   DenseSet<MachineInstr *> TrackedWaitcntSet;
+  DenseMap<const Value *, MachineBasicBlock *> SLoadAddresses;
+  MachinePostDominatorTree *PDT;
 
   struct BlockInfo {
     MachineBasicBlock *MBB;
@@ -406,6 +410,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
+    AU.addRequired<MachinePostDominatorTree>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
@@ -792,6 +797,7 @@ bool WaitcntBrackets::counterOutOfOrder(InstCounterType T) const {
 
 INITIALIZE_PASS_BEGIN(SIInsertWaitcnts, DEBUG_TYPE, "SI Insert Waitcnts", false,
                       false)
+INITIALIZE_PASS_DEPENDENCY(MachinePostDominatorTree)
 INITIALIZE_PASS_END(SIInsertWaitcnts, DEBUG_TYPE, "SI Insert Waitcnts", false,
                     false)
 
@@ -1012,6 +1018,13 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(
       if (MI.mayStore()) {
         // FIXME: Should not be relying on memoperands.
         for (const MachineMemOperand *Memop : MI.memoperands()) {
+          const Value *Ptr = Memop->getValue();
+          if (SLoadAddresses.count(Ptr)) {
+            addWait(Wait, LGKM_CNT, 0);
+            if (PDT->dominates(MI.getParent(),
+                               SLoadAddresses.find(Ptr)->second))
+              SLoadAddresses.erase(Ptr);
+          }
           unsigned AS = Memop->getAddrSpace();
           if (AS != AMDGPUAS::LOCAL_ADDRESS)
             continue;
@@ -1081,7 +1094,7 @@ bool SIInsertWaitcnts::generateWaitcntInstBefore(
           assert(II->getOpcode() == AMDGPU::S_WAITCNT_VSCNT);
           assert(II->getOperand(0).getReg() == AMDGPU::SGPR_NULL);
           ScoreBrackets.applyWaitcnt(
-              AMDGPU::Waitcnt(0, 0, 0, II->getOperand(1).getImm()));
+              AMDGPU::Waitcnt(~0u, ~0u, ~0u, II->getOperand(1).getImm()));
         }
       }
     }
@@ -1211,7 +1224,7 @@ void SIInsertWaitcnts::updateEventWaitcntAfter(MachineInstr &Inst,
       ScoreBrackets->updateByEvent(TII, TRI, MRI, LDS_ACCESS, Inst);
     }
   } else if (TII->isFLAT(Inst)) {
-    assert(Inst.mayLoad() || Inst.mayStore());
+    assert(Inst.mayLoadOrStore());
 
     if (TII->usesVM_CNT(Inst)) {
       if (!ST->hasVscnt())
@@ -1370,6 +1383,10 @@ bool SIInsertWaitcnts::insertWaitcntInBlock(MachineFunction &MF,
     ScoreBrackets.dump();
   });
 
+  // Assume VCCZ is correct at basic block boundaries, unless and until we need
+  // to handle cases where that is not true.
+  bool VCCZCorrect = true;
+
   // Walk over the instructions.
   MachineInstr *OldWaitcntInstr = nullptr;
 
@@ -1389,14 +1406,44 @@ bool SIInsertWaitcnts::insertWaitcntInBlock(MachineFunction &MF,
       continue;
     }
 
-    bool VCCZBugWorkAround = false;
+    // We might need to restore vccz to its correct value for either of two
+    // different reasons; see ST->hasReadVCCZBug() and
+    // ST->partialVCCWritesUpdateVCCZ().
+    bool RestoreVCCZ = false;
     if (readsVCCZ(Inst)) {
-      if (ScoreBrackets.getScoreLB(LGKM_CNT) <
-              ScoreBrackets.getScoreUB(LGKM_CNT) &&
-          ScoreBrackets.hasPendingEvent(SMEM_ACCESS)) {
-        if (ST->hasReadVCCZBug())
-          VCCZBugWorkAround = true;
+      if (!VCCZCorrect)
+        RestoreVCCZ = true;
+      else if (ST->hasReadVCCZBug()) {
+        // There is a hardware bug on CI/SI where SMRD instruction may corrupt
+        // vccz bit, so when we detect that an instruction may read from a
+        // corrupt vccz bit, we need to:
+        // 1. Insert s_waitcnt lgkm(0) to wait for all outstanding SMRD
+        //    operations to complete.
+        // 2. Restore the correct value of vccz by writing the current value
+        //    of vcc back to vcc.
+        if (ScoreBrackets.getScoreLB(LGKM_CNT) <
+            ScoreBrackets.getScoreUB(LGKM_CNT) &&
+            ScoreBrackets.hasPendingEvent(SMEM_ACCESS)) {
+          RestoreVCCZ = true;
+        }
       }
+    }
+
+    if (TII->isSMRD(Inst)) {
+      for (const MachineMemOperand *Memop : Inst.memoperands()) {
+        const Value *Ptr = Memop->getValue();
+        SLoadAddresses.insert(std::make_pair(Ptr, Inst.getParent()));
+      }
+    }
+
+    if (!ST->partialVCCWritesUpdateVCCZ()) {
+      // Up to gfx9, writes to vcc_lo and vcc_hi don't update vccz.
+      // Writes to vcc will fix it.
+      if (Inst.definesRegister(AMDGPU::VCC_LO) ||
+          Inst.definesRegister(AMDGPU::VCC_HI))
+        VCCZCorrect = false;
+      else if (Inst.definesRegister(AMDGPU::VCC))
+        VCCZCorrect = true;
     }
 
     // Generate an s_waitcnt instruction to be placed before
@@ -1424,7 +1471,7 @@ bool SIInsertWaitcnts::insertWaitcntInBlock(MachineFunction &MF,
 
     // TODO: Remove this work-around after fixing the scheduler and enable the
     // assert above.
-    if (VCCZBugWorkAround) {
+    if (RestoreVCCZ) {
       // Restore the vccz bit.  Any time a value is written to vcc, the vcc
       // bit is updated, so we can restore the bit by reading the value of
       // vcc and then writing it back to the register.
@@ -1432,6 +1479,7 @@ bool SIInsertWaitcnts::insertWaitcntInBlock(MachineFunction &MF,
               TII->get(ST->isWave32() ? AMDGPU::S_MOV_B32 : AMDGPU::S_MOV_B64),
               TRI->getVCC())
           .addReg(TRI->getVCC());
+      VCCZCorrect = true;
       Modified = true;
     }
 
@@ -1448,6 +1496,7 @@ bool SIInsertWaitcnts::runOnMachineFunction(MachineFunction &MF) {
   MRI = &MF.getRegInfo();
   IV = AMDGPU::getIsaVersion(ST->getCPU());
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
+  PDT = &getAnalysis<MachinePostDominatorTree>();
 
   ForceEmitZeroWaitcnts = ForceEmitZeroFlag;
   for (auto T : inst_counter_types())

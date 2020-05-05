@@ -122,9 +122,9 @@ public class CustomTabActivityContentTestEnvironment extends TestWatcher {
         when(tabFactory.getTabModelSelector()).thenReturn(tabModelSelector);
         when(tabModelSelector.getModel(anyBoolean())).thenReturn(tabModel);
         when(connection.getSpeculatedUrl(any())).thenReturn(SPECULATED_URL);
-        when(browserInitializer.hasNativeInitializationCompleted()).thenReturn(true);
+        when(browserInitializer.isFullBrowserInitialized()).thenReturn(true);
         // Default setup is toolbarManager doesn't consume back press event.
-        when(toolbarManager.back()).thenReturn(null);
+        when(toolbarManager.back()).thenReturn(false);
 
         when(startupTabPreloader.takeTabIfMatchingOrDestroy(any(), anyInt())).thenReturn(null);
         when(reparentingTaskProvider.get(any())).thenReturn(reparentingTask);

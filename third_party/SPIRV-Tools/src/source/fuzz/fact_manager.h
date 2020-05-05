@@ -58,6 +58,12 @@ class FactManager {
                           const protobufs::DataDescriptor& data2,
                           opt::IRContext* context);
 
+  // Records the fact that |block_id| is dead.
+  void AddFactBlockIsDead(uint32_t block_id);
+
+  // Records the fact that |function_id| is livesafe.
+  void AddFactFunctionIsLivesafe(uint32_t function_id);
+
   // The fact manager is responsible for managing a few distinct categories of
   // facts. In principle there could be different fact managers for each kind
   // of fact, but in practice providing one 'go to' place for facts is
@@ -130,6 +136,26 @@ class FactManager {
   // End of id synonym facts
   //==============================
 
+  //==============================
+  // Querying facts about dead blocks
+
+  // Returns true if and ony if |block_id| is the id of a block known to be
+  // dynamically unreachable.
+  bool BlockIsDead(uint32_t block_id) const;
+
+  // End of dead block facts
+  //==============================
+
+  //==============================
+  // Querying facts about livesafe function
+
+  // Returns true if and ony if |function_id| is the id of a function known
+  // to be livesafe.
+  bool FunctionIsLivesafe(uint32_t function_id) const;
+
+  // End of dead block facts
+  //==============================
+
  private:
   // For each distinct kind of fact to be managed, we use a separate opaque
   // class type.
@@ -142,6 +168,15 @@ class FactManager {
   class DataSynonymFacts;  // Opaque class for management of data synonym facts.
   std::unique_ptr<DataSynonymFacts>
       data_synonym_facts_;  // Unique pointer to internal data.
+
+  class DeadBlockFacts;  // Opaque class for management of dead block facts.
+  std::unique_ptr<DeadBlockFacts>
+      dead_block_facts_;  // Unique pointer to internal data.
+
+  class LivesafeFunctionFacts;  // Opaque class for management of livesafe
+                                // function facts.
+  std::unique_ptr<LivesafeFunctionFacts>
+      livesafe_function_facts_;  // Unique pointer to internal data.
 };
 
 }  // namespace fuzz

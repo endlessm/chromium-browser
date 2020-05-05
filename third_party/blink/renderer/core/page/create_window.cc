@@ -228,7 +228,7 @@ Frame* CreateNewWindow(LocalFrame& opener_frame,
   DCHECK_EQ(kNavigationPolicyCurrentTab, request.GetNavigationPolicy());
 
   // Exempting window.open() from this check here is necessary to support a
-  // special policy that will be removed in Chrome 82.
+  // special policy that will be removed in Chrome 88.
   // See https://crbug.com/937569
   if (!request.IsWindowOpen() &&
       opener_frame.GetDocument()->PageDismissalEventBeingDispatched() !=
@@ -236,7 +236,7 @@ Frame* CreateNewWindow(LocalFrame& opener_frame,
     return nullptr;
   }
 
-  request.SetFrameType(network::mojom::RequestContextFrameType::kAuxiliary);
+  request.SetFrameType(mojom::RequestContextFrameType::kAuxiliary);
 
   const KURL& url = request.GetResourceRequest().Url();
   if (url.ProtocolIsJavaScript() &&
@@ -288,9 +288,10 @@ Frame* CreateNewWindow(LocalFrame& opener_frame,
   bool not_sandboxed =
       opener_frame.GetDocument()->GetSandboxFlags() == WebSandboxFlags::kNone;
   FeaturePolicy::FeatureState opener_feature_state =
-      (not_sandboxed || propagate_sandbox)
-          ? opener_frame.GetDocument()->GetFeaturePolicy()->GetFeatureState()
-          : FeaturePolicy::FeatureState();
+      (not_sandboxed || propagate_sandbox) ? opener_frame.GetSecurityContext()
+                                                 ->GetFeaturePolicy()
+                                                 ->GetFeatureState()
+                                           : FeaturePolicy::FeatureState();
 
   SessionStorageNamespaceId new_namespace_id =
       AllocateSessionStorageNamespaceId();

@@ -32,7 +32,7 @@ QuicSpdyClientSessionBase::~QuicSpdyClientSessionBase() {
     QUIC_DVLOG(1) << "erase stream " << it.first << " url " << it.second->url();
     push_promise_index_->promised_by_url()->erase(it.second->url());
   }
-  delete connection();
+  DeleteConnection();
 }
 
 void QuicSpdyClientSessionBase::OnConfigNegotiated() {
@@ -94,7 +94,7 @@ void QuicSpdyClientSessionBase::OnPromiseHeaderList(
   }
   largest_promised_stream_id_ = promised_stream_id;
 
-  QuicSpdyStream* stream = GetSpdyDataStream(stream_id);
+  QuicSpdyStream* stream = GetOrCreateSpdyDataStream(stream_id);
   if (!stream) {
     // It's quite possible to receive headers after a stream has been reset.
     return;

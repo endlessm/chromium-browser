@@ -36,6 +36,7 @@
 #include "third_party/blink/renderer/core/html/lazy_load_image_observer.h"
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
+#include "third_party/blink/renderer/platform/graphics/image_orientation.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
@@ -100,9 +101,6 @@ class CORE_EXPORT HTMLImageElement final
   ImageResourceContent* CachedImage() const {
     return GetImageLoader().GetContent();
   }
-  ImageResource* CachedImageResourceForImageDocument() const {
-    return GetImageLoader().ImageResourceForImageDocument();
-  }
   void LoadDeferredImage() {
     GetImageLoader().LoadDeferredImage(referrer_policy_);
   }
@@ -110,7 +108,7 @@ class CORE_EXPORT HTMLImageElement final
     GetImageLoader().SetImageForTest(content);
   }
 
-  void SetLoadingImageDocument() { GetImageLoader().SetLoadingImageDocument(); }
+  void StartLoadingImageDocument(ImageResourceContent* image_content);
 
   void setHeight(unsigned);
   void setWidth(unsigned);
@@ -143,7 +141,9 @@ class CORE_EXPORT HTMLImageElement final
   bool IsCollapsed() const;
 
   // CanvasImageSource interface implementation.
-  FloatSize DefaultDestinationSize(const FloatSize&) const override;
+  FloatSize DefaultDestinationSize(
+      const FloatSize&,
+      const RespectImageOrientationEnum) const override;
 
   // public so that HTMLPictureElement can call this as well.
   void SelectSourceURL(ImageLoader::UpdateFromElementBehavior);

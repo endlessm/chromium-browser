@@ -4,7 +4,7 @@
 
 const _PinSymbol = Symbol('pinSymbol');
 
-export default class ConsolePinPane extends UI.ThrottledWidget {
+export class ConsolePinPane extends UI.ThrottledWidget {
   /**
    * @param {!UI.ToolbarButton} liveExpressionButton
    */
@@ -16,9 +16,9 @@ export default class ConsolePinPane extends UI.ThrottledWidget {
     this.contentElement.classList.add('console-pins', 'monospace');
     this.contentElement.addEventListener('contextmenu', this._contextMenuEventFired.bind(this), false);
 
-    /** @type {!Set<!Console.ConsolePin>} */
+    /** @type {!Set<!ConsolePin>} */
     this._pins = new Set();
-    this._pinsSetting = Common.settings.createLocalSetting('consolePins', []);
+    this._pinsSetting = self.Common.settings.createLocalSetting('consolePins', []);
     for (const expression of this._pinsSetting.get()) {
       this.addPin(expression);
     }
@@ -64,7 +64,7 @@ export default class ConsolePinPane extends UI.ThrottledWidget {
   }
 
   /**
-   * @param {!Console.ConsolePin} pin
+   * @param {!ConsolePin} pin
    */
   _removePin(pin) {
     pin.element().remove();
@@ -112,7 +112,7 @@ export default class ConsolePinPane extends UI.ThrottledWidget {
 export class ConsolePin extends Common.Object {
   /**
    * @param {string} expression
-   * @param {!Console.ConsolePinPane} pinPane
+   * @param {!ConsolePinPane} pinPane
    */
   constructor(expression, pinPane) {
     super();
@@ -248,7 +248,7 @@ export class ConsolePin extends Common.Object {
     const isEditing = this._pinElement.hasFocus();
     const throwOnSideEffect = isEditing && text !== this._committedExpression;
     const timeout = throwOnSideEffect ? 250 : undefined;
-    const executionContext = UI.context.flavor(SDK.ExecutionContext);
+    const executionContext = self.UI.context.flavor(SDK.ExecutionContext);
     const {preview, result} = await ObjectUI.JavaScriptREPL.evaluateAndBuildPreview(
         text, throwOnSideEffect, timeout, !isEditing /* allowErrors */, 'console');
     if (this._lastResult && this._lastExecutionContext) {
@@ -289,19 +289,3 @@ export class ConsolePin extends Common.Object {
     this._pinElement.classList.toggle('error-level', !!isError);
   }
 }
-
-/* Legacy exported object */
-self.Console = self.Console || {};
-
-/* Legacy exported object */
-Console = Console || {};
-
-/**
- * @constructor
- */
-Console.ConsolePinPane = ConsolePinPane;
-
-/**
- * @constructor
- */
-Console.ConsolePin = ConsolePin;

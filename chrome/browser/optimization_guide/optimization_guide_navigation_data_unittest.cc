@@ -20,6 +20,13 @@ using testing::AnyOf;
 using testing::HasSubstr;
 using testing::Not;
 
+typedef struct {
+  optimization_guide::proto::ClientModelFeature feature;
+  base::StringPiece ukm_metric_name;
+  float feature_value;
+  int expected_value;
+} ClientHostModelFeaturesTestCase;
+
 TEST(OptimizationGuideNavigationDataTest, RecordMetricsNoDataNoCommit) {
   base::test::TaskEnvironment env;
 
@@ -30,11 +37,15 @@ TEST(OptimizationGuideNavigationDataTest, RecordMetricsNoDataNoCommit) {
   data.RecordMetrics(/*has_committed=*/false);
 
   // Make sure no UMA recorded.
-  EXPECT_THAT(histogram_tester.GetAllHistogramsRecorded(),
-              Not(AnyOf(HasSubstr("OptimizationGuide.ApplyDecision"),
-                        HasSubstr("OptimizationGuide.HintCache"),
-                        HasSubstr("OptimizationGuide.Hints."),
-                        HasSubstr("OptimizationGuide.TargetDecision"))));
+  EXPECT_THAT(
+      histogram_tester.GetAllHistogramsRecorded(),
+      Not(AnyOf(
+          HasSubstr("OptimizationGuide.ApplyDecision"),
+          HasSubstr("OptimizationGuide.HintCache"),
+          HasSubstr(
+              "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch"),
+          HasSubstr("OptimizationGuide.Hints."),
+          HasSubstr("OptimizationGuide.TargetDecision"))));
 
   // Make sure no UKM recorded.
   auto entries = ukm_recorder.GetEntriesByName(
@@ -76,6 +87,13 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", 0);
   histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      0);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch.AtCommit",
+      0);
+  histogram_tester.ExpectTotalCount(
       "OptimizationGuide.HintCache.HasHint.AtCommit", 0);
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.HintCache.HostMatch.AtCommit", 0);
@@ -94,6 +112,10 @@ TEST(OptimizationGuideNavigationDataTest,
 
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", false, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      true, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", true, 1);
   histogram_tester.ExpectTotalCount(
@@ -118,7 +140,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", false, 1);
   histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      false, 1);
+  histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", false, 1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      0);
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", 0);
   histogram_tester.ExpectTotalCount(
@@ -143,7 +173,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", false, 1);
   histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      false, 1);
+  histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", false, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      true, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
@@ -167,7 +205,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", 0);
   histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      0);
+  histogram_tester.ExpectTotalCount(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", 0);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      false, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", false, 1);
   histogram_tester.ExpectUniqueSample(
@@ -191,7 +237,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", 0);
   histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      0);
+  histogram_tester.ExpectTotalCount(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", 0);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      false, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
@@ -217,7 +271,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      false, 1);
+  histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", true, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      false, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
@@ -241,7 +303,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      false, 1);
+  histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", true, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      false, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
@@ -266,7 +336,15 @@ TEST(OptimizationGuideNavigationDataTest,
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.HintCache.HasHint.BeforeCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "BeforeCommit",
+      false, 1);
+  histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit", true, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+      "AtCommit",
+      false, 1);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.Hints.NavigationHostCoverage.AtCommit", true, 1);
   histogram_tester.ExpectUniqueSample(
@@ -904,4 +982,58 @@ TEST(OptimizationGuideNavigationDataTest, DeepCopy) {
       0.12,
       *data_copy.GetModelPredictionScoreForOptimizationTarget(
           optimization_guide::proto::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD));
+}
+
+TEST(OptimizationGuideNavigationDataTest,
+     RecordMetricsPredictionModelHostModelFeatures) {
+  base::test::TaskEnvironment env;
+  ClientHostModelFeaturesTestCase test_cases[] = {
+      {optimization_guide::proto::
+           CLIENT_MODEL_FEATURE_FIRST_CONTENTFUL_PAINT_SESSION_MEAN,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeatureNavigationToFCPSessionMeanName,
+       2.0, 2},
+      {optimization_guide::proto::
+           CLIENT_MODEL_FEATURE_FIRST_CONTENTFUL_PAINT_SESSION_STANDARD_DEVIATION,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeatureNavigationToFCPSessionStdDevName,
+       3.0, 3},
+      {optimization_guide::proto::CLIENT_MODEL_FEATURE_PAGE_TRANSITION,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeaturePageTransitionName,
+       20.0, 20},
+      {optimization_guide::proto::CLIENT_MODEL_FEATURE_SAME_ORIGIN_NAVIGATION,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeatureIsSameOriginNavigationName,
+       1.0, 1},
+      {optimization_guide::proto::CLIENT_MODEL_FEATURE_SITE_ENGAGEMENT_SCORE,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeatureSiteEngagementScoreName,
+       5.5, 10},
+      {optimization_guide::proto::
+           CLIENT_MODEL_FEATURE_EFFECTIVE_CONNECTION_TYPE,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeatureEffectiveConnectionTypeName,
+       3.0, 3},
+      {optimization_guide::proto::
+           CLIENT_MODEL_FEATURE_FIRST_CONTENTFUL_PAINT_PREVIOUS_PAGE_LOAD,
+       ukm::builders::OptimizationGuide::
+           kPredictionModelFeaturePreviousPageLoadNavigationToFCPName,
+       200.0, 200},
+  };
+
+  for (const auto& test_case : test_cases) {
+    ukm::TestAutoSetUkmRecorder ukm_recorder;
+    OptimizationGuideNavigationData data(/*navigation_id=*/1);
+    data.SetValueForModelFeature(test_case.feature, test_case.feature_value);
+    data.RecordMetrics(/*has_committed=*/false);
+
+    auto entries = ukm_recorder.GetEntriesByName(
+        ukm::builders::OptimizationGuide::kEntryName);
+    EXPECT_EQ(1u, entries.size());
+    auto* entry = entries[0];
+    EXPECT_TRUE(ukm_recorder.EntryHasMetric(entry, test_case.ukm_metric_name));
+    ukm_recorder.ExpectEntryMetric(entry, test_case.ukm_metric_name,
+                                   test_case.expected_value);
+  }
 }

@@ -825,7 +825,11 @@ static void test_color_opaque_no_coverage(skiatest::Reporter* reporter, const Gr
                 TEST_ASSERT(kNone_OutputType == xpi.fSecondaryOutputType);
                 TEST_ASSERT(kAdd_GrBlendEquation == xpi.fBlendInfo.fEquation);
                 TEST_ASSERT(kOne_GrBlendCoeff == xpi.fBlendInfo.fSrcBlend);
-                TEST_ASSERT(kISA_GrBlendCoeff == xpi.fBlendInfo.fDstBlend);
+                if (caps.shouldCollapseSrcOverToSrcWhenAble()) {
+                    TEST_ASSERT(kZero_GrBlendCoeff == xpi.fBlendInfo.fDstBlend);
+                } else {
+                    TEST_ASSERT(kISA_GrBlendCoeff == xpi.fBlendInfo.fDstBlend);
+                }
                 TEST_ASSERT(xpi.fBlendInfo.fWriteColor);
                 break;
             case SkBlendMode::kDstOver:
@@ -1002,7 +1006,7 @@ DEF_GPUTEST(PorterDuffNoDualSourceBlending, reporter, options) {
         sk_sp<GrTextureProxy> proxy = proxyProvider->wrapBackendTexture(
                 backendTex, GrColorType::kRGBA_8888, kTopLeft_GrSurfaceOrigin,
                 kBorrow_GrWrapOwnership, GrWrapCacheable::kNo, kRead_GrIOType);
-        GrSwizzle swizzle = caps.getTextureSwizzle(backendTex.getBackendFormat(),
+        GrSwizzle swizzle = caps.getReadSwizzle(backendTex.getBackendFormat(),
                                                    GrColorType::kRGBA_8888);
         fakeDstProxyView.setProxyView({std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle});
     }

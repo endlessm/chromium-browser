@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -245,13 +245,22 @@ void TestRenderPassCreate(ErrorMonitor *error_monitor, const VkDevice device, co
     if (rp2_supported && rp2_vuid) {
         PFN_vkCreateRenderPass2KHR vkCreateRenderPass2KHR =
             (PFN_vkCreateRenderPass2KHR)vk::GetDeviceProcAddr(device, "vkCreateRenderPass2KHR");
-        safe_VkRenderPassCreateInfo2KHR create_info2;
+        safe_VkRenderPassCreateInfo2 create_info2;
         ConvertVkRenderPassCreateInfoToV2KHR(*create_info, &create_info2);
 
         error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
         err = vkCreateRenderPass2KHR(device, create_info2.ptr(), nullptr, &render_pass);
         if (err == VK_SUCCESS) vk::DestroyRenderPass(device, render_pass, nullptr);
         error_monitor->VerifyFound();
+
+        // For api version >= 1.2, try core entrypoint
+        PFN_vkCreateRenderPass2 vkCreateRenderPass2 = (PFN_vkCreateRenderPass2)vk::GetDeviceProcAddr(device, "vkCreateRenderPass2");
+        if (vkCreateRenderPass2) {
+            error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+            err = vkCreateRenderPass2(device, create_info2.ptr(), nullptr, &render_pass);
+            if (err == VK_SUCCESS) vk::DestroyRenderPass(device, render_pass, nullptr);
+            error_monitor->VerifyFound();
+        }
     }
 }
 
@@ -268,7 +277,7 @@ void PositiveTestRenderPassCreate(ErrorMonitor *error_monitor, const VkDevice de
     if (rp2_supported) {
         PFN_vkCreateRenderPass2KHR vkCreateRenderPass2KHR =
             (PFN_vkCreateRenderPass2KHR)vk::GetDeviceProcAddr(device, "vkCreateRenderPass2KHR");
-        safe_VkRenderPassCreateInfo2KHR create_info2;
+        safe_VkRenderPassCreateInfo2 create_info2;
         ConvertVkRenderPassCreateInfoToV2KHR(*create_info, &create_info2);
 
         error_monitor->ExpectSuccess();
@@ -312,6 +321,17 @@ void TestRenderPassBegin(ErrorMonitor *error_monitor, const VkDevice device, con
         vkCmdBeginRenderPass2KHR(command_buffer, begin_info, &subpass_begin_info);
         error_monitor->VerifyFound();
         vk::ResetCommandBuffer(command_buffer, 0);
+
+        // For api version >= 1.2, try core entrypoint
+        PFN_vkCmdBeginRenderPass2KHR vkCmdBeginRenderPass2 =
+            (PFN_vkCmdBeginRenderPass2KHR)vk::GetDeviceProcAddr(device, "vkCmdBeginRenderPass2");
+        if (vkCmdBeginRenderPass2) {
+            vk::BeginCommandBuffer(command_buffer, &cmd_begin_info);
+            error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+            vkCmdBeginRenderPass2(command_buffer, begin_info, &subpass_begin_info);
+            error_monitor->VerifyFound();
+            vk::ResetCommandBuffer(command_buffer, 0);
+        }
     }
 }
 

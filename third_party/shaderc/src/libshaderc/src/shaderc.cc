@@ -307,6 +307,10 @@ shaderc_util::Compiler::TargetEnvVersion GetCompilerTargetEnvVersion(
       version_number) {
     return Compiler::TargetEnvVersion::Vulkan_1_1;
   }
+  if (static_cast<uint32_t>(Compiler::TargetEnvVersion::Vulkan_1_2) ==
+      version_number) {
+    return Compiler::TargetEnvVersion::Vulkan_1_2;
+  }
   if (static_cast<uint32_t>(Compiler::TargetEnvVersion::OpenGL_4_5) ==
       version_number) {
     return Compiler::TargetEnvVersion::OpenGL_4_5;
@@ -775,6 +779,7 @@ bool shaderc_parse_version_profile(const char* str, int* version,
       *profile = shaderc_profile_none;
       return true;
     case EBadProfile:
+    case EProfileCount:
       return false;
   }
 

@@ -328,20 +328,6 @@ bool MigrateDeprecated(Isolate* isolate, Handle<Object> object) {
   return true;
 }
 
-// For string keys that are outside JSArray index range but inside TypedArray
-// index range, we generate named loads/stores, because for most JSObjects
-// that makes sense. We have to be careful to create an indexed LookupIterator
-// for such keys though.
-LookupIterator CreateLookupIterator(Isolate* isolate, Handle<Object> receiver,
-                                    Handle<Name> name) {
-  size_t index = 0;
-  if (name->AsIntegerIndex(&index)) {
-    return LookupIterator(isolate, receiver, index, LookupIterator::DEFAULT,
-                          name);
-  }
-  return LookupIterator(isolate, receiver, name);
-}
-
 }  // namespace
 
 bool IC::ConfigureVectorState(IC::State new_state, Handle<Object> key) {
@@ -377,9 +363,20 @@ void IC::ConfigureVectorState(Handle<Name> name, Handle<Map> map,
 void IC::ConfigureVectorState(Handle<Name> name, MapHandles const& maps,
                               MaybeObjectHandles* handlers) {
   DCHECK(!IsGlobalIC());
+  std::vector<MapAndHandler> maps_and_handlers;
+  DCHECK_EQ(maps.size(), handlers->size());
+  for (size_t i = 0; i < maps.size(); i++) {
+    maps_and_handlers.push_back(MapAndHandler(maps[i], handlers->at(i)));
+  }
+  ConfigureVectorState(name, maps_and_handlers);
+}
+
+void IC::ConfigureVectorState(
+    Handle<Name> name, std::vector<MapAndHandler> const& maps_and_handlers) {
+  DCHECK(!IsGlobalIC());
   // Non-keyed ICs don't track the name explicitly.
   if (!is_keyed()) name = Handle<Name>::null();
-  nexus()->ConfigurePolymorphic(name, maps, handlers);
+  nexus()->ConfigurePolymorphic(name, maps_and_handlers);
 
   OnFeedbackChanged("Polymorphic");
 }
@@ -419,7 +416,8 @@ MaybeHandle<Object> LoadIC::Load(Handle<Object> object, Handle<Name> name,
   JSObject::MakePrototypesFast(object, kStartAtReceiver, isolate());
   update_receiver_map(object);
 
-  LookupIterator it = CreateLookupIterator(isolate(), object, name);
+  LookupIterator::Key key(isolate(), name);
+  LookupIterator it(isolate(), object, key);
 
   // Named lookup in the object.
   LookupForRead(&it, IsAnyHas());
@@ -534,6 +532,22 @@ static bool AddOneReceiverMapIfMissing(MapHandles* receiver_maps,
   return true;
 }
 
+static bool AddOneReceiverMapIfMissing(
+    std::vector<MapAndHandler>* receiver_maps_and_handlers,
+    Handle<Map> new_receiver_map) {
+  DCHECK(!new_receiver_map.is_null());
+  if (new_receiver_map->is_deprecated()) return false;
+  for (MapAndHandler map_and_handler : *receiver_maps_and_handlers) {
+    Handle<Map> map = map_and_handler.first;
+    if (!map.is_null() && map.is_identical_to(new_receiver_map)) {
+      return false;
+    }
+  }
+  receiver_maps_and_handlers->push_back(
+      MapAndHandler(new_receiver_map, MaybeObjectHandle()));
+  return true;
+}
+
 bool IC::UpdatePolymorphicIC(Handle<Name> name,
                              const MaybeObjectHandle& handler) {
   DCHECK(IsHandler(*handler));
@@ -541,16 +555,16 @@ bool IC::UpdatePolymorphicIC(Handle<Name> name,
     if (nexus()->GetName() != *name) return false;
   }
   Handle<Map> map = receiver_map();
-  MapHandles maps;
-  MaybeObjectHandles handlers;
 
-  nexus()->ExtractMapsAndHandlers(&maps, &handlers);
-  int number_of_maps = static_cast<int>(maps.size());
+  std::vector<MapAndHandler> maps_and_handlers;
+  nexus()->ExtractMapsAndHandlers(&maps_and_handlers);
+  int number_of_maps = static_cast<int>(maps_and_handlers.size());
   int deprecated_maps = 0;
   int handler_to_overwrite = -1;
 
   for (int i = 0; i < number_of_maps; i++) {
-    Handle<Map> current_map = maps.at(i);
+    Handle<Map> current_map = maps_and_handlers.at(i).first;
+    MaybeObjectHandle current_handler = maps_and_handlers.at(i).second;
     if (current_map->is_deprecated()) {
       // Filter out deprecated maps to ensure their instances get migrated.
       ++deprecated_maps;
@@ -560,7 +574,7 @@ bool IC::UpdatePolymorphicIC(Handle<Name> name,
       // in the lattice and need to go MEGAMORPHIC instead. There's one
       // exception to this rule, which is when we're in RECOMPUTE_HANDLER
       // state, there we allow to migrate to a new handler.
-      if (handler.is_identical_to(handlers[i]) &&
+      if (handler.is_identical_to(current_handler) &&
           state() != RECOMPUTE_HANDLER) {
         return false;
       }
@@ -588,16 +602,16 @@ bool IC::UpdatePolymorphicIC(Handle<Name> name,
   } else {
     if (is_keyed() && nexus()->GetName() != *name) return false;
     if (handler_to_overwrite >= 0) {
-      handlers[handler_to_overwrite] = handler;
-      if (!map.is_identical_to(maps.at(handler_to_overwrite))) {
-        maps[handler_to_overwrite] = map;
+      maps_and_handlers[handler_to_overwrite].second = handler;
+      if (!map.is_identical_to(
+              maps_and_handlers.at(handler_to_overwrite).first)) {
+        maps_and_handlers[handler_to_overwrite].first = map;
       }
     } else {
-      maps.push_back(map);
-      handlers.push_back(handler);
+      maps_and_handlers.push_back(MapAndHandler(map, handler));
     }
 
-    ConfigureVectorState(name, maps, &handlers);
+    ConfigureVectorState(name, maps_and_handlers);
   }
 
   return true;
@@ -610,11 +624,10 @@ void IC::UpdateMonomorphicIC(const MaybeObjectHandle& handler,
 }
 
 void IC::CopyICToMegamorphicCache(Handle<Name> name) {
-  MapHandles maps;
-  MaybeObjectHandles handlers;
-  nexus()->ExtractMapsAndHandlers(&maps, &handlers);
-  for (size_t i = 0; i < maps.size(); ++i) {
-    UpdateMegamorphicCache(maps.at(i), name, handlers.at(i));
+  std::vector<MapAndHandler> maps_and_handlers;
+  nexus()->ExtractMapsAndHandlers(&maps_and_handlers);
+  for (const MapAndHandler& map_and_handler : maps_and_handlers) {
+    UpdateMegamorphicCache(map_and_handler.first, name, map_and_handler.second);
   }
 }
 
@@ -1494,7 +1507,8 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
   }
 
   JSObject::MakePrototypesFast(object, kStartAtPrototype, isolate());
-  LookupIterator it = CreateLookupIterator(isolate(), object, name);
+  LookupIterator::Key key(isolate(), name);
+  LookupIterator it(isolate(), object, key);
 
   if (name->IsPrivate()) {
     if (name->IsPrivateName() && !it.IsFound()) {
@@ -1772,9 +1786,9 @@ MaybeObjectHandle StoreIC::ComputeHandler(LookupIterator* lookup) {
 void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
                                       KeyedAccessStoreMode store_mode,
                                       Handle<Map> new_receiver_map) {
-  MapHandles target_receiver_maps;
-  TargetMaps(&target_receiver_maps);
-  if (target_receiver_maps.empty()) {
+  std::vector<MapAndHandler> target_maps_and_handlers;
+  nexus()->ExtractMapsAndHandlers(&target_maps_and_handlers, true);
+  if (target_maps_and_handlers.empty()) {
     Handle<Map> monomorphic_map = receiver_map;
     // If we transitioned to a map that is a more general map than incoming
     // then use the new map.
@@ -1785,7 +1799,8 @@ void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
     return ConfigureVectorState(Handle<Name>(), monomorphic_map, handler);
   }
 
-  for (Handle<Map> map : target_receiver_maps) {
+  for (const MapAndHandler& map_and_handler : target_maps_and_handlers) {
+    Handle<Map> map = map_and_handler.first;
     if (!map.is_null() && map->instance_type() == JS_PRIMITIVE_WRAPPER_TYPE) {
       DCHECK(!IsStoreInArrayLiteralICKind(kind()));
       set_slow_stub_reason("JSPrimitiveWrapper");
@@ -1798,7 +1813,7 @@ void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
   // Handle those here if the receiver map hasn't changed or it has transitioned
   // to a more general kind.
   KeyedAccessStoreMode old_store_mode = GetKeyedAccessStoreMode();
-  Handle<Map> previous_receiver_map = target_receiver_maps.at(0);
+  Handle<Map> previous_receiver_map = target_maps_and_handlers.at(0).first;
   if (state() == MONOMORPHIC) {
     Handle<Map> transitioned_receiver_map = new_receiver_map;
     if (IsTransitionOfMonomorphicTarget(*previous_receiver_map,
@@ -1827,11 +1842,11 @@ void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
   DCHECK(state() != GENERIC);
 
   bool map_added =
-      AddOneReceiverMapIfMissing(&target_receiver_maps, receiver_map);
+      AddOneReceiverMapIfMissing(&target_maps_and_handlers, receiver_map);
 
   if (IsTransitionOfMonomorphicTarget(*receiver_map, *new_receiver_map)) {
     map_added |=
-        AddOneReceiverMapIfMissing(&target_receiver_maps, new_receiver_map);
+        AddOneReceiverMapIfMissing(&target_maps_and_handlers, new_receiver_map);
   }
 
   if (!map_added) {
@@ -1843,7 +1858,7 @@ void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
 
   // If the maximum number of receiver maps has been exceeded, use the
   // megamorphic version of the IC.
-  if (static_cast<int>(target_receiver_maps.size()) >
+  if (static_cast<int>(target_maps_and_handlers.size()) >
       FLAG_max_polymorphic_map_count) {
     return;
   }
@@ -1864,14 +1879,15 @@ void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
   // use the megamorphic stub.
   if (store_mode != STANDARD_STORE) {
     size_t external_arrays = 0;
-    for (Handle<Map> map : target_receiver_maps) {
+    for (MapAndHandler map_and_handler : target_maps_and_handlers) {
+      Handle<Map> map = map_and_handler.first;
       if (map->has_typed_array_elements()) {
         DCHECK(!IsStoreInArrayLiteralICKind(kind()));
         external_arrays++;
       }
     }
     if (external_arrays != 0 &&
-        external_arrays != target_receiver_maps.size()) {
+        external_arrays != target_maps_and_handlers.size()) {
       DCHECK(!IsStoreInArrayLiteralICKind(kind()));
       set_slow_stub_reason(
           "unsupported combination of external and normal arrays");
@@ -1879,21 +1895,21 @@ void KeyedStoreIC::UpdateStoreElement(Handle<Map> receiver_map,
     }
   }
 
-  MaybeObjectHandles handlers;
-  handlers.reserve(target_receiver_maps.size());
-  StoreElementPolymorphicHandlers(&target_receiver_maps, &handlers, store_mode);
-  if (target_receiver_maps.size() == 0) {
+  StoreElementPolymorphicHandlers(&target_maps_and_handlers, store_mode);
+  if (target_maps_and_handlers.size() == 0) {
     Handle<Object> handler = StoreElementHandler(receiver_map, store_mode);
     ConfigureVectorState(Handle<Name>(), receiver_map, handler);
-  } else if (target_receiver_maps.size() == 1) {
-    ConfigureVectorState(Handle<Name>(), target_receiver_maps[0], handlers[0]);
+  } else if (target_maps_and_handlers.size() == 1) {
+    ConfigureVectorState(Handle<Name>(), target_maps_and_handlers[0].first,
+                         target_maps_and_handlers[0].second);
   } else {
-    ConfigureVectorState(Handle<Name>(), target_receiver_maps, &handlers);
+    ConfigureVectorState(Handle<Name>(), target_maps_and_handlers);
   }
 }
 
 Handle<Object> KeyedStoreIC::StoreElementHandler(
-    Handle<Map> receiver_map, KeyedAccessStoreMode store_mode) {
+    Handle<Map> receiver_map, KeyedAccessStoreMode store_mode,
+    MaybeHandle<Object> prev_validity_cell) {
   DCHECK_IMPLIES(
       receiver_map->DictionaryElementsInPrototypeChainOnly(isolate()),
       IsStoreInArrayLiteralICKind(kind()));
@@ -1929,8 +1945,11 @@ Handle<Object> KeyedStoreIC::StoreElementHandler(
   }
 
   if (IsStoreInArrayLiteralICKind(kind())) return code;
-  Handle<Object> validity_cell =
-      Map::GetOrCreatePrototypeChainValidityCell(receiver_map, isolate());
+  Handle<Object> validity_cell;
+  if (!prev_validity_cell.ToHandle(&validity_cell)) {
+    validity_cell =
+        Map::GetOrCreatePrototypeChainValidityCell(receiver_map, isolate());
+  }
   if (validity_cell->IsSmi()) {
     // There's no prototype validity cell to check, so we can just use the stub.
     return code;
@@ -1942,16 +1961,17 @@ Handle<Object> KeyedStoreIC::StoreElementHandler(
 }
 
 void KeyedStoreIC::StoreElementPolymorphicHandlers(
-    MapHandles* receiver_maps, MaybeObjectHandles* handlers,
+    std::vector<MapAndHandler>* receiver_maps_and_handlers,
     KeyedAccessStoreMode store_mode) {
-  // Filter out deprecated maps to ensure their instances get migrated.
-  receiver_maps->erase(
-      std::remove_if(
-          receiver_maps->begin(), receiver_maps->end(),
-          [](const Handle<Map>& map) { return map->is_deprecated(); }),
-      receiver_maps->end());
+  std::vector<Handle<Map>> receiver_maps;
+  for (size_t i = 0; i < receiver_maps_and_handlers->size(); i++) {
+    receiver_maps.push_back(receiver_maps_and_handlers->at(i).first);
+  }
 
-  for (Handle<Map> receiver_map : *receiver_maps) {
+  for (size_t i = 0; i < receiver_maps_and_handlers->size(); i++) {
+    Handle<Map> receiver_map = receiver_maps_and_handlers->at(i).first;
+    DCHECK(!receiver_map->is_deprecated());
+    MaybeObjectHandle old_handler = receiver_maps_and_handlers->at(i).second;
     Handle<Object> handler;
     Handle<Map> transition;
 
@@ -1964,8 +1984,8 @@ void KeyedStoreIC::StoreElementPolymorphicHandlers(
 
     } else {
       {
-        Map tmap = receiver_map->FindElementsKindTransitionedMap(
-            isolate(), *receiver_maps);
+        Map tmap = receiver_map->FindElementsKindTransitionedMap(isolate(),
+                                                                 receiver_maps);
         if (!tmap.is_null()) {
           if (receiver_map->is_stable()) {
             receiver_map->NotifyLeafMapLayoutChange(isolate());
@@ -1974,6 +1994,16 @@ void KeyedStoreIC::StoreElementPolymorphicHandlers(
         }
       }
 
+      MaybeHandle<Object> validity_cell;
+      HeapObject old_handler_obj;
+      if (!old_handler.is_null() &&
+          old_handler->GetHeapObject(&old_handler_obj) &&
+          old_handler_obj.IsDataHandler()) {
+        validity_cell = MaybeHandle<Object>(
+            DataHandler::cast(old_handler_obj).validity_cell(), isolate());
+      }
+      // TODO(mythria): Do not recompute the handler if we know there is no
+      // change in the handler.
       // TODO(mvstanton): The code below is doing pessimistic elements
       // transitions. I would like to stop doing that and rely on Allocation
       // Site Tracking to do a better job of ensuring the data types are what
@@ -1982,14 +2012,15 @@ void KeyedStoreIC::StoreElementPolymorphicHandlers(
       if (!transition.is_null()) {
         TRACE_HANDLER_STATS(isolate(),
                             KeyedStoreIC_ElementsTransitionAndStoreStub);
-        handler = StoreHandler::StoreElementTransition(isolate(), receiver_map,
-                                                       transition, store_mode);
+        handler = StoreHandler::StoreElementTransition(
+            isolate(), receiver_map, transition, store_mode, validity_cell);
       } else {
-        handler = StoreElementHandler(receiver_map, store_mode);
+        handler = StoreElementHandler(receiver_map, store_mode, validity_cell);
       }
     }
     DCHECK(!handler.is_null());
-    handlers->push_back(MaybeObjectHandle(handler));
+    receiver_maps_and_handlers->at(i) =
+        MapAndHandler(receiver_map, MaybeObjectHandle(handler));
   }
 }
 
@@ -2150,10 +2181,8 @@ namespace {
 void StoreOwnElement(Isolate* isolate, Handle<JSArray> array,
                      Handle<Object> index, Handle<Object> value) {
   DCHECK(index->IsNumber());
-  bool success = false;
-  LookupIterator it = LookupIterator::PropertyOrElement(
-      isolate, array, index, &success, LookupIterator::OWN);
-  DCHECK(success);
+  LookupIterator::Key key(isolate, index);
+  LookupIterator it(isolate, array, key, LookupIterator::OWN);
 
   CHECK(JSObject::DefineOwnPropertyIgnoreAttributes(
             &it, value, NONE, Just(ShouldThrow::kThrowOnError))
@@ -2726,7 +2755,7 @@ RUNTIME_FUNCTION(Runtime_LoadPropertyWithInterceptor) {
 
   if (!result.is_null()) return *result;
 
-  LookupIterator it(receiver, name, holder);
+  LookupIterator it(isolate, receiver, name, holder);
   // Skip any lookup work until we hit the (possibly non-masking) interceptor.
   while (it.state() != LookupIterator::INTERCEPTOR ||
          !it.GetHolder<JSObject>().is_identical_to(holder)) {
@@ -2783,7 +2812,7 @@ RUNTIME_FUNCTION(Runtime_StorePropertyWithInterceptor) {
   RETURN_FAILURE_IF_SCHEDULED_EXCEPTION(isolate);
   if (!result.is_null()) return *value;
 
-  LookupIterator it(receiver, name, receiver);
+  LookupIterator it(isolate, receiver, name, receiver);
   // Skip past any access check on the receiver.
   if (it.state() == LookupIterator::ACCESS_CHECK) {
     DCHECK(it.HasAccess());

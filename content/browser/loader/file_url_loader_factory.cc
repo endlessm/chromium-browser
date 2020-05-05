@@ -32,6 +32,7 @@
 #include "content/public/browser/file_url_loader.h"
 #include "content/public/browser/shared_cors_origin_access_list.h"
 #include "content/public/common/content_client.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -54,10 +55,10 @@
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/request_mode.h"
 #include "services/network/public/cpp/resource_request.h"
-#include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/mojom/cors.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "storage/common/file_system/file_system_util.h"
 #include "url/gurl.h"
 
@@ -152,7 +153,7 @@ network::mojom::FetchResponseType CalculateResponseType(
     bool is_allowed_access) {
   // Though file:// is out of web standards, let's roughly follow the step 5 of
   // https://fetch.spec.whatwg.org/#main-fetch.
-  if (is_allowed_access || network::IsNavigationRequestMode(mode) ||
+  if (is_allowed_access || mode == network::mojom::RequestMode::kNavigate ||
       mode == network::mojom::RequestMode::kSameOrigin) {
     return network::mojom::FetchResponseType::kBasic;
   } else if (mode == network::mojom::RequestMode::kNoCors) {
@@ -236,11 +237,11 @@ class FileURLDirectoryLoader
       return;
     }
 
-    network::ResourceResponseHead head;
-    head.mime_type = "text/html";
-    head.charset = "utf-8";
-    head.response_type = response_type;
-    client->OnReceiveResponse(head);
+    auto head = network::mojom::URLResponseHead::New();
+    head->mime_type = "text/html";
+    head->charset = "utf-8";
+    head->response_type = response_type;
+    client->OnReceiveResponse(std::move(head));
     client->OnStartLoadingResponseBody(std::move(pipe.consumer_handle));
     client_ = std::move(client);
 
@@ -467,11 +468,11 @@ class FileURLLoader : public network::mojom::URLLoader {
     // See crbug.com/715656.
     VLOG(1) << "FileURLLoader::Start: " << request.url;
 
-    network::ResourceResponseHead head;
-    head.request_start = base::TimeTicks::Now();
-    head.response_start = base::TimeTicks::Now();
-    head.response_type = response_type;
-    head.headers = extra_response_headers;
+    auto head = network::mojom::URLResponseHead::New();
+    head->request_start = base::TimeTicks::Now();
+    head->response_start = base::TimeTicks::Now();
+    head->response_type = response_type;
+    head->headers = extra_response_headers;
     receiver_.Bind(std::move(loader));
     receiver_.set_disconnect_handler(base::BindOnce(
         &FileURLLoader::OnMojoDisconnct, base::Unretained(this)));
@@ -505,7 +506,7 @@ class FileURLLoader : public network::mojom::URLLoader {
       redirect_info.new_url = path.EndsWithSeparator()
                                   ? request.url
                                   : AppendUrlSeparator(request.url);
-      head.encoded_data_length = 0;
+      head->encoded_data_length = 0;
 
       redirect_data_ = std::make_unique<RedirectData>();
       redirect_data_->is_directory = true;
@@ -519,7 +520,7 @@ class FileURLLoader : public network::mojom::URLLoader {
       redirect_data_->extra_response_headers =
           std::move(extra_response_headers);
 
-      client_->OnReceiveRedirect(redirect_info, head);
+      client_->OnReceiveRedirect(redirect_info, std::move(head));
       return;
     }
 
@@ -550,7 +551,7 @@ class FileURLLoader : public network::mojom::URLLoader {
       redirect_info.new_method = "GET";
       redirect_info.status_code = 301;
       redirect_info.new_url = new_url;
-      head.encoded_data_length = 0;
+      head->encoded_data_length = 0;
 
       redirect_data_->is_directory = info.is_directory;
       redirect_data_->profile_path = std::move(profile_path);
@@ -564,7 +565,7 @@ class FileURLLoader : public network::mojom::URLLoader {
       redirect_data_->extra_response_headers =
           std::move(extra_response_headers);
 
-      client_->OnReceiveRedirect(redirect_info, head);
+      client_->OnReceiveRedirect(redirect_info, std::move(head));
       return;
     }
 #endif  // defined(OS_WIN)
@@ -644,7 +645,7 @@ class FileURLLoader : public network::mojom::URLLoader {
 
     total_bytes_written_ = total_bytes_to_send;
 
-    head.content_length = base::saturated_cast<int64_t>(total_bytes_to_send);
+    head->content_length = base::saturated_cast<int64_t>(total_bytes_to_send);
 
     if (first_byte_to_send < initial_read_size) {
       // Write any data we read for MIME sniffing, constraining by range where
@@ -670,25 +671,25 @@ class FileURLLoader : public network::mojom::URLLoader {
     // TODO(crbug.com/995177): Update mime_util.cc when WebBundles feature is
     // launched and stop using GetWebBundleFileMimeTypeFromFile().
     if (!web_bundle_utils::GetWebBundleFileMimeTypeFromFile(path,
-                                                            &head.mime_type) &&
-        !net::GetMimeTypeFromFile(path, &head.mime_type)) {
+                                                            &head->mime_type) &&
+        !net::GetMimeTypeFromFile(path, &head->mime_type)) {
       std::string new_type;
       net::SniffMimeType(
           initial_read_buffer.data(), read_result.bytes_read, request.url,
-          head.mime_type,
+          head->mime_type,
           GetContentClient()->browser()->ForceSniffingFileUrlsForHtml()
               ? net::ForceSniffFileUrlsForHtml::kEnabled
               : net::ForceSniffFileUrlsForHtml::kDisabled,
           &new_type);
-      head.mime_type.assign(new_type);
-      head.did_mime_sniff = true;
+      head->mime_type.assign(new_type);
+      head->did_mime_sniff = true;
     }
-    if (head.headers) {
-      head.headers->AddHeader(
+    if (head->headers) {
+      head->headers->AddHeader(
           base::StringPrintf("%s: %s", net::HttpRequestHeaders::kContentType,
-                             head.mime_type.c_str()));
+                             head->mime_type.c_str()));
     }
-    client_->OnReceiveResponse(head);
+    client_->OnReceiveResponse(std::move(head));
     client_->OnStartLoadingResponseBody(std::move(pipe.consumer_handle));
 
     if (total_bytes_to_send == 0) {
@@ -776,6 +777,19 @@ class FileURLLoader : public network::mojom::URLLoader {
   DISALLOW_COPY_AND_ASSIGN(FileURLLoader);
 };
 
+const url::Origin& GetCorsOrigin(const network::ResourceRequest& request) {
+  // Presence of |request_initiator| needs to be verified/ensured by the caller.
+  DCHECK(request.request_initiator.has_value());
+
+  if (request.isolated_world_origin.has_value() &&
+      base::FeatureList::IsEnabled(
+          features::kRelaxIsolatedWorldCorsInFileUrlLoaderFactory)) {
+    return request.isolated_world_origin.value();
+  }
+
+  return request.request_initiator.value();
+}
+
 }  // namespace
 
 FileURLLoaderFactory::FileURLLoaderFactory(
@@ -829,7 +843,7 @@ void FileURLLoaderFactory::CreateLoaderAndStart(
             url::Origin::Create(request.url)) ||
         (shared_cors_origin_access_list_ &&
          shared_cors_origin_access_list_->GetOriginAccessList()
-                 .CheckAccessState(*request.request_initiator, request.url) ==
+                 .CheckAccessState(GetCorsOrigin(request), request.url) ==
              network::cors::OriginAccessList::AccessState::kAllowed)));
 
   network::mojom::FetchResponseType response_type =
@@ -891,7 +905,7 @@ void FileURLLoaderFactory::Clone(
   receivers_.Add(this, std::move(loader));
 }
 
-void CreateFileURLLoader(
+void CreateFileURLLoaderBypassingSecurityChecks(
     const network::ResourceRequest& request,
     mojo::PendingReceiver<network::mojom::URLLoader> loader,
     mojo::PendingRemote<network::mojom::URLLoaderClient> client,

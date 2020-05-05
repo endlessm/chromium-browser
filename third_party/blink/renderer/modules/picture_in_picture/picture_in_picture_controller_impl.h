@@ -42,10 +42,6 @@ class MODULES_EXPORT PictureInPictureControllerImpl
   explicit PictureInPictureControllerImpl(Document&);
   ~PictureInPictureControllerImpl() override = default;
 
-  // Meant to be called internally by PictureInPictureController::From()
-  // through ModulesInitializer.
-  static PictureInPictureControllerImpl* Create(Document&);
-
   // Gets, or creates, PictureInPictureControllerImpl supplement on Document.
   // Should be called before any other call to make sure a document is attached.
   static PictureInPictureControllerImpl& From(Document&);
@@ -56,7 +52,7 @@ class MODULES_EXPORT PictureInPictureControllerImpl
 
   // Returns whether the document associated with the controller is allowed to
   // request Picture-in-Picture.
-  Status IsDocumentAllowed() const;
+  Status IsDocumentAllowed(bool report_failure) const;
 
   // Returns whether the combination of element and options can be in
   // Picture-in-Picture.
@@ -111,6 +107,7 @@ class MODULES_EXPORT PictureInPictureControllerImpl
       mojo::PendingRemote<mojom::blink::PictureInPictureSession>,
       const WebSize&);
   void OnExitedPictureInPicture(ScriptPromiseResolver*) override;
+  Status IsElementAllowed(const HTMLElement&, bool report_failure) const;
 
   // Makes sure the `picture_in_picture_service_` is set. Returns whether it was
   // initialized successfully.

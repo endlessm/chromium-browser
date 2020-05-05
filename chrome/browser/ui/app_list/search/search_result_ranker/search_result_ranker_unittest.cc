@@ -198,11 +198,11 @@ class SearchResultRankerTest : public testing::Test {
   // to.
   std::list<TestSearchResult> test_search_results_;
 
+  ScopedTempDir temp_dir_;
   content::BrowserTaskEnvironment task_environment_;
   data_decoder::test::InProcessDataDecoder in_process_data_decoder_;
 
   ScopedFeatureList scoped_feature_list_;
-  ScopedTempDir temp_dir_;
 
   std::unique_ptr<history::HistoryService> history_service_;
   std::unique_ptr<Profile> profile_;
@@ -387,11 +387,11 @@ TEST_F(SearchResultRankerTest, QueryMixedModelNormalizesUrlIds) {
 
   AppLaunchData app_launch_data_1;
   app_launch_data_1.id = url_1;
-  app_launch_data_1.ranking_item_type = RankingItemType::kOmniboxHistory;
+  app_launch_data_1.ranking_item_type = RankingItemType::kOmniboxGeneric;
   app_launch_data_1.query = "query";
   AppLaunchData app_launch_data_3;
   app_launch_data_3.id = url_3;
-  app_launch_data_3.ranking_item_type = RankingItemType::kOmniboxHistory;
+  app_launch_data_3.ranking_item_type = RankingItemType::kOmniboxGeneric;
   app_launch_data_3.query = "query";
 
   for (int i = 0; i < 5; ++i) {
@@ -477,7 +477,7 @@ TEST_F(SearchResultRankerTest, QueryMixedModelDeletesURLCorrectly) {
   const std::string url_1 = "http://www.google.com/testing";
   AppLaunchData url_1_data;
   url_1_data.id = url_1;
-  url_1_data.ranking_item_type = RankingItemType::kOmniboxHistory;
+  url_1_data.ranking_item_type = RankingItemType::kOmniboxGeneric;
   url_1_data.query = "query";
   ranker->Train(url_1_data);
   ranker->Train(url_1_data);
@@ -485,7 +485,7 @@ TEST_F(SearchResultRankerTest, QueryMixedModelDeletesURLCorrectly) {
   const std::string url_2 = "http://www.other.com";
   AppLaunchData url_2_data;
   url_2_data.id = url_2;
-  url_2_data.ranking_item_type = RankingItemType::kOmniboxHistory;
+  url_2_data.ranking_item_type = RankingItemType::kOmniboxGeneric;
   url_2_data.query = "query";
   ranker->Train(url_2_data);
 
@@ -502,15 +502,24 @@ TEST_F(SearchResultRankerTest, QueryMixedModelDeletesURLCorrectly) {
                                               HasIdScore("untrained", 0.5f)));
   }
 
-  // Now delete |url_1| from the history service and ensure we save the model to
-  // disk.
+  // Delete the model file from disk and make sure it's gone.
   base::DeleteFile(model_path, false);
   EXPECT_FALSE(base::PathExists(model_path));
+
+  // Advance mock time by more than |min_seconds_between_saves| to make sure the
+  // file will be written again upon modification.
+  task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(2 * 1000));
+
+  // Modify the history.
   history_service()->AddPage(GURL(url_1), base::Time::Now(),
                              history::VisitSource::SOURCE_BROWSED);
   history_service()->DeleteURLs({GURL(url_1)});
+
+  // Wait for history transactions to be complete.
   history::BlockUntilHistoryProcessesPendingRequests(history_service());
   Wait();
+
+  // Verify that the modifications triggered a write of the model.
   EXPECT_TRUE(base::PathExists(model_path));
 
   // Force cache expiry.

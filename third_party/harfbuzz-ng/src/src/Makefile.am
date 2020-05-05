@@ -290,7 +290,7 @@ ucd-table: gen-ucd-table.py ucd.nounihan.grouped.zip hb-common.h
 use-table: gen-use-table.py IndicSyllabicCategory.txt IndicPositionalCategory.txt UnicodeData.txt Blocks.txt
 	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-use-table.cc \
 	|| ($(RM) $(srcdir)/hb-ot-shape-complex-use-table.cc; false)
-vowel-constraints: gen-vowel-constraints.py HBIndicVowelConstraints.txt Scripts.txt
+vowel-constraints: gen-vowel-constraints.py ms-use/IndicShapingInvalidCluster.txt Scripts.txt
 	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-vowel-constraints.cc \
 	|| ($(RM) $(srcdir)/hb-ot-shape-complex-vowel-constraints.cc; false)
 
@@ -334,6 +334,7 @@ noinst_PROGRAMS = \
 	test-buffer-serialize \
 	test-ot-meta \
 	test-ot-name \
+	test-ot-glyphname \
 	test-gpos-size-params \
 	test-gsub-would-substitute \
 	$(NULL)
@@ -359,6 +360,10 @@ test_ot_name_SOURCES = test-ot-name.cc
 test_ot_name_CPPFLAGS = $(HBCFLAGS)
 test_ot_name_LDADD = libharfbuzz.la $(HBLIBS)
 
+test_ot_glyphname_SOURCES = test-ot-glyphname.cc
+test_ot_glyphname_CPPFLAGS = $(HBCFLAGS)
+test_ot_glyphname_LDADD = libharfbuzz.la $(HBLIBS)
+
 test_gpos_size_params_SOURCES = test-gpos-size-params.cc
 test_gpos_size_params_CPPFLAGS = $(HBCFLAGS)
 test_gpos_size_params_LDADD = libharfbuzz.la $(HBLIBS)
@@ -366,15 +371,6 @@ test_gpos_size_params_LDADD = libharfbuzz.la $(HBLIBS)
 test_gsub_would_substitute_SOURCES = test-gsub-would-substitute.cc
 test_gsub_would_substitute_CPPFLAGS = $(HBCFLAGS) $(FREETYPE_CFLAGS)
 test_gsub_would_substitute_LDADD = libharfbuzz.la $(HBLIBS) $(FREETYPE_LIBS)
-
-if HAVE_FREETYPE
-if HAVE_CAIRO_FT
-noinst_PROGRAMS += test-ot-color
-test_ot_color_SOURCES = test-ot-color.cc
-test_ot_color_CPPFLAGS = $(HBCFLAGS) $(FREETYPE_CFLAGS) $(CAIRO_FT_CFLAGS)
-test_ot_color_LDADD = libharfbuzz.la $(HBLIBS) $(FREETYPE_LIBS) $(CAIRO_LIBS) $(CAIRO_FT_LIBS)
-endif # HAVE_CAIRO_FT
-endif # HAVE_FREETYPE
 
 dist_check_SCRIPTS = \
 	check-c-linkage-decls.sh \

@@ -275,6 +275,12 @@ CsectGroup &XCOFFObjectWriter::getCsectGroup(const MCSectionXCOFF *MCSec) {
            "We should have only one TOC-base, and it should be the first csect "
            "in this CsectGroup.");
     return TOCCsects;
+  case XCOFF::XMC_TC:
+    assert(XCOFF::XTY_SD == MCSec->getCSectType() &&
+           "Only an initialized csect can contain TC entry.");
+    assert(!TOCCsects.empty() &&
+           "We should at least have a TOC-base in this CsectGroup.");
+    return TOCCsects;
   default:
     report_fatal_error("Unhandled mapping of csect to section.");
   }
@@ -311,20 +317,20 @@ void XCOFFObjectWriter::executePostLayoutBinding(MCAssembler &Asm,
     // Nothing to do for temporary symbols.
     if (S.isTemporary())
       continue;
-    const MCSymbolXCOFF *XSym = cast<MCSymbolXCOFF>(&S);
 
-    // Map the symbol into its containing csect.
+    const MCSymbolXCOFF *XSym = cast<MCSymbolXCOFF>(&S);
     const MCSectionXCOFF *ContainingCsect = XSym->getContainingCsect();
+
+    // Handle undefined symbol.
+    if (ContainingCsect->getCSectType() == XCOFF::XTY_ER) {
+      UndefinedCsects.emplace_back(ContainingCsect);
+      continue;
+    }
 
     // If the symbol is the csect itself, we don't need to put the symbol
     // into csect's Syms.
     if (XSym == ContainingCsect->getQualNameSymbol())
       continue;
-
-    if (XSym->isUndefined(false)) {
-      UndefinedCsects.emplace_back(ContainingCsect);
-      continue;
-    }
 
     assert(WrapperMap.find(ContainingCsect) != WrapperMap.end() &&
            "Expected containing csect to exist in map");
@@ -357,12 +363,13 @@ void XCOFFObjectWriter::writeSections(const MCAssembler &Asm,
       continue;
 
     assert(CurrentAddressLocation == Section->Address &&
-           "We should have no padding between sections.");
+           "Sections should be written consecutively.");
     for (const auto *Group : Section->Groups) {
       for (const auto &Csect : *Group) {
         if (uint32_t PaddingSize = Csect.Address - CurrentAddressLocation)
           W.OS.write_zeros(PaddingSize);
-        Asm.writeSectionData(W.OS, Csect.MCCsect, Layout);
+        if (Csect.Size)
+          Asm.writeSectionData(W.OS, Csect.MCCsect, Layout);
         CurrentAddressLocation = Csect.Address + Csect.Size;
       }
     }
@@ -371,8 +378,10 @@ void XCOFFObjectWriter::writeSections(const MCAssembler &Asm,
     // the current section minus the the end virtual address of the last csect
     // in that section.
     if (uint32_t PaddingSize =
-            Section->Address + Section->Size - CurrentAddressLocation)
+            Section->Address + Section->Size - CurrentAddressLocation) {
       W.OS.write_zeros(PaddingSize);
+      CurrentAddressLocation += PaddingSize;
+    }
   }
 }
 
@@ -410,7 +419,7 @@ void XCOFFObjectWriter::writeSymbolName(const StringRef &SymbolName) {
     W.write<int32_t>(0);
     W.write<uint32_t>(Strings.getOffset(SymbolName));
   } else {
-    char Name[XCOFF::NameSize];
+    char Name[XCOFF::NameSize+1];
     std::strncpy(Name, SymbolName.data(), XCOFF::NameSize);
     ArrayRef<char> NameRef(Name, XCOFF::NameSize);
     W.write(NameRef);
@@ -561,7 +570,7 @@ void XCOFFObjectWriter::writeSymbolTable(const MCAsmLayout &Layout) {
         writeSymbolTableEntryForControlSection(
             Csect, SectionIndex, Csect.MCCsect->getStorageClass());
 
-        for (const auto Sym : Csect.Syms)
+        for (const auto &Sym : Csect.Syms)
           writeSymbolTableEntryForCsectMemberLabel(
               Sym, Csect, SectionIndex, Layout.getSymbolOffset(*(Sym.MCSym)));
       }

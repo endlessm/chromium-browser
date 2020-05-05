@@ -29,7 +29,6 @@
 #include "include/private/SkTo.h"
 #include "src/core/SkGlyph.h"
 #include "src/core/SkImagePriv.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkMask.h"
 #include "src/core/SkScalerContext.h"
 #include "src/core/SkStrike.h"
@@ -119,7 +118,7 @@ const SkAdvancedTypefaceMetrics* SkPDFFont::GetMetrics(const SkTypeface* typefac
     }
     std::unique_ptr<SkAdvancedTypefaceMetrics> metrics = typeface->getAdvancedMetrics();
     if (!metrics) {
-        metrics = skstd::make_unique<SkAdvancedTypefaceMetrics>();
+        metrics = std::make_unique<SkAdvancedTypefaceMetrics>();
     }
 
     if (0 == metrics->fStemV || 0 == metrics->fCapHeight) {
@@ -596,7 +595,7 @@ static void emit_subset_type3(const SkPDFFont& pdfFont, SkPDFDocument* doc) {
             if (path && !path->isEmpty()) {
                 setGlyphWidthAndBoundingBox(glyph->advanceX(), glyphBBox, &content);
                 SkPDFUtils::EmitPath(*path, SkPaint::kFill_Style, &content);
-                SkPDFUtils::PaintPath(SkPaint::kFill_Style, path->getNewFillType(), &content);
+                SkPDFUtils::PaintPath(SkPaint::kFill_Style, path->getFillType(), &content);
             } else {
                 auto pimg = to_image(gID, &smallGlyphs);
                 if (!pimg.fImage) {

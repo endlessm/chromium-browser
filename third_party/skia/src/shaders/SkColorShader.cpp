@@ -12,6 +12,7 @@
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkUtils.h"
+#include "src/core/SkVM.h"
 #include "src/shaders/SkColorShader.h"
 
 SkColorShader::SkColorShader(SkColor c) : fColor(c) {}
@@ -106,16 +107,18 @@ static bool common_program(SkColor4f color, SkColorSpace* cs,
 }
 
 bool SkColorShader::onProgram(skvm::Builder* p,
-                              SkColorSpace* dstCS,
-                              skvm::Uniforms* uniforms,
+                              const SkMatrix& /*ctm*/, const SkMatrix* /*localM*/,
+                              SkFilterQuality /*quality*/, SkColorSpace* dstCS,
+                              skvm::Uniforms* uniforms, SkArenaAlloc*,
                               skvm::F32 /*x*/, skvm::F32 /*y*/,
                               skvm::F32* r, skvm::F32* g, skvm::F32* b, skvm::F32* a) const {
     return common_program(SkColor4f::FromColor(fColor), sk_srgb_singleton(),
                           p, dstCS, uniforms, r,g,b,a);
 }
 bool SkColor4Shader::onProgram(skvm::Builder* p,
-                               SkColorSpace* dstCS,
-                               skvm::Uniforms* uniforms,
+                               const SkMatrix& /*ctm*/, const SkMatrix* /*localM*/,
+                               SkFilterQuality /*quality*/, SkColorSpace* dstCS,
+                               skvm::Uniforms* uniforms, SkArenaAlloc*,
                                skvm::F32 /*x*/, skvm::F32 /*y*/,
                                skvm::F32* r, skvm::F32* g, skvm::F32* b, skvm::F32* a) const {
     return common_program(fColor, fColorSpace.get(),

@@ -557,6 +557,18 @@ class BufferHelper final : public CommandGraphResource
 
     void changeQueue(uint32_t newQueueFamilyIndex, CommandBuffer *commandBuffer);
 
+    // New methods used when the CommandGraph is disabled.
+    bool canAccumulateRead(ContextVk *contextVk, VkAccessFlags readAccessType);
+    bool canAccumulateWrite(ContextVk *contextVk, VkAccessFlags writeAccessType);
+
+    void updateReadBarrier(VkAccessFlags readAccessType,
+                           VkAccessFlags *barrierSrcOut,
+                           VkAccessFlags *barrierDstOut);
+
+    void updateWriteBarrier(VkAccessFlags writeAccessType,
+                            VkAccessFlags *barrierSrcOut,
+                            VkAccessFlags *barrierDstOut);
+
   private:
     angle::Result mapImpl(ContextVk *contextVk);
     bool needsOnReadBarrier(VkAccessFlags readAccessType,
@@ -1077,7 +1089,7 @@ class ImageViewHelper : angle::NonCopyable
     bool hasFetchImageView() const { return mFetchImageView.valid(); }
 
     // Store reference to usage in graph.
-    void onGraphAccess(CommandGraph *commandGraph) const { commandGraph->onResourceUse(mUse); }
+    void onResourceAccess(ResourceUseList *resourceUseList) const { resourceUseList->add(mUse); }
 
     // Creates views with multiple layers and levels.
     angle::Result initReadViews(ContextVk *contextVk,
@@ -1132,7 +1144,7 @@ class SamplerHelper final : angle::NonCopyable
     Sampler &get() { return mSampler; }
     const Sampler &get() const { return mSampler; }
 
-    void onGraphAccess(CommandGraph *commandGraph) { commandGraph->onResourceUse(mUse); }
+    void onResourceAccess(ResourceUseList *resourceUseList) { resourceUseList->add(mUse); }
 
   private:
     SharedResourceUse mUse;
@@ -1196,6 +1208,7 @@ class ShaderProgramHelper : angle::NonCopyable
     ShaderAndSerial &getShader(gl::ShaderType shaderType) { return mShaders[shaderType].get(); }
 
     void setShader(gl::ShaderType shaderType, RefCounted<ShaderAndSerial> *shader);
+    void enableSpecializationConstant(sh::vk::SpecializationConstantId id);
 
     // For getting a Pipeline and from the pipeline cache.
     ANGLE_INLINE angle::Result getGraphicsPipeline(
@@ -1227,7 +1240,7 @@ class ShaderProgramHelper : angle::NonCopyable
         return mGraphicsPipelines.getPipeline(
             contextVk, pipelineCache, *compatibleRenderPass, pipelineLayout,
             activeAttribLocationsMask, programAttribsTypeMask, vertexShader, fragmentShader,
-            geometryShader, pipelineDesc, descPtrOut, pipelineOut);
+            geometryShader, mSpecializationConstants, pipelineDesc, descPtrOut, pipelineOut);
     }
 
     angle::Result getComputePipeline(Context *context,
@@ -1240,6 +1253,9 @@ class ShaderProgramHelper : angle::NonCopyable
 
     // We should probably use PipelineHelper here so we can remove PipelineAndSerial.
     PipelineAndSerial mComputePipeline;
+
+    // Specialization constants, currently only used by the graphics queue.
+    vk::SpecializationConstantBitSet mSpecializationConstants;
 };
 }  // namespace vk
 }  // namespace rx

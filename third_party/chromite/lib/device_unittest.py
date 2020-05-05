@@ -7,6 +7,8 @@
 
 from __future__ import print_function
 
+import subprocess
+
 import mock
 
 from chromite.lib import cros_build_lib
@@ -53,7 +55,7 @@ class DeviceTester(cros_test_lib.RunCommandTestCase):
     self.assertRaises(device.DeviceError, self._device.WaitForBoot, sleep=0)
     boot_mock.assert_called()
 
-  @mock.patch('chromite.lib.device.Device.RemoteCommand',
+  @mock.patch('chromite.lib.device.Device.remote_run',
               return_value=cros_build_lib.CommandResult(returncode=1))
   def testWaitForBootReturnCode(self, boot_mock):
     """Verify an exception is raised when the returncode is not 0."""
@@ -61,8 +63,8 @@ class DeviceTester(cros_test_lib.RunCommandTestCase):
     boot_mock.assert_called()
 
   def testRunCmd(self):
-    """Verify that a command is run via RunCommand."""
-    self._device.RunCommand(['/usr/local/autotest/bin/vm_sanity'])
+    """Verify that a command is run via run."""
+    self._device.run(['/usr/local/autotest/bin/vm_sanity'])
     self.assertCommandContains(['sudo'], expected=False)
     self.assertCommandCalled(['/usr/local/autotest/bin/vm_sanity'])
 
@@ -71,28 +73,28 @@ class DeviceTester(cros_test_lib.RunCommandTestCase):
     self._device.dry_run = True
     # Look for dry run command in output.
     with cros_test_lib.LoggingCapturer() as logs:
-      self._device.RunCommand(['echo', 'Hello'])
+      self._device.run(['echo', 'Hello'])
     self.assertTrue(logs.LogsContain('[DRY RUN] echo Hello'))
 
   def testRunCmdSudo(self):
     """Verify that a command is run via sudo."""
     self._device.use_sudo = True
-    self._device.RunCommand(['mount', '-o', 'remount,rw', '/'])
+    self._device.run(['mount', '-o', 'remount,rw', '/'])
     self.assertCommandCalled(['sudo', '--', 'mount', '-o', 'remount,rw', '/'])
 
   def testRemoteCmd(self):
     """Verify remote command runs correctly with default arguments."""
-    self._device.RemoteCommand(['/usr/local/autotest/bin/vm_sanity'])
+    self._device.remote_run(['/usr/local/autotest/bin/vm_sanity'])
     self.assertCommandContains(['/usr/local/autotest/bin/vm_sanity'])
-    self.assertCommandContains(capture_output=True, combine_stdout_stderr=True,
+    self.assertCommandContains(capture_output=True, stderr=subprocess.STDOUT,
                                log_output=True)
 
   def testRemoteCmdStream(self):
     """Verify remote command for streaming output."""
-    self._device.RemoteCommand('/usr/local/autotest/bin/vm_sanity',
-                               stream_output=True)
+    self._device.remote_run('/usr/local/autotest/bin/vm_sanity',
+                            stream_output=True)
     self.assertCommandContains(capture_output=False)
-    self.assertCommandContains(combine_stdout_stderr=True,
+    self.assertCommandContains(stderr=subprocess.STDOUT,
                                log_output=True, expected=False)
 
   def testCreate(self):
@@ -105,7 +107,7 @@ class DeviceTester(cros_test_lib.RunCommandTestCase):
     self.CreateDevice('190.0.2.130', False)
 
   def testDryRunError(self):
-    """Verify _DryRunCommand can only be called when dry_run is True."""
+    """Verify _dry_run can only be called when dry_run is True."""
     self._device.dry_run = False
-    self.assertRaises(AssertionError, self._device._DryRunCommand,
+    self.assertRaises(AssertionError, self._device._dry_run,
                       cmd=['echo', 'Hello'])

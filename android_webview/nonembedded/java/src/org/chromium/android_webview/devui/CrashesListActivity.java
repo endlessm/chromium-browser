@@ -6,6 +6,9 @@ package org.chromium.android_webview.devui;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -27,15 +30,18 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
-import org.chromium.android_webview.common.CommandLineUtil;
+import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.common.PlatformServiceBridge;
 import org.chromium.android_webview.common.crash.CrashInfo;
 import org.chromium.android_webview.common.crash.CrashInfo.UploadState;
+import org.chromium.android_webview.common.crash.CrashUploadUtil;
 import org.chromium.android_webview.devui.util.NavigationMenuHelper;
 import org.chromium.android_webview.devui.util.WebViewCrashInfoCollector;
+import org.chromium.android_webview.devui.util.WebViewPackageHelper;
 import org.chromium.base.CommandLine;
 import org.chromium.base.Log;
 import org.chromium.base.task.AsyncTask;
+import org.chromium.ui.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -54,6 +60,8 @@ public class CrashesListActivity extends Activity {
     private CrashListExpandableAdapter mCrashListViewAdapter;
     private WebViewPackageError mDifferentPackageError;
 
+    // There is a limit on the length of this query string, see https://crbug.com/1015923
+    // TODO(https://crbug.com/1052295): add assert statement to check the length of this String.
     private static final String CRASH_REPORT_TEMPLATE = ""
             + "IMPORTANT: Your crash has already been automatically reported to our crash system. "
             + "You only need to fill this out if you can share more information like steps to "
@@ -61,10 +69,7 @@ public class CrashesListActivity extends Activity {
             + "\n"
             + "Device name:\n"
             + "Android OS version:\n"
-            + "WebView version (On Android L-M, this is the version of the 'Android System "
-            + "WebView' app. On Android N-P, it's most likely Chrome's version. You can find the "
-            + "version of any app under Settings > Apps > the 3 dots in the upper right > Show "
-            + "system.):\n"
+            + "WebView package: %s\n"
             + "Application: (Please link to its Play Store page if possible. You can get the link "
             + "from inside the Play Store app by tapping the 3 dots in the upper right > Share > "
             + "Copy to clipboard. Or you can find the app on the Play Store website: "
@@ -101,7 +106,7 @@ public class CrashesListActivity extends Activity {
         mDifferentPackageError.showDialogIfDifferent();
 
         final boolean enableMinidumpUploadingForTesting = CommandLine.getInstance().hasSwitch(
-                CommandLineUtil.CRASH_UPLOADS_ENABLED_FOR_TESTING_SWITCH);
+                AwSwitches.CRASH_UPLOADS_ENABLED_FOR_TESTING_SWITCH);
         if (!enableMinidumpUploadingForTesting) {
             PlatformServiceBridge.getInstance().queryMetricsSetting(enabled -> {
                 // enabled is a Boolean object and can be null.
@@ -195,30 +200,90 @@ public class CrashesListActivity extends Activity {
 
             CrashInfo crashInfo = (CrashInfo) getChild(groupPosition, childPosition);
             // Variations keys
-            setTwoLineListItemText(view.findViewById(R.id.variations), "Variations",
+            View variationsView = view.findViewById(R.id.variations);
+            setTwoLineListItemText(variationsView, "Variations",
                     crashInfo.variations == null ? "Not available"
                                                  : crashInfo.variations.toString());
+            variationsView.setOnLongClickListener(v -> {
+                if (crashInfo.variations != null) {
+                    ClipboardManager clipboard =
+                            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    ClipData clip =
+                            ClipData.newPlainText("variations", crashInfo.variations.toString());
+                    clipboard.setPrimaryClip(clip);
+                    // Show a toast that the text has been copied.
+                    Toast.makeText(CrashesListActivity.this, "Copied variations keys",
+                                 Toast.LENGTH_SHORT)
+                            .show();
+                }
+                return true;
+            });
+
             // Upload info
             String uploadState = uploadStateString(crashInfo.uploadState);
-            String uploadInfo = null;
+            View uploadInfoView = view.findViewById(R.id.upload_status);
             if (crashInfo.uploadState == UploadState.UPLOADED) {
-                uploadInfo = new Date(crashInfo.uploadTime).toString();
-                uploadInfo += "\nID: " + crashInfo.uploadId;
+                final String uploadInfo =
+                        new Date(crashInfo.uploadTime).toString() + "\nID: " + crashInfo.uploadId;
+                uploadInfoView.setOnLongClickListener(v -> {
+                    ClipboardManager clipboard =
+                            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    ClipData clip = ClipData.newPlainText("upload info", uploadInfo);
+                    clipboard.setPrimaryClip(clip);
+                    // Show a toast that the text has been copied.
+                    Toast.makeText(
+                                 CrashesListActivity.this, "Copied upload info", Toast.LENGTH_SHORT)
+                            .show();
+                    return true;
+                });
+                setTwoLineListItemText(uploadInfoView, uploadState, uploadInfo);
+            } else {
+                setTwoLineListItemText(uploadInfoView, uploadState, null);
             }
-            setTwoLineListItemText(view.findViewById(R.id.upload_status), uploadState, uploadInfo);
 
-            Button button = view.findViewById(R.id.crash_report_button);
+            Button bugButton = view.findViewById(R.id.crash_report_button);
             // Report button is only clickable if the crash report is uploaded.
             if (crashInfo.uploadState == UploadState.UPLOADED) {
-                button.setEnabled(true);
-                button.setOnClickListener(v -> {
+                bugButton.setEnabled(true);
+                bugButton.setOnClickListener(v -> {
                     startActivity(new Intent(Intent.ACTION_VIEW, getReportUri(crashInfo)));
                 });
             } else {
-                button.setEnabled(false);
+                bugButton.setEnabled(false);
+            }
+
+            Button uploadButton = view.findViewById(R.id.crash_upload_button);
+            if (crashInfo.uploadState == UploadState.SKIPPED
+                    || crashInfo.uploadState == UploadState.PENDING) {
+                uploadButton.setVisibility(View.VISIBLE);
+                uploadButton.setOnClickListener(v -> {
+                    if (!CrashUploadUtil.isNetworkUnmetered(CrashesListActivity.this)) {
+                        new AlertDialog.Builder(CrashesListActivity.this)
+                                .setTitle("Network Warning")
+                                .setMessage(
+                                        "You are connected to a metered network or cellular data."
+                                        + " Do you want to proceed?")
+                                .setPositiveButton("Upload",
+                                        (dialog, id) -> attemptUploadCrash(crashInfo.localId))
+                                .setNegativeButton("Cancel", (dialog, id) -> finish())
+                                .create()
+                                .show();
+                    } else {
+                        attemptUploadCrash(crashInfo.localId);
+                    }
+                });
+            } else {
+                uploadButton.setVisibility(View.GONE);
             }
 
             return view;
+        }
+
+        private void attemptUploadCrash(String crashLocalId) {
+            // Attempt uploading the file asynchronously, upload is not guaranteed.
+            CrashUploadUtil.tryUploadCrashDumpWithLocalId(CrashesListActivity.this, crashLocalId);
+            // Update the uploadState to be PENDING_USER_REQUESTED or UPLOADED.
+            updateCrashes();
         }
 
         @Override
@@ -297,14 +362,16 @@ public class CrashesListActivity extends Activity {
     // It adds the upload id at the end of the template and populates the Application package
     // name field.
     // TODO(https://crbug.com/991594) populate more fields in the template.
-    private static Uri getReportUri(CrashInfo crashInfo) {
+    private Uri getReportUri(CrashInfo crashInfo) {
         return new Uri.Builder()
                 .scheme("https")
                 .authority("bugs.chromium.org")
                 .path("/p/chromium/issues/entry")
                 .appendQueryParameter("template", "Webview+Bugs")
                 .appendQueryParameter("comment",
-                        String.format(Locale.US, CRASH_REPORT_TEMPLATE, crashInfo.uploadId))
+                        String.format(Locale.US, CRASH_REPORT_TEMPLATE,
+                                WebViewPackageHelper.loadLabel(CrashesListActivity.this),
+                                crashInfo.uploadId))
                 .appendQueryParameter("labels", "User-Submitted")
                 .build();
     }

@@ -235,7 +235,7 @@ input::placeholder {
 
 .chrome-select {
     -webkit-appearance: none;
-    -webkit-user-select: none;
+    user-select: none;
     border: 1px solid rgba(0, 0, 0, 0.2);
     border-radius: 2px;
     color: #333;
@@ -420,9 +420,9 @@ span[is=dt-icon-label] {
 
 .undisplayable-text,
 .expandable-inline-button {
-    padding: 2px 4px;
+    padding: 1px 3px;
     margin: 0 2px;
-    font-size: 12px;
+    font-size: 11px;
     font-family: sans-serif;
     white-space: nowrap;
     display: inline-block;

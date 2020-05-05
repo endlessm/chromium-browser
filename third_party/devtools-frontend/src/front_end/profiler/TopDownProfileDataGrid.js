@@ -23,13 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import {Formatter, ProfileDataGridNode, ProfileDataGridTree} from './ProfileDataGrid.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-Profiler.TopDownProfileDataGridNode = class extends Profiler.ProfileDataGridNode {
+export class TopDownProfileDataGridNode extends ProfileDataGridNode {
   /**
    * @param {!SDK.ProfileNode} profileNode
-   * @param {!Profiler.TopDownProfileDataGridTree} owningTree
+   * @param {!TopDownProfileDataGridTree} owningTree
    */
   constructor(profileNode, owningTree) {
     const hasChildren = !!(profileNode.children && profileNode.children.length);
@@ -40,22 +42,22 @@ Profiler.TopDownProfileDataGridNode = class extends Profiler.ProfileDataGridNode
   }
 
   /**
-   * @param {!Profiler.TopDownProfileDataGridNode|!Profiler.TopDownProfileDataGridTree} container
+   * @param {!TopDownProfileDataGridNode|!TopDownProfileDataGridTree} container
    */
   static _sharedPopulate(container) {
     const children = container._remainingChildren;
     const childrenLength = children.length;
 
     for (let i = 0; i < childrenLength; ++i) {
-      container.appendChild(new Profiler.TopDownProfileDataGridNode(
-          children[i], /** @type {!Profiler.TopDownProfileDataGridTree} */ (container.tree)));
+      container.appendChild(
+          new TopDownProfileDataGridNode(children[i], /** @type {!TopDownProfileDataGridTree} */ (container.tree)));
     }
 
     container._remainingChildren = null;
   }
 
   /**
-   * @param {!Profiler.TopDownProfileDataGridNode|!Profiler.TopDownProfileDataGridTree} container
+   * @param {!TopDownProfileDataGridNode|!TopDownProfileDataGridTree} container
    * @param {string} aCallUID
    */
   static _excludeRecursively(container, aCallUID) {
@@ -69,13 +71,13 @@ Profiler.TopDownProfileDataGridNode = class extends Profiler.ProfileDataGridNode
     let index = container.children.length;
 
     while (index--) {
-      Profiler.TopDownProfileDataGridNode._excludeRecursively(children[index], aCallUID);
+      TopDownProfileDataGridNode._excludeRecursively(children[index], aCallUID);
     }
 
     const child = container.childrenByCallUID.get(aCallUID);
 
     if (child) {
-      Profiler.ProfileDataGridNode.merge(container, child, true);
+      ProfileDataGridNode.merge(container, child, true);
     }
   }
 
@@ -83,17 +85,16 @@ Profiler.TopDownProfileDataGridNode = class extends Profiler.ProfileDataGridNode
    * @override
    */
   populateChildren() {
-    Profiler.TopDownProfileDataGridNode._sharedPopulate(this);
+    TopDownProfileDataGridNode._sharedPopulate(this);
   }
-};
-
+}
 
 /**
  * @unrestricted
  */
-Profiler.TopDownProfileDataGridTree = class extends Profiler.ProfileDataGridTree {
+export class TopDownProfileDataGridTree extends ProfileDataGridTree {
   /**
-   * @param {!Profiler.ProfileDataGridNode.Formatter} formatter
+   * @param {!Formatter} formatter
    * @param {!UI.SearchableView} searchableView
    * @param {!SDK.ProfileNode} rootProfileNode
    * @param {number} total
@@ -101,11 +102,11 @@ Profiler.TopDownProfileDataGridTree = class extends Profiler.ProfileDataGridTree
   constructor(formatter, searchableView, rootProfileNode, total) {
     super(formatter, searchableView, total);
     this._remainingChildren = rootProfileNode.children;
-    Profiler.ProfileDataGridNode.populate(this);
+    ProfileDataGridNode.populate(this);
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode} profileDataGridNode
+   * @param {!ProfileDataGridNode} profileDataGridNode
    */
   focus(profileDataGridNode) {
     if (!profileDataGridNode) {
@@ -120,7 +121,7 @@ Profiler.TopDownProfileDataGridTree = class extends Profiler.ProfileDataGridTree
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode} profileDataGridNode
+   * @param {!ProfileDataGridNode} profileDataGridNode
    */
   exclude(profileDataGridNode) {
     if (!profileDataGridNode) {
@@ -129,7 +130,7 @@ Profiler.TopDownProfileDataGridTree = class extends Profiler.ProfileDataGridTree
 
     this.save();
 
-    Profiler.TopDownProfileDataGridNode._excludeRecursively(this, profileDataGridNode.callUID);
+    TopDownProfileDataGridNode._excludeRecursively(this, profileDataGridNode.callUID);
 
     if (this.lastComparator) {
       this.sort(this.lastComparator, true);
@@ -153,6 +154,6 @@ Profiler.TopDownProfileDataGridTree = class extends Profiler.ProfileDataGridTree
    * @override
    */
   populateChildren() {
-    Profiler.TopDownProfileDataGridNode._sharedPopulate(this);
+    TopDownProfileDataGridNode._sharedPopulate(this);
   }
-};
+}

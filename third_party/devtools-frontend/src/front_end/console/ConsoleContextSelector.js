@@ -1,11 +1,12 @@
 // Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 /**
  * @implements {SDK.SDKModelObserver<!SDK.RuntimeModel>}
  * @implements {UI.SoftDropDown.Delegate<!SDK.ExecutionContext>}
  */
-export default class ConsoleContextSelector {
+export class ConsoleContextSelector {
   constructor() {
     /** @type {!UI.ListModel<!SDK.ExecutionContext>} */
     this._items = new UI.ListModel();
@@ -20,19 +21,19 @@ export default class ConsoleContextSelector {
 
     this._toolbarItem.element.classList.add('toolbar-has-dropdown');
 
-    SDK.targetManager.addModelListener(
+    self.SDK.targetManager.addModelListener(
         SDK.RuntimeModel, SDK.RuntimeModel.Events.ExecutionContextCreated, this._onExecutionContextCreated, this);
-    SDK.targetManager.addModelListener(
+    self.SDK.targetManager.addModelListener(
         SDK.RuntimeModel, SDK.RuntimeModel.Events.ExecutionContextChanged, this._onExecutionContextChanged, this);
-    SDK.targetManager.addModelListener(
+    self.SDK.targetManager.addModelListener(
         SDK.RuntimeModel, SDK.RuntimeModel.Events.ExecutionContextDestroyed, this._onExecutionContextDestroyed, this);
-    SDK.targetManager.addModelListener(
+    self.SDK.targetManager.addModelListener(
         SDK.ResourceTreeModel, SDK.ResourceTreeModel.Events.FrameNavigated, this._frameNavigated, this);
 
-    UI.context.addFlavorChangeListener(SDK.ExecutionContext, this._executionContextChangedExternally, this);
-    UI.context.addFlavorChangeListener(SDK.DebuggerModel.CallFrame, this._callFrameSelectedInUI, this);
-    SDK.targetManager.observeModels(SDK.RuntimeModel, this);
-    SDK.targetManager.addModelListener(
+    self.UI.context.addFlavorChangeListener(SDK.ExecutionContext, this._executionContextChangedExternally, this);
+    self.UI.context.addFlavorChangeListener(SDK.DebuggerModel.CallFrame, this._callFrameSelectedInUI, this);
+    self.SDK.targetManager.observeModels(SDK.RuntimeModel, this);
+    self.SDK.targetManager.addModelListener(
         SDK.DebuggerModel, SDK.DebuggerModel.Events.CallFrameSelected, this._callFrameSelectedInModel, this);
   }
 
@@ -123,7 +124,7 @@ export default class ConsoleContextSelector {
   _executionContextCreated(executionContext) {
     this._items.insertWithComparator(executionContext, executionContext.runtimeModel.executionContextComparator());
 
-    if (executionContext === UI.context.flavor(SDK.ExecutionContext)) {
+    if (executionContext === self.UI.context.flavor(SDK.ExecutionContext)) {
       this._dropDown.selectItem(executionContext);
     }
   }
@@ -250,7 +251,7 @@ export default class ConsoleContextSelector {
       return Common.UIString('Extension');
     }
     if (!frame || !frame.parentFrame || frame.parentFrame.securityOrigin !== executionContext.origin) {
-      const url = executionContext.origin.asParsedURL();
+      const url = Common.ParsedURL.fromString(executionContext.origin);
       if (url) {
         return url.domain();
       }
@@ -285,14 +286,14 @@ export default class ConsoleContextSelector {
     this._toolbarItem.element.classList.toggle('warning', !this._isTopContext(item) && this._hasTopContext());
     const title = item ? ls`JavaScript context: ${this.titleFor(item)}` : ls`JavaScript context: Not selected`;
     this._toolbarItem.setTitle(title);
-    UI.context.setFlavor(SDK.ExecutionContext, item);
+    self.UI.context.setFlavor(SDK.ExecutionContext, item);
   }
 
   _callFrameSelectedInUI() {
-    const callFrame = UI.context.flavor(SDK.DebuggerModel.CallFrame);
+    const callFrame = self.UI.context.flavor(SDK.DebuggerModel.CallFrame);
     const callFrameContext = callFrame && callFrame.script.executionContext();
     if (callFrameContext) {
-      UI.context.setFlavor(SDK.ExecutionContext, callFrameContext);
+      self.UI.context.setFlavor(SDK.ExecutionContext, callFrameContext);
     }
   }
 
@@ -324,14 +325,3 @@ export default class ConsoleContextSelector {
     }
   }
 }
-
-/* Legacy exported object */
-self.Console = self.Console || {};
-
-/* Legacy exported object */
-Console = Console || {};
-
-/**
- * @constructor
- */
-Console.ConsoleContextSelector = ConsoleContextSelector;

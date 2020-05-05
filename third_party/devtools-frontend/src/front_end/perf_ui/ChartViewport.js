@@ -2,40 +2,43 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {MinimalTimeWindowMs} from './FlameChart.js';
+
 /**
  * @interface
  */
-PerfUI.ChartViewportDelegate = function() {};
-
-PerfUI.ChartViewportDelegate.prototype = {
+export class ChartViewportDelegate {
   /**
    * @param {number} startTime
    * @param {number} endTime
    * @param {boolean} animate
    */
-  windowChanged(startTime, endTime, animate) {},
+  windowChanged(startTime, endTime, animate) {
+  }
 
   /**
    * @param {number} startTime
    * @param {number} endTime
    */
-  updateRangeSelection(startTime, endTime) {},
+  updateRangeSelection(startTime, endTime) {
+  }
 
   /**
    * @param {number} width
    * @param {number} height
    */
-  setSize(width, height) {},
+  setSize(width, height) {
+  }
 
   update() {}
-};
+}
 
 /**
  * @unrestricted
  */
-PerfUI.ChartViewport = class extends UI.VBox {
+export class ChartViewport extends UI.VBox {
   /**
-   * @param {!PerfUI.ChartViewportDelegate} delegate
+   * @param {!ChartViewportDelegate} delegate
    */
   constructor(delegate) {
     super();
@@ -152,6 +155,7 @@ PerfUI.ChartViewport = class extends UI.VBox {
     this._totalHeight = totalHeight;
     this._vScrollContent.style.height = totalHeight + 'px';
     this._updateScrollBar();
+    this._updateContentElementSize();
     if (this._scrollTop + this._offsetHeight <= totalHeight) {
       return;
     }
@@ -180,6 +184,13 @@ PerfUI.ChartViewport = class extends UI.VBox {
   }
 
   /**
+   * @return {number}
+   */
+  chartHeight() {
+    return this._offsetHeight;
+  }
+
+  /**
    * @param {number} zeroTime
    * @param {number} totalTime
    */
@@ -192,7 +203,8 @@ PerfUI.ChartViewport = class extends UI.VBox {
    * @param {!Event} e
    */
   _onMouseWheel(e) {
-    const doZoomInstead = e.shiftKey ^ (Common.moduleSetting('flamechartMouseWheelAction').get() === 'zoom');
+    const doZoomInstead =
+        e.shiftKey ^ (self.Common.settings.moduleSetting('flamechartMouseWheelAction').get() === 'zoom');
     const panVertically = !doZoomInstead && (e.wheelDeltaY || Math.abs(e.wheelDeltaX) === 120);
     const panHorizontally = doZoomInstead && Math.abs(e.wheelDeltaX) > Math.abs(e.wheelDeltaY);
     if (panVertically) {
@@ -455,7 +467,7 @@ PerfUI.ChartViewport = class extends UI.VBox {
       bounds.left = Math.max(bounds.left - bounds.right + maxBound, this._minimumBoundary);
       bounds.right = maxBound;
     }
-    if (bounds.right - bounds.left < PerfUI.FlameChart.MinimalTimeWindowMs) {
+    if (bounds.right - bounds.left < MinimalTimeWindowMs) {
       return;
     }
     this._delegate.windowChanged(bounds.left, bounds.right, animate);
@@ -510,7 +522,7 @@ PerfUI.ChartViewport = class extends UI.VBox {
     /**
      * @param {number} startTime
      * @param {number} endTime
-     * @this {PerfUI.ChartViewport}
+     * @this {ChartViewport}
      */
     function animateWindowTimes(startTime, endTime) {
       this._visibleLeftTime = startTime;
@@ -532,4 +544,4 @@ PerfUI.ChartViewport = class extends UI.VBox {
   windowRightTime() {
     return this._visibleRightTime;
   }
-};
+}

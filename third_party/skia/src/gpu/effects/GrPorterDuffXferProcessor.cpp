@@ -158,13 +158,13 @@ private:
         uint32_t fData;
     };
 
-    GR_STATIC_ASSERT(kLast_OutputType      < (1 << 3));
-    GR_STATIC_ASSERT(kLast_GrBlendEquation < (1 << 5));
-    GR_STATIC_ASSERT(kLast_GrBlendCoeff    < (1 << 5));
-    GR_STATIC_ASSERT(kLast_Property        < (1 << 6));
+    static_assert(kLast_OutputType      < (1 << 3));
+    static_assert(kLast_GrBlendEquation < (1 << 5));
+    static_assert(kLast_GrBlendCoeff    < (1 << 5));
+    static_assert(kLast_Property        < (1 << 6));
 };
 
-GR_STATIC_ASSERT(4 == sizeof(BlendFormula));
+static_assert(4 == sizeof(BlendFormula));
 
 GR_MAKE_BITFIELD_OPS(BlendFormula::Properties);
 
@@ -355,9 +355,9 @@ static MAYBE_CONSTEXPR BlendFormula gBlendTable[2][2][(int)SkBlendMode::kLastCoe
 }}};
 // In the above table src-over is not optimized to src mode when the color is opaque because we
 // found no advantage to doing so. Also, we are using a global src-over XP in most cases which is
-// not specialized for opaque input. If the table were set to use the src formula then we'd have to
-// change when we use this global XP to keep analysis and practice in sync.
-
+// not specialized for opaque input. For GPUs where dropping to src (and thus able to disable
+// blending) is an advantage we change the blend mode to src before getitng the blend formula from
+// this table.
 static MAYBE_CONSTEXPR BlendFormula gLCDBlendTable[(int)SkBlendMode::kLastCoeffMode + 1] = {
     /* clear */      MakeCoverageSrcCoeffZeroFormula(BlendFormula::kCoverage_OutputType),
     /* src */        MakeCoverageFormula(BlendFormula::kCoverage_OutputType, kOne_GrBlendCoeff),
@@ -470,7 +470,7 @@ public:
         const PorterDuffXferProcessor& xp = processor.cast<PorterDuffXferProcessor>();
         b->add32(xp.getBlendFormula().primaryOutput() |
                  (xp.getBlendFormula().secondaryOutput() << 3));
-        GR_STATIC_ASSERT(BlendFormula::kLast_OutputType < 8);
+        static_assert(BlendFormula::kLast_OutputType < 8);
     }
 
 private:
@@ -772,9 +772,15 @@ sk_sp<const GrXferProcessor> GrPorterDuffXPFactory::makeXferProcessor(
         }
         blendFormula = get_lcd_blend_formula(fBlendMode);
     } else {
-        blendFormula =
+        if (fBlendMode == SkBlendMode::kSrcOver && color.isOpaque() &&
+            coverage == GrProcessorAnalysisCoverage::kNone && !hasMixedSamples &&
+            caps.shouldCollapseSrcOverToSrcWhenAble()) {
+            blendFormula = get_blend_formula(true, false, false, SkBlendMode::kSrc);
+        } else {
+            blendFormula =
                 get_blend_formula(color.isOpaque(), GrProcessorAnalysisCoverage::kNone != coverage,
                                   hasMixedSamples, fBlendMode);
+        }
     }
 
     // Skia always saturates after the kPlus blend mode, so it requires shader-based blending when
@@ -895,6 +901,11 @@ sk_sp<const GrXferProcessor> GrPorterDuffXPFactory::MakeSrcOverXferProcessor(
     // the general case where we convert a src-over blend that has solid coverage and an opaque
     // color to src-mode, which allows disabling of blending.
     if (coverage != GrProcessorAnalysisCoverage::kLCD) {
+        if (color.isOpaque() && coverage == GrProcessorAnalysisCoverage::kNone &&
+            !hasMixedSamples && caps.shouldCollapseSrcOverToSrcWhenAble()) {
+            BlendFormula blendFormula = get_blend_formula(true, false, false, SkBlendMode::kSrc);
+            return sk_sp<GrXferProcessor>(new PorterDuffXferProcessor(blendFormula, coverage));
+        }
         // We return nullptr here, which our caller interprets as meaning "use SimpleSrcOverXP".
         // We don't simply return the address of that XP here because our caller would have to unref
         // it and since it is a global object and GrProgramElement's ref-cnting system is not thread

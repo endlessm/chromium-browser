@@ -37,7 +37,7 @@ PUBLIC_API_OWNERS = (
 AUTHORS_FILE_NAME = 'AUTHORS'
 RELEASE_NOTES_FILE_NAME = 'RELEASE_NOTES.txt'
 
-DOCS_PREVIEW_URL = 'https://skia.org/?cl={issue}'
+DOCS_PREVIEW_URL = 'https://skia.org/?cl='
 GOLD_TRYBOT_URL = 'https://gold.skia.org/search?issue='
 
 SERVICE_ACCOUNT_SUFFIX = [
@@ -47,11 +47,11 @@ SERVICE_ACCOUNT_SUFFIX = [
 
 
 def _CheckChangeHasEol(input_api, output_api, source_file_filter=None):
-  """Checks that files end with at least one \n (LF)."""
+  """Checks that files end with atleast one \n (LF)."""
   eof_files = []
   for f in input_api.AffectedSourceFiles(source_file_filter):
     contents = input_api.ReadFile(f, 'rb')
-    # Check that the file ends in at least one newline character.
+    # Check that the file ends in atleast one newline character.
     if len(contents) > 1 and contents[-1:] != '\n':
       eof_files.append(f.LocalPath())
 
@@ -162,30 +162,18 @@ def _InfraTests(input_api, output_api):
 
 def _CheckGNFormatted(input_api, output_api):
   """Make sure any .gn files we're changing have been formatted."""
-  files = []
-  for f in input_api.AffectedFiles():
-    if (f.LocalPath().endswith('.gn') or
-        f.LocalPath().endswith('.gni')):
-      files.append(f)
-  if not files:
-    return []
-
-  cmd = ['python', os.path.join('bin', 'fetch-gn')]
-  try:
-    subprocess.check_output(cmd)
-  except subprocess.CalledProcessError as e:
-    return [output_api.PresubmitError(
-        '`%s` failed:\n%s' % (' '.join(cmd), e.output))]
-
   results = []
-  for f in files:
-    gn = 'gn.exe' if 'win32' in sys.platform else 'gn'
-    gn = os.path.join(input_api.PresubmitLocalPath(), 'bin', gn)
+  for f in input_api.AffectedFiles():
+    if (not f.LocalPath().endswith('.gn') and
+        not f.LocalPath().endswith('.gni')):
+      continue
+
+    gn = 'gn.bat' if 'win32' in sys.platform else 'gn'
     cmd = [gn, 'format', '--dry-run', f.LocalPath()]
     try:
       subprocess.check_output(cmd)
     except subprocess.CalledProcessError:
-      fix = 'bin/gn format ' + f.LocalPath()
+      fix = 'gn format ' + f.LocalPath()
       results.append(output_api.PresubmitError(
           '`%s` failed, try\n\t%s' % (' '.join(cmd), fix)))
   return results
@@ -282,7 +270,11 @@ def _CommonChecks(input_api, output_api):
 
 
 def CheckChangeOnUpload(input_api, output_api):
-  """Presubmit checks for the change on upload."""
+  """Presubmit checks for the change on upload.
+
+  The following are the presubmit checks:
+  * Check change has one and only one EOL.
+  """
   results = []
   results.extend(_CommonChecks(input_api, output_api))
   # Run on upload, not commit, since the presubmit bot apparently doesn't have
@@ -455,72 +447,86 @@ def _CheckLGTMsForPublicAPI(input_api, output_api):
   return results
 
 
-def PostUploadHook(gerrit, change, output_api):
+def _FooterExists(footers, key, value):
+  for k, v in footers:
+    if k == key and v == value:
+      return True
+  return False
+
+
+def PostUploadHook(cl, change, output_api):
   """git cl upload will call this hook after the issue is created/modified.
 
   This hook does the following:
   * Adds a link to preview docs changes if there are any docs changes in the CL.
   * Adds 'No-Try: true' if the CL contains only docs changes.
   """
-  if not change.issue:
-    return []
-
-  # Skip PostUploadHooks for all auto-commit service account bots. New
-  # patchsets (caused due to PostUploadHooks) invalidates the CQ+2 vote from
-  # the "--use-commit-queue" flag to "git cl upload".
-  for suffix in SERVICE_ACCOUNT_SUFFIX:
-    if change.author_email.endswith(suffix):
-      return []
 
   results = []
-  at_least_one_docs_change = False
+  atleast_one_docs_change = False
   all_docs_changes = True
   for affected_file in change.AffectedFiles():
     affected_file_path = affected_file.LocalPath()
     file_path, _ = os.path.splitext(affected_file_path)
     if 'site' == file_path.split(os.path.sep)[0]:
-      at_least_one_docs_change = True
+      atleast_one_docs_change = True
     else:
       all_docs_changes = False
-    if at_least_one_docs_change and not all_docs_changes:
+    if atleast_one_docs_change and not all_docs_changes:
       break
 
-  footers = change.GitFootersFromDescription()
-  description_changed = False
+  issue = cl.issue
+  if issue:
+    # Skip PostUploadHooks for all auto-commit service account bots. New
+    # patchsets (caused due to PostUploadHooks) invalidates the CQ+2 vote from
+    # the "--use-commit-queue" flag to "git cl upload".
+    for suffix in SERVICE_ACCOUNT_SUFFIX:
+      if cl.GetIssueOwner().endswith(suffix):
+        return results
 
-  # If the change includes only doc changes then add No-Try: true in the
-  # CL's description if it does not exist yet.
-  if all_docs_changes and 'true' not in footers.get('No-Try', []):
-    description_changed = True
-    change.AddDescriptionFooter('No-Try', 'true')
-    results.append(
-        output_api.PresubmitNotifyResult(
-            'This change has only doc changes. Automatically added '
-            '\'No-Try: true\' to the CL\'s description'))
+    original_description_lines, footers = cl.GetDescriptionFooters()
+    new_description_lines = list(original_description_lines)
 
-  # If there is at least one docs change then add preview link in the CL's
-  # description if it does not already exist there.
-  docs_preview_link = DOCS_PREVIEW_URL.format(issue=change.issue)
-  if (at_least_one_docs_change
-      and docs_preview_link not in footers.get('Docs-Preview', [])):
-    # Automatically add a link to where the docs can be previewed.
-    description_changed = True
-    change.AddDescriptionFooter('Docs-Preview', docs_preview_link)
-    results.append(
-        output_api.PresubmitNotifyResult(
-            'Automatically added a link to preview the docs changes to the '
-            'CL\'s description'))
+    # If the change includes only doc changes then add No-Try: true in the
+    # CL's description if it does not exist yet.
+    if all_docs_changes and not _FooterExists(footers, 'No-Try', 'true'):
+      new_description_lines.append('No-Try: true')
+      results.append(
+          output_api.PresubmitNotifyResult(
+              'This change has only doc changes. Automatically added '
+              '\'No-Try: true\' to the CL\'s description'))
 
-  # If the description has changed update it.
-  if description_changed:
-    gerrit.UpdateDescription(
-        change.FullDescriptionText(), change.issue)
+    # If there is atleast one docs change then add preview link in the CL's
+    # description if it does not already exist there.
+    docs_preview_link = '%s%s' % (DOCS_PREVIEW_URL, issue)
+    docs_preview_line = 'Docs-Preview: %s' % docs_preview_link
+    if (atleast_one_docs_change and
+        not _FooterExists(footers, 'Docs-Preview', docs_preview_link)):
+      # Automatically add a link to where the docs can be previewed.
+      new_description_lines.append(docs_preview_line)
+      results.append(
+          output_api.PresubmitNotifyResult(
+              'Automatically added a link to preview the docs changes to the '
+              'CL\'s description'))
 
-  return results
+    # If the description has changed update it.
+    if new_description_lines != original_description_lines:
+      # Add a new line separating the new contents from the old contents.
+      new_description_lines.insert(len(original_description_lines), '')
+      cl.UpdateDescriptionFooters(new_description_lines, footers)
+
+    return results
 
 
 def CheckChangeOnCommit(input_api, output_api):
-  """Presubmit checks for the change on commit."""
+  """Presubmit checks for the change on commit.
+
+  The following are the presubmit checks:
+  * Check change has one and only one EOL.
+  * Ensures that the Skia tree is open in
+    http://skia-tree-status.appspot.com/. Shows a warning if it is in 'Caution'
+    state and an error if it is in 'Closed' state.
+  """
   results = []
   results.extend(_CommonChecks(input_api, output_api))
   results.extend(_CheckLGTMsForPublicAPI(input_api, output_api))

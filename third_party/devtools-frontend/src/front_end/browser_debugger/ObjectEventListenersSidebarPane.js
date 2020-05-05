@@ -27,10 +27,10 @@ export class ObjectEventListenersSidebarPane extends UI.VBox {
 
   update() {
     if (this._lastRequestedContext) {
-      this._lastRequestedContext.runtimeModel.releaseObjectGroup(_objectGroupName);
+      this._lastRequestedContext.runtimeModel.releaseObjectGroup(objectGroupName);
       delete this._lastRequestedContext;
     }
-    const executionContext = UI.context.flavor(SDK.ExecutionContext);
+    const executionContext = self.UI.context.flavor(SDK.ExecutionContext);
     if (!executionContext) {
       this._eventListenersView.reset();
       this._eventListenersView.addEmptyHolderIfNeeded();
@@ -46,7 +46,7 @@ export class ObjectEventListenersSidebarPane extends UI.VBox {
    */
   wasShown() {
     super.wasShown();
-    UI.context.addFlavorChangeListener(SDK.ExecutionContext, this.update, this);
+    self.UI.context.addFlavorChangeListener(SDK.ExecutionContext, this.update, this);
     this._refreshButton.setEnabled(true);
     this.update();
   }
@@ -56,7 +56,7 @@ export class ObjectEventListenersSidebarPane extends UI.VBox {
    */
   willHide() {
     super.willHide();
-    UI.context.removeFlavorChangeListener(SDK.ExecutionContext, this.update, this);
+    self.UI.context.removeFlavorChangeListener(SDK.ExecutionContext, this.update, this);
     this._refreshButton.setEnabled(false);
   }
 
@@ -69,7 +69,7 @@ export class ObjectEventListenersSidebarPane extends UI.VBox {
         .evaluate(
             {
               expression: 'self',
-              objectGroup: _objectGroupName,
+              objectGroup: objectGroupName,
               includeCommandLineAPI: false,
               silent: true,
               returnByValue: false,
@@ -89,17 +89,4 @@ export class ObjectEventListenersSidebarPane extends UI.VBox {
   }
 }
 
-export const _objectGroupName = 'object-event-listeners-sidebar-pane';
-
-/* Legacy exported object */
-self.BrowserDebugger = self.BrowserDebugger || {};
-
-/* Legacy exported object */
-BrowserDebugger = BrowserDebugger || {};
-
-/**
- * @constructor
- */
-BrowserDebugger.ObjectEventListenersSidebarPane = ObjectEventListenersSidebarPane;
-
-BrowserDebugger.ObjectEventListenersSidebarPane._objectGroupName = _objectGroupName;
+export const objectGroupName = 'object-event-listeners-sidebar-pane';

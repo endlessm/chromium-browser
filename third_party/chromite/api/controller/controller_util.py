@@ -9,6 +9,7 @@ from __future__ import print_function
 
 from chromite.api.gen.chromiumos import common_pb2
 from chromite.cbuildbot import goma_util
+from chromite.lib import constants
 from chromite.lib import portage_util
 from chromite.lib.build_target_util import BuildTarget
 from chromite.lib.chroot_lib import Chroot
@@ -36,7 +37,7 @@ def ParseChroot(chroot_message):
   """
   assert isinstance(chroot_message, common_pb2.Chroot)
 
-  path = chroot_message.path
+  path = chroot_message.path or constants.DEFAULT_CHROOT_PATH
   cache_dir = chroot_message.cache_dir
   chrome_root = chroot_message.chrome_dir
 
@@ -51,29 +52,43 @@ def ParseChroot(chroot_message):
   if chrome_root:
     env['CHROME_ORIGIN'] = 'LOCAL_SOURCE'
 
-  # TODO(saklein) Remove the default when fully integrated in recipes.
-  env['FEATURES'] = 'separatedebug'
   if features:
     env['FEATURES'] = ' '.join(features)
 
-  goma = None
-  if chroot_message.goma.goma_dir:
-    chromeos_goma_dir = chroot_message.goma.chromeos_goma_dir or None
-    goma_approach = None
-    if chroot_message.goma.goma_approach == common_pb2.GomaConfig.RBE_PROD:
-      goma_approach = goma_util.GomaApproach('?prod', 'goma.chromium.org', True)
-    elif chroot_message.goma.goma_approach == common_pb2.GomaConfig.RBE_STAGING:
-      goma_approach = goma_util.GomaApproach('?staging',
-                                             'staging-goma.chromium.org', True)
-    goma = goma_util.Goma(chroot_message.goma.goma_dir,
-                          chroot_message.goma.goma_client_json,
-                          stage_name='BuildAPI',
-                          chromeos_goma_dir=chromeos_goma_dir,
-                          chroot_dir=path,
-                          goma_approach=goma_approach)
+  chroot = Chroot(
+      path=path, cache_dir=cache_dir, chrome_root=chrome_root, env=env)
 
-  return Chroot(path=path, cache_dir=cache_dir, chrome_root=chrome_root,
-                env=env, goma=goma)
+  return chroot
+
+def ParseGomaConfig(goma_message, chroot_path):
+  """Parse a goma config message."""
+  assert isinstance(goma_message, common_pb2.GomaConfig)
+
+  if not goma_message.goma_dir:
+    return None
+
+  # Parse the goma config.
+  chromeos_goma_dir = goma_message.chromeos_goma_dir or None
+  goma_approach = None
+  if goma_message.goma_approach == common_pb2.GomaConfig.RBE_PROD:
+    goma_approach = goma_util.GomaApproach('?prod', 'goma.chromium.org', True)
+  elif goma_message.goma_approach == common_pb2.GomaConfig.RBE_STAGING:
+    goma_approach = goma_util.GomaApproach('?staging',
+                                           'staging-goma.chromium.org', True)
+
+  # Note that we are not specifying the goma log_dir so that goma will create
+  # and use a tmp dir for the logs.
+  stats_filename = goma_message.stats_file or None
+  counterz_filename = goma_message.counterz_file or None
+
+  return goma_util.Goma(goma_message.goma_dir,
+                        goma_message.goma_client_json,
+                        stage_name='BuildAPI',
+                        chromeos_goma_dir=chromeos_goma_dir,
+                        chroot_dir=chroot_path,
+                        goma_approach=goma_approach,
+                        stats_filename=stats_filename,
+                        counterz_filename=counterz_filename)
 
 
 def ParseBuildTarget(build_target_message):

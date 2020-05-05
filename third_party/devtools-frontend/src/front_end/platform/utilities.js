@@ -63,7 +63,7 @@ String.prototype.reverse = function() {
 String.prototype.replaceControlCharacters = function() {
   // Replace C0 and C1 control character sets with printable character.
   // Do not replace '\t', \n' and '\r'.
-  return this.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u0080-\u009f]/g, '�');
+  return this.replace(/[\0-\x08\x0B\f\x0E-\x1F\x80-\x9F]/g, '\uFFFD');
 };
 
 /**
@@ -142,35 +142,6 @@ String.filterRegex = function(query) {
     regexString += c;
   }
   return new RegExp(regexString, 'i');
-};
-
-/**
-  * @param {string} text
-  * @return {string}
-  */
-String.escapeInvalidUnicodeCharacters = function(text) {
-  if (!String._invalidCharactersRegExp) {
-    // Escape orphan surrogates and invalid characters.
-    let invalidCharacters = '';
-    for (let i = 0xfffe; i <= 0x10ffff; i += 0x10000) {
-      invalidCharacters += String.fromCodePoint(i, i + 1);
-    }
-    String._invalidCharactersRegExp = new RegExp(`[${invalidCharacters}\uD800-\uDFFF\uFDD0-\uFDEF]`, 'gu');
-  }
-  let result = '';
-  let lastPos = 0;
-  while (true) {
-    const match = String._invalidCharactersRegExp.exec(text);
-    if (!match) {
-      break;
-    }
-    result += text.substring(lastPos, match.index) + '\\u' + text.charCodeAt(match.index).toString(16);
-    if (match.index + 1 < String._invalidCharactersRegExp.lastIndex) {
-      result += '\\u' + text.charCodeAt(match.index + 1).toString(16);
-    }
-    lastPos = String._invalidCharactersRegExp.lastIndex;
-  }
-  return result + text.substring(lastPos);
 };
 
 /**
@@ -503,54 +474,8 @@ Object.defineProperty(Array.prototype, 'remove', {
     }
     this.length = index;
     return true;
-  }
-});
-
-Object.defineProperty(Array.prototype, 'pushAll', {
-  /**
-   * @param {!Array<!T>} array
-   * @this {Array<!T>}
-   * @template T
-   */
-  value: function(array) {
-    for (let i = 0; i < array.length; ++i) {
-      this.push(array[i]);
-    }
-  }
-});
-
-Object.defineProperty(Array.prototype, 'rotate', {
-  /**
-   * @param {number} index
-   * @return {!Array.<!T>}
-   * @this {Array.<!T>}
-   * @template T
-   */
-  value: function(index) {
-    const result = [];
-    for (let i = index; i < index + this.length; ++i) {
-      result.push(this[i % this.length]);
-    }
-    return result;
-  }
-});
-
-Object.defineProperty(Array.prototype, 'sortNumbers', {
-  /**
-   * @this {Array.<number>}
-   */
-  value: function() {
-    /**
-     * @param {number} a
-     * @param {number} b
-     * @return {number}
-     */
-    function numericComparator(a, b) {
-      return a - b;
-    }
-
-    this.sort(numericComparator);
-  }
+  },
+  configurable: true
 });
 
 (function() {
@@ -580,7 +505,8 @@ const partition = {
     }
     swap(this, right, storeIndex);
     return storeIndex;
-  }
+  },
+  configurable: true
 };
 Object.defineProperty(Array.prototype, 'partition', partition);
 Object.defineProperty(Uint32Array.prototype, 'partition', partition);
@@ -615,7 +541,8 @@ const sortRange = {
       quickSortRange(this, comparator, leftBound, rightBound, sortWindowLeft, sortWindowRight);
     }
     return this;
-  }
+  },
+  configurable: true
 };
 Object.defineProperty(Array.prototype, 'sortRange', sortRange);
 Object.defineProperty(Uint32Array.prototype, 'sortRange', sortRange);
@@ -654,7 +581,8 @@ Object.defineProperty(Array.prototype, 'lowerBound', {
       }
     }
     return r;
-  }
+  },
+  configurable: true
 });
 
 Object.defineProperty(Array.prototype, 'upperBound', {
@@ -690,18 +618,19 @@ Object.defineProperty(Array.prototype, 'upperBound', {
       }
     }
     return r;
-  }
+  },
+  configurable: true
 });
 
-Object.defineProperty(Uint32Array.prototype, 'lowerBound', {value: Array.prototype.lowerBound});
+Object.defineProperty(Uint32Array.prototype, 'lowerBound', {value: Array.prototype.lowerBound, configurable: true});
 
-Object.defineProperty(Uint32Array.prototype, 'upperBound', {value: Array.prototype.upperBound});
+Object.defineProperty(Uint32Array.prototype, 'upperBound', {value: Array.prototype.upperBound, configurable: true});
 
-Object.defineProperty(Int32Array.prototype, 'lowerBound', {value: Array.prototype.lowerBound});
+Object.defineProperty(Int32Array.prototype, 'lowerBound', {value: Array.prototype.lowerBound, configurable: true});
 
-Object.defineProperty(Int32Array.prototype, 'upperBound', {value: Array.prototype.upperBound});
+Object.defineProperty(Int32Array.prototype, 'upperBound', {value: Array.prototype.upperBound, configurable: true});
 
-Object.defineProperty(Float64Array.prototype, 'lowerBound', {value: Array.prototype.lowerBound});
+Object.defineProperty(Float64Array.prototype, 'lowerBound', {value: Array.prototype.lowerBound, configurable: true});
 
 Object.defineProperty(Array.prototype, 'binaryIndexOf', {
   /**
@@ -714,7 +643,8 @@ Object.defineProperty(Array.prototype, 'binaryIndexOf', {
   value: function(value, comparator) {
     const index = this.lowerBound(value, comparator);
     return index < this.length && comparator(value, this[index]) === 0 ? index : -1;
-  }
+  },
+  configurable: true
 });
 
 Object.defineProperty(Array.prototype, 'select', {
@@ -730,7 +660,8 @@ Object.defineProperty(Array.prototype, 'select', {
       result[i] = this[i][field];
     }
     return result;
-  }
+  },
+  configurable: true
 });
 
 Object.defineProperty(Array.prototype, 'peekLast', {
@@ -741,7 +672,8 @@ Object.defineProperty(Array.prototype, 'peekLast', {
    */
   value: function() {
     return this[this.length - 1];
-  }
+  },
+  configurable: true
 });
 
 (function() {
@@ -790,7 +722,8 @@ Object.defineProperty(Array.prototype, 'peekLast', {
      */
     value: function(array, comparator) {
       return mergeOrIntersect(this, array, comparator, false);
-    }
+    },
+    configurable: true
   });
 
   Object.defineProperty(Array.prototype, 'mergeOrdered', {
@@ -803,7 +736,8 @@ Object.defineProperty(Array.prototype, 'peekLast', {
      */
     value: function(array, comparator) {
       return mergeOrIntersect(this, array, comparator, true);
-    }
+    },
+    configurable: true
   });
 })();
 
@@ -1267,7 +1201,7 @@ const Multimap = class {
     const result = [];
     const keys = this.keysArray();
     for (let i = 0; i < keys.length; ++i) {
-      result.pushAll(this.get(keys[i]).valuesArray());
+      result.push(...this.get(keys[i]).valuesArray());
     }
     return result;
   }
@@ -1443,6 +1377,27 @@ self.base64ToSize = function(content) {
     size--;
   }
   return size;
+};
+
+/**
+ * @param {?string} input
+ * @return {string}
+ */
+self.unescapeCssString = function(input) {
+  // https://drafts.csswg.org/css-syntax/#consume-escaped-code-point
+  const reCssEscapeSequence = /(?<!\\)\\(?:([a-fA-F0-9]{1,6})|(.))[\n\t\x20]?/gs;
+  return input.replace(reCssEscapeSequence, (_, $1, $2) => {
+    if ($2) {  // Handle the single-character escape sequence.
+      return $2;
+    }
+    // Otherwise, handle the code point escape sequence.
+    const codePoint = parseInt($1, 16);
+    const isSurrogate = 0xD800 <= codePoint && codePoint <= 0xDFFF;
+    if (isSurrogate || codePoint === 0x0000 || codePoint > 0x10FFFF) {
+      return '\uFFFD';
+    }
+    return String.fromCodePoint(codePoint);
+  });
 };
 
 self.Platform = self.Platform || {};

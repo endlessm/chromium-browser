@@ -247,16 +247,24 @@ bool GetQuadPointsAtIndex(const CPDF_Array* array,
   return true;
 }
 
-CFX_FloatRect CFXFloatRectFromFSRECTF(const FS_RECTF& rect) {
+CFX_PointF CFXPointFFromFSPointF(const FS_POINTF& point) {
+  return CFX_PointF(point.x, point.y);
+}
+
+CFX_FloatRect CFXFloatRectFromFSRectF(const FS_RECTF& rect) {
   return CFX_FloatRect(rect.left, rect.bottom, rect.right, rect.top);
 }
 
-FS_RECTF FSRECTFFromCFXFloatRect(const CFX_FloatRect& rect) {
+FS_RECTF FSRectFFromCFXFloatRect(const CFX_FloatRect& rect) {
   return {rect.left, rect.top, rect.right, rect.bottom};
 }
 
 CFX_Matrix CFXMatrixFromFSMatrix(const FS_MATRIX& matrix) {
   return CFX_Matrix(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+}
+
+FS_MATRIX FSMatrixFromCFXMatrix(const CFX_Matrix& matrix) {
+  return {matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f};
 }
 
 unsigned long Utf16EncodeMaybeCopyAndReturnLength(const WideString& text,
@@ -354,7 +362,9 @@ void ReportUnsupportedFeatures(CPDF_Document* pDoc) {
         RaiseUnsupportedError(static_cast<int>(err));
     }
   }
+}
 
+void ReportUnsupportedXFA(CPDF_Document* pDoc) {
   // XFA Forms
   if (!pDoc->GetExtension() && CPDF_InteractiveForm(pDoc).HasXFAForm())
     RaiseUnsupportedError(FPDF_UNSP_DOC_XFAFORM);

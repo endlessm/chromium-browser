@@ -29,7 +29,6 @@
 #define HB_OT_VAR_GVAR_TABLE_HH
 
 #include "hb-open-type.hh"
-#include "hb-ot-glyf-table.hh"
 #include "hb-ot-var-fvar-table.hh"
 
 /*
@@ -42,12 +41,14 @@ namespace OT {
 
 struct contour_point_t
 {
-  void init (float x_=0.f, float y_=0.f) { flag = 0; x = x_; y = y_; }
+  void init (float x_ = 0.f, float y_ = 0.f, bool is_end_point_ = false)
+  { flag = 0; x = x_; y = y_; is_end_point = is_end_point_; }
 
   void translate (const contour_point_t &p) { x += p.x; y += p.y; }
 
   uint8_t flag;
   float x, y;
+  bool is_end_point;
 };
 
 struct contour_point_vector_t : hb_vector_t<contour_point_t>
@@ -106,7 +107,7 @@ struct TupleVarHeader
   { return StructAtOffset<TupleVarHeader> (this, get_size (axis_count)); }
 
   float calculate_scalar (const int *coords, unsigned int coord_count,
-  			  const hb_array_t<const F2DOT14> shared_tuples) const
+			  const hb_array_t<const F2DOT14> shared_tuples) const
   {
     const F2DOT14 *peak_tuple;
 
@@ -260,10 +261,10 @@ struct GlyphVarData
   };
 
   static bool get_tuple_iterator (const GlyphVarData *var_data,
-  				  unsigned int length,
-  				  unsigned int axis_count,
-  				  hb_vector_t<unsigned int> &shared_indices /* OUT */,
-  				  tuple_iterator_t *iterator /* OUT */)
+				  unsigned int length,
+				  unsigned int axis_count,
+				  hb_vector_t<unsigned int> &shared_indices /* OUT */,
+				  tuple_iterator_t *iterator /* OUT */)
   {
     iterator->init (var_data, length, axis_count);
     if (!iterator->get_shared_indices (shared_indices))
@@ -283,12 +284,12 @@ struct GlyphVarData
       POINT_RUN_COUNT_MASK = 0x7F
     };
 
-    if (unlikely (!bytes.in_range (p))) return false;
+    if (unlikely (!bytes.check_range (p))) return false;
 
     uint16_t count = *p++;
     if (count & POINTS_ARE_WORDS)
     {
-      if (unlikely (!bytes.in_range (p))) return false;
+      if (unlikely (!bytes.check_range (p))) return false;
       count = ((count & POINT_RUN_COUNT_MASK) << 8) | *p++;
     }
     points.resize (count);
@@ -297,7 +298,7 @@ struct GlyphVarData
     uint16_t i = 0;
     while (i < count)
     {
-      if (unlikely (!bytes.in_range (p))) return false;
+      if (unlikely (!bytes.check_range (p))) return false;
       uint16_t j;
       uint8_t control = *p++;
       uint16_t run_count = (control & POINT_RUN_COUNT_MASK) + 1;
@@ -305,7 +306,7 @@ struct GlyphVarData
       {
 	for (j = 0; j < run_count && i < count; j++, i++)
 	{
-	  if (unlikely (!bytes.in_range ((const HBUINT16 *) p)))
+	  if (unlikely (!bytes.check_range ((const HBUINT16 *) p)))
 	    return false;
 	  n += *(const HBUINT16 *)p;
 	  points[i] = n;
@@ -316,7 +317,7 @@ struct GlyphVarData
       {
 	for (j = 0; j < run_count && i < count; j++, i++)
 	{
-	  if (unlikely (!bytes.in_range (p))) return false;
+	  if (unlikely (!bytes.check_range (p))) return false;
 	  n += *p++;
 	  points[i] = n;
 	}
@@ -341,7 +342,7 @@ struct GlyphVarData
     unsigned int count = deltas.length;
     while (i < count)
     {
-      if (unlikely (!bytes.in_range (p))) return false;
+      if (unlikely (!bytes.check_range (p))) return false;
       uint8_t control = *p++;
       unsigned int run_count = (control & DELTA_RUN_COUNT_MASK) + 1;
       unsigned int j;
@@ -351,7 +352,7 @@ struct GlyphVarData
       else if (control & DELTAS_ARE_WORDS)
 	for (j = 0; j < run_count && i < count; j++, i++)
 	{
-	  if (unlikely (!bytes.in_range ((const HBUINT16 *) p)))
+	  if (unlikely (!bytes.check_range ((const HBUINT16 *) p)))
 	    return false;
 	  deltas[i] = *(const HBINT16 *) p;
 	  p += HBUINT16::static_size;
@@ -359,7 +360,7 @@ struct GlyphVarData
       else
 	for (j = 0; j < run_count && i < count; j++, i++)
 	{
-	  if (unlikely (!bytes.in_range (p)))
+	  if (unlikely (!bytes.check_range (p)))
 	    return false;
 	  deltas[i] = *(const HBINT8 *) p++;
 	}
@@ -513,7 +514,7 @@ struct gvar
 
       if (unlikely ((gvar_table->glyphCount != face->get_num_glyphs ()) ||
 		    (gvar_table->axisCount != axis_count)))
-      	fini ();
+	fini ();
 
       unsigned int num_shared_coord = gvar_table->sharedTupleCount * gvar_table->axisCount;
       shared_tuples.resize (num_shared_coord);
@@ -543,11 +544,11 @@ struct gvar
       float next_delta = T::get (deltas[next]);
 
       if (prev_val == next_val)
-      	return (prev_delta == next_delta) ? prev_delta : 0.f;
+	return (prev_delta == next_delta) ? prev_delta : 0.f;
       else if (target_val <= hb_min (prev_val, next_val))
-      	return (prev_val < next_val) ? prev_delta : next_delta;
+	return (prev_val < next_val) ? prev_delta : next_delta;
       else if (target_val >= hb_max (prev_val, next_val))
-      	return (prev_val > next_val) ? prev_delta : next_delta;
+	return (prev_val > next_val) ? prev_delta : next_delta;
 
       /* linear interpolation */
       float r = (target_val - prev_val) / (next_val - prev_val);
@@ -563,6 +564,7 @@ struct gvar
 				 const hb_array_t<contour_point_t> points,
 				 const hb_array_t<unsigned int> end_points) const
     {
+      if (!coord_count) return true;
       if (unlikely (coord_count != gvar_table->axisCount)) return false;
 
       const GlyphVarData *var_data = gvar_table->get_glyph_var_data (glyph);

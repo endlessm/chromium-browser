@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (C) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (C) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1298,16 +1298,9 @@ static bool ValidatePushConstantBlockAgainstPipeline(debug_report_data const *re
 
                 bool found_range = false;
                 for (auto const &range : *push_constant_ranges) {
-                    if (range.offset <= offset && range.offset + range.size >= offset + size) {
+                    if ((range.offset <= offset) && ((range.offset + range.size) >= (offset + size)) &&
+                        (range.stageFlags & stage)) {
                         found_range = true;
-
-                        if ((range.stageFlags & stage) == 0) {
-                            skip |=
-                                log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        kVUID_Core_Shader_PushConstantNotAccessibleFromStage,
-                                        "Push constant range covering variable starting at offset %u not accessible from stage %s",
-                                        offset, string_VkShaderStageFlagBits(stage));
-                        }
 
                         break;
                     }
@@ -1539,20 +1532,14 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
         // Constructors to populate FeaturePointer based on given pointer to member
         FeaturePointer(VkBool32 VkPhysicalDeviceFeatures::*ptr)
             : IsEnabled([=](const DeviceFeatures &features) { return features.core.*ptr; }) {}
-        FeaturePointer(VkBool32 VkPhysicalDeviceDescriptorIndexingFeaturesEXT::*ptr)
-            : IsEnabled([=](const DeviceFeatures &features) { return features.descriptor_indexing.*ptr; }) {}
-        FeaturePointer(VkBool32 VkPhysicalDevice8BitStorageFeaturesKHR::*ptr)
-            : IsEnabled([=](const DeviceFeatures &features) { return features.eight_bit_storage.*ptr; }) {}
+        FeaturePointer(VkBool32 VkPhysicalDeviceVulkan11Features::*ptr)
+            : IsEnabled([=](const DeviceFeatures &features) { return features.core11.*ptr; }) {}
+        FeaturePointer(VkBool32 VkPhysicalDeviceVulkan12Features::*ptr)
+            : IsEnabled([=](const DeviceFeatures &features) { return features.core12.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceTransformFeedbackFeaturesEXT::*ptr)
             : IsEnabled([=](const DeviceFeatures &features) { return features.transform_feedback_features.*ptr; }) {}
-        FeaturePointer(VkBool32 VkPhysicalDeviceFloat16Int8FeaturesKHR::*ptr)
-            : IsEnabled([=](const DeviceFeatures &features) { return features.float16_int8.*ptr; }) {}
-        FeaturePointer(VkBool32 VkPhysicalDeviceScalarBlockLayoutFeaturesEXT::*ptr)
-            : IsEnabled([=](const DeviceFeatures &features) { return features.scalar_block_layout_features.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceCooperativeMatrixFeaturesNV::*ptr)
             : IsEnabled([=](const DeviceFeatures &features) { return features.cooperative_matrix_features.*ptr; }) {}
-        FeaturePointer(VkBool32 VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR::*ptr)
-            : IsEnabled([=](const DeviceFeatures &features) { return features.uniform_buffer_standard_layout.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::*ptr)
             : IsEnabled([=](const DeviceFeatures &features) { return features.compute_shader_derivatives_features.*ptr; }) {}
         FeaturePointer(VkBool32 VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV::*ptr)
@@ -1568,7 +1555,7 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
     struct CapabilityInfo {
         char const *name;
         FeaturePointer feature;
-        bool DeviceExtensions::*extension;
+        ExtEnabled DeviceExtensions::*extension;
     };
 
     // clang-format off
@@ -1613,17 +1600,17 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
         {spv::CapabilityMultiViewport, {"VkPhysicalDeviceFeatures::multiViewport", &VkPhysicalDeviceFeatures::multiViewport}},
 
         {spv::CapabilityShaderNonUniformEXT, {VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_ext_descriptor_indexing}},
-        {spv::CapabilityRuntimeDescriptorArrayEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::runtimeDescriptorArray", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::runtimeDescriptorArray}},
-        {spv::CapabilityInputAttachmentArrayDynamicIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderInputAttachmentArrayDynamicIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderInputAttachmentArrayDynamicIndexing}},
-        {spv::CapabilityUniformTexelBufferArrayDynamicIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderUniformTexelBufferArrayDynamicIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderUniformTexelBufferArrayDynamicIndexing}},
-        {spv::CapabilityStorageTexelBufferArrayDynamicIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageTexelBufferArrayDynamicIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageTexelBufferArrayDynamicIndexing}},
-        {spv::CapabilityUniformBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderUniformBufferArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderUniformBufferArrayNonUniformIndexing}},
-        {spv::CapabilitySampledImageArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderSampledImageArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderSampledImageArrayNonUniformIndexing}},
-        {spv::CapabilityStorageBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageBufferArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageBufferArrayNonUniformIndexing}},
-        {spv::CapabilityStorageImageArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageImageArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageImageArrayNonUniformIndexing}},
-        {spv::CapabilityInputAttachmentArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderInputAttachmentArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderInputAttachmentArrayNonUniformIndexing}},
-        {spv::CapabilityUniformTexelBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderUniformTexelBufferArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderUniformTexelBufferArrayNonUniformIndexing}},
-        {spv::CapabilityStorageTexelBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageTexelBufferArrayNonUniformIndexing", &VkPhysicalDeviceDescriptorIndexingFeaturesEXT::shaderStorageTexelBufferArrayNonUniformIndexing}},
+        {spv::CapabilityRuntimeDescriptorArrayEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::runtimeDescriptorArray", &VkPhysicalDeviceVulkan12Features::runtimeDescriptorArray}},
+        {spv::CapabilityInputAttachmentArrayDynamicIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderInputAttachmentArrayDynamicIndexing", &VkPhysicalDeviceVulkan12Features::shaderInputAttachmentArrayDynamicIndexing}},
+        {spv::CapabilityUniformTexelBufferArrayDynamicIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderUniformTexelBufferArrayDynamicIndexing", &VkPhysicalDeviceVulkan12Features::shaderUniformTexelBufferArrayDynamicIndexing}},
+        {spv::CapabilityStorageTexelBufferArrayDynamicIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderStorageTexelBufferArrayDynamicIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageTexelBufferArrayDynamicIndexing}},
+        {spv::CapabilityUniformBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderUniformBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderUniformBufferArrayNonUniformIndexing}},
+        {spv::CapabilitySampledImageArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderSampledImageArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderSampledImageArrayNonUniformIndexing}},
+        {spv::CapabilityStorageBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderStorageBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageBufferArrayNonUniformIndexing}},
+        {spv::CapabilityStorageImageArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderStorageImageArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageImageArrayNonUniformIndexing}},
+        {spv::CapabilityInputAttachmentArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderInputAttachmentArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderInputAttachmentArrayNonUniformIndexing}},
+        {spv::CapabilityUniformTexelBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderUniformTexelBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderUniformTexelBufferArrayNonUniformIndexing}},
+        {spv::CapabilityStorageTexelBufferArrayNonUniformIndexingEXT, {"VkPhysicalDeviceDescriptorIndexingFeatures::shaderStorageTexelBufferArrayNonUniformIndexing", &VkPhysicalDeviceVulkan12Features::shaderStorageTexelBufferArrayNonUniformIndexing}},
 
         // Capabilities that require an extension
         {spv::CapabilityDrawParameters, {VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME, nullptr, &DeviceExtensions::vk_khr_shader_draw_parameters}},
@@ -1642,15 +1629,15 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
         {spv::CapabilityComputeDerivativeGroupLinearNV, {"VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::computeDerivativeGroupLinear", &VkPhysicalDeviceComputeShaderDerivativesFeaturesNV::computeDerivativeGroupLinear, &DeviceExtensions::vk_nv_compute_shader_derivatives}},
         {spv::CapabilityFragmentBarycentricNV, {"VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV::fragmentShaderBarycentric", &VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV::fragmentShaderBarycentric, &DeviceExtensions::vk_nv_fragment_shader_barycentric}},
 
-        {spv::CapabilityStorageBuffer8BitAccess, {"VkPhysicalDevice8BitStorageFeaturesKHR::storageBuffer8BitAccess", &VkPhysicalDevice8BitStorageFeaturesKHR::storageBuffer8BitAccess, &DeviceExtensions::vk_khr_8bit_storage}},
-        {spv::CapabilityUniformAndStorageBuffer8BitAccess, {"VkPhysicalDevice8BitStorageFeaturesKHR::uniformAndStorageBuffer8BitAccess", &VkPhysicalDevice8BitStorageFeaturesKHR::uniformAndStorageBuffer8BitAccess, &DeviceExtensions::vk_khr_8bit_storage}},
-        {spv::CapabilityStoragePushConstant8, {"VkPhysicalDevice8BitStorageFeaturesKHR::storagePushConstant8", &VkPhysicalDevice8BitStorageFeaturesKHR::storagePushConstant8, &DeviceExtensions::vk_khr_8bit_storage}},
+        {spv::CapabilityStorageBuffer8BitAccess, {"VkPhysicalDevice8BitStorageFeaturesKHR::storageBuffer8BitAccess", &VkPhysicalDeviceVulkan12Features::storageBuffer8BitAccess, &DeviceExtensions::vk_khr_8bit_storage}},
+        {spv::CapabilityUniformAndStorageBuffer8BitAccess, {"VkPhysicalDevice8BitStorageFeaturesKHR::uniformAndStorageBuffer8BitAccess", &VkPhysicalDeviceVulkan12Features::uniformAndStorageBuffer8BitAccess, &DeviceExtensions::vk_khr_8bit_storage}},
+        {spv::CapabilityStoragePushConstant8, {"VkPhysicalDevice8BitStorageFeaturesKHR::storagePushConstant8", &VkPhysicalDeviceVulkan12Features::storagePushConstant8, &DeviceExtensions::vk_khr_8bit_storage}},
 
         {spv::CapabilityTransformFeedback, { "VkPhysicalDeviceTransformFeedbackFeaturesEXT::transformFeedback", &VkPhysicalDeviceTransformFeedbackFeaturesEXT::transformFeedback, &DeviceExtensions::vk_ext_transform_feedback}},
         {spv::CapabilityGeometryStreams, { "VkPhysicalDeviceTransformFeedbackFeaturesEXT::geometryStreams", &VkPhysicalDeviceTransformFeedbackFeaturesEXT::geometryStreams, &DeviceExtensions::vk_ext_transform_feedback}},
 
-        {spv::CapabilityFloat16, {"VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderFloat16", &VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderFloat16, &DeviceExtensions::vk_khr_shader_float16_int8}},
-        {spv::CapabilityInt8, {"VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8", &VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8, &DeviceExtensions::vk_khr_shader_float16_int8}},
+        {spv::CapabilityFloat16, {"VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderFloat16", &VkPhysicalDeviceVulkan12Features::shaderFloat16, &DeviceExtensions::vk_khr_shader_float16_int8}},
+        {spv::CapabilityInt8, {"VkPhysicalDeviceFloat16Int8FeaturesKHR::shaderInt8", &VkPhysicalDeviceVulkan12Features::shaderInt8, &DeviceExtensions::vk_khr_shader_float16_int8}},
 
         {spv::CapabilityImageFootprintNV, {"VkPhysicalDeviceShaderImageFootprintFeaturesNV::imageFootprint", &VkPhysicalDeviceShaderImageFootprintFeaturesNV::imageFootprint, &DeviceExtensions::vk_nv_shader_image_footprint}},
 
@@ -1666,6 +1653,10 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
         {spv::CapabilityFragmentShaderPixelInterlockEXT,        {"VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderPixelInterlock",        &VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderPixelInterlock,          &DeviceExtensions::vk_ext_fragment_shader_interlock}},
         {spv::CapabilityFragmentShaderShadingRateInterlockEXT,  {"VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderShadingRateInterlock",  &VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT::fragmentShaderShadingRateInterlock,    &DeviceExtensions::vk_ext_fragment_shader_interlock}},
         {spv::CapabilityDemoteToHelperInvocationEXT,       {"VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT::shaderDemoteToHelperInvocation",       &VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT::shaderDemoteToHelperInvocation,         &DeviceExtensions::vk_ext_shader_demote_to_helper_invocation}},
+
+        {spv::CapabilityPhysicalStorageBufferAddresses, {"VkPhysicalDeviceBufferDeviceAddressFeatures::bufferDeviceAddress", &VkPhysicalDeviceVulkan12Features::bufferDeviceAddress, &DeviceExtensions::vk_ext_buffer_device_address}},
+        // Should be non-EXT token, but Android SPIRV-Headers are out of date, and the token value is the same anyway
+        {spv::CapabilityPhysicalStorageBufferAddressesEXT, {"VkPhysicalDeviceBufferDeviceAddressFeaturesEXT::bufferDeviceAddress", &VkPhysicalDeviceVulkan12Features::bufferDeviceAddress, &DeviceExtensions::vk_khr_buffer_device_address}},
     };
     // clang-format on
 
@@ -1679,7 +1670,8 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
                         skip |= RequireFeature(report_data, it->second.feature.IsEnabled(enabled_features), it->second.name);
                     }
                     if (it->second.extension) {
-                        skip |= RequireExtension(report_data, device_extensions.*(it->second.extension), it->second.name);
+                        skip |= RequireExtension(report_data, IsExtEnabled((device_extensions.*(it->second.extension))),
+                                                 it->second.name);
                     }
                 }
             } else if (1 < n) {  // key occurs multiple times, at least one must be enabled
@@ -1713,8 +1705,8 @@ bool CoreChecks::ValidateShaderCapabilities(SHADER_MODULE_STATE const *src, VkSh
             }
 
             {  // Do group non-uniform checks
-                const VkSubgroupFeatureFlags supportedOperations = phys_dev_ext_props.subgroup_props.supportedOperations;
-                const VkSubgroupFeatureFlags supportedStages = phys_dev_ext_props.subgroup_props.supportedStages;
+                const VkSubgroupFeatureFlags supportedOperations = phys_dev_props_core11.subgroupSupportedOperations;
+                const VkSubgroupFeatureFlags supportedStages = phys_dev_props_core11.subgroupSupportedStages;
 
                 switch (insn.word(1)) {
                     default:
@@ -1822,7 +1814,7 @@ bool CoreChecks::ValidateShaderStageWritableDescriptor(VkShaderStageFlagBits sta
 bool CoreChecks::ValidateShaderStageGroupNonUniform(SHADER_MODULE_STATE const *module, VkShaderStageFlagBits stage) const {
     bool skip = false;
 
-    auto const subgroup_props = phys_dev_ext_props.subgroup_props;
+    auto const subgroup_props = phys_dev_props_core11;
 
     for (auto inst : *module) {
         // Check the quad operations.
@@ -1832,13 +1824,13 @@ bool CoreChecks::ValidateShaderStageGroupNonUniform(SHADER_MODULE_STATE const *m
             case spv::OpGroupNonUniformQuadBroadcast:
             case spv::OpGroupNonUniformQuadSwap:
                 if ((stage != VK_SHADER_STAGE_FRAGMENT_BIT) && (stage != VK_SHADER_STAGE_COMPUTE_BIT)) {
-                    skip |= RequireFeature(report_data, subgroup_props.quadOperationsInAllStages,
+                    skip |= RequireFeature(report_data, subgroup_props.subgroupQuadOperationsInAllStages,
                                            "VkPhysicalDeviceSubgroupProperties::quadOperationsInAllStages");
                 }
                 break;
         }
 
-        if (!enabled_features.subgroup_extended_types_features.shaderSubgroupExtendedTypes) {
+        if (!enabled_features.core12.shaderSubgroupExtendedTypes) {
             switch (inst.opcode()) {
                 default:
                     break;
@@ -1883,9 +1875,8 @@ bool CoreChecks::ValidateShaderStageGroupNonUniform(SHADER_MODULE_STATE const *m
 
                     if ((type.opcode() == spv::OpTypeFloat && width == 16) ||
                         (type.opcode() == spv::OpTypeInt && (width == 8 || width == 16 || width == 64))) {
-                        skip |= RequireFeature(
-                            report_data, enabled_features.subgroup_extended_types_features.shaderSubgroupExtendedTypes,
-                            "VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR::shaderSubgroupExtendedTypes");
+                        skip |= RequireFeature(report_data, enabled_features.core12.shaderSubgroupExtendedTypes,
+                                               "VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures::shaderSubgroupExtendedTypes");
                     }
                     break;
                 }
@@ -2485,9 +2476,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
             switch (mode) {
                 case spv::ExecutionModeSignedZeroInfNanPreserve: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderSignedZeroInfNanPreserveFloat16) ||
-                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderSignedZeroInfNanPreserveFloat32) ||
-                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderSignedZeroInfNanPreserveFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_props_core12.shaderSignedZeroInfNanPreserveFloat16) ||
+                        (bit_width == 32 && !phys_dev_props_core12.shaderSignedZeroInfNanPreserveFloat32) ||
+                        (bit_width == 64 && !phys_dev_props_core12.shaderSignedZeroInfNanPreserveFloat64)) {
                         skip |=
                             log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                     kVUID_Core_Shader_FeatureNotEnabled,
@@ -2499,9 +2490,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeDenormPreserve: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderDenormPreserveFloat16) ||
-                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderDenormPreserveFloat32) ||
-                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderDenormPreserveFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_props_core12.shaderDenormPreserveFloat16) ||
+                        (bit_width == 32 && !phys_dev_props_core12.shaderDenormPreserveFloat32) ||
+                        (bit_width == 64 && !phys_dev_props_core12.shaderDenormPreserveFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires DenormPreserve for bit width %d but it is not enabled on the device",
@@ -2512,7 +2503,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first denorm execution mode found
                         first_denorm_execution_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_denorm_execution_mode.first != mode && first_denorm_execution_mode.second != bit_width) {
-                        switch (phys_dev_ext_props.float_controls_props.denormBehaviorIndependence) {
+                        switch (phys_dev_props_core12.denormBehaviorIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2543,9 +2534,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeDenormFlushToZero: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderDenormFlushToZeroFloat16) ||
-                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderDenormFlushToZeroFloat32) ||
-                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderDenormFlushToZeroFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_props_core12.shaderDenormFlushToZeroFloat16) ||
+                        (bit_width == 32 && !phys_dev_props_core12.shaderDenormFlushToZeroFloat32) ||
+                        (bit_width == 64 && !phys_dev_props_core12.shaderDenormFlushToZeroFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires DenormFlushToZero for bit width %d but it is not enabled on the device",
@@ -2556,7 +2547,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first denorm execution mode found
                         first_denorm_execution_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_denorm_execution_mode.first != mode && first_denorm_execution_mode.second != bit_width) {
-                        switch (phys_dev_ext_props.float_controls_props.denormBehaviorIndependence) {
+                        switch (phys_dev_props_core12.denormBehaviorIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2587,9 +2578,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeRoundingModeRTE: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTEFloat16) ||
-                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTEFloat32) ||
-                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTEFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_props_core12.shaderRoundingModeRTEFloat16) ||
+                        (bit_width == 32 && !phys_dev_props_core12.shaderRoundingModeRTEFloat32) ||
+                        (bit_width == 64 && !phys_dev_props_core12.shaderRoundingModeRTEFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires RoundingModeRTE for bit width %d but it is not enabled on the device",
@@ -2600,7 +2591,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first rounding mode found
                         first_rounding_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_rounding_mode.first != mode && first_rounding_mode.second != bit_width) {
-                        switch (phys_dev_ext_props.float_controls_props.roundingModeIndependence) {
+                        switch (phys_dev_props_core12.roundingModeIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2631,9 +2622,9 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
 
                 case spv::ExecutionModeRoundingModeRTZ: {
                     auto bit_width = insn.word(3);
-                    if ((bit_width == 16 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTZFloat16) ||
-                        (bit_width == 32 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTZFloat32) ||
-                        (bit_width == 64 && !phys_dev_ext_props.float_controls_props.shaderRoundingModeRTZFloat64)) {
+                    if ((bit_width == 16 && !phys_dev_props_core12.shaderRoundingModeRTZFloat16) ||
+                        (bit_width == 32 && !phys_dev_props_core12.shaderRoundingModeRTZFloat32) ||
+                        (bit_width == 64 && !phys_dev_props_core12.shaderRoundingModeRTZFloat64)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                                         kVUID_Core_Shader_FeatureNotEnabled,
                                         "Shader requires RoundingModeRTZ for bit width %d but it is not enabled on the device",
@@ -2644,7 +2635,7 @@ bool CoreChecks::ValidateExecutionModes(SHADER_MODULE_STATE const *src, spirv_in
                         // Register the first rounding mode found
                         first_rounding_mode = std::make_pair(static_cast<spv::ExecutionMode>(mode), bit_width);
                     } else if (first_rounding_mode.first != mode && first_rounding_mode.second != bit_width) {
-                        switch (phys_dev_ext_props.float_controls_props.roundingModeIndependence) {
+                        switch (phys_dev_props_core12.roundingModeIndependence) {
                             case VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY_KHR:
                                 if (first_rounding_mode.second != 32 && bit_width != 32) {
                                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -2947,11 +2938,10 @@ bool CoreChecks::ValidatePipelineShaderStage(VkPipelineShaderStageCreateInfo con
                 spvValidatorOptionsSetRelaxBlockLayout(options, true);
             }
             if (device_extensions.vk_khr_uniform_buffer_standard_layout &&
-                enabled_features.uniform_buffer_standard_layout.uniformBufferStandardLayout == VK_TRUE) {
+                enabled_features.core12.uniformBufferStandardLayout == VK_TRUE) {
                 spvValidatorOptionsSetUniformBufferStandardLayout(options, true);
             }
-            if (device_extensions.vk_ext_scalar_block_layout &&
-                enabled_features.scalar_block_layout_features.scalarBlockLayout == VK_TRUE) {
+            if (device_extensions.vk_ext_scalar_block_layout && enabled_features.core12.scalarBlockLayout == VK_TRUE) {
                 spvValidatorOptionsSetScalarBlockLayout(options, true);
             }
             auto const spv_valid = spvValidateWithOptions(ctx, options, &binary, &diag);
@@ -3366,7 +3356,9 @@ bool CoreChecks::PreCallValidateCreateShaderModule(VkDevice device, const VkShad
         // Use SPIRV-Tools validator to try and catch any issues with the module itself. If specialization constants are present,
         // the default values will be used during validation.
         spv_target_env spirv_environment = SPV_ENV_VULKAN_1_0;
-        if (api_version >= VK_API_VERSION_1_1) {
+        if (api_version >= VK_API_VERSION_1_2) {
+            spirv_environment = SPV_ENV_VULKAN_1_2;
+        } else if (api_version >= VK_API_VERSION_1_1) {
             if (device_extensions.vk_khr_spirv_1_4) {
                 spirv_environment = SPV_ENV_VULKAN_1_1_SPIRV_1_4;
             } else {
@@ -3381,11 +3373,10 @@ bool CoreChecks::PreCallValidateCreateShaderModule(VkDevice device, const VkShad
             spvValidatorOptionsSetRelaxBlockLayout(options, true);
         }
         if (device_extensions.vk_khr_uniform_buffer_standard_layout &&
-            enabled_features.uniform_buffer_standard_layout.uniformBufferStandardLayout == VK_TRUE) {
+            enabled_features.core12.uniformBufferStandardLayout == VK_TRUE) {
             spvValidatorOptionsSetUniformBufferStandardLayout(options, true);
         }
-        if (device_extensions.vk_ext_scalar_block_layout &&
-            enabled_features.scalar_block_layout_features.scalarBlockLayout == VK_TRUE) {
+        if (device_extensions.vk_ext_scalar_block_layout && enabled_features.core12.scalarBlockLayout == VK_TRUE) {
             spvValidatorOptionsSetScalarBlockLayout(options, true);
         }
         spv_valid = spvValidateWithOptions(ctx, options, &binary, &diag);

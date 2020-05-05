@@ -28,20 +28,29 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+import * as Workspace from '../workspace/workspace.js';
+
+import {ContentProviderBasedProject} from './ContentProviderBasedProject.js';
+import {SourceMapping} from './CSSWorkspaceBinding.js';  // eslint-disable-line no-unused-vars
+import {NetworkProject} from './NetworkProject.js';
+
 /**
- * @implements {Bindings.CSSWorkspaceBinding.SourceMapping}
+ * @implements {SourceMapping}
  */
-export default class SASSSourceMapping {
+export class SASSSourceMapping {
   /**
-   * @param {!SDK.Target} target
-   * @param {!SDK.SourceMapManager} sourceMapManager
-   * @param {!Workspace.Workspace} workspace
+   * @param {!SDK.SDKModel.Target} target
+   * @param {!SDK.SourceMapManager.SourceMapManager} sourceMapManager
+   * @param {!Workspace.Workspace.WorkspaceImpl} workspace
    */
   constructor(target, sourceMapManager, workspace) {
     this._sourceMapManager = sourceMapManager;
-    this._project = new Bindings.ContentProviderBasedProject(
-        workspace, 'cssSourceMaps:' + target.id(), Workspace.projectTypes.Network, '', false /* isServiceProject */);
-    Bindings.NetworkProject.setTargetForProject(this._project, target);
+    this._project = new ContentProviderBasedProject(
+        workspace, 'cssSourceMaps:' + target.id(), Workspace.Workspace.projectTypes.Network, '',
+        false /* isServiceProject */);
+    NetworkProject.setTargetForProject(this._project, target);
 
     this._eventListeners = [
       this._sourceMapManager.addEventListener(
@@ -54,7 +63,7 @@ export default class SASSSourceMapping {
   }
 
   /**
-   * @param {?SDK.SourceMap} sourceMap
+   * @param {?SDK.SourceMap.SourceMap} sourceMap
    */
   _sourceMapAttachedForTest(sourceMap) {
   }
@@ -63,26 +72,29 @@ export default class SASSSourceMapping {
    * @param {!Common.Event} event
    */
   _sourceMapAttached(event) {
-    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data.client);
-    const sourceMap = /** @type {!SDK.TextSourceMap} */ (event.data.sourceMap);
+    const header = /** @type {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} */ (event.data.client);
+    const sourceMap = /** @type {!SDK.SourceMap.TextSourceMap} */ (event.data.sourceMap);
     for (const sassURL of sourceMap.sourceURLs()) {
       let uiSourceCode = this._project.uiSourceCodeForURL(sassURL);
       if (uiSourceCode) {
-        Bindings.NetworkProject.addFrameAttribution(uiSourceCode, header.frameId);
+        NetworkProject.addFrameAttribution(uiSourceCode, header.frameId);
         continue;
       }
 
-      const contentProvider = sourceMap.sourceContentProvider(sassURL, Common.resourceTypes.SourceMapStyleSheet);
-      const mimeType = Common.ResourceType.mimeFromURL(sassURL) || contentProvider.contentType().canonicalMimeType();
+      const contentProvider =
+          sourceMap.sourceContentProvider(sassURL, Common.ResourceType.resourceTypes.SourceMapStyleSheet);
+      const mimeType =
+          Common.ResourceType.ResourceType.mimeFromURL(sassURL) || contentProvider.contentType().canonicalMimeType();
       const embeddedContent = sourceMap.embeddedContentByURL(sassURL);
-      const metadata =
-          typeof embeddedContent === 'string' ? new Workspace.UISourceCodeMetadata(null, embeddedContent.length) : null;
+      const metadata = typeof embeddedContent === 'string' ?
+          new Workspace.UISourceCode.UISourceCodeMetadata(null, embeddedContent.length) :
+          null;
       uiSourceCode = this._project.createUISourceCode(sassURL, contentProvider.contentType());
-      Bindings.NetworkProject.setInitialFrameAttribution(uiSourceCode, header.frameId);
+      NetworkProject.setInitialFrameAttribution(uiSourceCode, header.frameId);
       uiSourceCode[_sourceMapSymbol] = sourceMap;
       this._project.addUISourceCodeWithProvider(uiSourceCode, contentProvider, metadata, mimeType);
     }
-    Bindings.cssWorkspaceBinding.updateLocations(header);
+    self.Bindings.cssWorkspaceBinding.updateLocations(header);
     this._sourceMapAttachedForTest(sourceMap);
   }
 
@@ -90,25 +102,26 @@ export default class SASSSourceMapping {
    * @param {!Common.Event} event
    */
   _sourceMapDetached(event) {
-    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data.client);
-    const sourceMap = /** @type {!SDK.SourceMap} */ (event.data.sourceMap);
+    const header = /** @type {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} */ (event.data.client);
+    const sourceMap = /** @type {!SDK.SourceMap.SourceMap} */ (event.data.sourceMap);
     const headers = this._sourceMapManager.clientsForSourceMap(sourceMap);
     for (const sassURL of sourceMap.sourceURLs()) {
       if (headers.length) {
-        const uiSourceCode = /** @type {!Workspace.UISourceCode} */ (this._project.uiSourceCodeForURL(sassURL));
-        Bindings.NetworkProject.removeFrameAttribution(uiSourceCode, header.frameId);
+        const uiSourceCode =
+            /** @type {!Workspace.UISourceCode.UISourceCode} */ (this._project.uiSourceCodeForURL(sassURL));
+        NetworkProject.removeFrameAttribution(uiSourceCode, header.frameId);
       } else {
         this._project.removeFile(sassURL);
       }
     }
-    Bindings.cssWorkspaceBinding.updateLocations(header);
+    self.Bindings.cssWorkspaceBinding.updateLocations(header);
   }
 
   /**
    * @param {!Common.Event} event
    */
   _sourceMapChanged(event) {
-    const sourceMap = /** @type {!SDK.SourceMap} */ (event.data.sourceMap);
+    const sourceMap = /** @type {!SDK.SourceMap.SourceMap} */ (event.data.sourceMap);
     const newSources = /** @type {!Map<string, string>} */ (event.data.newSources);
     const headers = this._sourceMapManager.clientsForSourceMap(sourceMap);
     for (const sourceURL of newSources.keys()) {
@@ -121,14 +134,14 @@ export default class SASSSourceMapping {
       uiSourceCode.setWorkingCopy(sassText);
     }
     for (const header of headers) {
-      Bindings.cssWorkspaceBinding.updateLocations(header);
+      self.Bindings.cssWorkspaceBinding.updateLocations(header);
     }
   }
 
   /**
    * @override
-   * @param {!SDK.CSSLocation} rawLocation
-   * @return {?Workspace.UILocation}
+   * @param {!SDK.CSSModel.CSSLocation} rawLocation
+   * @return {?Workspace.UISourceCode.UILocation}
    */
   rawLocationToUILocation(rawLocation) {
     const header = rawLocation.header();
@@ -152,11 +165,11 @@ export default class SASSSourceMapping {
 
   /**
    * @override
-   * @param {!Workspace.UILocation} uiLocation
-   * @return {!Array<!SDK.CSSLocation>}
+   * @param {!Workspace.UISourceCode.UILocation} uiLocation
+   * @return {!Array<!SDK.CSSModel.CSSLocation>}
    */
   uiLocationToRawLocations(uiLocation) {
-    /** @type {!SDK.TextSourceMap} */
+    /** @type {!SDK.SourceMap.TextSourceMap} */
     const sourceMap = uiLocation.uiSourceCode[_sourceMapSymbol];
     if (!sourceMap) {
       return [];
@@ -165,24 +178,16 @@ export default class SASSSourceMapping {
         sourceMap.findReverseEntries(uiLocation.uiSourceCode.url(), uiLocation.lineNumber, uiLocation.columnNumber);
     const locations = [];
     for (const header of this._sourceMapManager.clientsForSourceMap(sourceMap)) {
-      locations.pushAll(entries.map(entry => new SDK.CSSLocation(header, entry.lineNumber, entry.columnNumber)));
+      locations.push(
+          ...entries.map(entry => new SDK.CSSModel.CSSLocation(header, entry.lineNumber, entry.columnNumber)));
     }
     return locations;
   }
 
   dispose() {
     this._project.dispose();
-    Common.EventTarget.removeEventListeners(this._eventListeners);
+    Common.EventTarget.EventTarget.removeEventListeners(this._eventListeners);
   }
 }
 
 const _sourceMapSymbol = Symbol('sourceMap');
-
-/* Legacy exported object */
-self.Bindings = self.Bindings || {};
-
-/* Legacy exported object */
-Bindings = Bindings || {};
-
-/** @constructor */
-Bindings.SASSSourceMapping = SASSSourceMapping;

@@ -33,9 +33,9 @@ import com.google.ipc.invalidation.util.Preconditions;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.library_loader.LibraryProcessType;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.download.DownloadNotificationUmaHelper.UmaDownloadResumption;
 import org.chromium.chrome.browser.download.items.OfflineContentAggregatorNotificationBridgeUiFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.FeatureUtilities;
 import org.chromium.chrome.browser.init.BrowserParts;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
@@ -246,6 +246,8 @@ public class DownloadBroadcastManager extends Service {
                 DownloadNotificationUmaHelper.recordStateAtCancelHistogram(
                         LegacyHelpers.isLegacyDownload(id),
                         intent.getIntExtra(EXTRA_DOWNLOAD_STATE_AT_CANCEL, -1));
+                DownloadMetrics.recordDownloadCancel(
+                        DownloadMetrics.CancelFrom.CANCEL_NOTIFICATION);
                 downloadServiceDelegate.cancelDownload(id, isOffTheRecord);
                 break;
 

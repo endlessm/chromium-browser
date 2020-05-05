@@ -2269,14 +2269,14 @@ static bool FoldCondBranchOnPHI(BranchInst *BI, const DataLayout &DL,
         if (!BBI->use_empty())
           TranslateMap[&*BBI] = N;
       }
-      // Insert the new instruction into its new home.
-      if (N)
+      if (N) {
+        // Insert the new instruction into its new home.
         EdgeBB->getInstList().insert(InsertPt, N);
 
-      // Register the new instruction with the assumption cache if necessary.
-      if (auto *II = dyn_cast_or_null<IntrinsicInst>(N))
-        if (II->getIntrinsicID() == Intrinsic::assume)
-          AC->registerAssumption(II);
+        // Register the new instruction with the assumption cache if necessary.
+        if (AC && match(N, m_Intrinsic<Intrinsic::assume>()))
+          AC->registerAssumption(cast<IntrinsicInst>(N));
+      }
     }
 
     // Loop over all of the edges from PredBB to BB, changing them to branch
@@ -4083,9 +4083,10 @@ static bool removeEmptyCleanup(CleanupReturnInst *RI) {
       // The iterator must be incremented here because the instructions are
       // being moved to another block.
       PHINode *PN = cast<PHINode>(I++);
-      if (PN->use_empty())
-        // If the PHI node has no uses, just leave it.  It will be erased
-        // when we erase BB below.
+      if (PN->use_empty() || !PN->isUsedOutsideOfBlock(BB))
+        // If the PHI node has no uses or all of its uses are in this basic
+        // block (meaning they are debug or lifetime intrinsics), just leave
+        // it.  It will be erased when we erase BB below.
         continue;
 
       // Otherwise, sink this PHI node into UnwindDest.

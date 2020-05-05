@@ -104,15 +104,88 @@ class UprevsVersionedPackageTest(cros_test_lib.MockTestCase):
       packages.uprev_versioned_package(cpv, [], [], Chroot())
 
 
-class ReplicatePrivateConfigTest(cros_test_lib.MockTempDirTestCase):
+class UprevEbuildFromPinTest(cros_test_lib.TempDirTestCase):
+  """Tests uprev_ebuild_from_pin function"""
+
+  package = 'category/package'
+  version = '1.2.3'
+  new_version = '1.2.4'
+  ebuild_template = 'package-%s-r1.ebuild'
+  ebuild = ebuild_template % version
+  version_pin = 'VERSION-PIN'
+
+  def test_uprev_ebuild(self):
+    """Tests uprev of ebuild with version path"""
+    file_layout = (
+        D(self.package, [self.ebuild, self.version_pin]),
+    )
+    cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
+
+    package_path = os.path.join(self.tempdir, self.package)
+    version_pin_path = os.path.join(package_path, self.version_pin)
+    self.WriteTempFile(version_pin_path, self.new_version)
+
+    result = packages.uprev_ebuild_from_pin(package_path, version_pin_path)
+    self.assertEqual(len(result.modified), 1,
+                     'unexpected number of results: %s' % len(result.modified))
+
+    mod = result.modified[0]
+    self.assertEqual(mod.new_version, self.new_version,
+                     'unexpected version number: %s' % mod.new_version)
+    self.assertEqual(len(mod.files), 2,
+                     'unexpected number of modified files: %s' % len(mod.files))
+
+    old_ebuild_path = os.path.join(package_path,
+                                   self.ebuild_template % self.version)
+    self.assertEqual(mod.files[1], old_ebuild_path,
+                     'unexpected deleted ebuild file: %s' % mod.files[0])
+
+    new_ebuild_path = os.path.join(package_path,
+                                   self.ebuild_template % self.new_version)
+    self.assertEqual(mod.files[0], new_ebuild_path,
+                     'unexpected updated ebuild file: %s' % mod.files[1])
+
+  def test_no_ebuild(self):
+    """Tests assertion is raised if package has no ebuilds"""
+    file_layout = (
+        D(self.package, [self.version_pin]),
+    )
+    cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
+
+    package_path = os.path.join(self.tempdir, self.package)
+    version_pin_path = os.path.join(package_path, self.version_pin)
+    self.WriteTempFile(version_pin_path, self.new_version)
+
+    with self.assertRaises(packages.UprevError):
+      packages.uprev_ebuild_from_pin(package_path, version_pin_path)
+
+  def test_multiple_ebuilds(self):
+    """Tests assertion is raised if multiple ebuilds are present for package"""
+    file_layout = (
+        D(self.package, [self.version_pin, self.ebuild,
+                         self.ebuild_template % '1.2.1']),
+    )
+    cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
+
+    package_path = os.path.join(self.tempdir, self.package)
+    version_pin_path = os.path.join(package_path, self.version_pin)
+    self.WriteTempFile(version_pin_path, self.new_version)
+
+    with self.assertRaises(packages.UprevError):
+      packages.uprev_ebuild_from_pin(package_path, version_pin_path)
+
+
+class ReplicatePrivateConfigTest(cros_test_lib.RunCommandTempDirTestCase):
   """replicate_private_config tests."""
 
   def setUp(self):
     # Set up fake public and private chromeos-config overlays.
     private_package_root = (
-        'overlay-coral-private/chromeos-base/chromeos-config-bsp-coral-private')
+        'src/private-overlays/overlay-coral-private/chromeos-base/'
+        'chromeos-config-bsp'
+    )
     self.public_package_root = (
-        'overlay-coral/chromeos-base/chromeos-config-bsp-coral')
+        'src/overlays/overlay-coral/chromeos-base/chromeos-config-bsp')
     file_layout = (
         D(os.path.join(private_package_root, 'files'), ['build_config.json']),
         D(private_package_root, ['replication_config.jsonpb']),
@@ -124,28 +197,28 @@ class ReplicatePrivateConfigTest(cros_test_lib.MockTempDirTestCase):
     cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
 
     # Private config contains 'a' and 'b' fields.
-    private_config_path = os.path.join(self.tempdir, private_package_root,
-                                       'files', 'build_config.json')
-    osutils.WriteFile(private_config_path,
-                      json.dumps({'chromeos': {
-                          'configs': [{
-                              'a': 3,
-                              'b': 2
-                          }]
-                      }}))
+    self.private_config_path = os.path.join(private_package_root, 'files',
+                                            'build_config.json')
+    self.WriteTempFile(
+        self.private_config_path,
+        json.dumps({'chromeos': {
+            'configs': [{
+                'a': 3,
+                'b': 2
+            }]
+        }}))
 
     # Public config only contains the 'a' field. Note that the value of 'a' is
     # 1 in the public config; it will get updated to 3 when the private config
     # is replicated.
-    self.public_config_path = os.path.join(self.tempdir,
-                                           self.public_package_root, 'files',
+    self.public_config_path = os.path.join(self.public_package_root, 'files',
                                            'build_config.json')
-    osutils.WriteFile(self.public_config_path,
-                      json.dumps({'chromeos': {
-                          'configs': [{
-                              'a': 1
-                          }]
-                      }}))
+    self.WriteTempFile(self.public_config_path,
+                       json.dumps({'chromeos': {
+                           'configs': [{
+                               'a': 1
+                           }]
+                       }}))
 
     # Put a ReplicationConfig JSONPB in the private package. Note that it
     # specifies only the 'a' field is replicated.
@@ -154,7 +227,7 @@ class ReplicatePrivateConfigTest(cros_test_lib.MockTempDirTestCase):
                                                 'replication_config.jsonpb')
     replication_config = ReplicationConfig(file_replication_rules=[
         FileReplicationRule(
-            source_path=private_config_path,
+            source_path=self.private_config_path,
             destination_path=self.public_config_path,
             file_type=FILE_TYPE_JSON,
             replication_type=REPLICATION_TYPE_FILTER,
@@ -165,27 +238,159 @@ class ReplicatePrivateConfigTest(cros_test_lib.MockTempDirTestCase):
                       json_format.MessageToJson(replication_config))
     self.PatchObject(constants, 'SOURCE_ROOT', new=self.tempdir)
 
+    self.rc.SetDefaultCmdResult(side_effect=self._write_generated_c_files)
+
+  def _write_generated_c_files(self, *_args, **_kwargs):
+    """Write fake generated C files to the public output dir.
+
+    Note that this function accepts args and kwargs so it can be used as a side
+    effect.
+    """
+    output_dir = os.path.join(self.public_package_root, 'files')
+    self.WriteTempFile(os.path.join(output_dir, 'config.c'), '')
+    self.WriteTempFile(os.path.join(output_dir, 'ec_config.c'), '')
+    self.WriteTempFile(os.path.join(output_dir, 'ec_config.h'), '')
+
+  def _write_incorrect_generated_c_files(self, *_args, **_kwargs):
+    """Similar to _write_generated_c_files, with an expected file missing.
+
+    Note that this function accepts args and kwargs so it can be used as a side
+    effect.
+    """
+    output_dir = os.path.join(self.public_package_root, 'files')
+    self.WriteTempFile(os.path.join(output_dir, 'config.c'), '')
+    self.WriteTempFile(os.path.join(output_dir, 'ec_config.c'), '')
+
   def test_replicate_private_config(self):
     """Basic replication test."""
-    refs = [GitRef(path='overlay-coral-private', ref='master', revision='123')]
+    refs = [
+        GitRef(
+            path='/chromeos/overlays/overlay-coral-private',
+            ref='master',
+            revision='123')
+    ]
+    chroot = Chroot()
     result = packages.replicate_private_config(
-        _build_targets=None, refs=refs, _chroot=None)
+        _build_targets=None, refs=refs, chroot=chroot)
+
+    self.assertCommandContains([
+        'cros_config_schema', '-m',
+        os.path.join(constants.CHROOT_SOURCE_ROOT, self.public_config_path),
+        '-g',
+        os.path.join(constants.CHROOT_SOURCE_ROOT, self.public_package_root,
+                     'files'), '-f', '"TRUE"'
+    ],
+                               enter_chroot=True,
+                               chroot_args=chroot.get_enter_args())
 
     self.assertEqual(len(result.modified), 1)
-    # The public build_config.json was modified.
-    self.assertEqual(result.modified[0].files, [self.public_config_path])
+    # The public build_config.json and generated C files were modified.
+    expected_modified_files = [
+        os.path.join(self.tempdir, self.public_config_path),
+        os.path.join(self.tempdir, self.public_package_root, 'files',
+                     'config.c'),
+        os.path.join(self.tempdir, self.public_package_root, 'files',
+                     'ec_config.c'),
+        os.path.join(self.tempdir, self.public_package_root, 'files',
+                     'ec_config.h'),
+    ]
+    self.assertEqual(result.modified[0].files, expected_modified_files)
     self.assertEqual(result.modified[0].new_version, '123')
 
     # The update from the private build_config.json was copied to the public.
     # Note that only the 'a' field is present, as per destination_fields.
-    with open(self.public_config_path, 'r') as f:
-      self.assertEqual(json.load(f), {'chromeos': {'configs': [{'a': 3}]}})
+    self.assertEqual(
+        json.loads(self.ReadTempFile(self.public_config_path)),
+        {'chromeos': {
+            'configs': [{
+                'a': 3
+            }]
+        }})
+
+  def test_replicate_private_config_no_build_config(self):
+    """If there is no build config, don't generate C files."""
+    # Modify the replication config to write to "other_config.json" instead of
+    # "build_config.json"
+    modified_destination_path = self.public_config_path.replace(
+        'build_config', 'other_config')
+    replication_config = ReplicationConfig(file_replication_rules=[
+        FileReplicationRule(
+            source_path=self.private_config_path,
+            destination_path=modified_destination_path,
+            file_type=FILE_TYPE_JSON,
+            replication_type=REPLICATION_TYPE_FILTER,
+            destination_fields=FieldMask(paths=['a']))
+    ])
+    osutils.WriteFile(self.replication_config_path,
+                      json_format.MessageToJson(replication_config))
+
+    refs = [
+        GitRef(
+            path='/chromeos/overlays/overlay-coral-private',
+            ref='master',
+            revision='123')
+    ]
+    result = packages.replicate_private_config(
+        _build_targets=None, refs=refs, chroot=Chroot())
+
+    self.assertEqual(len(result.modified), 1)
+    self.assertEqual(result.modified[0].files,
+                     [os.path.join(self.tempdir, modified_destination_path)])
+
+  def test_replicate_private_config_multiple_build_configs(self):
+    """An error is thrown if there is more than one build config."""
+    replication_config = ReplicationConfig(file_replication_rules=[
+        FileReplicationRule(
+            source_path=self.private_config_path,
+            destination_path=self.public_config_path,
+            file_type=FILE_TYPE_JSON,
+            replication_type=REPLICATION_TYPE_FILTER,
+            destination_fields=FieldMask(paths=['a'])),
+        FileReplicationRule(
+            source_path=self.private_config_path,
+            destination_path=self.public_config_path,
+            file_type=FILE_TYPE_JSON,
+            replication_type=REPLICATION_TYPE_FILTER,
+            destination_fields=FieldMask(paths=['a']))
+    ])
+
+    osutils.WriteFile(self.replication_config_path,
+                      json_format.MessageToJson(replication_config))
+
+    refs = [
+        GitRef(
+            path='/chromeos/overlays/overlay-coral-private',
+            ref='master',
+            revision='123')
+    ]
+    with self.assertRaisesRegex(
+        ValueError, 'Expected at most one build_config.json destination path.'):
+      packages.replicate_private_config(
+          _build_targets=None, refs=refs, chroot=Chroot())
+
+  def test_replicate_private_config_generated_files_incorrect(self):
+    """An error is thrown if generated C files are missing."""
+    self.rc.SetDefaultCmdResult(
+        side_effect=self._write_incorrect_generated_c_files)
+
+    refs = [
+        GitRef(
+            path='/chromeos/overlays/overlay-coral-private',
+            ref='master',
+            revision='123')
+    ]
+    chroot = Chroot()
+
+    with self.assertRaisesRegex(packages.GeneratedCrosConfigFilesError,
+                                'Expected to find generated C files'):
+      packages.replicate_private_config(
+          _build_targets=None, refs=refs, chroot=chroot)
 
   def test_replicate_private_config_wrong_number_of_refs(self):
     """An error is thrown if there is not exactly one ref."""
     with self.assertRaisesRegex(ValueError, 'Expected exactly one ref'):
       packages.replicate_private_config(
-          _build_targets=None, refs=[], _chroot=None)
+          _build_targets=None, refs=[], chroot=None)
 
     with self.assertRaisesRegex(ValueError, 'Expected exactly one ref'):
       refs = [
@@ -193,7 +398,7 @@ class ReplicatePrivateConfigTest(cros_test_lib.MockTempDirTestCase):
           GitRef(path='a', ref='master', revision='2')
       ]
       packages.replicate_private_config(
-          _build_targets=None, refs=refs, _chroot=None)
+          _build_targets=None, refs=refs, chroot=None)
 
   def test_replicate_private_config_replication_config_missing(self):
     """An error is thrown if there is not a replication config."""
@@ -202,10 +407,25 @@ class ReplicatePrivateConfigTest(cros_test_lib.MockTempDirTestCase):
         ValueError, 'Expected ReplicationConfig missing at %s' %
         self.replication_config_path):
       refs = [
-          GitRef(path='overlay-coral-private', ref='master', revision='123')
+          GitRef(
+              path='/chromeos/overlays/overlay-coral-private',
+              ref='master',
+              revision='123')
       ]
       packages.replicate_private_config(
-          _build_targets=None, refs=refs, _chroot=None)
+          _build_targets=None, refs=refs, chroot=None)
+
+  def test_replicate_private_config_wrong_git_ref_path(self):
+    """An error is thrown if the git ref doesn't point to a private overlay."""
+    with self.assertRaisesRegex(ValueError, 'ref.path must match the pattern'):
+      refs = [
+          GitRef(
+              path='a/b/c',
+              ref='master',
+              revision='123')
+      ]
+      packages.replicate_private_config(
+          _build_targets=None, refs=refs, chroot=None)
 
 
 class GetBestVisibleTest(cros_test_lib.TestCase):
@@ -216,12 +436,37 @@ class GetBestVisibleTest(cros_test_lib.TestCase):
       packages.get_best_visible('')
 
 
-class HasPrebuiltTest(cros_test_lib.TestCase):
+class HasPrebuiltTest(cros_test_lib.MockTestCase):
   """has_prebuilt tests."""
 
   def test_empty_atom_fails(self):
+    """Test an empty atom results in an error."""
     with self.assertRaises(AssertionError):
       packages.has_prebuilt('')
+
+  def test_use_flags(self):
+    """Test use flags get propagated correctly."""
+    # We don't really care about the result, just the env handling.
+    patch = self.PatchObject(portage_util, 'HasPrebuilt', return_value=True)
+
+    packages.has_prebuilt('cat/pkg-1.2.3', useflags='useflag')
+    patch.assert_called_with('cat/pkg-1.2.3', board=None,
+                             extra_env={'USE': 'useflag'})
+
+  def test_env_use_flags(self):
+    """Test env use flags get propagated correctly with passed useflags."""
+    # We don't really care about the result, just the env handling.
+    patch = self.PatchObject(portage_util, 'HasPrebuilt', return_value=True)
+    # Add some flags to the environment.
+    existing_flags = 'already set flags'
+    self.PatchObject(os.environ, 'get', return_value=existing_flags)
+
+    new_flags = 'useflag'
+    packages.has_prebuilt('cat/pkg-1.2.3', useflags=new_flags)
+    expected = '%s %s' % (existing_flags, new_flags)
+    patch.assert_called_with('cat/pkg-1.2.3', board=None,
+                             extra_env={'USE': expected})
+
 
 
 class AndroidVersionsTest(cros_test_lib.MockTestCase):

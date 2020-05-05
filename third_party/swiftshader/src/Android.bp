@@ -47,7 +47,7 @@ cc_defaults {
             relative_install_path: "egl",
             header_libs: [
                 "swiftshader_platform_headers",
-		"libnativebase_headers",
+                "libnativebase_headers",
             ],
             shared_libs: [
                 "libnativewindow",
@@ -65,7 +65,7 @@ cc_defaults {
             header_libs: [
                 "swiftshader_host_headers",
                 "swiftshader_platform_headers",
-		"libnativebase_headers",
+                "libnativebase_headers",
             ],
 
             // Pretend to build for Android
@@ -182,6 +182,7 @@ cc_defaults {
         "Reactor/LLVMReactor.cpp",
         "Reactor/Debug.cpp",
         "Reactor/CPUID.cpp",
+        "Reactor/ExecutableMemory.cpp",
     ],
 
     cflags: [
@@ -202,6 +203,7 @@ cc_defaults {
         "Reactor/LLVMReactor.cpp",
         "Reactor/Debug.cpp",
         "Reactor/CPUID.cpp",
+        "Reactor/ExecutableMemory.cpp",
     ],
 
     cflags: [
@@ -547,7 +549,7 @@ cc_defaults {
             relative_install_path: "hw",
             header_libs: [
                 "swiftshader_platform_headers",
-				"vulkan_headers",
+                "vulkan_headers",
                 "hwvulkan_headers",
             ],
             shared_libs: [
@@ -556,6 +558,9 @@ cc_defaults {
                 "libcutils",
                 "libsync",
                 "liblog",
+            ],
+            static_libs: [
+                "libarect",
             ],
         },
     },
@@ -566,9 +571,11 @@ cc_defaults {
 
     cflags: [
         "-DLOG_TAG=\"swiftshader\"",
+        "-DSWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER",
     ],
 
     srcs: [
+        "System/Build.cpp",
         "System/CPUID.cpp",
         "System/Configurator.cpp",
         "System/Half.cpp",

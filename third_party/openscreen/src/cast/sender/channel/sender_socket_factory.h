@@ -12,19 +12,14 @@
 #include <vector>
 
 #include "cast/common/channel/cast_socket.h"
+#include "cast/common/channel/proto/cast_channel.pb.h"
 #include "cast/sender/channel/cast_auth_util.h"
 #include "platform/api/tls_connection_factory.h"
 #include "platform/base/ip_address.h"
 #include "util/logging.h"
 
+namespace openscreen {
 namespace cast {
-namespace channel {
-
-using openscreen::Error;
-using openscreen::IPEndpoint;
-using openscreen::IPEndpointComparator;
-using openscreen::platform::TlsConnection;
-using openscreen::platform::TlsConnectionFactory;
 
 class SenderSocketFactory final : public TlsConnectionFactory::Client,
                                   public CastSocket::Client {
@@ -92,7 +87,8 @@ class SenderSocketFactory final : public TlsConnectionFactory::Client,
 
   // CastSocket::Client overrides.
   void OnError(CastSocket* socket, Error error) override;
-  void OnMessage(CastSocket* socket, CastMessage message) override;
+  void OnMessage(CastSocket* socket,
+                 ::cast::channel::CastMessage message) override;
 
   Client* const client_;
   TlsConnectionFactory* factory_ = nullptr;
@@ -100,7 +96,7 @@ class SenderSocketFactory final : public TlsConnectionFactory::Client,
   std::vector<std::unique_ptr<PendingAuth>> pending_auth_;
 };
 
-}  // namespace channel
 }  // namespace cast
+}  // namespace openscreen
 
 #endif  // CAST_SENDER_CHANNEL_SENDER_SOCKET_FACTORY_H_

@@ -113,30 +113,29 @@ SkiaOutputSurfaceImpl::~SkiaOutputSurfaceImpl() {
   current_paint_.reset();
   root_recorder_.reset();
 
-  std::vector<std::unique_ptr<ImageContextImpl>> render_pass_image_contexts;
-  render_pass_image_contexts.reserve(render_pass_image_cache_.size());
-  for (auto& id_and_image_context : render_pass_image_cache_) {
-    id_and_image_context.second->clear_image();
-    render_pass_image_contexts.push_back(
-        std::move(id_and_image_context.second));
+  if (!render_pass_image_cache_.empty()) {
+    std::vector<RenderPassId> render_pass_ids;
+    render_pass_ids.reserve(render_pass_ids.size());
+    for (auto& entry : render_pass_image_cache_)
+      render_pass_ids.push_back(entry.first);
+    RemoveRenderPassResource(std::move(render_pass_ids));
   }
+  DCHECK(render_pass_image_cache_.empty());
 
+  // Post a task to destroy |impl_on_gpu_| on the GPU thread and block until
+  // that is finished.
   base::WaitableEvent event;
-  auto callback = base::BindOnce(
-      [](std::vector<std::unique_ptr<ImageContextImpl>> render_passes,
-         std::unique_ptr<SkiaOutputSurfaceImplOnGpu> impl_on_gpu,
+  auto task = base::BindOnce(
+      [](std::unique_ptr<SkiaOutputSurfaceImplOnGpu> impl_on_gpu,
          base::WaitableEvent* event) {
-        if (!render_passes.empty())
-          impl_on_gpu->RemoveRenderPassResource(std::move(render_passes));
-        impl_on_gpu = nullptr;
+        impl_on_gpu.reset();
         event->Signal();
       },
-      std::move(render_pass_image_contexts), std::move(impl_on_gpu_), &event);
-  ScheduleGpuTask(std::move(callback), {});
+      std::move(impl_on_gpu_), &event);
+  ScheduleGpuTask(std::move(task), {});
   event.Wait();
 
-  // Delete task sequence.
-  task_sequence_.reset();
+  gpu_task_scheduler_.reset();
 }
 
 gpu::SurfaceHandle SkiaOutputSurfaceImpl::GetSurfaceHandle() const {
@@ -157,8 +156,15 @@ void SkiaOutputSurfaceImpl::BindFramebuffer() {
 void SkiaOutputSurfaceImpl::SetDrawRectangle(const gfx::Rect& draw_rectangle) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(capabilities().supports_dc_layers);
-  DCHECK(!draw_rectangle_);
+
+  if (has_set_draw_rectangle_for_frame_)
+    return;
+
+  // TODO(kylechar): Add a check that |draw_rectangle| is the full size of the
+  // framebuffer the next time this is called after Reshape().
+
   draw_rectangle_.emplace(draw_rectangle);
+  has_set_draw_rectangle_for_frame_ = true;
 }
 
 void SkiaOutputSurfaceImpl::EnsureBackbuffer() {
@@ -167,7 +173,7 @@ void SkiaOutputSurfaceImpl::EnsureBackbuffer() {
   // SkiaOutputSurfaceImpl::dtor. So it is safe to use base::Unretained.
   auto callback = base::BindOnce(&SkiaOutputSurfaceImplOnGpu::EnsureBackbuffer,
                                  base::Unretained(impl_on_gpu_.get()));
-  task_sequence_->ScheduleOrRetainTask(std::move(callback), {});
+  gpu_task_scheduler_->ScheduleOrRetainGpuTask(std::move(callback), {});
 }
 
 void SkiaOutputSurfaceImpl::DiscardBackbuffer() {
@@ -176,7 +182,7 @@ void SkiaOutputSurfaceImpl::DiscardBackbuffer() {
   // SkiaOutputSurfaceImpl::dtor. So it is safe to use base::Unretained.
   auto callback = base::BindOnce(&SkiaOutputSurfaceImplOnGpu::DiscardBackbuffer,
                                  base::Unretained(impl_on_gpu_.get()));
-  task_sequence_->ScheduleOrRetainTask(std::move(callback), {});
+  gpu_task_scheduler_->ScheduleOrRetainGpuTask(std::move(callback), {});
 }
 
 void SkiaOutputSurfaceImpl::RecreateRootRecorder() {
@@ -192,14 +198,33 @@ void SkiaOutputSurfaceImpl::Reshape(const gfx::Size& size,
                                     const gfx::ColorSpace& color_space,
                                     bool has_alpha,
                                     bool use_stencil) {
+  Reshape(size, device_scale_factor, color_space, has_alpha, use_stencil, false);
+}
+
+void SkiaOutputSurfaceImpl::Reshape(const gfx::Size& size,
+                                    float device_scale_factor,
+                                    const gfx::ColorSpace& color_space,
+                                    bool has_alpha,
+                                    bool use_stencil,
+                                    bool was_forced) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (initialize_waitable_event_) {
-    initialize_waitable_event_->Wait();
-    initialize_waitable_event_.reset();
+  DCHECK(!size.IsEmpty());
+
+  if (reshape_waitable_event_) {
+    reshape_waitable_event_->Wait();
+    reshape_waitable_event_.reset();
   }
 
+  // SetDrawRectangle() will need to be called at the new size.
+  has_set_draw_rectangle_for_frame_ = false;
+
   SkSurfaceCharacterization* characterization = nullptr;
+  bool need_wait_for_gpu_thread = true;
+
   if (characterization_.isValid()) {
+    // TODO(vasilyt): We temporary keep old code for linux to not interferee
+    // with M81. Remove this after.
+#if defined(OS_LINUX)
     sk_sp<SkColorSpace> sk_color_space = color_space.ToSkColorSpace();
     if (!SkColorSpace::Equals(characterization_.colorSpace(),
                               sk_color_space.get())) {
@@ -211,13 +236,28 @@ void SkiaOutputSurfaceImpl::Reshape(const gfx::Size& size,
       characterization_ =
           characterization_.createResized(size.width(), size.height());
     }
-    // TODO(kylechar): Update |characterization_| if |use_alpha| changes.
-    RecreateRootRecorder();
-  } else {
+    need_wait_for_gpu_thread = false;
+#else
+    if (!was_forced && color_space_ == color_space &&
+        has_alpha == reshape_has_alpha_) {
+      characterization_ =
+          characterization_.createResized(size.width(), size.height());
+      need_wait_for_gpu_thread = false;
+    }
+#endif
+  }
+
+  color_space_ = color_space;
+  size_ = size;
+  reshape_has_alpha_ = has_alpha;
+
+  if (need_wait_for_gpu_thread) {
     characterization = &characterization_;
-    initialize_waitable_event_ = std::make_unique<base::WaitableEvent>(
+    reshape_waitable_event_ = std::make_unique<base::WaitableEvent>(
         base::WaitableEvent::ResetPolicy::MANUAL,
         base::WaitableEvent::InitialState::NOT_SIGNALED);
+  } else {
+    RecreateRootRecorder();
   }
 
   // impl_on_gpu_ is released on the GPU thread by a posted task from
@@ -226,7 +266,7 @@ void SkiaOutputSurfaceImpl::Reshape(const gfx::Size& size,
                              base::Unretained(impl_on_gpu_.get()), size,
                              device_scale_factor, color_space, has_alpha,
                              use_stencil, pre_transform_, characterization,
-                             initialize_waitable_event_.get());
+                             reshape_waitable_event_.get());
   ScheduleGpuTask(std::move(task), {});
 }
 
@@ -238,7 +278,7 @@ void SkiaOutputSurfaceImpl::SetUpdateVSyncParametersCallback(
 void SkiaOutputSurfaceImpl::SetGpuVSyncEnabled(bool enabled) {
   auto task = base::BindOnce(&SkiaOutputSurfaceImplOnGpu::SetGpuVSyncEnabled,
                              base::Unretained(impl_on_gpu_.get()), enabled);
-  task_sequence_->ScheduleOrRetainTask(std::move(task), {});
+  gpu_task_scheduler_->ScheduleOrRetainGpuTask(std::move(task), {});
 }
 
 void SkiaOutputSurfaceImpl::SetGpuVSyncCallback(GpuVSyncCallback callback) {
@@ -260,10 +300,13 @@ SkCanvas* SkiaOutputSurfaceImpl::BeginPaintCurrentFrame() {
   // Make sure there is no unsubmitted PaintFrame or PaintRenderPass.
   DCHECK(!current_paint_);
 
-  if (initialize_waitable_event_) {
-    initialize_waitable_event_->Wait();
-    initialize_waitable_event_ = nullptr;
-
+  if (reshape_waitable_event_) {
+    reshape_waitable_event_->Wait();
+    reshape_waitable_event_ = nullptr;
+    if (!characterization_.isValid()) {
+      DLOG(ERROR) << "Reshape failed.";
+      return nullptr;
+    }
     RecreateRootRecorder();
   }
 
@@ -377,7 +420,7 @@ void SkiaOutputSurfaceImpl::ReleaseImageContexts(
   auto callback = base::BindOnce(
       &SkiaOutputSurfaceImplOnGpu::ReleaseImageContexts,
       base::Unretained(impl_on_gpu_.get()), std::move(image_contexts));
-  task_sequence_->ScheduleOrRetainTask(std::move(callback), {});
+  gpu_task_scheduler_->ScheduleOrRetainGpuTask(std::move(callback), {});
 }
 
 std::unique_ptr<ExternalUseClient::ImageContext>
@@ -391,9 +434,11 @@ SkiaOutputSurfaceImpl::CreateImageContext(
                                             std::move(color_space));
 }
 
-void SkiaOutputSurfaceImpl::SkiaSwapBuffers(OutputSurfaceFrame frame) {
+void SkiaOutputSurfaceImpl::SwapBuffers(OutputSurfaceFrame frame) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(!current_paint_);
+
+  has_set_draw_rectangle_for_frame_ = false;
 
   // impl_on_gpu_ is released on the GPU thread by a posted task from
   // SkiaOutputSurfaceImpl::dtor. So it is safe to use base::Unretained.
@@ -409,8 +454,26 @@ void SkiaOutputSurfaceImpl::SkiaSwapBuffers(OutputSurfaceFrame frame) {
   RecreateRootRecorder();
 }
 
+void SkiaOutputSurfaceImpl::SwapBuffersSkipped() {
+  if (deferred_framebuffer_draw_closure_) {
+    // Run the task to draw the root RenderPass on the GPU thread. If we aren't
+    // going to swap buffers and there are no CopyOutputRequests on the root
+    // RenderPass we don't strictly need to draw. However, we still need to
+    // PostTask to the GPU thread to deal with freeing resources and running
+    // callbacks. This is infrequent and all the work is already done in
+    // FinishPaintCurrentFrame() so use the same path.
+    auto task = base::BindOnce(&SkiaOutputSurfaceImplOnGpu::SwapBuffersSkipped,
+                               base::Unretained(impl_on_gpu_.get()),
+                               std::move(deferred_framebuffer_draw_closure_));
+    ScheduleGpuTask(std::move(task), std::move(resource_sync_tokens_));
+
+    // TODO(vasilyt): reuse root recorder
+    RecreateRootRecorder();
+  }
+}
+
 void SkiaOutputSurfaceImpl::ScheduleOutputSurfaceAsOverlay(
-    OverlayProcessor::OutputSurfaceOverlayPlane output_surface_plane) {
+    OverlayProcessorInterface::OutputSurfaceOverlayPlane output_surface_plane) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   // impl_on_gpu_ is released on the GPU thread by a posted task from
   // SkiaOutputSurfaceImpl::dtor. So it is safe to use base::Unretained.
@@ -454,14 +517,6 @@ gpu::SyncToken SkiaOutputSurfaceImpl::SubmitPaint(
 
   auto ddl = current_paint_->recorder()->detach();
   DCHECK(ddl);
-  std::unique_ptr<SkDeferredDisplayList> overdraw_ddl;
-  if (renderer_settings_.show_overdraw_feedback && !painting_render_pass) {
-    overdraw_ddl = overdraw_surface_recorder_->detach();
-    DCHECK(overdraw_ddl);
-    overdraw_canvas_.reset();
-    nway_canvas_.reset();
-    overdraw_surface_recorder_.reset();
-  }
 
   // impl_on_gpu_ is released on the GPU thread by a posted task from
   // SkiaOutputSurfaceImpl::dtor. So it is safe to use base::Unretained.
@@ -481,6 +536,15 @@ gpu::SyncToken SkiaOutputSurfaceImpl::SubmitPaint(
         resource_sync_tokens_, sync_fence_release_);
     ScheduleGpuTask(std::move(closure), std::move(resource_sync_tokens_));
   } else {
+    std::unique_ptr<SkDeferredDisplayList> overdraw_ddl;
+    if (renderer_settings_.show_overdraw_feedback) {
+      overdraw_ddl = overdraw_surface_recorder_->detach();
+      DCHECK(overdraw_ddl);
+      overdraw_canvas_.reset();
+      nway_canvas_.reset();
+      overdraw_surface_recorder_.reset();
+    }
+
     deferred_framebuffer_draw_closure_ = base::BindOnce(
         &SkiaOutputSurfaceImplOnGpu::FinishPaintCurrentFrame,
         base::Unretained(impl_on_gpu_.get()), std::move(ddl),
@@ -547,12 +611,11 @@ void SkiaOutputSurfaceImpl::RemoveRenderPassResource(
 
   // impl_on_gpu_ is released on the GPU thread by a posted task from
   // SkiaOutputSurfaceImpl::dtor. So it is safe to use base::Unretained.
-  if (!image_contexts.empty()) {
-    auto callback = base::BindOnce(
-        &SkiaOutputSurfaceImplOnGpu::RemoveRenderPassResource,
-        base::Unretained(impl_on_gpu_.get()), std::move(image_contexts));
-    ScheduleGpuTask(std::move(callback), {});
-  }
+  auto callback =
+      base::BindOnce(&SkiaOutputSurfaceImplOnGpu::RemoveRenderPassResource,
+                     base::Unretained(impl_on_gpu_.get()), std::move(ids),
+                     std::move(image_contexts));
+  ScheduleGpuTask(std::move(callback), {});
 }
 
 void SkiaOutputSurfaceImpl::CopyOutput(
@@ -599,24 +662,13 @@ void SkiaOutputSurfaceImpl::SetCapabilitiesForTesting(
   ScheduleGpuTask(std::move(callback), {});
 }
 
-void SkiaOutputSurfaceImpl::SendOverlayPromotionNotification(
-    std::vector<gpu::SyncToken> sync_tokens,
-    base::flat_set<gpu::Mailbox> promotion_denied,
-    base::flat_map<gpu::Mailbox, gfx::Rect> possible_promotions) {
-#if defined(OS_ANDROID)
-  auto callback = base::BindOnce(
-      &SkiaOutputSurfaceImplOnGpu::SendOverlayPromotionNotification,
-      base::Unretained(impl_on_gpu_.get()), std::move(promotion_denied),
-      std::move(possible_promotions));
-  ScheduleGpuTask(std::move(callback), std::move(sync_tokens));
-#endif
-}
-
 bool SkiaOutputSurfaceImpl::Initialize() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  // Before start scheduling GPU task, set up |task_sequence_|.
-  task_sequence_ = dependency_->CreateSequence();
+  // Before starting to schedule GPU task, set up |gpu_task_scheduler_| that
+  // holds a task sequence.
+  gpu_task_scheduler_ = base::MakeRefCounted<gpu::GpuTaskSchedulerHelper>(
+      dependency_->CreateSequence());
 
   weak_ptr_ = weak_ptr_factory_.GetWeakPtr();
 
@@ -669,7 +721,8 @@ void SkiaOutputSurfaceImpl::InitializeOnGpuThread(
       base::BindOnce(&SkiaOutputSurfaceImpl::ContextLost, weak_ptr_);
 
   impl_on_gpu_ = SkiaOutputSurfaceImplOnGpu::Create(
-      dependency_.get(), renderer_settings_, task_sequence_->GetSequenceId(),
+      dependency_.get(), renderer_settings_,
+      gpu_task_scheduler_->GetSequenceId(),
       std::move(did_swap_buffer_complete_callback),
       std::move(buffer_presented_callback), std::move(context_lost_callback),
       std::move(vsync_callback_runner));
@@ -769,8 +822,8 @@ void SkiaOutputSurfaceImpl::ScheduleGpuTask(
         std::move(callback).Run();
       },
       std::move(callback));
-  task_sequence_->ScheduleTask(std::move(wrapped_closure),
-                               std::move(sync_tokens));
+  gpu_task_scheduler_->ScheduleGpuTask(std::move(wrapped_closure),
+                                       std::move(sync_tokens));
 }
 
 GrBackendFormat SkiaOutputSurfaceImpl::GetGrBackendFormatForTexture(
@@ -795,7 +848,7 @@ GrBackendFormat SkiaOutputSurfaceImpl::GetGrBackendFormatForTexture(
 #endif
   } else if (dependency_->IsUsingDawn()) {
 #if BUILDFLAG(SKIA_USE_DAWN)
-    dawn::TextureFormat format = ToDawnFormat(resource_format);
+    wgpu::TextureFormat format = ToDawnFormat(resource_format);
     return GrBackendFormat::MakeDawn(format);
 #endif
   } else {
@@ -808,10 +861,6 @@ GrBackendFormat SkiaOutputSurfaceImpl::GetGrBackendFormatForTexture(
   }
   NOTREACHED();
   return GrBackendFormat();
-}
-
-void SkiaOutputSurfaceImpl::SwapBuffers(OutputSurfaceFrame frame) {
-  NOTREACHED();
 }
 
 uint32_t SkiaOutputSurfaceImpl::GetFramebufferCopyTextureFormat() {
@@ -854,7 +903,8 @@ void SkiaOutputSurfaceImpl::SetNeedsSwapSizeNotifications(
 }
 
 base::ScopedClosureRunner SkiaOutputSurfaceImpl::GetCacheBackBufferCb() {
-  DCHECK(impl_on_gpu_->gl_surface());
+  if (!impl_on_gpu_->gl_surface())
+    return base::ScopedClosureRunner();
   return dependency_->CacheGLSurface(impl_on_gpu_->gl_surface());
 }
 
@@ -905,6 +955,11 @@ void SkiaOutputSurfaceImpl::ContextLost() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   for (auto& observer : observers_)
     observer.OnContextLost();
+}
+
+scoped_refptr<gpu::GpuTaskSchedulerHelper>
+SkiaOutputSurfaceImpl::GetGpuTaskSchedulerHelper() {
+  return gpu_task_scheduler_;
 }
 
 }  // namespace viz

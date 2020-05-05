@@ -233,7 +233,7 @@ class ContextMtl : public ContextImpl, public mtl::Context
     uint32_t getClearStencilValue() const;
     // Return front facing stencil write mask
     uint32_t getStencilMask() const;
-    bool isDepthWriteEnabled() const;
+    bool getDepthMask() const;
 
     const mtl::Format &getPixelFormat(angle::FormatID angleFormatId) const;
     // See mtl::FormatTable::getVertexFormat()
@@ -381,6 +381,9 @@ class ContextMtl : public ContextImpl, public mtl::Context
 
         // NOTE(hqle): Transform feedsback is not supported yet.
         uint32_t xfbActiveUnpaused;
+        uint32_t xfbVerticesPerDraw;
+        // NOTE: Explicit padding. Fill in with useful data when needed in the future.
+        int32_t padding[3];
 
         int32_t xfbBufferOffsets[4];
         uint32_t acbBufferOffsets[4];
@@ -421,6 +424,9 @@ class ContextMtl : public ContextImpl, public mtl::Context
     mtl::DepthStencilDesc mDepthStencilDesc;
     mtl::BlendDesc mBlendDesc;
     MTLClearColor mClearColor;
+    uint32_t mClearStencil    = 0;
+    uint32_t mStencilRefFront = 0;
+    uint32_t mStencilRefBack  = 0;
     MTLViewport mViewport;
     MTLScissorRect mScissorRect;
     MTLWinding mWinding;

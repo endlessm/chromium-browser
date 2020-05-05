@@ -15,6 +15,7 @@
 #include "vpx/vpx_encoder.h"
 #include "vpx_dsp/psnr.h"
 #include "vpx_ports/vpx_once.h"
+#include "vpx_ports/static_assert.h"
 #include "vpx_ports/system_state.h"
 #include "vpx_util/vpx_timestamp.h"
 #include "vpx/internal/vpx_codec_internal.h"
@@ -159,22 +160,6 @@ static vpx_codec_err_t update_error_state(
   do {                                                                \
     if (!!((p)->memb) != (p)->memb) ERROR(#memb " expected boolean"); \
   } while (0)
-
-#if defined(_MSC_VER)
-#define COMPILE_TIME_ASSERT(boolexp)              \
-  do {                                            \
-    char compile_time_assert[(boolexp) ? 1 : -1]; \
-    (void)compile_time_assert;                    \
-  } while (0)
-#else  // !_MSC_VER
-#define COMPILE_TIME_ASSERT(boolexp)                         \
-  do {                                                       \
-    struct {                                                 \
-      unsigned int compile_time_assert : (boolexp) ? 1 : -1; \
-    } compile_time_assert;                                   \
-    (void)compile_time_assert;                               \
-  } while (0)
-#endif  // _MSC_VER
 
 static vpx_codec_err_t validate_config(vpx_codec_alg_priv_t *ctx,
                                        const vpx_codec_enc_cfg_t *cfg,
@@ -966,8 +951,8 @@ static void pick_quickcompress_mode(vpx_codec_alg_priv_t *ctx,
         // Convert duration parameter from stream timebase to microseconds.
         uint64_t duration_us;
 
-        COMPILE_TIME_ASSERT(TICKS_PER_SEC > 1000000 &&
-                            (TICKS_PER_SEC % 1000000) == 0);
+        VPX_STATIC_ASSERT(TICKS_PER_SEC > 1000000 &&
+                          (TICKS_PER_SEC % 1000000) == 0);
 
         duration_us = duration * (uint64_t)ctx->timestamp_ratio.num /
                       (ctx->timestamp_ratio.den * (TICKS_PER_SEC / 1000000));
@@ -1655,6 +1640,16 @@ static vpx_codec_err_t ctrl_set_svc_spatial_layer_sync(
   return VPX_CODEC_OK;
 }
 
+static vpx_codec_err_t ctrl_set_delta_q_uv(vpx_codec_alg_priv_t *ctx,
+                                           va_list args) {
+  int data = va_arg(args, int);
+  VP9_COMP *const cpi = ctx->cpi;
+  data = VPXMIN(VPXMAX(data, -20), 20);
+  cpi->oxcf.delta_q_uv = data;
+  ctx->oxcf.delta_q_uv = data;
+  return VPX_CODEC_OK;
+}
+
 static vpx_codec_err_t ctrl_register_cx_callback(vpx_codec_alg_priv_t *ctx,
                                                  va_list args) {
   vpx_codec_priv_output_cx_pkt_cb_pair_t *cbp =
@@ -1752,6 +1747,7 @@ static vpx_codec_ctrl_fn_map_t encoder_ctrl_maps[] = {
   { VP9E_SET_SVC_FRAME_DROP_LAYER, ctrl_set_svc_frame_drop_layer },
   { VP9E_SET_SVC_GF_TEMPORAL_REF, ctrl_set_svc_gf_temporal_ref },
   { VP9E_SET_SVC_SPATIAL_LAYER_SYNC, ctrl_set_svc_spatial_layer_sync },
+  { VP9E_SET_DELTA_Q_UV, ctrl_set_delta_q_uv },
 
   // Getters
   { VP8E_GET_LAST_QUANTIZER, ctrl_get_quantizer },

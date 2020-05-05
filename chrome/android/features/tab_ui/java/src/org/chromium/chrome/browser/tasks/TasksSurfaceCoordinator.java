@@ -33,6 +33,7 @@ public class TasksSurfaceCoordinator implements TasksSurface {
     public TasksSurfaceCoordinator(ChromeActivity activity, PropertyModel propertyModel,
             FakeboxDelegate fakeboxDelegate, boolean isTabCarousel) {
         mView = (TasksView) LayoutInflater.from(activity).inflate(R.layout.tasks_view_layout, null);
+        mView.initialize(activity.getLifecycleDispatcher());
         mPropertyModelChangeProcessor =
                 PropertyModelChangeProcessor.create(propertyModel, mView, TasksViewBinder::bind);
         if (isTabCarousel) {
@@ -48,6 +49,8 @@ public class TasksSurfaceCoordinator implements TasksSurface {
                     activity.getString(R.string.help_context_incognito_learn_more),
                     Profile.getLastUsedProfile(), null);
         };
+        // TODO(crbug.com/1040091): Add parameter for CookieSettingsBridge to control the cookie
+        // controls toggle on the IncognitoNTP.
         mMediator = new TasksSurfaceMediator(
                 propertyModel, fakeboxDelegate, incognitoLearnMoreClickListener, isTabCarousel);
 

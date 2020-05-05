@@ -381,6 +381,10 @@ public:
 
   uint64_t getLDSTAddr() const;
 
+  static bool classof(const SectionBase *d) {
+    return d->kind() == InputSectionBase::Synthetic && d->name == ".text.patch";
+  }
+
   // The Section we are patching.
   const InputSection *patchee;
   // The offset of the instruction in the patchee section we are patching.
@@ -417,7 +421,7 @@ void Patch843419Section::writeTo(uint8_t *buf) {
   // Return address is the next instruction after the one we have just copied.
   uint64_t s = getLDSTAddr() + 4;
   uint64_t p = patchSym->getVA() + 4;
-  target->relocateOne(buf + 4, R_AARCH64_JUMP26, s - p);
+  target->relocateNoSym(buf + 4, R_AARCH64_JUMP26, s - p);
 }
 
 void AArch64Err843419Patcher::init() {

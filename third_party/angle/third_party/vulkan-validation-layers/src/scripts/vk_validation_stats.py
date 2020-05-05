@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# Copyright (c) 2015-2019 The Khronos Group Inc.
-# Copyright (c) 2015-2019 Valve Corporation
-# Copyright (c) 2015-2019 LunarG, Inc.
-# Copyright (c) 2015-2019 Google Inc.
+# Copyright (c) 2015-2020 The Khronos Group Inc.
+# Copyright (c) 2015-2020 Valve Corporation
+# Copyright (c) 2015-2020 LunarG, Inc.
+# Copyright (c) 2015-2020 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ txt_filename = "validation_error_database.txt"
 csv_filename = "validation_error_database.csv"
 html_filename = "validation_error_database.html"
 header_filename = "vk_validation_error_messages.h"
-vuid_prefixes = ['VUID-', 'UNASSIGNED-']
+vuid_prefixes = ['VUID-', 'UNASSIGNED-', 'kVUID_']
 
 # Hard-coded flags that could be command line args, if we decide that's useful
 # replace KHR vuids with non-KHR during consistency checking
@@ -63,6 +63,12 @@ layer_source_files = [common_codegen.repo_relative(path) for path in [
 ]]
 
 test_source_files = glob.glob(os.path.join(common_codegen.repo_relative('tests'), '*.cpp'))
+
+unassigned_vuid_files = [common_codegen.repo_relative(path) for path in [
+    'layers/stateless_validation.h',
+    'layers/core_validation_error_enums.h',
+    'layers/object_lifetime_validation.h'
+]]
 
 # This needs to be updated as new extensions roll in
 khr_aliases = {
@@ -156,6 +162,7 @@ def printHelp():
     print (" -c                report consistency warnings")
     print (" -todo             report unimplemented VUIDs")
     print (" -vuid <vuid_name> report status of individual VUID <vuid_name>")
+    print (" -unassigned       report unassigned VUIDs")
     print (" -text [filename]  output the error database text to <text_database_filename>,")
     print ("                   defaults to 'validation_error_database.txt'")
     print (" -csv [filename]   output the error database in csv to <csv_database_filename>,")
@@ -186,6 +193,8 @@ class ValidationJSON:
         self.regex_dict[re.compile(r'\\\(\\lceil{\\frac{maxFramebufferWidth}{minFragmentDensityTexelSize_{width}}}\\rceil\\\)')] = "the ceiling of maxFramebufferWidth/minFragmentDensityTexelSize.width"
         self.regex_dict[re.compile(r'\\\(\\lceil\{\\mathit\{rasterizationSamples} \\over 32}\\rceil\\\)')] = "(rasterizationSamples/32)"
         self.regex_dict[re.compile(r'\\\(\\textrm\{codeSize} \\over 4\\\)')] = "(codeSize/4)"
+        self.regex_dict[re.compile('\u2032')] = "'"         # Handle prime
+        self.regex_dict[re.compile('code:"(.*?)"')] = '\\1' # Handle \"
         # Some fancy punctuation chars that break the Android build...
         self.regex_dict[re.compile('&#8594;')] = "->"       # Arrow char
         self.regex_dict[re.compile('&#8217;')] = "'"        # Left-slanting apostrophe to apostrophe
@@ -233,6 +242,26 @@ class ValidationJSON:
             print("Warning: duplicate VUIDs found in validusage.json")
 
 
+def buildKvuidDict():
+    kvuid_dict = {}
+
+    for uf in unassigned_vuid_files:
+        line_num = 0
+        with open(uf) as f:
+            for line in f:
+                line_num = line_num + 1
+                if True in [line.strip().startswith(comment) for comment in ['//', '/*']]:
+                    continue
+
+                if 'kVUID_' in line:
+                    kvuid_pos = line.find('kVUID_'); assert(kvuid_pos >= 0);
+                    eq_pos = line.find('=', kvuid_pos);
+                    if eq_pos >= 0:
+                        kvuid = line[kvuid_pos:eq_pos].strip(' \t\n;"')
+                        unassigned_str = line[eq_pos+1:].strip(' \t\n;"')
+                        kvuid_dict[kvuid] = unassigned_str
+    return kvuid_dict
+
 class ValidationSource:
     def __init__(self, source_file_list):
         self.source_files = source_file_list
@@ -244,6 +273,9 @@ class ValidationSource:
         self.all_vuids = set()
 
     def parse(self):
+        kvuid_dict = buildKvuidDict()
+
+        # build self.vuid_count_dict
         prepend = None
         for sf in self.source_files:
             line_num = 0
@@ -270,8 +302,9 @@ class ValidationSource:
                         vuid_list = []
                         for str in line_list:
                             if any(prefix in str for prefix in vuid_prefixes):
-                                vuid_list.append(str.strip(',);{}"'))
+                                vuid_list.append(str.strip(',);{}"*'))
                         for vuid in vuid_list:
+                            if vuid.startswith('kVUID_'): vuid = kvuid_dict[vuid]
                             if vuid not in self.vuid_count_dict:
                                 self.vuid_count_dict[vuid] = {}
                                 self.vuid_count_dict[vuid]['count'] = 1
@@ -298,7 +331,7 @@ class ValidationSource:
 
 # Class to parse the validation layer test source and store testnames
 class ValidationTests:
-    def __init__(self, test_file_list, test_group_name=['VkLayerTest', 'VkPositiveLayerTest', 'VkWsiEnabledLayerTest']):
+    def __init__(self, test_file_list, test_group_name=['VkLayerTest', 'VkPositiveLayerTest', 'VkWsiEnabledLayerTest', 'VkBestPracticesLayerTest']):
         self.test_files = test_file_list
         self.test_trigger_txt_list = []
         for tg in test_group_name:
@@ -312,6 +345,8 @@ class ValidationTests:
 
     # Parse test files into internal data struct
     def parse(self):
+        kvuid_dict = buildKvuidDict()
+
         # For each test file, parse test names into set
         grab_next_line = False # handle testname on separate line than wildcard
         testname = ''
@@ -350,7 +385,8 @@ class ValidationTests:
                         line_list = re.split('[\s{}[\]()"]+',line)
                         for sub_str in line_list:
                             if any(prefix in sub_str for prefix in vuid_prefixes):
-                                vuid_str = sub_str.strip(',);:"')
+                                vuid_str = sub_str.strip(',);:"*')
+                                if vuid_str.startswith('kVUID_'): vuid_str = kvuid_dict[vuid_str]
                                 self.vuid_to_tests[vuid_str].add(testname)
                                 #self.test_to_vuids[testname].append(vuid_str)
                                 if (vuid_str.startswith('VUID-')):
@@ -461,8 +497,8 @@ class OutputDatabase:
 /*
  * Vulkan
  *
- * Copyright (c) 2016-2019 Google Inc.
- * Copyright (c) 2016-2019 LunarG, Inc.
+ * Copyright (c) 2016-2020 Google Inc.
+ * Copyright (c) 2016-2020 LunarG, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -495,7 +531,12 @@ static const vuid_spec_text_pair vuid_spec_text[] = {
 """
         self.header_postamble = """};
 """
-        self.spec_url = "https://www.khronos.org/registry/vulkan/specs/1.1-extensions/html/vkspec.html"
+        # TODO: it might make sense to ask for khr.io short permalink
+        self.spec_url_ext = "https://www.khronos.org/registry/vulkan/specs/1.%s-extensions/html/vkspec.html#%s"
+        self.spec_url_khr = "https://www.khronos.org/registry/vulkan/specs/1.%s-khr-extensions/html/vkspec.html#%s"
+        self.spec_url_core = "https://www.khronos.org/registry/vulkan/specs/1.%s/html/vkspec.html#%s"
+        # For VUIDs that do not exist in any published spec, at least link to spec repo search
+        self.spec_url_default = "https://github.com/KhronosGroup/Vulkan-Docs/search?q=%s"
 
     def dump_txt(self, only_unimplemented = False):
         print("\n Dumping database to text file: %s" % txt_filename)
@@ -581,6 +622,75 @@ static const vuid_spec_text_pair vuid_spec_text[] = {
                     hfile.write('<th>%s</th></tr>\n' % db_entry['text'])
             hfile.write('</table>\n</body>\n</html>\n')
 
+    # make list of spec versions containing given VUID
+    @staticmethod
+    def make_vuid_spec_version_list(pattern):
+        assert pattern
+        max_minor_version = 1 # needs to be bumped with new minor versions :/
+
+        all_editions_list = []
+        for e in reversed(range(max_minor_version+1)):
+            all_editions_list.append({"version": e, "ext": True,  "khr" : False})
+            all_editions_list.append({"version": e, "ext": False, "khr" : True})
+            all_editions_list.append({"version": e, "ext": False, "khr" : False})
+
+        if pattern == 'core':
+            return all_editions_list
+
+        # pattern is series of parentheses separated by plus
+        # each parentheses can be prepended by negation (!)
+        # each parentheses contains list of extensions or vk versions separated by either comma or plus
+        edition_list_out = []
+        for edition in all_editions_list:
+            resolved_pattern = True
+
+            raw_terms = re.split(r'\)\+', pattern)
+            for raw_term in raw_terms:
+                negated = raw_term.startswith('!')
+                term = raw_term.lstrip('!(').rstrip(')')
+                conjunction = '+' in term
+                disjunction = ',' in term
+                assert not (conjunction and disjunction)
+                if conjunction: features = term.split('+')
+                elif disjunction: features = term.split(',')
+                else: features = [term]
+                assert features
+
+                def isDefined(feature, edition):
+                    def getVersion(f): return int(f.replace('VK_VERSION_1_', '', 1))
+                    def isVersion(f): return f.startswith('VK_VERSION_') and feature != 'VK_VERSION_1_0' and getVersion(feature) < 1024
+                    def isExtension(f): return f.startswith('VK_') and not isVersion(f)
+                    def isKhr(f): return f.startswith('VK_KHR_')
+
+                    assert isExtension(feature) or isVersion(feature)
+
+                    if isVersion(feature) and getVersion(feature) <= edition['version']: return True
+                    elif isExtension(feature) and edition['ext']: return True
+                    elif isKhr(feature) and edition['khr']: return True
+                    else: return False
+
+                if not negated and (conjunction or (not conjunction and not disjunction)): # all defined
+                    resolved_term = True
+                    for feature in features:
+                        if not isDefined(feature, edition): resolved_term = False
+                elif negated and conjunction: # at least one not defined
+                    resolved_term = False
+                    for feature in features:
+                        if not isDefined(feature, edition): resolved_term = True
+                elif not negated and disjunction: # at least one defined
+                    resolved_term = False
+                    for feature in features:
+                        if isDefined(feature, edition): resolved_term = True
+                elif negated and (disjunction or (not conjunction and not disjunction)): # none defined
+                    resolved_term = True
+                    for feature in features:
+                        if isDefined(feature, edition): resolved_term = False
+
+                resolved_pattern = resolved_pattern and resolved_term
+            if resolved_pattern: edition_list_out.append(edition)
+        return edition_list_out
+
+
     def export_header(self):
         if verbose_mode:
             print("\n Exporting header file to: %s" % header_filename)
@@ -592,12 +702,20 @@ static const vuid_spec_text_pair vuid_spec_text[] = {
             cmd_dict = {}
             for vuid in vuid_list:
                 db_entry = self.vj.vuid_db[vuid][0]
+
+                spec_list = self.make_vuid_spec_version_list(db_entry['ext'])
+
+                if  not spec_list: spec_url = self.spec_url_default % vuid
+                elif spec_list[0]['ext']: spec_url = self.spec_url_ext % (spec_list[0]['version'], vuid)
+                elif spec_list[0]['khr']: spec_url = self.spec_url_khr % (spec_list[0]['version'], vuid)
+                else: spec_url = self.spec_url_core % (spec_list[0]['version'], vuid)
+
                 db_text = db_entry['text'].strip(' ')
-                hfile.write('    {"%s", "%s (%s#%s)"},\n' % (vuid, db_text, self.spec_url, vuid))
+                hfile.write('    {"%s", "%s (%s)"},\n' % (vuid, db_text, spec_url))
                 # For multiply-defined VUIDs, include versions with extension appended
                 if len(self.vj.vuid_db[vuid]) > 1:
-                    for db_entry in self.vj.vuid_db[vuid]:
-                        hfile.write('    {"%s[%s]", "%s (%s#%s)"},\n' % (vuid, db_entry['ext'].strip(' '), db_text, self.spec_url, vuid))
+                    print('Error: Found a duplicate VUID: %s' % vuid)
+                    sys.exit(-1)
                 if 'commandBuffer must be in the recording state' in db_text:
                     cmd_dict[vuid] = db_text 
             hfile.write(self.header_postamble)
@@ -639,6 +757,7 @@ def main(argv):
 
     run_consistency = False
     report_unimplemented = False
+    report_unassigned = False
     get_vuid_status = ''
     txt_out = False
     csv_out = False
@@ -663,6 +782,8 @@ def main(argv):
             i = i + 1
         elif (arg == '-todo'):
             report_unimplemented = True
+        elif (arg == '-unassigned'):
+            report_unassigned = True
         elif (arg == '-text'):
             txt_out = True
             # Set filename if supplied, else use default
@@ -759,7 +880,7 @@ def main(argv):
     # Report status of a single VUID
     if len(get_vuid_status) > 1:
         print("\n\nChecking status of <%s>" % get_vuid_status);
-        if get_vuid_status not in val_json.all_vuids:
+        if get_vuid_status not in val_json.all_vuids and not get_vuid_status.startswith('UNASSIGNED-'):
             print('  Not a valid VUID string.')
         else:
             if get_vuid_status in val_source.explicit_vuids:
@@ -790,6 +911,26 @@ def main(argv):
         ulist.sort()
         for vuid in ulist:
             print("  => %s" % vuid)
+
+    # Report unassigned VUIDs
+    if report_unassigned:
+        # TODO: I do not really want VUIDs created for warnings though here
+        print("\n\n%d checks without a spec VUID:" % len(val_source.unassigned_vuids))
+        ulist = list(val_source.unassigned_vuids)
+        ulist.sort()
+        for vuid in ulist:
+            print("  => %s" % vuid)
+            line_list = val_source.vuid_count_dict[vuid]['file_line']
+            for line in line_list:
+                print('    => %s' % line)
+        print("\n%d tests without a spec VUID:" % len(val_source.unassigned_vuids))
+        ulist = list(val_tests.unassigned_vuids)
+        ulist.sort()
+        for vuid in ulist:
+            print("  => %s" % vuid)
+            test_list = val_tests.vuid_to_tests[vuid]
+            for test in test_list:
+                print('    => %s' % test)
 
     # Consistency tests
     if run_consistency:

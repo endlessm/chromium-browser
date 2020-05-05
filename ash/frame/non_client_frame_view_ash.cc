@@ -372,8 +372,12 @@ void NonClientFrameViewAsh::OnWindowBoundsChanged(
     const gfx::Rect& old_bounds,
     const gfx::Rect& new_bounds,
     ui::PropertyChangeReason reason) {
-  if (window->transparent())
-    window->SetOpaqueRegionsForOcclusion({gfx::Rect(new_bounds.size())});
+  if (window->transparent()) {
+    if (GetVisible() && GetEnabled())
+      window->SetOpaqueRegionsForOcclusion({gfx::Rect(new_bounds.size())});
+    else
+      window->SetOpaqueRegionsForOcclusion({gfx::Rect()});
+  }
 }
 
 void NonClientFrameViewAsh::OnWindowDestroying(aura::Window* window) {
@@ -383,6 +387,16 @@ void NonClientFrameViewAsh::OnWindowDestroying(aura::Window* window) {
 
 void NonClientFrameViewAsh::SetShouldPaintHeader(bool paint) {
   header_view_->SetShouldPaintHeader(paint);
+}
+
+int NonClientFrameViewAsh::NonClientTopBorderHeight() const {
+  // The frame should not occupy the window area when it's in fullscreen,
+  // not visible or disabled.
+  if (frame_->IsFullscreen() || !GetVisible() || !GetEnabled() ||
+      header_view_->in_immersive_mode()) {
+    return 0;
+  }
+  return header_view_->GetPreferredHeight();
 }
 
 const views::View* NonClientFrameViewAsh::GetAvatarIconViewForTest() const {
@@ -420,16 +434,6 @@ bool NonClientFrameViewAsh::DoesIntersectRect(const views::View* target,
 FrameCaptionButtonContainerView*
 NonClientFrameViewAsh::GetFrameCaptionButtonContainerViewForTest() {
   return header_view_->caption_button_container();
-}
-
-int NonClientFrameViewAsh::NonClientTopBorderHeight() const {
-  // The frame should not occupy the window area when it's in fullscreen,
-  // not visible or disabled.
-  if (frame_->IsFullscreen() || !GetVisible() || !GetEnabled() ||
-      header_view_->in_immersive_mode()) {
-    return 0;
-  }
-  return header_view_->GetPreferredHeight();
 }
 
 }  // namespace ash

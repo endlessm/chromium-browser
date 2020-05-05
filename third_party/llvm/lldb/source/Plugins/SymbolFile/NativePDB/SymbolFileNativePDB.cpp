@@ -1,4 +1,4 @@
-//===-- SymbolFileNativePDB.cpp ---------------------------------*- C++ -*-===//
+//===-- SymbolFileNativePDB.cpp -------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -19,8 +19,7 @@
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/StreamBuffer.h"
 #include "lldb/Core/StreamFile.h"
-#include "lldb/Symbol/ClangASTContext.h"
-#include "lldb/Symbol/ClangExternalASTSourceCommon.h"
+#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/ClangUtil.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/LineTable.h"
@@ -332,7 +331,7 @@ void SymbolFileNativePDB::InitializeObject() {
                    std::move(err), "Failed to initialize");
   } else {
     ts_or_err->SetSymbolFile(this);
-    auto *clang = llvm::cast_or_null<ClangASTContext>(&ts_or_err.get());
+    auto *clang = llvm::cast_or_null<TypeSystemClang>(&ts_or_err.get());
     lldbassert(clang);
     m_ast = std::make_unique<PdbAstBuilder>(*m_objfile_sp, *m_index, *clang);
   }
@@ -1110,9 +1109,7 @@ bool SymbolFileNativePDB::ParseLineTable(CompileUnit &comp_unit) {
       // LLDB wants the index of the file in the list of support files.
       auto fn_iter = llvm::find(cci->m_file_list, *efn);
       lldbassert(fn_iter != cci->m_file_list.end());
-      // LLDB support file indices are 1-based.
-      uint32_t file_index =
-          1 + std::distance(cci->m_file_list.begin(), fn_iter);
+      uint32_t file_index = std::distance(cci->m_file_list.begin(), fn_iter);
 
       std::unique_ptr<LineSequence> sequence(
           line_table->CreateLineSequenceContainer());
@@ -1155,14 +1152,6 @@ bool SymbolFileNativePDB::ParseSupportFiles(CompileUnit &comp_unit,
     FileSpec spec(f, style);
     support_files.Append(spec);
   }
-
-  llvm::SmallString<64> main_source_file =
-      m_index->compilands().GetMainSourceFile(*cci);
-  FileSpec::Style style = main_source_file.startswith("/")
-                              ? FileSpec::Style::posix
-                              : FileSpec::Style::windows;
-  FileSpec spec(main_source_file, style);
-  support_files.Insert(0, spec);
   return true;
 }
 

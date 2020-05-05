@@ -38,6 +38,13 @@ and `AR`.
 There is a simple example in [examples/simple_build](examples/simple_build)
 directory that is a good place to get started with the minimal configuration.
 
+To build and run the simple example with the default gcc compiler:
+
+    cd examples/simple_build
+    ../../out/gn gen -C out
+    ninja -C out
+    ./out/hello
+
 For a maximal configuration see the Chromium setup:
   * [.gn](https://cs.chromium.org/chromium/src/.gn)
   * [BUILDCONFIG.gn](https://cs.chromium.org/chromium/src/build/config/BUILDCONFIG.gn)
@@ -68,12 +75,16 @@ version of how to patch is:
 Then, to upload a change for review:
 
     git commit
-    git cl upload --gerrit
+    git push origin HEAD:refs/for/master
+
+The first time you do this you'll get an error from the server about a missing
+change-ID. Follow the directions in the error message to install the change-ID
+hook and run `git commit --amend` to apply the hook to the current commit.
 
 When revising a change, use:
 
     git commit --amend
-    git cl upload --gerrit
+    git push origin HEAD:refs/for/master
 
 which will add the new changes to the existing code review, rather than creating
 a new one.

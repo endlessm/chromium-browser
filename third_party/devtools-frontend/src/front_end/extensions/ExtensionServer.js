@@ -28,10 +28,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import {ExtensionButton, ExtensionPanel, ExtensionSidebarPane} from './ExtensionPanel.js';
+import {ExtensionTraceProvider, TracingSession} from './ExtensionTraceProvider.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-export default class ExtensionServer extends Common.Object {
+export class ExtensionServer extends Common.Object {
   /**
    * @suppressGlobalPropertiesCheck
    */
@@ -47,11 +50,11 @@ export default class ExtensionServer extends Common.Object {
     this._lastRequestId = 0;
     this._registeredExtensions = {};
     this._status = new ExtensionStatus();
-    /** @type {!Array<!Extensions.ExtensionSidebarPane>} */
+    /** @type {!Array<!ExtensionSidebarPane>} */
     this._sidebarPanes = [];
-    /** @type {!Array<!Extensions.ExtensionTraceProvider>} */
+    /** @type {!Array<!ExtensionTraceProvider>} */
     this._traceProviders = [];
-    /** @type {!Map<string, !Extensions.TracingSession>} */
+    /** @type {!Map<string, !TracingSession>} */
     this._traceSessions = new Map();
 
     const commands = Extensions.extensionAPI.Commands;
@@ -138,7 +141,7 @@ export default class ExtensionServer extends Common.Object {
   }
 
   _inspectedURLChanged(event) {
-    if (event.data !== SDK.targetManager.mainTarget()) {
+    if (event.data !== self.SDK.targetManager.mainTarget()) {
       return;
     }
     this._requests = {};
@@ -149,7 +152,7 @@ export default class ExtensionServer extends Common.Object {
   /**
    * @param {string} providerId
    * @param {string} sessionId
-   * @param {!Extensions.TracingSession} session
+   * @param {!TracingSession} session
    */
   startTraceRecording(providerId, sessionId, session) {
     this._traceSessions.set(sessionId, session);
@@ -235,7 +238,7 @@ export default class ExtensionServer extends Common.Object {
       }
     }
 
-    SDK.multitargetNetworkManager.setExtraHTTPHeaders(allHeaders);
+    self.SDK.multitargetNetworkManager.setExtraHTTPHeaders(allHeaders);
   }
 
   /**
@@ -250,11 +253,11 @@ export default class ExtensionServer extends Common.Object {
     styleSheet.textContent = message.styleSheet;
     document.head.appendChild(styleSheet);
 
-    UI.themeSupport.addCustomStylesheet(message.styleSheet);
+    self.UI.themeSupport.addCustomStylesheet(message.styleSheet);
     // Add to all the shadow roots that have already been created
     for (let node = document.body; node; node = node.traverseNextNode(document.body)) {
       if (node instanceof ShadowRoot) {
-        UI.themeSupport.injectCustomStyleSheets(node);
+        self.UI.themeSupport.injectCustomStyleSheets(node);
       }
     }
   }
@@ -263,17 +266,17 @@ export default class ExtensionServer extends Common.Object {
     const id = message.id;
     // The ids are generated on the client API side and must be unique, so the check below
     // shouldn't be hit unless someone is bypassing the API.
-    if (id in this._clientObjects || UI.inspectorView.hasPanel(id)) {
+    if (id in this._clientObjects || self.UI.inspectorView.hasPanel(id)) {
       return this._status.E_EXISTS(id);
     }
 
     const page = this._expandResourcePath(port._extensionOrigin, message.page);
     let persistentId = port._extensionOrigin + message.title;
     persistentId = persistentId.replace(/\s/g, '');
-    const panelView = new ExtensionServerPanelView(
-        persistentId, message.title, new Extensions.ExtensionPanel(this, persistentId, id, page));
+    const panelView =
+        new ExtensionServerPanelView(persistentId, message.title, new ExtensionPanel(this, persistentId, id, page));
     this._clientObjects[id] = panelView;
-    UI.inspectorView.addPanel(panelView);
+    self.UI.inspectorView.addPanel(panelView);
     return this._status.OK();
   }
 
@@ -283,7 +286,7 @@ export default class ExtensionServer extends Common.Object {
     if (panelView && panelView instanceof ExtensionServerPanelView) {
       panelViewId = panelView.viewId();
     }
-    UI.inspectorView.showPanel(panelViewId);
+    self.UI.inspectorView.showPanel(panelViewId);
   }
 
   _onCreateToolbarButton(message, port) {
@@ -291,7 +294,7 @@ export default class ExtensionServer extends Common.Object {
     if (!panelView || !(panelView instanceof ExtensionServerPanelView)) {
       return this._status.E_NOTFOUND(message.panel);
     }
-    const button = new Extensions.ExtensionButton(
+    const button = new ExtensionButton(
         this, message.id, this._expandResourcePath(port._extensionOrigin, message.icon), message.tooltip,
         message.disabled);
     this._clientObjects[message.id] = button;
@@ -302,7 +305,7 @@ export default class ExtensionServer extends Common.Object {
      * @param {!UI.Widget} panel
      */
     function appendButton(panel) {
-      /** @type {!Extensions.ExtensionPanel} panel*/ (panel).addToolbarItem(button.toolbarButton());
+      /** @type {!ExtensionPanel} panel*/ (panel).addToolbarItem(button.toolbarButton());
     }
 
     return this._status.OK();
@@ -310,7 +313,7 @@ export default class ExtensionServer extends Common.Object {
 
   _onUpdateButton(message, port) {
     const button = this._clientObjects[message.id];
-    if (!button || !(button instanceof Extensions.ExtensionButton)) {
+    if (!button || !(button instanceof ExtensionButton)) {
       return this._status.E_NOTFOUND(message.id);
     }
     button.update(this._expandResourcePath(port._extensionOrigin, message.icon), message.tooltip, message.disabled);
@@ -334,7 +337,7 @@ export default class ExtensionServer extends Common.Object {
       return this._status.E_NOTFOUND(message.panel);
     }
     const id = message.id;
-    const sidebar = new Extensions.ExtensionSidebarPane(this, message.panel, message.title, id);
+    const sidebar = new ExtensionSidebarPane(this, message.panel, message.title, id);
     this._sidebarPanes.push(sidebar);
     this._clientObjects[id] = sidebar;
     this.dispatchEventToListeners(Events.SidebarPaneAdded, sidebar);
@@ -343,7 +346,7 @@ export default class ExtensionServer extends Common.Object {
   }
 
   /**
-   * @return {!Array.<!Extensions.ExtensionSidebarPane>}
+   * @return {!Array.<!ExtensionSidebarPane>}
    */
   sidebarPanes() {
     return this._sidebarPanes;
@@ -387,7 +390,7 @@ export default class ExtensionServer extends Common.Object {
   }
 
   _onOpenResource(message) {
-    const uiSourceCode = Workspace.workspace.uiSourceCodeForURL(message.url);
+    const uiSourceCode = self.Workspace.workspace.uiSourceCodeForURL(message.url);
     if (uiSourceCode) {
       Common.Revealer.reveal(uiSourceCode.uiLocation(message.lineNumber, 0));
       return this._status.OK();
@@ -399,7 +402,7 @@ export default class ExtensionServer extends Common.Object {
       return this._status.OK();
     }
 
-    const request = SDK.networkLog.requestForURL(message.url);
+    const request = self.SDK.networkLog.requestForURL(message.url);
     if (request) {
       Common.Revealer.reveal(request);
       return this._status.OK();
@@ -425,7 +428,8 @@ export default class ExtensionServer extends Common.Object {
   _onReload(message) {
     const options = /** @type {!ExtensionReloadOptions} */ (message.options || {});
 
-    SDK.multitargetNetworkManager.setUserAgentOverride(typeof options.userAgent === 'string' ? options.userAgent : '');
+    self.SDK.multitargetNetworkManager.setUserAgentOverride(
+        typeof options.userAgent === 'string' ? options.userAgent : '');
     let injectedScript;
     if (options.injectedScript) {
       injectedScript = '(function(){' + options.injectedScript + '})()';
@@ -458,7 +462,7 @@ export default class ExtensionServer extends Common.Object {
   }
 
   async _onGetHAR() {
-    const requests = SDK.networkLog.requests();
+    const requests = self.SDK.networkLog.requests();
     const harLog = await SDK.HARLog.build(requests);
     for (let i = 0; i < harLog.entries.length; ++i) {
       harLog.entries[i]._requestId = this._requestId(requests[i]);
@@ -488,11 +492,11 @@ export default class ExtensionServer extends Common.Object {
         resources.set(contentProvider.contentURL(), this._makeResource(contentProvider));
       }
     }
-    let uiSourceCodes = Workspace.workspace.uiSourceCodesForProjectType(Workspace.projectTypes.Network);
-    uiSourceCodes =
-        uiSourceCodes.concat(Workspace.workspace.uiSourceCodesForProjectType(Workspace.projectTypes.ContentScripts));
+    let uiSourceCodes = self.Workspace.workspace.uiSourceCodesForProjectType(Workspace.projectTypes.Network);
+    uiSourceCodes = uiSourceCodes.concat(
+        self.Workspace.workspace.uiSourceCodesForProjectType(Workspace.projectTypes.ContentScripts));
     uiSourceCodes.forEach(pushResourceData.bind(this));
-    for (const resourceTreeModel of SDK.targetManager.models(SDK.ResourceTreeModel)) {
+    for (const resourceTreeModel of self.SDK.targetManager.models(SDK.ResourceTreeModel)) {
       resourceTreeModel.forAllResources(pushResourceData.bind(this));
     }
     return resources.valuesArray();
@@ -519,7 +523,7 @@ export default class ExtensionServer extends Common.Object {
 
   _onGetResourceContent(message, port) {
     const url = /** @type {string} */ (message.url);
-    const contentProvider = Workspace.workspace.uiSourceCodeForURL(url) || Bindings.resourceForURL(url);
+    const contentProvider = self.Workspace.workspace.uiSourceCodeForURL(url) || Bindings.resourceForURL(url);
     if (!contentProvider) {
       return this._status.E_NOTFOUND(url);
     }
@@ -537,7 +541,7 @@ export default class ExtensionServer extends Common.Object {
     }
 
     const url = /** @type {string} */ (message.url);
-    const uiSourceCode = Workspace.workspace.uiSourceCodeForURL(url);
+    const uiSourceCode = self.Workspace.workspace.uiSourceCodeForURL(url);
     if (!uiSourceCode || !uiSourceCode.contentType().isDocumentOrScriptOrStyleSheet()) {
       const resource = SDK.ResourceTreeModel.resourceForURL(url);
       if (!resource) {
@@ -569,15 +573,15 @@ export default class ExtensionServer extends Common.Object {
    * @param {!MessagePort} port
    */
   _onAddTraceProvider(message, port) {
-    const provider = new Extensions.ExtensionTraceProvider(
-        port._extensionOrigin, message.id, message.categoryName, message.categoryTooltip);
+    const provider =
+        new ExtensionTraceProvider(port._extensionOrigin, message.id, message.categoryName, message.categoryTooltip);
     this._clientObjects[message.id] = provider;
     this._traceProviders.push(provider);
     this.dispatchEventToListeners(Events.TraceProviderAdded, provider);
   }
 
   /**
-   * @return {!Array<!Extensions.ExtensionTraceProvider>}
+   * @return {!Array<!ExtensionTraceProvider>}
    */
   traceProviders() {
     return this._traceProviders;
@@ -627,8 +631,8 @@ export default class ExtensionServer extends Common.Object {
 
   _initExtensions() {
     this._registerAutosubscriptionHandler(
-        Extensions.extensionAPI.Events.ResourceAdded, Workspace.workspace, Workspace.Workspace.Events.UISourceCodeAdded,
-        this._notifyResourceAdded);
+        Extensions.extensionAPI.Events.ResourceAdded, self.Workspace.workspace,
+        Workspace.Workspace.Events.UISourceCodeAdded, this._notifyResourceAdded);
     this._registerAutosubscriptionTargetManagerHandler(
         Extensions.extensionAPI.Events.NetworkRequestFinished, SDK.NetworkManager,
         SDK.NetworkManager.Events.RequestFinished, this._notifyRequestFinished);
@@ -637,14 +641,14 @@ export default class ExtensionServer extends Common.Object {
      * @this {ExtensionServer}
      */
     function onElementsSubscriptionStarted() {
-      UI.context.addFlavorChangeListener(SDK.DOMNode, this._notifyElementsSelectionChanged, this);
+      self.UI.context.addFlavorChangeListener(SDK.DOMNode, this._notifyElementsSelectionChanged, this);
     }
 
     /**
      * @this {ExtensionServer}
      */
     function onElementsSubscriptionStopped() {
-      UI.context.removeFlavorChangeListener(SDK.DOMNode, this._notifyElementsSelectionChanged, this);
+      self.UI.context.removeFlavorChangeListener(SDK.DOMNode, this._notifyElementsSelectionChanged, this);
     }
 
     this._registerSubscriptionHandler(
@@ -652,7 +656,8 @@ export default class ExtensionServer extends Common.Object {
         onElementsSubscriptionStopped.bind(this));
     this._registerResourceContentCommittedHandler(this._notifyUISourceCodeContentCommitted);
 
-    SDK.targetManager.addEventListener(SDK.TargetManager.Events.InspectedURLChanged, this._inspectedURLChanged, this);
+    self.SDK.targetManager.addEventListener(
+        SDK.TargetManager.Events.InspectedURLChanged, this._inspectedURLChanged, this);
   }
 
   _notifyResourceAdded(event) {
@@ -717,8 +722,8 @@ export default class ExtensionServer extends Common.Object {
       if (!this._registeredExtensions[extensionOrigin]) {
         // See ExtensionAPI.js for details.
         const injectedAPI = self.buildExtensionAPIInjectedScript(
-            extensionInfo, this._inspectedTabId, UI.themeSupport.themeName(), UI.shortcutRegistry.globalShortcutKeys(),
-            Extensions.extensionServer['_extensionAPITestHook']);
+            extensionInfo, this._inspectedTabId, self.UI.themeSupport.themeName(),
+            self.UI.shortcutRegistry.globalShortcutKeys(), self.Extensions.extensionServer['_extensionAPITestHook']);
         Host.InspectorFrontendHost.setInjectedScriptForOrigin(extensionOrigin, injectedAPI);
         this._registeredExtensions[extensionOrigin] = {name: name};
       }
@@ -798,8 +803,10 @@ export default class ExtensionServer extends Common.Object {
   _registerAutosubscriptionTargetManagerHandler(eventTopic, modelClass, frontendEventType, handler) {
     this._registerSubscriptionHandler(
         eventTopic,
-        SDK.targetManager.addModelListener.bind(SDK.targetManager, modelClass, frontendEventType, handler, this),
-        SDK.targetManager.removeModelListener.bind(SDK.targetManager, modelClass, frontendEventType, handler, this));
+        self.SDK.targetManager.addModelListener.bind(
+            self.SDK.targetManager, modelClass, frontendEventType, handler, this),
+        self.SDK.targetManager.removeModelListener.bind(
+            self.SDK.targetManager, modelClass, frontendEventType, handler, this));
   }
 
   _registerResourceContentCommittedHandler(handler) {
@@ -807,16 +814,17 @@ export default class ExtensionServer extends Common.Object {
      * @this {ExtensionServer}
      */
     function addFirstEventListener() {
-      Workspace.workspace.addEventListener(Workspace.Workspace.Events.WorkingCopyCommittedByUser, handler, this);
-      Workspace.workspace.setHasResourceContentTrackingExtensions(true);
+      self.Workspace.workspace.addEventListener(Workspace.Workspace.Events.WorkingCopyCommittedByUser, handler, this);
+      self.Workspace.workspace.setHasResourceContentTrackingExtensions(true);
     }
 
     /**
      * @this {ExtensionServer}
      */
     function removeLastEventListener() {
-      Workspace.workspace.setHasResourceContentTrackingExtensions(false);
-      Workspace.workspace.removeEventListener(Workspace.Workspace.Events.WorkingCopyCommittedByUser, handler, this);
+      self.Workspace.workspace.setHasResourceContentTrackingExtensions(false);
+      self.Workspace.workspace.removeEventListener(
+          Workspace.Workspace.Events.WorkingCopyCommittedByUser, handler, this);
     }
 
     this._registerSubscriptionHandler(
@@ -883,7 +891,7 @@ export default class ExtensionServer extends Common.Object {
     if (options.frameURL) {
       frame = resolveURLToFrame(options.frameURL);
     } else {
-      const target = SDK.targetManager.mainTarget();
+      const target = self.SDK.targetManager.mainTarget();
       const resourceTreeModel = target && target.model(SDK.ResourceTreeModel);
       frame = resourceTreeModel && resourceTreeModel.mainFrame;
     }
@@ -1023,26 +1031,3 @@ export class ExtensionStatus {
     this.E_FAILED = makeStatus.bind(null, 'E_FAILED', 'Operation failed: %s');
   }
 }
-
-/* Legacy exported object */
-self.Extensions = self.Extensions || {};
-
-/* Legacy exported object */
-Extensions = Extensions || {};
-
-/** @constructor */
-Extensions.ExtensionServer = ExtensionServer;
-
-/** @enum {symbol} */
-Extensions.ExtensionServer.Events = Events;
-
-/** @constructor */
-Extensions.ExtensionStatus = ExtensionStatus;
-
-/**
- * @typedef {{code: string, description: string, details: !Array.<*>}}
- */
-Extensions.ExtensionStatus.Record;
-
-/** @type {!ExtensionServer} */
-Extensions.extensionServer;

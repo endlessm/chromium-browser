@@ -1,4 +1,4 @@
-//===-- CommandObjectExpression.cpp -----------------------------*- C++ -*-===//
+//===-- CommandObjectExpression.cpp ---------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,29 +6,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 
 #include "CommandObjectExpression.h"
 #include "lldb/Core/Debugger.h"
-#include "lldb/Core/Value.h"
-#include "lldb/Core/ValueObjectVariable.h"
-#include "lldb/DataFormatters/ValueObjectPrinter.h"
-#include "lldb/Expression/DWARFExpression.h"
 #include "lldb/Expression/REPL.h"
 #include "lldb/Expression/UserExpression.h"
-#include "lldb/Host/Host.h"
 #include "lldb/Host/OptionParser.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/Interpreter/OptionArgParser.h"
-#include "lldb/Symbol/ObjectFile.h"
-#include "lldb/Symbol/Variable.h"
 #include "lldb/Target/Language.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"
-#include "lldb/Target/Thread.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -320,7 +311,12 @@ void CommandObjectExpression::HandleCompletion(CompletionRequest &request) {
     target = &GetDummyTarget();
 
   unsigned cursor_pos = request.GetRawCursorPos();
-  llvm::StringRef code = request.GetRawLine();
+  // Get the full user input including the suffix. The suffix is necessary
+  // as OptionsWithRaw will use it to detect if the cursor is cursor is in the
+  // argument part of in the raw input part of the arguments. If we cut of
+  // of the suffix then "expr -arg[cursor] --" would interpret the "-arg" as
+  // the raw input (as the "--" is hidden in the suffix).
+  llvm::StringRef code = request.GetRawLineWithUnusedSuffix();
 
   const std::size_t original_code_size = code.size();
 
@@ -544,7 +540,7 @@ void CommandObjectExpression::GetMultilineExpression() {
         "Enter expressions, then terminate with an empty line to evaluate:\n");
     output_sp->Flush();
   }
-  debugger.PushIOHandler(io_handler_sp);
+  debugger.RunIOHandlerAsync(io_handler_sp);
 }
 
 static EvaluateExpressionOptions
@@ -631,10 +627,8 @@ bool CommandObjectExpression::DoExecute(llvm::StringRef command,
           }
 
           IOHandlerSP io_handler_sp(repl_sp->GetIOHandler());
-
           io_handler_sp->SetIsDone(false);
-
-          debugger.PushIOHandler(io_handler_sp);
+          debugger.RunIOHandlerAsync(io_handler_sp);
         } else {
           repl_error.SetErrorStringWithFormat(
               "Couldn't create a REPL for %s",

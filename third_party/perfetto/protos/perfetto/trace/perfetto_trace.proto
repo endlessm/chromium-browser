@@ -169,6 +169,7 @@ message GpuCounterDescriptor {
     FAHRENHEIT = 35;
     KELVIN = 36;
 
+    // Values should be out of 100.
     PERCENT = 37;
 
     INSTRUCTION = 40;
@@ -2641,6 +2642,8 @@ message MmPagePcpuDrainFtraceEvent {
 message RssStatFtraceEvent {
   optional int32 member = 1;
   optional int64 size = 2;
+  optional uint32 curr = 3;
+  optional uint32 mm_id = 4;
 }
 message IonHeapShrinkFtraceEvent {
   optional string heap_name = 1;
@@ -3361,6 +3364,8 @@ message ProfilePacket {
 // points in time, rather than aggregated over an interval.
 message StreamingProfilePacket {
   repeated uint64 callstack_iid = 1;  // Index into InternedData.callstacks
+  // TODO(eseckler): ThreadDescriptor-based timestamps are deprecated. Replace
+  // this with ClockSnapshot-based delta encoding instead.
   repeated int64 timestamp_delta_us = 2;
 }
 
@@ -3556,7 +3561,7 @@ message Trace {
 // TracePacket(s).
 //
 // Next reserved id: 13 (up to 15).
-// Next id: 64.
+// Next id: 66.
 message TracePacket {
   // The timestamp of the TracePacket.
   // By default this timestamps refers to the trace clock (CLOCK_BOOTTIME on
@@ -3606,6 +3611,7 @@ message TracePacket {
     GraphicsFrameEvent graphics_frame_event = 57;
     // removed field with id 62
     GpuLog gpu_log = 63;
+    VulkanApiEvent vulkan_api_event = 65;
 
     // Only used in profile packets.
     ProfiledFrameSymbols profiled_frame_symbols = 55;
@@ -4068,6 +4074,83 @@ message ChromeLegacyIpc {
 
 // End of protos/perfetto/trace/track_event/chrome_legacy_ipc.proto
 
+// Begin of protos/perfetto/trace/track_event/chrome_latency_info.proto
+
+message ChromeLatencyInfo {
+  optional int64 trace_id = 1;
+}
+
+// End of protos/perfetto/trace/track_event/chrome_latency_info.proto
+
+// Begin of protos/perfetto/trace/track_event/chrome_process_descriptor.proto
+
+// Describes the attributes for a Chrome process. Must be paired with a
+// ProcessDescriptor in the same TrackDescriptor.
+//
+// Next id: 4.
+message ChromeProcessDescriptor {
+  // See chromium's content::ProcessType.
+  enum ProcessType {
+    PROCESS_UNSPECIFIED = 0;
+    PROCESS_BROWSER = 1;
+    PROCESS_RENDERER = 2;
+    PROCESS_UTILITY = 3;
+    PROCESS_ZYGOTE = 4;
+    PROCESS_SANDBOX_HELPER = 5;
+    PROCESS_GPU = 6;
+    PROCESS_PPAPI_PLUGIN = 7;
+    PROCESS_PPAPI_BROKER = 8;
+  }
+  optional ProcessType process_type = 1;
+  optional int32 process_priority = 2;
+
+  // To support old UI. New UI should determine default sorting by process_type.
+  optional int32 legacy_sort_index = 3;
+}
+
+// End of protos/perfetto/trace/track_event/chrome_process_descriptor.proto
+
+// Begin of protos/perfetto/trace/track_event/chrome_thread_descriptor.proto
+
+// Describes a Chrome thread's attributes. Emitted as part of a TrackDescriptor,
+// usually by the thread's trace writer. Must be paired with a ThreadDescriptor
+// in the same TrackDescriptor.
+//
+// Next id: 3.
+message ChromeThreadDescriptor {
+  enum ThreadType {
+    THREAD_UNSPECIFIED = 0;
+
+    THREAD_MAIN = 1;
+    THREAD_IO = 2;
+
+    // Scheduler:
+    THREAD_POOL_BG_WORKER = 3;
+    THREAD_POOL_FG_WORKER = 4;
+    THREAD_POOL_BG_BLOCKING = 6;
+    THREAD_POOL_FG_BLOCKING = 5;
+    THREAD_POOL_SERVICE = 7;
+
+    // Compositor:
+    THREAD_COMPOSITOR = 8;
+    THREAD_VIZ_COMPOSITOR = 9;
+    THREAD_COMPOSITOR_WORKER = 10;
+
+    // Renderer:
+    THREAD_SERVICE_WORKER = 11;
+
+    // Tracing related threads:
+    THREAD_MEMORY_INFRA = 50;
+    THREAD_SAMPLING_PROFILER = 51;
+  };
+  optional ThreadType thread_type = 1;
+
+  // To support old UI. New UI should determine default sorting by thread_type.
+  optional int32 legacy_sort_index = 2;
+}
+
+// End of protos/perfetto/trace/track_event/chrome_thread_descriptor.proto
+
 // Begin of protos/perfetto/trace/track_event/chrome_user_event.proto
 
 // Details about a UI interaction initiated by the user, such as opening or
@@ -4077,6 +4160,9 @@ message ChromeUserEvent {
   // Chrome, these are usually static strings known at compile time, or
   // concatenations of multiple such static strings).
   optional string action = 1;
+
+  // MD5 hash of the action string.
+  optional uint64 action_hash = 2;
 }
 
 // End of protos/perfetto/trace/track_event/chrome_user_event.proto
@@ -4161,10 +4247,17 @@ message LogMessageBody {
 // Describes a process's attributes. Emitted as part of a TrackDescriptor,
 // usually by the process's main thread.
 //
-// Next id: 5.
+// Next id: 7.
 message ProcessDescriptor {
   optional int32 pid = 1;
   repeated string cmdline = 2;
+  optional string process_name = 6;
+
+  optional int32 process_priority = 5;
+
+  // ---------------------------------------------------------------------------
+  // Deprecated / legacy fields, which will be removed in the future:
+  // ---------------------------------------------------------------------------
 
   // See chromium's content::ProcessType.
   enum ChromeProcessType {
@@ -4179,7 +4272,6 @@ message ProcessDescriptor {
     PROCESS_PPAPI_BROKER = 8;
   }
   optional ChromeProcessType chrome_process_type = 4;
-  optional int32 process_priority = 5;
 
   // To support old UI. New UI should determine default sorting by process_type.
   optional int32 legacy_sort_index = 3;
@@ -4225,6 +4317,10 @@ message ThreadDescriptor {
 
   optional string thread_name = 5;
 
+  // ---------------------------------------------------------------------------
+  // Deprecated / legacy fields, which will be removed in the future:
+  // ---------------------------------------------------------------------------
+
   enum ChromeThreadType {
     CHROME_THREAD_UNSPECIFIED = 0;
 
@@ -4251,10 +4347,6 @@ message ThreadDescriptor {
     CHROME_THREAD_SAMPLING_PROFILER = 51;
   };
   optional ChromeThreadType chrome_thread_type = 4;
-
-  // ---------------------------------------------------------------------------
-  // Deprecated / legacy fields, which will be removed in the future:
-  // ---------------------------------------------------------------------------
 
   // Deprecated. Use ClockSnapshot in combination with TracePacket's timestamp
   // and timestamp_clock_id fields instead.
@@ -4288,7 +4380,7 @@ message ThreadDescriptor {
 // |TrackEvent::track_uuid|. It is possible but not necessary to emit a
 // TrackDescriptor for this implicit track.
 //
-// Next id: 1.
+// Next id: 8.
 message TrackDescriptor {
   // Unique ID that identifies this track. This ID is global to the whole trace.
   // Producers should ensure that it is unlikely to clash with IDs emitted by
@@ -4298,16 +4390,34 @@ message TrackDescriptor {
   // event id + id_scope, pid, and/or tid to compute this ID.
   optional uint64 uuid = 1;
 
-  // TODO(eseckler): Support track hierarchies.
-  // uint64 parent_uuid = X;
+  // A parent track reference can be used to describe relationships between
+  // tracks. For example, to define an asynchronous track which is scoped to a
+  // specific process, specify the uuid for that process's process track here.
+  optional uint64 parent_uuid = 5;
 
   // Name of the track.
   optional string name = 2;
 
-  // Associate the track with a process or thread - the UI will draw this track
-  // in the context of the process/thread.
+  // Associate the track with a process, making it the process-global track.
+  // There should only be one such track per process (usually for instant
+  // events; trace processor uses this fact to detect pid reuse). If you need
+  // more (e.g. for asynchronous events), create child tracks using parent_uuid.
+  //
+  // Trace processor will merge events on a process track with slice-type events
+  // from other sources (e.g. ftrace) for the same process into a single
+  // timeline view.
   optional ProcessDescriptor process = 3;
+  optional ChromeProcessDescriptor chrome_process = 6;
+
+  // Associate the track with a thread, indicating that the track's events
+  // describe synchronous code execution on the thread. There should only be one
+  // such track per thread (trace processor uses this fact to detect tid reuse).
+  //
+  // Trace processor will merge events on a thread track with slice-type events
+  // from other sources (e.g. ftrace) for the same thread into a single timeline
+  // view.
   optional ThreadDescriptor thread = 4;
+  optional ChromeThreadDescriptor chrome_thread = 7;
 }
 
 // End of protos/perfetto/trace/track_event/track_descriptor.proto
@@ -4373,7 +4483,7 @@ message TrackDescriptor {
 // their default track association) can be emitted as part of a
 // TrackEventDefaults message.
 //
-// Next reserved id: 12 (up to 15). Next id: 29.
+// Next reserved id: 12 (up to 15). Next id: 30.
 message TrackEvent {
   // Names of categories of the event. In the client library, categories are a
   // way to turn groups of individual events on or off.
@@ -4473,6 +4583,7 @@ message TrackEvent {
   optional ChromeKeyedService chrome_keyed_service = 26;
   optional ChromeLegacyIpc chrome_legacy_ipc = 27;
   optional ChromeHistogramSample chrome_histogram_sample = 28;
+  optional ChromeLatencyInfo chrome_latency_info = 29;
   // New argument types go here :)
 
   // ---------------------------------------------------------------------------
@@ -4565,7 +4676,7 @@ message TrackEvent {
 // is cleared. It's defined here because field IDs should match those of the
 // corresponding fields in TrackEvent.
 message TrackEventDefaults {
-  optional uint64 track_uuid = 10;
+  optional uint64 track_uuid = 11;
 
   // TODO(eseckler): Support default values for more TrackEvent fields.
 }
@@ -4654,8 +4765,8 @@ message GpuRenderStageEvent {
   // required. Unique ID for the event.
   optional uint64 event_id = 1;
 
-  // optional. Duration of the event.  This should be in the same clock domain as the timestamp of
-  // the packet.  If unset, this is a single time point event.
+  // optional. Duration of the event. This should be in the same clock domain as
+  // the timestamp of the packet. If unset, this is a single time point event.
   optional uint64 duration = 2;
 
   // required. ID to a hardware queue description in the specifications.
@@ -4676,10 +4787,11 @@ message GpuRenderStageEvent {
   // optional. The Vulkan command buffer handle.
   optional uint64 command_buffer_handle = 12;
 
-  // optional. Submission ID generated by the UMD.
+  // optional. Submission ID generated by the UMD. Should map 1:1 with a
+  // vkQueueSubmit.
   optional uint32 submission_id = 10;
 
-  // optional.  Additional data for the user. This may include attribs for
+  // optional. Additional data for the user. This may include attribs for
   // the event like resource ids, shaders etc
   message ExtraData {
     optional string name = 1;
@@ -4688,7 +4800,9 @@ message GpuRenderStageEvent {
   repeated ExtraData extra_data = 6;
 
   // The first trace packet of each session should include a Specifications
-  // to enumerate all IDs that will be used.
+  // to enumerate *all* IDs that will be used. The timestamp of this packet
+  // must be earlier than all other packets. Only one packet with Specifications
+  // is expected.
   message Specifications {
     message ContextSpec {
       optional uint64 context = 1;
@@ -4717,6 +4831,43 @@ message GpuRenderStageEvent {
 }
 
 // End of protos/perfetto/trace/gpu/gpu_render_stage_event.proto
+
+// Begin of protos/perfetto/trace/gpu/vulkan_api_event.proto
+
+// Message for recording the Vulkan call.
+message VulkanApiEvent {
+  oneof event {
+    VkDebugUtilsObjectName vk_debug_utils_object_name = 1;
+    VkQueueSubmit vk_queue_submit = 2;
+  }
+
+  // For recording vkSetDebugUtilsObjectNameEXT and
+  // vkDebugMarkerSetObjectNameEXT
+  message VkDebugUtilsObjectName {
+    optional uint32 pid = 1;
+    optional uint64 vk_device = 2;
+    // VkObjectType.  Value must match
+    // https://www.khronos.org/registry/vulkan/specs/1.1-extensions/man/html/VkObjectType.html.
+    optional int32 object_type = 3;
+    optional uint64 object = 4;
+    optional string object_name = 5;
+  }
+
+  // For recording vkQueueSubmit call.
+  message VkQueueSubmit {
+    optional uint64 duration_ns = 1;
+    optional uint32 pid = 2;
+    optional uint32 tid = 3;
+    optional uint64 vk_queue = 4;
+    repeated uint64 vk_command_buffers = 5;
+    // Submission ID.  An identifier unique to each vkQueueSubmit call.  This
+    // submission_id must match GpuRenderStageEvent.submission_id if the
+    // GpuRenderStageEvent is created due to this vkQueueSubmit.
+    optional uint32 submission_id = 6;
+  }
+}
+
+// End of protos/perfetto/trace/gpu/vulkan_api_event.proto
 
 // Begin of protos/perfetto/config/android/android_log_config.proto
 
@@ -5112,6 +5263,9 @@ message TraceConfig {
   optional BuiltinDataSource builtin_data_sources = 20;
 
   // If specified, the trace will be stopped |duration_ms| after starting.
+  // This does *not* count the time the system is suspended, so we will run
+  // for duration_ms of system activity, not wall time.
+  //
   // However in case of traces with triggers, see
   // TriggerConfig.trigger_timeout_ms instead.
   optional uint32 duration_ms = 3;

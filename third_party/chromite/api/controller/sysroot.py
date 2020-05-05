@@ -7,6 +7,8 @@
 
 from __future__ import print_function
 
+import os
+
 from chromite.api import controller
 from chromite.api import faux
 from chromite.api import validate
@@ -15,6 +17,7 @@ from chromite.api.metrics import deserialize_metrics_log
 from chromite.lib import build_target_util
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import goma_lib
 from chromite.lib import portage_util
 from chromite.lib import sysroot_lib
 from chromite.service import sysroot
@@ -88,7 +91,8 @@ def _MockFailedPackagesResponse(_input_proto, output_proto, _config):
 @validate.validation_complete
 def InstallToolchain(input_proto, output_proto, _config):
   """Install the toolchain into a sysroot."""
-  compile_source = input_proto.flags.compile_source
+  compile_source = (
+      input_proto.flags.compile_source or input_proto.flags.toolchain_changed)
 
   sysroot_path = input_proto.sysroot.path
   build_target_name = input_proto.sysroot.build_target.name
@@ -120,9 +124,13 @@ def InstallToolchain(input_proto, output_proto, _config):
 @metrics.collect_metrics
 def InstallPackages(input_proto, output_proto, _config):
   """Install packages into a sysroot, building as necessary and permitted."""
-  compile_source = input_proto.flags.compile_source
+  compile_source = (
+      input_proto.flags.compile_source or input_proto.flags.toolchain_changed)
   event_file = input_proto.flags.event_file
-  use_goma = input_proto.flags.use_goma
+  # A new toolchain version will not yet have goma support, so goma must be
+  # disabled when we are testing toolchain changes.
+  use_goma = (
+      input_proto.flags.use_goma and not input_proto.flags.toolchain_changed)
 
   target_sysroot = sysroot_lib.Sysroot(input_proto.sysroot.path)
   build_target = controller_util.ParseBuildTarget(
@@ -142,7 +150,8 @@ def InstallPackages(input_proto, output_proto, _config):
       install_debug_symbols=True,
       packages=packages,
       use_flags=use_flags,
-      use_goma=use_goma)
+      use_goma=use_goma,
+      incremental_build=False)
 
   try:
     sysroot.BuildPackages(build_target, target_sysroot, build_packages_config)
@@ -157,6 +166,27 @@ def InstallPackages(input_proto, output_proto, _config):
       controller_util.CPVToPackageInfo(package, package_info)
 
     return controller.RETURN_CODE_UNSUCCESSFUL_RESPONSE_AVAILABLE
+
+  # Copy goma logs to specified directory if there is a goma_config and
+  # it contains a log_dir to store artifacts.
+  if input_proto.goma_config.log_dir.dir:
+    # Get the goma log directory based on the GLOG_log_dir env variable.
+    # TODO(crbug.com/1045001): Replace environment variable with query to
+    # goma object after goma refactoring allows this.
+    log_source_dir = os.getenv('GLOG_log_dir')
+    if not log_source_dir:
+      cros_build_lib.Die('GLOG_log_dir must be defined.')
+    archiver = goma_lib.LogsArchiver(
+        log_source_dir,
+        dest_dir=input_proto.goma_config.log_dir.dir,
+        stats_file=input_proto.goma_config.stats_file,
+        counterz_file=input_proto.goma_config.counterz_file)
+    archiver_tuple = archiver.Archive()
+    if archiver_tuple.stats_file:
+      output_proto.goma_artifacts.stats_file = archiver_tuple.stats_file
+    if archiver_tuple.counterz_file:
+      output_proto.goma_artifacts.counterz_file = archiver_tuple.counterz_file
+    output_proto.goma_artifacts.log_files[:] = archiver_tuple.log_files
 
   # Read metric events log and pipe them into output_proto.events.
   deserialize_metrics_log(output_proto.events, prefix=build_target.name)

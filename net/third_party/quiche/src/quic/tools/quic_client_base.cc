@@ -10,7 +10,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 
 namespace quic {
 
@@ -228,7 +227,7 @@ void QuicClientBase::WaitForStreamToClose(QuicStreamId id) {
 bool QuicClientBase::WaitForCryptoHandshakeConfirmed() {
   DCHECK(connected());
 
-  while (connected() && !session_->IsCryptoHandshakeConfirmed()) {
+  while (connected() && !session_->OneRttKeysAvailable()) {
     WaitForEvents();
   }
 

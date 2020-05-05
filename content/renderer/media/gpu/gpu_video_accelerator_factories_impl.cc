@@ -130,6 +130,22 @@ void GpuVideoAcceleratorFactoriesImpl::BindOnTaskRunner(
 
   context_provider_->AddObserver(this);
 
+  if (video_accelerator_enabled_) {
+    {
+      // TODO(crbug.com/709631): This should be removed.
+      base::AutoLock lock(supported_profiles_lock_);
+      supported_vea_profiles_ =
+          media::GpuVideoAcceleratorUtil::ConvertGpuToMediaEncodeProfiles(
+              gpu_channel_host_->gpu_info()
+                  .video_encode_accelerator_supported_profiles);
+    }
+
+    vea_provider_->GetVideoEncodeAcceleratorSupportedProfiles(
+        base::BindOnce(&GpuVideoAcceleratorFactoriesImpl::
+                           OnGetVideoEncodeAcceleratorSupportedProfiles,
+                       base::Unretained(this)));
+  }
+
 #if BUILDFLAG(ENABLE_MOJO_VIDEO_DECODER)
   // Note: This is a bit of a hack, since we don't specify the implementation
   // before asking for the map of supported configs.  We do this because it
@@ -146,9 +162,17 @@ void GpuVideoAcceleratorFactoriesImpl::BindOnTaskRunner(
 
 void GpuVideoAcceleratorFactoriesImpl::OnSupportedDecoderConfigs(
     const media::SupportedVideoDecoderConfigMap& supported_configs) {
-  base::AutoLock lock(supported_decoder_configs_lock_);
+  base::AutoLock lock(supported_profiles_lock_);
   supported_decoder_configs_ = supported_configs;
   video_decoder_.reset();
+}
+
+void GpuVideoAcceleratorFactoriesImpl::
+    OnGetVideoEncodeAcceleratorSupportedProfiles(
+        const media::VideoEncodeAccelerator::SupportedProfiles&
+            supported_profiles) {
+  base::AutoLock lock(supported_profiles_lock_);
+  supported_vea_profiles_ = supported_profiles;
 }
 
 bool GpuVideoAcceleratorFactoriesImpl::CheckContextLost() {
@@ -210,7 +234,7 @@ GpuVideoAcceleratorFactoriesImpl::IsDecoderConfigSupported(
     return Supported::kFalse;
   }
 
-  base::AutoLock lock(supported_decoder_configs_lock_);
+  base::AutoLock lock(supported_profiles_lock_);
 
   // If GetSupportedConfigs() has not completed (or was never started), report
   // that all configs are supported. Clients will find out that configs are not
@@ -264,6 +288,16 @@ GpuVideoAcceleratorFactoriesImpl::CreateVideoEncodeAccelerator() {
   if (CheckContextLost())
     return nullptr;
 
+  base::AutoLock lock(supported_profiles_lock_);
+  // When |supported_vea_profiles_| is empty, no hw encoder is available or
+  // we have not yet gotten the supported profiles.
+  if (!supported_vea_profiles_) {
+    DVLOG(2) << "VEA's profiles have not yet been gotten";
+  } else if (supported_vea_profiles_->empty()) {
+    // There is no profile supported by VEA.
+    return nullptr;
+  }
+
   mojo::PendingRemote<media::mojom::VideoEncodeAccelerator> vea;
   vea_provider_->CreateVideoEncodeAccelerator(
       vea.InitWithNewPipeAndPassReceiver());
@@ -273,10 +307,9 @@ GpuVideoAcceleratorFactoriesImpl::CreateVideoEncodeAccelerator() {
 
   return std::unique_ptr<media::VideoEncodeAccelerator>(
       new media::MojoVideoEncodeAccelerator(
-          std::move(vea), context_provider_->GetCommandBufferProxy()
-                              ->channel()
-                              ->gpu_info()
-                              .video_encode_accelerator_supported_profiles));
+          std::move(vea),
+          supported_vea_profiles_.value_or(
+              media::VideoEncodeAccelerator::SupportedProfiles())));
 }
 
 std::unique_ptr<gfx::GpuMemoryBuffer>
@@ -335,7 +368,7 @@ GpuVideoAcceleratorFactoriesImpl::VideoFrameOutputFormat(
     if (bit_depth == 10) {
       if (capabilities.image_xr30)
         return media::GpuVideoAcceleratorFactories::OutputFormat::XR30;
-      else if (capabilities.image_xb30)
+      else if (capabilities.image_ab30)
         return media::GpuVideoAcceleratorFactories::OutputFormat::XB30;
     }
 #endif
@@ -384,11 +417,10 @@ GpuVideoAcceleratorFactoriesImpl::GetTaskRunner() {
   return task_runner_;
 }
 
-media::VideoEncodeAccelerator::SupportedProfiles
+base::Optional<media::VideoEncodeAccelerator::SupportedProfiles>
 GpuVideoAcceleratorFactoriesImpl::GetVideoEncodeAcceleratorSupportedProfiles() {
-  return media::GpuVideoAcceleratorUtil::ConvertGpuToMediaEncodeProfiles(
-      gpu_channel_host_->gpu_info()
-          .video_encode_accelerator_supported_profiles);
+  base::AutoLock lock(supported_profiles_lock_);
+  return supported_vea_profiles_;
 }
 
 scoped_refptr<viz::ContextProvider>

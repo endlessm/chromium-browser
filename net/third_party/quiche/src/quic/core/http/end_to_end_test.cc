@@ -31,11 +31,8 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_port_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_sleep.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test_loopback.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/quic/platform/impl/quic_socket_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/bad_packet_writer.h"
 #include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
@@ -65,6 +62,9 @@
 #include "net/third_party/quiche/src/quic/tools/quic_server.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_client_stream.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_server_stream.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 using spdy::kV3LowestPriority;
 using spdy::SpdyFramer;
@@ -115,7 +115,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& p) {
-  std::string rv = QuicStrCat(
+  std::string rv = quiche::QuicheStrCat(
       ParsedQuicVersionToString(p.negotiated_version), "_Server_",
       ParsedQuicVersionVectorToString(p.server_supported_versions), "_Client_",
       ParsedQuicVersionVectorToString(p.client_supported_versions), "_",
@@ -128,7 +128,6 @@ std::string PrintToString(const TestParams& p) {
 
 // Constructs various test permutations.
 std::vector<TestParams> GetTestParams(bool use_tls_handshake) {
-  QuicFlagSaver flags;
   // Divide the versions into buckets in which the intra-frame format
   // is compatible. When clients encounter QUIC version negotiation
   // they simply retransmit all packets using the new version's
@@ -137,7 +136,6 @@ std::vector<TestParams> GetTestParams(bool use_tls_handshake) {
   // handshake protocol). So these tests need to ensure that clients are never
   // attempting to do 0-RTT across incompatible versions. Chromium only
   // supports a single version at a time anyway. :)
-  SetQuicReloadableFlag(quic_supports_tls_handshake, use_tls_handshake);
   ParsedQuicVersionVector all_supported_versions =
       FilterSupportedVersions(AllSupportedVersions());
 
@@ -150,6 +148,9 @@ std::vector<TestParams> GetTestParams(bool use_tls_handshake) {
   ParsedQuicVersionVector version_buckets[3];
 
   for (const ParsedQuicVersion& version : all_supported_versions) {
+    if (!use_tls_handshake && version.handshake_protocol == PROTOCOL_TLS1_3) {
+      continue;
+    }
     if (!QuicVersionUsesCryptoFrames(version.transport_version)) {
       version_buckets[0].push_back(version);
     } else if (version.handshake_protocol == PROTOCOL_QUIC_CRYPTO) {
@@ -247,7 +248,6 @@ class EndToEndTest : public QuicTestWithParam<TestParams> {
         stream_factory_(nullptr),
         support_server_push_(false),
         expected_server_connection_id_length_(kQuicDefaultConnectionIdLength) {
-    SetQuicReloadableFlag(quic_supports_tls_handshake, true);
     client_supported_versions_ = GetParam().client_supported_versions;
     server_supported_versions_ = GetParam().server_supported_versions;
     negotiated_version_ = GetParam().negotiated_version;
@@ -396,9 +396,7 @@ class EndToEndTest : public QuicTestWithParam<TestParams> {
       copt.push_back(kTPCC);
     }
     copt.push_back(GetParam().priority_tag);
-    if (GetQuicReloadableFlag(quic_enable_pto)) {
-      copt.push_back(k2PTO);
-    }
+    copt.push_back(k2PTO);
     if (VersionHasIetfQuicFrames(negotiated_version_.transport_version)) {
       copt.push_back(kILD0);
     }
@@ -476,9 +474,9 @@ class EndToEndTest : public QuicTestWithParam<TestParams> {
     }
   }
 
-  void AddToCache(QuicStringPiece path,
+  void AddToCache(quiche::QuicheStringPiece path,
                   int response_code,
-                  QuicStringPiece body) {
+                  quiche::QuicheStringPiece body) {
     memory_cache_backend_.AddSimpleResponse(server_hostname_, path,
                                             response_code, body);
   }
@@ -681,6 +679,40 @@ TEST_P(EndToEndTestWithTls, SimpleRequestResponse) {
   EXPECT_EQ("200", client_->response_headers()->find(":status")->second);
 }
 
+class HandshakeDoneObserver : public QuicConnectionDebugVisitor {
+ public:
+  HandshakeDoneObserver() : handshake_done_received_(false) {}
+
+  size_t handshake_done_received() const { return handshake_done_received_; }
+
+  void OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& /*frame*/) override {
+    handshake_done_received_ = true;
+  }
+
+ private:
+  bool handshake_done_received_;
+};
+
+TEST_P(EndToEndTestWithTls, HandshakeDone) {
+  ASSERT_TRUE(Initialize());
+  if (!GetParam().negotiated_version.HasHandshakeDone()) {
+    return;
+  }
+  HandshakeDoneObserver observer;
+  QuicConnection* client_connection = GetClientConnection();
+  client_connection->set_debug_visitor(&observer);
+  EXPECT_EQ(kFooResponseBody, client_->SendSynchronousRequest("/foo"));
+  EXPECT_EQ("200", client_->response_headers()->find(":status")->second);
+  // Verify handshake state.
+  EXPECT_EQ(HANDSHAKE_CONFIRMED, GetClientSession()->GetHandshakeState());
+  server_thread_->Pause();
+  EXPECT_EQ(HANDSHAKE_CONFIRMED, GetServerSession()->GetHandshakeState());
+  server_thread_->Resume();
+  client_->Disconnect();
+  // Verify handshake done frame has been receveid by client.
+  EXPECT_TRUE(observer.handshake_done_received());
+}
+
 TEST_P(EndToEndTestWithTls, SendAndReceiveCoalescedPackets) {
   ASSERT_TRUE(Initialize());
   if (!GetClientConnection()->version().CanSendCoalescedPackets()) {
@@ -781,8 +813,7 @@ TEST_P(EndToEndTestWithTls, ForcedVersionNegotiation) {
 }
 
 TEST_P(EndToEndTest, SimpleRequestResponseZeroConnectionID) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -804,8 +835,7 @@ TEST_P(EndToEndTest, SimpleRequestResponseZeroConnectionID) {
 }
 
 TEST_P(EndToEndTestWithTls, ZeroConnectionID) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -821,8 +851,7 @@ TEST_P(EndToEndTestWithTls, ZeroConnectionID) {
 }
 
 TEST_P(EndToEndTestWithTls, BadConnectionIdLength) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -840,8 +869,7 @@ TEST_P(EndToEndTestWithTls, BadConnectionIdLength) {
 // Tests a very long (16-byte) initial destination connection ID to make
 // sure the dispatcher properly replaces it with an 8-byte one.
 TEST_P(EndToEndTestWithTls, LongBadConnectionIdLength) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -892,8 +920,7 @@ TEST_P(EndToEndTestWithTls, ForcedVersionNegotiationAndClientConnectionId) {
 }
 
 TEST_P(EndToEndTestWithTls, ForcedVersionNegotiationAndBadConnectionIdLength) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -915,8 +942,7 @@ TEST_P(EndToEndTestWithTls, ForcedVersionNegotiationAndBadConnectionIdLength) {
 // connection ID.
 TEST_P(EndToEndTestWithTls, ForcedVersNegoAndClientCIDAndLongCID) {
   if (!GetParam().negotiated_version.SupportsClientConnectionIds() ||
-      !QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+      !GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -941,8 +967,7 @@ TEST_P(EndToEndTestWithTls, ForcedVersNegoAndClientCIDAndLongCID) {
 }
 
 TEST_P(EndToEndTest, MixGoodAndBadConnectionIdLengths) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -1098,8 +1123,7 @@ TEST_P(EndToEndTestWithTls, MultipleRequestResponse) {
 }
 
 TEST_P(EndToEndTest, MultipleRequestResponseZeroConnectionID) {
-  if (!QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-          GetParam().negotiated_version.transport_version)) {
+  if (!GetParam().negotiated_version.AllowsVariableLengthConnectionIds()) {
     ASSERT_TRUE(Initialize());
     return;
   }
@@ -1732,12 +1756,11 @@ TEST_P(EndToEndTest, Timeout) {
   }
 }
 
-TEST_P(EndToEndTestWithTls, MaxIncomingDynamicStreamsLimitRespected) {
+TEST_P(EndToEndTestWithTls, MaxDynamicStreamsLimitRespected) {
   // Set a limit on maximum number of incoming dynamic streams.
-  // Make sure the limit is respected.
-  const uint32_t kServerMaxIncomingDynamicStreams = 1;
-  server_config_.SetMaxIncomingBidirectionalStreamsToSend(
-      kServerMaxIncomingDynamicStreams);
+  // Make sure the limit is respected by the peer.
+  const uint32_t kServerMaxDynamicStreams = 1;
+  server_config_.SetMaxBidirectionalStreamsToSend(kServerMaxDynamicStreams);
   ASSERT_TRUE(Initialize());
   if (VersionHasIetfQuicFrames(
           GetParam().negotiated_version.transport_version)) {
@@ -1776,18 +1799,14 @@ TEST_P(EndToEndTestWithTls, MaxIncomingDynamicStreamsLimitRespected) {
   EXPECT_THAT(client_->connection_error(), IsQuicNoError());
 }
 
-TEST_P(EndToEndTest, SetIndependentMaxIncomingDynamicStreamsLimits) {
-  // Each endpoint can set max incoming dynamic streams independently.
-  const uint32_t kClientMaxIncomingDynamicStreams = 4;
-  const uint32_t kServerMaxIncomingDynamicStreams = 3;
-  client_config_.SetMaxIncomingBidirectionalStreamsToSend(
-      kClientMaxIncomingDynamicStreams);
-  server_config_.SetMaxIncomingBidirectionalStreamsToSend(
-      kServerMaxIncomingDynamicStreams);
-  client_config_.SetMaxIncomingUnidirectionalStreamsToSend(
-      kClientMaxIncomingDynamicStreams);
-  server_config_.SetMaxIncomingUnidirectionalStreamsToSend(
-      kServerMaxIncomingDynamicStreams);
+TEST_P(EndToEndTest, SetIndependentMaxDynamicStreamsLimits) {
+  // Each endpoint can set max dynamic streams independently.
+  const uint32_t kClientMaxDynamicStreams = 4;
+  const uint32_t kServerMaxDynamicStreams = 3;
+  client_config_.SetMaxBidirectionalStreamsToSend(kClientMaxDynamicStreams);
+  server_config_.SetMaxBidirectionalStreamsToSend(kServerMaxDynamicStreams);
+  client_config_.SetMaxUnidirectionalStreamsToSend(kClientMaxDynamicStreams);
+  server_config_.SetMaxUnidirectionalStreamsToSend(kServerMaxDynamicStreams);
 
   ASSERT_TRUE(Initialize());
   EXPECT_TRUE(client_->client()->WaitForCryptoHandshakeConfirmed());
@@ -1815,9 +1834,9 @@ TEST_P(EndToEndTest, SetIndependentMaxIncomingDynamicStreamsLimits) {
                 client_session->num_expected_unidirectional_static_streams()
           : QuicSessionPeer::GetStreamIdManager(client_session)
                 ->max_open_outgoing_streams();
-  EXPECT_EQ(kServerMaxIncomingDynamicStreams,
+  EXPECT_EQ(kServerMaxDynamicStreams,
             client_max_open_outgoing_bidirectional_streams);
-  EXPECT_EQ(kServerMaxIncomingDynamicStreams,
+  EXPECT_EQ(kServerMaxDynamicStreams,
             client_max_open_outgoing_unidirectional_streams);
   server_thread_->Pause();
   QuicSession* server_session = GetServerSession();
@@ -1836,9 +1855,9 @@ TEST_P(EndToEndTest, SetIndependentMaxIncomingDynamicStreamsLimits) {
                 server_session->num_expected_unidirectional_static_streams()
           : QuicSessionPeer::GetStreamIdManager(server_session)
                 ->max_open_outgoing_streams();
-  EXPECT_EQ(kClientMaxIncomingDynamicStreams,
+  EXPECT_EQ(kClientMaxDynamicStreams,
             server_max_open_outgoing_bidirectional_streams);
-  EXPECT_EQ(kClientMaxIncomingDynamicStreams,
+  EXPECT_EQ(kClientMaxDynamicStreams,
             server_max_open_outgoing_unidirectional_streams);
 
   server_thread_->Resume();
@@ -2903,7 +2922,7 @@ class ServerStreamWithErrorResponseBody : public QuicSimpleServerStream {
     SpdyHeaderBlock headers;
     headers[":status"] = "500";
     headers["content-length"] =
-        QuicTextUtils::Uint64ToString(response_body_.size());
+        quiche::QuicheTextUtils::Uint64ToString(response_body_.size());
     // This method must call CloseReadSide to cause the test case, StopReading
     // is not sufficient.
     QuicStreamPeer::CloseReadSide(this);
@@ -3122,7 +3141,8 @@ TEST_P(EndToEndTestWithTls, Trailers) {
 
   SpdyHeaderBlock headers;
   headers[":status"] = "200";
-  headers["content-length"] = QuicTextUtils::Uint64ToString(kBody.size());
+  headers["content-length"] =
+      quiche::QuicheTextUtils::Uint64ToString(kBody.size());
 
   SpdyHeaderBlock trailers;
   trailers["some-trailing-header"] = "trailing-header-value";
@@ -3141,10 +3161,10 @@ class EndToEndTestServerPush : public EndToEndTest {
   const size_t kNumMaxStreams = 10;
 
   EndToEndTestServerPush() : EndToEndTest() {
-    client_config_.SetMaxIncomingBidirectionalStreamsToSend(kNumMaxStreams);
-    server_config_.SetMaxIncomingBidirectionalStreamsToSend(kNumMaxStreams);
-    client_config_.SetMaxIncomingUnidirectionalStreamsToSend(kNumMaxStreams);
-    server_config_.SetMaxIncomingUnidirectionalStreamsToSend(kNumMaxStreams);
+    client_config_.SetMaxBidirectionalStreamsToSend(kNumMaxStreams);
+    server_config_.SetMaxBidirectionalStreamsToSend(kNumMaxStreams);
+    client_config_.SetMaxUnidirectionalStreamsToSend(kNumMaxStreams);
+    server_config_.SetMaxUnidirectionalStreamsToSend(kNumMaxStreams);
     support_server_push_ = true;
   }
 
@@ -3173,11 +3193,12 @@ class EndToEndTestServerPush : public EndToEndTest {
       std::string body =
           use_large_response
               ? large_resource
-              : QuicStrCat("This is server push response body for ", url);
+              : quiche::QuicheStrCat("This is server push response body for ",
+                                     url);
       SpdyHeaderBlock response_headers;
       response_headers[":status"] = "200";
       response_headers["content-length"] =
-          QuicTextUtils::Uint64ToString(body.size());
+          quiche::QuicheTextUtils::Uint64ToString(body.size());
       push_resources.push_back(QuicBackendResponse::ServerPushInfo(
           resource_url, std::move(response_headers), kV3LowestPriority, body));
     }
@@ -3235,7 +3256,7 @@ TEST_P(EndToEndTestServerPush, ServerPush) {
   for (const std::string& url : push_urls) {
     QUIC_DVLOG(1) << "send request for pushed stream on url " << url;
     std::string expected_body =
-        QuicStrCat("This is server push response body for ", url);
+        quiche::QuicheStrCat("This is server push response body for ", url);
     std::string response_body = client_->SendSynchronousRequest(url);
     QUIC_DVLOG(1) << "response body " << response_body;
     EXPECT_EQ(expected_body, response_body);
@@ -3250,7 +3271,6 @@ TEST_P(EndToEndTestServerPush, ServerPush) {
 }
 
 TEST_P(EndToEndTestServerPush, ServerPushUnderLimit) {
-  SetQuicReloadableFlag(quic_send_max_push_id_with_settings, true);
   // Tests that sending a request which has 4 push resources will trigger server
   // to push those 4 resources and client can handle pushed resources and match
   // them with requests later.
@@ -3288,7 +3308,7 @@ TEST_P(EndToEndTestServerPush, ServerPushUnderLimit) {
     // as the responses are already in the client's cache.
     QUIC_DVLOG(1) << "send request for pushed stream on url " << url;
     std::string expected_body =
-        QuicStrCat("This is server push response body for ", url);
+        quiche::QuicheStrCat("This is server push response body for ", url);
     std::string response_body = client_->SendSynchronousRequest(url);
     QUIC_DVLOG(1) << "response body " << response_body;
     EXPECT_EQ(expected_body, response_body);
@@ -3327,7 +3347,8 @@ TEST_P(EndToEndTestServerPush, ServerPushOverLimitNonBlocking) {
   const size_t kNumResources = 1 + kNumMaxStreams;  // 11.
   std::string push_urls[11];
   for (size_t i = 0; i < kNumResources; ++i) {
-    push_urls[i] = QuicStrCat("https://example.com/push_resources", i);
+    push_urls[i] =
+        quiche::QuicheStrCat("https://example.com/push_resources", i);
   }
   AddRequestAndResponseWithServerPush("example.com", "/push_example", kBody,
                                       push_urls, kNumResources, 0);
@@ -3344,8 +3365,9 @@ TEST_P(EndToEndTestServerPush, ServerPushOverLimitNonBlocking) {
   for (const std::string& url : push_urls) {
     // Sending subsequent requesets will not actually send anything on the wire,
     // as the responses are already in the client's cache.
-    EXPECT_EQ(QuicStrCat("This is server push response body for ", url),
-              client_->SendSynchronousRequest(url));
+    EXPECT_EQ(
+        quiche::QuicheStrCat("This is server push response body for ", url),
+        client_->SendSynchronousRequest(url));
   }
 
   // Only 1 request should have been sent.
@@ -3356,7 +3378,6 @@ TEST_P(EndToEndTestServerPush, ServerPushOverLimitNonBlocking) {
 }
 
 TEST_P(EndToEndTestServerPush, ServerPushOverLimitWithBlocking) {
-  SetQuicReloadableFlag(quic_send_max_push_id_with_settings, true);
   // Tests that when server tries to send more large resources(large enough to
   // be blocked by flow control window or congestion control window) than max
   // open outgoing streams , server can open upto max number of outgoing
@@ -3385,7 +3406,7 @@ TEST_P(EndToEndTestServerPush, ServerPushOverLimitWithBlocking) {
   const size_t kNumResources = kNumMaxStreams + 1;
   std::string push_urls[11];
   for (size_t i = 0; i < kNumResources; ++i) {
-    push_urls[i] = QuicStrCat("http://example.com/push_resources", i);
+    push_urls[i] = quiche::QuicheStrCat("http://example.com/push_resources", i);
   }
   AddRequestAndResponseWithServerPush("example.com", "/push_example", kBody,
                                       push_urls, kNumResources, kBodySize);
@@ -3462,7 +3483,7 @@ TEST_P(EndToEndTest, DISABLED_TestHugePostWithPacketLoss) {
   headers[":scheme"] = "https";
   headers[":authority"] = server_hostname_;
   headers["content-length"] =
-      QuicTextUtils::Uint64ToString(request_body_size_bytes);
+      quiche::QuicheTextUtils::Uint64ToString(request_body_size_bytes);
 
   client_->SendMessage(headers, "", /*fin=*/false);
 
@@ -3794,9 +3815,9 @@ TEST_P(EndToEndTest, RequestAndStreamRstInOnePacket) {
   // (and the FIN) after the response body.
   std::string response_body(1305, 'a');
   SpdyHeaderBlock response_headers;
-  response_headers[":status"] = QuicTextUtils::Uint64ToString(200);
+  response_headers[":status"] = quiche::QuicheTextUtils::Uint64ToString(200);
   response_headers["content-length"] =
-      QuicTextUtils::Uint64ToString(response_body.length());
+      quiche::QuicheTextUtils::Uint64ToString(response_body.length());
   memory_cache_backend_.AddSpecialResponse(
       server_hostname_, "/test_url", std::move(response_headers), response_body,
       QuicBackendResponse::INCOMPLETE_RESPONSE);
@@ -3853,22 +3874,22 @@ TEST_P(EndToEndTest, SendMessages) {
   ASSERT_LT(0, client_session->GetCurrentLargestMessagePayload());
 
   std::string message_string(kMaxOutgoingPacketSize, 'a');
-  QuicStringPiece message_buffer(message_string);
+  quiche::QuicheStringPiece message_buffer(message_string);
   QuicRandom* random =
       QuicConnectionPeer::GetHelper(client_connection)->GetRandomGenerator();
   QuicMemSliceStorage storage(nullptr, 0, nullptr, 0);
   {
     QuicConnection::ScopedPacketFlusher flusher(client_session->connection());
     // Verify the largest message gets successfully sent.
-    EXPECT_EQ(
-        MessageResult(MESSAGE_STATUS_SUCCESS, 1),
-        client_session->SendMessage(MakeSpan(
-            client_session->connection()
-                ->helper()
-                ->GetStreamSendBufferAllocator(),
-            QuicStringPiece(message_buffer.data(),
-                            client_session->GetCurrentLargestMessagePayload()),
-            &storage)));
+    EXPECT_EQ(MessageResult(MESSAGE_STATUS_SUCCESS, 1),
+              client_session->SendMessage(MakeSpan(
+                  client_session->connection()
+                      ->helper()
+                      ->GetStreamSendBufferAllocator(),
+                  quiche::QuicheStringPiece(
+                      message_buffer.data(),
+                      client_session->GetCurrentLargestMessagePayload()),
+                  &storage)));
     // Send more messages with size (0, largest_payload] until connection is
     // write blocked.
     const int kTestMaxNumberOfMessages = 100;
@@ -3881,7 +3902,8 @@ TEST_P(EndToEndTest, SendMessages) {
           client_session->connection()
               ->helper()
               ->GetStreamSendBufferAllocator(),
-          QuicStringPiece(message_buffer.data(), message_length), &storage));
+          quiche::QuicheStringPiece(message_buffer.data(), message_length),
+          &storage));
       if (result.status == MESSAGE_STATUS_BLOCKED) {
         // Connection is write blocked.
         break;
@@ -3897,7 +3919,7 @@ TEST_P(EndToEndTest, SendMessages) {
                     client_session->connection()
                         ->helper()
                         ->GetStreamSendBufferAllocator(),
-                    QuicStringPiece(
+                    quiche::QuicheStringPiece(
                         message_buffer.data(),
                         client_session->GetCurrentLargestMessagePayload() + 1),
                     &storage))
@@ -4026,9 +4048,9 @@ TEST_P(EndToEndTest, SimpleStopSendingTest) {
   // frame for the stream.
   std::string response_body(1305, 'a');
   SpdyHeaderBlock response_headers;
-  response_headers[":status"] = QuicTextUtils::Uint64ToString(200);
+  response_headers[":status"] = quiche::QuicheTextUtils::Uint64ToString(200);
   response_headers["content-length"] =
-      QuicTextUtils::Uint64ToString(response_body.length());
+      quiche::QuicheTextUtils::Uint64ToString(response_body.length());
   memory_cache_backend_.AddStopSendingResponse(
       server_hostname_, "/test_url", std::move(response_headers), response_body,
       kStopSendingTestCode);

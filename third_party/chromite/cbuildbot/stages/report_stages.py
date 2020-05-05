@@ -12,8 +12,6 @@ import datetime
 import os
 import sys
 
-from infra_libs import ts_mon
-
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import goma_util
@@ -1017,31 +1015,6 @@ class ReportStage(generic_stages.BuilderStage,
           fields=mon_fields)
       metrics.CumulativeSecondsDistribution(constants.MON_BUILD_DURATION).add(
           duration, fields=mon_fields)
-
-      if self._run.options.sanity_check_build:
-        metrics.Counter(constants.MON_BUILD_SANITY_COMP_COUNT).increment(
-            fields=mon_fields)
-        metrics.Gauge(
-            constants.MON_BUILD_SANITY_ID,
-            description='The build number of the latest sanity build. Used '
-                        'for recovering the link to the latest failing build '
-                        'in the alert when a sanity build fails.',
-            field_spec=[ts_mon.StringField('status'),
-                        ts_mon.StringField('build_config'),
-                        ts_mon.StringField('builder_name'),
-                        ts_mon.BooleanField('important')]
-        ).set(self._run.buildnumber,
-              fields=dict(mon_fields, builder_name=self._run.GetBuilderName()))
-
-      if config_lib.IsMasterCQ(self._run.config):
-        self_destructed = self._run.attrs.metadata.GetValueWithDefault(
-            constants.SELF_DESTRUCTED_BUILD, False)
-        mon_fields = {'status': status_for_db,
-                      'self_destructed': self_destructed}
-        metrics.CumulativeSecondsDistribution(
-            constants.MON_CQ_BUILD_DURATION).add(duration, fields=mon_fields)
-        annotator_link = uri_lib.ConstructAnnotatorUri(build_id)
-        logging.PrintBuildbotLink('Build annotator', annotator_link)
 
       # From this point forward, treat all exceptions as warnings.
       self._post_completion = True

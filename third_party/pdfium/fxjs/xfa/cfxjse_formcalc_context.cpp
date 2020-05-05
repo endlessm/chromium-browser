@@ -33,8 +33,8 @@
 #include "xfa/fxfa/parser/cxfa_timezoneprovider.h"
 #include "xfa/fxfa/parser/xfa_utils.h"
 
-using pdfium::fxjse::kFuncTag;
 using pdfium::fxjse::kClassTag;
+using pdfium::fxjse::kFuncTag;
 
 namespace {
 
@@ -324,27 +324,27 @@ void AlternateDateTimeSymbols(WideString* pPattern,
 
 std::pair<bool, uint32_t> PatternStringType(ByteStringView bsPattern) {
   WideString wsPattern = WideString::FromUTF8(bsPattern);
-  if (L"datetime" == wsPattern.Left(8))
+  if (L"datetime" == wsPattern.First(8))
     return {true, XFA_VT_DATETIME};
-  if (L"date" == wsPattern.Left(4)) {
+  if (L"date" == wsPattern.First(4)) {
     auto pos = wsPattern.Find(L"time");
     uint32_t type =
         pos.has_value() && pos.value() != 0 ? XFA_VT_DATETIME : XFA_VT_DATE;
     return {true, type};
   }
-  if (L"time" == wsPattern.Left(4))
+  if (L"time" == wsPattern.First(4))
     return {true, XFA_VT_TIME};
-  if (L"text" == wsPattern.Left(4))
+  if (L"text" == wsPattern.First(4))
     return {true, XFA_VT_TEXT};
-  if (L"num" == wsPattern.Left(3)) {
+  if (L"num" == wsPattern.First(3)) {
     uint32_t type;
-    if (L"integer" == wsPattern.Mid(4, 7)) {
+    if (L"integer" == wsPattern.Substr(4, 7)) {
       type = XFA_VT_INTEGER;
-    } else if (L"decimal" == wsPattern.Mid(4, 7)) {
+    } else if (L"decimal" == wsPattern.Substr(4, 7)) {
       type = XFA_VT_DECIMAL;
-    } else if (L"currency" == wsPattern.Mid(4, 8)) {
+    } else if (L"currency" == wsPattern.Substr(4, 8)) {
       type = XFA_VT_FLOAT;
-    } else if (L"percent" == wsPattern.Mid(4, 7)) {
+    } else if (L"percent" == wsPattern.Substr(4, 7)) {
       type = XFA_VT_FLOAT;
     } else {
       type = XFA_VT_FLOAT;
@@ -844,7 +844,7 @@ bool HTMLSTR2Code(const WideString& pData, uint32_t* iCode) {
   const XFA_FMHtmlReserveCode* result = std::lower_bound(
       std::begin(kReservesForDecode), std::end(kReservesForDecode),
       temp.AsStringView(), cmpFunc);
-  if (result != std::end(kReservesForEncode) &&
+  if (result != std::end(kReservesForDecode) &&
       !strcmp(temp.c_str(), result->m_htmlReserve)) {
     *iCode = result->m_uCode;
     return true;
@@ -1963,7 +1963,7 @@ void CFXJSE_FormCalcContext::IsoTime2Num(CFXJSE_Value* pThis,
     args.GetReturnValue()->SetInteger(0);
     return;
   }
-  bsArg = bsArg.Right(bsArg.GetLength() - (pos.value() + 1));
+  bsArg = bsArg.Last(bsArg.GetLength() - (pos.value() + 1));
 
   CXFA_LocaleValue timeValue(XFA_VT_TIME,
                              WideString::FromUTF8(bsArg.AsStringView()), pMgr);
@@ -3688,12 +3688,11 @@ void CFXJSE_FormCalcContext::Format(CFXJSE_Value* pThis,
           return;
         }
         WideString wsDatePattern(L"date{");
-        wsDatePattern += wsPattern.Left(iTChar.value()) + L"} ";
+        wsDatePattern += wsPattern.First(iTChar.value()) + L"} ";
 
         WideString wsTimePattern(L"time{");
         wsTimePattern +=
-            wsPattern.Right(wsPattern.GetLength() - (iTChar.value() + 1)) +
-            L"}";
+            wsPattern.Last(wsPattern.GetLength() - (iTChar.value() + 1)) + L"}";
         wsPattern = wsDatePattern + wsTimePattern;
       } break;
       case XFA_VT_DATE: {
@@ -3753,7 +3752,7 @@ void CFXJSE_FormCalcContext::Left(CFXJSE_Value* pThis,
 
   ByteString bsSource = ValueToUTF8String(argOne.get());
   int32_t count = std::max(0, ValueToInteger(pThis, argTwo.get()));
-  args.GetReturnValue()->SetString(bsSource.Left(count).AsStringView());
+  args.GetReturnValue()->SetString(bsSource.First(count).AsStringView());
 }
 
 // static
@@ -3875,11 +3874,11 @@ void CFXJSE_FormCalcContext::Parse(CFXJSE_Value* pThis,
         args.GetReturnValue()->SetString("");
         return;
       }
-      WideString wsDatePattern(L"date{" + wsPattern.Left(iTChar.value()) +
+      WideString wsDatePattern(L"date{" + wsPattern.First(iTChar.value()) +
                                L"} ");
       WideString wsTimePattern(
           L"time{" +
-          wsPattern.Right(wsPattern.GetLength() - (iTChar.value() + 1)) + L"}");
+          wsPattern.Last(wsPattern.GetLength() - (iTChar.value() + 1)) + L"}");
       wsPattern = wsDatePattern + wsTimePattern;
       CXFA_LocaleValue localeValue(dwPatternType, wsValue, wsPattern, pLocale,
                                    pMgr);
@@ -4043,7 +4042,7 @@ void CFXJSE_FormCalcContext::Right(CFXJSE_Value* pThis,
 
   ByteString bsSource = ValueToUTF8String(argOne.get());
   int32_t count = std::max(0, ValueToInteger(pThis, argTwo.get()));
-  args.GetReturnValue()->SetString(bsSource.Right(count).AsStringView());
+  args.GetReturnValue()->SetString(bsSource.Last(count).AsStringView());
 }
 
 // static
@@ -4295,7 +4294,8 @@ void CFXJSE_FormCalcContext::Substr(CFXJSE_Value* pThis,
   // Negative values are treated as 0. Can't clamp() due to sign mismatches.
   size_t iCount = std::max(ValueToInteger(pThis, end_value.get()), 0);
   iCount = std::min(iCount, iLength - iStart);
-  args.GetReturnValue()->SetString(bsSource.Mid(iStart, iCount).AsStringView());
+  args.GetReturnValue()->SetString(
+      bsSource.Substr(iStart, iCount).AsStringView());
 }
 
 // static

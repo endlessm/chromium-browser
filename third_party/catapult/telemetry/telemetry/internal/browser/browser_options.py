@@ -131,9 +131,9 @@ class BrowserFinderOptions(optparse.Values):
              'running benchmarks. The options are: %s' % ', '.join(
                  compat_mode_options_list))
     parser.add_option(
-        '--experimental-proto-trace-format',
+        '--legacy-json-trace-format',
         action='store_true',
-        help='Request traces from Chrome in protobuf file format.')
+        help='Request traces from Chrome in legacy JSON format.')
     identity = None
     testing_rsa = os.path.join(
         util.GetTelemetryThirdPartyDir(), 'chromite', 'ssh_keys', 'testing_rsa')
@@ -202,6 +202,20 @@ class BrowserFinderOptions(optparse.Values):
         default=[],
         help='Specify Android App Bundle modules to install in addition to the '
         'base module. Ignored on Non-Android platforms.')
+    parser.add_option_group(group)
+
+    group = optparse.OptionGroup(parser, 'Fuchsia platform options')
+    group.add_option(
+        '--fuchsia-output-dir',
+        default='out/Release',
+        help='Specify the build directory for the Fuchsia OS installed on '
+        'the device.')
+    group.add_option(
+        '--fuchsia-ssh-port',
+        default=None,
+        help='The port on the host to which the ssh service running on the '
+        'Fuchsia device was forwarded. Will skip using the device-finder tool '
+        'if specified.')
     parser.add_option_group(group)
 
     # CPU profiling on Android/Linux/ChromeOS.
@@ -332,6 +346,14 @@ class BrowserFinderOptions(optparse.Values):
     return (browser_type == self.browser_type or
             self.browser_type in ('list', 'any',))
 
+  def IsBrowserTypeReference(self):
+    """Determines if the browser_type is a reference browser_type."""
+    return self.browser_type and self.browser_type.startswith('reference-')
+
+  def IsBrowserTypeBundle(self):
+    """Determines if the browser_type is a bundle browser_type."""
+    return self.browser_type and self.browser_type.endswith('-bundle')
+
   # TODO(eakuefner): Factor this out into OptionBuilder pattern
   def BuildRemotePlatformOptions(self):
     if self.device or self.android_blacklist_file:
@@ -438,6 +460,10 @@ class BrowserOptions(object):
     # The list of compatibility change that you want to enforce, mainly for
     # earlier versions of Chrome
     self.compatibility_mode = []
+
+    # If not None, a ProjectConfig object with information about the benchmark
+    # runtime environment.
+    self.environment = None
 
   def __repr__(self):
     return str(sorted(self.__dict__.items()))

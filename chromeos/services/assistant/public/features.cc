@@ -23,6 +23,9 @@ const base::Feature kAssistantWarmerWelcomeFeature{
 const base::Feature kAssistantAppSupport{"AssistantAppSupport",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kAssistantConversationStartersV2{
+    "AssistantConversationStartersV2", base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kAssistantProactiveSuggestions{
     "AssistantProactiveSuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -30,12 +33,20 @@ const base::Feature kAssistantProactiveSuggestions{
 const base::FeatureParam<int> kAssistantProactiveSuggestionsMaxWidth{
     &kAssistantProactiveSuggestions, "max-width", 280};
 
+// The desired background blur radius (in dip) for the rich proactive
+// suggestions entry point. Amount of blur may need to be dynamically modified
+// later or disabled which may be accomplished by setting to zero.
+const base::FeatureParam<int>
+    kAssistantProactiveSuggestionsRichEntryPointBackgroundBlurRadius{
+        &kAssistantProactiveSuggestions,
+        "rich-entry-point-background-blur-radius", 30};
+
 // The desired corner radius (in dip) for the rich proactive suggestions entry
 // point. As the rich UI has yet to be defined, corner radius may need to be
 // dynamically modified later.
 const base::FeatureParam<int>
     kAssistantProactiveSuggestionsRichEntryPointCornerRadius{
-        &kAssistantProactiveSuggestions, "rich-entry-point-corner-radius", 4};
+        &kAssistantProactiveSuggestions, "rich-entry-point-corner-radius", 12};
 
 const base::FeatureParam<std::string>
     kAssistantProactiveSuggestionsServerExperimentIds{
@@ -99,6 +110,10 @@ int GetProactiveSuggestionsMaxWidth() {
   return kAssistantProactiveSuggestionsMaxWidth.Get();
 }
 
+int GetProactiveSuggestionsRichEntryPointBackgroundBlurRadius() {
+  return kAssistantProactiveSuggestionsRichEntryPointBackgroundBlurRadius.Get();
+}
+
 int GetProactiveSuggestionsRichEntryPointCornerRadius() {
   return kAssistantProactiveSuggestionsRichEntryPointCornerRadius.Get();
 }
@@ -123,6 +138,10 @@ bool IsAudioEraserEnabled() {
 
 bool IsClearCutLogEnabled() {
   return base::FeatureList::IsEnabled(kEnableClearCutLog);
+}
+
+bool IsConversationStartersV2Enabled() {
+  return base::FeatureList::IsEnabled(kAssistantConversationStartersV2);
 }
 
 bool IsDspHotwordEnabled() {

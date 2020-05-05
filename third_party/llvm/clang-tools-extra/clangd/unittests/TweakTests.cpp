@@ -76,26 +76,23 @@ TEST(FileEdits, AbsolutePath) {
 TWEAK_TEST(SwapIfBranches);
 TEST_F(SwapIfBranchesTest, Test) {
   Context = Function;
-  EXPECT_EQ(apply("^if (true) {return 100;} else {continue;}"),
-            "if (true) {continue;} else {return 100;}");
-  EXPECT_EQ(apply("^if () {return 100;} else {continue;}"),
-            "if () {continue;} else {return 100;}")
+  EXPECT_EQ(apply("^if (true) {return;} else {(void)0;}"),
+            "if (true) {(void)0;} else {return;}");
+  EXPECT_EQ(apply("^if (/*error-ok*/) {return;} else {(void)0;}"),
+            "if (/*error-ok*/) {(void)0;} else {return;}")
       << "broken condition";
-  EXPECT_AVAILABLE("^i^f^^(^t^r^u^e^) { return 100; } ^e^l^s^e^ { continue; }");
-  EXPECT_UNAVAILABLE("if (true) {^return ^100;^ } else { ^continue^;^ }");
+  EXPECT_AVAILABLE("^i^f^^(^t^r^u^e^) { return; } ^e^l^s^e^ { return; }");
+  EXPECT_UNAVAILABLE("if (true) {^return ^;^ } else { ^return^;^ }");
   // Available in subexpressions of the condition;
-  EXPECT_THAT("if(2 + [[2]] + 2) { return 2 + 2 + 2; } else {continue;}",
-              isAvailable());
+  EXPECT_THAT("if(2 + [[2]] + 2) { return; } else {return;}", isAvailable());
   // But not as part of the branches.
-  EXPECT_THAT("if(2 + 2 + 2) { return 2 + [[2]] + 2; } else { continue; }",
+  EXPECT_THAT("if(2 + 2 + 2) { [[return]]; } else { return; }",
               Not(isAvailable()));
   // Range covers the "else" token, so available.
-  EXPECT_THAT("if(2 + 2 + 2) { return 2 + [[2 + 2; } else {continue;]]}",
-              isAvailable());
+  EXPECT_THAT("if(2 + 2 + 2) { return[[; } else {return;]]}", isAvailable());
   // Not available in compound statements in condition.
-  EXPECT_THAT(
-      "if([]{return [[true]];}()) { return 2 + 2 + 2; } else { continue; }",
-      Not(isAvailable()));
+  EXPECT_THAT("if([]{return [[true]];}()) { return; } else { return; }",
+              Not(isAvailable()));
   // Not available if both sides aren't braced.
   EXPECT_THAT("^if (1) return; else { return; }", Not(isAvailable()));
   // Only one if statement is supported!
@@ -122,10 +119,29 @@ literal)")cpp";
   EXPECT_EQ(apply(Input), Output);
 }
 
+TWEAK_TEST(ObjCLocalizeStringLiteral);
+TEST_F(ObjCLocalizeStringLiteralTest, Test) {
+  ExtraArgs.push_back("-x");
+  ExtraArgs.push_back("objective-c");
+
+  // Ensure the action can be initiated in the string literal.
+  EXPECT_AVAILABLE(R"(id x = ^[[@[[^"^t^est^"]]]];)");
+
+  // Ensure that the action can't be initiated in other places.
+  EXPECT_UNAVAILABLE(R"([[i^d ^[[x]] ^= @"test";^]])");
+
+  // Ensure that the action is not available for regular C strings.
+  EXPECT_UNAVAILABLE(R"(const char * x= "^test";)");
+
+  const char *Input = R"(id x = [[@"test"]];)";
+  const char *Output = R"(id x = NSLocalizedString(@"test", @"");)";
+  EXPECT_EQ(apply(Input), Output);
+}
+
 TWEAK_TEST(DumpAST);
 TEST_F(DumpASTTest, Test) {
   EXPECT_AVAILABLE("^int f^oo() { re^turn 2 ^+ 2; }");
-  EXPECT_UNAVAILABLE("/*c^omment*/ int foo() return 2 ^ + 2; }");
+  EXPECT_UNAVAILABLE("/*c^omment*/ int foo() { return 2 ^ + 2; }");
   EXPECT_THAT(apply("int x = 2 ^+ 2;"),
               AllOf(StartsWith("message:"), HasSubstr("BinaryOperator"),
                     HasSubstr("'+'"), HasSubstr("|-IntegerLiteral"),
@@ -145,7 +161,7 @@ TEST_F(DumpSymbolTest, Test) {
 TWEAK_TEST(ShowSelectionTree);
 TEST_F(ShowSelectionTreeTest, Test) {
   EXPECT_AVAILABLE("^int f^oo() { re^turn 2 ^+ 2; }");
-  EXPECT_AVAILABLE("/*c^omment*/ int foo() return 2 ^ + 2; }");
+  EXPECT_AVAILABLE("/*c^omment*/ int foo() { return 2 ^ + 2; }");
 
   const char *Output = R"(message:
  TranslationUnitDecl 
@@ -167,7 +183,7 @@ TEST_F(DumpRecordLayoutTest, Test) {
   EXPECT_THAT("template <typename T> struct ^X { T t; };", Not(isAvailable()));
   EXPECT_THAT("enum ^X {};", Not(isAvailable()));
 
-  EXPECT_THAT(apply("struct ^X { int x; int y; }"),
+  EXPECT_THAT(apply("struct ^X { int x; int y; };"),
               AllOf(StartsWith("message:"), HasSubstr("0 |   int x")));
 }
 
@@ -215,6 +231,7 @@ TEST_F(ExtractVariableTest, Test) {
   EXPECT_AVAILABLE(AvailableCases);
 
   const char *NoCrashCases = R"cpp(
+    // error-ok: broken code, but shouldn't crash
     template<typename T, typename ...Args>
     struct Test<T, Args...> {
     Test(const T &v) :val[[(^]]) {}
@@ -250,8 +267,8 @@ TEST_F(ExtractVariableTest, Test) {
       for(int a = 1, b = 2, c = 3; a > [[b + c]]; [[a++]])
         a = [[a + 1]];
       // lambda
-      auto lamb = [&[[a]], &[[b]]](int r = [[1]]) {return 1;}
-      // assigment
+      auto lamb = [&[[a]], &[[b]]](int r = [[1]]) {return 1;};
+      // assignment
       xyz([[a = 5]]);
       xyz([[a *= 5]]);
       // Variable DeclRefExpr
@@ -269,7 +286,7 @@ TEST_F(ExtractVariableTest, Test) {
   EXPECT_UNAVAILABLE(UnavailableCases);
 
   // vector of pairs of input and output strings
-  const std::vector<std::pair<llvm::StringLiteral, llvm::StringLiteral>>
+  const std::vector<std::pair<std::string, std::string>>
       InputOutputs = {
           // extraction from variable declaration/assignment
           {R"cpp(void varDecl() {
@@ -321,17 +338,10 @@ TEST_F(ExtractVariableTest, Test) {
                    if(1)
                     LOOP(5 + [[3]])
                  })cpp",
-           /*FIXME: It should be extracted like this. SelectionTree needs to be
-             * fixed for macros.
             R"cpp(#define LOOP(x) while (1) {a = x;}
-                void f(int a) {
-                  auto dummy = 3; if(1)
-                   LOOP(5 + dummy)
-                })cpp"},*/
-           R"cpp(#define LOOP(x) while (1) {a = x;}
                  void f(int a) {
-                   auto dummy = LOOP(5 + 3); if(1)
-                    dummy
+                   auto dummy = 3; if(1)
+                    LOOP(5 + dummy)
                  })cpp"},
           {R"cpp(#define LOOP(x) do {x;} while(1);
                  void f(int a) {
@@ -465,6 +475,7 @@ TEST_F(AnnotateHighlightingsTest, Test) {
 TWEAK_TEST(ExpandMacro);
 TEST_F(ExpandMacroTest, Test) {
   Header = R"cpp(
+    // error-ok: not real c++, just token manipulation
     #define FOO 1 2 3
     #define FUNC(X) X+X+X
     #define EMPTY
@@ -501,7 +512,7 @@ TEST_F(ExpandAutoTypeTest, Test) {
     namespace ns {
       struct Class {
         struct Nested {};
-      }
+      };
       void Func();
     }
     inline namespace inl_ns {
@@ -524,7 +535,7 @@ TEST_F(ExpandAutoTypeTest, Test) {
   EXPECT_EQ(apply("namespace ns { void f() { ^auto C = Class(); } }"),
             "namespace ns { void f() { Class C = Class(); } }");
   // undefined functions should not be replaced
-  EXPECT_THAT(apply("au^to x = doesnt_exist();"),
+  EXPECT_THAT(apply("au^to x = doesnt_exist(); // error-ok"),
               StartsWith("fail: Could not deduce type for 'auto' type"));
   // function pointers should not be replaced
   EXPECT_THAT(apply("au^to x = &ns::Func;"),
@@ -539,8 +550,8 @@ TEST_F(ExpandAutoTypeTest, Test) {
   EXPECT_EQ(apply("namespace x { void y() { struct S{}; ^auto z = S(); } }"),
             "namespace x { void y() { struct S{}; S z = S(); } }");
   // replace array types
-  EXPECT_EQ(apply(R"cpp(au^to x = "test")cpp"),
-            R"cpp(const char * x = "test")cpp");
+  EXPECT_EQ(apply(R"cpp(au^to x = "test";)cpp"),
+            R"cpp(const char * x = "test";)cpp");
 
   EXPECT_UNAVAILABLE("dec^ltype(au^to) x = 10;");
 
@@ -573,8 +584,10 @@ TEST_F(ExtractFunctionTest, FunctionTest) {
   EXPECT_THAT(apply(" for([[int i = 0;]];);"), HasSubstr("extracted"));
   // Don't extract because needs hoisting.
   EXPECT_THAT(apply(" [[int a = 5;]] a++; "), StartsWith("fail"));
-  // Don't extract return
-  EXPECT_THAT(apply(" if(true) [[return;]] "), StartsWith("fail"));
+  // Extract certain return
+  EXPECT_THAT(apply(" if(true) [[{ return; }]] "), HasSubstr("extracted"));
+  // Don't extract uncertain return
+  EXPECT_THAT(apply(" if(true) [[if (false) return;]] "), StartsWith("fail"));
 }
 
 TEST_F(ExtractFunctionTest, FileTest) {
@@ -644,13 +657,18 @@ void f(const int c) {
   )cpp";
   EXPECT_EQ(apply(TemplateFailInput), "unavailable");
 
-  // FIXME: This should be extractable after selectionTree works correctly for
-  // macros (currently it doesn't select anything for the following case)
-  std::string MacroFailInput = R"cpp(
+  std::string MacroInput = R"cpp(
     #define F(BODY) void f() { BODY }
     F ([[int x = 0;]])
   )cpp";
-  EXPECT_EQ(apply(MacroFailInput), "unavailable");
+  std::string MacroOutput = R"cpp(
+    #define F(BODY) void f() { BODY }
+    void extracted() {
+int x = 0;
+}
+F (extracted();)
+  )cpp";
+  EXPECT_EQ(apply(MacroInput), MacroOutput);
 
   // Shouldn't crash.
   EXPECT_EQ(apply("void f([[int a]]);"), "unavailable");
@@ -677,6 +695,42 @@ TEST_F(ExtractFunctionTest, ControlFlow) {
   EXPECT_THAT(apply(" switch(1) { [[break;]] }"), StartsWith("fail"));
   EXPECT_THAT(apply(" for(;;) { [[while(1) break; break;]] }"),
               StartsWith("fail"));
+}
+
+TEST_F(ExtractFunctionTest, ExistingReturnStatement) {
+  Context = File;
+  const char* Before = R"cpp(
+    bool lucky(int N);
+    int getNum(bool Superstitious, int Min, int Max) {
+      if (Superstitious) [[{
+        for (int I = Min; I <= Max; ++I)
+          if (lucky(I))
+            return I;
+        return -1;
+      }]] else {
+        return (Min + Max) / 2;
+      }
+    }
+  )cpp";
+  // FIXME: min/max should be by value.
+  // FIXME: avoid emitting redundant braces
+  const char* After = R"cpp(
+    bool lucky(int N);
+    int extracted(int &Min, int &Max) {
+{
+        for (int I = Min; I <= Max; ++I)
+          if (lucky(I))
+            return I;
+        return -1;
+      }
+}
+int getNum(bool Superstitious, int Min, int Max) {
+      if (Superstitious) return extracted(Min, Max); else {
+        return (Min + Max) / 2;
+      }
+    }
+  )cpp";
+  EXPECT_EQ(apply(Before), After);
 }
 
 TWEAK_TEST(RemoveUsingNamespace);
@@ -922,7 +976,7 @@ TEST_F(DefineInlineTest, TriggersOnFunctionDecl) {
   }]]
 
   // Definition with no body.
-  class Bar { Bar() = def^ault; }
+  class Bar { Bar() = def^ault; };
   )cpp");
 }
 
@@ -1158,9 +1212,7 @@ TEST_F(DefineInlineTest, TransformDecls) {
       public:
         void foo();
         int x;
-        static int y;
       };
-      Foo::y = 0;
 
       enum En { Zero, One };
       En x = Zero;
@@ -1174,9 +1226,7 @@ TEST_F(DefineInlineTest, TransformDecls) {
       public:
         void foo();
         int x;
-        static int y;
       };
-      Foo::y = 0;
 
       enum En { Zero, One };
       En x = Zero;
@@ -1627,11 +1677,11 @@ TEST_F(DefineInlineTest, HandleMacros) {
           namespace a { class Foo{}; }
           void foo();
           using namespace a;
-          void f^oo(){BODY})cpp",
+          void f^oo(){BODY();})cpp",
        R"cpp(
           #define BODY Foo
           namespace a { class Foo{}; }
-          void foo(){BODY}
+          void foo(){BODY();}
           using namespace a;
           )cpp"},
 
@@ -1809,6 +1859,368 @@ TEST_F(DefineInlineTest, QualifyWithUsingDirectives) {
   EXPECT_EQ(apply(Test), Expected) << Test;
 }
 
+TEST_F(DefineInlineTest, AddInline) {
+  ExtraArgs.push_back("-fno-delayed-template-parsing");
+  llvm::StringMap<std::string> EditedFiles;
+  ExtraFiles["a.h"] = "void foo();";
+  apply(R"cpp(#include "a.h"
+              void fo^o() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                               testPath("a.h"), "inline void foo(){}")));
+
+  // Check we put inline before cv-qualifiers.
+  ExtraFiles["a.h"] = "const int foo();";
+  apply(R"cpp(#include "a.h"
+              const int fo^o() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                               testPath("a.h"), "inline const int foo(){}")));
+
+  // No double inline.
+  ExtraFiles["a.h"] = "inline void foo();";
+  apply(R"cpp(#include "a.h"
+              inline void fo^o() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                               testPath("a.h"), "inline void foo(){}")));
+
+  // Constexprs don't need "inline".
+  ExtraFiles["a.h"] = "constexpr void foo();";
+  apply(R"cpp(#include "a.h"
+              constexpr void fo^o() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                               testPath("a.h"), "constexpr void foo(){}")));
+
+  // Class members don't need "inline".
+  ExtraFiles["a.h"] = "struct Foo { void foo(); };";
+  apply(R"cpp(#include "a.h"
+              void Foo::fo^o() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles,
+              testing::ElementsAre(FileWithContents(
+                  testPath("a.h"), "struct Foo { void foo(){} };")));
+
+  // Function template doesn't need to be "inline"d.
+  ExtraFiles["a.h"] = "template <typename T> void foo();";
+  apply(R"cpp(#include "a.h"
+              template <typename T>
+              void fo^o() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles,
+              testing::ElementsAre(FileWithContents(
+                  testPath("a.h"), "template <typename T> void foo(){}")));
+
+  // Specializations needs to be marked "inline".
+  ExtraFiles["a.h"] = R"cpp(
+                            template <typename T> void foo();
+                            template <> void foo<int>();)cpp";
+  apply(R"cpp(#include "a.h"
+              template <>
+              void fo^o<int>() {})cpp",
+        &EditedFiles);
+  EXPECT_THAT(EditedFiles,
+              testing::ElementsAre(FileWithContents(testPath("a.h"),
+                                                    R"cpp(
+                            template <typename T> void foo();
+                            template <> inline void foo<int>(){})cpp")));
+}
+
+TWEAK_TEST(DefineOutline);
+TEST_F(DefineOutlineTest, TriggersOnFunctionDecl) {
+  FileName = "Test.cpp";
+  // Not available unless in a header file.
+  EXPECT_UNAVAILABLE(R"cpp(
+    [[void [[f^o^o]]() [[{
+      return;
+    }]]]])cpp");
+
+  FileName = "Test.hpp";
+  // Not available unless function name or fully body is selected.
+  EXPECT_UNAVAILABLE(R"cpp(
+    // Not a definition
+    vo^i[[d^ ^f]]^oo();
+
+    [[vo^id ]]foo[[()]] {[[
+      [[(void)(5+3);
+      return;]]
+    }]])cpp");
+
+  // Available even if there are no implementation files.
+  EXPECT_AVAILABLE(R"cpp(
+    [[void [[f^o^o]]() [[{
+      return;
+    }]]]])cpp");
+
+  // Not available for out-of-line methods.
+  EXPECT_UNAVAILABLE(R"cpp(
+    class Bar {
+      void baz();
+    };
+
+    [[void [[Bar::[[b^a^z]]]]() [[{
+      return;
+    }]]]])cpp");
+
+  // Basic check for function body and signature.
+  EXPECT_AVAILABLE(R"cpp(
+    class Bar {
+      [[void [[f^o^o]]() [[{ return; }]]]]
+    };
+
+    void foo();
+    [[void [[f^o^o]]() [[{
+      return;
+    }]]]])cpp");
+
+  // Not available on defaulted/deleted members.
+  EXPECT_UNAVAILABLE(R"cpp(
+    class Foo {
+      Fo^o() = default;
+      F^oo(const Foo&) = delete;
+    };)cpp");
+
+  // Not available within templated classes, as it is hard to spell class name
+  // out-of-line in such cases.
+  EXPECT_UNAVAILABLE(R"cpp(
+    template <typename> struct Foo { void fo^o(){} };
+    )cpp");
+}
+
+TEST_F(DefineOutlineTest, FailsWithoutSource) {
+  FileName = "Test.hpp";
+  llvm::StringRef Test = "void fo^o() { return; }";
+  llvm::StringRef Expected =
+      "fail: Couldn't find a suitable implementation file.";
+  EXPECT_EQ(apply(Test), Expected);
+}
+
+TEST_F(DefineOutlineTest, ApplyTest) {
+  llvm::StringMap<std::string> EditedFiles;
+  ExtraFiles["Test.cpp"] = "";
+  FileName = "Test.hpp";
+  // Template body is not parsed until instantiation time on windows, which
+  // results in arbitrary failures as function body becomes NULL.
+  ExtraArgs.push_back("-fno-delayed-template-parsing");
+
+  struct {
+    llvm::StringRef Test;
+    llvm::StringRef ExpectedHeader;
+    llvm::StringRef ExpectedSource;
+  } Cases[] = {
+      // Simple check
+      {
+          "void fo^o() { return; }",
+          "void foo() ;",
+          "void foo() { return; }",
+      },
+      // Templated function.
+      {
+          "template <typename T> void fo^o(T, T x) { return; }",
+          "template <typename T> void foo(T, T x) ;",
+          "template <typename T> void foo(T, T x) { return; }",
+      },
+      {
+          "template <typename> void fo^o() { return; }",
+          "template <typename> void foo() ;",
+          "template <typename> void foo() { return; }",
+      },
+      // Template specialization.
+      {
+          R"cpp(
+            template <typename> void foo();
+            template <> void fo^o<int>() { return; })cpp",
+          R"cpp(
+            template <typename> void foo();
+            template <> void foo<int>() ;)cpp",
+          "template <> void foo<int>() { return; }",
+      },
+      // Default args.
+      {
+          "void fo^o(int x, int y = 5, int = 2, int (*foo)(int) = nullptr) {}",
+          "void foo(int x, int y = 5, int = 2, int (*foo)(int) = nullptr) ;",
+          "void foo(int x, int y , int , int (*foo)(int) ) {}",
+      },
+      // Ctor initializers.
+      {
+          R"cpp(
+              class Foo {
+                int y = 2;
+                F^oo(int z) __attribute__((weak)) : bar(2){}
+                int bar;
+                int z = 2;
+              };)cpp",
+          R"cpp(
+              class Foo {
+                int y = 2;
+                Foo(int z) __attribute__((weak)) ;
+                int bar;
+                int z = 2;
+              };)cpp",
+          "Foo::Foo(int z) __attribute__((weak)) : bar(2){}\n",
+      },
+  };
+  for (const auto &Case : Cases) {
+    SCOPED_TRACE(Case.Test);
+    EXPECT_EQ(apply(Case.Test, &EditedFiles), Case.ExpectedHeader);
+    EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                                 testPath("Test.cpp"), Case.ExpectedSource)));
+  }
+}
+
+TEST_F(DefineOutlineTest, HandleMacros) {
+  llvm::StringMap<std::string> EditedFiles;
+  ExtraFiles["Test.cpp"] = "";
+  FileName = "Test.hpp";
+
+  struct {
+    llvm::StringRef Test;
+    llvm::StringRef ExpectedHeader;
+    llvm::StringRef ExpectedSource;
+  } Cases[] = {
+      {R"cpp(
+          #define BODY { return; }
+          void f^oo()BODY)cpp",
+       R"cpp(
+          #define BODY { return; }
+          void foo();)cpp",
+       "void foo()BODY"},
+
+      {R"cpp(
+          #define BODY return;
+          void f^oo(){BODY})cpp",
+       R"cpp(
+          #define BODY return;
+          void foo();)cpp",
+       "void foo(){BODY}"},
+
+      {R"cpp(
+          #define TARGET void foo()
+          [[TARGET]]{ return; })cpp",
+       R"cpp(
+          #define TARGET void foo()
+          TARGET;)cpp",
+       "TARGET{ return; }"},
+
+      {R"cpp(
+          #define TARGET foo
+          void [[TARGET]](){ return; })cpp",
+       R"cpp(
+          #define TARGET foo
+          void TARGET();)cpp",
+       "void TARGET(){ return; }"},
+  };
+  for (const auto &Case : Cases) {
+    SCOPED_TRACE(Case.Test);
+    EXPECT_EQ(apply(Case.Test, &EditedFiles), Case.ExpectedHeader);
+    EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                                 testPath("Test.cpp"), Case.ExpectedSource)));
+  }
+}
+
+TEST_F(DefineOutlineTest, QualifyReturnValue) {
+  FileName = "Test.hpp";
+  ExtraFiles["Test.cpp"] = "";
+
+  struct {
+    llvm::StringRef Test;
+    llvm::StringRef ExpectedHeader;
+    llvm::StringRef ExpectedSource;
+  } Cases[] = {
+      {R"cpp(
+        namespace a { class Foo{}; }
+        using namespace a;
+        Foo fo^o() { return {}; })cpp",
+       R"cpp(
+        namespace a { class Foo{}; }
+        using namespace a;
+        Foo foo() ;)cpp",
+       "a::Foo foo() { return {}; }"},
+      {R"cpp(
+        namespace a {
+          class Foo {
+            class Bar {};
+            Bar fo^o() { return {}; }
+          };
+        })cpp",
+       R"cpp(
+        namespace a {
+          class Foo {
+            class Bar {};
+            Bar foo() ;
+          };
+        })cpp",
+       "a::Foo::Bar a::Foo::foo() { return {}; }\n"},
+      {R"cpp(
+        class Foo {};
+        Foo fo^o() { return {}; })cpp",
+       R"cpp(
+        class Foo {};
+        Foo foo() ;)cpp",
+       "Foo foo() { return {}; }"},
+  };
+  llvm::StringMap<std::string> EditedFiles;
+  for (auto &Case : Cases) {
+    apply(Case.Test, &EditedFiles);
+    EXPECT_EQ(apply(Case.Test, &EditedFiles), Case.ExpectedHeader);
+    EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                                 testPath("Test.cpp"), Case.ExpectedSource)));
+  }
+}
+
+TEST_F(DefineOutlineTest, QualifyFunctionName) {
+  FileName = "Test.hpp";
+  struct {
+    llvm::StringRef TestHeader;
+    llvm::StringRef TestSource;
+    llvm::StringRef ExpectedHeader;
+    llvm::StringRef ExpectedSource;
+  } Cases[] = {
+      {
+          R"cpp(
+            namespace a {
+              namespace b {
+                class Foo {
+                  void fo^o() {}
+                };
+              }
+            })cpp",
+          "",
+          R"cpp(
+            namespace a {
+              namespace b {
+                class Foo {
+                  void foo() ;
+                };
+              }
+            })cpp",
+          "void a::b::Foo::foo() {}\n",
+      },
+      {
+          "namespace a { namespace b { void f^oo() {} } }",
+          "namespace a{}",
+          "namespace a { namespace b { void foo() ; } }",
+          "namespace a{void b::foo() {} }",
+      },
+      {
+          "namespace a { namespace b { void f^oo() {} } }",
+          "using namespace a;",
+          "namespace a { namespace b { void foo() ; } }",
+          // FIXME: Take using namespace directives in the source file into
+          // account. This can be spelled as b::foo instead.
+          "using namespace a;void a::b::foo() {} ",
+      },
+  };
+  llvm::StringMap<std::string> EditedFiles;
+  for (auto &Case : Cases) {
+    ExtraFiles["Test.cpp"] = Case.TestSource;
+    EXPECT_EQ(apply(Case.TestHeader, &EditedFiles), Case.ExpectedHeader);
+    EXPECT_THAT(EditedFiles, testing::ElementsAre(FileWithContents(
+                                 testPath("Test.cpp"), Case.ExpectedSource)))
+        << Case.TestHeader;
+  }
+}
 } // namespace
 } // namespace clangd
 } // namespace clang

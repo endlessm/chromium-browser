@@ -1,20 +1,19 @@
-/*
- * Copyright 2015 The Chromium Authors. All rights reserved.
- * Use of this source code is governed by a BSD-style license that can be
- * found in the LICENSE file.
- */
+// Copyright 2015 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 /**
  * @interface
  */
 export class LayerView {
   /**
-   * @param {?LayerViewer.LayerView.Selection} selection
+   * @param {?Selection} selection
    */
   hoverObject(selection) {
   }
 
   /**
-   * @param {?LayerViewer.LayerView.Selection} selection
+   * @param {?Selection} selection
    */
   selectObject(selection) {
   }
@@ -30,7 +29,7 @@ export class LayerView {
  */
 export class Selection {
   /**
-   * @param {!LayerViewer.LayerView.Selection.Type} type
+   * @param {!Type} type
    * @param {!SDK.Layer} layer
    */
   constructor(type, layer) {
@@ -39,7 +38,7 @@ export class Selection {
   }
 
   /**
-   * @param {?LayerViewer.LayerView.Selection} a
+   * @param {?Selection} a
    * @param {?LayerViewer.LayerView.Selection} b
    * @return {boolean}
    */
@@ -48,7 +47,7 @@ export class Selection {
   }
 
   /**
-   * @return {!LayerViewer.LayerView.Selection.Type}
+   * @return {!Type}
    */
   type() {
     return this._type;
@@ -62,7 +61,7 @@ export class Selection {
   }
 
   /**
-   * @param {!LayerViewer.LayerView.Selection} other
+   * @param {!Selection} other
    * @return {boolean}
    */
   _isEqual(other) {
@@ -93,7 +92,7 @@ export class LayerSelection extends Selection {
 
   /**
    * @override
-   * @param {!LayerViewer.LayerView.Selection} other
+   * @param {!Selection} other
    * @return {boolean}
    */
   _isEqual(other) {
@@ -116,7 +115,7 @@ export class ScrollRectSelection extends Selection {
 
   /**
    * @override
-   * @param {!LayerViewer.LayerView.Selection} other
+   * @param {!Selection} other
    * @return {boolean}
    */
   _isEqual(other) {
@@ -140,7 +139,7 @@ export class SnapshotSelection extends Selection {
 
   /**
    * @override
-   * @param {!LayerViewer.LayerView.Selection} other
+   * @param {!Selection} other
    * @return {boolean}
    */
   _isEqual(other) {
@@ -161,29 +160,29 @@ export class SnapshotSelection extends Selection {
  */
 export class LayerViewHost {
   constructor() {
-    /** @type {!Array.<!LayerViewer.LayerView>} */
+    /** @type {!Array.<!LayerView>} */
     this._views = [];
     this._selectedObject = null;
     this._hoveredObject = null;
-    this._showInternalLayersSetting = Common.settings.createSetting('layersShowInternalLayers', false);
+    this._showInternalLayersSetting = self.Common.settings.createSetting('layersShowInternalLayers', false);
   }
 
   /**
-   * @param {!LayerViewer.LayerView} layerView
+   * @param {!LayerView} layerView
    */
   registerView(layerView) {
     this._views.push(layerView);
   }
 
   /**
-   * @param {!Map<!SDK.Layer, !LayerViewer.LayerView.SnapshotSelection>} snapshotLayers
+   * @param {!Map<!SDK.Layer, !SnapshotSelection>} snapshotLayers
    */
   setLayerSnapshotMap(snapshotLayers) {
     this._snapshotLayers = snapshotLayers;
   }
 
   /**
-   * @return {!Map<!SDK.Layer, !LayerViewer.LayerView.SnapshotSelection>}
+   * @return {!Map<!SDK.Layer, !SnapshotSelection>}
    */
   getLayerSnapshotMap() {
     return this._snapshotLayers;
@@ -208,7 +207,7 @@ export class LayerViewHost {
   }
 
   /**
-   * @param {?LayerViewer.LayerView.Selection} selection
+   * @param {?Selection} selection
    */
   hoverObject(selection) {
     if (Selection.isEqual(this._hoveredObject, selection)) {
@@ -223,7 +222,7 @@ export class LayerViewHost {
   }
 
   /**
-   * @param {?LayerViewer.LayerView.Selection} selection
+   * @param {?Selection} selection
    */
   selectObject(selection) {
     if (Selection.isEqual(this._selectedObject, selection)) {
@@ -236,7 +235,7 @@ export class LayerViewHost {
   }
 
   /**
-   * @return {?LayerViewer.LayerView.Selection}
+   * @return {?Selection}
    */
   selection() {
     return this._selectedObject;
@@ -244,7 +243,7 @@ export class LayerViewHost {
 
   /**
    * @param {!UI.ContextMenu} contextMenu
-   * @param {?LayerViewer.LayerView.Selection} selection
+   * @param {?Selection} selection
    */
   showContextMenu(contextMenu, selection) {
     contextMenu.defaultSection().appendCheckboxItem(
@@ -279,44 +278,3 @@ export class LayerViewHost {
     SDK.OverlayModel.hideDOMNodeHighlight();
   }
 }
-
-/* Legacy exported object */
-self.LayerViewer = self.LayerViewer || {};
-
-/* Legacy exported object */
-LayerViewer = LayerViewer || {};
-
-/**
- * @interface
- */
-LayerViewer.LayerView = LayerView;
-
-/**
- * @constructor
- */
-LayerViewer.LayerView.Selection = Selection;
-
-/**
- * @enum {symbol}
- */
-LayerViewer.LayerView.Selection.Type = Type;
-
-/**
- * @constructor
- */
-LayerViewer.LayerView.LayerSelection = LayerSelection;
-
-/**
- * @constructor
- */
-LayerViewer.LayerView.ScrollRectSelection = ScrollRectSelection;
-
-/**
- * @constructor
- */
-LayerViewer.LayerView.SnapshotSelection = SnapshotSelection;
-
-/**
- * @constructor
- */
-LayerViewer.LayerViewHost = LayerViewHost;

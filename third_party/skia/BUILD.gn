@@ -187,6 +187,9 @@ opts("avx") {
     cflags = [ "/arch:AVX" ]
   } else {
     cflags = [ "-mavx" ]
+    if (is_mac && is_debug) {
+      cflags += [ "-O1" ]  # Work around skia:9709
+    }
   }
 }
 
@@ -197,6 +200,9 @@ opts("hsw") {
     cflags = [ "/arch:AVX2" ]
   } else {
     cflags = [ "-march=haswell" ]
+    if (is_mac && is_debug) {
+      cflags += [ "-O1" ]  # Work around skia:9709
+    }
   }
 }
 
@@ -338,27 +344,27 @@ optional("fontmgr_fuchsia") {
 
 optional("fontmgr_wasm") {
   enabled = target_cpu == "wasm"
-
-  deps = [
-    ":typeface_freetype",
-  ]
+  deps = []
 
   # custom_embedded has the source for both embedding a font in the binary
   # (only used for the all-included build) and reading in a font from
   # raw bytes passed over the wire (a typical way to load fonts).
-  sources = [
-    "src/ports/SkFontMgr_custom_embedded.cpp",
-  ]
-
-  # If we haven't opted for no fonts (empty) or fonts, but not the
-  # built-in one (custom), then, we need to provide the mechanism for
-  # using the built-in font.
-  if (!skia_enable_fontmgr_empty && !skia_enable_fontmgr_custom) {
-    sources += [
-      "src/ports/SkFontMgr_custom.cpp",
-      "src/ports/SkFontMgr_custom.h",
-      "src/ports/SkFontMgr_custom_embedded_factory.cpp",
+  if (!skia_enable_fontmgr_empty) {
+    deps += [ ":typeface_freetype" ]
+    sources = [
+      "src/ports/SkFontMgr_custom_embedded.cpp",
     ]
+
+    # If we haven't opted for no fonts (empty) or fonts, but not the
+    # built-in one (custom), then, we need to provide the mechanism for
+    # using the built-in font.
+    if (!skia_enable_fontmgr_custom) {
+      sources += [
+        "src/ports/SkFontMgr_custom.cpp",
+        "src/ports/SkFontMgr_custom.h",
+        "src/ports/SkFontMgr_custom_embedded_factory.cpp",
+      ]
+    }
   }
 }
 
@@ -789,18 +795,9 @@ optional("sksl_interpreter") {
   public_defines = [ "SK_ENABLE_SKSL_INTERPRETER" ]
 }
 
-config("vtune_includes") {
-  include_dirs = [ "$skia_vtune_path/include" ]
-}
 optional("skvm_jit") {
   enabled = skia_enable_skvm_jit
   public_defines = [ "SKVM_JIT" ]
-
-  if (skia_vtune_path != "") {
-    public_defines += [ "SKVM_JIT_VTUNE" ]
-    public_configs = [ ":vtune_includes" ]
-    libs = [ "$skia_vtune_path/lib64/libjitprofiling.a" ]
-  }
 }
 
 if (skia_enable_gpu && skia_generate_workarounds) {
@@ -1034,6 +1031,7 @@ if (target_cpu == "wasm") {
       "tools/SkSharingProc.cpp",
       "tools/UrlDataManager.cpp",
       "tools/debugger/DebugCanvas.cpp",
+      "tools/debugger/DebugLayerManager.cpp",
       "tools/debugger/DrawCommand.cpp",
       "tools/debugger/JsonWriteBuffer.cpp",
     ]
@@ -1455,6 +1453,7 @@ if (skia_enable_tools) {
       "tools/ToolUtils.cpp",
       "tools/UrlDataManager.cpp",
       "tools/debugger/DebugCanvas.cpp",
+      "tools/debugger/DebugLayerManager.cpp",
       "tools/debugger/DrawCommand.cpp",
       "tools/debugger/JsonWriteBuffer.cpp",
       "tools/fonts/RandomScalerContext.cpp",
@@ -1998,6 +1997,7 @@ if (skia_enable_tools) {
       "fuzz/oss_fuzz/FuzzTextBlobDeserialize.cpp",
       "tools/UrlDataManager.cpp",
       "tools/debugger/DebugCanvas.cpp",
+      "tools/debugger/DebugLayerManager.cpp",
       "tools/debugger/DrawCommand.cpp",
       "tools/debugger/JsonWriteBuffer.cpp",
     ]
@@ -2290,7 +2290,10 @@ if (skia_enable_tools) {
         "tools/fiddle/examples.h",
       ]
       if (is_win) {
-        cflags = [ "/wd4756" ]  # Overflow in constant arithmetic
+        cflags = [
+          "/wd4756",  # Overflow in constant arithmetic
+          "/wd4305",  # truncation from 'double' to 'float'
+        ]
       }
       deps = [
         ":skia",
@@ -2311,6 +2314,7 @@ if (skia_enable_tools) {
       "tools/viewer/ParticlesSlide.cpp",
       "tools/viewer/SKPSlide.cpp",
       "tools/viewer/SampleSlide.cpp",
+      "tools/viewer/SkSLSlide.cpp",
       "tools/viewer/SkottieSlide.cpp",
       "tools/viewer/SlideDir.cpp",
       "tools/viewer/StatsLayer.cpp",
@@ -2416,6 +2420,7 @@ if (skia_enable_tools) {
       sources = [
         "tools/UrlDataManager.cpp",
         "tools/debugger/DebugCanvas.cpp",
+        "tools/debugger/DebugLayerManager.cpp",
         "tools/debugger/DrawCommand.cpp",
         "tools/debugger/JsonWriteBuffer.cpp",
         "tools/mdbviz/MainWindow.cpp",
@@ -2502,9 +2507,12 @@ if (is_ios && skia_use_metal && !skia_enable_flutter_defines) {
       "experimental/minimal_ios_mtl_skia_app",
     ]
   }
+}
+
+if (is_ios && skia_enable_skottie && !skia_enable_flutter_defines) {
   group("skottie_ios") {
     deps = [
-      "experimental/skottie_ios",
+      "tools/skottie_ios_app",
     ]
   }
 }

@@ -18,11 +18,8 @@
 
 #include "perfetto/ext/traced/traced.h"
 #include "perfetto/ext/tracing/core/trace_packet.h"
-#include "test/task_runner_thread_delegates.h"
-
 #include "perfetto/ext/tracing/ipc/default_socket.h"
 
-#include "protos/perfetto/trace/trace_packet.pb.h"
 #include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
@@ -43,8 +40,10 @@ uint64_t TestHelper::next_instance_num_ = 0;
 TestHelper::TestHelper(base::TestTaskRunner* task_runner)
     : instance_num_(next_instance_num_++),
       task_runner_(task_runner),
-      service_thread_("perfetto.svc"),
-      producer_thread_("perfetto.prd") {}
+      service_thread_(TEST_PRODUCER_SOCK_NAME, TEST_CONSUMER_SOCK_NAME),
+      fake_producer_thread_(TEST_PRODUCER_SOCK_NAME,
+                            WrapTask(CreateCheckpoint("producer.setup")),
+                            WrapTask(CreateCheckpoint("producer.enabled"))) {}
 
 void TestHelper::OnConnect() {
   std::move(on_connect_callback_)();
@@ -60,7 +59,7 @@ void TestHelper::OnTracingDisabled() {
 
 void TestHelper::OnTraceData(std::vector<TracePacket> packets, bool has_more) {
   for (auto& encoded_packet : packets) {
-    protos::TracePacket packet;
+    protos::gen::TracePacket packet;
     PERFETTO_CHECK(
         packet.ParseFromString(encoded_packet.GetRawBytesForTesting()));
     if (packet.has_clock_snapshot() || packet.has_trace_config() ||
@@ -68,8 +67,7 @@ void TestHelper::OnTraceData(std::vector<TracePacket> packets, bool has_more) {
         packet.has_system_info()) {
       continue;
     }
-    PERFETTO_CHECK(packet.optional_trusted_uid_case() ==
-                   protos::TracePacket::kTrustedUid);
+    PERFETTO_CHECK(packet.has_trusted_uid());
     trace_.push_back(std::move(packet));
   }
 
@@ -80,19 +78,13 @@ void TestHelper::OnTraceData(std::vector<TracePacket> packets, bool has_more) {
 
 void TestHelper::StartServiceIfRequired() {
 #if PERFETTO_BUILDFLAG(PERFETTO_START_DAEMONS)
-  service_thread_.Start(std::unique_ptr<ServiceDelegate>(
-      new ServiceDelegate(TEST_PRODUCER_SOCK_NAME, TEST_CONSUMER_SOCK_NAME)));
+  service_thread_.Start();
 #endif
 }
 
 FakeProducer* TestHelper::ConnectFakeProducer() {
-  std::unique_ptr<FakeProducerDelegate> producer_delegate(
-      new FakeProducerDelegate(TEST_PRODUCER_SOCK_NAME,
-                               WrapTask(CreateCheckpoint("producer.setup")),
-                               WrapTask(CreateCheckpoint("producer.enabled"))));
-  FakeProducerDelegate* producer_delegate_cached = producer_delegate.get();
-  producer_thread_.Start(std::move(producer_delegate));
-  return producer_delegate_cached->producer();
+  fake_producer_thread_.Connect();
+  return fake_producer_thread_.producer();
 }
 
 void TestHelper::ConnectConsumer() {
@@ -120,6 +112,14 @@ bool TestHelper::AttachConsumer(const std::string& key) {
   endpoint_->Attach(key);
   RunUntilCheckpoint("attach." + key);
   return success;
+}
+
+void TestHelper::CreateProducerProvidedSmb() {
+  fake_producer_thread_.CreateProducerProvidedSmb();
+}
+
+bool TestHelper::IsShmemProvidedByProducer() {
+  return fake_producer_thread_.producer()->IsShmemProvidedByProducer();
 }
 
 void TestHelper::StartTracing(const TraceConfig& config,

@@ -855,8 +855,11 @@ class Module {
       return Promise.resolve();
     }
 
+    const legacyFileName = `${this._name}-legacy.js`;
+    const fileName = this._descriptor.modules.includes(legacyFileName) ? legacyFileName : `${this._name}.js`;
+
     // TODO(crbug.com/1011811): Remove eval when we use TypeScript which does support dynamic imports
-    return eval(`import('./${this._name}/${this._name}.js')`);
+    return eval(`import('./${this._name}/${fileName}')`);
   }
 
   /**
@@ -1244,9 +1247,9 @@ self.Root = self.Root || {};
 Root = Root || {};
 
 // This gets all concatenated module descriptors in the release mode.
-Root.allDescriptors = [];
+Root.allDescriptors = Root.allDescriptors || [];
 
-Root.applicationDescriptor = undefined;
+Root.applicationDescriptor = Root.applicationDescriptor || undefined;
 
 /** @constructor */
 Root.Runtime = Runtime;

@@ -93,6 +93,15 @@ TEST_F(TextureValidationTest, SampleCount) {
 
         ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
     }
+
+    // It is an error to set TextureUsage::Storage when sampleCount > 1.
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.sampleCount = 4;
+        descriptor.usage |= wgpu::TextureUsage::Storage;
+
+        ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
+    }
 }
 
 // Test the validation of the mip level count
@@ -169,6 +178,76 @@ TEST_F(TextureValidationTest, MipLevelCount) {
         descriptor.size.height = 8;
         // Mip maps: 32 * 8, 16 * 4, 8 * 2, 4 * 1, 2 * 1, 1 * 1
         descriptor.mipLevelCount = 6;
+
+        device.CreateTexture(&descriptor);
+    }
+
+    // Mip level exceeding kMaxTexture2DMipLevels not allowed
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.size.width = 1 >> kMaxTexture2DMipLevels;
+        descriptor.size.height = 1 >> kMaxTexture2DMipLevels;
+        descriptor.mipLevelCount = kMaxTexture2DMipLevels + 1u;
+
+        ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
+    }
+}
+// Test the validation of array layer count
+TEST_F(TextureValidationTest, ArrayLayerCount) {
+    wgpu::TextureDescriptor defaultDescriptor = CreateDefaultTextureDescriptor();
+
+    // Array layer count exceeding kMaxTexture2DArrayLayers is not allowed
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.arrayLayerCount = kMaxTexture2DArrayLayers + 1u;
+
+        ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
+    }
+
+    // Array layer count less than kMaxTexture2DArrayLayers is allowed;
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.arrayLayerCount = kMaxTexture2DArrayLayers >> 1;
+
+        device.CreateTexture(&descriptor);
+    }
+
+    // Array layer count equal to kMaxTexture2DArrayLayers is allowed;
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.arrayLayerCount = kMaxTexture2DArrayLayers;
+
+        device.CreateTexture(&descriptor);
+    }
+}
+
+// Test the validation of texture size
+TEST_F(TextureValidationTest, TextureSize) {
+    wgpu::TextureDescriptor defaultDescriptor = CreateDefaultTextureDescriptor();
+
+    // Texture size exceeding kMaxTextureSize is not allowed
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.size.width = kMaxTextureSize + 1u;
+        descriptor.size.height = kMaxTextureSize + 1u;
+
+        ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
+    }
+
+    // Texture size less than kMaxTextureSize is allowed
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.size.width = kMaxTextureSize >> 1;
+        descriptor.size.height = kMaxTextureSize >> 1;
+
+        device.CreateTexture(&descriptor);
+    }
+
+    // Texture equal to kMaxTextureSize is allowed
+    {
+        wgpu::TextureDescriptor descriptor = defaultDescriptor;
+        descriptor.size.width = kMaxTextureSize;
+        descriptor.size.height = kMaxTextureSize;
 
         device.CreateTexture(&descriptor);
     }
@@ -254,6 +333,47 @@ TEST_F(TextureValidationTest, NonRenderableAndOutputAttachment) {
 
     for (wgpu::TextureFormat format : nonRenderableFormats) {
         // Fails because `format` is non-renderable
+        descriptor.format = format;
+        ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
+    }
+}
+
+// Test it is an error to create a Storage texture with any format that doesn't support
+// TextureUsage::Storage texture usages.
+TEST_F(TextureValidationTest, TextureFormatNotSupportTextureUsageStorage) {
+    wgpu::TextureDescriptor descriptor;
+    descriptor.size = {1, 1, 1};
+    descriptor.usage = wgpu::TextureUsage::Storage;
+
+    wgpu::TextureFormat kSupportedFormatsWithStorageUsage[] = {
+        wgpu::TextureFormat::R32Uint,     wgpu::TextureFormat::R32Sint,
+        wgpu::TextureFormat::R32Uint,     wgpu::TextureFormat::RGBA8Unorm,
+        wgpu::TextureFormat::RGBA8Snorm,  wgpu::TextureFormat::RGBA8Uint,
+        wgpu::TextureFormat::RGBA8Sint,   wgpu::TextureFormat::RG32Uint,
+        wgpu::TextureFormat::RG32Sint,    wgpu::TextureFormat::RG32Float,
+        wgpu::TextureFormat::RGBA16Uint,  wgpu::TextureFormat::RGBA16Sint,
+        wgpu::TextureFormat::RGBA16Float, wgpu::TextureFormat::RGBA32Uint,
+        wgpu::TextureFormat::RGBA32Sint,  wgpu::TextureFormat::RGBA32Float};
+    for (wgpu::TextureFormat format : kSupportedFormatsWithStorageUsage) {
+        descriptor.format = format;
+        device.CreateTexture(&descriptor);
+    }
+
+    wgpu::TextureFormat kUnsupportedFormatsWithStorageUsage[] = {
+        wgpu::TextureFormat::R8Unorm,        wgpu::TextureFormat::R8Snorm,
+        wgpu::TextureFormat::R8Uint,         wgpu::TextureFormat::R8Sint,
+        wgpu::TextureFormat::R16Uint,        wgpu::TextureFormat::R16Sint,
+        wgpu::TextureFormat::R16Float,       wgpu::TextureFormat::RG8Unorm,
+        wgpu::TextureFormat::RG8Snorm,       wgpu::TextureFormat::RG8Uint,
+        wgpu::TextureFormat::RG8Sint,        wgpu::TextureFormat::RG16Uint,
+        wgpu::TextureFormat::RG16Sint,       wgpu::TextureFormat::RG16Float,
+        wgpu::TextureFormat::RGBA8UnormSrgb, wgpu::TextureFormat::BGRA8Unorm,
+        wgpu::TextureFormat::BGRA8UnormSrgb, wgpu::TextureFormat::RGB10A2Unorm,
+        wgpu::TextureFormat::RG11B10Float,
+
+        wgpu::TextureFormat::Depth24Plus,    wgpu::TextureFormat::Depth24PlusStencil8,
+        wgpu::TextureFormat::Depth32Float};
+    for (wgpu::TextureFormat format : kUnsupportedFormatsWithStorageUsage) {
         descriptor.format = format;
         ASSERT_DEVICE_ERROR(device.CreateTexture(&descriptor));
     }

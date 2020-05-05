@@ -13,6 +13,7 @@
 #include "common.h"
 #include "list.h"
 #include "local_cache.h"
+#include "memtag.h"
 #include "release.h"
 #include "stats.h"
 #include "string_utils.h"
@@ -38,12 +39,18 @@ namespace scudo {
 // The memory used by this allocator is never unmapped, but can be partially
 // released if the platform allows for it.
 
-template <class SizeClassMapT, uptr RegionSizeLog> class SizeClassAllocator64 {
+template <class SizeClassMapT, uptr RegionSizeLog,
+          bool MaySupportMemoryTagging = false>
+class SizeClassAllocator64 {
 public:
   typedef SizeClassMapT SizeClassMap;
-  typedef SizeClassAllocator64<SizeClassMap, RegionSizeLog> ThisT;
+  typedef SizeClassAllocator64<SizeClassMap, RegionSizeLog,
+                               MaySupportMemoryTagging>
+      ThisT;
   typedef SizeClassAllocatorLocalCache<ThisT> CacheT;
   typedef typename CacheT::TransferBatch TransferBatch;
+  static const bool SupportsMemoryTagging =
+      MaySupportMemoryTagging && archSupportsMemoryTagging();
 
   static uptr getSizeByClassId(uptr ClassId) {
     return (ClassId == SizeClassMap::BatchClassId)
@@ -80,11 +87,13 @@ public:
       // limit is mostly arbitrary and based on empirical observations.
       // TODO(kostyak): make the lower limit a runtime option
       Region->CanRelease = (ReleaseToOsInterval >= 0) &&
-                           (I != SizeClassMap::BatchClassId) &&
-                           (getSizeByClassId(I) >= (PageSize / 32));
+                           (getSizeByClassId(I) >= (PageSize / 64));
       Region->RandState = getRandomU32(&Seed);
     }
     ReleaseToOsIntervalMs = ReleaseToOsInterval;
+
+    if (SupportsMemoryTagging)
+      UseMemoryTagging = systemSupportsMemoryTagging();
   }
   void init(s32 ReleaseToOsInterval) {
     memset(this, 0, sizeof(*this));
@@ -125,13 +134,22 @@ public:
   }
 
   void disable() {
-    for (uptr I = 0; I < NumClasses; I++)
-      getRegionInfo(I)->Mutex.lock();
+    // The BatchClassId must be locked last since other classes can use it.
+    for (sptr I = static_cast<sptr>(NumClasses) - 1; I >= 0; I--) {
+      if (static_cast<uptr>(I) == SizeClassMap::BatchClassId)
+        continue;
+      getRegionInfo(static_cast<uptr>(I))->Mutex.lock();
+    }
+    getRegionInfo(SizeClassMap::BatchClassId)->Mutex.lock();
   }
 
   void enable() {
-    for (sptr I = static_cast<sptr>(NumClasses) - 1; I >= 0; I--)
-      getRegionInfo(static_cast<uptr>(I))->Mutex.unlock();
+    getRegionInfo(SizeClassMap::BatchClassId)->Mutex.unlock();
+    for (uptr I = 0; I < NumClasses; I++) {
+      if (I == SizeClassMap::BatchClassId)
+        continue;
+      getRegionInfo(I)->Mutex.unlock();
+    }
   }
 
   template <typename F> void iterateOverBlocks(F Callback) const {
@@ -180,6 +198,11 @@ public:
     return TotalReleasedBytes;
   }
 
+  bool useMemoryTagging() const {
+    return SupportsMemoryTagging && UseMemoryTagging;
+  }
+  void disableMemoryTagging() { UseMemoryTagging = false; }
+
 private:
   static const uptr RegionSize = 1UL << RegionSizeLog;
   static const uptr NumClasses = SizeClassMap::NumClasses;
@@ -221,6 +244,7 @@ private:
   RegionInfo *RegionInfoArray;
   MapPlatformData Data;
   s32 ReleaseToOsIntervalMs;
+  bool UseMemoryTagging;
 
   RegionInfo *getRegionInfo(uptr ClassId) const {
     DCHECK_LT(ClassId, NumClasses);
@@ -285,7 +309,9 @@ private:
         Region->Data = Data;
       if (UNLIKELY(!map(reinterpret_cast<void *>(RegionBeg + MappedUser),
                         UserMapSize, "scudo:primary",
-                        MAP_ALLOWNOMEM | MAP_RESIZABLE, &Region->Data)))
+                        MAP_ALLOWNOMEM | MAP_RESIZABLE |
+                            (useMemoryTagging() ? MAP_MEMTAG : 0),
+                        &Region->Data)))
         return nullptr;
       Region->MappedUser += UserMapSize;
       C->getStats().add(StatMapped, UserMapSize);
@@ -374,7 +400,7 @@ private:
       if (IntervalMs < 0)
         return 0;
       if (Region->ReleaseInfo.LastReleaseAtNs +
-              static_cast<uptr>(IntervalMs) * 1000000ULL >
+              static_cast<u64>(IntervalMs) * 1000000 >
           getMonotonicTime()) {
         return 0; // Memory was returned recently.
       }

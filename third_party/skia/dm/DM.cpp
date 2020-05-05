@@ -52,6 +52,7 @@
 #endif
 
 extern bool gSkForceRasterPipelineBlitter;
+extern bool gUseSkVMBlitter;
 
 static DEFINE_string(src, "tests gm skp image", "Source types to test.");
 static DEFINE_bool(nameByHash, false,
@@ -84,6 +85,7 @@ static DEFINE_int(shard,  0, "Which shard do I run?");
 
 static DEFINE_string(mskps, "", "Directory to read mskps from, or a single mskp file.");
 static DEFINE_bool(forceRasterPipeline, false, "sets gSkForceRasterPipelineBlitter");
+static DEFINE_bool(skvm, false, "sets gUseSkVMBlitter");
 
 static DEFINE_string(bisect, "",
         "Pair of: SKP file to bisect, followed by an l/r bisect trail string (e.g., 'lrll'). The "
@@ -970,7 +972,7 @@ static Sink* create_sink(const GrContextOptions& grCtxOptions, const SkCommandLi
         auto narrow = SkColorSpace::MakeRGB(SkNamedTransferFn::k2Dot2, gNarrow_toXYZD50),
                srgb = SkColorSpace::MakeSRGB(),
          srgbLinear = SkColorSpace::MakeSRGBLinear(),
-                 p3 = SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDCIP3);
+                 p3 = SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3);
 
         SINK(     "f16",  RasterSink,  kRGBA_F16_SkColorType, srgbLinear);
         SINK(    "srgb",  RasterSink, kRGBA_8888_SkColorType, srgb      );
@@ -1207,12 +1209,12 @@ struct Task {
                 return true;
             };
 
-            if (eq(gamut, SkNamedGamut::kSRGB    )) { return SkString("sRGB"); }
-            if (eq(gamut, SkNamedGamut::kAdobeRGB)) { return SkString("Adobe"); }
-            if (eq(gamut, SkNamedGamut::kDCIP3   )) { return SkString("P3"); }
-            if (eq(gamut, SkNamedGamut::kRec2020 )) { return SkString("2020"); }
-            if (eq(gamut, SkNamedGamut::kXYZ     )) { return SkString("XYZ"); }
-            if (eq(gamut,     gNarrow_toXYZD50   )) { return SkString("narrow"); }
+            if (eq(gamut, SkNamedGamut::kSRGB     )) { return SkString("sRGB"); }
+            if (eq(gamut, SkNamedGamut::kAdobeRGB )) { return SkString("Adobe"); }
+            if (eq(gamut, SkNamedGamut::kDisplayP3)) { return SkString("P3"); }
+            if (eq(gamut, SkNamedGamut::kRec2020  )) { return SkString("2020"); }
+            if (eq(gamut, SkNamedGamut::kXYZ      )) { return SkString("XYZ"); }
+            if (eq(gamut,     gNarrow_toXYZD50    )) { return SkString("narrow"); }
             return SkString("other");
         }
         return SkString("non-XYZ");
@@ -1412,9 +1414,8 @@ int main(int argc, char** argv) {
     ToolUtils::SetDefaultFontMgr();
     SetAnalyticAAFromCommonFlags();
 
-    if (FLAGS_forceRasterPipeline) {
-        gSkForceRasterPipelineBlitter = true;
-    }
+    gSkForceRasterPipelineBlitter = FLAGS_forceRasterPipeline;
+    gUseSkVMBlitter               = FLAGS_skvm;
 
     // The bots like having a verbose.log to upload, so always touch the file even if --verbose.
     if (!FLAGS_writePath.isEmpty()) {

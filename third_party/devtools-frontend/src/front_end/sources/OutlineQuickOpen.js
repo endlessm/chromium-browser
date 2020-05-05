@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {SourcesView} from './SourcesView.js';
+
 /**
  * @unrestricted
  */
-Sources.OutlineQuickOpen = class extends QuickOpen.FilteredListWidget.Provider {
+export class OutlineQuickOpen extends QuickOpen.FilteredListWidget.Provider {
   constructor() {
     super();
     this._items = [];
@@ -107,7 +109,7 @@ Sources.OutlineQuickOpen = class extends QuickOpen.FilteredListWidget.Provider {
    * @return {?Workspace.UISourceCode}
    */
   _currentUISourceCode() {
-    const sourcesView = UI.context.flavor(Sources.SourcesView);
+    const sourcesView = self.UI.context.flavor(SourcesView);
     if (!sourcesView) {
       return null;
     }
@@ -127,4 +129,4 @@ Sources.OutlineQuickOpen = class extends QuickOpen.FilteredListWidget.Provider {
     }
     return Common.UIString('No results found');
   }
-};
+}

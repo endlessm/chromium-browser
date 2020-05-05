@@ -113,7 +113,8 @@ gpu::SurfaceHandle SkiaOutputSurfaceDependencyWebView::GetSurfaceHandle() {
 
 scoped_refptr<gl::GLSurface>
 SkiaOutputSurfaceDependencyWebView::CreateGLSurface(
-    base::WeakPtr<gpu::ImageTransportSurfaceDelegate> stub) {
+    base::WeakPtr<gpu::ImageTransportSurfaceDelegate> stub,
+    gl::GLSurfaceFormat format) {
   return gl_surface_;
 }
 
@@ -145,6 +146,15 @@ base::TimeDelta
 SkiaOutputSurfaceDependencyWebView::GetGpuBlockedTimeSinceLastSwap() {
   // WebView doesn't track how long GPU thread was blocked
   return base::TimeDelta();
+}
+
+void SkiaOutputSurfaceDependencyWebView::ScheduleDelayedGPUTaskFromGPUThread(
+    base::OnceClosure task) {
+  task_queue_->ScheduleIdleTask(std::move(task));
+}
+
+bool SkiaOutputSurfaceDependencyWebView::NeedsSupportForExternalStencil() {
+  return true;
 }
 
 }  // namespace android_webview

@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TimelineUIUtils} from './TimelineUIUtils.js';
 
-Timeline.TimelineFilters = {};
-
-Timeline.TimelineFilters.IsLong = class extends TimelineModel.TimelineModelFilter {
+export class IsLong extends TimelineModel.TimelineModelFilter {
   constructor() {
     super();
     this._minimumRecordDuration = 0;
@@ -27,10 +26,9 @@ Timeline.TimelineFilters.IsLong = class extends TimelineModel.TimelineModelFilte
     const duration = event.endTime ? event.endTime - event.startTime : 0;
     return duration >= this._minimumRecordDuration;
   }
-};
+}
 
-
-Timeline.TimelineFilters.Category = class extends TimelineModel.TimelineModelFilter {
+export class Category extends TimelineModel.TimelineModelFilter {
   constructor() {
     super();
   }
@@ -41,11 +39,11 @@ Timeline.TimelineFilters.Category = class extends TimelineModel.TimelineModelFil
    * @return {boolean}
    */
   accept(event) {
-    return !Timeline.TimelineUIUtils.eventStyle(event).category.hidden;
+    return !TimelineUIUtils.eventStyle(event).category.hidden;
   }
-};
+}
 
-Timeline.TimelineFilters.RegExp = class extends TimelineModel.TimelineModelFilter {
+export class TimelineRegExp extends TimelineModel.TimelineModelFilter {
   /**
    * @param {!RegExp=} regExp
    */
@@ -76,6 +74,6 @@ Timeline.TimelineFilters.RegExp = class extends TimelineModel.TimelineModelFilte
    * @return {boolean}
    */
   accept(event) {
-    return !this._regExp || Timeline.TimelineUIUtils.testContentMatching(event, this._regExp);
+    return !this._regExp || TimelineUIUtils.testContentMatching(event, this._regExp);
   }
-};
+}

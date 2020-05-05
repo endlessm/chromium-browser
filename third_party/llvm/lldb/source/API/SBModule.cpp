@@ -1,4 +1,4 @@
-//===-- SBModule.cpp --------------------------------------------*- C++ -*-===//
+//===-- SBModule.cpp ------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -245,7 +245,7 @@ bool SBModule::GetDescription(SBStream &description) {
 
   ModuleSP module_sp(GetSP());
   if (module_sp) {
-    module_sp->GetDescription(&strm);
+    module_sp->GetDescription(strm.AsRawOstream());
   } else
     strm.PutCString("No value");
 

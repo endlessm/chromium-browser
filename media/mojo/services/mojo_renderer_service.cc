@@ -124,6 +124,12 @@ void MojoRendererService::SetVolume(float volume) {
 }
 
 void MojoRendererService::SetCdm(int32_t cdm_id, SetCdmCallback callback) {
+  if (cdm_context_ref_) {
+    DVLOG(1) << "Switching CDM not supported";
+    std::move(callback).Run(false);
+    return;
+  }
+
   if (!mojo_cdm_service_context_) {
     DVLOG(1) << "CDM service context not available.";
     std::move(callback).Run(false);
@@ -197,6 +203,11 @@ void MojoRendererService::OnVideoNaturalSizeChange(const gfx::Size& size) {
 void MojoRendererService::OnVideoOpacityChange(bool opaque) {
   DVLOG(2) << __func__ << "(" << opaque << ")";
   client_->OnVideoOpacityChange(opaque);
+}
+
+void MojoRendererService::OnVideoFrameRateChange(base::Optional<int> fps) {
+  DVLOG(2) << __func__ << "(" << (fps ? *fps : -1) << ")";
+  // TODO(liberato): plumb to |client_|.
 }
 
 void MojoRendererService::OnStreamReady(

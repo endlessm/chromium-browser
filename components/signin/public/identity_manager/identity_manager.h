@@ -162,19 +162,22 @@ class IdentityManager : public KeyedService,
 
   // Provides access to the core information of the user's primary account.
   // Returns an empty struct if no such info is available, either because there
-  // is no primary account yet or because the user signed out.
+  // is no primary account yet or because the user signed out. A non-empty
+  // struct implies that the user has blessed this account for sync (see
+  // ./README.md).
   CoreAccountInfo GetPrimaryAccountInfo() const;
 
   // Provides access to the account ID of the user's primary account. Simple
   // convenience wrapper over GetPrimaryAccountInfo().account_id.
   CoreAccountId GetPrimaryAccountId() const;
 
-  // Returns whether the user's primary account is available.
+  // Returns whether the user's primary account is available. True implies that
+  // the user has blessed this account for sync (see ./README.md).
   bool HasPrimaryAccount() const;
 
   // Provides access to the core information of the user's unconsented primary
   // account (see ./README.md). Returns an empty info, if there is no such
-  // account.
+  // account. The user may or may not have blessed the account for sync.
   CoreAccountInfo GetUnconsentedPrimaryAccountInfo() const;
 
   // Provides access to the account ID of the user's unconsented primary
@@ -496,6 +499,7 @@ class IdentityManager : public KeyedService,
                                           AccountInfo account_info);
   friend void SimulateAccountImageFetch(IdentityManager* identity_manager,
                                         const CoreAccountId& account_id,
+                                        const std::string& image_url_with_size,
                                         const gfx::Image& image);
   friend void SetFreshnessOfAccountsInGaiaCookie(
       IdentityManager* identity_manager,
@@ -673,6 +677,8 @@ class IdentityManager : public KeyedService,
   base::ObserverList<Observer, true>::Unchecked observer_list_;
   base::ObserverList<DiagnosticsObserver, true>::Unchecked
       diagnostics_observer_list_;
+
+  bool unconsented_primary_account_revoked_during_load_ = false;
 
 #if defined(OS_ANDROID)
   // Java-side IdentityManager object.

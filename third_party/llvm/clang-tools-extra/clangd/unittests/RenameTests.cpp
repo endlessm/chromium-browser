@@ -7,14 +7,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "Annotations.h"
+#include "ClangdServer.h"
+#include "SyncAPI.h"
 #include "TestFS.h"
 #include "TestTU.h"
 #include "index/Ref.h"
 #include "refactor/Rename.h"
 #include "clang/Tooling/Core/Replacement.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include <algorithm>
 
 namespace clang {
 namespace clangd {
@@ -22,7 +26,21 @@ namespace {
 
 using testing::Eq;
 using testing::Pair;
+using testing::IsEmpty;
 using testing::UnorderedElementsAre;
+using testing::UnorderedElementsAreArray;
+
+// Convert a Range to a Ref.
+Ref refWithRange(const clangd::Range &Range, const std::string &URI) {
+  Ref Result;
+  Result.Kind = RefKind::Reference;
+  Result.Location.Start.setLine(Range.start.line);
+  Result.Location.Start.setColumn(Range.start.character);
+  Result.Location.End.setLine(Range.end.line);
+  Result.Location.End.setColumn(Range.end.character);
+  Result.Location.FileURI = URI.c_str();
+  return Result;
+}
 
 // Build a RefSlab from all marked ranges in the annotation. The ranges are
 // assumed to associate with the given SymbolName.
@@ -34,23 +52,15 @@ std::unique_ptr<RefSlab> buildRefSlab(const Annotations &Code,
   TU.HeaderCode = Code.code();
   auto Symbols = TU.headerSymbols();
   const auto &SymbolID = findSymbol(Symbols, SymbolName).ID;
-  for (const auto &Range : Code.ranges()) {
-    Ref R;
-    R.Kind = RefKind::Reference;
-    R.Location.Start.setLine(Range.start.line);
-    R.Location.Start.setColumn(Range.start.character);
-    R.Location.End.setLine(Range.end.line);
-    R.Location.End.setColumn(Range.end.character);
-    auto U = URI::create(Path).toString();
-    R.Location.FileURI = U.c_str();
-    Builder.insert(SymbolID, R);
-  }
+  std::string PathURI = URI::create(Path).toString();
+  for (const auto &Range : Code.ranges())
+    Builder.insert(SymbolID, refWithRange(Range, PathURI));
 
   return std::make_unique<RefSlab>(std::move(Builder).build());
 }
 
 std::vector<
-    std::pair</*InitialCode*/ std::string, /*CodeAfterRename*/ std::string>>
+    std::pair</*FilePath*/ std::string, /*CodeAfterRename*/ std::string>>
 applyEdits(FileEdits FE) {
   std::vector<std::pair<std::string, std::string>> Results;
   for (auto &It : FE)
@@ -115,6 +125,16 @@ TEST(RenameTest, WithinFileRename) {
         };
         [[Foo]]::[[Fo^o]]() {}
         void [[Foo]]::foo(int x) {}
+      )cpp",
+
+      // Rename template class, including constructor/destructor.
+      R"cpp(
+        template <typename T>
+        class [[F^oo]] {
+          [[F^oo]]();
+          ~[[F^oo]]();
+          void f([[Foo]] x);
+        };
       )cpp",
 
       // Class in template argument.
@@ -252,6 +272,33 @@ TEST(RenameTest, WithinFileRename) {
           reinterpret_cast<const [[^Foo]] *>(BazPointer)->getValue();
           static_cast<const [[^Foo]] &>(BazReference).getValue();
           static_cast<const [[^Foo]] *>(BazPointer)->getValue();
+        }
+      )cpp",
+
+      // Destructor explicit call.
+      R"cpp(
+        class [[F^oo]] {
+        public:
+          ~[[^Foo]]();
+        };
+
+        [[Foo^]]::~[[^Foo]]() {}
+
+        int main() {
+          [[Fo^o]] f;
+          f.~/*something*/[[^Foo]]();
+          f.~[[^Foo]]();
+        }
+      )cpp",
+
+      // Derived destructor explicit call.
+      R"cpp(
+        class [[Bas^e]] {};
+        class Derived : public [[Bas^e]] {};
+
+        int main() {
+          [[Bas^e]] *foo = new Derived();
+          foo->[[^Base]]::~[[^Base]]();
         }
       )cpp",
 
@@ -394,7 +441,8 @@ TEST(RenameTest, WithinFileRename) {
         template <> struct Bar<[[Foo]]> {};
       )cpp",
   };
-  for (const auto T : Tests) {
+  for (llvm::StringRef T : Tests) {
+    SCOPED_TRACE(T);
     Annotations Code(T);
     auto TU = TestTU::withCode(Code.code());
     TU.ExtraArgs.push_back("-fno-delayed-template-parsing");
@@ -450,12 +498,19 @@ TEST(RenameTest, Renameable) {
       )cpp",
        "used outside main file", HeaderFile, Index},
 
-      {R"cpp(// disallow -- symbol is not indexable.
+      {R"cpp(// disallow -- symbol in anonymous namespace in header is not indexable.
         namespace {
         class Unin^dexable {};
         }
       )cpp",
        "not eligible for indexing", HeaderFile, Index},
+
+      {R"cpp(// allow -- symbol in anonymous namespace in non-header file is indexable.
+        namespace {
+        class [[F^oo]] {};
+        }
+      )cpp",
+       nullptr, !HeaderFile, Index},
 
       {R"cpp(// disallow -- namespace symbol isn't supported
         namespace n^s {}
@@ -470,11 +525,10 @@ TEST(RenameTest, Renameable) {
           "not a supported kind", HeaderFile, Index},
 
       {
-
           R"cpp(
         struct X { X operator++(int); };
         void f(X x) {x+^+;})cpp",
-          "not a supported kind", HeaderFile, Index},
+          "no symbol", HeaderFile, Index},
 
       {R"cpp(// foo is declared outside the file.
         void fo^o() {}
@@ -507,6 +561,7 @@ TEST(RenameTest, Renameable) {
   };
 
   for (const auto& Case : Cases) {
+    SCOPED_TRACE(Case.Code);
     Annotations T(Case.Code);
     TestTU TU = TestTU::withCode(T.code());
     TU.HeaderCode = CommonHeader;
@@ -568,7 +623,7 @@ TEST(RenameTest, MainFileReferencesOnly) {
             expectedResult(Code, NewName));
 }
 
-TEST(RenameTests, CrossFile) {
+TEST(CrossFileRenameTests, DirtyBuffer) {
   Annotations FooCode("class [[Foo]] {};");
   std::string FooPath = testPath("foo.cc");
   Annotations FooDirtyBuffer("class [[Foo]] {};\n// this is dirty buffer");
@@ -651,6 +706,221 @@ TEST(RenameTests, CrossFile) {
               testing::HasSubstr("too many occurrences"));
 }
 
+TEST(CrossFileRenameTests, DeduplicateRefsFromIndex) {
+  auto MainCode = Annotations("int [[^x]] = 2;");
+  auto MainFilePath = testPath("main.cc");
+  auto BarCode = Annotations("int [[x]];");
+  auto BarPath = testPath("bar.cc");
+  auto TU = TestTU::withCode(MainCode.code());
+  // Set a file "bar.cc" on disk.
+  TU.AdditionalFiles["bar.cc"] = BarCode.code();
+  auto AST = TU.build();
+  std::string BarPathURI = URI::create(BarPath).toString();
+  Ref XRefInBarCC = refWithRange(BarCode.range(), BarPathURI);
+  // The index will return duplicated refs, our code should be robost to handle
+  // it.
+  class DuplicatedXRefIndex : public SymbolIndex {
+  public:
+    DuplicatedXRefIndex(const Ref &ReturnedRef) : ReturnedRef(ReturnedRef) {}
+    bool refs(const RefsRequest &Req,
+              llvm::function_ref<void(const Ref &)> Callback) const override {
+      // Return two duplicated refs.
+      Callback(ReturnedRef);
+      Callback(ReturnedRef);
+      return false;
+    }
+
+    bool fuzzyFind(const FuzzyFindRequest &,
+                   llvm::function_ref<void(const Symbol &)>) const override {
+      return false;
+    }
+    void lookup(const LookupRequest &,
+                llvm::function_ref<void(const Symbol &)>) const override {}
+
+    void relations(const RelationsRequest &,
+                   llvm::function_ref<void(const SymbolID &, const Symbol &)>)
+        const override {}
+    size_t estimateMemoryUsage() const override { return 0; }
+    Ref ReturnedRef;
+  } DIndex(XRefInBarCC);
+  llvm::StringRef NewName = "newName";
+  auto Results = rename({MainCode.point(), NewName, AST, MainFilePath, &DIndex,
+                         /*CrossFile=*/true});
+  ASSERT_TRUE(bool(Results)) << Results.takeError();
+  EXPECT_THAT(
+      applyEdits(std::move(*Results)),
+      UnorderedElementsAre(
+          Pair(Eq(BarPath), Eq(expectedResult(BarCode, NewName))),
+          Pair(Eq(MainFilePath), Eq(expectedResult(MainCode, NewName)))));
+}
+
+TEST(CrossFileRenameTests, WithUpToDateIndex) {
+  MockCompilationDatabase CDB;
+  CDB.ExtraClangFlags = {"-xc++"};
+  // rename is runnning on all "^" points in FooH, and "[[]]" ranges are the
+  // expected rename occurrences.
+  struct Case {
+    llvm::StringRef FooH;
+    llvm::StringRef FooCC;
+  } Cases[] = {
+      {
+          // classes.
+          R"cpp(
+        class [[Fo^o]] {
+          [[Foo]]();
+          ~[[Foo]]();
+        };
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        [[Foo]]::[[Foo]]() {}
+        [[Foo]]::~[[Foo]]() {}
+
+        void func() {
+          [[Foo]] foo;
+        }
+      )cpp",
+      },
+      {
+          // class methods.
+          R"cpp(
+        class Foo {
+          void [[f^oo]]();
+        };
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        void Foo::[[foo]]() {}
+
+        void func(Foo* p) {
+          p->[[foo]]();
+        }
+      )cpp",
+      },
+      {
+          // rename on constructor and destructor.
+          R"cpp(
+        class [[Foo]] {
+          [[^Foo]]();
+          ~[[Foo^]]();
+        };
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        [[Foo]]::[[Foo]]() {}
+        [[Foo]]::~[[Foo]]() {}
+
+        void func() {
+          [[Foo]] foo;
+        }
+      )cpp",
+      },
+      {
+          // functions.
+          R"cpp(
+        void [[f^oo]]();
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        void [[foo]]() {}
+
+        void func() {
+          [[foo]]();
+        }
+      )cpp",
+      },
+      {
+          // typedefs.
+          R"cpp(
+      typedef int [[IN^T]];
+      [[INT]] foo();
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        [[INT]] foo() {}
+      )cpp",
+      },
+      {
+          // usings.
+          R"cpp(
+      using [[I^NT]] = int;
+      [[INT]] foo();
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        [[INT]] foo() {}
+      )cpp",
+      },
+      {
+          // variables.
+          R"cpp(
+      static const int [[VA^R]] = 123;
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        int s = [[VAR]];
+      )cpp",
+      },
+      {
+          // scope enums.
+          R"cpp(
+      enum class [[K^ind]] { ABC };
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        [[Kind]] ff() {
+          return [[Kind]]::ABC;
+        }
+      )cpp",
+      },
+      {
+          // enum constants.
+          R"cpp(
+      enum class Kind { [[A^BC]] };
+      )cpp",
+          R"cpp(
+        #include "foo.h"
+        Kind ff() {
+          return Kind::[[ABC]];
+        }
+      )cpp",
+      },
+  };
+
+  for (const auto& T : Cases) {
+    SCOPED_TRACE(T.FooH);
+    Annotations FooH(T.FooH);
+    Annotations FooCC(T.FooCC);
+    std::string FooHPath = testPath("foo.h");
+    std::string FooCCPath = testPath("foo.cc");
+
+    MockFSProvider FS;
+    FS.Files[FooHPath] = FooH.code();
+    FS.Files[FooCCPath] = FooCC.code();
+
+    auto ServerOpts = ClangdServer::optsForTest();
+    ServerOpts.CrossFileRename = true;
+    ServerOpts.BuildDynamicSymbolIndex = true;
+    ClangdServer Server(CDB, FS, ServerOpts);
+
+    // Add all files to clangd server to make sure the dynamic index has been
+    // built.
+    runAddDocument(Server, FooHPath, FooH.code());
+    runAddDocument(Server, FooCCPath, FooCC.code());
+
+    llvm::StringRef NewName = "NewName";
+    for (const auto &RenamePos : FooH.points()) {
+      auto FileEditsList =
+          llvm::cantFail(runRename(Server, FooHPath, RenamePos, NewName));
+      EXPECT_THAT(
+          applyEdits(std::move(FileEditsList)),
+          UnorderedElementsAre(
+              Pair(Eq(FooHPath), Eq(expectedResult(T.FooH, NewName))),
+              Pair(Eq(FooCCPath), Eq(expectedResult(T.FooCC, NewName)))));
+    }
+  }
+}
+
 TEST(CrossFileRenameTests, CrossFileOnLocalSymbol) {
   // cross-file rename should work for function-local symbols, even there is no
   // index provided.
@@ -670,7 +940,8 @@ TEST(CrossFileRenameTests, BuildRenameEdits) {
   Annotations Code("[[😂]]");
   auto LSPRange = Code.range();
   llvm::StringRef FilePath = "/test/TestTU.cpp";
-  auto Edit = buildRenameEdit(FilePath, Code.code(), {LSPRange}, "abc");
+  llvm::StringRef NewName = "abc";
+  auto Edit = buildRenameEdit(FilePath, Code.code(), {LSPRange}, NewName);
   ASSERT_TRUE(bool(Edit)) << Edit.takeError();
   ASSERT_EQ(1UL, Edit->Replacements.size());
   EXPECT_EQ(FilePath, Edit->Replacements.begin()->getFilePath());
@@ -678,7 +949,7 @@ TEST(CrossFileRenameTests, BuildRenameEdits) {
 
   // Test invalid range.
   LSPRange.end = {10, 0}; // out of range
-  Edit = buildRenameEdit(FilePath, Code.code(), {LSPRange}, "abc");
+  Edit = buildRenameEdit(FilePath, Code.code(), {LSPRange}, NewName);
   EXPECT_FALSE(Edit);
   EXPECT_THAT(llvm::toString(Edit.takeError()),
               testing::HasSubstr("fail to convert"));
@@ -689,10 +960,305 @@ TEST(CrossFileRenameTests, BuildRenameEdits) {
               [[range]]
       [[range]]
   )cpp");
-  Edit = buildRenameEdit(FilePath, T.code(), T.ranges(), "abc");
+  Edit = buildRenameEdit(FilePath, T.code(), T.ranges(), NewName);
   ASSERT_TRUE(bool(Edit)) << Edit.takeError();
   EXPECT_EQ(applyEdits(FileEdits{{T.code(), std::move(*Edit)}}).front().second,
-            expectedResult(Code, expectedResult(T, "abc")));
+            expectedResult(T, NewName));
+}
+
+TEST(CrossFileRenameTests, adjustRenameRanges) {
+  // Ranges in IndexedCode indicate the indexed occurrences;
+  // ranges in DraftCode indicate the expected mapped result, empty indicates
+  // we expect no matched result found.
+  struct {
+    llvm::StringRef IndexedCode;
+    llvm::StringRef DraftCode;
+  } Tests[] = {
+    {
+      // both line and column are changed, not a near miss.
+      R"cpp(
+        int [[x]] = 0;
+      )cpp",
+      R"cpp(
+        // insert a line.
+        double x = 0;
+      )cpp",
+    },
+    {
+      // subset.
+      R"cpp(
+        int [[x]] = 0;
+      )cpp",
+      R"cpp(
+        int [[x]] = 0;
+        {int x = 0; }
+      )cpp",
+    },
+    {
+      // shift columns.
+      R"cpp(int [[x]] = 0; void foo(int x);)cpp",
+      R"cpp(double [[x]] = 0; void foo(double x);)cpp",
+    },
+    {
+      // shift lines.
+      R"cpp(
+        int [[x]] = 0;
+        void foo(int x);
+      )cpp",
+      R"cpp(
+        // insert a line.
+        int [[x]] = 0;
+        void foo(int x);
+      )cpp",
+    },
+  };
+  LangOptions LangOpts;
+  LangOpts.CPlusPlus = true;
+  for (const auto &T : Tests) {
+    SCOPED_TRACE(T.DraftCode);
+    Annotations Draft(T.DraftCode);
+    auto ActualRanges = adjustRenameRanges(
+        Draft.code(), "x", Annotations(T.IndexedCode).ranges(), LangOpts);
+    if (!ActualRanges)
+       EXPECT_THAT(Draft.ranges(), testing::IsEmpty());
+    else
+      EXPECT_THAT(Draft.ranges(),
+                  testing::UnorderedElementsAreArray(*ActualRanges));
+  }
+}
+
+TEST(RangePatchingHeuristic, GetMappedRanges) {
+  // ^ in LexedCode marks the ranges we expect to be mapped; no ^ indicates
+  // there are no mapped ranges.
+  struct {
+    llvm::StringRef IndexedCode;
+    llvm::StringRef LexedCode;
+  } Tests[] = {
+    {
+      // no lexed ranges.
+      "[[]]",
+      "",
+    },
+    {
+      // both line and column are changed, not a near miss.
+      R"([[]])",
+      R"(
+        [[]]
+      )",
+    },
+    {
+      // subset.
+      "[[]]",
+      "^[[]]  [[]]"
+    },
+    {
+      // shift columns.
+      "[[]]   [[]]",
+      "  ^[[]]   ^[[]]  [[]]"
+    },
+    {
+      R"(
+        [[]]
+
+        [[]] [[]]
+      )",
+      R"(
+        // insert a line
+        ^[[]]
+
+        ^[[]] ^[[]]
+      )",
+    },
+    {
+      R"(
+        [[]]
+
+        [[]] [[]]
+      )",
+      R"(
+        // insert a line
+        ^[[]]
+          ^[[]]  ^[[]] // column is shifted.
+      )",
+    },
+    {
+      R"(
+        [[]]
+
+        [[]] [[]]
+      )",
+      R"(
+        // insert a line
+        [[]]
+
+          [[]]  [[]] // not mapped (both line and column are changed).
+      )",
+    },
+    {
+      R"(
+        [[]]
+                [[]]
+
+                   [[]]
+                  [[]]
+
+        }
+      )",
+      R"(
+        // insert a new line
+        ^[[]]
+                ^[[]]
+             [[]] // additional range
+                   ^[[]]
+                  ^[[]]
+            [[]] // additional range
+      )",
+    },
+    {
+      // non-distinct result (two best results), not a near miss
+      R"(
+        [[]]
+            [[]]
+            [[]]
+      )",
+      R"(
+        [[]]
+        [[]]
+            [[]]
+            [[]]
+      )",
+    }
+  };
+  for (const auto &T : Tests) {
+    SCOPED_TRACE(T.IndexedCode);
+    auto Lexed = Annotations(T.LexedCode);
+    auto LexedRanges = Lexed.ranges();
+    std::vector<Range> ExpectedMatches;
+    for (auto P : Lexed.points()) {
+      auto Match = llvm::find_if(LexedRanges, [&P](const Range& R) {
+        return R.start == P;
+      });
+      ASSERT_NE(Match, LexedRanges.end());
+      ExpectedMatches.push_back(*Match);
+    }
+
+    auto Mapped =
+        getMappedRanges(Annotations(T.IndexedCode).ranges(), LexedRanges);
+    if (!Mapped)
+      EXPECT_THAT(ExpectedMatches, IsEmpty());
+    else
+      EXPECT_THAT(ExpectedMatches, UnorderedElementsAreArray(*Mapped));
+  }
+}
+
+TEST(CrossFileRenameTests, adjustmentCost) {
+  struct {
+    llvm::StringRef RangeCode;
+    size_t ExpectedCost;
+  } Tests[] = {
+    {
+      R"(
+        $idx[[]]$lex[[]] // diff: 0
+      )",
+      0,
+    },
+    {
+      R"(
+        $idx[[]]
+        $lex[[]] // line diff: +1
+                       $idx[[]]
+                       $lex[[]] // line diff: +1
+        $idx[[]]
+        $lex[[]] // line diff: +1
+
+          $idx[[]]
+
+          $lex[[]] // line diff: +2
+      )",
+      1 + 1
+    },
+    {
+       R"(
+        $idx[[]]
+        $lex[[]] // line diff: +1
+                       $idx[[]]
+
+                       $lex[[]] // line diff: +2
+        $idx[[]]
+
+
+        $lex[[]] // line diff: +3
+      )",
+      1 + 1 + 1
+    },
+    {
+       R"(
+        $idx[[]]
+
+
+        $lex[[]] // line diff: +3
+                       $idx[[]]
+
+                       $lex[[]] // line diff: +2
+        $idx[[]]
+        $lex[[]] // line diff: +1
+      )",
+      3 + 1 + 1
+    },
+    {
+      R"(
+        $idx[[]]
+        $lex[[]] // line diff: +1
+                       $lex[[]] // line diff: -2
+
+                       $idx[[]]
+        $idx[[]]
+
+
+        $lex[[]] // line diff: +3
+      )",
+      1 + 3 + 5
+    },
+    {
+      R"(
+                       $idx[[]] $lex[[]] // column diff: +1
+        $idx[[]]$lex[[]] // diff: 0
+      )",
+      1
+    },
+    {
+      R"(
+        $idx[[]]
+        $lex[[]] // diff: +1
+                       $idx[[]] $lex[[]] // column diff: +1
+        $idx[[]]$lex[[]] // diff: 0
+      )",
+      1 + 1 + 1
+    },
+    {
+      R"(
+        $idx[[]] $lex[[]] // column diff: +1
+      )",
+      1
+    },
+    {
+      R"(
+        // column diffs: +1, +2, +3
+        $idx[[]] $lex[[]] $idx[[]]  $lex[[]] $idx[[]]   $lex[[]]
+      )",
+      1 + 1 + 1,
+    },
+  };
+  for (const auto &T : Tests) {
+    SCOPED_TRACE(T.RangeCode);
+    Annotations C(T.RangeCode);
+    std::vector<size_t> MappedIndex;
+    for (size_t I = 0; I < C.ranges("lex").size(); ++I)
+      MappedIndex.push_back(I);
+    EXPECT_EQ(renameRangeAdjustmentCost(C.ranges("idx"), C.ranges("lex"),
+                                        MappedIndex),
+              T.ExpectedCost);
+  }
 }
 
 } // namespace

@@ -1,13 +1,18 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {EditingLocationHistoryManager} from './EditingLocationHistoryManager.js';
+import {Events as TabbedEditorContainerEvents, TabbedEditorContainer, TabbedEditorContainerDelegate} from './TabbedEditorContainer.js';  // eslint-disable-line no-unused-vars
+import {Events as UISourceCodeFrameEvents, UISourceCodeFrame} from './UISourceCodeFrame.js';
+
 /**
- * @implements {Sources.TabbedEditorContainerDelegate}
+ * @implements {TabbedEditorContainerDelegate}
  * @implements {UI.Searchable}
  * @implements {UI.Replaceable}
  * @unrestricted
  */
-Sources.SourcesView = class extends UI.VBox {
+export class SourcesView extends UI.VBox {
   /**
    * @suppressGlobalPropertiesCheck
    */
@@ -17,7 +22,7 @@ Sources.SourcesView = class extends UI.VBox {
     this.element.id = 'sources-panel-sources-view';
     this.setMinimumAndPreferredSizes(88, 52, 150, 100);
 
-    const workspace = Workspace.workspace;
+    const workspace = self.Workspace.workspace;
 
     this._searchableView = new UI.SearchableView(this, 'sourcesViewSearchConfig');
     this._searchableView.setMinimalSearchQuerySize(0);
@@ -26,24 +31,23 @@ Sources.SourcesView = class extends UI.VBox {
     /** @type {!Map.<!Workspace.UISourceCode, !UI.Widget>} */
     this._sourceViewByUISourceCode = new Map();
 
-    this._editorContainer = new Sources.TabbedEditorContainer(
-        this, Common.settings.createLocalSetting('previouslyViewedFiles', []), this._placeholderElement(),
+    this._editorContainer = new TabbedEditorContainer(
+        this, self.Common.settings.createLocalSetting('previouslyViewedFiles', []), this._placeholderElement(),
         this._focusedPlaceholderElement);
     this._editorContainer.show(this._searchableView.element);
-    this._editorContainer.addEventListener(
-        Sources.TabbedEditorContainer.Events.EditorSelected, this._editorSelected, this);
-    this._editorContainer.addEventListener(Sources.TabbedEditorContainer.Events.EditorClosed, this._editorClosed, this);
+    this._editorContainer.addEventListener(TabbedEditorContainerEvents.EditorSelected, this._editorSelected, this);
+    this._editorContainer.addEventListener(TabbedEditorContainerEvents.EditorClosed, this._editorClosed, this);
 
-    this._historyManager = new Sources.EditingLocationHistoryManager(this, this.currentSourceFrame.bind(this));
+    this._historyManager = new EditingLocationHistoryManager(this, this.currentSourceFrame.bind(this));
 
     this._toolbarContainerElement = this.element.createChild('div', 'sources-toolbar');
     if (!Root.Runtime.experiments.isEnabled('sourcesPrettyPrint')) {
       this._toolbarEditorActions = new UI.Toolbar('', this._toolbarContainerElement);
-      self.runtime.allInstances(Sources.SourcesView.EditorAction).then(appendButtonsForExtensions.bind(this));
+      self.runtime.allInstances(EditorAction).then(appendButtonsForExtensions.bind(this));
     }
     /**
-     * @param {!Array.<!Sources.SourcesView.EditorAction>} actions
-     * @this {Sources.SourcesView}
+     * @param {!Array.<!EditorAction>} actions
+     * @this {SourcesView}
      */
     function appendButtonsForExtensions(actions) {
       for (let i = 0; i < actions.length; ++i) {
@@ -74,7 +78,7 @@ Sources.SourcesView = class extends UI.VBox {
       }
 
       let unsavedSourceCodes = [];
-      const projects = Workspace.workspace.projectsForType(Workspace.projectTypes.FileSystem);
+      const projects = self.Workspace.workspace.projectsForType(Workspace.projectTypes.FileSystem);
       for (let i = 0; i < projects.length; ++i) {
         unsavedSourceCodes =
             unsavedSourceCodes.concat(projects[i].uiSourceCodes().filter(sourceCode => sourceCode.isDirty()));
@@ -85,7 +89,7 @@ Sources.SourcesView = class extends UI.VBox {
       }
 
       event.returnValue = Common.UIString('DevTools have unsaved changes that will be permanently lost.');
-      UI.viewManager.showView('sources');
+      self.UI.viewManager.showView('sources');
       for (let i = 0; i < unsavedSourceCodes.length; ++i) {
         Common.Revealer.reveal(unsavedSourceCodes[i]);
       }
@@ -120,7 +124,7 @@ Sources.SourcesView = class extends UI.VBox {
 
     for (let i = 0; i < shortcuts.length; i++) {
       const shortcut = shortcuts[i];
-      const shortcutKeyText = UI.shortcutRegistry.shortcutTitleForAction(shortcut.actionId);
+      const shortcutKeyText = self.UI.shortcutRegistry.shortcutTitleForAction(shortcut.actionId);
       const listItemElement = list.createChild('div');
       UI.ARIAUtils.markAsListitem(listItemElement);
       const row = listItemElement.createChild('div', 'tabbed-pane-placeholder-row');
@@ -132,7 +136,7 @@ Sources.SourcesView = class extends UI.VBox {
       } else {
         row.createChild('div', 'tabbed-pane-no-shortcut').textContent = shortcut.description;
       }
-      const action = UI.actionRegistry.action(shortcut.actionId);
+      const action = self.UI.actionRegistry.action(shortcut.actionId);
       const actionHandler = action.execute.bind(action);
       this._placeholderOptionArray.push({element: row, handler: actionHandler});
     }
@@ -190,7 +194,7 @@ Sources.SourcesView = class extends UI.VBox {
   static defaultUISourceCodeScores() {
     /** @type {!Map.<!Workspace.UISourceCode, number>} */
     const defaultScores = new Map();
-    const sourcesView = UI.context.flavor(Sources.SourcesView);
+    const sourcesView = self.UI.context.flavor(SourcesView);
     if (sourcesView) {
       const uiSourceCodes = sourcesView._editorContainer.historyUISourceCodes();
       for (let i = 1; i < uiSourceCodes.length; ++i)  // Skip current element
@@ -245,14 +249,14 @@ Sources.SourcesView = class extends UI.VBox {
    */
   wasShown() {
     super.wasShown();
-    UI.context.setFlavor(Sources.SourcesView, this);
+    self.UI.context.setFlavor(SourcesView, this);
   }
 
   /**
    * @override
    */
   willHide() {
-    UI.context.setFlavor(Sources.SourcesView, null);
+    self.UI.context.setFlavor(SourcesView, null);
     this._resetPlaceholderState();
     super.willHide();
   }
@@ -279,14 +283,15 @@ Sources.SourcesView = class extends UI.VBox {
   }
 
   /**
-   * @return {?Sources.UISourceCodeFrame}
+   * @return {?UISourceCodeFrame}
    */
   currentSourceFrame() {
     const view = this.visibleView();
-    if (!(view instanceof Sources.UISourceCodeFrame)) {
+    if (!(view instanceof UISourceCodeFrame)) {
       return null;
     }
-    return /** @type {!Sources.UISourceCodeFrame} */ (view);
+    return (
+        /** @type {!UISourceCodeFrame} */ (view));
   }
 
   /**
@@ -364,9 +369,9 @@ Sources.SourcesView = class extends UI.VBox {
     this._scriptViewToolbar.removeToolbarItems();
     const view = this.visibleView();
     if (view instanceof UI.SimpleView) {
-      for (const item of (/** @type {?UI.SimpleView} */ (view)).syncToolbarItems()) {
-        this._scriptViewToolbar.appendToolbarItem(item);
-      }
+      (/** @type {?UI.SimpleView} */ (view)).toolbarItems().then(items => {
+        items.map(item => this._scriptViewToolbar.appendToolbarItem(item));
+      });
     }
   }
 
@@ -404,7 +409,7 @@ Sources.SourcesView = class extends UI.VBox {
     } else if (contentType === Common.resourceTypes.Font) {
       sourceView = new SourceFrame.FontView(uiSourceCode.mimeType(), uiSourceCode);
     } else {
-      sourceFrame = new Sources.UISourceCodeFrame(uiSourceCode);
+      sourceFrame = new UISourceCodeFrame(uiSourceCode);
     }
 
     if (sourceFrame) {
@@ -426,7 +431,7 @@ Sources.SourcesView = class extends UI.VBox {
 
   /**
    * @override
-   * @param {!Sources.UISourceCodeFrame} sourceFrame
+   * @param {!UISourceCodeFrame} sourceFrame
    * @param {!Workspace.UISourceCode} uiSourceCode
    */
   recycleUISourceCodeFrame(sourceFrame, uiSourceCode) {
@@ -450,8 +455,8 @@ Sources.SourcesView = class extends UI.VBox {
   _removeSourceFrame(uiSourceCode) {
     const sourceView = this._sourceViewByUISourceCode.get(uiSourceCode);
     this._sourceViewByUISourceCode.remove(uiSourceCode);
-    if (sourceView && sourceView instanceof Sources.UISourceCodeFrame) {
-      /** @type {!Sources.UISourceCodeFrame} */ (sourceView).dispose();
+    if (sourceView && sourceView instanceof UISourceCodeFrame) {
+      /** @type {!UISourceCodeFrame} */ (sourceView).dispose();
     }
   }
 
@@ -475,20 +480,18 @@ Sources.SourcesView = class extends UI.VBox {
     const data = {};
     data.uiSourceCode = uiSourceCode;
     data.wasSelected = wasSelected;
-    this.dispatchEventToListeners(Sources.SourcesView.Events.EditorClosed, data);
+    this.dispatchEventToListeners(Events.EditorClosed, data);
   }
 
   /**
    * @param {!Common.Event} event
    */
   _editorSelected(event) {
-    const previousSourceFrame =
-        event.data.previousView instanceof Sources.UISourceCodeFrame ? event.data.previousView : null;
+    const previousSourceFrame = event.data.previousView instanceof UISourceCodeFrame ? event.data.previousView : null;
     if (previousSourceFrame) {
       previousSourceFrame.setSearchableView(null);
     }
-    const currentSourceFrame =
-        event.data.currentView instanceof Sources.UISourceCodeFrame ? event.data.currentView : null;
+    const currentSourceFrame = event.data.currentView instanceof UISourceCodeFrame ? event.data.currentView : null;
     if (currentSourceFrame) {
       currentSourceFrame.setSearchableView(this._searchableView);
     }
@@ -498,7 +501,7 @@ Sources.SourcesView = class extends UI.VBox {
     this._updateToolbarChangedListener();
     this._updateScriptViewToolbarItems();
 
-    this.dispatchEventToListeners(Sources.SourcesView.Events.EditorSelected, this._editorContainer.currentFile());
+    this.dispatchEventToListeners(Events.EditorSelected, this._editorContainer.currentFile());
   }
 
   _removeToolbarChangedListener() {
@@ -515,7 +518,7 @@ Sources.SourcesView = class extends UI.VBox {
       return;
     }
     this._toolbarChangedListener = sourceFrame.addEventListener(
-        Sources.UISourceCodeFrame.Events.ToolbarItemsChanged, this._updateScriptViewToolbarItems, this);
+        UISourceCodeFrameEvents.ToolbarItemsChanged, this._updateScriptViewToolbarItems, this);
   }
 
   /**
@@ -650,10 +653,10 @@ Sources.SourcesView = class extends UI.VBox {
    * @param {?UI.Widget} sourceFrame
    */
   _saveSourceFrame(sourceFrame) {
-    if (!(sourceFrame instanceof Sources.UISourceCodeFrame)) {
+    if (!(sourceFrame instanceof UISourceCodeFrame)) {
       return;
     }
-    const uiSourceCodeFrame = /** @type {!Sources.UISourceCodeFrame} */ (sourceFrame);
+    const uiSourceCodeFrame = /** @type {!UISourceCodeFrame} */ (sourceFrame);
     uiSourceCodeFrame.commitEditing();
   }
 
@@ -663,10 +666,10 @@ Sources.SourcesView = class extends UI.VBox {
   toggleBreakpointsActiveState(active) {
     this._editorContainer.view.element.classList.toggle('breakpoints-deactivated', !active);
   }
-};
+}
 
 /** @enum {symbol} */
-Sources.SourcesView.Events = {
+export const Events = {
   EditorClosed: Symbol('EditorClosed'),
   EditorSelected: Symbol('EditorSelected'),
 };
@@ -674,21 +677,19 @@ Sources.SourcesView.Events = {
 /**
  * @interface
  */
-Sources.SourcesView.EditorAction = function() {};
-
-Sources.SourcesView.EditorAction.prototype = {
+export class EditorAction {
   /**
-   * @param {!Sources.SourcesView} sourcesView
+   * @param {!SourcesView} sourcesView
    * @return {!UI.ToolbarButton}
    */
   button(sourcesView) {}
-};
+}
 
 /**
  * @implements {UI.ActionDelegate}
  * @unrestricted
  */
-Sources.SourcesView.SwitchFileActionDelegate = class {
+export class SwitchFileActionDelegate {
   /**
    * @param {!Workspace.UISourceCode} currentUISourceCode
    * @return {?Workspace.UISourceCode}
@@ -732,26 +733,25 @@ Sources.SourcesView.SwitchFileActionDelegate = class {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    const sourcesView = UI.context.flavor(Sources.SourcesView);
+    const sourcesView = self.UI.context.flavor(SourcesView);
     const currentUISourceCode = sourcesView.currentUISourceCode();
     if (!currentUISourceCode) {
       return false;
     }
-    const nextUISourceCode = Sources.SourcesView.SwitchFileActionDelegate._nextFile(currentUISourceCode);
+    const nextUISourceCode = SwitchFileActionDelegate._nextFile(currentUISourceCode);
     if (!nextUISourceCode) {
       return false;
     }
     sourcesView.showSourceLocation(nextUISourceCode);
     return true;
   }
-};
-
+}
 
 /**
  * @implements {UI.ActionDelegate}
  * @unrestricted
  */
-Sources.SourcesView.ActionDelegate = class {
+export class ActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -759,7 +759,7 @@ Sources.SourcesView.ActionDelegate = class {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    const sourcesView = UI.context.flavor(Sources.SourcesView);
+    const sourcesView = self.UI.context.flavor(SourcesView);
     if (!sourcesView) {
       return false;
     }
@@ -792,4 +792,4 @@ Sources.SourcesView.ActionDelegate = class {
 
     return false;
   }
-};
+}

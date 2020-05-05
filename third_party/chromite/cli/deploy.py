@@ -791,10 +791,18 @@ def _Emerge(device, pkg_path, root, extra_args=None):
       'PORTDIR': device.work_dir,
       'CONFIG_PROTECT': '-*',
   }
-  cmd = ['emerge', '--usepkg', pkg_path, '--root=%s' % root]
+  # --ignore-built-slot-operator-deps because we don't rebuild everything.
+  # It can cause errors, but that's expected with cros deploy since it's just a
+  # best effort to prevent developers avoid rebuilding an image every time.
+  cmd = ['emerge', '--ignore-built-slot-operator-deps=y', '--usepkg', pkg_path,
+         '--root=%s' % root]
   if extra_args:
     cmd.append(extra_args)
 
+  logging.warning('Ignoring slot dependencies! This may break things! e.g. '
+                  'packages built against the old version may not be able to '
+                  'load the new .so. This is expected, and you will just need '
+                  'to build and flash a new image if you have problems.')
   try:
     result = device.RunCommand(cmd, extra_env=extra_env, remote_sudo=True,
                                capture_output=True, debug_level=logging.INFO)
@@ -911,7 +919,7 @@ def _Unmerge(device, pkg, root):
   cmd = ['qmerge', '--yes']
   # Check if qmerge is available on the device. If not, use emerge.
   if device.RunCommand(
-      ['qmerge', '--version'], error_code_ok=True).returncode != 0:
+      ['qmerge', '--version'], check=False).returncode != 0:
     cmd = ['emerge']
 
   cmd.extend(['--unmerge', pkg, '--root=%s' % root])
@@ -1025,23 +1033,25 @@ def _GetDLCInfo(device, pkg_path, from_dut):
     # On DUT, |pkg_path| is the directory which contains environment file.
     environment_path = os.path.join(pkg_path, _ENVIRONMENT_FILENAME)
     result = device.RunCommand(['test', '-f', environment_path],
-                               error_code_ok=True)
+                               check=False, encoding=None)
     if result.returncode == 1:
       # The package is not installed on DUT yet. Skip extracting info.
       return None, None
-    result = device.RunCommand(['bzip2', '-d', '-c', environment_path])
+    result = device.RunCommand(['bzip2', '-d', '-c', environment_path],
+                               encoding=None)
     environment_content = result.output
   else:
     # On host, pkg_path is tbz2 file which contains environment file.
     # Extract the metadata of the package file.
     data = portage.xpak.tbz2(pkg_path).get_data()
     # Extract the environment metadata.
-    environment_content = bz2.decompress(data[_ENVIRONMENT_FILENAME])
+    environment_content = bz2.decompress(
+        data[_ENVIRONMENT_FILENAME.encode('utf-8')])
 
   with tempfile.NamedTemporaryFile() as f:
     # Dumps content into a file so we can use osutils.SourceEnvironment.
     path = os.path.realpath(f.name)
-    osutils.WriteFile(path, environment_content)
+    osutils.WriteFile(path, environment_content, mode='wb')
     content = osutils.SourceEnvironment(path, (_DLC_ID, _DLC_PACKAGE))
     return content.get(_DLC_ID), content.get(_DLC_PACKAGE)
 

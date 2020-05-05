@@ -11,6 +11,7 @@
 #include "net/third_party/quiche/src/quic/core/congestion_control/bbr_sender.h"
 #include "net/third_party/quiche/src/quic/core/congestion_control/tcp_cubic_sender_bytes.h"
 #include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
+#include "net/third_party/quiche/src/quic/core/quic_packet_number.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_optional.h"
@@ -18,15 +19,26 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_sent_packet_manager_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/quic/test_tools/send_algorithm_test_result.pb.h"
+#include "net/third_party/quiche/src/quic/test_tools/send_algorithm_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/link.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/quic_endpoint.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/simulator.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/switch.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/traffic_policer.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 using testing::AllOf;
 using testing::Ge;
 using testing::Le;
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    std::string,
+    quic_bbr2_test_regression_mode,
+    "",
+    "One of a) 'record' to record test result (one file per test), or "
+    "b) 'regress' to regress against recorded results, or "
+    "c) <anything else> for non-regression mode.");
 
 namespace quic {
 
@@ -107,11 +119,42 @@ class DefaultTopologyParams {
 
 class Bbr2SimulatorTest : public QuicTest {
  protected:
-  Bbr2SimulatorTest() {
+  Bbr2SimulatorTest() : simulator_(&random_) {
     // Disable Ack Decimation by default, because it can significantly increase
     // srtt. Individual test can enable it via QuicConnectionPeer::SetAckMode().
     SetQuicReloadableFlag(quic_enable_ack_decimation, false);
   }
+
+  void SetUp() override {
+    if (GetQuicFlag(FLAGS_quic_bbr2_test_regression_mode) == "regress") {
+      SendAlgorithmTestResult expected;
+      ASSERT_TRUE(LoadSendAlgorithmTestResult(&expected));
+      random_seed_ = expected.random_seed();
+    } else {
+      random_seed_ = QuicRandom::GetInstance()->RandUint64();
+    }
+    random_.set_seed(random_seed_);
+    QUIC_LOG(INFO) << "Using random seed: " << random_seed_;
+  }
+
+  ~Bbr2SimulatorTest() override {
+    const std::string regression_mode =
+        GetQuicFlag(FLAGS_quic_bbr2_test_regression_mode);
+    const QuicTime::Delta simulated_duration =
+        SimulatedNow() - QuicTime::Zero();
+    if (regression_mode == "record") {
+      RecordSendAlgorithmTestResult(random_seed_,
+                                    simulated_duration.ToMicroseconds());
+    } else if (regression_mode == "regress") {
+      CompareSendAlgorithmTestResult(simulated_duration.ToMicroseconds());
+    }
+  }
+
+  QuicTime SimulatedNow() const { return simulator_.GetClock()->Now(); }
+
+  uint64_t random_seed_;
+  SimpleRandom random_;
+  simulator::Simulator simulator_;
 };
 
 class Bbr2DefaultTopologyTest : public Bbr2SimulatorTest {
@@ -128,12 +171,6 @@ class Bbr2DefaultTopologyTest : public Bbr2SimulatorTest {
                            Perspective::IS_SERVER,
                            TestConnectionId(42)) {
     sender_ = SetupBbr2Sender(&sender_endpoint_);
-
-    uint64_t seed = QuicRandom::GetInstance()->RandUint64();
-    random_.set_seed(seed);
-    QUIC_LOG(INFO) << "Bbr2DefaultTopologyTest set up.  Seed: " << seed;
-
-    simulator_.set_random_generator(&random_);
   }
 
   ~Bbr2DefaultTopologyTest() {
@@ -148,14 +185,17 @@ class Bbr2DefaultTopologyTest : public Bbr2SimulatorTest {
                    << "%, bw_hi:" << debug_state.bandwidth_hi;
   }
 
+  QuicUnackedPacketMap* GetUnackedMap(QuicConnection* connection) {
+    return QuicSentPacketManagerPeer::GetUnackedPacketMap(
+        QuicConnectionPeer::GetSentPacketManager(connection));
+  }
+
   Bbr2Sender* SetupBbr2Sender(simulator::QuicEndpoint* endpoint) {
     // Ownership of the sender will be overtaken by the endpoint.
     Bbr2Sender* sender = new Bbr2Sender(
         endpoint->connection()->clock()->Now(),
         endpoint->connection()->sent_packet_manager().GetRttStats(),
-        QuicSentPacketManagerPeer::GetUnackedPacketMap(
-            QuicConnectionPeer::GetSentPacketManager(endpoint->connection())),
-        kDefaultInitialCwndPackets,
+        GetUnackedMap(endpoint->connection()), kDefaultInitialCwndPackets,
         GetQuicFlag(FLAGS_quic_max_congestion_window), &random_,
         QuicConnectionPeer::GetStats(endpoint->connection()));
     QuicConnectionPeer::SetSendAlgorithm(endpoint->connection(), sender);
@@ -274,8 +314,6 @@ class Bbr2DefaultTopologyTest : public Bbr2SimulatorTest {
     return false;
   }
 
-  QuicTime SimulatedNow() const { return simulator_.GetClock()->Now(); }
-
   const RttStats* rtt_stats() {
     return sender_endpoint_.connection()->sent_packet_manager().GetRttStats();
   }
@@ -286,16 +324,18 @@ class Bbr2DefaultTopologyTest : public Bbr2SimulatorTest {
     return sender_connection()->GetStats();
   }
 
+  QuicUnackedPacketMap* sender_unacked_map() {
+    return GetUnackedMap(sender_connection());
+  }
+
   float sender_loss_rate_in_packets() {
     return static_cast<float>(sender_connection_stats().packets_lost) /
            sender_connection_stats().packets_sent;
   }
 
-  simulator::Simulator simulator_;
   simulator::QuicEndpoint sender_endpoint_;
   simulator::QuicEndpoint receiver_endpoint_;
   Bbr2Sender* sender_;
-  SimpleRandom random_;
 
   std::unique_ptr<simulator::Switch> switch_;
   std::unique_ptr<simulator::TrafficPolicer> sender_policer_;
@@ -699,6 +739,59 @@ TEST_F(Bbr2DefaultTopologyTest, StartupStats) {
                 ->GetSlowStartDuration());
 }
 
+TEST_F(Bbr2DefaultTopologyTest, ProbeUpAdaptInflightHiGradually) {
+  DefaultTopologyParams params;
+  CreateNetwork(params);
+
+  DriveOutOfStartup(params);
+
+  AckedPacketVector acked_packets;
+  QuicPacketNumber acked_packet_number =
+      sender_unacked_map()->GetLeastUnacked();
+  for (auto& info : *sender_unacked_map()) {
+    acked_packets.emplace_back(acked_packet_number++, info.bytes_sent,
+                               SimulatedNow());
+  }
+
+  // Advance time significantly so the OnCongestionEvent enters PROBE_REFILL.
+  QuicTime now = SimulatedNow() + QuicTime::Delta::FromSeconds(5);
+  auto next_packet_number = sender_unacked_map()->largest_sent_packet() + 1;
+  sender_->OnCongestionEvent(
+      /*rtt_updated=*/true, sender_unacked_map()->bytes_in_flight(), now,
+      acked_packets, {});
+  ASSERT_EQ(CyclePhase::PROBE_REFILL,
+            sender_->ExportDebugState().probe_bw.phase);
+
+  // Send and Ack one packet to exit app limited and enter PROBE_UP.
+  sender_->OnPacketSent(now, /*bytes_in_flight=*/0, next_packet_number++,
+                        kDefaultMaxPacketSize, HAS_RETRANSMITTABLE_DATA);
+  now = now + params.RTT();
+  sender_->OnCongestionEvent(
+      /*rtt_updated=*/true, kDefaultMaxPacketSize, now,
+      {AckedPacket(next_packet_number - 1, kDefaultMaxPacketSize, now)}, {});
+  ASSERT_EQ(CyclePhase::PROBE_UP, sender_->ExportDebugState().probe_bw.phase);
+
+  // Send 2 packets and lose the first one(50% loss) to exit PROBE_UP.
+  for (uint64_t i = 0; i < 2; ++i) {
+    sender_->OnPacketSent(now, /*bytes_in_flight=*/i * kDefaultMaxPacketSize,
+                          next_packet_number++, kDefaultMaxPacketSize,
+                          HAS_RETRANSMITTABLE_DATA);
+  }
+  now = now + params.RTT();
+  sender_->OnCongestionEvent(
+      /*rtt_updated=*/true, kDefaultMaxPacketSize, now,
+      {AckedPacket(next_packet_number - 1, kDefaultMaxPacketSize, now)},
+      {LostPacket(next_packet_number - 2, kDefaultMaxPacketSize)});
+
+  QuicByteCount inflight_hi = sender_->ExportDebugState().inflight_hi;
+  if (GetQuicReloadableFlag(quic_bbr2_cut_inflight_hi_gradually)) {
+    EXPECT_LT(2 * kDefaultMaxPacketSize, inflight_hi);
+  } else {
+    // Bytes inflight at send.
+    EXPECT_EQ(2 * kDefaultMaxPacketSize, inflight_hi);
+  }
+}
+
 // All Bbr2MultiSenderTests uses the following network topology:
 //
 //   Sender 0  (A Bbr2Sender)
@@ -771,8 +864,8 @@ class Bbr2MultiSenderTest : public Bbr2SimulatorTest {
     uint64_t first_connection_id = 42;
     std::vector<simulator::QuicEndpointBase*> receiver_endpoint_pointers;
     for (size_t i = 0; i < MultiSenderTopologyParams::kNumLocalLinks; ++i) {
-      std::string sender_name = QuicStrCat("Sender", i + 1);
-      std::string receiver_name = QuicStrCat("Receiver", i + 1);
+      std::string sender_name = quiche::QuicheStrCat("Sender", i + 1);
+      std::string receiver_name = quiche::QuicheStrCat("Receiver", i + 1);
       sender_endpoints_.push_back(std::make_unique<simulator::QuicEndpoint>(
           &simulator_, sender_name, receiver_name, Perspective::IS_CLIENT,
           TestConnectionId(first_connection_id + i)));
@@ -785,12 +878,6 @@ class Bbr2MultiSenderTest : public Bbr2SimulatorTest {
         std::make_unique<simulator::QuicEndpointMultiplexer>(
             "Receiver multiplexer", receiver_endpoint_pointers);
     sender_1_ = SetupBbr2Sender(sender_endpoints_[0].get());
-
-    uint64_t seed = QuicRandom::GetInstance()->RandUint64();
-    random_.set_seed(seed);
-    QUIC_LOG(INFO) << "Bbr2MultiSenderTest set up.  Seed: " << seed;
-
-    simulator_.set_random_generator(&random_);
   }
 
   ~Bbr2MultiSenderTest() {
@@ -873,8 +960,6 @@ class Bbr2MultiSenderTest : public Bbr2SimulatorTest {
     }
   }
 
-  QuicTime SimulatedNow() const { return simulator_.GetClock()->Now(); }
-
   QuicConnection* sender_connection(size_t which) {
     return sender_endpoints_[which]->connection();
   }
@@ -888,12 +973,10 @@ class Bbr2MultiSenderTest : public Bbr2SimulatorTest {
            sender_connection_stats(which).packets_sent;
   }
 
-  simulator::Simulator simulator_;
   std::vector<std::unique_ptr<simulator::QuicEndpoint>> sender_endpoints_;
   std::vector<std::unique_ptr<simulator::QuicEndpoint>> receiver_endpoints_;
   std::unique_ptr<simulator::QuicEndpointMultiplexer> receiver_multiplexer_;
   Bbr2Sender* sender_1_;
-  SimpleRandom random_;
 
   std::unique_ptr<simulator::Switch> switch_;
   std::vector<std::unique_ptr<simulator::SymmetricLink>> network_links_;

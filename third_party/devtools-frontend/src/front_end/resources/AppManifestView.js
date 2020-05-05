@@ -1,16 +1,17 @@
 // Copyright (c) 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 /**
  * @implements {SDK.TargetManager.Observer}
  * @unrestricted
  */
-Resources.AppManifestView = class extends UI.VBox {
+export class AppManifestView extends UI.VBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('resources/appManifestView.css');
 
-    Common.moduleSetting('colorFormat').addChangeListener(this._updateManifest.bind(this, true));
+    self.Common.settings.moduleSetting('colorFormat').addChangeListener(this._updateManifest.bind(this, true));
 
     this._emptyView = new UI.EmptyWidget(Common.UIString('No manifest detected'));
     this._emptyView.appendLink(
@@ -28,7 +29,7 @@ Resources.AppManifestView = class extends UI.VBox {
     this._identitySection = this._reportView.appendSection(Common.UIString('Identity'));
 
     this._presentationSection = this._reportView.appendSection(Common.UIString('Presentation'));
-    this._iconsSection = this._reportView.appendSection(Common.UIString('Icons'));
+    this._iconsSection = this._reportView.appendSection(Common.UIString('Icons'), 'report-section-icons');
 
     this._nameField = this._identitySection.appendField(Common.UIString('Name'));
     this._shortNameField = this._identitySection.appendField(Common.UIString('Short name'));
@@ -47,7 +48,7 @@ Resources.AppManifestView = class extends UI.VBox {
     this._displayField = this._presentationSection.appendField(Common.UIString('Display'));
 
     this._throttler = new Common.Throttler(1000);
-    SDK.targetManager.observeTargets(this);
+    self.SDK.targetManager.observeTargets(this);
   }
 
   /**
@@ -97,16 +98,19 @@ Resources.AppManifestView = class extends UI.VBox {
   async _updateManifest(immediately) {
     const {url, data, errors} = await this._resourceTreeModel.fetchAppManifest();
     const installabilityErrors = await this._resourceTreeModel.getInstallabilityErrors();
-    this._throttler.schedule(() => this._renderManifest(url, data, errors, installabilityErrors), immediately);
+    const manifestIcons = await this._resourceTreeModel.getManifestIcons();
+
+    this._throttler.schedule(
+        () => this._renderManifest(url, data, errors, installabilityErrors, manifestIcons), immediately);
   }
 
   /**
    * @param {string} url
    * @param {?string} data
    * @param {!Array<!Protocol.Page.AppManifestError>} errors
-   * @param {!Array<string>} installabilityErrors
+   * @param {!Array<!Protocol.Page.InstallabilityError>} installabilityErrors
    */
-  async _renderManifest(url, data, errors, installabilityErrors) {
+  async _renderManifest(url, data, errors, installabilityErrors, manifestIcons) {
     if (!data && !errors.length) {
       this._emptyView.showWidget();
       this._reportView.hideWidget();
@@ -149,12 +153,12 @@ Resources.AppManifestView = class extends UI.VBox {
     this._themeColorSwatch.classList.toggle('hidden', !stringProperty('theme_color'));
     const themeColor = Common.Color.parse(stringProperty('theme_color') || 'white') || Common.Color.parse('white');
     this._themeColorSwatch.setColor(/** @type {!Common.Color} */ (themeColor));
-    this._themeColorSwatch.setFormat(Common.Color.detectColorFormat(this._themeColorSwatch.color()));
+    this._themeColorSwatch.setFormat(Common.Settings.detectColorFormat(this._themeColorSwatch.color()));
     this._backgroundColorSwatch.classList.toggle('hidden', !stringProperty('background_color'));
     const backgroundColor =
         Common.Color.parse(stringProperty('background_color') || 'white') || Common.Color.parse('white');
     this._backgroundColorSwatch.setColor(/** @type {!Common.Color} */ (backgroundColor));
-    this._backgroundColorSwatch.setFormat(Common.Color.detectColorFormat(this._backgroundColorSwatch.color()));
+    this._backgroundColorSwatch.setFormat(Common.Settings.detectColorFormat(this._backgroundColorSwatch.color()));
 
     this._orientationField.textContent = stringProperty('orientation');
     const displayType = stringProperty('display');
@@ -164,24 +168,51 @@ Resources.AppManifestView = class extends UI.VBox {
     this._iconsSection.clearContent();
 
     const imageErrors = [];
+
+    const setIconMaskedCheckbox =
+        UI.CheckboxLabel.create(Common.UIString('Show only the minimum safe area for maskable icons'));
+    setIconMaskedCheckbox.classList.add('mask-checkbox');
+    setIconMaskedCheckbox.addEventListener('click', () => {
+      this._iconsSection.setIconMasked(setIconMaskedCheckbox.checkboxElement.checked);
+    });
+    this._iconsSection.appendRow().appendChild(setIconMaskedCheckbox);
+    const documentationLink = UI.XLink.create('https://web.dev/maskable-icon/', ls`documentation on maskable icons`);
+    this._iconsSection.appendRow().appendChild(UI.formatLocalized('Need help? Read our %s.', [documentationLink]));
+
+    if (manifestIcons && manifestIcons.primaryIcon) {
+      const wrapper = createElement('div');
+      wrapper.classList.add('image-wrapper');
+      const image = createElement('img');
+      image.style.maxWidth = '200px';
+      image.style.maxHeight = '200px';
+      image.src = 'data:image/png;base64,' + manifestIcons.primaryIcon;
+      image.alt = ls`Primary manifest icon from ${url}`;
+      const title = ls`Primary icon\nas used by Chrome`;
+      const field = this._iconsSection.appendFlexedField(title);
+      wrapper.appendChild(image);
+      field.appendChild(wrapper);
+    }
+
     for (const icon of icons) {
       const iconUrl = Common.ParsedURL.completeURL(url, icon['src']);
-      const image = await this._loadImage(iconUrl);
-      if (!image) {
+      const result = await this._loadImage(iconUrl);
+      if (!result) {
         imageErrors.push(ls`Icon ${iconUrl} failed to load`);
         continue;
       }
-      const title = (icon['sizes'] || '') + '\n' + (icon['type'] || '');
+      const {wrapper, image} = result;
+      const sizes = icon['sizes'] ? icon['sizes'].replace('x', '\xD7') + 'px' : '';
+      const title = sizes + '\n' + (icon['type'] || '');
       const field = this._iconsSection.appendFlexedField(title);
       if (!icon.sizes) {
-        imageErrors.push(ls`Icon ${iconUrl} does not specify it's size in the manifest`);
-      } else if (!icon.sizes.match(/^\d+x\d+$/)) {
-        imageErrors.push(ls`Icon ${iconUrl} should specify it's size as {width}x{height}`);
+        imageErrors.push(ls`Icon ${iconUrl} does not specify its size in the manifest`);
+      } else if (!/^\d+x\d+$/.test(icon.sizes)) {
+        imageErrors.push(ls`Icon ${iconUrl} should specify its size as \`{width}x{height}\``);
       } else {
         const [width, height] = icon.sizes.split('x').map(x => parseInt(x, 10));
         if (image.naturalWidth !== width && image.naturalHeight !== height) {
-          imageErrors.push(ls`Actual size (${image.naturalWidth}x${image.naturalHeight}) of icon ${
-              iconUrl} does not match specified size (${width}x${height})`);
+          imageErrors.push(ls`Actual size (${image.naturalWidth}\xD7${image.naturalHeight})px of icon ${
+              iconUrl} does not match specified size (${width}\xD7${height}px)`);
         } else if (image.naturalWidth !== width) {
           imageErrors.push(
               ls
@@ -191,12 +222,13 @@ Resources.AppManifestView = class extends UI.VBox {
               iconUrl} does not match specified height (${height}px)`);
         }
       }
-      field.appendChild(image);
+      field.appendChild(wrapper);
     }
 
     this._installabilitySection.clearContent();
     this._installabilitySection.element.classList.toggle('hidden', !installabilityErrors.length);
-    for (const error of installabilityErrors) {
+    const errorMessages = this.getInstallabilityErrorMessages(installabilityErrors);
+    for (const error of errorMessages) {
       this._installabilitySection.appendRow().appendChild(UI.createIconLabel(error, 'smallicon-warning'));
     }
 
@@ -219,24 +251,122 @@ Resources.AppManifestView = class extends UI.VBox {
   }
 
   /**
+   * @param {!Array<!Protocol.Page.InstallabilityError>} installabilityErrors
+   * @return {!Array<string>}
+   */
+  getInstallabilityErrorMessages(installabilityErrors) {
+    const errorMessages = [];
+    for (const installabilityError of installabilityErrors) {
+      let errorMessage;
+      switch (installabilityError.errorId) {
+        case 'not-in-main-frame':
+          errorMessage = ls`Page is not loaded in the main frame`;
+          break;
+        case 'not-from-secure-origin':
+          errorMessage = ls`Page is not served from a secure origin`;
+          break;
+        case 'no-manifest':
+          errorMessage = ls`Page has no manifest <link> URL`;
+          break;
+        case 'manifest-empty':
+          errorMessage = ls`Manifest could not be fetched, is empty, or could not be parsed`;
+          break;
+        case 'start-url-not-valid':
+          errorMessage = ls`Manifest start URL is not valid`;
+          break;
+        case 'manifest-missing-name-or-short-name':
+          errorMessage = ls`Manifest does not contain a 'name' or 'short_name' field`;
+          break;
+        case 'manifest-display-not-supported':
+          errorMessage = ls`Manifest 'display' property must be one of 'standalone', 'fullscreen', or 'minimal-ui'`;
+          break;
+        case 'manifest-missing-suitable-icon':
+          if (installabilityError.errorArguments.length !== 1 ||
+              installabilityError.errorArguments[0].name !== 'minimum-icon-size-in-pixels') {
+            console.error('Installability error does not have the correct errorArguments');
+            break;
+          }
+          errorMessage = ls`Manifest does not contain a suitable icon - PNG, SVG or WebP format of at least ${
+              installabilityError.errorArguments[0]
+                  .value}px is required, the sizes attribute must be set, and the purpose attribute, if set, must include "any" or "maskable".`;
+          break;
+        case 'no-matching-service-worker':
+          errorMessage = ls
+          `No matching service worker detected. You may need to reload the page, or check that the scope of the service worker for the current page encloses the scope and start URL from the manifest.`;
+          break;
+        case 'no-acceptable-icon':
+          if (installabilityError.errorArguments.length !== 1 ||
+              installabilityError.errorArguments[0].name !== 'minimum-icon-size-in-pixels') {
+            console.error('Installability error does not have the correct errorArguments');
+            break;
+          }
+          errorMessage = ls`No supplied icon is at least ${
+              installabilityError.errorArguments[0].value}px square in PNG, SVG or WebP format`;
+          break;
+        case 'cannot-download-icon':
+          errorMessage = ls`Could not download a required icon from the manifest`;
+          break;
+        case 'no-icon-available':
+          errorMessage = ls`Downloaded icon was empty or corrupted`;
+          break;
+        case 'platform-not-supported-on-android':
+          errorMessage = ls`The specified application platform is not supported on Android`;
+          break;
+        case 'no-id-specified':
+          errorMessage = ls`No Play store ID provided`;
+          break;
+        case 'ids-do-not-match':
+          errorMessage = ls`The Play Store app URL and Play Store ID do not match`;
+          break;
+        case 'already-installed':
+          errorMessage = ls`The app is already installed`;
+          break;
+        case 'url-not-supported-for-webapk':
+          errorMessage = ls`A URL in the manifest contains a username, password, or port`;
+          break;
+        case 'in-incognito':
+          errorMessage = ls`Page is loaded in an incognito window`;
+          break;
+        case 'not-offline-capable':
+          errorMessage = ls`Page does not work offline`;
+          break;
+        case 'no-url-for-service-worker':
+          errorMessage = ls`Could not check service worker without a 'start_url' field in the manifest`;
+          break;
+        case 'prefer-related-applications':
+          errorMessage = ls`Manifest specifies prefer_related_applications: true`;
+          break;
+        default:
+          console.error(`Installability error id '${installabilityError.errorId}' is not recognized`);
+          break;
+      }
+      if (errorMessages) {
+        errorMessages.push(errorMessage);
+      }
+    }
+    return errorMessages;
+  }
+
+  /**
    * @param {?string} url
-   * @return {!Promise<?Element>}
+   * @return {!Promise<?{image: !Element, wrapper: !Element}>}
    */
   async _loadImage(url) {
+    const wrapper = createElement('div');
+    wrapper.classList.add('image-wrapper');
     const image = createElement('img');
-    image.style.maxWidth = '200px';
-    image.style.maxHeight = '200px';
-    const result = new Promise((f, r) => {
-      image.onload = f;
-      image.onerror = r;
+    const result = new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
     });
     image.src = url;
     image.alt = ls`Image from ${url}`;
+    wrapper.appendChild(image);
     try {
       await result;
-      return image;
+      return {wrapper, image};
     } catch (e) {
     }
     return null;
   }
-};
+}

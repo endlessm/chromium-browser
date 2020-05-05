@@ -2566,9 +2566,6 @@ Instruction *InstCombiner::foldICmpAddConstant(ICmpInst &Cmp,
   Type *Ty = Add->getType();
   CmpInst::Predicate Pred = Cmp.getPredicate();
 
-  if (!Add->hasOneUse())
-    return nullptr;
-
   // If the add does not wrap, we can always adjust the compare by subtracting
   // the constants. Equality comparisons are handled elsewhere. SGE/SLE/UGE/ULE
   // are canonicalized to SGT/SLT/UGT/ULT.
@@ -2601,6 +2598,9 @@ Instruction *InstCombiner::foldICmpAddConstant(ICmpInst &Cmp,
     if (Upper.isMinValue())
       return new ICmpInst(ICmpInst::ICMP_UGE, X, ConstantInt::get(Ty, Lower));
   }
+
+  if (!Add->hasOneUse())
+    return nullptr;
 
   // X+C <u C2 -> (X & -C2) == C
   //   iff C & (C2-1) == 0
@@ -3300,30 +3300,19 @@ static Value *foldICmpWithLowBitMaskedVal(ICmpInst &I,
     //  x & (-1 >> y) != x    ->    x u> (-1 >> y)
     DstPred = ICmpInst::Predicate::ICMP_UGT;
     break;
-  case ICmpInst::Predicate::ICMP_UGT:
+  case ICmpInst::Predicate::ICMP_ULT:
+    //  x & (-1 >> y) u< x    ->    x u> (-1 >> y)
     //  x u> x & (-1 >> y)    ->    x u> (-1 >> y)
-    assert(X == I.getOperand(0) && "instsimplify took care of commut. variant");
     DstPred = ICmpInst::Predicate::ICMP_UGT;
     break;
   case ICmpInst::Predicate::ICMP_UGE:
     //  x & (-1 >> y) u>= x    ->    x u<= (-1 >> y)
-    assert(X == I.getOperand(1) && "instsimplify took care of commut. variant");
-    DstPred = ICmpInst::Predicate::ICMP_ULE;
-    break;
-  case ICmpInst::Predicate::ICMP_ULT:
-    //  x & (-1 >> y) u< x    ->    x u> (-1 >> y)
-    assert(X == I.getOperand(1) && "instsimplify took care of commut. variant");
-    DstPred = ICmpInst::Predicate::ICMP_UGT;
-    break;
-  case ICmpInst::Predicate::ICMP_ULE:
     //  x u<= x & (-1 >> y)    ->    x u<= (-1 >> y)
-    assert(X == I.getOperand(0) && "instsimplify took care of commut. variant");
     DstPred = ICmpInst::Predicate::ICMP_ULE;
     break;
-  case ICmpInst::Predicate::ICMP_SGT:
+  case ICmpInst::Predicate::ICMP_SLT:
+    //  x & (-1 >> y) s< x    ->    x s> (-1 >> y)
     //  x s> x & (-1 >> y)    ->    x s> (-1 >> y)
-    if (X != I.getOperand(0)) // X must be on LHS of comparison!
-      return nullptr;         // Ignore the other case.
     if (!match(M, m_Constant())) // Can not do this fold with non-constant.
       return nullptr;
     if (!match(M, m_NonNegative())) // Must not have any -1 vector elements.
@@ -3332,36 +3321,39 @@ static Value *foldICmpWithLowBitMaskedVal(ICmpInst &I,
     break;
   case ICmpInst::Predicate::ICMP_SGE:
     //  x & (-1 >> y) s>= x    ->    x s<= (-1 >> y)
-    if (X != I.getOperand(1)) // X must be on RHS of comparison!
-      return nullptr;         // Ignore the other case.
-    if (!match(M, m_Constant())) // Can not do this fold with non-constant.
-      return nullptr;
-    if (!match(M, m_NonNegative())) // Must not have any -1 vector elements.
-      return nullptr;
-    DstPred = ICmpInst::Predicate::ICMP_SLE;
-    break;
-  case ICmpInst::Predicate::ICMP_SLT:
-    //  x & (-1 >> y) s< x    ->    x s> (-1 >> y)
-    if (X != I.getOperand(1)) // X must be on RHS of comparison!
-      return nullptr;         // Ignore the other case.
-    if (!match(M, m_Constant())) // Can not do this fold with non-constant.
-      return nullptr;
-    if (!match(M, m_NonNegative())) // Must not have any -1 vector elements.
-      return nullptr;
-    DstPred = ICmpInst::Predicate::ICMP_SGT;
-    break;
-  case ICmpInst::Predicate::ICMP_SLE:
     //  x s<= x & (-1 >> y)    ->    x s<= (-1 >> y)
-    if (X != I.getOperand(0)) // X must be on LHS of comparison!
-      return nullptr;         // Ignore the other case.
     if (!match(M, m_Constant())) // Can not do this fold with non-constant.
       return nullptr;
     if (!match(M, m_NonNegative())) // Must not have any -1 vector elements.
       return nullptr;
     DstPred = ICmpInst::Predicate::ICMP_SLE;
+    break;
+  case ICmpInst::Predicate::ICMP_SGT:
+  case ICmpInst::Predicate::ICMP_SLE:
+    return nullptr;
+  case ICmpInst::Predicate::ICMP_UGT:
+  case ICmpInst::Predicate::ICMP_ULE:
+    llvm_unreachable("Instsimplify took care of commut. variant");
     break;
   default:
     llvm_unreachable("All possible folds are handled.");
+  }
+
+  // The mask value may be a vector constant that has undefined elements. But it
+  // may not be safe to propagate those undefs into the new compare, so replace
+  // those elements by copying an existing, defined, and safe scalar constant.
+  Type *OpTy = M->getType();
+  auto *VecC = dyn_cast<Constant>(M);
+  if (OpTy->isVectorTy() && VecC && VecC->containsUndefElement()) {
+    Constant *SafeReplacementConstant = nullptr;
+    for (unsigned i = 0, e = OpTy->getVectorNumElements(); i != e; ++i) {
+      if (!isa<UndefValue>(VecC->getAggregateElement(i))) {
+        SafeReplacementConstant = VecC->getAggregateElement(i);
+        break;
+      }
+    }
+    assert(SafeReplacementConstant && "Failed to find undef replacement");
+    M = Constant::replaceUndefsWith(VecC, SafeReplacementConstant);
   }
 
   return Builder.CreateICmp(DstPred, X, M);
@@ -3610,9 +3602,6 @@ Value *InstCombiner::foldUnsignedMultiplicationOverflowCheck(ICmpInst &I) {
       match(&I, m_c_ICmp(Pred, m_OneUse(m_UDiv(m_AllOnes(), m_Value(X))),
                          m_Value(Y)))) {
     Mul = nullptr;
-    // Canonicalize as-if y was on RHS.
-    if (I.getOperand(1) != Y)
-      Pred = I.getSwappedPredicate();
 
     // Are we checking that overflow does not happen, or does happen?
     switch (Pred) {
@@ -4930,7 +4919,7 @@ Instruction *InstCombiner::foldICmpUsingKnownBits(ICmpInst &I) {
   // Get scalar or pointer size.
   unsigned BitWidth = Ty->isIntOrIntVectorTy()
                           ? Ty->getScalarSizeInBits()
-                          : DL.getIndexTypeSizeInBits(Ty->getScalarType());
+                          : DL.getPointerTypeSizeInBits(Ty->getScalarType());
 
   if (!BitWidth)
     return nullptr;
@@ -5321,10 +5310,6 @@ static Instruction *foldICmpWithHighBitMask(ICmpInst &Cmp,
   Value *X, *Y;
   if (match(&Cmp,
             m_c_ICmp(Pred, m_OneUse(m_Shl(m_One(), m_Value(Y))), m_Value(X)))) {
-    // We want X to be the icmp's second operand, so swap predicate if it isn't.
-    if (Cmp.getOperand(0) == X)
-      Pred = Cmp.getSwappedPredicate();
-
     switch (Pred) {
     case ICmpInst::ICMP_ULE:
       NewPred = ICmpInst::ICMP_NE;
@@ -5343,10 +5328,6 @@ static Instruction *foldICmpWithHighBitMask(ICmpInst &Cmp,
                                   m_Value(X)))) {
     // The variant with 'add' is not canonical, (the variant with 'not' is)
     // we only get it because it has extra uses, and can't be canonicalized,
-
-    // We want X to be the icmp's second operand, so swap predicate if it isn't.
-    if (Cmp.getOperand(0) == X)
-      Pred = Cmp.getSwappedPredicate();
 
     switch (Pred) {
     case ICmpInst::ICMP_ULT:
@@ -5368,22 +5349,57 @@ static Instruction *foldICmpWithHighBitMask(ICmpInst &Cmp,
 
 static Instruction *foldVectorCmp(CmpInst &Cmp,
                                   InstCombiner::BuilderTy &Builder) {
-  // If both arguments of the cmp are shuffles that use the same mask and
-  // shuffle within a single vector, move the shuffle after the cmp.
+  const CmpInst::Predicate Pred = Cmp.getPredicate();
   Value *LHS = Cmp.getOperand(0), *RHS = Cmp.getOperand(1);
+  bool IsFP = isa<FCmpInst>(Cmp);
+
   Value *V1, *V2;
   Constant *M;
-  if (match(LHS, m_ShuffleVector(m_Value(V1), m_Undef(), m_Constant(M))) &&
-      match(RHS, m_ShuffleVector(m_Value(V2), m_Undef(), m_Specific(M))) &&
-      V1->getType() == V2->getType() &&
-      (LHS->hasOneUse() || RHS->hasOneUse())) {
-    // cmp (shuffle V1, M), (shuffle V2, M) --> shuffle (cmp V1, V2), M
-    CmpInst::Predicate P = Cmp.getPredicate();
-    Value *NewCmp = isa<ICmpInst>(Cmp) ? Builder.CreateICmp(P, V1, V2)
-                                       : Builder.CreateFCmp(P, V1, V2);
+  if (!match(LHS, m_ShuffleVector(m_Value(V1), m_Undef(), m_Constant(M))))
+    return nullptr;
+
+  // If both arguments of the cmp are shuffles that use the same mask and
+  // shuffle within a single vector, move the shuffle after the cmp:
+  // cmp (shuffle V1, M), (shuffle V2, M) --> shuffle (cmp V1, V2), M
+  Type *V1Ty = V1->getType();
+  if (match(RHS, m_ShuffleVector(m_Value(V2), m_Undef(), m_Specific(M))) &&
+      V1Ty == V2->getType() && (LHS->hasOneUse() || RHS->hasOneUse())) {
+    Value *NewCmp = IsFP ? Builder.CreateFCmp(Pred, V1, V2)
+                         : Builder.CreateICmp(Pred, V1, V2);
     return new ShuffleVectorInst(NewCmp, UndefValue::get(NewCmp->getType()), M);
   }
+
   return nullptr;
+}
+
+// extract(uadd.with.overflow(A, B), 0) ult A
+//  -> extract(uadd.with.overflow(A, B), 1)
+static Instruction *foldICmpOfUAddOv(ICmpInst &I) {
+  CmpInst::Predicate Pred = I.getPredicate();
+  Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
+
+  Value *UAddOv;
+  Value *A, *B;
+  auto UAddOvResultPat = m_ExtractValue<0>(
+      m_Intrinsic<Intrinsic::uadd_with_overflow>(m_Value(A), m_Value(B)));
+  if (match(Op0, UAddOvResultPat) &&
+      ((Pred == ICmpInst::ICMP_ULT && (Op1 == A || Op1 == B)) ||
+       (Pred == ICmpInst::ICMP_EQ && match(Op1, m_ZeroInt()) &&
+        (match(A, m_One()) || match(B, m_One()))) ||
+       (Pred == ICmpInst::ICMP_NE && match(Op1, m_AllOnes()) &&
+        (match(A, m_AllOnes()) || match(B, m_AllOnes())))))
+    // extract(uadd.with.overflow(A, B), 0) < A
+    // extract(uadd.with.overflow(A, 1), 0) == 0
+    // extract(uadd.with.overflow(A, -1), 0) != -1
+    UAddOv = cast<ExtractValueInst>(Op0)->getAggregateOperand();
+  else if (match(Op1, UAddOvResultPat) &&
+           Pred == ICmpInst::ICMP_UGT && (Op0 == A || Op0 == B))
+    // A > extract(uadd.with.overflow(A, B), 0)
+    UAddOv = cast<ExtractValueInst>(Op1)->getAggregateOperand();
+  else
+    return nullptr;
+
+  return ExtractValueInst::Create(UAddOv, 1);
 }
 
 Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
@@ -5572,6 +5588,9 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
   }
 
   if (Instruction *Res = foldICmpEquality(I))
+    return Res;
+
+  if (Instruction *Res = foldICmpOfUAddOv(I))
     return Res;
 
   // The 'cmpxchg' instruction returns an aggregate containing the old value and

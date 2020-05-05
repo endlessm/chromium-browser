@@ -11,6 +11,7 @@
 #include "chrome/browser/optimization_guide/optimization_guide_web_contents_observer.h"
 #include "components/optimization_guide/hints_processing_util.h"
 #include "content/public/browser/navigation_handle.h"
+#include "net/nqe/effective_connection_type.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_source.h"
@@ -93,6 +94,10 @@ void OptimizationGuideNavigationData::RecordHintCoverage(
     has_hint_before_commit = has_hint_before_commit_.value();
     UMA_HISTOGRAM_BOOLEAN("OptimizationGuide.HintCache.HasHint.BeforeCommit",
                           has_hint_before_commit);
+    UMA_HISTOGRAM_BOOLEAN(
+        "OptimizationGuide.HintsFetcher.NavigationHostCoveredByFetch."
+        "BeforeCommit",
+        was_host_covered_by_fetch_at_navigation_start_.value_or(false));
     UMA_HISTOGRAM_BOOLEAN(
         "OptimizationGuide.Hints.NavigationHostCoverage.BeforeCommit",
         WasHostCoveredByHintOrFetchAtNavigationStart());
@@ -185,6 +190,62 @@ void OptimizationGuideNavigationData::RecordOptimizationGuideUKM() const {
       did_record_metric = true;
       builder.SetPainfulPageLoadModelPredictionScore(static_cast<int64_t>(
           100 * optimization_target_model_prediction_score.second));
+    }
+  }
+
+  for (const auto model_feature : prediction_model_features_) {
+    switch (model_feature.first) {
+      case optimization_guide::proto::CLIENT_MODEL_FEATURE_UNKNOWN: {
+        continue;
+      }
+      case optimization_guide::proto::
+          CLIENT_MODEL_FEATURE_EFFECTIVE_CONNECTION_TYPE: {
+        builder.SetPredictionModelFeatureEffectiveConnectionType(
+            static_cast<net::EffectiveConnectionType>(model_feature.second));
+        did_record_metric = true;
+        continue;
+      }
+      case optimization_guide::proto::CLIENT_MODEL_FEATURE_PAGE_TRANSITION: {
+        builder.SetPredictionModelFeaturePageTransition(
+            static_cast<ui::PageTransition>(model_feature.second));
+        did_record_metric = true;
+        continue;
+      }
+      case optimization_guide::proto::
+          CLIENT_MODEL_FEATURE_SITE_ENGAGEMENT_SCORE: {
+        builder.SetPredictionModelFeatureSiteEngagementScore(
+            static_cast<int>(std::roundf(model_feature.second / 10.0) * 10));
+        did_record_metric = true;
+        continue;
+      }
+      case optimization_guide::proto::
+          CLIENT_MODEL_FEATURE_SAME_ORIGIN_NAVIGATION: {
+        builder.SetPredictionModelFeatureIsSameOriginNavigation(
+            static_cast<int>(model_feature.second));
+        did_record_metric = true;
+        continue;
+      }
+      case optimization_guide::proto::
+          CLIENT_MODEL_FEATURE_FIRST_CONTENTFUL_PAINT_SESSION_MEAN: {
+        builder.SetPredictionModelFeatureNavigationToFCPSessionMean(
+            static_cast<int>(model_feature.second));
+        did_record_metric = true;
+        continue;
+      }
+      case optimization_guide::proto::
+          CLIENT_MODEL_FEATURE_FIRST_CONTENTFUL_PAINT_SESSION_STANDARD_DEVIATION: {
+        builder.SetPredictionModelFeatureNavigationToFCPSessionStdDev(
+            static_cast<int>(model_feature.second));
+        did_record_metric = true;
+        continue;
+      }
+      case optimization_guide::proto::
+          CLIENT_MODEL_FEATURE_FIRST_CONTENTFUL_PAINT_PREVIOUS_PAGE_LOAD: {
+        builder.SetPredictionModelFeaturePreviousPageLoadNavigationToFCP(
+            static_cast<int>(model_feature.second));
+        did_record_metric = true;
+        continue;
+      }
     }
   }
 
@@ -319,4 +380,18 @@ void OptimizationGuideNavigationData::
         double model_prediction_score) {
   optimization_target_model_prediction_scores_[optimization_target] =
       model_prediction_score;
+}
+
+void OptimizationGuideNavigationData::SetValueForModelFeature(
+    optimization_guide::proto::ClientModelFeature model_feature,
+    float value) {
+  prediction_model_features_[model_feature] = value;
+}
+base::Optional<float>
+OptimizationGuideNavigationData::GetValueForModelFeatureForTesting(
+    optimization_guide::proto::ClientModelFeature model_feature) {
+  auto it = prediction_model_features_.find(model_feature);
+  if (it == prediction_model_features_.end())
+    return base::nullopt;
+  return it->second;
 }

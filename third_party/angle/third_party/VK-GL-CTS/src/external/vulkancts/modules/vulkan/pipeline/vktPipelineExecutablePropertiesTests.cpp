@@ -575,7 +575,7 @@ ExecutablePropertiesTestInstance::ExecutablePropertiesTestInstance (Context&				
 												const ExecutablePropertiesTestParam*	param)
 	: TestInstance		(context)
 	, m_param			(param)
-	, m_extensions		(m_context.requireDeviceExtension("VK_KHR_pipeline_executable_properties"))
+	, m_extensions		(m_context.requireDeviceFunctionality("VK_KHR_pipeline_executable_properties"))
 {
 	const DeviceInterface&	vk				= m_context.getDeviceInterface();
 	const VkDevice			vkDevice		= m_context.getDevice();
@@ -617,15 +617,6 @@ checkString(const char *string, size_t size)
 	if (i == 0 || i >= size)
 	{
 		return false;
-	}
-
-	// The rest of the string should be zero
-	for (; i < size; i++)
-	{
-		if (string[i] != 0)
-		{
-			return false;
-		}
 	}
 
 	return true;

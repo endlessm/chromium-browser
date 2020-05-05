@@ -13,6 +13,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/version_info/version_info.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
+#include "ios/chrome/grit/ios_chromium_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -68,6 +69,18 @@ bool WaitForOmniboxURLString(std::string URL) {
 
 @implementation WebUITestCase
 
+// Tests that the WebUI pages (chrome://version) have the correct User Agent.
+- (void)testUserAgent {
+  [ChromeEarlGrey loadURL:WebUIPageUrlWithHost(kChromeUIVersionHost)];
+
+  NSString* userAgent = [ChromeEarlGrey mobileUserAgentString];
+  // Verify that JavaScript navigator.userAgent returns the mobile User Agent.
+  id result = [ChromeEarlGrey executeJavaScript:@"navigator.userAgent"];
+  NSString* navigatorUserAgent = base::mac::ObjCCast<NSString>(result);
+  GREYAssertEqualObjects(userAgent, navigatorUserAgent,
+                         @"User-Agent strings did not match");
+}
+
 // Tests that chrome://version renders and contains correct version number and
 // user agent string.
 - (void)testVersion {
@@ -77,12 +90,15 @@ bool WaitForOmniboxURLString(std::string URL) {
   const std::string version = version_info::GetVersionNumber();
   [ChromeEarlGrey waitForWebStateContainingText:version];
 
+  NSString* userAgent = [ChromeEarlGrey mobileUserAgentString];
+  std::string userAgentString = base::SysNSStringToUTF8(userAgent);
+
   // Verify that mobile User Agent string is present on the page. Testing for
   // only a portion of the string is sufficient to ensure the value has been
   // populated in the UI and it is not blank. However, the exact string value is
   // not validated as this test does not have access to get the full User Agent
   // string from the WebClient.
-  [ChromeEarlGrey waitForWebStateContainingText:"AppleWebKit"];
+  [ChromeEarlGrey waitForWebStateContainingText:userAgentString];
 }
 
 // Tests that clicking on a chrome://terms link from chrome://chrome-urls
@@ -115,7 +131,9 @@ bool WaitForOmniboxURLString(std::string URL) {
   // Verify that the resulting page is chrome://version.
   GREYAssert(WaitForOmniboxURLString(kChromeUIVersionURL),
              @"Omnibox did not contain URL.");
-  [ChromeEarlGrey waitForWebStateContainingText:"The Chromium Authors"];
+  [ChromeEarlGrey
+      waitForWebStateContainingText:l10n_util::GetStringUTF8(
+                                        IDS_IOS_ABOUT_VERSION_COMPANY_NAME)];
 
   // Tap the back button in the toolbar and verify that the resulting page is
   // the previously visited page chrome://chrome-urls.
@@ -196,14 +214,15 @@ bool WaitForOmniboxURLString(std::string URL) {
 - (void)testBackForwardFromWebURL {
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
 
-  const char kChromeVersionWebText[] = "The Chromium Authors";
+  std::string chromeVersionWebText =
+      l10n_util::GetStringUTF8(IDS_IOS_ABOUT_VERSION_COMPANY_NAME);
   const char kWebPageText[] = "pony";
 
   [ChromeEarlGrey loadURL:GURL(kChromeUIVersionURL)];
 
   GREYAssert(WaitForOmniboxURLString(kChromeUIVersionURL),
              @"Omnibox did not contain URL.");
-  [ChromeEarlGrey waitForWebStateContainingText:kChromeVersionWebText];
+  [ChromeEarlGrey waitForWebStateContainingText:chromeVersionWebText];
 
   GURL webURL = self.testServer->GetURL("/pony.html");
   [ChromeEarlGrey loadURL:webURL];
@@ -212,7 +231,7 @@ bool WaitForOmniboxURLString(std::string URL) {
   [ChromeEarlGrey goBack];
   GREYAssert(WaitForOmniboxURLString(kChromeUIVersionURL),
              @"Omnibox did not contain URL.");
-  [ChromeEarlGrey waitForWebStateContainingText:kChromeVersionWebText];
+  [ChromeEarlGrey waitForWebStateContainingText:chromeVersionWebText];
 
   [ChromeEarlGrey goForward];
   [ChromeEarlGrey waitForWebStateContainingText:kWebPageText];
@@ -220,7 +239,7 @@ bool WaitForOmniboxURLString(std::string URL) {
   [ChromeEarlGrey goBack];
   GREYAssert(WaitForOmniboxURLString(kChromeUIVersionURL),
              @"Omnibox did not contain URL.");
-  [ChromeEarlGrey waitForWebStateContainingText:kChromeVersionWebText];
+  [ChromeEarlGrey waitForWebStateContainingText:chromeVersionWebText];
 }
 
 - (void)testChromeFlagsOnNTP {

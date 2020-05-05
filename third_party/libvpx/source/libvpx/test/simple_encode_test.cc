@@ -1,3 +1,13 @@
+/*
+ *  Copyright (c) 2019 The WebM project authors. All Rights Reserved.
+ *
+ *  Use of this source code is governed by a BSD-style license
+ *  that can be found in the LICENSE file in the root of the source
+ *  tree. An additional intellectual property rights grant can be found
+ *  in the file PATENTS.  All contributing project authors may
+ *  be found in the AUTHORS file in the root of the source tree.
+ */
+
 #include <math.h>
 #include <memory>
 #include <vector>
@@ -107,6 +117,73 @@ TEST(SimpleEncode, EncodeFrameWithQuantizeIndex) {
   }
   simple_encode.EndEncode();
 }
-}  // namespace
 
+TEST(SimpleEncode, EncodeConsistencyTest) {
+  std::vector<int> quantize_index_list;
+  std::vector<uint64_t> ref_sse_list;
+  std::vector<double> ref_psnr_list;
+  std::vector<size_t> ref_bit_size_list;
+  {
+    SimpleEncode simple_encode(w, h, frame_rate_num, frame_rate_den,
+                               target_bitrate, num_frames, infile_path);
+    simple_encode.ComputeFirstPassStats();
+    const int num_coding_frames = simple_encode.GetCodingFrameNum();
+    simple_encode.StartEncode();
+    for (int i = 0; i < num_coding_frames; ++i) {
+      EncodeFrameResult encode_frame_result;
+      simple_encode.EncodeFrame(&encode_frame_result);
+      quantize_index_list.push_back(encode_frame_result.quantize_index);
+      ref_sse_list.push_back(encode_frame_result.sse);
+      ref_psnr_list.push_back(encode_frame_result.psnr);
+      ref_bit_size_list.push_back(encode_frame_result.coding_data_bit_size);
+    }
+    simple_encode.EndEncode();
+  }
+  {
+    SimpleEncode simple_encode(w, h, frame_rate_num, frame_rate_den,
+                               target_bitrate, num_frames, infile_path);
+    simple_encode.ComputeFirstPassStats();
+    const int num_coding_frames = simple_encode.GetCodingFrameNum();
+    EXPECT_EQ(static_cast<size_t>(num_coding_frames),
+              quantize_index_list.size());
+    simple_encode.StartEncode();
+    for (int i = 0; i < num_coding_frames; ++i) {
+      EncodeFrameResult encode_frame_result;
+      simple_encode.EncodeFrameWithQuantizeIndex(&encode_frame_result,
+                                                 quantize_index_list[i]);
+      EXPECT_EQ(encode_frame_result.quantize_index, quantize_index_list[i]);
+      EXPECT_EQ(encode_frame_result.sse, ref_sse_list[i]);
+      EXPECT_DOUBLE_EQ(encode_frame_result.psnr, ref_psnr_list[i]);
+      EXPECT_EQ(encode_frame_result.coding_data_bit_size, ref_bit_size_list[i]);
+    }
+    simple_encode.EndEncode();
+  }
+}
+
+TEST(SimpleEncode, GetEncodeFrameInfo) {
+  // Makes sure that the encode_frame_info obtained from GetEncodeFrameInfo()
+  // matches the counterpart in encode_frame_result obtained from EncodeFrame()
+  SimpleEncode simple_encode(w, h, frame_rate_num, frame_rate_den,
+                             target_bitrate, num_frames, infile_path);
+  simple_encode.ComputeFirstPassStats();
+  const int num_coding_frames = simple_encode.GetCodingFrameNum();
+  simple_encode.StartEncode();
+  for (int i = 0; i < num_coding_frames; ++i) {
+    EncodeFrameInfo encode_frame_info = simple_encode.GetNextEncodeFrameInfo();
+    EncodeFrameResult encode_frame_result;
+    simple_encode.EncodeFrame(&encode_frame_result);
+    EXPECT_EQ(encode_frame_info.show_idx, encode_frame_result.show_idx);
+    EXPECT_EQ(encode_frame_info.frame_type, encode_frame_result.frame_type);
+  }
+  simple_encode.EndEncode();
+}
+
+TEST(SimpleEncode, GetFramePixelCount) {
+  SimpleEncode simple_encode(w, h, frame_rate_num, frame_rate_den,
+                             target_bitrate, num_frames, infile_path);
+  EXPECT_EQ(simple_encode.GetFramePixelCount(),
+            static_cast<uint64_t>(w * h * 3 / 2));
+}
+
+}  // namespace
 }  // namespace vp9

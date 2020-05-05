@@ -19,6 +19,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
 #include "net/third_party/quiche/src/quic/core/quic_control_frame_manager.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_datagram_queue.h"
 #include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
@@ -31,6 +32,7 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -80,10 +82,10 @@ class QUIC_EXPORT_PRIVATE QuicSession
     // ENCRYPTION_ESTABLISHED indicates that a client hello has been sent and
     // subsequent packets will be encrypted. (Client only.)
     ENCRYPTION_ESTABLISHED,
-    // HANDSHAKE_CONFIRMED, in a client, indicates the server has accepted
+    // EVENT_HANDSHAKE_CONFIRMED, in a client, indicates the server has accepted
     // our handshake. In a server it indicates that a full, valid client hello
     // has been received. (Client and server.)
-    HANDSHAKE_CONFIRMED,
+    EVENT_HANDSHAKE_CONFIRMED,
   };
 
   // Does not take ownership of |connection| or |visitor|.
@@ -104,7 +106,8 @@ class QUIC_EXPORT_PRIVATE QuicSession
   void OnCryptoFrame(const QuicCryptoFrame& frame) override;
   void OnRstStream(const QuicRstStreamFrame& frame) override;
   void OnGoAway(const QuicGoAwayFrame& frame) override;
-  void OnMessageReceived(QuicStringPiece message) override;
+  void OnMessageReceived(quiche::QuicheStringPiece message) override;
+  void OnHandshakeDoneReceived() override;
   void OnWindowUpdateFrame(const QuicWindowUpdateFrame& frame) override;
   void OnBlockedFrame(const QuicBlockedFrame& frame) override;
   void OnConnectionClosed(const QuicConnectionCloseFrame& frame,
@@ -126,11 +129,13 @@ class QUIC_EXPORT_PRIVATE QuicSession
   bool HasPendingHandshake() const override;
   void OnPathDegrading() override;
   bool AllowSelfAddressChange() const override;
+  HandshakeState GetHandshakeState() const override;
   void OnForwardProgressConfirmed() override;
   bool OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame) override;
   bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame) override;
   void OnStopSendingFrame(const QuicStopSendingFrame& frame) override;
   void OnPacketDecrypted(EncryptionLevel level) override;
+  void OnOneRttPacketAcknowledged() override;
 
   // QuicStreamFrameDataProducer
   WriteStreamDataResult WriteStreamData(QuicStreamId id,
@@ -243,9 +248,8 @@ class QUIC_EXPORT_PRIVATE QuicSession
   // hasn't confirmed the handshake yet.
   virtual bool IsEncryptionEstablished() const;
 
-  // For a client, returns true if the server has confirmed our handshake. For
-  // a server, returns true if a full, valid client hello has been received.
-  bool IsCryptoHandshakeConfirmed() const;
+  // Returns true if 1RTT keys are available.
+  bool OneRttKeysAvailable() const;
 
   // Called by the QuicCryptoStream when a new QuicConfig has been negotiated.
   virtual void OnConfigNegotiated();
@@ -254,9 +258,9 @@ class QUIC_EXPORT_PRIVATE QuicSession
   //
   // Clients will call this function in the order:
   //   zero or more ENCRYPTION_ESTABLISHED
-  //   HANDSHAKE_CONFIRMED
+  //   EVENT_HANDSHAKE_CONFIRMED
   //
-  // Servers will simply call it once with HANDSHAKE_CONFIRMED.
+  // Servers will simply call it once with EVENT_HANDSHAKE_CONFIRMED.
   virtual void OnCryptoHandshakeEvent(CryptoHandshakeEvent event);
 
   // From HandshakerDelegateInterface
@@ -389,7 +393,7 @@ class QUIC_EXPORT_PRIVATE QuicSession
     return on_closed_frame_.application_error_code;
   }
 
-  Perspective perspective() const { return connection_->perspective(); }
+  Perspective perspective() const { return perspective_; }
 
   QuicFlowController* flow_controller() { return &flow_controller_; }
 
@@ -440,17 +444,6 @@ class QUIC_EXPORT_PRIVATE QuicSession
     return num_locally_closed_incoming_streams_highest_offset_;
   }
 
-  // Does actual work of sending reset-stream or reset-stream&stop-sending
-  // If the connection is not version 99/IETF QUIC, will always send a
-  // RESET_STREAM and close_write_side_only is ignored. If the connection is
-  // IETF QUIC/Version 99 then will send a RESET_STREAM and STOP_SENDING if
-  // close_write_side_only is false, just a RESET_STREAM if
-  // close_write_side_only is true.
-  virtual void SendRstStreamInner(QuicStreamId id,
-                                  QuicRstStreamErrorCode error,
-                                  QuicStreamOffset bytes_written,
-                                  bool close_write_side_only);
-
   // Record errors when a connection is closed at the server side, should only
   // be called from server's perspective.
   // Noop if |error| is QUIC_NO_ERROR.
@@ -460,6 +453,8 @@ class QUIC_EXPORT_PRIVATE QuicSession
   inline QuicTransportVersion transport_version() const {
     return connection_->transport_version();
   }
+
+  inline ParsedQuicVersion version() const { return connection_->version(); }
 
   bool use_http2_priority_write_scheduler() const {
     return use_http2_priority_write_scheduler_;
@@ -477,8 +472,8 @@ class QUIC_EXPORT_PRIVATE QuicSession
 
   // Set the number of unidirectional stream that the peer is allowed to open to
   // be |max_stream| + |num_expected_static_streams_|.
-  void ConfigureMaxIncomingDynamicStreamsToSend(QuicStreamCount max_stream) {
-    config_.SetMaxIncomingUnidirectionalStreamsToSend(
+  void ConfigureMaxDynamicStreamsToSend(QuicStreamCount max_stream) {
+    config_.SetMaxUnidirectionalStreamsToSend(
         max_stream + num_expected_unidirectional_static_streams_);
   }
 
@@ -491,12 +486,12 @@ class QUIC_EXPORT_PRIVATE QuicSession
 
   // Provided a list of ALPNs offered by the client, selects an ALPN from the
   // list, or alpns.end() if none of the ALPNs are acceptable.
-  virtual std::vector<QuicStringPiece>::const_iterator SelectAlpn(
-      const std::vector<QuicStringPiece>& alpns) const;
+  virtual std::vector<quiche::QuicheStringPiece>::const_iterator SelectAlpn(
+      const std::vector<quiche::QuicheStringPiece>& alpns) const;
 
   // Called when the ALPN of the connection is established for a connection that
   // uses TLS handshake.
-  virtual void OnAlpnSelected(QuicStringPiece alpn);
+  virtual void OnAlpnSelected(quiche::QuicheStringPiece alpn);
 
  protected:
   using StreamMap = QuicSmallMap<QuicStreamId, std::unique_ptr<QuicStream>, 10>;
@@ -539,6 +534,10 @@ class QUIC_EXPORT_PRIVATE QuicSession
 
   // Returns the number of open dynamic streams.
   uint64_t GetNumOpenDynamicStreams() const;
+
+  // Returns the maximum bidirectional streams parameter sent with the handshake
+  // as a transport parameter, or in the most recent MAX_STREAMS frame.
+  QuicStreamCount GetAdvertisedMaxIncomingBidirectionalStreams() const;
 
   // Performs the work required to close |stream_id|.  If |locally_reset|
   // then the stream has been reset by this endpoint, not by the peer.
@@ -615,6 +614,8 @@ class QUIC_EXPORT_PRIVATE QuicSession
     return stream_id_manager_;
   }
 
+  QuicDatagramQueue* datagram_queue() { return &datagram_queue_; }
+
   // Processes the stream type information of |pending| depending on
   // different kinds of sessions' own rules. Returns true if the pending stream
   // is converted into a normal stream.
@@ -625,6 +626,14 @@ class QUIC_EXPORT_PRIVATE QuicSession
   // Return the largest peer created stream id depending on directionality
   // indicated by |unidirectional|.
   QuicStreamId GetLargestPeerCreatedStreamId(bool unidirectional) const;
+
+  // Deletes the connection and sets it to nullptr, so calling it mulitiple
+  // times is safe.
+  void DeleteConnection();
+
+  // Call SetPriority() on stream id |id| and return true if stream is active.
+  bool MaybeSetStreamPriority(QuicStreamId stream_id,
+                              const spdy::SpdyStreamPrecedence& precedence);
 
  private:
   friend class test::QuicSessionPeer;
@@ -702,6 +711,10 @@ class QUIC_EXPORT_PRIVATE QuicSession
 
   QuicConnection* connection_;
 
+  // Store perspective on QuicSession during the constructor as it may be needed
+  // during our destructor when connection_ may have already been destroyed.
+  Perspective perspective_;
+
   // May be null.
   Visitor* visitor_;
 
@@ -778,6 +791,9 @@ class QUIC_EXPORT_PRIVATE QuicSession
 
   // Id of latest successfully sent message.
   QuicMessageId last_message_id_;
+
+  // The buffer used to queue the DATAGRAM frames.
+  QuicDatagramQueue datagram_queue_;
 
   // TODO(fayang): switch to linked_hash_set when chromium supports it. The bool
   // is not used here.

@@ -160,7 +160,7 @@ class SDKFetcher(object):
 
   def _RemoveOldCacheDir(self):
     """Deletes old cache directory."""
-    checkout = path_util.DetermineCheckout(os.getcwd())
+    checkout = path_util.DetermineCheckout()
     if checkout.type == path_util.CHECKOUT_TYPE_GCLIENT:
       old_path = os.path.join(checkout.root, path_util.OLD_CHROME_CACHE_DIR)
       osutils.RmDir(old_path, ignore_missing=True)
@@ -228,7 +228,7 @@ class SDKFetcher(object):
       Version number in format '10171.0.0'.
     """
     if not chrome_src_dir:
-      chrome_src_dir = path_util.DetermineCheckout(os.getcwd()).chrome_src_dir
+      chrome_src_dir = path_util.DetermineCheckout().chrome_src_dir
     if not chrome_src_dir:
       return None
     lkgm_file = os.path.join(chrome_src_dir, constants.PATH_TO_CHROME_LKGM)
@@ -763,11 +763,7 @@ class ChromeSDKCommand(command.CliCommand):
     parser.add_argument(
         '--chrome-src', type='path',
         help='Specifies the location of a Chrome src/ directory.  Required if '
-             'running with --clang if not running from a Chrome checkout.')
-    parser.add_argument(
-        '--clang', action='store_true', default=False,
-        help='Sets up the environment for building with clang. For all '
-             'boards, except X86-32, clang is the default.')
+             'not running from a Chrome checkout.')
     parser.add_argument(
         '--cwd', type='path',
         help='Specifies a directory to switch to after setting up the SDK '
@@ -965,7 +961,7 @@ class ChromeSDKCommand(command.CliCommand):
       if v_cur != v_new:
         logging.info('MISMATCHED ARG: %s: %s != %s', k, v_cur, v_new)
 
-  def _SetupTCEnvironment(self, sdk_ctx, options, env, gn_is_clang):
+  def _SetupTCEnvironment(self, sdk_ctx, options, env):
     """Sets up toolchain-related environment variables."""
     target_tc_path = sdk_ctx.key_map[self.sdk.TARGET_TOOLCHAIN_KEY].path
     tc_bin_path = os.path.join(target_tc_path, 'bin')
@@ -975,26 +971,6 @@ class ChromeSDKCommand(command.CliCommand):
       env[var] = self._FixGoldPath(env[var], target_tc_path)
 
     chrome_clang_path = os.path.join(options.chrome_src, self._CHROME_CLANG_DIR)
-
-    # Either we are forcing the use of clang through options or GN
-    # args say we should be using clang.
-    if options.clang or gn_is_clang:
-      clang_prepend_flags = ['-Wno-unknown-warning-option']
-      # crbug.com/686903
-      clang_append_flags = ['-Wno-inline-asm']
-
-      env['CC'] = ' '.join([sdk_ctx.target_tc + '-clang'] +
-                           env['CC'].split()[1:] + clang_prepend_flags)
-      env['CXX'] = ' '.join([sdk_ctx.target_tc + '-clang++'] +
-                            env['CXX'].split()[1:] + clang_prepend_flags)
-      env['CFLAGS'] = ' '.join(env['CFLAGS'].split() + clang_append_flags)
-      env['CXXFLAGS'] = ' '.join(env['CXXFLAGS'].split() + clang_append_flags)
-      env['LD'] = env['CXX']
-
-    # Use cros readelf for the target builds. TODO: Delete it after Jan 2019
-    # since READELF env variable should already be set,
-    # https://crbug.com/917193.
-    env.setdefault('READELF', sdk_ctx.target_tc + '-readelf')
 
     # For host compiler, we use the compiler that comes with Chrome
     # instead of the target compiler.
@@ -1062,23 +1038,31 @@ class ChromeSDKCommand(command.CliCommand):
 
     env = osutils.SourceEnvironment(environment, self.EBUILD_ENV)
     gn_args = gn_helpers.FromGNArgs(env['GN_ARGS'])
-    self._SetupTCEnvironment(sdk_ctx, options, env, gn_args['is_clang'])
+    self._SetupTCEnvironment(sdk_ctx, options, env)
 
     # Add managed components to the PATH.
     env['PATH'] = '%s:%s' % (constants.CHROMITE_BIN_DIR, env['PATH'])
     env['PATH'] = '%s:%s' % (os.path.dirname(self.sdk.gs_ctx.gsutil_bin),
                              env['PATH'])
 
+    # Get SDK version, falling back to previous versions as necessary.
+    full_version = sdk_ctx.version
+    if full_version != CUSTOM_VERSION:
+      full_version = self.sdk.GetFullVersion(sdk_ctx.version)
+    version = full_version
+    if version.startswith('R'):
+      version = version.split('-')[1]
+
     # Export internally referenced variables.
     os.environ[self.sdk.SDK_BOARD_ENV] = board
     if options.sdk_path:
       os.environ[self.sdk.SDK_PATH_ENV] = options.sdk_path
-    os.environ[self.sdk.SDK_VERSION_ENV] = sdk_ctx.version
+    os.environ[self.sdk.SDK_VERSION_ENV] = version
 
     # Add board and sdk version as gn args so that tests can bind them in
     # test wrappers generated at compile time.
     gn_args['cros_board'] = board
-    gn_args['cros_sdk_version'] = sdk_ctx.version
+    gn_args['cros_sdk_version'] = version
 
     # Export the board/version info in a more accessible way, so developers can
     # reference them in their chrome_sdk.bashrc files, as well as within the
@@ -1097,8 +1081,6 @@ class ChromeSDKCommand(command.CliCommand):
 
     gn_args['target_sysroot'] = sysroot
     gn_args.pop('pkg_config', None)
-    if options.clang:
-      gn_args['is_clang'] = True
     if options.internal:
       gn_args['is_chrome_branded'] = True
       gn_args['is_official_build'] = True
@@ -1111,13 +1093,6 @@ class ChromeSDKCommand(command.CliCommand):
     # We should not use the binutils from the host system.
     gn_args['linux_use_bundled_binutils'] = True
 
-    # Need to reset these after the env vars have been fixed by
-    # _SetupTCEnvironment.
-    gn_args['cros_host_is_clang'] = True
-    # v8 snapshot is built on the host, so we need to set this.
-    # See crosbug/618346.
-    gn_args['cros_v8_snapshot_is_clang'] = True
-    #
     target_tc_path = sdk_ctx.key_map[self.sdk.TARGET_TOOLCHAIN_KEY].path
     modified_env_cc = self._ModifyPathForGomaBuild(env['CC'], target_tc_path)
     modified_env_cxx = self._ModifyPathForGomaBuild(env['CXX'], target_tc_path)
@@ -1207,9 +1182,6 @@ class ChromeSDKCommand(command.CliCommand):
     env['GN_ARGS'] = gn_args_env
 
     # PS1 sets the command line prompt and xterm window caption.
-    full_version = sdk_ctx.version
-    if full_version != CUSTOM_VERSION:
-      full_version = self.sdk.GetFullVersion(sdk_ctx.version)
     env['PS1'] = self._CreatePS1(self.board, full_version,
                                  chroot=options.chroot)
 
@@ -1330,7 +1302,7 @@ class ChromeSDKCommand(command.CliCommand):
           with osutils.ChdirContext(tempdir):
             try:
               result = retry_util.RunCurl(['--fail', self._GOMA_DOWNLOAD_URL],
-                                          redirect_stdout=True)
+                                          stdout=True)
               if result.returncode:
                 raise GomaError('Failed to fetch Goma Download URL')
               download_url = result.output.strip()
@@ -1378,9 +1350,6 @@ class ChromeSDKCommand(command.CliCommand):
     if not checkout.chrome_src_dir:
       cros_build_lib.Die('Chrome checkout not found at %s', src_path)
     self.options.chrome_src = checkout.chrome_src_dir
-
-    if self.options.clang and not self.options.chrome_src:
-      cros_build_lib.Die('--clang requires --chrome-src to be set.')
 
     if self.options.version and self.options.sdk_path:
       cros_build_lib.Die('Cannot specify both --version and --sdk-path.')
@@ -1450,6 +1419,6 @@ class ChromeSDKCommand(command.CliCommand):
 
         cmd_result = cros_build_lib.run(
             bash_cmd, print_cmd=False, debug_level=logging.CRITICAL,
-            error_code_ok=True, extra_env=extra_env, cwd=self.options.cwd)
+            check=False, extra_env=extra_env, cwd=self.options.cwd)
         if self.options.cmd:
           return cmd_result.returncode

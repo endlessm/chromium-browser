@@ -7,10 +7,10 @@
 #include "discovery/mdns/mdns_reader.h"
 #include "util/trace_logging.h"
 
-using openscreen::platform::TraceCategory;
-
 namespace openscreen {
 namespace discovery {
+
+MdnsReceiver::ResponseClient::~ResponseClient() = default;
 
 MdnsReceiver::MdnsReceiver(UdpSocket* socket) : socket_(socket) {
   OSP_DCHECK(socket_);
@@ -20,6 +20,8 @@ MdnsReceiver::~MdnsReceiver() {
   if (state_ == State::kRunning) {
     Stop();
   }
+
+  OSP_DCHECK(response_clients_.empty());
 }
 
 void MdnsReceiver::SetQueryCallback(
@@ -30,13 +32,20 @@ void MdnsReceiver::SetQueryCallback(
   query_callback_ = callback;
 }
 
-void MdnsReceiver::SetResponseCallback(
-    std::function<void(const MdnsMessage&)> callback) {
-  // This check verifies that either new or stored callback has a target. It
-  // will fail in case multiple objects try to set or clear the callback.
-  OSP_DCHECK(static_cast<bool>(response_callback_) !=
-             static_cast<bool>(callback));
-  response_callback_ = callback;
+void MdnsReceiver::AddResponseCallback(ResponseClient* callback) {
+  auto it =
+      std::find(response_clients_.begin(), response_clients_.end(), callback);
+  OSP_DCHECK(it == response_clients_.end());
+
+  response_clients_.push_back(callback);
+}
+
+void MdnsReceiver::RemoveResponseCallback(ResponseClient* callback) {
+  auto it =
+      std::find(response_clients_.begin(), response_clients_.end(), callback);
+  OSP_DCHECK(it != response_clients_.end());
+
+  response_clients_.erase(it);
 }
 
 void MdnsReceiver::Start() {
@@ -63,8 +72,8 @@ void MdnsReceiver::OnRead(UdpSocket* socket,
   }
 
   if (message.type() == MessageType::Response) {
-    if (response_callback_) {
-      response_callback_(message);
+    for (ResponseClient* client : response_clients_) {
+      client->OnMessageReceived(message);
     }
   } else {
     if (query_callback_) {

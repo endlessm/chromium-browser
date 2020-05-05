@@ -28,13 +28,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import {Database, DatabaseId, Entry, Index, IndexedDBModel, ObjectStore} from './IndexedDBModel.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-Resources.IDBDatabaseView = class extends UI.VBox {
+export class IDBDatabaseView extends UI.VBox {
   /**
-   * @param {!Resources.IndexedDBModel} model
-   * @param {?Resources.IndexedDBModel.Database} database
+   * @param {!IndexedDBModel} model
+   * @param {?Database} database
    */
   constructor(model, database) {
     super();
@@ -74,7 +76,7 @@ Resources.IDBDatabaseView = class extends UI.VBox {
   }
 
   /**
-   * @param {!Resources.IndexedDBModel.Database} database
+   * @param {!Database} database
    */
   update(database) {
     this._database = database;
@@ -94,17 +96,17 @@ Resources.IDBDatabaseView = class extends UI.VBox {
       this._model.deleteDatabase(this._database.databaseId);
     }
   }
-};
+}
 
 /**
  * @unrestricted
  */
-Resources.IDBDataView = class extends UI.SimpleView {
+export class IDBDataView extends UI.SimpleView {
   /**
-   * @param {!Resources.IndexedDBModel} model
-   * @param {!Resources.IndexedDBModel.DatabaseId} databaseId
-   * @param {!Resources.IndexedDBModel.ObjectStore} objectStore
-   * @param {?Resources.IndexedDBModel.Index} index
+   * @param {!IndexedDBModel} model
+   * @param {!DatabaseId} databaseId
+   * @param {!ObjectStore} objectStore
+   * @param {?Index} index
    * @param {function()} refreshObjectStoreCallback
    */
   constructor(model, databaseId, objectStore, index, refreshObjectStoreCallback) {
@@ -147,7 +149,7 @@ Resources.IDBDataView = class extends UI.SimpleView {
   _createDataGrid() {
     const keyPath = this._isIndex ? this._index.keyPath : this._objectStore.keyPath;
 
-    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([]);
+    const columns = /** @type {!Array<!DataGrid.ColumnDescriptor>} */ ([]);
     columns.push({id: 'number', title: Common.UIString('#'), sortable: false, width: '50px'});
     columns.push(
         {id: 'key', titleDOMFragment: this._keyColumnHeaderFragment(Common.UIString('Key'), keyPath), sortable: false});
@@ -160,8 +162,12 @@ Resources.IDBDataView = class extends UI.SimpleView {
     }
     columns.push({id: 'value', title: Common.UIString('Value'), sortable: false});
 
-    const dataGrid = new DataGrid.DataGrid(
-        columns, undefined, this._deleteButtonClicked.bind(this), this._updateData.bind(this, true));
+    const dataGrid = new DataGrid.DataGrid({
+      displayName: ls`Indexed DB`,
+      columns,
+      deleteCallback: this._deleteButtonClicked.bind(this),
+      refreshCallback: this._updateData.bind(this, true)
+    });
     dataGrid.setStriped(true);
     dataGrid.addEventListener(DataGrid.DataGrid.Events.SelectedNode, event => this._updateToolbarEnablement(), this);
     return dataGrid;
@@ -257,7 +263,7 @@ Resources.IDBDataView = class extends UI.SimpleView {
    * @param {!DataGrid.DataGridNode} gridNode
    */
   _populateContextMenu(contextMenu, gridNode) {
-    const node = /** @type {!Resources.IDBDataGridNode} */ (gridNode);
+    const node = /** @type {!IDBDataGridNode} */ (gridNode);
     if (node.valueObjectPresentation) {
       contextMenu.revealSection().appendItem(ls`Expand Recursively`, () => {
         node.valueObjectPresentation.objectTreeElement().expandRecursively();
@@ -273,8 +279,8 @@ Resources.IDBDataView = class extends UI.SimpleView {
   }
 
   /**
-   * @param {!Resources.IndexedDBModel.ObjectStore} objectStore
-   * @param {?Resources.IndexedDBModel.Index} index
+   * @param {!ObjectStore} objectStore
+   * @param {?Index} index
    */
   update(objectStore, index) {
     this._objectStore = objectStore;
@@ -329,9 +335,9 @@ Resources.IDBDataView = class extends UI.SimpleView {
     this._lastSkipCount = skipCount;
 
     /**
-     * @param {!Array.<!Resources.IndexedDBModel.Entry>} entries
+     * @param {!Array.<!Entry>} entries
      * @param {boolean} hasMore
-     * @this {Resources.IDBDataView}
+     * @this {IDBDataView}
      */
     function callback(entries, hasMore) {
       this._refreshButton.setEnabled(true);
@@ -345,7 +351,7 @@ Resources.IDBDataView = class extends UI.SimpleView {
         data['primaryKey'] = entries[i].primaryKey;
         data['value'] = entries[i].value;
 
-        const node = new Resources.IDBDataGridNode(data);
+        const node = new IDBDataGridNode(data);
         this._dataGrid.rootNode().appendChild(node);
         if (data['number'] <= selected) {
           selectedNode = node;
@@ -448,12 +454,12 @@ Resources.IDBDataView = class extends UI.SimpleView {
     this._clearButton.setEnabled(!empty);
     this._deleteSelectedButton.setEnabled(!empty && this._dataGrid.selectedNode !== null);
   }
-};
+}
 
 /**
  * @unrestricted
  */
-Resources.IDBDataGridNode = class extends DataGrid.DataGridNode {
+export class IDBDataGridNode extends DataGrid.DataGridNode {
   /**
    * @param {!Object.<string, *>} data
    */
@@ -492,4 +498,4 @@ Resources.IDBDataGridNode = class extends DataGrid.DataGridNode {
 
     return cell;
   }
-};
+}

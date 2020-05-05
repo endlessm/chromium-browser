@@ -3,7 +3,7 @@
 #
 
 
-# Copyright (C) 1996-2019 by
+# Copyright (C) 1996-2020 by
 # David Turner, Robert Wilhelm, and Werner Lemberg.
 #
 # This file is part of the FreeType project, and may only be used, modified,
@@ -104,7 +104,7 @@ CONFIG_DIR   := $(PUBLIC_DIR)/config
 
 # The documentation directory.
 #
-DOC_DIR ?= $(TOP_DIR)/docs/reference
+DOC_DIR ?= $(TOP_DIR)/docs
 
 # The final name of the library file.
 #
@@ -301,6 +301,7 @@ refdoc:
 	$(PYTHON) -m docwriter \
                   --prefix=ft2 \
                   --title=FreeType-$(version) \
+                  --site=reference \
                   --output=$(DOC_DIR) \
                   $(PUBLIC_DIR)/*.h \
                   $(PUBLIC_DIR)/config/*.h \
@@ -329,6 +330,7 @@ refdoc-venv:
 	$(ENV_PYTHON) -m docwriter \
                       --prefix=ft2 \
                       --title=FreeType-$(version) \
+                      --site=reference \
                       --output=$(DOC_DIR) \
                       $(PUBLIC_DIR)/*.h \
                       $(PUBLIC_DIR)/config/*.h \

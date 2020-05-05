@@ -17,25 +17,27 @@ import sys
 import tempfile
 import unittest
 
+if sys.version_info.major == 2:
+  from StringIO import StringIO
+  import mock
+else:
+  from io import StringIO
+  from unittest import mock
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from testing_support.auto_stub import TestCase
-from third_party import mock
 
 import metrics
 # We have to disable monitoring before importing git_cl.
 metrics.DISABLE_METRICS_COLLECTION = True
 
+import clang_format
 import gerrit_util
 import git_cl
 import git_common
 import git_footers
 import subprocess2
-
-if sys.version_info.major == 2:
-  from StringIO import StringIO
-else:
-  from io import StringIO
 
 
 def callError(code=1, cmd='', cwd='', stdout=b'', stderr=b''):
@@ -915,7 +917,7 @@ class TestGitCl(TestCase):
                            short_hostname='chromium',
                            labels=None, change_id=None, original_title=None,
                            final_description=None, gitcookies_exists=True,
-                           force=False):
+                           force=False, edit_description=None):
     if post_amend_description is None:
       post_amend_description = description
     cc = cc or []
@@ -981,6 +983,13 @@ class TestGitCl(TestCase):
             ((['git', 'config', 'core.editor'],), ''),
             ((['RunEditor'],), description),
           ]
+      # user wants to edit description
+      if edit_description:
+        calls += [
+          ((['git', 'config', 'rietveld.bug-prefix'],), ''),
+          ((['git', 'config', 'core.editor'],), ''),
+          ((['RunEditor'],), edit_description),
+        ]
       ref_to_push = 'abcdef0123456789'
       calls += [
         ((['git', 'config', 'branch.master.merge'],), 'refs/heads/master'),
@@ -1238,6 +1247,7 @@ class TestGitCl(TestCase):
       final_description=None,
       gitcookies_exists=True,
       force=False,
+      edit_description=None,
       fetched_description=None):
     """Generic gerrit upload test framework."""
     if squash_mode is None:
@@ -1309,7 +1319,8 @@ class TestGitCl(TestCase):
           original_title=original_title,
           final_description=final_description,
           gitcookies_exists=gitcookies_exists,
-          force=force)
+          force=force,
+          edit_description=edit_description)
     # Uncomment when debugging.
     # print('\n'.join(map(lambda x: '%2i: %s' % x, enumerate(self.calls))))
     git_cl.main(['upload'] + upload_args)
@@ -1528,6 +1539,21 @@ class TestGitCl(TestCase):
         'authenticate to Gerrit as yet-another@example.com.\n'
         'Uploading may fail due to lack of permissions',
         git_cl.sys.stdout.getvalue())
+
+  def test_upload_change_description_editor(self):
+    fetched_description = 'foo\n\nChange-Id: 123456789'
+    description = 'bar\n\nChange-Id: 123456789'
+    self._run_gerrit_upload_test(
+        ['--squash', '--edit-description'],
+        description,
+        [],
+        fetched_description=fetched_description,
+        squash=True,
+        expected_upstream_ref='origin/master',
+        issue=123456,
+        change_id='123456789',
+        original_title='User input',
+        edit_description=description)
 
   def test_upload_branch_deps(self):
     self.mock(git_cl.sys, 'stdout', StringIO())
@@ -2068,6 +2094,23 @@ class TestGitCl(TestCase):
         ((['git', 'config', 'branch.master.merge'],), 'refs/heads/master'),
         ((['git', 'config', 'branch.master.remote'],), 'origin'),
         ((['git', 'config', 'remote.origin.url'],), 'custom-scheme://repo'),
+    ]
+    self.mock(git_cl.gerrit_util, 'CookiesAuthenticator',
+              CookiesAuthenticatorMockFactory(hosts_with_creds={}))
+    cl = git_cl.Changelist()
+    cl.branch = 'master'
+    cl.branchref = 'refs/heads/master'
+    cl.lookedup_issue = True
+    self.assertIsNone(cl.EnsureAuthenticated(force=False))
+
+  def test_gerrit_ensure_authenticated_non_url(self):
+    self.calls = [
+        ((['git', 'config', '--bool', 'gerrit.skip-ensure-authenticated'], ),
+         CERR1),
+        ((['git', 'config', 'branch.master.merge'], ), 'refs/heads/master'),
+        ((['git', 'config', 'branch.master.remote'], ), 'origin'),
+        ((['git', 'config', 'remote.origin.url'], ),
+         'git@somehost.example:foo/bar.git'),
     ]
     self.mock(git_cl.gerrit_util, 'CookiesAuthenticator',
               CookiesAuthenticatorMockFactory(hosts_with_creds={}))
@@ -3301,6 +3344,83 @@ class CMDTryTestCase(CMDTestCaseBase):
     mockCallBuildbucket.assert_called_with(
         mock.ANY, 'cr-buildbucket.appspot.com', 'Batch', expected_request)
 
+  @mock.patch('git_cl._call_buildbucket')
+  def testScheduleOnBuildbucketWithRevision(self, mockCallBuildbucket):
+    mockCallBuildbucket.return_value = {}
+
+    self.assertEqual(0, git_cl.main([
+        'try', '-B', 'luci.chromium.try', '-b', 'win', '-b', 'linux',
+        '-p', 'key=val', '-p', 'json=[{"a":1}, null]',
+        '-r', 'beeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeef']))
+    self.assertIn(
+        'Scheduling jobs on:\nBucket: luci.chromium.try',
+        git_cl.sys.stdout.getvalue())
+
+    expected_request = {
+        "requests": [{
+            "scheduleBuild": {
+                "requestId": "uuid4",
+                "builder": {
+                    "project": "chromium",
+                    "builder": "linux",
+                    "bucket": "try",
+                },
+                "gerritChanges": [{
+                    "project": "depot_tools",
+                    "host": "chromium-review.googlesource.com",
+                    "patchset": 7,
+                    "change": 123456,
+                }],
+                "properties": {
+                    "category": "git_cl_try",
+                    "json": [{"a": 1}, None],
+                    "key": "val",
+                },
+                "tags": [
+                    {"value": "linux", "key": "builder"},
+                    {"value": "git_cl_try", "key": "user_agent"},
+                ],
+                "gitilesCommit": {
+                    "host": "chromium-review.googlesource.com",
+                    "project": "depot_tools",
+                    "id": "beeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeef",
+                }
+            },
+        },
+        {
+            "scheduleBuild": {
+                "requestId": "uuid4",
+                "builder": {
+                    "project": "chromium",
+                    "builder": "win",
+                    "bucket": "try",
+                },
+                "gerritChanges": [{
+                    "project": "depot_tools",
+                    "host": "chromium-review.googlesource.com",
+                    "patchset": 7,
+                    "change": 123456,
+                }],
+                "properties": {
+                    "category": "git_cl_try",
+                    "json": [{"a": 1}, None],
+                    "key": "val",
+                },
+                "tags": [
+                    {"value": "win", "key": "builder"},
+                    {"value": "git_cl_try", "key": "user_agent"},
+                ],
+                "gitilesCommit": {
+                    "host": "chromium-review.googlesource.com",
+                    "project": "depot_tools",
+                    "id": "beeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeef",
+                }
+            },
+        }],
+    }
+    mockCallBuildbucket.assert_called_with(
+        mock.ANY, 'cr-buildbucket.appspot.com', 'Batch', expected_request)
+
   def testScheduleOnBuildbucket_WrongBucket(self):
     self.assertEqual(0, git_cl.main([
         'try', '-B', 'not-a-bucket', '-b', 'win',
@@ -3440,19 +3560,61 @@ class CMDFormatTestCase(TestCase):
 
   def setUp(self):
     super(CMDFormatTestCase, self).setUp()
+    mock.patch('git_cl.RunCommand').start()
+    mock.patch('clang_format.FindClangFormatToolInChromiumTree').start()
+    mock.patch('clang_format.FindClangFormatScriptInChromiumTree').start()
+    mock.patch('git_cl.settings').start()
     self._top_dir = tempfile.mkdtemp()
+    self.addCleanup(mock.patch.stopall)
 
   def tearDown(self):
     shutil.rmtree(self._top_dir)
     super(CMDFormatTestCase, self).tearDown()
 
+  def _make_temp_file(self, fname, contents):
+    with open(os.path.join(self._top_dir, fname), 'w') as tf:
+      tf.write('\n'.join(contents))
+
   def _make_yapfignore(self, contents):
-    with open(os.path.join(self._top_dir, '.yapfignore'), 'w') as yapfignore:
-      yapfignore.write('\n'.join(contents))
+    self._make_temp_file('.yapfignore', contents)
 
   def _check_yapf_filtering(self, files, expected):
     self.assertEqual(expected, git_cl._FilterYapfIgnoredFiles(
         files, git_cl._GetYapfIgnorePatterns(self._top_dir)))
+
+  def testClangFormatDiffFull(self):
+    self._make_temp_file('test.cc', ['// test'])
+    git_cl.settings.GetFormatFullByDefault.return_value = False
+    diff_file = [os.path.join(self._top_dir, 'test.cc')]
+    mock_opts = mock.Mock(full=True, dry_run=True, diff=False)
+
+    # Diff
+    git_cl.RunCommand.return_value = '  // test'
+    return_value = git_cl._RunClangFormatDiff(mock_opts, diff_file,
+                                              self._top_dir, 'HEAD')
+    self.assertEqual(2, return_value)
+
+    # No diff
+    git_cl.RunCommand.return_value = '// test'
+    return_value = git_cl._RunClangFormatDiff(mock_opts, diff_file,
+                                              self._top_dir, 'HEAD')
+    self.assertEqual(0, return_value)
+
+  def testClangFormatDiff(self):
+    git_cl.settings.GetFormatFullByDefault.return_value = False
+    mock_opts = mock.Mock(full=False, dry_run=True, diff=False)
+
+    # Diff
+    git_cl.RunCommand.return_value = 'error'
+    return_value = git_cl._RunClangFormatDiff(mock_opts, ['.'], self._top_dir,
+                                              'HEAD')
+    self.assertEqual(2, return_value)
+
+    # No diff
+    git_cl.RunCommand.return_value = ''
+    return_value = git_cl._RunClangFormatDiff(mock_opts, ['.'], self._top_dir,
+                                              'HEAD')
+    self.assertEqual(0, return_value)
 
   def testYapfignoreExplicit(self):
     self._make_yapfignore(['foo/bar.py', 'foo/bar/baz.py'])

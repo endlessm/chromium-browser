@@ -72,9 +72,13 @@ def Update(input_proto, output_proto, _config):
   """
   build_source = input_proto.flags.build_source
   targets = [target.name for target in input_proto.toolchain_targets]
+  toolchain_changed = input_proto.flags.toolchain_changed
 
-  args = sdk.UpdateArguments(build_source=build_source,
-                             toolchain_targets=targets)
+  args = sdk.UpdateArguments(
+      build_source=build_source,
+      toolchain_targets=targets,
+      toolchain_changed=toolchain_changed)
+
   version = sdk.Update(args)
 
   if version:
@@ -91,3 +95,19 @@ def Delete(input_proto, _output_proto, _config):
   """Delete a chroot."""
   chroot = controller_util.ParseChroot(input_proto.chroot)
   sdk.Delete(chroot)
+
+
+@faux.all_empty
+@validate.validation_complete
+def Unmount(input_proto, _output_proto, _config):
+  """Unmount a chroot"""
+  chroot = controller_util.ParseChroot(input_proto.chroot)
+  sdk.Unmount(chroot)
+
+
+@faux.all_empty
+@validate.validation_complete
+def Clean(input_proto, _output_proto, _config):
+  """Clean unneeded files from a chroot."""
+  chroot = controller_util.ParseChroot(input_proto.chroot)
+  sdk.Clean(chroot, sysroots=True)

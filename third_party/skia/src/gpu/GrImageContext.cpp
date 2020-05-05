@@ -10,7 +10,7 @@
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrImageContextPriv.h"
 #include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrSkSLFPFactoryCache.h"
+#include "src/gpu/effects/GrSkSLFP.h"
 
 #define ASSERT_SINGLE_OWNER \
     SkDEBUGCODE(GrSingleOwner::AutoEnforce debug_SingleOwner(this->singleOwner());)
@@ -40,8 +40,4 @@ bool GrImageContext::abandoned() const {
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 sk_sp<const GrCaps> GrImageContextPriv::refCaps() const {
     return fContext->refCaps();
-}
-
-sk_sp<GrSkSLFPFactoryCache> GrImageContextPriv::fpFactoryCache() {
-    return fContext->fpFactoryCache();
 }

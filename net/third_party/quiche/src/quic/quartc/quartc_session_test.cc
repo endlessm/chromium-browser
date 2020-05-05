@@ -23,6 +23,8 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/packet_filter.h"
 #include "net/third_party/quiche/src/quic/test_tools/simulator/simulator.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -41,7 +43,8 @@ constexpr QuicTime::Delta kPropagationDelayAndABit =
 
 static QuicByteCount kDefaultMaxPacketSize = 1200;
 
-test::QuicTestMemSliceVector CreateMemSliceVector(QuicStringPiece data) {
+test::QuicTestMemSliceVector CreateMemSliceVector(
+    quiche::QuicheStringPiece data) {
   return test::QuicTestMemSliceVector(
       {std::pair<char*, size_t>(const_cast<char*>(data.data()), data.size())});
 }
@@ -51,6 +54,9 @@ class QuartcSessionTest : public QuicTest {
   ~QuartcSessionTest() override {}
 
   void Init(bool create_client_endpoint = true) {
+    // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
+    SetQuicReloadableFlag(quic_enable_version_t099, false);
+
     client_transport_ =
         std::make_unique<simulator::SimulatedQuartcPacketTransport>(
             &simulator_, "client_transport", "server_transport",
@@ -116,16 +122,16 @@ class QuartcSessionTest : public QuicTest {
 
   void AwaitHandshake() {
     simulator_.RunUntil([this] {
-      return client_peer_->IsCryptoHandshakeConfirmed() &&
-             server_peer_->IsCryptoHandshakeConfirmed();
+      return client_peer_->OneRttKeysAvailable() &&
+             server_peer_->OneRttKeysAvailable();
     });
   }
 
   // Test handshake establishment and sending/receiving of data for two
   // directions.
   void TestSendReceiveStreams() {
-    ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
-    ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
+    ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
+    ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
     ASSERT_TRUE(server_peer_->IsEncryptionEstablished());
     ASSERT_TRUE(client_peer_->IsEncryptionEstablished());
 
@@ -243,8 +249,8 @@ class QuartcSessionTest : public QuicTest {
     std::vector<int64_t> sent_datagram_ids;
     int64_t current_datagram_id = 0;
     while (peer_sending->send_message_queue_size() < queue_size) {
-      sent_messages.push_back(
-          QuicStrCat("Sending message, index=", sent_messages.size()));
+      sent_messages.push_back(quiche::QuicheStrCat("Sending message, index=",
+                                                   sent_messages.size()));
       ASSERT_TRUE(peer_sending->SendOrQueueMessage(
           CreateMemSliceVector(sent_messages.back()).span(),
           current_datagram_id));
@@ -302,10 +308,10 @@ class QuartcSessionTest : public QuicTest {
     EXPECT_TRUE(!server_session_delegate_->connected());
 
     EXPECT_FALSE(client_peer_->IsEncryptionEstablished());
-    EXPECT_FALSE(client_peer_->IsCryptoHandshakeConfirmed());
+    EXPECT_FALSE(client_peer_->OneRttKeysAvailable());
 
     EXPECT_FALSE(server_peer_->IsEncryptionEstablished());
-    EXPECT_FALSE(server_peer_->IsCryptoHandshakeConfirmed());
+    EXPECT_FALSE(server_peer_->OneRttKeysAvailable());
   }
 
  protected:
@@ -336,7 +342,7 @@ TEST_F(QuartcSessionTest, SendReceiveStreams) {
 
 TEST_F(QuartcSessionTest, SendReceiveMessages) {
   // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_99, false);
+  SetQuicReloadableFlag(quic_enable_version_t099, false);
 
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
@@ -345,7 +351,7 @@ TEST_F(QuartcSessionTest, SendReceiveMessages) {
 
 TEST_F(QuartcSessionTest, SendReceiveQueuedMessages) {
   // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_99, false);
+  SetQuicReloadableFlag(quic_enable_version_t099, false);
 
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
@@ -406,7 +412,7 @@ TEST_F(QuartcSessionTest, TestCryptoHandshakeCanWriteTriggers) {
 
 TEST_F(QuartcSessionTest, PreSharedKeyHandshake) {
   // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_99, false);
+  SetQuicReloadableFlag(quic_enable_version_t099, false);
 
   QuartcSessionConfig config;
   config.pre_shared_key = "foo";
@@ -426,8 +432,8 @@ TEST_F(QuartcSessionTest, CannotCreateDataStreamBeforeHandshake) {
 TEST_F(QuartcSessionTest, CancelQuartcStream) {
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
-  ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
-  ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
+  ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
+  ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
 
   QuartcStream* stream = client_peer_->CreateOutgoingBidirectionalStream();
   ASSERT_NE(nullptr, stream);
@@ -448,8 +454,8 @@ TEST_F(QuartcSessionTest, CancelQuartcStream) {
 TEST_F(QuartcSessionTest, WriterGivesPacketNumberToTransport) {
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
-  ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
-  ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
+  ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
+  ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
 
   QuartcStream* stream = client_peer_->CreateOutgoingBidirectionalStream();
   stream->SetDelegate(client_stream_delegate_.get());
@@ -467,8 +473,8 @@ TEST_F(QuartcSessionTest, WriterGivesPacketNumberToTransport) {
 TEST_F(QuartcSessionTest, CloseConnection) {
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
-  ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
-  ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
+  ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
+  ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
 
   client_peer_->CloseConnection("Connection closed by client");
   EXPECT_FALSE(client_session_delegate_->connected());
@@ -479,8 +485,8 @@ TEST_F(QuartcSessionTest, CloseConnection) {
 TEST_F(QuartcSessionTest, StreamRetransmissionEnabled) {
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
-  ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
-  ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
+  ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
+  ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
 
   QuartcStream* stream = client_peer_->CreateOutgoingBidirectionalStream();
   QuicStreamId stream_id = stream->id();
@@ -510,8 +516,8 @@ TEST_F(QuartcSessionTest, StreamRetransmissionDisabled) {
   client_peer_->connection()->set_fill_up_link_during_probing(false);
 
   AwaitHandshake();
-  ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
-  ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
+  ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
+  ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
 
   // The client sends an ACK for the crypto handshake next.  This must be
   // flushed before we set the filter to drop the next packet, in order to
@@ -552,7 +558,7 @@ TEST_F(QuartcSessionTest, StreamRetransmissionDisabled) {
 
 TEST_F(QuartcSessionTest, LostDatagramNotifications) {
   // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_99, false);
+  SetQuicReloadableFlag(quic_enable_version_t099, false);
 
   // Disable tail loss probe, otherwise test maybe flaky because dropped
   // message will be retransmitted to detect tail loss.
@@ -566,8 +572,8 @@ TEST_F(QuartcSessionTest, LostDatagramNotifications) {
   server_peer_->connection()->set_fill_up_link_during_probing(false);
 
   AwaitHandshake();
-  ASSERT_TRUE(client_peer_->IsCryptoHandshakeConfirmed());
-  ASSERT_TRUE(server_peer_->IsCryptoHandshakeConfirmed());
+  ASSERT_TRUE(client_peer_->OneRttKeysAvailable());
+  ASSERT_TRUE(server_peer_->OneRttKeysAvailable());
 
   // The client sends an ACK for the crypto handshake next.  This must be
   // flushed before we set the filter to drop the next packet, in order to

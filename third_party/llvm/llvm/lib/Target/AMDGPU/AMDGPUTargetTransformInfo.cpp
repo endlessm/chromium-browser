@@ -69,6 +69,11 @@ static cl::opt<unsigned> UnrollThresholdIf(
   cl::desc("Unroll threshold increment for AMDGPU for each if statement inside loop"),
   cl::init(150), cl::Hidden);
 
+static cl::opt<bool> UseLegacyDA(
+  "amdgpu-use-legacy-divergence-analysis",
+  cl::desc("Enable legacy divergence analysis for AMDGPU"),
+  cl::init(false), cl::Hidden);
+
 static bool dependsOnLocalPhi(const Loop *L, const Value *Cond,
                               unsigned Depth = 0) {
   const Instruction *I = dyn_cast<Instruction>(Cond);
@@ -338,10 +343,13 @@ bool GCNTTIImpl::getTgtMemIntrinsic(IntrinsicInst *Inst,
   }
 }
 
-int GCNTTIImpl::getArithmeticInstrCost(
-    unsigned Opcode, Type *Ty, TTI::OperandValueKind Opd1Info,
-    TTI::OperandValueKind Opd2Info, TTI::OperandValueProperties Opd1PropInfo,
-    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args ) {
+int GCNTTIImpl::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
+                                       TTI::OperandValueKind Opd1Info,
+                                       TTI::OperandValueKind Opd2Info,
+                                       TTI::OperandValueProperties Opd1PropInfo,
+                                       TTI::OperandValueProperties Opd2PropInfo,
+                                       ArrayRef<const Value *> Args,
+                                       const Instruction *CxtI) {
   EVT OrigTy = TLI->getValueType(DL, Ty);
   if (!OrigTy.isSimple()) {
     return BaseT::getArithmeticInstrCost(Opcode, Ty, Opd1Info, Opd2Info,
@@ -366,6 +374,9 @@ int GCNTTIImpl::getArithmeticInstrCost(
     if (SLT == MVT::i64)
       return get64BitInstrCost() * LT.first * NElts;
 
+    if (ST->has16BitInsts() && SLT == MVT::i16)
+      NElts = (NElts + 1) / 2;
+
     // i32
     return getFullRateInstrCost() * LT.first * NElts;
   case ISD::ADD:
@@ -373,10 +384,13 @@ int GCNTTIImpl::getArithmeticInstrCost(
   case ISD::AND:
   case ISD::OR:
   case ISD::XOR:
-    if (SLT == MVT::i64){
+    if (SLT == MVT::i64) {
       // and, or and xor are typically split into 2 VALU instructions.
       return 2 * getFullRateInstrCost() * LT.first * NElts;
     }
+
+    if (ST->has16BitInsts() && SLT == MVT::i16)
+      NElts = (NElts + 1) / 2;
 
     return LT.first * NElts * getFullRateInstrCost();
   case ISD::MUL: {
@@ -386,6 +400,9 @@ int GCNTTIImpl::getArithmeticInstrCost(
       return (4 * QuarterRateCost + (2 * 2) * FullRateCost) * LT.first * NElts;
     }
 
+    if (ST->has16BitInsts() && SLT == MVT::i16)
+      NElts = (NElts + 1) / 2;
+
     // i32
     return QuarterRateCost * NElts * LT.first;
   }
@@ -394,6 +411,9 @@ int GCNTTIImpl::getArithmeticInstrCost(
   case ISD::FMUL:
     if (SLT == MVT::f64)
       return LT.first * NElts * get64BitInstrCost();
+
+    if (ST->has16BitInsts() && SLT == MVT::f16)
+      NElts = (NElts + 1) / 2;
 
     if (SLT == MVT::f32 || SLT == MVT::f16)
       return LT.first * NElts * getFullRateInstrCost();
@@ -446,6 +466,49 @@ int GCNTTIImpl::getArithmeticInstrCost(
 
   return BaseT::getArithmeticInstrCost(Opcode, Ty, Opd1Info, Opd2Info,
                                        Opd1PropInfo, Opd2PropInfo);
+}
+
+template <typename T>
+int GCNTTIImpl::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
+                                      ArrayRef<T *> Args,
+                                      FastMathFlags FMF, unsigned VF) {
+  if (ID != Intrinsic::fma)
+    return BaseT::getIntrinsicInstrCost(ID, RetTy, Args, FMF, VF);
+
+  EVT OrigTy = TLI->getValueType(DL, RetTy);
+  if (!OrigTy.isSimple()) {
+    return BaseT::getIntrinsicInstrCost(ID, RetTy, Args, FMF, VF);
+  }
+
+  // Legalize the type.
+  std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, RetTy);
+
+  unsigned NElts = LT.second.isVector() ?
+    LT.second.getVectorNumElements() : 1;
+
+  MVT::SimpleValueType SLT = LT.second.getScalarType().SimpleTy;
+
+  if (SLT == MVT::f64)
+    return LT.first * NElts * get64BitInstrCost();
+
+  if (ST->has16BitInsts() && SLT == MVT::f16)
+    NElts = (NElts + 1) / 2;
+
+  return LT.first * NElts * (ST->hasFastFMAF32() ? getHalfRateInstrCost()
+                                                 : getQuarterRateInstrCost());
+}
+
+int GCNTTIImpl::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
+                                      ArrayRef<Value*> Args, FastMathFlags FMF,
+                                      unsigned VF) {
+  return getIntrinsicInstrCost<Value>(ID, RetTy, Args, FMF, VF);
+}
+
+int GCNTTIImpl::getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
+                                      ArrayRef<Type *> Tys, FastMathFlags FMF,
+                                      unsigned ScalarizationCostPassed) {
+  return getIntrinsicInstrCost<Type>(ID, RetTy, Tys, FMF,
+                                     ScalarizationCostPassed);
 }
 
 unsigned GCNTTIImpl::getCFInstrCost(unsigned Opcode) {
@@ -541,6 +604,11 @@ static bool isArgPassedInSGPR(const Argument *A) {
     // TODO: Should calls support inreg for SGPR inputs?
     return false;
   }
+}
+
+/// \returns true if the new GPU divergence analysis is enabled.
+bool GCNTTIImpl::useGPUDivergenceAnalysis() const {
+  return !UseLegacyDA;
 }
 
 /// \returns true if the result of the value could potentially be
@@ -801,7 +869,7 @@ unsigned GCNTTIImpl::getUserCost(const User *U,
   case Instruction::FNeg: {
     return getArithmeticInstrCost(I->getOpcode(), I->getType(),
                                   TTI::OK_AnyValue, TTI::OK_AnyValue,
-                                  TTI::OP_None, TTI::OP_None, Operands);
+                                  TTI::OP_None, TTI::OP_None, Operands, I);
   }
   default:
     break;

@@ -184,7 +184,7 @@ static const std::unordered_map<std::string, uint32_t> device_extension_map = {
     {"VK_NV_representative_fragment_test", 2},
     {"VK_KHR_maintenance3", 1},
     {"VK_KHR_draw_indirect_count", 1},
-    {"VK_EXT_filter_cubic", 2},
+    {"VK_EXT_filter_cubic", 3},
     {"VK_EXT_global_priority", 2},
     {"VK_KHR_shader_subgroup_extended_types", 1},
     {"VK_KHR_8bit_storage", 1},
@@ -229,6 +229,7 @@ static const std::unordered_map<std::string, uint32_t> device_extension_map = {
     {"VK_NV_dedicated_allocation_image_aliasing", 1},
     {"VK_KHR_separate_depth_stencil_layouts", 1},
     {"VK_EXT_buffer_device_address", 2},
+    {"VK_EXT_tooling_info", 1},
     {"VK_EXT_separate_stencil_usage", 1},
     {"VK_NV_cooperative_matrix", 1},
     {"VK_NV_coverage_reduction_mode", 1},
@@ -236,6 +237,7 @@ static const std::unordered_map<std::string, uint32_t> device_extension_map = {
     {"VK_EXT_ycbcr_image_arrays", 1},
     {"VK_KHR_uniform_buffer_standard_layout", 1},
     {"VK_EXT_full_screen_exclusive", 4},
+    {"VK_KHR_buffer_device_address", 1},
     {"VK_EXT_line_rasterization", 1},
     {"VK_EXT_host_query_reset", 1},
     {"VK_EXT_index_type_uint8", 1},
@@ -1190,6 +1192,77 @@ static VKAPI_ATTR void VKAPI_CALL GetDescriptorSetLayoutSupport(
     VkDescriptorSetLayoutSupport*               pSupport);
 
 
+static VKAPI_ATTR void VKAPI_CALL CmdDrawIndirectCount(
+    VkCommandBuffer                             commandBuffer,
+    VkBuffer                                    buffer,
+    VkDeviceSize                                offset,
+    VkBuffer                                    countBuffer,
+    VkDeviceSize                                countBufferOffset,
+    uint32_t                                    maxDrawCount,
+    uint32_t                                    stride);
+
+static VKAPI_ATTR void VKAPI_CALL CmdDrawIndexedIndirectCount(
+    VkCommandBuffer                             commandBuffer,
+    VkBuffer                                    buffer,
+    VkDeviceSize                                offset,
+    VkBuffer                                    countBuffer,
+    VkDeviceSize                                countBufferOffset,
+    uint32_t                                    maxDrawCount,
+    uint32_t                                    stride);
+
+static VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2(
+    VkDevice                                    device,
+    const VkRenderPassCreateInfo2*              pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkRenderPass*                               pRenderPass);
+
+static VKAPI_ATTR void VKAPI_CALL CmdBeginRenderPass2(
+    VkCommandBuffer                             commandBuffer,
+    const VkRenderPassBeginInfo*                pRenderPassBegin,
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo);
+
+static VKAPI_ATTR void VKAPI_CALL CmdNextSubpass2(
+    VkCommandBuffer                             commandBuffer,
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo,
+    const VkSubpassEndInfo*                     pSubpassEndInfo);
+
+static VKAPI_ATTR void VKAPI_CALL CmdEndRenderPass2(
+    VkCommandBuffer                             commandBuffer,
+    const VkSubpassEndInfo*                     pSubpassEndInfo);
+
+static VKAPI_ATTR void VKAPI_CALL ResetQueryPool(
+    VkDevice                                    device,
+    VkQueryPool                                 queryPool,
+    uint32_t                                    firstQuery,
+    uint32_t                                    queryCount);
+
+static VKAPI_ATTR VkResult VKAPI_CALL GetSemaphoreCounterValue(
+    VkDevice                                    device,
+    VkSemaphore                                 semaphore,
+    uint64_t*                                   pValue);
+
+static VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphores(
+    VkDevice                                    device,
+    const VkSemaphoreWaitInfo*                  pWaitInfo,
+    uint64_t                                    timeout);
+
+static VKAPI_ATTR VkResult VKAPI_CALL SignalSemaphore(
+    VkDevice                                    device,
+    const VkSemaphoreSignalInfo*                pSignalInfo);
+
+static VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddress(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo);
+
+static VKAPI_ATTR uint64_t VKAPI_CALL GetBufferOpaqueCaptureAddress(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo);
+
+static VKAPI_ATTR uint64_t VKAPI_CALL GetDeviceMemoryOpaqueCaptureAddress(
+    VkDevice                                    device,
+    const VkDeviceMemoryOpaqueCaptureAddressInfo* pInfo);
+
+
 static VKAPI_ATTR void VKAPI_CALL DestroySurfaceKHR(
     VkInstance                                  instance,
     VkSurfaceKHR                                surface,
@@ -1560,23 +1633,23 @@ static VKAPI_ATTR void VKAPI_CALL UpdateDescriptorSetWithTemplateKHR(
 
 static VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2KHR(
     VkDevice                                    device,
-    const VkRenderPassCreateInfo2KHR*           pCreateInfo,
+    const VkRenderPassCreateInfo2*              pCreateInfo,
     const VkAllocationCallbacks*                pAllocator,
     VkRenderPass*                               pRenderPass);
 
 static VKAPI_ATTR void VKAPI_CALL CmdBeginRenderPass2KHR(
     VkCommandBuffer                             commandBuffer,
     const VkRenderPassBeginInfo*                pRenderPassBegin,
-    const VkSubpassBeginInfoKHR*                pSubpassBeginInfo);
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo);
 
 static VKAPI_ATTR void VKAPI_CALL CmdNextSubpass2KHR(
     VkCommandBuffer                             commandBuffer,
-    const VkSubpassBeginInfoKHR*                pSubpassBeginInfo,
-    const VkSubpassEndInfoKHR*                  pSubpassEndInfo);
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo,
+    const VkSubpassEndInfo*                     pSubpassEndInfo);
 
 static VKAPI_ATTR void VKAPI_CALL CmdEndRenderPass2KHR(
     VkCommandBuffer                             commandBuffer,
-    const VkSubpassEndInfoKHR*                  pSubpassEndInfo);
+    const VkSubpassEndInfo*                     pSubpassEndInfo);
 
 
 static VKAPI_ATTR VkResult VKAPI_CALL GetSwapchainStatusKHR(
@@ -1753,17 +1826,30 @@ static VKAPI_ATTR VkResult VKAPI_CALL GetSemaphoreCounterValueKHR(
 
 static VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphoresKHR(
     VkDevice                                    device,
-    const VkSemaphoreWaitInfoKHR*               pWaitInfo,
+    const VkSemaphoreWaitInfo*                  pWaitInfo,
     uint64_t                                    timeout);
 
 static VKAPI_ATTR VkResult VKAPI_CALL SignalSemaphoreKHR(
     VkDevice                                    device,
-    const VkSemaphoreSignalInfoKHR*             pSignalInfo);
+    const VkSemaphoreSignalInfo*                pSignalInfo);
 
 
 
 
 
+
+
+static VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressKHR(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo);
+
+static VKAPI_ATTR uint64_t VKAPI_CALL GetBufferOpaqueCaptureAddressKHR(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo);
+
+static VKAPI_ATTR uint64_t VKAPI_CALL GetDeviceMemoryOpaqueCaptureAddressKHR(
+    VkDevice                                    device,
+    const VkDeviceMemoryOpaqueCaptureAddressInfo* pInfo);
 
 
 static VKAPI_ATTR VkResult VKAPI_CALL GetPipelineExecutablePropertiesKHR(
@@ -2518,7 +2604,13 @@ static VKAPI_ATTR VkResult VKAPI_CALL CreateMetalSurfaceEXT(
 
 static VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressEXT(
     VkDevice                                    device,
-    const VkBufferDeviceAddressInfoEXT*         pInfo);
+    const VkBufferDeviceAddressInfo*            pInfo);
+
+
+static VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceToolPropertiesEXT(
+    VkPhysicalDevice                            physicalDevice,
+    uint32_t*                                   pToolCount,
+    VkPhysicalDeviceToolPropertiesEXT*          pToolProperties);
 
 
 
@@ -2749,6 +2841,19 @@ static const std::unordered_map<std::string, void*> name_to_funcptr_map = {
     {"vkGetPhysicalDeviceExternalFenceProperties", (void*)GetPhysicalDeviceExternalFenceProperties},
     {"vkGetPhysicalDeviceExternalSemaphoreProperties", (void*)GetPhysicalDeviceExternalSemaphoreProperties},
     {"vkGetDescriptorSetLayoutSupport", (void*)GetDescriptorSetLayoutSupport},
+    {"vkCmdDrawIndirectCount", (void*)CmdDrawIndirectCount},
+    {"vkCmdDrawIndexedIndirectCount", (void*)CmdDrawIndexedIndirectCount},
+    {"vkCreateRenderPass2", (void*)CreateRenderPass2},
+    {"vkCmdBeginRenderPass2", (void*)CmdBeginRenderPass2},
+    {"vkCmdNextSubpass2", (void*)CmdNextSubpass2},
+    {"vkCmdEndRenderPass2", (void*)CmdEndRenderPass2},
+    {"vkResetQueryPool", (void*)ResetQueryPool},
+    {"vkGetSemaphoreCounterValue", (void*)GetSemaphoreCounterValue},
+    {"vkWaitSemaphores", (void*)WaitSemaphores},
+    {"vkSignalSemaphore", (void*)SignalSemaphore},
+    {"vkGetBufferDeviceAddress", (void*)GetBufferDeviceAddress},
+    {"vkGetBufferOpaqueCaptureAddress", (void*)GetBufferOpaqueCaptureAddress},
+    {"vkGetDeviceMemoryOpaqueCaptureAddress", (void*)GetDeviceMemoryOpaqueCaptureAddress},
     {"vkDestroySurfaceKHR", (void*)DestroySurfaceKHR},
     {"vkGetPhysicalDeviceSurfaceSupportKHR", (void*)GetPhysicalDeviceSurfaceSupportKHR},
     {"vkGetPhysicalDeviceSurfaceCapabilitiesKHR", (void*)GetPhysicalDeviceSurfaceCapabilitiesKHR},
@@ -2870,6 +2975,9 @@ static const std::unordered_map<std::string, void*> name_to_funcptr_map = {
     {"vkGetSemaphoreCounterValueKHR", (void*)GetSemaphoreCounterValueKHR},
     {"vkWaitSemaphoresKHR", (void*)WaitSemaphoresKHR},
     {"vkSignalSemaphoreKHR", (void*)SignalSemaphoreKHR},
+    {"vkGetBufferDeviceAddressKHR", (void*)GetBufferDeviceAddressKHR},
+    {"vkGetBufferOpaqueCaptureAddressKHR", (void*)GetBufferOpaqueCaptureAddressKHR},
+    {"vkGetDeviceMemoryOpaqueCaptureAddressKHR", (void*)GetDeviceMemoryOpaqueCaptureAddressKHR},
     {"vkGetPipelineExecutablePropertiesKHR", (void*)GetPipelineExecutablePropertiesKHR},
     {"vkGetPipelineExecutableStatisticsKHR", (void*)GetPipelineExecutableStatisticsKHR},
     {"vkGetPipelineExecutableInternalRepresentationsKHR", (void*)GetPipelineExecutableInternalRepresentationsKHR},
@@ -3001,6 +3109,7 @@ static const std::unordered_map<std::string, void*> name_to_funcptr_map = {
     {"vkCreateMetalSurfaceEXT", (void*)CreateMetalSurfaceEXT},
 #endif
     {"vkGetBufferDeviceAddressEXT", (void*)GetBufferDeviceAddressEXT},
+    {"vkGetPhysicalDeviceToolPropertiesEXT", (void*)GetPhysicalDeviceToolPropertiesEXT},
     {"vkGetPhysicalDeviceCooperativeMatrixPropertiesNV", (void*)GetPhysicalDeviceCooperativeMatrixPropertiesNV},
     {"vkGetPhysicalDeviceSupportedFramebufferMixedSamplesCombinationsNV", (void*)GetPhysicalDeviceSupportedFramebufferMixedSamplesCombinationsNV},
 #ifdef VK_USE_PLATFORM_WIN32_KHR

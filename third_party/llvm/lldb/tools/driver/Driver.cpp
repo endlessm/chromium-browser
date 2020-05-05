@@ -797,7 +797,9 @@ EXAMPLES:
 
 llvm::Optional<int> InitializeReproducer(opt::InputArgList &input_args) {
   if (auto *replay_path = input_args.getLastArg(OPT_replay)) {
-    if (const char *error = SBReproducer::Replay(replay_path->getValue())) {
+    const bool skip_version_check = input_args.hasArg(OPT_skip_version_check);
+    if (const char *error =
+            SBReproducer::Replay(replay_path->getValue(), skip_version_check)) {
       WithColor::error() << "reproducer replay failed: " << error << '\n';
       return 1;
     }
@@ -805,7 +807,13 @@ llvm::Optional<int> InitializeReproducer(opt::InputArgList &input_args) {
   }
 
   bool capture = input_args.hasArg(OPT_capture);
+  bool auto_generate = input_args.hasArg(OPT_auto_generate);
   auto *capture_path = input_args.getLastArg(OPT_capture_path);
+
+  if (auto_generate && !capture) {
+    WithColor::warning()
+        << "-reproducer-auto-generate specified without -capture\n";
+  }
 
   if (capture || capture_path) {
     if (capture_path) {
@@ -822,6 +830,8 @@ llvm::Optional<int> InitializeReproducer(opt::InputArgList &input_args) {
         return 1;
       }
     }
+    if (auto_generate)
+      SBReproducer::SetAutoGenerate(true);
   }
 
   return llvm::None;

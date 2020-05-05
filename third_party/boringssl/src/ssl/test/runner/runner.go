@@ -465,6 +465,7 @@ type protocol int
 const (
 	tls protocol = iota
 	dtls
+	quic
 )
 
 const (
@@ -743,6 +744,16 @@ func doExchange(test *testCase, config *Config, conn net.Conn, isResume bool, tr
 		if config.Bugs.PacketAdaptor != nil {
 			config.Bugs.PacketAdaptor.debug = connDebug
 		}
+	}
+	if test.protocol == quic {
+		config.Bugs.MockQUICTransport = newMockQUICTransport(conn)
+		// The MockQUICTransport will panic if Read or Write is
+		// called. When a MockQUICTransport is set, separate
+		// methods should be used to actually read and write
+		// records. By setting the conn to it here, it ensures
+		// Read or Write aren't accidentally used instead of the
+		// methods provided by MockQUICTransport.
+		conn = config.Bugs.MockQUICTransport
 	}
 
 	if test.replayWrites {
@@ -1230,6 +1241,8 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 
 	if test.protocol == dtls {
 		flags = append(flags, "-dtls")
+	} else if test.protocol == quic {
+		flags = append(flags, "-quic")
 	}
 
 	var resumeCount int
@@ -1287,6 +1300,8 @@ func runTest(test *testCase, shimPath string, mallocNumToFail int64) error {
 		protocol := "tls"
 		if test.protocol == dtls {
 			protocol = "dtls"
+		} else if test.protocol == quic {
+			protocol = "quic"
 		}
 
 		side := "client"
@@ -1481,6 +1496,7 @@ type tlsVersion struct {
 	// excludeFlag is the legacy shim flag to disable the version.
 	excludeFlag string
 	hasDTLS     bool
+	hasQUIC     bool
 	// versionDTLS, if non-zero, is the DTLS-specific representation of the version.
 	versionDTLS uint16
 	// versionWire, if non-zero, is the wire representation of the
@@ -1508,6 +1524,16 @@ func (vers tlsVersion) wire(protocol protocol) uint16 {
 	return vers.version
 }
 
+func (vers tlsVersion) supportsProtocol(protocol protocol) bool {
+	if protocol == dtls {
+		return vers.hasDTLS
+	}
+	if protocol == quic {
+		return vers.hasQUIC
+	}
+	return true
+}
+
 var tlsVersions = []tlsVersion{
 	{
 		name:        "TLS1",
@@ -1532,6 +1558,7 @@ var tlsVersions = []tlsVersion{
 		name:        "TLS13",
 		version:     VersionTLS13,
 		excludeFlag: "-no-tls13",
+		hasQUIC:     true,
 		versionWire: VersionTLS13,
 	},
 }
@@ -1543,7 +1570,7 @@ func allVersions(protocol protocol) []tlsVersion {
 
 	var ret []tlsVersion
 	for _, vers := range tlsVersions {
-		if vers.hasDTLS {
+		if vers.supportsProtocol(protocol) {
 			ret = append(ret, vers)
 		}
 	}
@@ -3310,6 +3337,12 @@ func addTestForCipherSuite(suite testCipherSuite, ver tlsVersion, protocol proto
 		}
 		prefix = "D"
 	}
+	if protocol == quic {
+		if !ver.hasQUIC {
+			return
+		}
+		prefix = "QUIC-"
+	}
 
 	var cert Certificate
 	var certFile string
@@ -3436,23 +3469,26 @@ func addTestForCipherSuite(suite testCipherSuite, ver tlsVersion, protocol proto
 		expectedError = ":DECRYPTION_FAILED_OR_BAD_RECORD_MAC:"
 	}
 
-	testCases = append(testCases, testCase{
-		protocol: protocol,
-		name:     prefix + ver.name + "-" + suite.name + "-BadRecord",
-		config: Config{
-			MinVersion:           ver.version,
-			MaxVersion:           ver.version,
-			CipherSuites:         []uint16{suite.id},
-			Certificates:         []Certificate{cert},
-			PreSharedKey:         []byte(psk),
-			PreSharedKeyIdentity: pskIdentity,
-		},
-		flags:            flags,
-		damageFirstWrite: true,
-		messageLen:       maxPlaintext,
-		shouldFail:       shouldFail,
-		expectedError:    expectedError,
-	})
+	// TODO(nharper): Consider enabling this test for QUIC.
+	if protocol != quic {
+		testCases = append(testCases, testCase{
+			protocol: protocol,
+			name:     prefix + ver.name + "-" + suite.name + "-BadRecord",
+			config: Config{
+				MinVersion:           ver.version,
+				MaxVersion:           ver.version,
+				CipherSuites:         []uint16{suite.id},
+				Certificates:         []Certificate{cert},
+				PreSharedKey:         []byte(psk),
+				PreSharedKeyIdentity: pskIdentity,
+			},
+			flags:            flags,
+			damageFirstWrite: true,
+			messageLen:       maxPlaintext,
+			shouldFail:       shouldFail,
+			expectedError:    expectedError,
+		})
+	}
 }
 
 func addCipherSuiteTests() {
@@ -3460,7 +3496,7 @@ func addCipherSuiteTests() {
 
 	for _, suite := range testCipherSuites {
 		for _, ver := range tlsVersions {
-			for _, protocol := range []protocol{tls, dtls} {
+			for _, protocol := range []protocol{tls, dtls, quic} {
 				addTestForCipherSuite(suite, ver, protocol)
 			}
 		}
@@ -4372,6 +4408,7 @@ type stateMachineTestConfig struct {
 // various conditions. Some of these are redundant with other tests, but they
 // only cover the synchronous case.
 func addAllStateMachineCoverageTests() {
+	// TODO(nharper): Add QUIC support for these tests?
 	for _, async := range []bool{false, true} {
 		for _, protocol := range []protocol{tls, dtls} {
 			addStateMachineCoverageTests(stateMachineTestConfig{
@@ -4878,7 +4915,7 @@ func addStateMachineCoverageTests(config stateMachineTestConfig) {
 
 	// OCSP stapling tests.
 	for _, vers := range tlsVersions {
-		if config.protocol == dtls && !vers.hasDTLS {
+		if !vers.supportsProtocol(config.protocol) {
 			continue
 		}
 		tests = append(tests, testCase{
@@ -5023,7 +5060,7 @@ func addStateMachineCoverageTests(config stateMachineTestConfig) {
 
 	// Certificate verification tests.
 	for _, vers := range tlsVersions {
-		if config.protocol == dtls && !vers.hasDTLS {
+		if !vers.supportsProtocol(config.protocol) {
 			continue
 		}
 		for _, useCustomCallback := range []bool{false, true} {
@@ -5713,6 +5750,9 @@ read alert 1 0
 		if config.protocol == dtls {
 			test.name += "-DTLS"
 		}
+		if config.protocol == quic {
+			test.name += "-QUIC"
+		}
 		if config.async {
 			test.name += "-Async"
 			test.flags = append(test.flags, "-async")
@@ -5805,7 +5845,7 @@ func addDDoSCallbackTests() {
 }
 
 func addVersionNegotiationTests() {
-	for _, protocol := range []protocol{tls, dtls} {
+	for _, protocol := range []protocol{tls, dtls, quic} {
 		for _, shimVers := range allVersions(protocol) {
 			// Assemble flags to disable all newer versions on the shim.
 			var flags []string
@@ -5827,6 +5867,9 @@ func addVersionNegotiationTests() {
 				suffix := shimVers.name + "-" + runnerVers.name
 				if protocol == dtls {
 					suffix += "-DTLS"
+				}
+				if protocol == quic {
+					suffix += "-QUIC"
 				}
 
 				// Determine the expected initial record-layer versions.
@@ -5904,10 +5947,16 @@ func addVersionNegotiationTests() {
 		if vers.hasDTLS {
 			protocols = append(protocols, dtls)
 		}
+		if vers.hasQUIC {
+			protocols = append(protocols, quic)
+		}
 		for _, protocol := range protocols {
 			suffix := vers.name
 			if protocol == dtls {
 				suffix += "-DTLS"
+			}
+			if protocol == quic {
+				suffix += "-QUIC"
 			}
 
 			testCases = append(testCases, testCase{
@@ -6246,7 +6295,7 @@ func addVersionNegotiationTests() {
 }
 
 func addMinimumVersionTests() {
-	for _, protocol := range []protocol{tls, dtls} {
+	for _, protocol := range []protocol{tls, dtls, quic} {
 		for _, shimVers := range allVersions(protocol) {
 			// Assemble flags to disable all older versions on the shim.
 			var flags []string
@@ -6262,6 +6311,9 @@ func addMinimumVersionTests() {
 				suffix := shimVers.name + "-" + runnerVers.name
 				if protocol == dtls {
 					suffix += "-DTLS"
+				}
+				if protocol == quic {
+					suffix += "-QUIC"
 				}
 
 				var expectedVersion uint16
@@ -7709,10 +7761,16 @@ func addResumptionVersionTests() {
 			if sessionVers.hasDTLS && resumeVers.hasDTLS {
 				protocols = append(protocols, dtls)
 			}
+			if sessionVers.hasQUIC && resumeVers.hasQUIC {
+				protocols = append(protocols, quic)
+			}
 			for _, protocol := range protocols {
 				suffix := "-" + sessionVers.name + "-" + resumeVers.name
 				if protocol == dtls {
 					suffix += "-DTLS"
+				}
+				if protocol == quic {
+					suffix += "-QUIC"
 				}
 
 				if sessionVers.version == resumeVers.version {
@@ -9824,117 +9882,6 @@ func addSignatureAlgorithmTests() {
 			"-verify-prefs", strconv.Itoa(int(signatureEd25519)),
 		},
 	})
-
-	rsaPSSSupportTests := []struct {
-		name                string
-		expectRSAPSSSupport RSAPSSSupport
-		verifyPrefs         []signatureAlgorithm
-		noCerts             bool
-	}{
-		// By default, RSA-PSS is fully advertised.
-		{
-			name:                "Default",
-			expectRSAPSSSupport: RSAPSSSupportBoth,
-		},
-		// Disabling RSA-PSS certificates makes it online-signature-only.
-		{
-			name:                "Default-NoCerts",
-			expectRSAPSSSupport: RSAPSSSupportOnlineSignatureOnly,
-			noCerts:             true,
-		},
-		// The above also apply if verify preferences were explicitly configured.
-		{
-			name:                "ConfigPSS",
-			expectRSAPSSSupport: RSAPSSSupportBoth,
-			verifyPrefs:         []signatureAlgorithm{signatureRSAPSSWithSHA256, signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
-		},
-		{
-			name:                "ConfigPSS-NoCerts",
-			expectRSAPSSSupport: RSAPSSSupportOnlineSignatureOnly,
-			verifyPrefs:         []signatureAlgorithm{signatureRSAPSSWithSHA256, signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
-			noCerts:             true,
-		},
-		// If verify preferences were explicitly configured without RSA-PSS support,
-		// NoCerts is a no-op and the shim correctly only sends one extension.
-		// (This is checked internally in the runner.)
-		{
-			name:                "ConfigNoPSS",
-			expectRSAPSSSupport: RSAPSSSupportNone,
-			verifyPrefs:         []signatureAlgorithm{signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
-		},
-		{
-			name:                "ConfigNoPSS-NoCerts",
-			expectRSAPSSSupport: RSAPSSSupportNone,
-			verifyPrefs:         []signatureAlgorithm{signatureRSAPKCS1WithSHA256, signatureECDSAWithP256AndSHA256},
-			noCerts:             true,
-		},
-	}
-
-	for _, test := range rsaPSSSupportTests {
-		var pssFlags []string
-		for _, pref := range test.verifyPrefs {
-			pssFlags = append(pssFlags, "-verify-prefs", strconv.Itoa(int(pref)))
-		}
-		if test.noCerts {
-			pssFlags = append(pssFlags, "-no-rsa-pss-rsae-certs")
-		}
-		for _, ver := range tlsVersions {
-			if ver.version < VersionTLS12 {
-				continue
-			}
-
-			// TLS 1.2 cannot express different RSAPSSSupportOnlineSignatureOnly,
-			// so it decays to RSAPSSSupportNone.
-			expect := test.expectRSAPSSSupport
-			if ver.version < VersionTLS13 && expect == RSAPSSSupportOnlineSignatureOnly {
-				expect = RSAPSSSupportNone
-			}
-
-			// If the configuration results in no RSA-PSS support, the handshake won't complete.
-			// (The test, however, still covers the RSA-PSS assertion.)
-			var localError string
-			var shouldFail bool
-			if ver.version >= VersionTLS13 && expect == RSAPSSSupportNone {
-				shouldFail = true
-				localError = "tls: no common signature algorithms"
-			}
-
-			flags := []string{"-max-version", ver.shimFlag(tls)}
-			flags = append(flags, pssFlags...)
-			testCases = append(testCases, testCase{
-				name: fmt.Sprintf("RSAPSSSupport-%s-%s-Client", test.name, ver.name),
-				config: Config{
-					MinVersion:   ver.version,
-					MaxVersion:   ver.version,
-					Certificates: []Certificate{rsaCertificate},
-					Bugs: ProtocolBugs{
-						ExpectRSAPSSSupport: expect,
-					},
-				},
-				flags:              flags,
-				shouldFail:         shouldFail,
-				expectedLocalError: localError,
-			})
-
-			serverFlags := []string{"-require-any-client-certificate"}
-			serverFlags = append(flags, serverFlags...)
-			testCases = append(testCases, testCase{
-				testType: serverTest,
-				name:     fmt.Sprintf("RSAPSSSupport-%s-%s-Server", test.name, ver.name),
-				config: Config{
-					MinVersion:   ver.version,
-					MaxVersion:   ver.version,
-					Certificates: []Certificate{rsaCertificate},
-					Bugs: ProtocolBugs{
-						ExpectRSAPSSSupport: expect,
-					},
-				},
-				flags:              serverFlags,
-				shouldFail:         shouldFail,
-				expectedLocalError: localError,
-			})
-		}
-	}
 }
 
 // timeouts is the retransmit schedule for BoringSSL. It doubles and
@@ -11742,10 +11689,13 @@ type perMessageTest struct {
 // WrongMessageType to fully test a per-message bug.
 func makePerMessageTests() []perMessageTest {
 	var ret []perMessageTest
+	// TODO(nharper): Consider supporting QUIC?
 	for _, protocol := range []protocol{tls, dtls} {
 		var suffix string
 		if protocol == dtls {
 			suffix = "-DTLS"
+		} else if protocol == quic {
+			suffix = "-QUIC"
 		}
 
 		ret = append(ret, perMessageTest{

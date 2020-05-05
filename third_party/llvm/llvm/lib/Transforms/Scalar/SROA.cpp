@@ -1681,24 +1681,20 @@ static Value *getAdjustedPtr(IRBuilderTy &IRB, const DataLayout &DL, Value *Ptr,
 }
 
 /// Compute the adjusted alignment for a load or store from an offset.
-static unsigned getAdjustedAlignment(Instruction *I, uint64_t Offset,
-                                     const DataLayout &DL) {
-  unsigned Alignment = 0;
+static Align getAdjustedAlignment(Instruction *I, uint64_t Offset,
+                                  const DataLayout &DL) {
+  MaybeAlign Alignment;
   Type *Ty;
   if (auto *LI = dyn_cast<LoadInst>(I)) {
-    Alignment = LI->getAlignment();
+    Alignment = MaybeAlign(LI->getAlignment());
     Ty = LI->getType();
   } else if (auto *SI = dyn_cast<StoreInst>(I)) {
-    Alignment = SI->getAlignment();
+    Alignment = MaybeAlign(SI->getAlignment());
     Ty = SI->getValueOperand()->getType();
   } else {
     llvm_unreachable("Only loads and stores are allowed!");
   }
-
-  if (!Alignment)
-    Alignment = DL.getABITypeAlignment(Ty);
-
-  return MinAlign(Alignment, Offset);
+  return commonAlignment(DL.getValueOrABITypeAlignment(Alignment, Ty), Offset);
 }
 
 /// Test whether we can convert a value from the old to the new type.
@@ -2433,13 +2429,14 @@ private:
   ///
   /// You can optionally pass a type to this routine and if that type's ABI
   /// alignment is itself suitable, this will return zero.
-  unsigned getSliceAlign(Type *Ty = nullptr) {
-    unsigned NewAIAlign = NewAI.getAlignment();
-    if (!NewAIAlign)
-      NewAIAlign = DL.getABITypeAlignment(NewAI.getAllocatedType());
-    unsigned Align =
-        MinAlign(NewAIAlign, NewBeginOffset - NewAllocaBeginOffset);
-    return (Ty && Align == DL.getABITypeAlignment(Ty)) ? 0 : Align;
+  MaybeAlign getSliceAlign(Type *Ty = nullptr) {
+    const MaybeAlign NewAIAlign = DL.getValueOrABITypeAlignment(
+        MaybeAlign(NewAI.getAlignment()), NewAI.getAllocatedType());
+    const MaybeAlign Align =
+        commonAlignment(NewAIAlign, NewBeginOffset - NewAllocaBeginOffset);
+    return (Ty && Align && Align->value() == DL.getABITypeAlignment(Ty))
+               ? None
+               : Align;
   }
 
   unsigned getIndex(uint64_t Offset) {
@@ -2463,7 +2460,7 @@ private:
     assert(EndIndex > BeginIndex && "Empty vector!");
 
     Value *V = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                     NewAI.getAlignment(), "load");
+                                     NewAI.getAlign(), "load");
     return extractVector(IRB, V, BeginIndex, EndIndex, "vec");
   }
 
@@ -2471,7 +2468,7 @@ private:
     assert(IntTy && "We cannot insert an integer to the alloca");
     assert(!LI.isVolatile());
     Value *V = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                     NewAI.getAlignment(), "load");
+                                     NewAI.getAlign(), "load");
     V = convertValue(DL, IRB, V, IntTy);
     assert(NewBeginOffset >= NewAllocaBeginOffset && "Out of bounds offset");
     uint64_t Offset = NewBeginOffset - NewAllocaBeginOffset;
@@ -2516,8 +2513,8 @@ private:
                 (IsLoadPastEnd && NewAllocaTy->isIntegerTy() &&
                  TargetTy->isIntegerTy()))) {
       LoadInst *NewLI = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                              NewAI.getAlignment(),
-                                              LI.isVolatile(), LI.getName());
+                                              NewAI.getAlign(), LI.isVolatile(),
+                                              LI.getName());
       if (AATags)
         NewLI->setAAMetadata(AATags);
       if (LI.isVolatile())
@@ -2612,10 +2609,10 @@ private:
 
       // Mix in the existing elements.
       Value *Old = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                         NewAI.getAlignment(), "load");
+                                         NewAI.getAlign(), "load");
       V = insertVector(IRB, Old, V, BeginIndex, "vec");
     }
-    StoreInst *Store = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlignment());
+    StoreInst *Store = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlign());
     if (AATags)
       Store->setAAMetadata(AATags);
     Pass.DeadInsts.insert(&SI);
@@ -2629,14 +2626,14 @@ private:
     assert(!SI.isVolatile());
     if (DL.getTypeSizeInBits(V->getType()) != IntTy->getBitWidth()) {
       Value *Old = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                         NewAI.getAlignment(), "oldload");
+                                         NewAI.getAlign(), "oldload");
       Old = convertValue(DL, IRB, Old, IntTy);
       assert(BeginOffset >= NewAllocaBeginOffset && "Out of bounds offset");
       uint64_t Offset = BeginOffset - NewAllocaBeginOffset;
       V = insertInteger(DL, IRB, Old, SI.getValueOperand(), Offset, "insert");
     }
     V = convertValue(DL, IRB, V, NewAllocaTy);
-    StoreInst *Store = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlignment());
+    StoreInst *Store = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlign());
     Store->copyMetadata(SI, {LLVMContext::MD_mem_parallel_loop_access,
                              LLVMContext::MD_access_group});
     if (AATags)
@@ -2698,8 +2695,8 @@ private:
           }
 
       V = convertValue(DL, IRB, V, NewAllocaTy);
-      NewSI = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlignment(),
-                                     SI.isVolatile());
+      NewSI =
+          IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlign(), SI.isVolatile());
     } else {
       unsigned AS = SI.getPointerAddressSpace();
       Value *NewPtr = getNewAllocaSlicePtr(IRB, V->getType()->getPointerTo(AS));
@@ -2801,7 +2798,7 @@ private:
       Constant *Size = ConstantInt::get(SizeTy, NewEndOffset - NewBeginOffset);
       CallInst *New = IRB.CreateMemSet(
           getNewAllocaSlicePtr(IRB, OldPtr->getType()), II.getValue(), Size,
-          getSliceAlign(), II.isVolatile());
+          MaybeAlign(getSliceAlign()), II.isVolatile());
       if (AATags)
         New->setAAMetadata(AATags);
       LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
@@ -2832,7 +2829,7 @@ private:
         Splat = getVectorSplat(Splat, NumElements);
 
       Value *Old = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                         NewAI.getAlignment(), "oldload");
+                                         NewAI.getAlign(), "oldload");
       V = insertVector(IRB, Old, Splat, BeginIndex, "vec");
     } else if (IntTy) {
       // If this is a memset on an alloca where we can widen stores, insert the
@@ -2845,7 +2842,7 @@ private:
       if (IntTy && (BeginOffset != NewAllocaBeginOffset ||
                     EndOffset != NewAllocaBeginOffset)) {
         Value *Old = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                           NewAI.getAlignment(), "oldload");
+                                           NewAI.getAlign(), "oldload");
         Old = convertValue(DL, IRB, Old, IntTy);
         uint64_t Offset = NewBeginOffset - NewAllocaBeginOffset;
         V = insertInteger(DL, IRB, Old, V, Offset, "insert");
@@ -2866,8 +2863,8 @@ private:
       V = convertValue(DL, IRB, V, AllocaTy);
     }
 
-    StoreInst *New = IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlignment(),
-                                            II.isVolatile());
+    StoreInst *New =
+        IRB.CreateAlignedStore(V, &NewAI, NewAI.getAlign(), II.isVolatile());
     if (AATags)
       New->setAAMetadata(AATags);
     LLVM_DEBUG(dbgs() << "          to: " << *New << "\n");
@@ -2887,7 +2884,7 @@ private:
     assert((IsDest && II.getRawDest() == OldPtr) ||
            (!IsDest && II.getRawSource() == OldPtr));
 
-    unsigned SliceAlign = getSliceAlign();
+    MaybeAlign SliceAlign = getSliceAlign();
 
     // For unsplit intrinsics, we simply modify the source and destination
     // pointers in place. This isn't just an optimization, it is a matter of
@@ -2957,10 +2954,10 @@ private:
     // Compute the relative offset for the other pointer within the transfer.
     unsigned OffsetWidth = DL.getIndexSizeInBits(OtherAS);
     APInt OtherOffset(OffsetWidth, NewBeginOffset - BeginOffset);
-    unsigned OtherAlign =
-      IsDest ? II.getSourceAlignment() : II.getDestAlignment();
-    OtherAlign =  MinAlign(OtherAlign ? OtherAlign : 1,
-                           OtherOffset.zextOrTrunc(64).getZExtValue());
+    Align OtherAlign =
+        assumeAligned(IsDest ? II.getSourceAlignment() : II.getDestAlignment());
+    OtherAlign =
+        commonAlignment(OtherAlign, OtherOffset.zextOrTrunc(64).getZExtValue());
 
     if (EmitMemCpy) {
       // Compute the other pointer, folding as much as possible to produce
@@ -2973,7 +2970,7 @@ private:
       Constant *Size = ConstantInt::get(SizeTy, NewEndOffset - NewBeginOffset);
 
       Value *DestPtr, *SrcPtr;
-      unsigned DestAlign, SrcAlign;
+      MaybeAlign DestAlign, SrcAlign;
       // Note: IsDest is true iff we're copying into the new alloca slice
       if (IsDest) {
         DestPtr = OurPtr;
@@ -3020,9 +3017,9 @@ private:
 
     Value *SrcPtr = getAdjustedPtr(IRB, DL, OtherPtr, OtherOffset, OtherPtrTy,
                                    OtherPtr->getName() + ".");
-    unsigned SrcAlign = OtherAlign;
+    MaybeAlign SrcAlign = OtherAlign;
     Value *DstPtr = &NewAI;
-    unsigned DstAlign = SliceAlign;
+    MaybeAlign DstAlign = SliceAlign;
     if (!IsDest) {
       std::swap(SrcPtr, DstPtr);
       std::swap(SrcAlign, DstAlign);
@@ -3031,11 +3028,11 @@ private:
     Value *Src;
     if (VecTy && !IsWholeAlloca && !IsDest) {
       Src = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                  NewAI.getAlignment(), "load");
+                                  NewAI.getAlign(), "load");
       Src = extractVector(IRB, Src, BeginIndex, EndIndex, "vec");
     } else if (IntTy && !IsWholeAlloca && !IsDest) {
       Src = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                  NewAI.getAlignment(), "load");
+                                  NewAI.getAlign(), "load");
       Src = convertValue(DL, IRB, Src, IntTy);
       uint64_t Offset = NewBeginOffset - NewAllocaBeginOffset;
       Src = extractInteger(DL, IRB, Src, SubIntTy, Offset, "extract");
@@ -3049,11 +3046,11 @@ private:
 
     if (VecTy && !IsWholeAlloca && IsDest) {
       Value *Old = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                         NewAI.getAlignment(), "oldload");
+                                         NewAI.getAlign(), "oldload");
       Src = insertVector(IRB, Old, Src, BeginIndex, "vec");
     } else if (IntTy && !IsWholeAlloca && IsDest) {
       Value *Old = IRB.CreateAlignedLoad(NewAI.getAllocatedType(), &NewAI,
-                                         NewAI.getAlignment(), "oldload");
+                                         NewAI.getAlign(), "oldload");
       Old = convertValue(DL, IRB, Old, IntTy);
       uint64_t Offset = NewBeginOffset - NewAllocaBeginOffset;
       Src = insertInteger(DL, IRB, Old, Src, Offset, "insert");
@@ -3118,20 +3115,17 @@ private:
       Instruction *I = Uses.pop_back_val();
 
       if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
-        unsigned LoadAlign = LI->getAlignment();
-        if (!LoadAlign)
-          LoadAlign = DL.getABITypeAlignment(LI->getType());
-        LI->setAlignment(MaybeAlign(std::min(LoadAlign, getSliceAlign())));
+        MaybeAlign LoadAlign = DL.getValueOrABITypeAlignment(
+            MaybeAlign(LI->getAlignment()), LI->getType());
+        LI->setAlignment(std::min(LoadAlign, getSliceAlign()));
         continue;
       }
       if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
-        unsigned StoreAlign = SI->getAlignment();
-        if (!StoreAlign) {
           Value *Op = SI->getOperand(0);
-          StoreAlign = DL.getABITypeAlignment(Op->getType());
-        }
-        SI->setAlignment(MaybeAlign(std::min(StoreAlign, getSliceAlign())));
-        continue;
+          MaybeAlign StoreAlign = DL.getValueOrABITypeAlignment(
+              MaybeAlign(SI->getAlignment()), Op->getType());
+          SI->setAlignment(std::min(StoreAlign, getSliceAlign()));
+          continue;
       }
 
       assert(isa<BitCastInst>(I) || isa<AddrSpaceCastInst>(I) ||
@@ -3278,7 +3272,7 @@ private:
     Type *BaseTy;
 
     /// Known alignment of the base pointer.
-    unsigned BaseAlign;
+    Align BaseAlign;
 
     /// To calculate offset of each component so we can correctly deduce
     /// alignments.
@@ -3287,7 +3281,7 @@ private:
     /// Initialize the splitter with an insertion point, Ptr and start with a
     /// single zero GEP index.
     OpSplitter(Instruction *InsertionPoint, Value *Ptr, Type *BaseTy,
-               unsigned BaseAlign, const DataLayout &DL)
+               Align BaseAlign, const DataLayout &DL)
         : IRB(InsertionPoint), GEPIndices(1, IRB.getInt32(0)), Ptr(Ptr),
           BaseTy(BaseTy), BaseAlign(BaseAlign), DL(DL) {}
 
@@ -3309,7 +3303,7 @@ private:
       if (Ty->isSingleValueType()) {
         unsigned Offset = DL.getIndexedOffsetInType(BaseTy, GEPIndices);
         return static_cast<Derived *>(this)->emitFunc(
-            Ty, Agg, MinAlign(BaseAlign, Offset), Name);
+            Ty, Agg, commonAlignment(BaseAlign, Offset), Name);
       }
 
       if (ArrayType *ATy = dyn_cast<ArrayType>(Ty)) {
@@ -3350,18 +3344,20 @@ private:
     AAMDNodes AATags;
 
     LoadOpSplitter(Instruction *InsertionPoint, Value *Ptr, Type *BaseTy,
-                   AAMDNodes AATags, unsigned BaseAlign, const DataLayout &DL)
+                   AAMDNodes AATags, Align BaseAlign, const DataLayout &DL)
         : OpSplitter<LoadOpSplitter>(InsertionPoint, Ptr, BaseTy, BaseAlign,
-                                     DL), AATags(AATags) {}
+                                     DL),
+          AATags(AATags) {}
 
     /// Emit a leaf load of a single value. This is called at the leaves of the
     /// recursive emission to actually load values.
-    void emitFunc(Type *Ty, Value *&Agg, unsigned Align, const Twine &Name) {
+    void emitFunc(Type *Ty, Value *&Agg, Align Alignment, const Twine &Name) {
       assert(Ty->isSingleValueType());
       // Load the single value and insert it using the indices.
       Value *GEP =
           IRB.CreateInBoundsGEP(BaseTy, Ptr, GEPIndices, Name + ".gep");
-      LoadInst *Load = IRB.CreateAlignedLoad(Ty, GEP, Align, Name + ".load");
+      LoadInst *Load =
+          IRB.CreateAlignedLoad(Ty, GEP, Alignment, Name + ".load");
       if (AATags)
         Load->setAAMetadata(AATags);
       Agg = IRB.CreateInsertValue(Agg, Load, Indices, Name + ".insert");
@@ -3389,14 +3385,14 @@ private:
 
   struct StoreOpSplitter : public OpSplitter<StoreOpSplitter> {
     StoreOpSplitter(Instruction *InsertionPoint, Value *Ptr, Type *BaseTy,
-                    AAMDNodes AATags, unsigned BaseAlign, const DataLayout &DL)
+                    AAMDNodes AATags, Align BaseAlign, const DataLayout &DL)
         : OpSplitter<StoreOpSplitter>(InsertionPoint, Ptr, BaseTy, BaseAlign,
                                       DL),
           AATags(AATags) {}
     AAMDNodes AATags;
     /// Emit a leaf store of a single value. This is called at the leaves of the
     /// recursive emission to actually produce stores.
-    void emitFunc(Type *Ty, Value *&Agg, unsigned Align, const Twine &Name) {
+    void emitFunc(Type *Ty, Value *&Agg, Align Alignment, const Twine &Name) {
       assert(Ty->isSingleValueType());
       // Extract the single value and store it using the indices.
       //
@@ -3407,7 +3403,7 @@ private:
       Value *InBoundsGEP =
           IRB.CreateInBoundsGEP(BaseTy, Ptr, GEPIndices, Name + ".gep");
       StoreInst *Store =
-          IRB.CreateAlignedStore(ExtractValue, InBoundsGEP, Align);
+          IRB.CreateAlignedStore(ExtractValue, InBoundsGEP, Alignment);
       if (AATags)
         Store->setAAMetadata(AATags);
       LLVM_DEBUG(dbgs() << "          to: " << *Store << "\n");
@@ -3864,8 +3860,8 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
           getAdjustedPtr(IRB, DL, BasePtr,
                          APInt(DL.getIndexSizeInBits(AS), PartOffset),
                          PartPtrTy, BasePtr->getName() + "."),
-          getAdjustedAlignment(LI, PartOffset, DL), /*IsVolatile*/ false,
-          LI->getName());
+          getAdjustedAlignment(LI, PartOffset, DL),
+          /*IsVolatile*/ false, LI->getName());
       PLoad->copyMetadata(*LI, {LLVMContext::MD_mem_parallel_loop_access,
                                 LLVMContext::MD_access_group});
 
@@ -3922,7 +3918,8 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
             getAdjustedPtr(IRB, DL, StoreBasePtr,
                            APInt(DL.getIndexSizeInBits(AS), PartOffset),
                            PartPtrTy, StoreBasePtr->getName() + "."),
-            getAdjustedAlignment(SI, PartOffset, DL), /*IsVolatile*/ false);
+            getAdjustedAlignment(SI, PartOffset, DL),
+            /*IsVolatile*/ false);
         PStore->copyMetadata(*LI, {LLVMContext::MD_mem_parallel_loop_access,
                                    LLVMContext::MD_access_group});
         LLVM_DEBUG(dbgs() << "      +" << PartOffset << ":" << *PStore << "\n");
@@ -4006,8 +4003,8 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
             getAdjustedPtr(IRB, DL, LoadBasePtr,
                            APInt(DL.getIndexSizeInBits(AS), PartOffset),
                            LoadPartPtrTy, LoadBasePtr->getName() + "."),
-            getAdjustedAlignment(LI, PartOffset, DL), /*IsVolatile*/ false,
-            LI->getName());
+            getAdjustedAlignment(LI, PartOffset, DL),
+            /*IsVolatile*/ false, LI->getName());
       }
 
       // And store this partition.
@@ -4018,7 +4015,8 @@ bool SROA::presplitLoadsAndStores(AllocaInst &AI, AllocaSlices &AS) {
           getAdjustedPtr(IRB, DL, StoreBasePtr,
                          APInt(DL.getIndexSizeInBits(AS), PartOffset),
                          StorePartPtrTy, StoreBasePtr->getName() + "."),
-          getAdjustedAlignment(SI, PartOffset, DL), /*IsVolatile*/ false);
+          getAdjustedAlignment(SI, PartOffset, DL),
+          /*IsVolatile*/ false);
 
       // Now build a new slice for the alloca.
       NewSlices.push_back(

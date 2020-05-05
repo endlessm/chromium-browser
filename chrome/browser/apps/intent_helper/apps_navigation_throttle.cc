@@ -77,10 +77,10 @@ bool ShouldOverrideUrlLoading(const GURL& previous_url,
 
 GURL GetStartingGURL(content::NavigationHandle* navigation_handle) {
   // This helps us determine a reference GURL for the current NavigationHandle.
-  // This is the order or preferrence: Referrer > LastCommittedURL > SiteURL,
-  // GetSiteURL *should* only be used on very rare cases, e.g. when the
-  // navigation goes from https: to http: on a new tab, thus losing the other
-  // potential referrers.
+  // This is the order or preference: Referrer > LastCommittedURL >
+  // InitiatorOrigin. InitiatorOrigin *should* only be used on very rare cases,
+  // e.g. when the navigation goes from https: to http: on a new tab, thus
+  // losing the other potential referrers.
   const GURL referrer_url = navigation_handle->GetReferrer().url;
   if (referrer_url.is_valid() && !referrer_url.is_empty())
     return referrer_url;
@@ -90,7 +90,8 @@ GURL GetStartingGURL(content::NavigationHandle* navigation_handle) {
   if (last_committed_url.is_valid() && !last_committed_url.is_empty())
     return last_committed_url;
 
-  return navigation_handle->GetStartingSiteInstance()->GetSiteURL();
+  const auto& initiator_origin = navigation_handle->GetInitiatorOrigin();
+  return initiator_origin.has_value() ? initiator_origin->GetURL() : GURL();
 }
 
 }  // namespace
@@ -156,11 +157,6 @@ void AppsNavigationThrottle::OnIntentPickerClosed(
     case PickerEntryType::kMacNative:
       NOTREACHED();
   }
-  PickerAction action =
-      GetPickerAction(entry_type, close_reason, should_persist);
-  Platform platform = GetDestinationPlatform(launch_name, action);
-  RecordUma(launch_name, entry_type, close_reason, Source::kHttpOrHttps,
-            should_persist, action, platform);
 }
 
 // static
@@ -191,6 +187,8 @@ void AppsNavigationThrottle::ShowIntentPickerBubbleForApps(
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
   if (!browser)
     return;
+
+  IntentPickerTabHelper::SetShouldShowIcon(web_contents, true);
   browser->window()->ShowIntentPickerBubble(
       std::move(apps), show_stay_in_chrome, show_remember_selection,
       PageActionIconType::kIntentPicker, base::nullopt, std::move(callback));
@@ -257,26 +255,6 @@ bool AppsNavigationThrottle::CanCreate(content::WebContents* web_contents) {
     return false;
 
   return true;
-}
-
-// static
-void AppsNavigationThrottle::RecordUma(const std::string& selected_app_package,
-                                       PickerEntryType entry_type,
-                                       IntentPickerCloseReason close_reason,
-                                       Source source,
-                                       bool should_persist,
-                                       PickerAction action,
-                                       Platform platform) {
-  // TODO(crbug.com/985233) For now External Protocol Dialog is only querying
-  // ARC apps.
-  if (source == Source::kExternalProtocol) {
-    UMA_HISTOGRAM_ENUMERATION("ChromeOS.Apps.ExternalProtocolDialog", action);
-  } else {
-    UMA_HISTOGRAM_ENUMERATION("ChromeOS.Apps.IntentPickerAction", action);
-
-    UMA_HISTOGRAM_ENUMERATION("ChromeOS.Apps.IntentPickerDestinationPlatform",
-                              platform);
-  }
 }
 
 // static

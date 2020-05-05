@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Workspace from '../workspace/workspace.js';  // eslint-disable-line no-unused-vars
+
 /** @interface */
-export default class LiveLocation {
+export class LiveLocation {
   update() {
   }
 
   /**
-   * @return {?Workspace.UILocation}
+   * @return {?Workspace.UISourceCode.UILocation}
    */
   uiLocation() {
   }
@@ -46,7 +48,7 @@ export class LiveLocationWithPool {
 
   /**
    * @override
-   * @return {?Workspace.UILocation}
+   * @return {?Workspace.UISourceCode.UILocation}
    */
   uiLocation() {
     throw 'Not implemented';
@@ -97,18 +99,3 @@ export class LiveLocationPool {
     }
   }
 }
-
-/* Legacy exported object */
-self.Bindings = self.Bindings || {};
-
-/* Legacy exported object */
-Bindings = Bindings || {};
-
-/** @interface */
-Bindings.LiveLocation = LiveLocation;
-
-/** @constructor */
-Bindings.LiveLocationWithPool = LiveLocationWithPool;
-
-/** @constructor */
-Bindings.LiveLocationPool = LiveLocationPool;

@@ -19,9 +19,12 @@ const gnFile = fs.readFileSync(gnPath, 'utf-8');
 const gnLines = gnFile.split('\n');
 
 function main() {
-  let errors = [];
-  errors = errors.concat(checkNonAutostartNonRemoteModules());
-  errors = errors.concat(checkAllDevToolsFiles());
+  let errors = [
+    ...checkNonAutostartNonRemoteModules(),
+    ...checkAllDevToolsFiles(),
+    ...checkAllDevToolsModules(),
+    ...checkCopiedDevToolsModules(),
+  ];
   if (errors.length) {
     console.log('DevTools BUILD.gn checker detected errors!');
     console.log(`There's an issue with: ${gnPath}`);
@@ -70,41 +73,87 @@ function checkNonAutostartNonRemoteModules() {
  * listed in BUILD.gn.
  */
 function checkAllDevToolsFiles() {
+  return checkGNVariable('all_devtools_files', (moduleJSON) => {
+    const scripts = moduleJSON.scripts || [];
+    const resources = moduleJSON.resources || [];
+    return [
+      'module.json',
+      ...scripts,
+      ...resources,
+    ];
+  });
+}
+
+function checkAllDevToolsModules() {
+  return checkGNVariable('all_devtools_modules', (moduleJSON) => {
+    return moduleJSON.modules || [];
+  });
+}
+
+function checkCopiedDevToolsModules() {
+  return checkGNVariable(
+      'copied_devtools_modules',
+      (moduleJSON) => {
+        return moduleJSON.modules || [];
+      },
+      (buildGNPath) => (filename) => {
+        const relativePath = path.normalize(`$resources_out_dir/${buildGNPath}/${filename}`);
+        return `"${relativePath}",`;
+      });
+}
+
+function checkGNVariable(gnVariable, obtainFiles, obtainRelativePath) {
   const errors = [];
-  const excludedFiles = ['InspectorBackendCommands.js', 'SupportedCSSProperties.js', 'ARIAProperties.js', 'axe.js'];
-  const gnVariable = 'all_devtools_files';
+  const excludedFiles =
+      ['InspectorBackendCommands.js', 'SupportedCSSProperties.js', 'ARIAProperties.js', 'axe.js', 'formatter_worker/']
+      .map(path.normalize);
   const lines = selectGNLines(`${gnVariable} = [`, ']').map(path.normalize);
   if (!lines.length) {
     return [
-      'Could not identify all_devtools_files list in gn file',
+      `Could not identify ${gnVariable} list in gn file`,
       'Please look at: ' + __filename,
     ];
   }
   const gnFiles = new Set(lines);
   var moduleFiles = [];
-  fs.readdirSync(FRONTEND_PATH).forEach(function(moduleName) {
-    const moduleJSONPath = path.join(FRONTEND_PATH, moduleName, 'module.json');
-    if (utils.isFile(moduleJSONPath)) {
-      const moduleJSON = require(moduleJSONPath);
-      const scripts = moduleJSON.scripts || [];
-      const resources = moduleJSON.resources || [];
-      const files = ['module.json']
-                        .concat(scripts)
-                        .concat(resources)
-                        .map(relativePathFromBuildGN)
-                        .filter(file => excludedFiles.every(excludedFile => !file.includes(excludedFile)));
-      moduleFiles = moduleFiles.concat(files);
 
-      function relativePathFromBuildGN(filename) {
-        const relativePath = path.normalize(`front_end/${moduleName}/${filename}`);
-        return `"${relativePath}",`;
-      }
+  function addModuleFilesForDirectory(moduleJSONPath, buildGNPath) {
+    const moduleJSON = require(moduleJSONPath);
+    const files = obtainFiles(moduleJSON)
+                      .map(obtainRelativePath && obtainRelativePath(buildGNPath) || relativePathFromBuildGN)
+                      .filter(file => excludedFiles.every(excludedFile => !file.includes(excludedFile)));
+    moduleFiles = moduleFiles.concat(files);
+
+    function relativePathFromBuildGN(filename) {
+      const relativePath = path.normalize(`front_end/${buildGNPath}/${filename}`);
+      return `"${relativePath}",`;
     }
+  }
+
+  function traverseDirectoriesForModuleJSONFiles(folderName, buildGNPath) {
+    if (!fs.lstatSync(folderName).isDirectory()) {
+      return;
+    }
+    const moduleJSONPath = path.join(folderName, 'module.json');
+    if (utils.isFile(moduleJSONPath)) {
+      addModuleFilesForDirectory(moduleJSONPath, buildGNPath);
+    }
+
+    fs.readdirSync(folderName).forEach((nestedModuleName) => {
+      traverseDirectoriesForModuleJSONFiles(
+          path.join(folderName, nestedModuleName), `${buildGNPath}/${nestedModuleName}`);
+    });
+  }
+
+  fs.readdirSync(FRONTEND_PATH).forEach((moduleName) => {
+    traverseDirectoriesForModuleJSONFiles(path.join(FRONTEND_PATH, moduleName), moduleName);
   });
+
   for (const file of moduleFiles) {
     if (!gnFiles.has(file))
       errors.push(`Missing file in BUILD.gn for ${gnVariable}: ` + file);
   }
+
   return errors;
 }
 

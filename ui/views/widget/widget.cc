@@ -96,10 +96,8 @@ class DefaultWidgetDelegate : public WidgetDelegate {
   }
   ~DefaultWidgetDelegate() override = default;
 
-  // Overridden from WidgetDelegate:
+  // WidgetDelegate:
   void DeleteDelegate() override { delete this; }
-  Widget* GetWidget() override { return widget_; }
-  const Widget* GetWidget() const override { return widget_; }
   bool ShouldAdvanceFocusToTopLevelWidget() const override {
     // In most situations where a Widget is used without a delegate the Widget
     // is used as a container, so that we want focus to advance to the top-level
@@ -108,6 +106,9 @@ class DefaultWidgetDelegate : public WidgetDelegate {
   }
 
  private:
+  // WidgetDelegate:
+  const Widget* GetWidgetImpl() const override { return widget_; }
+
   Widget* widget_;
 
   DISALLOW_COPY_AND_ASSIGN(DefaultWidgetDelegate);
@@ -460,14 +461,17 @@ void Widget::ViewHierarchyChanged(const ViewHierarchyChangedDetails& details) {
 }
 
 void Widget::NotifyNativeViewHierarchyWillChange() {
-  FocusManager* focus_manager = GetFocusManager();
-  // We are being removed from a window hierarchy.  Treat this as
-  // the root_view_ being removed.
-  if (focus_manager)
-    focus_manager->ViewRemoved(root_view_.get());
+  // During tear-down the top-level focus manager becomes unavailable to
+  // GTK tabbed panes and their children, so normal deregistration via
+  // |FocusManager::ViewRemoved()| calls are fouled.  We clear focus here
+  // to avoid these redundant steps and to avoid accessing deleted views
+  // that may have been in focus.
+  ClearFocusFromWidget();
+  native_widget_->OnNativeViewHierarchyChanged();
 }
 
 void Widget::NotifyNativeViewHierarchyChanged() {
+  native_widget_->OnNativeViewHierarchyWillChange();
   root_view_->NotifyNativeViewHierarchyChanged();
 }
 
@@ -613,14 +617,7 @@ void Widget::CloseWithReason(ClosedReason closed_reason) {
   widget_closed_ = true;
   closed_reason_ = closed_reason;
   SaveWindowPlacement();
-
-  // During tear-down the top-level focus manager becomes unavailable to
-  // GTK tabbed panes and their children, so normal deregistration via
-  // |FocusManager::ViewRemoved()| calls are fouled.  We clear focus here
-  // to avoid these redundant steps and to avoid accessing deleted views
-  // that may have been in focus.
-  if (is_top_level() && focus_manager_)
-    focus_manager_->SetFocusedView(nullptr);
+  ClearFocusFromWidget();
 
   for (WidgetObserver& observer : observers_)
     observer.OnWidgetClosing(this);
@@ -1077,6 +1074,10 @@ std::unique_ptr<Widget::PaintAsActiveLock> Widget::LockPaintAsActive() {
       weak_ptr_factory_.GetWeakPtr());
 }
 
+base::WeakPtr<Widget> Widget::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 bool Widget::ShouldPaintAsActive() const {
   return native_widget_active_ || paint_as_active_refcount_;
 }
@@ -1393,12 +1394,14 @@ const Widget* Widget::AsWidget() const {
 
 bool Widget::SetInitialFocus(ui::WindowShowState show_state) {
   FocusManager* focus_manager = GetFocusManager();
+  if (!focus_manager)
+    return false;
   View* v = widget_delegate_->GetInitiallyFocusedView();
   if (!focus_on_creation_ || show_state == ui::SHOW_STATE_INACTIVE ||
       show_state == ui::SHOW_STATE_MINIMIZED) {
     // If not focusing the window now, tell the focus manager which view to
     // focus when the window is restored.
-    if (v && focus_manager)
+    if (v)
       focus_manager->SetStoredFocusView(v);
     return true;
   }
@@ -1407,10 +1410,8 @@ bool Widget::SetInitialFocus(ui::WindowShowState show_state) {
     // If the Widget is active (thus allowing its child Views to receive focus),
     // but the request for focus was unsuccessful, fall back to using the first
     // focusable View instead.
-    if (focus_manager && focus_manager->GetFocusedView() == nullptr &&
-        IsActive()) {
+    if (focus_manager->GetFocusedView() == nullptr && IsActive())
       focus_manager->AdvanceFocus(false);
-    }
   }
   return !!focus_manager->GetFocusedView();
 }
@@ -1525,8 +1526,7 @@ internal::RootView* Widget::CreateRootView() {
 }
 
 void Widget::DestroyRootView() {
-  if (is_top_level() && focus_manager_)
-    focus_manager_->SetFocusedView(nullptr);
+  ClearFocusFromWidget();
   NotifyWillRemoveView(root_view_.get());
   non_client_view_ = nullptr;
   // Remove all children before the unique_ptr reset so that
@@ -1660,6 +1660,14 @@ void Widget::UpdatePaintAsActiveState(bool paint_as_active) {
     non_client_view_->frame_view()->PaintAsActiveChanged(paint_as_active);
   if (widget_delegate())
     widget_delegate()->OnPaintAsActiveChanged(paint_as_active);
+}
+
+void Widget::ClearFocusFromWidget() {
+  FocusManager* focus_manager = GetFocusManager();
+  // We are being removed from a window hierarchy.  Treat this as
+  // the root_view_ being removed.
+  if (focus_manager)
+    focus_manager->ViewRemoved(root_view_.get());
 }
 
 namespace internal {

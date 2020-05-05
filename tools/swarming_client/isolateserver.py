@@ -29,6 +29,7 @@ tools.force_local_third_party()
 import colorama
 from depot_tools import fix_encoding
 from depot_tools import subcommand
+import six
 from six.moves import queue as Queue
 
 # pylint: disable=ungrouped-imports
@@ -131,7 +132,7 @@ def fileobj_path(fileobj):
   # name will end up being a str (such as a function outside our control, like
   # the standard library). We want all our paths to be unicode objects, so we
   # decode it.
-  if not isinstance(name, unicode):
+  if not isinstance(name, six.text_type):
     # We incorrectly assume that UTF-8 is used everywhere.
     name = name.decode('utf-8')
 
@@ -694,10 +695,10 @@ class Storage(object):
             except threading_utils.TaskChannel.Timeout:
               break
             pending_contains -= 1
-            for missing_item, push_state in v.iteritems():
+            for missing_item, push_state in v.items():
               missing.put((missing_item, push_state))
         while pending_contains and not self._aborted:
-          for missing_item, push_state in channel.next().iteritems():
+          for missing_item, push_state in channel.next().items():
             missing.put((missing_item, push_state))
           pending_contains -= 1
       finally:
@@ -1181,7 +1182,7 @@ class IsolatedBundle(object):
     """
     files = isolated.data.get('files', {})
     logging.debug('fetch_files(%s, %d)', isolated.obj_hash, len(files))
-    for filepath, properties in files.iteritems():
+    for filepath, properties in files.items():
       if self._filter_cb and not self._filter_cb(filepath):
         continue
 
@@ -1309,7 +1310,7 @@ def fetch_isolated(isolated_hash, storage, cache, outdir, use_symlinks,
       logging.debug('%s is not a valid hash, assuming a file '
                     '(algo was %s, hash size was %d)',
                     isolated_hash, algo(), algo().digest_size)
-      path = unicode(os.path.abspath(isolated_hash))
+      path = six.text_type(os.path.abspath(isolated_hash))
       try:
         isolated_hash = fetch_queue.inject_local_file(path, algo)
       except IOError as e:
@@ -1324,7 +1325,7 @@ def fetch_isolated(isolated_hash, storage, cache, outdir, use_symlinks,
     # Create file system hierarchy.
     file_path.ensure_tree(outdir)
     create_directories(outdir, bundle.files)
-    _create_symlinks(outdir, bundle.files.iteritems())
+    _create_symlinks(outdir, bundle.files.items())
 
     # Ensure working directory exists.
     cwd = os.path.normpath(os.path.join(outdir, bundle.relative_cwd))
@@ -1332,7 +1333,7 @@ def fetch_isolated(isolated_hash, storage, cache, outdir, use_symlinks,
 
     # Multimap: digest -> list of pairs (path, props).
     remaining = {}
-    for filepath, props in bundle.files.iteritems():
+    for filepath, props in bundle.files.items():
       if 'h' in props:
         remaining.setdefault(props['h'], []).append((filepath, props))
         fetch_queue.wait_on(props['h'])
@@ -1509,7 +1510,7 @@ def archive_files_to_storage(storage, files, blacklist):
   items_found = []
   try:
     for f in files:
-      assert isinstance(f, unicode), repr(f)
+      assert isinstance(f, six.text_type), repr(f)
       if f in results:
         # Duplicate
         continue
@@ -1584,7 +1585,7 @@ def CMDarchive(parser, args):
       results, _cold, _hot = archive_files_to_storage(storage, files, blacklist)
   except (Error, local_caching.NoMoreSpace) as e:
     parser.error(e.args[0])
-  print('\n'.join('%s %s' % (h, f) for f, h in results.iteritems()))
+  print('\n'.join('%s %s' % (h, f) for f, h in results.items()))
   return 0
 
 
@@ -1623,7 +1624,7 @@ def CMDdownload(parser, args):
 
   cache = process_cache_options(options, trim=True)
   cache.cleanup()
-  options.target = unicode(os.path.abspath(options.target))
+  options.target = six.text_type(os.path.abspath(options.target))
   if options.isolated:
     if (fs.isfile(options.target) or
         (fs.isdir(options.target) and fs.listdir(options.target))):
@@ -1638,7 +1639,7 @@ def CMDdownload(parser, args):
       channel = threading_utils.TaskChannel()
       pending = {}
       for digest, dest in options.file:
-        dest = unicode(dest)
+        dest = six.text_type(dest)
         pending[digest] = dest
         storage.async_fetch(
             channel,
@@ -1761,7 +1762,7 @@ def process_cache_options(options, trim, **kwargs):
     # |options.cache| path may not exist until DiskContentAddressedCache()
     # instance is created.
     return local_caching.DiskContentAddressedCache(
-        unicode(os.path.abspath(options.cache)), policies, trim, **kwargs)
+        six.text_type(os.path.abspath(options.cache)), policies, trim, **kwargs)
   return local_caching.MemoryContentAddressedCache()
 
 

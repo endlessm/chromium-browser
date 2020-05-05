@@ -126,10 +126,6 @@ bool SkPaintToGrPaintWithTexture(GrRecordingContext*,
 // Misc Sk to Gr type conversions
 
 GrSurfaceDesc GrImageInfoToSurfaceDesc(const SkImageInfo&);
-GrPixelConfig SkColorType2GrPixelConfig(const SkColorType);
-GrPixelConfig SkImageInfo2GrPixelConfig(const SkImageInfo& info);
-
-bool GrPixelConfigToColorType(GrPixelConfig, SkColorType*);
 
 GrSamplerState::Filter GrSkFilterQualityToGrFilterMode(int imageWidth, int imageHeight,
                                                        SkFilterQuality paintFilterQuality,
@@ -154,17 +150,17 @@ static inline GrPrimitiveType SkVertexModeToGrPrimitiveType(SkVertices::VertexMo
 
 //////////////////////////////////////////////////////////////////////////////
 
-GR_STATIC_ASSERT((int)kZero_GrBlendCoeff == (int)SkBlendModeCoeff::kZero);
-GR_STATIC_ASSERT((int)kOne_GrBlendCoeff == (int)SkBlendModeCoeff::kOne);
-GR_STATIC_ASSERT((int)kSC_GrBlendCoeff == (int)SkBlendModeCoeff::kSC);
-GR_STATIC_ASSERT((int)kISC_GrBlendCoeff == (int)SkBlendModeCoeff::kISC);
-GR_STATIC_ASSERT((int)kDC_GrBlendCoeff == (int)SkBlendModeCoeff::kDC);
-GR_STATIC_ASSERT((int)kIDC_GrBlendCoeff == (int)SkBlendModeCoeff::kIDC);
-GR_STATIC_ASSERT((int)kSA_GrBlendCoeff == (int)SkBlendModeCoeff::kSA);
-GR_STATIC_ASSERT((int)kISA_GrBlendCoeff == (int)SkBlendModeCoeff::kISA);
-GR_STATIC_ASSERT((int)kDA_GrBlendCoeff == (int)SkBlendModeCoeff::kDA);
-GR_STATIC_ASSERT((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA);
-//GR_STATIC_ASSERT(SkXfermode::kCoeffCount == 10);
+static_assert((int)kZero_GrBlendCoeff == (int)SkBlendModeCoeff::kZero);
+static_assert((int)kOne_GrBlendCoeff == (int)SkBlendModeCoeff::kOne);
+static_assert((int)kSC_GrBlendCoeff == (int)SkBlendModeCoeff::kSC);
+static_assert((int)kISC_GrBlendCoeff == (int)SkBlendModeCoeff::kISC);
+static_assert((int)kDC_GrBlendCoeff == (int)SkBlendModeCoeff::kDC);
+static_assert((int)kIDC_GrBlendCoeff == (int)SkBlendModeCoeff::kIDC);
+static_assert((int)kSA_GrBlendCoeff == (int)SkBlendModeCoeff::kSA);
+static_assert((int)kISA_GrBlendCoeff == (int)SkBlendModeCoeff::kISA);
+static_assert((int)kDA_GrBlendCoeff == (int)SkBlendModeCoeff::kDA);
+static_assert((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA);
+// static_assert(SkXfermode::kCoeffCount == 10);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Texture management
@@ -178,29 +174,22 @@ GR_STATIC_ASSERT((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA);
  */
 sk_sp<GrTextureProxy> GrRefCachedBitmapTextureProxy(GrRecordingContext*,
                                                     const SkBitmap&,
-                                                    const GrSamplerState&,
+                                                    GrSamplerState,
                                                     SkScalar scaleAdjust[2]);
 
 /**
  * Creates a new texture with mipmap levels and copies the baseProxy into the base layer.
  */
 sk_sp<GrTextureProxy> GrCopyBaseMipMapToTextureProxy(GrRecordingContext*,
-                                                     GrTextureProxy* baseProxy,
+                                                     GrSurfaceProxy* baseProxy,
                                                      GrColorType srcColorType);
 
 /*
- * Create a texture proxy from the provided bitmap by wrapping it in an image and calling
- * GrMakeCachedImageProxy.
+ * Create a texture proxy from the provided bitmap and add it to the texture cache
+ * using the key also extracted from 'bitmp'.
  */
-sk_sp<GrTextureProxy> GrMakeCachedBitmapProxy(GrProxyProvider*, const SkBitmap& bitmap,
-                                              SkBackingFit fit = SkBackingFit::kExact);
-
-/*
- * Create a texture proxy from the provided 'srcImage' and add it to the texture cache
- * using the key also extracted from 'srcImage'.
- */
-sk_sp<GrTextureProxy> GrMakeCachedImageProxy(GrProxyProvider*, sk_sp<SkImage> srcImage,
-                                             SkBackingFit fit = SkBackingFit::kExact);
+GrSurfaceProxyView GrMakeCachedBitmapProxyView(GrRecordingContext*, const SkBitmap& bitmap,
+                                               SkBackingFit fit = SkBackingFit::kExact);
 
 /**
  *  Our key includes the offset, width, and height so that bitmaps created by extractSubset()

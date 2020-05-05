@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Sources.SearchSourcesView = class extends Search.SearchView {
+import {SourcesSearchScope} from './SourcesSearchScope.js';
+
+export class SearchSourcesView extends Search.SearchView {
   constructor() {
     super('sources');
   }
@@ -13,12 +15,12 @@ Sources.SearchSourcesView = class extends Search.SearchView {
    * @return {!Promise}
    */
   static async openSearch(query, searchImmediately) {
-    const view = UI.viewManager.view('sources.search-sources-tab');
+    const view = self.UI.viewManager.view('sources.search-sources-tab');
     // Deliberately use target location name so that it could be changed
     // based on the setting later.
-    const location = await UI.viewManager.resolveLocation('drawer-view');
+    const location = await self.UI.viewManager.resolveLocation('drawer-view');
     location.appendView(view);
-    await UI.viewManager.revealView(/** @type {!UI.View} */ (view));
+    await self.UI.viewManager.revealView(/** @type {!UI.View} */ (view));
     const widget = /** @type {!Search.SearchView} */ (await view.widget());
     widget.toggle(query, !!searchImmediately);
     return widget;
@@ -29,14 +31,14 @@ Sources.SearchSourcesView = class extends Search.SearchView {
    * @return {!Search.SearchScope}
    */
   createScope() {
-    return new Sources.SourcesSearchScope();
+    return new SourcesSearchScope();
   }
-};
+}
 
 /**
  * @implements {UI.ActionDelegate}
  */
-Sources.SearchSourcesView.ActionDelegate = class {
+export class ActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -52,12 +54,12 @@ Sources.SearchSourcesView.ActionDelegate = class {
    * @return {!Promise}
    */
   _showSearch() {
-    const selection = UI.inspectorView.element.window().getSelection();
+    const selection = self.UI.inspectorView.element.window().getSelection();
     let queryCandidate = '';
     if (selection.rangeCount) {
       queryCandidate = selection.toString().replace(/\r?\n.*/, '');
     }
 
-    return Sources.SearchSourcesView.openSearch(queryCandidate);
+    return SearchSourcesView.openSearch(queryCandidate);
   }
-};
+}

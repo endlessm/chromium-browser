@@ -528,6 +528,14 @@ def _make_try_job_schedule_requests(changelist, buckets, options, patchset):
               ] + shared_tags,
           }
       })
+
+      if options.revision:
+        requests[-1]['scheduleBuild']['gitilesCommit'] = {
+            'host': gerrit_changes[0]['host'],
+            'project': gerrit_changes[0]['project'],
+            'id': options.revision
+         }
+
   return requests
 
 
@@ -1746,7 +1754,11 @@ class Changelist(object):
     if not isinstance(cookie_auth, gerrit_util.CookiesAuthenticator):
       return
 
-    if urllib.parse.urlparse(self.GetRemoteUrl()).scheme != 'https':
+    remote_url = self.GetRemoteUrl()
+    if remote_url is None:
+      print('WARNING: invalid remote')
+      return
+    if urllib.parse.urlparse(remote_url).scheme != 'https':
       print('WARNING: Ignoring branch %s with non-https remote %s' %
             (self.branch, self.GetRemoteUrl()))
       return
@@ -2088,14 +2100,7 @@ class Changelist(object):
 
   def _IsCqConfigured(self):
     detail = self._GetChangeDetail(['LABELS'])
-    if u'Commit-Queue' not in detail.get('labels', {}):
-      return False
-    # TODO(crbug/753213): Remove temporary hack
-    if ('https://chromium.googlesource.com/chromium/src' ==
-        self.GetRemoteUrl() and
-        detail['branch'].startswith('refs/branch-heads/')):
-      return False
-    return True
+    return u'Commit-Queue' in detail.get('labels', {})
 
   def CMDLand(self, force, bypass_hooks, verbose, parallel):
     if git_common.is_dirty_git_tree('land'):
@@ -2405,6 +2410,13 @@ class Changelist(object):
             else:
               title = ask_for_data(
                   'Title for patchset [%s]: ' % default_title) or default_title
+
+        # User requested to change description
+        if options.edit_description:
+          change_desc = ChangeDescription(message, bug=bug, fixed=fixed)
+          change_desc.prompt()
+          message = change_desc.description
+
         change_id = self._GetChangeDetail()['change_id']
         while True:
           footer_change_ids = git_footers.get_footer_change_id(message)
@@ -4472,6 +4484,10 @@ def CMDupload(parser, args):
                          'fixed (pre-populates "Fixed:" tag). Same format as '
                          '-b option / "Bug:" tag. If fixing several issues, '
                          'separate with commas.')
+  parser.add_option('--edit-description', action='store_true', default=False,
+                    help='Modify description before upload. Cannot be used '
+                         'with --force. It is a noop when --no-squash is set '
+                         'or a new commit is created.')
 
   orig_args = args
   _add_codereview_select_options(parser)
@@ -4483,6 +4499,9 @@ def CMDupload(parser, args):
   options.reviewers = cleanup_list(options.reviewers)
   options.tbrs = cleanup_list(options.tbrs)
   options.cc = cleanup_list(options.cc)
+
+  if options.edit_description and options.force:
+    parser.error('Only one of --force and --edit-description allowed')
 
   if options.message_file:
     if options.message:
@@ -4537,8 +4556,10 @@ def CMDsplit(parser, args):
 
   Creates a branch and uploads a CL for each group of files modified in the
   current branch that share a common OWNERS file. In the CL description and
-  comment, the string '$directory', is replaced with the directory containing
-  the shared OWNERS file.
+  comment, '$directory' is replaced with the directory containing the changes
+  in this CL, '$cl_index' is replaced with the index of the CL we're currently
+  sending out, and '$num_cls' is replaced with the total number of CLs that
+  we're sending out in this split.
   """
   parser.add_option('-d', '--description', dest='description_file',
                     help='A text file containing a CL description in which '
@@ -5117,6 +5138,65 @@ def BuildGitDiffCmd(diff_type, upstream_commit, args, allow_prefix=False):
   return diff_cmd
 
 
+def _RunClangFormatDiff(opts, clang_diff_files, top_dir, upstream_commit):
+  """Runs clang-format-diff and sets a return value if necessary."""
+
+  if not clang_diff_files:
+    return 0
+
+  # Set to 2 to signal to CheckPatchFormatted() that this patch isn't
+  # formatted. This is used to block during the presubmit.
+  return_value = 0
+
+  # Locate the clang-format binary in the checkout
+  try:
+    clang_format_tool = clang_format.FindClangFormatToolInChromiumTree()
+  except clang_format.NotFoundError as e:
+    DieWithError(e)
+
+  if opts.full or settings.GetFormatFullByDefault():
+    cmd = [clang_format_tool]
+    if not opts.dry_run and not opts.diff:
+      cmd.append('-i')
+    if opts.dry_run:
+      for diff_file in clang_diff_files:
+        with open(diff_file, 'r') as myfile:
+          code = myfile.read().replace('\r\n', '\n')
+          stdout = RunCommand(cmd + [diff_file], cwd=top_dir)
+          stdout = stdout.replace('\r\n', '\n')
+          if opts.diff:
+            sys.stdout.write(stdout)
+          if code != stdout:
+            return_value = 2
+    else:
+      stdout = RunCommand(cmd + clang_diff_files, cwd=top_dir)
+      if opts.diff:
+        sys.stdout.write(stdout)
+  else:
+    env = os.environ.copy()
+    env['PATH'] = str(os.path.dirname(clang_format_tool))
+    try:
+      script = clang_format.FindClangFormatScriptInChromiumTree(
+          'clang-format-diff.py')
+    except clang_format.NotFoundError as e:
+      DieWithError(e)
+
+    cmd = [sys.executable, script, '-p0']
+    if not opts.dry_run and not opts.diff:
+      cmd.append('-i')
+
+    diff_cmd = BuildGitDiffCmd('-U0', upstream_commit, clang_diff_files)
+    diff_output = RunGit(diff_cmd)
+
+    stdout = RunCommand(cmd, stdin=diff_output, cwd=top_dir, env=env)
+    if opts.diff:
+      sys.stdout.write(stdout)
+    if opts.dry_run and len(stdout) > 0:
+      return_value = 2
+
+  return return_value
+
+
 def MatchingFileType(file_name, extensions):
   """Returns True if the file name ends with one of the given extensions."""
   return bool([ext for ext in extensions if file_name.lower().endswith(ext)])
@@ -5133,6 +5213,12 @@ def CMDformat(parser, args):
   parser.add_option('--dry-run', action='store_true',
                     help='Don\'t modify any file on disk.')
   parser.add_option(
+      '--no-clang-format',
+      dest='clang_format',
+      action='store_false',
+      default=True,
+      help='Disables formatting of various file types using clang-format.')
+  parser.add_option(
       '--python',
       action='store_true',
       default=None,
@@ -5140,19 +5226,26 @@ def CMDformat(parser, args):
   parser.add_option(
       '--no-python',
       action='store_true',
-      dest='python',
+      default=False,
       help='Disables python formatting on all python files. '
-      'Takes precedence over --python. '
-      'If neither --python or --no-python are set, python '
-      'files that have a .style.yapf file in an ancestor '
-      'directory will be formatted.')
-  parser.add_option('--js', action='store_true',
-                    help='Format javascript code with clang-format.')
+      'If neither --python or --no-python are set, python files that have a '
+      '.style.yapf file in an ancestor directory will be formatted. '
+      'It is an error to set both.')
+  parser.add_option(
+      '--js',
+      action='store_true',
+      help='Format javascript code with clang-format. '
+      'Has no effect if --no-clang-format is set.')
   parser.add_option('--diff', action='store_true',
                     help='Print diff to stdout rather than modifying files.')
   parser.add_option('--presubmit', action='store_true',
                     help='Used when running the script from a presubmit.')
   opts, args = parser.parse_args(args)
+
+  if opts.python is not None and opts.no_python:
+    raise parser.error('Cannot set both --python and --no-python')
+  if opts.no_python:
+    opts.python = False
 
   # Normalize any remaining args against the current path, so paths relative to
   # the current directory are still resolved as expected.
@@ -5188,7 +5281,11 @@ def CMDformat(parser, args):
   if opts.js:
     CLANG_EXTS.extend(['.js', '.ts'])
 
-  clang_diff_files = [x for x in diff_files if MatchingFileType(x, CLANG_EXTS)]
+  clang_diff_files = []
+  if opts.clang_format:
+    clang_diff_files = [
+        x for x in diff_files if MatchingFileType(x, CLANG_EXTS)
+    ]
   python_diff_files = [x for x in diff_files if MatchingFileType(x, ['.py'])]
   dart_diff_files = [x for x in diff_files if MatchingFileType(x, ['.dart'])]
   gn_diff_files = [x for x in diff_files if MatchingFileType(x, GN_EXTS)]
@@ -5196,45 +5293,8 @@ def CMDformat(parser, args):
   top_dir = os.path.normpath(
       RunGit(["rev-parse", "--show-toplevel"]).rstrip('\n'))
 
-  # Set to 2 to signal to CheckPatchFormatted() that this patch isn't
-  # formatted. This is used to block during the presubmit.
-  return_value = 0
-
-  if clang_diff_files:
-    # Locate the clang-format binary in the checkout
-    try:
-      clang_format_tool = clang_format.FindClangFormatToolInChromiumTree()
-    except clang_format.NotFoundError as e:
-      DieWithError(e)
-
-    if opts.full or settings.GetFormatFullByDefault():
-      cmd = [clang_format_tool]
-      if not opts.dry_run and not opts.diff:
-        cmd.append('-i')
-      stdout = RunCommand(cmd + clang_diff_files, cwd=top_dir)
-      if opts.diff:
-        sys.stdout.write(stdout)
-    else:
-      env = os.environ.copy()
-      env['PATH'] = str(os.path.dirname(clang_format_tool))
-      try:
-        script = clang_format.FindClangFormatScriptInChromiumTree(
-            'clang-format-diff.py')
-      except clang_format.NotFoundError as e:
-        DieWithError(e)
-
-      cmd = [sys.executable, script, '-p0']
-      if not opts.dry_run and not opts.diff:
-        cmd.append('-i')
-
-      diff_cmd = BuildGitDiffCmd('-U0', upstream_commit, clang_diff_files)
-      diff_output = RunGit(diff_cmd)
-
-      stdout = RunCommand(cmd, stdin=diff_output, cwd=top_dir, env=env)
-      if opts.diff:
-        sys.stdout.write(stdout)
-      if opts.dry_run and len(stdout) > 0:
-        return_value = 2
+  return_value = _RunClangFormatDiff(opts, clang_diff_files, top_dir,
+                                     upstream_commit)
 
   # Similar code to above, but using yapf on .py files rather than clang-format
   # on C/C++ files
@@ -5245,10 +5305,6 @@ def CMDformat(parser, args):
     if sys.platform.startswith('win'):
       yapf_tool += '.bat'
 
-    # If we couldn't find a yapf file we'll default to the chromium style
-    # specified in depot_tools.
-    chromium_default_yapf_style = os.path.join(depot_tools_path,
-                                               YAPF_CONFIG_FILENAME)
     # Used for caching.
     yapf_configs = {}
     for f in python_diff_files:
@@ -5278,11 +5334,12 @@ def CMDformat(parser, args):
                                                 yapfignore_patterns)
 
     for f in filtered_py_files:
-      yapf_config = _FindYapfConfigFile(f, yapf_configs, top_dir)
-      if yapf_config is None:
-        yapf_config = chromium_default_yapf_style
+      yapf_style = _FindYapfConfigFile(f, yapf_configs, top_dir)
+      # Default to pep8 if not .style.yapf is found.
+      if not yapf_style:
+        yapf_style = 'pep8'
 
-      cmd = [yapf_tool, '--style', yapf_config, f]
+      cmd = [yapf_tool, '--style', yapf_style, f]
 
       has_formattable_lines = False
       if not opts.full:
@@ -5322,7 +5379,7 @@ def CMDformat(parser, args):
       stdout = RunCommand(command, cwd=top_dir)
       if opts.dry_run and stdout:
         return_value = 2
-    except dart_format.NotFoundError as e:
+    except dart_format.NotFoundError:
       print('Warning: Unable to check Dart code formatting. Dart SDK not '
             'found in this checkout. Files in other languages are still '
             'formatted.')

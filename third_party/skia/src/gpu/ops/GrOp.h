@@ -12,6 +12,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkString.h"
 #include "include/gpu/GrGpuResource.h"
+#include "include/private/GrRecordingContext.h"
 #include "src/gpu/GrNonAtomicRef.h"
 #include "src/gpu/GrTracing.h"
 #include "src/gpu/GrXferProcessor.h"
@@ -95,7 +96,9 @@ public:
         kCannotCombine
     };
 
-    CombineResult combineIfPossible(GrOp* that, const GrCaps& caps);
+    // The arenas are the same as what was available when the op was created.
+    CombineResult combineIfPossible(GrOp* that, GrRecordingContext::Arenas* arena,
+                                    const GrCaps& caps);
 
     const SkRect& bounds() const {
         SkASSERT(kUninitialized_BoundsFlag != fBoundsFlags);
@@ -288,7 +291,7 @@ private:
         return fBounds.joinPossiblyEmptyRect(that.fBounds);
     }
 
-    virtual CombineResult onCombineIfPossible(GrOp*, const GrCaps&) {
+    virtual CombineResult onCombineIfPossible(GrOp*, GrRecordingContext::Arenas*, const GrCaps&) {
         return CombineResult::kCannotCombine;
     }
 

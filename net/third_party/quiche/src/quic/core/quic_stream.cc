@@ -15,7 +15,8 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 using spdy::SpdyPriority;
 
@@ -179,7 +180,7 @@ void PendingStream::OnStreamFrame(const QuicStreamFrame& frame) {
   if (frame.offset + frame.data_length > sequencer_.close_offset()) {
     CloseConnectionWithDetails(
         QUIC_STREAM_DATA_BEYOND_CLOSE_OFFSET,
-        QuicStrCat(
+        quiche::QuicheStrCat(
             "Stream ", id_,
             " received data with offset: ", frame.offset + frame.data_length,
             ", which is beyond close offset: ", sequencer()->close_offset()));
@@ -228,10 +229,10 @@ void PendingStream::OnRstStreamFrame(const QuicRstStreamFrame& frame) {
       frame.byte_offset != sequencer()->close_offset()) {
     CloseConnectionWithDetails(
         QUIC_STREAM_MULTIPLE_OFFSET,
-        QuicStrCat("Stream ", id_,
-                   " received new final offset: ", frame.byte_offset,
-                   ", which is different from close offset: ",
-                   sequencer()->close_offset()));
+        quiche::QuicheStrCat("Stream ", id_,
+                             " received new final offset: ", frame.byte_offset,
+                             ", which is different from close offset: ",
+                             sequencer()->close_offset()));
     return;
   }
 
@@ -415,21 +416,17 @@ void QuicStream::OnStreamFrame(const QuicStreamFrame& frame) {
                   << sequencer_.DebugString();
     CloseConnectionWithDetails(
         QUIC_STREAM_LENGTH_OVERFLOW,
-        QuicStrCat("Peer sends more data than allowed on stream ", id_,
-                   ". frame: offset = ", frame.offset, ", length = ",
-                   frame.data_length, ". ", sequencer_.DebugString()));
+        quiche::QuicheStrCat("Peer sends more data than allowed on stream ",
+                             id_, ". frame: offset = ", frame.offset,
+                             ", length = ", frame.data_length, ". ",
+                             sequencer_.DebugString()));
     return;
   }
 
   if (frame.offset + frame.data_length > sequencer_.close_offset()) {
-    if (!GetQuicReloadableFlag(quic_close_connection_on_wrong_offset)) {
-      Reset(QUIC_DATA_AFTER_CLOSE_OFFSET);
-      return;
-    }
-    QUIC_RELOADABLE_FLAG_COUNT_N(quic_close_connection_on_wrong_offset, 1, 2);
     CloseConnectionWithDetails(
         QUIC_STREAM_DATA_BEYOND_CLOSE_OFFSET,
-        QuicStrCat(
+        quiche::QuicheStrCat(
             "Stream ", id_,
             " received data with offset: ", frame.offset + frame.data_length,
             ", which is beyond close offset: ", sequencer_.close_offset()));
@@ -490,20 +487,17 @@ void QuicStream::OnStreamReset(const QuicRstStreamFrame& frame) {
     return;
   }
 
-  if (GetQuicReloadableFlag(quic_close_connection_on_wrong_offset)) {
-    QUIC_RELOADABLE_FLAG_COUNT_N(quic_close_connection_on_wrong_offset, 2, 2);
-    const QuicStreamOffset kMaxOffset =
-        std::numeric_limits<QuicStreamOffset>::max();
-    if (sequencer()->close_offset() != kMaxOffset &&
-        frame.byte_offset != sequencer()->close_offset()) {
-      CloseConnectionWithDetails(
-          QUIC_STREAM_MULTIPLE_OFFSET,
-          QuicStrCat("Stream ", id_,
-                     " received new final offset: ", frame.byte_offset,
-                     ", which is different from close offset: ",
-                     sequencer_.close_offset()));
-      return;
-    }
+  const QuicStreamOffset kMaxOffset =
+      std::numeric_limits<QuicStreamOffset>::max();
+  if (sequencer()->close_offset() != kMaxOffset &&
+      frame.byte_offset != sequencer()->close_offset()) {
+    CloseConnectionWithDetails(
+        QUIC_STREAM_MULTIPLE_OFFSET,
+        quiche::QuicheStrCat("Stream ", id_,
+                             " received new final offset: ", frame.byte_offset,
+                             ", which is different from close offset: ",
+                             sequencer_.close_offset()));
+    return;
   }
 
   MaybeIncreaseHighestReceivedOffset(frame.byte_offset);
@@ -572,7 +566,7 @@ void QuicStream::SetPriority(const spdy::SpdyStreamPrecedence& precedence) {
 }
 
 void QuicStream::WriteOrBufferData(
-    QuicStringPiece data,
+    quiche::QuicheStringPiece data,
     bool fin,
     QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   if (data.empty() && !fin) {
@@ -607,7 +601,7 @@ void QuicStream::WriteOrBufferData(
       QUIC_BUG << "Write too many data via stream " << id_;
       CloseConnectionWithDetails(
           QUIC_STREAM_LENGTH_OVERFLOW,
-          QuicStrCat("Write too many data via stream ", id_));
+          quiche::QuicheStrCat("Write too many data via stream ", id_));
       return;
     }
     send_buffer_.SaveStreamData(&iov, 1, 0, data.length());
@@ -702,7 +696,7 @@ QuicConsumedData QuicStream::WriteMemSlices(QuicMemSliceSpan span, bool fin) {
         QUIC_BUG << "Write too many data via stream " << id_;
         CloseConnectionWithDetails(
             QUIC_STREAM_LENGTH_OVERFLOW,
-            QuicStrCat("Write too many data via stream ", id_));
+            quiche::QuicheStrCat("Write too many data via stream ", id_));
         return consumed_data;
       }
       OnDataBuffered(offset, consumed_data.bytes_consumed, nullptr);

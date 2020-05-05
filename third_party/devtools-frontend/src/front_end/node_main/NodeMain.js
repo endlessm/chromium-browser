@@ -5,23 +5,24 @@
 /**
  * @implements {Common.Runnable}
  */
-NodeMain.NodeMain = class extends Common.Object {
+export class NodeMainImpl extends Common.Object {
   /**
    * @override
    */
   run() {
     Host.userMetrics.actionTaken(Host.UserMetrics.Action.ConnectToNodeJSFromFrontend);
     SDK.initMainConnection(() => {
-      const target = SDK.targetManager.createTarget('main', Common.UIString('Main'), SDK.Target.Type.Browser, null);
+      const target =
+          self.SDK.targetManager.createTarget('main', Common.UIString('Main'), SDK.Target.Type.Browser, null);
       target.setInspectedURL('Node.js');
     }, Components.TargetDetachedDialog.webSocketConnectionLost);
   }
-};
+}
 
 /**
  * @implements {Protocol.TargetDispatcher}
  */
-NodeMain.NodeChildTargetManager = class extends SDK.SDKModel {
+export class NodeChildTargetManager extends SDK.SDKModel {
   /**
    * @param {!SDK.Target} parentTarget
    */
@@ -32,7 +33,7 @@ NodeMain.NodeChildTargetManager = class extends SDK.SDKModel {
     this._targetAgent = parentTarget.targetAgent();
     /** @type {!Map<string, !SDK.Target>} */
     this._childTargets = new Map();
-    /** @type {!Map<string, !NodeMain.NodeConnection>} */
+    /** @type {!Map<string, !NodeConnection>} */
     this._childConnections = new Map();
 
     parentTarget.registerTargetDispatcher(this);
@@ -104,7 +105,7 @@ NodeMain.NodeChildTargetManager = class extends SDK.SDKModel {
    */
   attachedToTarget(sessionId, targetInfo, waitingForDebugger) {
     const name = ls`Node.js: ${targetInfo.url}`;
-    const connection = new NodeMain.NodeConnection(this._targetAgent, sessionId);
+    const connection = new NodeConnection(this._targetAgent, sessionId);
     this._childConnections.set(sessionId, connection);
     const target = this._targetManager.createTarget(
         targetInfo.targetId, name, SDK.Target.Type.Node, this._parentTarget, undefined, undefined, connection);
@@ -136,12 +137,12 @@ NodeMain.NodeChildTargetManager = class extends SDK.SDKModel {
       onMessage.call(null, message);
     }
   }
-};
+}
 
 /**
  * @implements {Protocol.Connection}
  */
-NodeMain.NodeConnection = class {
+export class NodeConnection {
   /**
    * @param {!Protocol.TargetAgent} targetAgent
    * @param {string} sessionId
@@ -189,6 +190,6 @@ NodeMain.NodeConnection = class {
     this._onMessage = null;
     return this._targetAgent.detachFromTarget(this._sessionId);
   }
-};
+}
 
-SDK.SDKModel.register(NodeMain.NodeChildTargetManager, SDK.Target.Capability.Target, true);
+SDK.SDKModel.register(NodeChildTargetManager, SDK.Target.Capability.Target, true);

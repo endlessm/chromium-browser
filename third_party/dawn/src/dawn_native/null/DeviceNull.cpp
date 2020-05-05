@@ -17,7 +17,9 @@
 #include "dawn_native/BackendConnection.h"
 #include "dawn_native/Commands.h"
 #include "dawn_native/DynamicUploader.h"
+#include "dawn_native/ErrorData.h"
 #include "dawn_native/Instance.h"
+#include "dawn_native/Surface.h"
 
 #include <spirv_cross.hpp>
 
@@ -25,9 +27,9 @@ namespace dawn_native { namespace null {
 
     // Implementation of pre-Device objects: the null adapter, null backend connection and Connect()
 
-    Adapter::Adapter(InstanceBase* instance) : AdapterBase(instance, BackendType::Null) {
+    Adapter::Adapter(InstanceBase* instance) : AdapterBase(instance, wgpu::BackendType::Null) {
         mPCIInfo.name = "Null backend";
-        mDeviceType = DeviceType::CPU;
+        mAdapterType = wgpu::AdapterType::CPU;
 
         // Enable all extensions by default for the convenience of tests.
         mSupportedExtensions.extensionsBitSet.flip();
@@ -46,7 +48,7 @@ namespace dawn_native { namespace null {
 
     class Backend : public BackendConnection {
       public:
-        Backend(InstanceBase* instance) : BackendConnection(instance, BackendType::Null) {
+        Backend(InstanceBase* instance) : BackendConnection(instance, wgpu::BackendType::Null) {
         }
 
         std::vector<std::unique_ptr<AdapterBase>> DiscoverDefaultAdapters() override {
@@ -85,9 +87,9 @@ namespace dawn_native { namespace null {
     }
 
     Device::~Device() {
-        mDynamicUploader = nullptr;
-
-        mPendingOperations.clear();
+        BaseDestructor();
+        // This assert is in the destructor rather than Device::Destroy() because it needs to make
+        // sure buffers have been destroyed before the device.
         ASSERT(mMemoryUsage == 0);
     }
 
@@ -138,18 +140,27 @@ namespace dawn_native { namespace null {
                 return DAWN_VALIDATION_ERROR("Unable to initialize instance of spvc");
             }
 
-            spirv_cross::Compiler* compiler =
-                reinterpret_cast<spirv_cross::Compiler*>(context.GetCompiler());
-            module->ExtractSpirvInfo(*compiler);
+            spirv_cross::Compiler* compiler;
+            status = context.GetCompiler(reinterpret_cast<void**>(&compiler));
+            if (status != shaderc_spvc_status_success) {
+                return DAWN_VALIDATION_ERROR("Unable to get cross compiler");
+            }
+            DAWN_TRY(module->ExtractSpirvInfo(*compiler));
         } else {
             spirv_cross::Compiler compiler(descriptor->code, descriptor->codeSize);
-            module->ExtractSpirvInfo(compiler);
+            DAWN_TRY(module->ExtractSpirvInfo(compiler));
         }
         return module;
     }
     ResultOrError<SwapChainBase*> Device::CreateSwapChainImpl(
         const SwapChainDescriptor* descriptor) {
-        return new SwapChain(this, descriptor);
+        return new OldSwapChain(this, descriptor);
+    }
+    ResultOrError<NewSwapChainBase*> Device::CreateSwapChainImpl(
+        Surface* surface,
+        NewSwapChainBase* previousSwapChain,
+        const SwapChainDescriptor* descriptor) {
+        return new SwapChain(this, surface, previousSwapChain, descriptor);
     }
     ResultOrError<TextureBase*> Device::CreateTextureImpl(const TextureDescriptor* descriptor) {
         return new Texture(this, descriptor, TextureBase::TextureState::OwnedInternal);
@@ -165,6 +176,18 @@ namespace dawn_native { namespace null {
             std::make_unique<StagingBuffer>(size, this);
         DAWN_TRY(stagingBuffer->Initialize());
         return std::move(stagingBuffer);
+    }
+
+    void Device::Destroy() {
+        ASSERT(mLossStatus != LossStatus::AlreadyLost);
+
+        mDynamicUploader = nullptr;
+
+        mPendingOperations.clear();
+    }
+
+    MaybeError Device::WaitForIdleForDestruction() {
+        return {};
     }
 
     MaybeError Device::CopyFromStagingToBuffer(StagingBufferBase* source,
@@ -338,20 +361,60 @@ namespace dawn_native { namespace null {
 
     // SwapChain
 
-    SwapChain::SwapChain(Device* device, const SwapChainDescriptor* descriptor)
-        : SwapChainBase(device, descriptor) {
+    SwapChain::SwapChain(Device* device,
+                         Surface* surface,
+                         NewSwapChainBase* previousSwapChain,
+                         const SwapChainDescriptor* descriptor)
+        : NewSwapChainBase(device, surface, descriptor) {
+        if (previousSwapChain != nullptr) {
+            // TODO(cwallez@chromium.org): figure out what should happen when surfaces are used by
+            // multiple backends one after the other. It probably needs to block until the backend
+            // and GPU are completely finished with the previous swapchain.
+            ASSERT(previousSwapChain->GetBackendType() == wgpu::BackendType::Null);
+            previousSwapChain->DetachFromSurface();
+        }
+    }
+
+    SwapChain::~SwapChain() {
+        DetachFromSurface();
+    }
+
+    MaybeError SwapChain::PresentImpl() {
+        mTexture->Destroy();
+        mTexture = nullptr;
+        return {};
+    }
+
+    ResultOrError<TextureViewBase*> SwapChain::GetCurrentTextureViewImpl() {
+        TextureDescriptor textureDesc = GetSwapChainBaseTextureDescriptor(this);
+        mTexture = AcquireRef(
+            new Texture(GetDevice(), &textureDesc, TextureBase::TextureState::OwnedInternal));
+        return mTexture->CreateView(nullptr);
+    }
+
+    void SwapChain::DetachFromSurfaceImpl() {
+        if (mTexture.Get() != nullptr) {
+            mTexture->Destroy();
+            mTexture = nullptr;
+        }
+    }
+
+    // OldSwapChain
+
+    OldSwapChain::OldSwapChain(Device* device, const SwapChainDescriptor* descriptor)
+        : OldSwapChainBase(device, descriptor) {
         const auto& im = GetImplementation();
         im.Init(im.userData, nullptr);
     }
 
-    SwapChain::~SwapChain() {
+    OldSwapChain::~OldSwapChain() {
     }
 
-    TextureBase* SwapChain::GetNextTextureImpl(const TextureDescriptor* descriptor) {
+    TextureBase* OldSwapChain::GetNextTextureImpl(const TextureDescriptor* descriptor) {
         return GetDevice()->CreateTexture(descriptor);
     }
 
-    MaybeError SwapChain::OnBeforePresent(TextureBase*) {
+    MaybeError OldSwapChain::OnBeforePresent(TextureBase*) {
         return {};
     }
 

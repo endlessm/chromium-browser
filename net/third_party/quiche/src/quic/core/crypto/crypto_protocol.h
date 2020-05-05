@@ -99,11 +99,6 @@ const QuicTag kBBR3 = TAG('B', 'B', 'R', '3');   // Fully drain the queue once
                                                  // per cycle
 const QuicTag kBBR4 = TAG('B', 'B', 'R', '4');   // 20 RTT ack aggregation
 const QuicTag kBBR5 = TAG('B', 'B', 'R', '5');   // 40 RTT ack aggregation
-const QuicTag kBBR6 = TAG('B', 'B', 'R', '6');   // PROBE_RTT with 0.75 * BDP
-const QuicTag kBBR7 = TAG('B', 'B', 'R', '7');   // Skip PROBE_RTT if rtt has
-                                                 // not changed 12.5%
-const QuicTag kBBR8 = TAG('B', 'B', 'R', '8');   // Disable PROBE_RTT when
-                                                 // recently app-limited
 const QuicTag kBBR9 = TAG('B', 'B', 'R', '9');   // Ignore app-limited calls in
                                                  // BBR if enough inflight.
 const QuicTag kBBRS = TAG('B', 'B', 'R', 'S');   // Use 1.5x pacing in startup
@@ -143,6 +138,7 @@ const QuicTag kMAD2 = TAG('M', 'A', 'D', '2');   // No min TLP
 const QuicTag kMAD3 = TAG('M', 'A', 'D', '3');   // No min RTO
 const QuicTag kMAD4 = TAG('M', 'A', 'D', '4');   // IETF style TLP
 const QuicTag kMAD5 = TAG('M', 'A', 'D', '5');   // IETF style TLP with 2x mult
+const QuicTag k1ACK = TAG('1', 'A', 'C', 'K');   // 1 fast ack for reordering
 const QuicTag kACD0 = TAG('A', 'D', 'D', '0');   // Disable ack decimation
 const QuicTag kACKD = TAG('A', 'C', 'K', 'D');   // Ack decimation style acking.
 const QuicTag kAKD2 = TAG('A', 'K', 'D', '2');   // Ack decimation tolerating
@@ -209,6 +205,9 @@ const QuicTag kPEB2 = TAG('P', 'E', 'B', '2');   // Start exponential backoff
                                                  // since 2nd PTO.
 const QuicTag kPVS1 = TAG('P', 'V', 'S', '1');   // Use 2 * rttvar when
                                                  // calculating PTO timeout.
+const QuicTag kPAG1 = TAG('P', 'A', 'G', '1');   // Make 1st PTO more aggressive
+const QuicTag kPAG2 = TAG('P', 'A', 'G', '2');   // Make first 2 PTOs more
+                                                 // aggressive
 
 // Optional support of truncated Connection IDs.  If sent by a peer, the value
 // is the minimum number of bytes allowed for the connection ID sent to the
@@ -238,6 +237,12 @@ const QuicTag kBWS6 = TAG('B', 'W', 'S', '6');  // QUIC Initial CWND - Enabled
 const QuicTag kBWS7 = TAG('B', 'W', 'S', '7');  // QUIC Initial CWND - Enabled
                                                 // with 0.75 * default
                                                 // multiplier.
+const QuicTag kBWM3 = TAG('B', 'W', 'M', '3');  // Consider overshooting if
+                                                // bytes lost after bandwidth
+                                                // resumption * 3 > IW.
+const QuicTag kBWM4 = TAG('B', 'W', 'M', '4');  // Consider overshooting if
+                                                // bytes lost after bandwidth
+                                                // resumption * 4 > IW.
 
 // Enable path MTU discovery experiment.
 const QuicTag kMTUH = TAG('M', 'T', 'U', 'H');  // High-target MTU discovery.

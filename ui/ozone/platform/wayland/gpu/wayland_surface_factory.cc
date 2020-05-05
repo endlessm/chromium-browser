@@ -128,8 +128,9 @@ WaylandSurfaceFactory::WaylandSurfaceFactory(
 WaylandSurfaceFactory::~WaylandSurfaceFactory() = default;
 
 std::unique_ptr<SurfaceOzoneCanvas>
-WaylandSurfaceFactory::CreateCanvasForWidget(gfx::AcceleratedWidget widget,
-                                             base::TaskRunner* task_runner) {
+WaylandSurfaceFactory::CreateCanvasForWidget(
+    gfx::AcceleratedWidget widget,
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   return std::make_unique<WaylandCanvasSurface>(buffer_manager_, widget);
 }
 
@@ -159,7 +160,9 @@ scoped_refptr<gfx::NativePixmap> WaylandSurfaceFactory::CreateNativePixmap(
     VkDevice vk_device,
     gfx::Size size,
     gfx::BufferFormat format,
-    gfx::BufferUsage usage) {
+    gfx::BufferUsage usage,
+    base::Optional<gfx::Size> framebuffer_size) {
+  DCHECK(!framebuffer_size || framebuffer_size == size);
 #if defined(WAYLAND_GBM)
   scoped_refptr<GbmPixmapWayland> pixmap =
       base::MakeRefCounted<GbmPixmapWayland>(buffer_manager_);

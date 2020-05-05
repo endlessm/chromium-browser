@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,19 @@
 
 #include "vulkaninfo.hpp"
 
+#ifdef _WIN32
+// Initialize User32 pointers
+PFN_AdjustWindowRect User32Handles::pfnAdjustWindowRect = nullptr;
+PFN_CreateWindowExA User32Handles::pfnCreateWindowExA = nullptr;
+PFN_DefWindowProcA User32Handles::pfnDefWindowProcA = nullptr;
+PFN_DestroyWindow User32Handles::pfnDestroyWindow = nullptr;
+PFN_LoadIconA User32Handles::pfnLoadIconA = nullptr;
+PFN_RegisterClassExA User32Handles::pfnRegisterClassExA = nullptr;
+
+HMODULE User32Handles::user32DllHandle = nullptr;
+
+#endif
+
 // =========== Dump Functions ========= //
 
 void DumpExtensions(Printer &p, std::string layer_name, std::vector<VkExtensionProperties> extensions) {
@@ -35,13 +48,11 @@ void DumpExtensions(Printer &p, std::string layer_name, std::vector<VkExtensionP
         return std::string(a.extensionName) < std::string(b.extensionName);
     });
 
-    if (p.Type() == OutputType::json) return;
-
     int max_length = 0;
     if (extensions.size() > 0) {
-        max_length = strlen(extensions.at(0).extensionName);
+        max_length = static_cast<int>(strlen(extensions.at(0).extensionName));
         for (auto &ext : extensions) {
-            int len = strlen(ext.extensionName);
+            int len = static_cast<int>(strlen(ext.extensionName));
             if (len > max_length) max_length = len;
         }
     }
@@ -103,23 +114,25 @@ void DumpLayers(Printer &p, std::vector<LayerExtensionList> layers, const std::v
 }
 
 void DumpSurfaceFormats(Printer &p, AppInstance &inst, AppSurface &surface) {
-    p.ArrayStart("Formats", surface.surf_formats2.size());
     int i = 0;
     if (inst.CheckExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)) {
+        p.ArrayStart("Formats", surface.surf_formats2.size());
         for (auto &format : surface.surf_formats2) {
             p.SetElementIndex(i++);
             DumpVkSurfaceFormatKHR(p, "SurfaceFormat", format.surfaceFormat);
         }
+        p.ArrayEnd();
     } else {
+        p.ArrayStart("Formats", surface.surf_formats.size());
         for (auto &format : surface.surf_formats) {
             p.SetElementIndex(i++);
             DumpVkSurfaceFormatKHR(p, "SurfaceFormat", format);
         }
+        p.ArrayEnd();
     }
-    p.ArrayEnd();
 }
 
-void DumpPresentModes(Printer &p, AppInstance &inst, AppSurface &surface) {
+void DumpPresentModes(Printer &p, AppSurface &surface) {
     p.ArrayStart("Present Modes", surface.surf_present_modes.size());
     for (auto &mode : surface.surf_present_modes) {
         p.SetAsType().PrintElement(VkPresentModeKHRString(mode));
@@ -143,10 +156,10 @@ void DumpSurfaceCapabilities(Printer &p, AppInstance &inst, AppGpu &gpu, AppSurf
     }
     p.ObjectEnd();  // VkSurfaceCapabilities2EXT
 
-    chain_iterator_surface_capabilities2(p, inst, gpu, surface.surface_capabilities2_khr.pNext);
+    chain_iterator_surface_capabilities2(p, inst, gpu, surface.surface_capabilities2_khr.pNext, inst.vk_version);
 }
 
-void DumpSurface(Printer &p, AppInstance &inst, AppGpu &gpu, AppSurface &surface, std::vector<std::string> surface_types) {
+void DumpSurface(Printer &p, AppInstance &inst, AppGpu &gpu, AppSurface &surface, std::set<std::string> surface_types) {
     std::string header;
     if (p.Type() == OutputType::text)
         header = std::string("GPU id : ") + std::to_string(gpu.id) + " (" + gpu.props.deviceName + ")";
@@ -166,7 +179,7 @@ void DumpSurface(Printer &p, AppInstance &inst, AppGpu &gpu, AppSurface &surface
 
     DumpSurfaceFormats(p, inst, surface);
 
-    DumpPresentModes(p, inst, surface);
+    DumpPresentModes(p, surface);
 
     DumpSurfaceCapabilities(p, inst, gpu, surface);
 
@@ -176,14 +189,14 @@ void DumpSurface(Printer &p, AppInstance &inst, AppGpu &gpu, AppSurface &surface
 
 struct SurfaceTypeGroup {
     AppSurface *surface;
-    std::vector<std::string> surface_types;
     AppGpu *gpu;
+    std::set<std::string> surface_types;
 };
 
 bool operator==(AppSurface const &a, AppSurface const &b) {
-    return a.surf_present_modes == b.surf_present_modes && a.surf_formats == b.surf_formats && a.surf_formats2 == b.surf_formats2 &&
-           a.surface_capabilities == b.surface_capabilities && a.surface_capabilities2_khr == b.surface_capabilities2_khr &&
-           a.surface_capabilities2_ext == b.surface_capabilities2_ext;
+    return a.phys_device == b.phys_device && a.surf_present_modes == b.surf_present_modes && a.surf_formats == b.surf_formats &&
+           a.surf_formats2 == b.surf_formats2 && a.surface_capabilities == b.surface_capabilities &&
+           a.surface_capabilities2_khr == b.surface_capabilities2_khr && a.surface_capabilities2_ext == b.surface_capabilities2_ext;
 }
 
 void DumpPresentableSurfaces(Printer &p, AppInstance &inst, const std::vector<std::unique_ptr<AppGpu>> &gpus,
@@ -193,19 +206,24 @@ void DumpPresentableSurfaces(Printer &p, AppInstance &inst, const std::vector<st
     std::vector<SurfaceTypeGroup> surface_list;
 
     for (auto &surface : surfaces) {
-        for (auto &gpu : gpus) {
-            auto exists = surface_list.end();
-            for (auto it = surface_list.begin(); it != surface_list.end(); it++) {
-                // use custom comparator to check if the surface has the same values
-                if (it->gpu == gpu.get() && *it->surface == *surface.get()) {
-                    exists = it;
-                }
+        auto exists = surface_list.end();
+        for (auto it = surface_list.begin(); it != surface_list.end(); it++) {
+            // check for duplicat surfaces that differ only by the surface extension
+            if (*(it->surface) == *(surface.get())) {
+                exists = it;
+                break;
             }
-            if (exists != surface_list.end()) {
-                exists->surface_types.push_back(surface.get()->surface_extension.name);
-            } else {
-                surface_list.push_back({surface.get(), {surface.get()->surface_extension.name}, gpu.get()});
+        }
+        if (exists != surface_list.end()) {
+            exists->surface_types.insert(surface.get()->surface_extension.name);
+        } else {
+            // find surface.phys_device's corresponding AppGpu
+            AppGpu *corresponding_gpu = nullptr;
+            for (auto &gpu : gpus) {
+                if (gpu->phys_device == surface->phys_device) corresponding_gpu = gpu.get();
             }
+            if (corresponding_gpu != nullptr)
+                surface_list.push_back({surface.get(), corresponding_gpu, {surface.get()->surface_extension.name}});
         }
     }
     for (auto &group : surface_list) {
@@ -218,8 +236,15 @@ void DumpPresentableSurfaces(Printer &p, AppInstance &inst, const std::vector<st
 
 void DumpGroups(Printer &p, AppInstance &inst) {
     if (inst.CheckExtensionEnabled(VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME)) {
-        p.SetHeader().ObjectStart("Groups");
         auto groups = GetGroups(inst);
+        if (groups.size() == 0) {
+            p.SetHeader().ObjectStart("Groups");
+            p.PrintElement("No Device Groups Found");
+            p.ObjectEnd();
+            p.AddNewline();
+            return;
+        }
+        p.SetHeader().ObjectStart("Groups");
         int group_id = 0;
         for (auto &group : groups) {
             p.ObjectStart("Device Group Properties (Group " + std::to_string(group_id) + ")");
@@ -256,7 +281,7 @@ void DumpGroups(Printer &p, AppInstance &inst) {
                     p.PrintElement(device_out);
                     p.ObjectStart("Can present images from the following devices");
                     for (uint32_t j = 0; j < group.physicalDeviceCount; j++) {
-                        uint32_t mask = 1 << j;
+                        uint32_t mask = 1U << j;
                         if (group_capabilities.second.presentMask[i] & mask) {
                             if (p.Type() == OutputType::text)
                                 p.PrintElement(std::string(group_props[j].deviceName) + " (ID: " + std::to_string(j) + ")");
@@ -324,17 +349,17 @@ void GpuDumpProps(Printer &p, AppGpu &gpu) {
     if (p.Type() != OutputType::json) {
         if (gpu.inst.CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)) {
             void *place = gpu.props2.pNext;
-            chain_iterator_phys_device_props2(p, gpu, place);
+            chain_iterator_phys_device_props2(p, gpu.inst, gpu, place, gpu.api_version);
         }
     }
     p.AddNewline();
 }
 void GpuDumpQueueProps(Printer &p, std::vector<SurfaceExtension> &surfaces, AppQueueFamilyProperties &queue) {
-    p.SetHeader().SetElementIndex(queue.queue_index).ObjectStart("VkQueueFamilyProperties");
+    p.SetElementIndex(static_cast<int>(queue.queue_index)).SetSubHeader().ObjectStart("queueProperties");
     if (p.Type() == OutputType::json) {
         DumpVkExtent3D(p, "minImageTransferGranularity", queue.props.minImageTransferGranularity);
     } else {
-        p.PrintKeyString("minImageTransferGranularity", VkExtent3DString(queue.props.minImageTransferGranularity), 27);
+        p.PrintKeyValue("minImageTransferGranularity", queue.props.minImageTransferGranularity, 27);
     }
     p.PrintKeyValue("queueCount", queue.props.queueCount, 27);
     if (p.Type() == OutputType::json) {
@@ -349,9 +374,13 @@ void GpuDumpQueueProps(Printer &p, std::vector<SurfaceExtension> &surfaces, AppQ
         if (queue.is_present_platform_agnostic) {
             p.PrintKeyString("present support", queue.platforms_support_present ? "true" : "false");
         } else {
+            size_t width = 0;
+            for (auto &surface : surfaces) {
+                if (surface.name.size() > width) width = surface.name.size();
+            }
             p.ObjectStart("present support");
             for (auto &surface : surfaces) {
-                p.PrintKeyString(surface.name, surface.supports_present ? "true" : "false", 19);
+                p.PrintKeyString(surface.name, surface.supports_present ? "true" : "false", width);
             }
             p.ObjectEnd();
         }
@@ -397,7 +426,7 @@ void GpuDumpMemoryProps(Printer &p, AppGpu &gpu) {
 
         std::string mem_size_str = std::to_string(memSize) + " (" + to_hex_str(memSize) + ") (" + mem_size_human_readable + ")";
 
-        p.SetElementIndex(i).ObjectStart("memoryHeaps");
+        p.SetElementIndex(static_cast<int>(i)).ObjectStart("memoryHeaps");
         if (p.Type() != OutputType::json) {
             p.PrintKeyValue("size", mem_size_str, 6);
             p.PrintKeyValue("budget", gpu.heapBudget[i], 6);
@@ -413,7 +442,7 @@ void GpuDumpMemoryProps(Printer &p, AppGpu &gpu) {
 
     p.ArrayStart("memoryTypes", gpu.memory_props.memoryTypeCount);
     for (uint32_t i = 0; i < gpu.memory_props.memoryTypeCount; ++i) {
-        p.SetElementIndex(i).ObjectStart("memoryTypes");
+        p.SetElementIndex(static_cast<int>(i)).ObjectStart("memoryTypes");
         p.PrintKeyValue("heapIndex", gpu.memory_props.memoryTypes[i].heapIndex, 13);
         if (p.Type() == OutputType::json) {
             p.PrintKeyValue("propertyFlags", gpu.memory_props.memoryTypes[i].propertyFlags, 13);
@@ -422,7 +451,7 @@ void GpuDumpMemoryProps(Printer &p, AppGpu &gpu) {
             DumpVkMemoryPropertyFlags(p, "propertyFlags = " + to_hex_str(flags), flags);
 
             p.ObjectStart("usable for");
-            const uint32_t memtype_bit = 1 << i;
+            const uint32_t memtype_bit = 1U << i;
 
             // only linear and optimal tiling considered
             for (uint32_t tiling = VK_IMAGE_TILING_OPTIMAL; tiling < gpu.mem_type_res_support.image.size(); ++tiling) {
@@ -492,7 +521,7 @@ void GpuDumpFeatures(Printer &p, AppGpu &gpu) {
     if (p.Type() != OutputType::json) {
         if (gpu.inst.CheckExtensionEnabled(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)) {
             void *place = gpu.features2.pNext;
-            chain_iterator_phys_device_features2(p, gpu, place);
+            chain_iterator_phys_device_features2(p, gpu, place, gpu.api_version);
         }
     }
 }
@@ -521,7 +550,18 @@ void GpuDumpFormatProperty(Printer &p, VkFormat fmt, VkFormatProperties prop) {
     p.ObjectEnd();
 }
 
-void GpuDevDump(Printer &p, AppGpu &gpu, pNextChainInfos &chainInfos) {
+void GpuDumpToolingInfo(Printer &p, AppGpu &gpu) {
+    auto tools = GetToolingInfo(gpu);
+    if (tools.size() > 0) {
+        p.SetSubHeader().ObjectStart("Tooling Info");
+        for (auto tool : tools) {
+            DumpVkPhysicalDeviceToolPropertiesEXT(p, tool.name, tool);
+        }
+        p.ObjectEnd();
+    }
+}
+
+void GpuDevDump(Printer &p, AppGpu &gpu) {
     if (p.Type() == OutputType::json) {
         p.ArrayStart("ArrayOfVkFormatProperties");
     } else {
@@ -568,7 +608,7 @@ void GpuDevDump(Printer &p, AppGpu &gpu, pNextChainInfos &chainInfos) {
     } else {
         for (auto &format : gpu.supported_format_ranges) {
             if (gpu.FormatRangeSupported(format)) {
-                for (uint32_t fmt_counter = format.first_format; fmt_counter <= format.last_format; ++fmt_counter) {
+                for (int32_t fmt_counter = format.first_format; fmt_counter <= format.last_format; ++fmt_counter) {
                     VkFormat fmt = static_cast<VkFormat>(fmt_counter);
 
                     VkFormatProperties props;
@@ -595,7 +635,7 @@ void GpuDevDump(Printer &p, AppGpu &gpu, pNextChainInfos &chainInfos) {
     p.AddNewline();
 }
 
-void DumpGpu(Printer &p, AppGpu &gpu, bool show_formats, pNextChainInfos &chainInfos) {
+void DumpGpu(Printer &p, AppGpu &gpu, bool show_formats) {
     if (p.Type() != OutputType::json) {
         p.ObjectStart("GPU" + std::to_string(gpu.id));
         p.IndentDecrease();
@@ -607,17 +647,27 @@ void DumpGpu(Printer &p, AppGpu &gpu, bool show_formats, pNextChainInfos &chainI
         p.AddNewline();
     }
 
-    if (p.Type() == OutputType::json) p.ArrayStart("ArrayOfVkQueueFamilyProperties");
+    if (p.Type() == OutputType::json) {
+        p.ArrayStart("ArrayOfVkQueueFamilyProperties");
+    } else {
+        p.SetHeader().ObjectStart("VkQueueFamilyProperties");
+    }
     for (uint32_t i = 0; i < gpu.queue_count; i++) {
         AppQueueFamilyProperties queue_props = AppQueueFamilyProperties(gpu, i);
         GpuDumpQueueProps(p, gpu.inst.surface_extensions, queue_props);
     }
-    if (p.Type() == OutputType::json) p.ArrayEnd();
-
+    if (p.Type() == OutputType::json) {
+        p.ArrayEnd();
+    } else {
+        p.ObjectEnd();
+    }
     GpuDumpMemoryProps(p, gpu);
     GpuDumpFeatures(p, gpu);
+
+    if (p.Type() != OutputType::json) GpuDumpToolingInfo(p, gpu);
+
     if (p.Type() != OutputType::text || show_formats) {
-        GpuDevDump(p, gpu, chainInfos);
+        GpuDevDump(p, gpu);
     }
 
     if (p.Type() != OutputType::json) {
@@ -676,15 +726,21 @@ void print_usage(const char *argv0) {
 int main(int argc, char **argv) {
 #ifdef _WIN32
     if (ConsoleIsExclusive()) ConsoleEnlarge();
+    if (!LoadUser32Dll()) {
+        fprintf(stderr, "Failed to load user32.dll library!\n");
+        WAIT_FOR_CONSOLE_DESTROY;
+        exit(1);
+    }
 #endif
 
     uint32_t selected_gpu = 0;
+    bool show_formats = false;
 
     // Combinations of output: html only, html AND json, json only, human readable only
     for (int i = 1; i < argc; ++i) {
         if (strncmp("--json", argv[i], 6) == 0 || strcmp(argv[i], "-j") == 0) {
             if (strlen(argv[i]) > 7 && strncmp("--json=", argv[i], 7) == 0) {
-                selected_gpu = strtol(argv[i] + 7, nullptr, 10);
+                selected_gpu = static_cast<uint32_t>(strtol(argv[i] + 7, nullptr, 10));
             }
             human_readable_output = false;
             json_output = true;
@@ -711,7 +767,7 @@ int main(int argc, char **argv) {
 
     std::vector<std::unique_ptr<AppSurface>> surfaces;
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_WIN32_KHR) || \
-    defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
+    defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_METAL_EXT) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
     for (auto &surface_extension : instance.surface_extensions) {
         surface_extension.create_window(instance);
         surface_extension.surface = surface_extension.create_surface(instance);
@@ -730,7 +786,8 @@ int main(int argc, char **argv) {
     }
 
     if (selected_gpu >= gpus.size()) {
-        selected_gpu = 0;
+        std::cout << "The selected gpu (" << selected_gpu << ") is not in the valid range of 0 to " << gpus.size() - 1 << ".\n";
+        return 0;
     }
 
     std::vector<std::unique_ptr<Printer>> printers;
@@ -752,15 +809,17 @@ int main(int argc, char **argv) {
     }
 
     for (auto &p : printers) {
-        p->SetHeader();
-        DumpExtensions(*p.get(), "Instance", instance.global_extensions);
-        p->AddNewline();
+        if (p->Type() != OutputType::json) {
+            p->SetHeader();
+            DumpExtensions(*p.get(), "Instance", instance.global_extensions);
+            p->AddNewline();
+        }
 
         DumpLayers(*p.get(), instance.global_layers, gpus);
 
         if (p->Type() != OutputType::json) {
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_WIN32_KHR) || \
-    defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
+    defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_METAL_EXT) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
             DumpPresentableSurfaces(*p.get(), instance, gpus, surfaces);
 #endif
             DumpGroups(*p.get(), instance);
@@ -771,7 +830,7 @@ int main(int argc, char **argv) {
         for (auto &gpu : gpus) {
             if ((p->Type() == OutputType::json && gpu->id == selected_gpu) || p->Type() == OutputType::text ||
                 p->Type() == OutputType::html) {
-                DumpGpu(*p.get(), *gpu.get(), show_formats, pNext_chains);
+                DumpGpu(*p.get(), *gpu.get(), show_formats);
             }
         }
         if (p->Type() != OutputType::json) {
@@ -781,7 +840,7 @@ int main(int argc, char **argv) {
     }
 
 #if defined(VK_USE_PLATFORM_XCB_KHR) || defined(VK_USE_PLATFORM_XLIB_KHR) || defined(VK_USE_PLATFORM_WIN32_KHR) || \
-    defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
+    defined(VK_USE_PLATFORM_MACOS_MVK) || defined(VK_USE_PLATFORM_METAL_EXT) || defined(VK_USE_PLATFORM_WAYLAND_KHR)
 
     for (auto &surface_extension : instance.surface_extensions) {
         AppDestroySurface(instance, surface_extension.surface);
@@ -790,6 +849,9 @@ int main(int argc, char **argv) {
 #endif
 
     WAIT_FOR_CONSOLE_DESTROY;
+#ifdef _WIN32
+    FreeUser32Dll();
+#endif
 
     return 0;
 }

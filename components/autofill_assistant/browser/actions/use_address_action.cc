@@ -18,7 +18,6 @@
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
 #include "components/autofill_assistant/browser/actions/required_fields_fallback_handler.h"
-#include "components/autofill_assistant/browser/client_memory.h"
 #include "components/autofill_assistant/browser/client_status.h"
 
 namespace autofill_assistant {
@@ -44,8 +43,7 @@ UseAddressAction::UseAddressAction(ActionDelegate* delegate,
     RequiredField& required_field = required_fields.back();
     required_field.fallback_key = (int)required_field_proto.address_field();
     required_field.selector = Selector(required_field_proto.element());
-    required_field.simulate_key_presses =
-        required_field_proto.simulate_key_presses();
+    required_field.fill_strategy = required_field_proto.fill_strategy();
     required_field.delay_in_millisecond =
         required_field_proto.delay_in_millisecond();
     required_field.forced = required_field_proto.forced();
@@ -66,16 +64,16 @@ void UseAddressAction::InternalProcessAction(
   process_action_callback_ = std::move(action_callback);
 
   // Ensure data already selected in a previous action.
-  auto* client_memory = delegate_->GetClientMemory();
-  if (!client_memory->has_selected_address(name_)) {
+  auto* user_data = delegate_->GetUserData();
+  if (!user_data->has_selected_address(name_)) {
     auto* error_info = processed_action_proto_->mutable_status_details()
                            ->mutable_autofill_error_info();
     error_info->set_address_key_requested(name_);
     error_info->set_client_memory_address_key_names(
-        client_memory->GetAllAddressKeyNames());
+        user_data->GetAllAddressKeyNames());
     error_info->set_address_pointee_was_null(
-        !client_memory->has_selected_address(name_) ||
-        !client_memory->selected_address(name_));
+        !user_data->has_selected_address(name_) ||
+        !user_data->selected_address(name_));
     EndAction(ClientStatus(PRECONDITION_FAILED));
     return;
   }
@@ -109,7 +107,7 @@ void UseAddressAction::OnWaitForElement(const ClientStatus& element_status) {
   DCHECK(!selector_.empty());
   DVLOG(3) << "Retrieving address from client memory under '" << name_ << "'.";
   const autofill::AutofillProfile* profile =
-      delegate_->GetClientMemory()->selected_address(name_);
+      delegate_->GetUserData()->selected_address(name_);
   DCHECK(profile);
   auto fallback_data = CreateFallbackData(*profile);
   delegate_->FillAddressForm(

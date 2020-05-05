@@ -16,7 +16,8 @@ config("sample_util_config") {
   include_dirs = [ "sample_util" ]
 }
 
-angle_static_library("sample_util") {
+angle_source_set("sample_util") {
+  testonly = true
   sources = [
     "sample_util/SampleApplication.cpp",
     "sample_util/SampleApplication.h",
@@ -32,8 +33,9 @@ angle_static_library("sample_util") {
   ]
   public_deps = [
     "../:angle_common",
-    "../:angle_util",
-    "../:angle_util_loader_headers",
+    "../util:angle_test_utils",
+    "../util:angle_util",
+    "../util:angle_util_loader_headers",
   ]
   configs += [ "../:library_name_config" ]
   public_configs = [
@@ -53,6 +55,7 @@ template("angle_sample") {
   }
 
   angle_executable(target_name) {
+    testonly = true
     forward_variables_from(invoker,
                            [
                              "cflags",

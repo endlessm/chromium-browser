@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,6 +88,7 @@ TEST_F(VkLayerTest, ImagelessFramebufferRenderPassBeginImageViewMismatchTests) {
 
     VkFramebufferAttachmentImageInfoKHR framebufferAttachmentImageInfo = {};
     framebufferAttachmentImageInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENT_IMAGE_INFO_KHR;
+    framebufferAttachmentImageInfo.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     framebufferAttachmentImageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     framebufferAttachmentImageInfo.width = attachmentWidth;
     framebufferAttachmentImageInfo.height = attachmentHeight;
@@ -154,6 +155,20 @@ TEST_F(VkLayerTest, ImagelessFramebufferRenderPassBeginImageViewMismatchTests) {
     renderPassBeginInfo.renderPass = renderPass;
     renderPassBeginInfo.renderArea.extent.width = attachmentWidth;
     renderPassBeginInfo.renderArea.extent.height = attachmentHeight;
+
+    // Positive test first
+    VkCommandBufferBeginInfo cmd_begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
+                                               VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr};
+    framebufferCreateInfo.pAttachments = nullptr;
+    framebufferCreateInfo.flags = VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR;
+    vk::CreateFramebuffer(m_device->device(), &framebufferCreateInfo, nullptr, &framebuffer);
+    renderPassBeginInfo.framebuffer = framebuffer;
+    vk::BeginCommandBuffer(m_commandBuffer->handle(), &cmd_begin_info);
+    m_errorMonitor->ExpectSuccess();
+    vk::CmdBeginRenderPass(m_commandBuffer->handle(), &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+    m_errorMonitor->VerifyNotFound();
+    vk::ResetCommandBuffer(m_commandBuffer->handle(), 0);
+    vk::DestroyFramebuffer(m_device->device(), framebuffer, nullptr);
 
     // Imageless framebuffer creation bit not present
     framebufferCreateInfo.pAttachments = &imageView;
@@ -286,8 +301,8 @@ TEST_F(VkLayerTest, ImagelessFramebufferRenderPassBeginImageViewMismatchTests) {
     vk::CreateFramebuffer(m_device->device(), &framebufferCreateInfo, nullptr, &framebuffer);
     renderPassBeginInfo.framebuffer = framebuffer;
     TestRenderPassBegin(m_errorMonitor, m_device->device(), m_commandBuffer->handle(), &renderPassBeginInfo, rp2Supported,
-                        "VUID-VkRenderPassAttachmentBeginInfoKHR-pAttachments-03218",
-                        "VUID-VkRenderPassAttachmentBeginInfoKHR-pAttachments-03218");
+                        "VUID-VkRenderPassAttachmentBeginInfo-pAttachments-03218",
+                        "VUID-VkRenderPassAttachmentBeginInfo-pAttachments-03218");
     vk::DestroyFramebuffer(m_device->device(), framebuffer, nullptr);
     vk::DestroyImageView(m_device->device(), imageView2, nullptr);
     renderPassAttachmentBeginInfo.pAttachments = &imageView;
@@ -300,8 +315,8 @@ TEST_F(VkLayerTest, ImagelessFramebufferRenderPassBeginImageViewMismatchTests) {
     vk::CreateFramebuffer(m_device->device(), &framebufferCreateInfo, nullptr, &framebuffer);
     renderPassBeginInfo.framebuffer = framebuffer;
     TestRenderPassBegin(m_errorMonitor, m_device->device(), m_commandBuffer->handle(), &renderPassBeginInfo, rp2Supported,
-                        "VUID-VkRenderPassAttachmentBeginInfoKHR-pAttachments-03219",
-                        "VUID-VkRenderPassAttachmentBeginInfoKHR-pAttachments-03219");
+                        "VUID-VkRenderPassAttachmentBeginInfo-pAttachments-03219",
+                        "VUID-VkRenderPassAttachmentBeginInfo-pAttachments-03219");
     vk::DestroyFramebuffer(m_device->device(), framebuffer, nullptr);
     vk::DestroyImageView(m_device->device(), imageView2, nullptr);
     renderPassAttachmentBeginInfo.pAttachments = &imageView;

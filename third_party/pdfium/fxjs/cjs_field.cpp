@@ -132,6 +132,36 @@ void UpdateFormControl(CPDFSDK_FormFillEnvironment* pFormFillEnv,
     pFormFillEnv->SetChangeMark();
 }
 
+// note: iControlNo = -1, means not a widget.
+void ParseFieldName(const WideString& strFieldNameParsed,
+                    WideString& strFieldName,
+                    int& iControlNo) {
+  auto reverse_it = strFieldNameParsed.rbegin();
+  while (reverse_it != strFieldNameParsed.rend()) {
+    if (*reverse_it == L'.')
+      break;
+    ++reverse_it;
+  }
+  if (reverse_it == strFieldNameParsed.rend()) {
+    strFieldName = strFieldNameParsed;
+    iControlNo = -1;
+    return;
+  }
+  WideString suffixal =
+      strFieldNameParsed.Last(reverse_it - strFieldNameParsed.rbegin());
+  iControlNo = FXSYS_wtoi(suffixal.c_str());
+  if (iControlNo == 0) {
+    suffixal.TrimRight(L' ');
+    if (suffixal != L"0") {
+      strFieldName = strFieldNameParsed;
+      iControlNo = -1;
+      return;
+    }
+  }
+  strFieldName =
+      strFieldNameParsed.First(strFieldNameParsed.rend() - reverse_it - 1);
+}
+
 std::vector<CPDF_FormField*> GetFormFieldsForName(
     CPDFSDK_FormFillEnvironment* pFormFillEnv,
     const WideString& csFieldName) {
@@ -576,33 +606,6 @@ CJS_Field::CJS_Field(v8::Local<v8::Object> pObject, CJS_Runtime* pRuntime)
 
 CJS_Field::~CJS_Field() = default;
 
-// note: iControlNo = -1, means not a widget.
-void CJS_Field::ParseFieldName(const std::wstring& strFieldNameParsed,
-                               std::wstring& strFieldName,
-                               int& iControlNo) {
-  int iStart = strFieldNameParsed.find_last_of(L'.');
-  if (iStart == -1) {
-    strFieldName = strFieldNameParsed;
-    iControlNo = -1;
-    return;
-  }
-  std::wstring suffixal = strFieldNameParsed.substr(iStart + 1);
-  iControlNo = FXSYS_wtoi(suffixal.c_str());
-  if (iControlNo == 0) {
-    int iSpaceStart;
-    while ((iSpaceStart = suffixal.find_last_of(L" ")) != -1) {
-      suffixal.erase(iSpaceStart, 1);
-    }
-
-    if (suffixal.compare(L"0") != 0) {
-      strFieldName = strFieldNameParsed;
-      iControlNo = -1;
-      return;
-    }
-  }
-  strFieldName = strFieldNameParsed.substr(0, iStart);
-}
-
 bool CJS_Field::AttachField(CJS_Document* pDocument,
                             const WideString& csFieldName) {
   m_pJSDoc.Reset(pDocument);
@@ -617,13 +620,13 @@ bool CJS_Field::AttachField(CJS_Document* pDocument,
   swFieldNameTemp.Replace(L"..", L".");
 
   if (pForm->CountFields(swFieldNameTemp) <= 0) {
-    std::wstring strFieldName;
+    WideString strFieldName;
     int iControlNo = -1;
-    ParseFieldName(swFieldNameTemp.c_str(), strFieldName, iControlNo);
+    ParseFieldName(swFieldNameTemp, strFieldName, iControlNo);
     if (iControlNo == -1)
       return false;
 
-    m_FieldName = strFieldName.c_str();
+    m_FieldName = strFieldName;
     m_nFormControlIndex = iControlNo;
     return true;
   }
@@ -1707,7 +1710,7 @@ CJS_Result CJS_Field::set_rect(CJS_Runtime* pRuntime, v8::Local<v8::Value> vp) {
   if (!m_bCanSet)
     return CJS_Result::Failure(JSMessage::kReadOnlyError);
   if (vp.IsEmpty() || !vp->IsArray())
-    return CJS_Result::Failure(JSMessage::kBadObjectError);
+    return CJS_Result::Failure(JSMessage::kValueError);
 
   v8::Local<v8::Array> rcArray = pRuntime->ToArray(vp);
   if (pRuntime->GetArrayLength(rcArray) < 4)

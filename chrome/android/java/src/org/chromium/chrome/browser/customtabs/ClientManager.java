@@ -35,6 +35,7 @@ import org.chromium.chrome.browser.browserservices.OriginVerifier;
 import org.chromium.chrome.browser.browserservices.OriginVerifier.OriginVerificationListener;
 import org.chromium.chrome.browser.browserservices.PostMessageHandler;
 import org.chromium.chrome.browser.installedapp.InstalledAppProviderImpl;
+import org.chromium.chrome.browser.installedapp.PackageManagerDelegate;
 import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
@@ -483,8 +484,8 @@ class ClientManager {
                 () -> { params.originVerifier.start(listener, origin); });
         if (relation == CustomTabsService.RELATION_HANDLE_ALL_URLS
                 && InstalledAppProviderImpl.isAppInstalledAndAssociatedWithOrigin(
-                           params.getPackageName(), URI.create(origin.toString()),
-                           ContextUtils.getApplicationContext().getPackageManager())) {
+                        params.getPackageName(), URI.create(origin.toString()),
+                        new PackageManagerDelegate())) {
             params.mLinkedOrigins.add(origin);
         }
         return true;
@@ -715,6 +716,14 @@ class ClientManager {
     public synchronized boolean shouldGetPageLoadMetrics(CustomTabsSessionToken session) {
         SessionParams params = mSessionParams.get(session);
         return params != null ? params.mShouldGetPageLoadMetrics : false;
+    }
+
+    /**
+     * Returns the uid associated with the session, {@code -1} if there is no matching session.
+     */
+    public synchronized int getUidForSession(CustomTabsSessionToken session) {
+        SessionParams params = mSessionParams.get(session);
+        return params != null ? params.uid : -1;
     }
 
     /**

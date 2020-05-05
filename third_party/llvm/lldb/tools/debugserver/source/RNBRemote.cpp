@@ -279,12 +279,10 @@ void RNBRemote::CreatePacketTable() {
                      "x", "Read data from memory"));
   t.push_back(Packet(write_data_to_memory, &RNBRemote::HandlePacket_X, NULL,
                      "X", "Write data to memory"));
-  //  t.push_back (Packet (insert_hardware_bp,
-  //  &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "Z1", "Insert hardware
-  //  breakpoint"));
-  //  t.push_back (Packet (remove_hardware_bp,
-  //  &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "z1", "Remove hardware
-  //  breakpoint"));
+  t.push_back(Packet(insert_hardware_bp, &RNBRemote::HandlePacket_z, NULL, "Z1",
+                     "Insert hardware breakpoint"));
+  t.push_back(Packet(remove_hardware_bp, &RNBRemote::HandlePacket_z, NULL, "z1",
+                     "Remove hardware breakpoint"));
   t.push_back(Packet(insert_write_watch_bp, &RNBRemote::HandlePacket_z, NULL,
                      "Z2", "Insert write watchpoint"));
   t.push_back(Packet(remove_write_watch_bp, &RNBRemote::HandlePacket_z, NULL,
@@ -4643,6 +4641,24 @@ static bool GetHostCPUType(uint32_t &cputype, uint32_t &cpusubtype,
   return g_host_cputype != 0;
 }
 
+static bool GetAddressingBits(uint32_t &addressing_bits) {
+  static uint32_t g_addressing_bits = 0;
+  static bool g_tried_addressing_bits_syscall = false;
+  if (g_tried_addressing_bits_syscall == false) {
+    size_t len = sizeof (uint32_t);
+    if (::sysctlbyname("machdep.virtual_address_size",
+          &g_addressing_bits, &len, NULL, 0) != 0) {
+      g_addressing_bits = 0;
+    }
+  }
+  g_tried_addressing_bits_syscall = true;
+  addressing_bits = g_addressing_bits;
+  if (addressing_bits > 0)
+    return true;
+  else
+    return false;
+}
+
 rnb_err_t RNBRemote::HandlePacket_qHostInfo(const char *p) {
   std::ostringstream strm;
 
@@ -4653,6 +4669,11 @@ rnb_err_t RNBRemote::HandlePacket_qHostInfo(const char *p) {
   if (GetHostCPUType(cputype, cpusubtype, is_64_bit_capable, promoted_to_64)) {
     strm << "cputype:" << std::dec << cputype << ';';
     strm << "cpusubtype:" << std::dec << cpusubtype << ';';
+  }
+
+  uint32_t addressing_bits = 0;
+  if (GetAddressingBits(addressing_bits)) {
+    strm << "addressing_bits:" << std::dec << addressing_bits << ';';
   }
 
   // The OS in the triple should be "ios" or "macosx" which doesn't match our

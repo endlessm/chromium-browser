@@ -1,9 +1,9 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2015-2019 The Khronos Group Inc.
-# Copyright (c) 2015-2019 Valve Corporation
-# Copyright (c) 2015-2019 LunarG, Inc.
-# Copyright (c) 2015-2019 Google Inc.
+# Copyright (c) 2015-2020 The Khronos Group Inc.
+# Copyright (c) 2015-2020 Valve Corporation
+# Copyright (c) 2015-2020 LunarG, Inc.
+# Copyright (c) 2015-2020 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -167,6 +167,9 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             'vkCreateFramebuffer',
             'vkSetDebugUtilsObjectNameEXT',
             'vkSetDebugUtilsObjectTagEXT',
+            'vkCreateDescriptorUpdateTemplate',
+            'vkCreateDescriptorUpdateTemplateKHR',
+
             ]
         # These VUIDS are not implicit, but are best handled in this layer. Codegen for vkDestroy calls will generate a key
         # which is translated here into a good VU.  Saves ~40 checks.
@@ -396,10 +399,10 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
         copyright += '\n'
         copyright += '/***************************************************************************\n'
         copyright += ' *\n'
-        copyright += ' * Copyright (c) 2015-2019 The Khronos Group Inc.\n'
-        copyright += ' * Copyright (c) 2015-2019 Valve Corporation\n'
-        copyright += ' * Copyright (c) 2015-2019 LunarG, Inc.\n'
-        copyright += ' * Copyright (c) 2015-2019 Google Inc.\n'
+        copyright += ' * Copyright (c) 2015-2020 The Khronos Group Inc.\n'
+        copyright += ' * Copyright (c) 2015-2020 Valve Corporation\n'
+        copyright += ' * Copyright (c) 2015-2020 LunarG, Inc.\n'
+        copyright += ' * Copyright (c) 2015-2020 Google Inc.\n'
         copyright += ' *\n'
         copyright += ' * Licensed under the Apache License, Version 2.0 (the "License");\n'
         copyright += ' * you may not use this file except in compliance with the License.\n'
@@ -475,7 +478,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
         self.headerVersion = None
         self.featureExtraProtect = GetFeatureProtect(interface)
 
-        if self.featureName != 'VK_VERSION_1_0' and self.featureName != 'VK_VERSION_1_1':
+        if interface.tag == 'extension':
             white_list_entry = []
             if (self.featureExtraProtect is not None):
                 white_list_entry += [ '#ifdef %s' % self.featureExtraProtect ]

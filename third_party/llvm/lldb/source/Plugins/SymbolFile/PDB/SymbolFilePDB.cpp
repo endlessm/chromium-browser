@@ -1,4 +1,4 @@
-//===-- SymbolFilePDB.cpp ---------------------------------------*- C++ -*-===//
+//===-- SymbolFilePDB.cpp -------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,7 +15,7 @@
 
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
-#include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/LineTable.h"
 #include "lldb/Symbol/ObjectFile.h"
@@ -310,8 +310,8 @@ SymbolFilePDB::ParseCompileUnitFunctionForPDBFunc(const PDBSymbolFunc &pdb_func,
     return nullptr;
   }
 
-  ClangASTContext *clang_type_system =
-    llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_type_system =
+    llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_type_system)
     return nullptr;
   clang_type_system->GetPDBParser()->GetDeclForSymbol(pdb_func);
@@ -370,10 +370,6 @@ bool SymbolFilePDB::ParseSupportFiles(
     FileSpec spec(file->getFileName(), FileSpec::Style::windows);
     support_files.AppendIfUnique(spec);
   }
-
-  // LLDB uses the DWARF-like file numeration (one based),
-  // the zeroth file is the compile unit itself
-  support_files.Insert(0, comp_unit.GetPrimaryFile());
 
   return true;
 }
@@ -564,8 +560,8 @@ lldb_private::Type *SymbolFilePDB::ResolveTypeUID(lldb::user_id_t type_uid) {
     return nullptr;
   }
 
-  ClangASTContext *clang_type_system =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_type_system =
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_type_system)
     return nullptr;
   PDBASTParser *pdb = clang_type_system->GetPDBParser();
@@ -601,8 +597,8 @@ bool SymbolFilePDB::CompleteType(lldb_private::CompilerType &compiler_type) {
     return false;
   }
 
-  ClangASTContext *clang_ast_ctx =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_ast_ctx =
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
 
   if (!clang_ast_ctx)
     return false;
@@ -623,8 +619,8 @@ lldb_private::CompilerDecl SymbolFilePDB::GetDeclForUID(lldb::user_id_t uid) {
     return CompilerDecl();
   }
 
-  ClangASTContext *clang_ast_ctx =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_ast_ctx =
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_ast_ctx)
     return CompilerDecl();
 
@@ -653,8 +649,8 @@ SymbolFilePDB::GetDeclContextForUID(lldb::user_id_t uid) {
     return CompilerDeclContext();
   }
 
-  ClangASTContext *clang_ast_ctx =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_ast_ctx =
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_ast_ctx)
     return CompilerDeclContext();
 
@@ -670,7 +666,7 @@ SymbolFilePDB::GetDeclContextForUID(lldb::user_id_t uid) {
   if (!decl_context)
     return GetDeclContextContainingUID(uid);
 
-  return CompilerDeclContext(clang_ast_ctx, decl_context);
+  return clang_ast_ctx->CreateDeclContext(decl_context);
 }
 
 lldb_private::CompilerDeclContext
@@ -683,8 +679,8 @@ SymbolFilePDB::GetDeclContextContainingUID(lldb::user_id_t uid) {
     return CompilerDeclContext();
   }
 
-  ClangASTContext *clang_ast_ctx =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_ast_ctx =
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_ast_ctx)
     return CompilerDeclContext();
 
@@ -699,7 +695,7 @@ SymbolFilePDB::GetDeclContextContainingUID(lldb::user_id_t uid) {
   auto decl_context = pdb->GetDeclContextContainingSymbol(*symbol);
   assert(decl_context);
 
-  return CompilerDeclContext(clang_ast_ctx, decl_context);
+  return clang_ast_ctx->CreateDeclContext(decl_context);
 }
 
 void SymbolFilePDB::ParseDeclsForContext(
@@ -712,8 +708,8 @@ void SymbolFilePDB::ParseDeclsForContext(
     return;
   }
 
-  ClangASTContext *clang_ast_ctx =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+  TypeSystemClang *clang_ast_ctx =
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_ast_ctx)
     return;
 
@@ -1229,7 +1225,7 @@ void SymbolFilePDB::CacheFunctionNames() {
 
         // To search a method name, like NS::Class:MemberFunc, LLDB searches
         // its base name, i.e. MemberFunc by default. Since PDBSymbolFunc does
-        // not have inforamtion of this, we extract base names and cache them
+        // not have information of this, we extract base names and cache them
         // by our own effort.
         llvm::StringRef basename = MSVCUndecoratedNameParser::DropScope(name);
         if (!basename.empty())
@@ -1454,7 +1450,7 @@ void SymbolFilePDB::DumpClangAST(Stream &s) {
   }
 
   auto *clang_type_system =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_type_system)
     return;
   clang_type_system->Dump(s);
@@ -1667,7 +1663,7 @@ PDBASTParser *SymbolFilePDB::GetPDBAstParser() {
   }
 
   auto *clang_type_system =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_type_system)
     return nullptr;
 
@@ -1689,7 +1685,7 @@ lldb_private::CompilerDeclContext SymbolFilePDB::FindNamespace(
   }
 
   auto *clang_type_system =
-      llvm::dyn_cast_or_null<ClangASTContext>(&type_system_or_err.get());
+      llvm::dyn_cast_or_null<TypeSystemClang>(&type_system_or_err.get());
   if (!clang_type_system)
     return CompilerDeclContext();
 
@@ -1707,8 +1703,7 @@ lldb_private::CompilerDeclContext SymbolFilePDB::FindNamespace(
   if (!namespace_decl)
     return CompilerDeclContext();
 
-  return CompilerDeclContext(clang_type_system,
-                             static_cast<clang::DeclContext *>(namespace_decl));
+  return clang_type_system->CreateDeclContext(namespace_decl);
 }
 
 lldb_private::ConstString SymbolFilePDB::GetPluginName() {
@@ -1822,7 +1817,7 @@ bool SymbolFilePDB::ParseCompileUnitLineTable(CompileUnit &comp_unit,
             prev_source_idx, false, false, false, false, true);
 
         line_table->InsertSequence(sequence.release());
-        sequence.reset(line_table->CreateLineSequenceContainer());
+        sequence = line_table->CreateLineSequenceContainer();
       }
 
       if (ShouldAddLine(match_line, lno, length)) {
@@ -1859,7 +1854,7 @@ bool SymbolFilePDB::ParseCompileUnitLineTable(CompileUnit &comp_unit,
           prev_source_idx, false, false, false, false, true);
     }
 
-    line_table->InsertSequence(sequence.release());
+    line_table->InsertSequence(sequence.get());
   }
 
   if (line_table->GetSize()) {
@@ -1881,9 +1876,7 @@ void SymbolFilePDB::BuildSupportFileIdToSupportFileIndexMap(
   if (!source_files)
     return;
 
-  // LLDB uses the DWARF-like file numeration (one based)
-  int index = 1;
-
+  int index = 0;
   while (auto file = source_files->getNext()) {
     uint32_t source_id = file->getUniqueId();
     index_map[source_id] = index++;

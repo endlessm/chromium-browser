@@ -8,8 +8,6 @@
 from __future__ import print_function
 from __future__ import division
 
-from infra_libs import ts_mon
-
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot.stages import generic_stages
@@ -21,7 +19,6 @@ from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
-from chromite.lib import metrics
 from chromite.lib import portage_util
 
 
@@ -244,40 +241,12 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
           'Please check the logs of these builders for details.'
       ]))
 
-  @staticmethod
-  def _EmitImportanceMetric(master_config, important_configs,
-                            experimental_configs):
-    """Emit monarch metrics about which slave configs were important."""
-    importance = {build_config: True for build_config in important_configs}
-    for build_config in experimental_configs:
-      importance[build_config] = False
-
-    m = metrics.BooleanMetric(
-        'chromeos/cbuildbot/master/has_important_slave',
-        description='Slaves that were considered '
-        'important by master.',
-        field_spec=[
-            ts_mon.StringField('master_config'),
-            ts_mon.StringField('slave_config')
-        ])
-    for slave_config, is_important in importance.items():
-      m.set(
-          is_important,
-          fields={
-              'master_config': master_config,
-              'slave_config': slave_config
-          })
-
   def PerformStage(self):
     super(MasterSlaveSyncCompletionStage, self).PerformStage()
 
     builder_statusess_fetcher = self._GetBuilderStatusesFetcher()
     self._slave_statuses, self._experimental_build_statuses = (
         builder_statusess_fetcher.GetBuilderStatuses())
-
-    if self._run.config.master:
-      self._EmitImportanceMetric(self._run.config.name, self._slave_statuses,
-                                 self._experimental_build_statuses)
 
     no_stat = builder_status_lib.BuilderStatusesFetcher.GetNostatBuilds(
         self._slave_statuses)
@@ -576,6 +545,7 @@ class UpdateChromeosLKGMStage(generic_stages.BuilderStage):
     if not self._build_threshold_successful():
       logging.info('Insufficient number of successful builders. '
                    'Skipping LKGM update.')
+      return
 
     manager = self._run.attrs.manifest_manager
     cmd = ['chrome_chromeos_lkgm', '--lkgm=%s' % manager.current_version]
@@ -587,15 +557,19 @@ class UpdateChromeosLKGMStage(generic_stages.BuilderStage):
 
   def _build_threshold_successful(self):
     """Whether the percentage of successful child builders exceeds threshold"""
-    all_builds = self.GetScheduledSlaveBuildbucketIds()
-    len_all_builds = float(len(all_builds))
-    len_child_failures = float(
-        len(self.buildstore.GetBuildsFailures(all_builds)))
-
-    pctn_succeeded = 100.0 * (
-        (len_all_builds - len_child_failures) / len_all_builds)
-    return pctn_succeeded >= constants.LKGM_THRESHOLD
-
+    ids = self.GetScheduledSlaveBuildbucketIds()
+    num_builds = 0
+    num_failures = 0
+    for status in self.buildstore.GetBuildStatuses(buildbucket_ids=ids):
+      if status.get('important'):
+        num_builds += 1
+        if status.get('status') != constants.BUILDER_STATUS_PASSED:
+          num_failures += 1
+    logging.info('%d of %d important builds failed.', num_failures, num_builds)
+    if num_builds > 0:
+      pct_succeeded = 100.0 * ((num_builds - num_failures) / float(num_builds))
+      return pct_succeeded >= constants.LKGM_THRESHOLD
+    return False
 
 class PublishUprevChangesStage(generic_stages.BuilderStage):
   """Makes CQ uprev changes live for developers.
@@ -721,12 +695,6 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
       return False
 
   def PerformStage(self):
-    if (config_lib.IsMasterCQ(self._run.config) and
-        not self.sync_stage.pool.HasPickedUpCLs()):
-      logging.info('No CLs have been picked up and no slaves have been '
-                   'scheduled in this run. Will not publish uprevs.')
-      return
-
     # Either has to be a master or not have any push overlays.
     assert self._run.config.master
     assert self._run.config.push_overlays

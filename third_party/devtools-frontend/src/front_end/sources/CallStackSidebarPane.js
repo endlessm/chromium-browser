@@ -25,10 +25,10 @@
 
 /**
  * @implements {UI.ContextFlavorListener}
- * @implements {UI.ListDelegate<!Sources.CallStackSidebarPane.Item>}
+ * @implements {UI.ListDelegate<!Item>}
  * @unrestricted
  */
-Sources.CallStackSidebarPane = class extends UI.SimpleView {
+export class CallStackSidebarPane extends UI.SimpleView {
   constructor() {
     super(Common.UIString('Call Stack'), true);
     this.registerRequiredCSS('sources/callStackSidebarPane.css');
@@ -38,14 +38,21 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
 
     this._notPausedMessageElement = this.contentElement.createChild('div', 'gray-info-message');
     this._notPausedMessageElement.textContent = Common.UIString('Not paused');
+    this._notPausedMessageElement.tabIndex = -1;
 
-    /** @type {!UI.ListModel<!Sources.CallStackSidebarPane.Item>} */
+    /** @type {!UI.ListModel<!Item>} */
     this._items = new UI.ListModel();
-    /** @type {!UI.ListControl<!Sources.CallStackSidebarPane.Item>} */
+    /** @type {!UI.ListControl<!Item>} */
     this._list = new UI.ListControl(this._items, this, UI.ListMode.NonViewport);
     this.contentElement.appendChild(this._list.element);
     this._list.element.addEventListener('contextmenu', this._onContextMenu.bind(this), false);
-    this._list.element.addEventListener('click', this._onClick.bind(this), false);
+    self.onInvokeElement(this._list.element, event => {
+      const item = this._list.itemForNode(/** @type {?Node} */ (event.target));
+      if (item) {
+        this._activateItem(item);
+        event.consume(true);
+      }
+    });
 
     this._showMoreMessageElement = this._createShowMoreMessageElement();
     this._showMoreMessageElement.classList.add('hidden');
@@ -55,7 +62,7 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     this._locationPool = new Bindings.LiveLocationPool();
 
     this._updateThrottler = new Common.Throttler(100);
-    this._maxAsyncStackChainDepth = Sources.CallStackSidebarPane._defaultMaxAsyncStackChainDepth;
+    this._maxAsyncStackChainDepth = defaultMaxAsyncStackChainDepth;
     this._update();
 
     this._updateItemThrottler = new Common.Throttler(100);
@@ -68,7 +75,7 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
    */
   flavorChanged(object) {
     this._showBlackboxed = false;
-    this._maxAsyncStackChainDepth = Sources.CallStackSidebarPane._defaultMaxAsyncStackChainDepth;
+    this._maxAsyncStackChainDepth = defaultMaxAsyncStackChainDepth;
     this._update();
   }
 
@@ -82,13 +89,14 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
   async _doUpdate() {
     this._locationPool.disposeAll();
 
-    const details = UI.context.flavor(SDK.DebuggerPausedDetails);
+    const details = self.UI.context.flavor(SDK.DebuggerPausedDetails);
     if (!details) {
+      this.setDefaultFocusedElement(this._notPausedMessageElement);
       this._notPausedMessageElement.classList.remove('hidden');
       this._blackboxedMessageElement.classList.add('hidden');
       this._showMoreMessageElement.classList.add('hidden');
       this._items.replaceAll([]);
-      UI.context.setFlavor(SDK.DebuggerModel.CallFrame, null);
+      self.UI.context.setFlavor(SDK.DebuggerModel.CallFrame, null);
       return;
     }
 
@@ -96,9 +104,8 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     this._notPausedMessageElement.classList.add('hidden');
 
     const items = details.callFrames.map(frame => {
-      const item = Sources.CallStackSidebarPane.Item.createForDebuggerCallFrame(
-          frame, this._locationPool, this._refreshItem.bind(this));
-      item[Sources.CallStackSidebarPane._debuggerCallFrameSymbol] = frame;
+      const item = Item.createForDebuggerCallFrame(frame, this._locationPool, this._refreshItem.bind(this));
+      item[debuggerCallFrameSymbol] = frame;
       return item;
     });
 
@@ -122,7 +129,7 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
         title = UI.asyncStackTraceLabel(asyncStackTrace.description);
       }
 
-      items.push(...Sources.CallStackSidebarPane.Item.createItemsForAsyncStack(
+      items.push(...Item.createItemsForAsyncStack(
           title, debuggerModel, asyncStackTrace.callFrames, this._locationPool, this._refreshItem.bind(this)));
 
       --maxAsyncStackChainDepth;
@@ -140,8 +147,12 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     }
     this._showMoreMessageElement.classList.toggle('hidden', !asyncStackTrace);
     this._items.replaceAll(items);
-    if (this._maxAsyncStackChainDepth === Sources.CallStackSidebarPane._defaultMaxAsyncStackChainDepth) {
+    if (this._maxAsyncStackChainDepth === defaultMaxAsyncStackChainDepth) {
       this._list.selectNextItem(true /* canWrap */, false /* center */);
+      const selectedItem = this._list.selectedItem();
+      if (selectedItem) {
+        this._activateItem(selectedItem);
+      }
     }
     this._updatedForTest();
   }
@@ -150,14 +161,14 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
   }
 
   /**
-   * @param {!Sources.CallStackSidebarPane.Item} item
+   * @param {!Item} item
    */
   _refreshItem(item) {
     this._scheduledForUpdateItems.add(item);
     this._updateItemThrottler.schedule(innerUpdate.bind(this));
 
     /**
-     * @this {!Sources.CallStackSidebarPane}
+     * @this {!CallStackSidebarPane}
      * @return {!Promise<undefined>}
      */
     function innerUpdate() {
@@ -190,7 +201,7 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
 
   /**
    * @override
-   * @param {!Sources.CallStackSidebarPane.Item} item
+   * @param {!Item} item
    * @return {!Element}
    */
   createElementForItem(item) {
@@ -204,15 +215,25 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
       linkElement.textContent = item.linkText.trimMiddle(30);
       linkElement.title = item.linkText;
       element.classList.toggle('blackboxed-call-frame', item.isBlackboxed);
+      if (item.isBlackboxed) {
+        UI.ARIAUtils.setDescription(element, ls`blackboxed`);
+      }
+      if (!item[debuggerCallFrameSymbol]) {
+        UI.ARIAUtils.setDisabled(element, true);
+      }
     }
+    const isSelected = item[debuggerCallFrameSymbol] === self.UI.context.flavor(SDK.DebuggerModel.CallFrame);
+    element.classList.toggle('selected', isSelected);
+    UI.ARIAUtils.setSelected(element, isSelected);
     element.classList.toggle('hidden', !this._showBlackboxed && item.isBlackboxed);
     element.appendChild(UI.Icon.create('smallicon-thick-right-arrow', 'selected-call-frame-icon'));
+    element.tabIndex = item === this._list.selectedItem() ? 0 : -1;
     return element;
   }
 
   /**
    * @override
-   * @param {!Sources.CallStackSidebarPane.Item} item
+   * @param {!Item} item
    * @return {number}
    */
   heightForItem(item) {
@@ -222,30 +243,41 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
 
   /**
    * @override
-   * @param {!Sources.CallStackSidebarPane.Item} item
+   * @param {!Item} item
    * @return {boolean}
    */
   isItemSelectable(item) {
-    return !!item[Sources.CallStackSidebarPane._debuggerCallFrameSymbol];
+    return true;
   }
 
   /**
    * @override
-   * @param {?Sources.CallStackSidebarPane.Item} from
-   * @param {?Sources.CallStackSidebarPane.Item} to
+   * @param {?Item} from
+   * @param {?Item} to
    * @param {?Element} fromElement
    * @param {?Element} toElement
    */
   selectedItemChanged(from, to, fromElement, toElement) {
     if (fromElement) {
-      fromElement.classList.remove('selected');
+      fromElement.tabIndex = -1;
     }
     if (toElement) {
-      toElement.classList.add('selected');
+      this.setDefaultFocusedElement(toElement);
+      toElement.tabIndex = 0;
+      if (this.hasFocus()) {
+        toElement.focus();
+      }
     }
-    if (to) {
-      this._activateItem(to);
-    }
+  }
+
+  /**
+   * @override
+   * @param {?Element} fromElement
+   * @param {?Element} toElement
+   * @return {boolean}
+   */
+  updateSelectedItemARIA(fromElement, toElement) {
+    return true;
   }
 
   /**
@@ -256,13 +288,17 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     element.createChild('span');
     const showAllLink = element.createChild('span', 'link');
     showAllLink.textContent = Common.UIString('Show blackboxed frames');
-    showAllLink.addEventListener('click', () => {
+    UI.ARIAUtils.markAsLink(showAllLink);
+    showAllLink.tabIndex = 0;
+    const showAll = () => {
       this._showBlackboxed = true;
       for (const item of this._items) {
         this._refreshItem(item);
       }
       this._blackboxedMessageElement.classList.toggle('hidden', true);
-    });
+    };
+    showAllLink.addEventListener('click', showAll);
+    showAllLink.addEventListener('keydown', event => isEnterKey(event) && showAll());
     return element;
   }
 
@@ -275,7 +311,7 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     const showAllLink = element.createChild('span', 'link');
     showAllLink.textContent = Common.UIString('Show more');
     showAllLink.addEventListener('click', () => {
-      this._maxAsyncStackChainDepth += Sources.CallStackSidebarPane._defaultMaxAsyncStackChainDepth;
+      this._maxAsyncStackChainDepth += defaultMaxAsyncStackChainDepth;
       this._update();
     }, false);
     return element;
@@ -290,7 +326,7 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
       return;
     }
     const contextMenu = new UI.ContextMenu(event);
-    const debuggerCallFrame = item[Sources.CallStackSidebarPane._debuggerCallFrameSymbol];
+    const debuggerCallFrame = item[debuggerCallFrameSymbol];
     if (debuggerCallFrame) {
       contextMenu.defaultSection().appendItem(Common.UIString('Restart frame'), () => debuggerCallFrame.restart());
     }
@@ -312,20 +348,37 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
   }
 
   /**
-   * @param {!Sources.CallStackSidebarPane.Item} item
+   * @param {!Item} item
    */
   _activateItem(item) {
     const uiLocation = item.uiLocation;
     if (this._muteActivateItem || !uiLocation) {
       return;
     }
-    const debuggerCallFrame = item[Sources.CallStackSidebarPane._debuggerCallFrameSymbol];
-    if (debuggerCallFrame && UI.context.flavor(SDK.DebuggerModel.CallFrame) !== debuggerCallFrame) {
+    this._list.selectItem(item);
+    const debuggerCallFrame = item[debuggerCallFrameSymbol];
+    const oldItem = this.activeCallFrameItem();
+    if (debuggerCallFrame && oldItem !== item) {
       debuggerCallFrame.debuggerModel.setSelectedCallFrame(debuggerCallFrame);
-      UI.context.setFlavor(SDK.DebuggerModel.CallFrame, debuggerCallFrame);
+      self.UI.context.setFlavor(SDK.DebuggerModel.CallFrame, debuggerCallFrame);
+      if (oldItem) {
+        this._refreshItem(oldItem);
+      }
+      this._refreshItem(item);
     } else {
       Common.Revealer.reveal(uiLocation);
     }
+  }
+
+  /**
+   * @return {?Item}
+   */
+  activeCallFrameItem() {
+    const callFrame = self.UI.context.flavor(SDK.DebuggerModel.CallFrame);
+    if (callFrame) {
+      return this._items.find(callFrameItem => callFrameItem[debuggerCallFrameSymbol] === callFrame) || null;
+    }
+    return null;
   }
 
   /**
@@ -333,18 +386,18 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
    * @param {!Workspace.UISourceCode} uiSourceCode
    */
   appendBlackboxURLContextMenuItems(contextMenu, uiSourceCode) {
-    const binding = Persistence.persistence.binding(uiSourceCode);
+    const binding = self.Persistence.persistence.binding(uiSourceCode);
     if (binding) {
       uiSourceCode = binding.network;
     }
     if (uiSourceCode.project().type() === Workspace.projectTypes.FileSystem) {
       return;
     }
-    const canBlackbox = Bindings.blackboxManager.canBlackboxUISourceCode(uiSourceCode);
-    const isBlackboxed = Bindings.blackboxManager.isBlackboxedUISourceCode(uiSourceCode);
+    const canBlackbox = self.Bindings.blackboxManager.canBlackboxUISourceCode(uiSourceCode);
+    const isBlackboxed = self.Bindings.blackboxManager.isBlackboxedUISourceCode(uiSourceCode);
     const isContentScript = uiSourceCode.project().type() === Workspace.projectTypes.ContentScripts;
 
-    const manager = Bindings.blackboxManager;
+    const manager = self.Bindings.blackboxManager;
     if (canBlackbox) {
       if (isBlackboxed) {
         contextMenu.defaultSection().appendItem(
@@ -365,18 +418,28 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     }
   }
 
-  /**
-   * @return {boolean}
-   */
   _selectNextCallFrameOnStack() {
-    return this._list.selectNextItem(false /* canWrap */, false /* center */);
+    const oldItem = this.activeCallFrameItem();
+    const startIndex = oldItem ? this._items.indexOf(oldItem) + 1 : 0;
+    for (let i = startIndex; i < this._items.length; i++) {
+      const newItem = this._items.at(i);
+      if (newItem[debuggerCallFrameSymbol]) {
+        this._activateItem(newItem);
+        break;
+      }
+    }
   }
 
-  /**
-   * @return {boolean}
-   */
   _selectPreviousCallFrameOnStack() {
-    return this._list.selectPreviousItem(false /* canWrap */, false /* center */);
+    const oldItem = this.activeCallFrameItem();
+    const startIndex = oldItem ? this._items.indexOf(oldItem) - 1 : this._items.length - 1;
+    for (let i = startIndex; i >= 0; i--) {
+      const newItem = this._items.at(i);
+      if (newItem[debuggerCallFrameSymbol]) {
+        this._activateItem(newItem);
+        break;
+      }
+    }
   }
 
   _copyStackTrace() {
@@ -390,16 +453,16 @@ Sources.CallStackSidebarPane = class extends UI.SimpleView {
     }
     Host.InspectorFrontendHost.copyText(text.join('\n'));
   }
-};
+}
 
-Sources.CallStackSidebarPane._debuggerCallFrameSymbol = Symbol('debuggerCallFrame');
-Sources.CallStackSidebarPane._elementSymbol = Symbol('element');
-Sources.CallStackSidebarPane._defaultMaxAsyncStackChainDepth = 32;
+export const debuggerCallFrameSymbol = Symbol('debuggerCallFrame');
+export const elementSymbol = Symbol('element');
+export const defaultMaxAsyncStackChainDepth = 32;
 
 /**
  * @implements {UI.ActionDelegate}
  */
-Sources.CallStackSidebarPane.ActionDelegate = class {
+export class ActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -407,7 +470,7 @@ Sources.CallStackSidebarPane.ActionDelegate = class {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    const callStackSidebarPane = self.runtime.sharedInstance(Sources.CallStackSidebarPane);
+    const callStackSidebarPane = self.runtime.sharedInstance(CallStackSidebarPane);
     switch (actionId) {
       case 'debugger.next-call-frame':
         callStackSidebarPane._selectNextCallFrameOnStack();
@@ -418,18 +481,18 @@ Sources.CallStackSidebarPane.ActionDelegate = class {
     }
     return false;
   }
-};
+}
 
-Sources.CallStackSidebarPane.Item = class {
+export class Item {
   /**
    * @param {!SDK.DebuggerModel.CallFrame} frame
    * @param {!Bindings.LiveLocationPool} locationPool
-   * @param {function(!Sources.CallStackSidebarPane.Item)} updateDelegate
-   * @return {!Sources.CallStackSidebarPane.Item}
+   * @param {function(!Item)} updateDelegate
+   * @return {!Item}
    */
   static createForDebuggerCallFrame(frame, locationPool, updateDelegate) {
-    const item = new Sources.CallStackSidebarPane.Item(UI.beautifyFunctionName(frame.functionName), updateDelegate);
-    Bindings.debuggerWorkspaceBinding.createCallFrameLiveLocation(
+    const item = new Item(UI.beautifyFunctionName(frame.functionName), updateDelegate);
+    self.Bindings.debuggerWorkspaceBinding.createCallFrameLiveLocation(
         frame.location(), item._update.bind(item), locationPool);
     return item;
   }
@@ -439,17 +502,17 @@ Sources.CallStackSidebarPane.Item = class {
    * @param {?SDK.DebuggerModel} debuggerModel
    * @param {!Array<!Protocol.Runtime.CallFrame>} frames
    * @param {!Bindings.LiveLocationPool} locationPool
-   * @param {function(!Sources.CallStackSidebarPane.Item)} updateDelegate
-   * @return {!Array<!Sources.CallStackSidebarPane.Item>}
+   * @param {function(!Item)} updateDelegate
+   * @return {!Array<!Item>}
    */
   static createItemsForAsyncStack(title, debuggerModel, frames, locationPool, updateDelegate) {
     const whiteboxedItemsSymbol = Symbol('whiteboxedItems');
-    const asyncHeaderItem = new Sources.CallStackSidebarPane.Item(title, updateDelegate);
+    const asyncHeaderItem = new Item(title, updateDelegate);
     asyncHeaderItem[whiteboxedItemsSymbol] = new Set();
     asyncHeaderItem.isAsyncHeader = true;
 
     const asyncFrameItems = frames.map(frame => {
-      const item = new Sources.CallStackSidebarPane.Item(UI.beautifyFunctionName(frame.functionName), update);
+      const item = new Item(UI.beautifyFunctionName(frame.functionName), update);
       const rawLocation = debuggerModel ?
           debuggerModel.createRawLocationByScriptId(frame.scriptId, frame.lineNumber, frame.columnNumber) :
           null;
@@ -457,7 +520,7 @@ Sources.CallStackSidebarPane.Item = class {
         item.linkText = (frame.url || '<unknown>') + ':' + (frame.lineNumber + 1);
         item.updateDelegate(item);
       } else {
-        Bindings.debuggerWorkspaceBinding.createCallFrameLiveLocation(
+        self.Bindings.debuggerWorkspaceBinding.createCallFrameLiveLocation(
             rawLocation, item._update.bind(item), locationPool);
       }
       return item;
@@ -467,7 +530,7 @@ Sources.CallStackSidebarPane.Item = class {
     return [asyncHeaderItem, ...asyncFrameItems];
 
     /**
-     * @param {!Sources.CallStackSidebarPane.Item} item
+     * @param {!Item} item
      */
     function update(item) {
       updateDelegate(item);
@@ -489,7 +552,7 @@ Sources.CallStackSidebarPane.Item = class {
 
   /**
    * @param {string} title
-   * @param {function(!Sources.CallStackSidebarPane.Item)} updateDelegate
+   * @param {function(!Item)} updateDelegate
    */
   constructor(title, updateDelegate) {
     this.isBlackboxed = false;
@@ -505,9 +568,10 @@ Sources.CallStackSidebarPane.Item = class {
    */
   _update(liveLocation) {
     const uiLocation = liveLocation.uiLocation();
-    this.isBlackboxed = uiLocation ? Bindings.blackboxManager.isBlackboxedUISourceCode(uiLocation.uiSourceCode) : false;
+    this.isBlackboxed =
+        uiLocation ? self.Bindings.blackboxManager.isBlackboxedUISourceCode(uiLocation.uiSourceCode) : false;
     this.linkText = uiLocation ? uiLocation.linkText() : '';
     this.uiLocation = uiLocation;
     this.updateDelegate(this);
   }
-};
+}

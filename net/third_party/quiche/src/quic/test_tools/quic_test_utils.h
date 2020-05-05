@@ -23,12 +23,12 @@
 #include "net/third_party/quiche/src/quic/core/quic_sent_packet_manager.h"
 #include "net/third_party/quiche/src/quic/core/quic_simple_buffer_allocator.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice_storage.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_quic_session_visitor.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_random.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -165,12 +165,6 @@ QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
     ParsedQuicVersion version,
     Perspective perspective);
 
-void CompareCharArraysWithHexError(const std::string& description,
-                                   const char* actual,
-                                   const int actual_len,
-                                   const char* expected,
-                                   const int expected_len);
-
 // Returns QuicConfig set to default values.
 QuicConfig DefaultQuicConfig();
 
@@ -225,7 +219,7 @@ std::unique_ptr<QuicPacket> BuildUnsizedDataPacket(
     size_t packet_size);
 
 // Compute SHA-1 hash of the supplied std::string.
-std::string Sha1Hash(QuicStringPiece data);
+std::string Sha1Hash(quiche::QuicheStringPiece data);
 
 // Delete |frame| and return true.
 bool ClearControlFrame(const QuicFrame& frame);
@@ -268,10 +262,12 @@ class MockFramerVisitor : public QuicFramerVisitorInterface {
   MOCK_METHOD1(OnPublicResetPacket, void(const QuicPublicResetPacket& header));
   MOCK_METHOD1(OnVersionNegotiationPacket,
                void(const QuicVersionNegotiationPacket& packet));
-  MOCK_METHOD3(OnRetryPacket,
+  MOCK_METHOD5(OnRetryPacket,
                void(QuicConnectionId original_connection_id,
                     QuicConnectionId new_connection_id,
-                    QuicStringPiece retry_token));
+                    quiche::QuicheStringPiece retry_token,
+                    quiche::QuicheStringPiece retry_integrity_tag,
+                    quiche::QuicheStringPiece retry_without_tag));
   // The constructor sets this up to return true by default.
   MOCK_METHOD1(OnUnauthenticatedHeader, bool(const QuicPacketHeader& header));
   // The constructor sets this up to return true by default.
@@ -311,6 +307,7 @@ class MockFramerVisitor : public QuicFramerVisitorInterface {
   MOCK_METHOD1(OnWindowUpdateFrame, bool(const QuicWindowUpdateFrame& frame));
   MOCK_METHOD1(OnBlockedFrame, bool(const QuicBlockedFrame& frame));
   MOCK_METHOD1(OnMessageFrame, bool(const QuicMessageFrame& frame));
+  MOCK_METHOD1(OnHandshakeDoneFrame, bool(const QuicHandshakeDoneFrame& frame));
   MOCK_METHOD0(OnPacketComplete, void());
   MOCK_CONST_METHOD1(IsValidStatelessResetToken, bool(QuicUint128));
   MOCK_METHOD1(OnAuthenticatedIetfStatelessResetPacket,
@@ -330,7 +327,10 @@ class NoOpFramerVisitor : public QuicFramerVisitorInterface {
       const QuicVersionNegotiationPacket& /*packet*/) override {}
   void OnRetryPacket(QuicConnectionId /*original_connection_id*/,
                      QuicConnectionId /*new_connection_id*/,
-                     QuicStringPiece /*retry_token*/) override {}
+                     quiche::QuicheStringPiece /*retry_token*/,
+                     quiche::QuicheStringPiece /*retry_integrity_tag*/,
+                     quiche::QuicheStringPiece /*retry_without_tag*/) override {
+  }
   bool OnProtocolVersionMismatch(ParsedQuicVersion version) override;
   bool OnUnauthenticatedHeader(const QuicPacketHeader& header) override;
   bool OnUnauthenticatedPublicHeader(const QuicPacketHeader& header) override;
@@ -366,6 +366,7 @@ class NoOpFramerVisitor : public QuicFramerVisitorInterface {
   bool OnWindowUpdateFrame(const QuicWindowUpdateFrame& frame) override;
   bool OnBlockedFrame(const QuicBlockedFrame& frame) override;
   bool OnMessageFrame(const QuicMessageFrame& frame) override;
+  bool OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& frame) override;
   void OnPacketComplete() override {}
   bool IsValidStatelessResetToken(QuicUint128 token) const override;
   void OnAuthenticatedIetfStatelessResetPacket(
@@ -386,7 +387,8 @@ class MockQuicConnectionVisitor : public QuicConnectionVisitorInterface {
   MOCK_METHOD1(OnBlockedFrame, void(const QuicBlockedFrame& frame));
   MOCK_METHOD1(OnRstStream, void(const QuicRstStreamFrame& frame));
   MOCK_METHOD1(OnGoAway, void(const QuicGoAwayFrame& frame));
-  MOCK_METHOD1(OnMessageReceived, void(QuicStringPiece message));
+  MOCK_METHOD1(OnMessageReceived, void(quiche::QuicheStringPiece message));
+  MOCK_METHOD0(OnHandshakeDoneReceived, void());
   MOCK_METHOD2(OnConnectionClosed,
                void(const QuicConnectionCloseFrame& frame,
                     ConnectionCloseSource source));
@@ -409,12 +411,14 @@ class MockQuicConnectionVisitor : public QuicConnectionVisitorInterface {
   MOCK_METHOD0(OnAckNeedsRetransmittableFrame, void());
   MOCK_METHOD0(SendPing, void());
   MOCK_CONST_METHOD0(AllowSelfAddressChange, bool());
+  MOCK_CONST_METHOD0(GetHandshakeState, HandshakeState());
   MOCK_METHOD0(OnForwardProgressConfirmed, void());
   MOCK_METHOD1(OnMaxStreamsFrame, bool(const QuicMaxStreamsFrame& frame));
   MOCK_METHOD1(OnStreamsBlockedFrame,
                bool(const QuicStreamsBlockedFrame& frame));
   MOCK_METHOD1(OnStopSendingFrame, void(const QuicStopSendingFrame& frame));
   MOCK_METHOD1(OnPacketDecrypted, void(EncryptionLevel));
+  MOCK_METHOD0(OnOneRttPacketAcknowledged, void());
 };
 
 class MockQuicConnectionHelper : public QuicConnectionHelperInterface {
@@ -645,7 +649,8 @@ class MockQuicSession : public QuicSession {
                     QuicStreamOffset bytes_written));
 
   MOCK_METHOD2(OnStreamHeaders,
-               void(QuicStreamId stream_id, QuicStringPiece headers_data));
+               void(QuicStreamId stream_id,
+                    quiche::QuicheStringPiece headers_data));
   MOCK_METHOD2(OnStreamHeadersPriority,
                void(QuicStreamId stream_id, spdy::SpdyPriority priority));
   MOCK_METHOD3(OnStreamHeadersComplete,
@@ -655,9 +660,9 @@ class MockQuicSession : public QuicSession {
   MOCK_METHOD1(OnCryptoHandshakeEvent, void(QuicSession::CryptoHandshakeEvent));
   MOCK_CONST_METHOD0(GetAlpnsToOffer, std::vector<std::string>());
   MOCK_CONST_METHOD1(SelectAlpn,
-                     std::vector<QuicStringPiece>::const_iterator(
-                         const std::vector<QuicStringPiece>&));
-  MOCK_METHOD1(OnAlpnSelected, void(QuicStringPiece));
+                     std::vector<quiche::QuicheStringPiece>::const_iterator(
+                         const std::vector<quiche::QuicheStringPiece>&));
+  MOCK_METHOD1(OnAlpnSelected, void(quiche::QuicheStringPiece));
 
   using QuicSession::ActivateStream;
 
@@ -686,11 +691,14 @@ class MockQuicCryptoStream : public QuicCryptoStream {
   ~MockQuicCryptoStream() override;
 
   bool encryption_established() const override;
-  bool handshake_confirmed() const override;
+  bool one_rtt_keys_available() const override;
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
   void OnPacketDecrypted(EncryptionLevel /*level*/) override {}
+  void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakeDoneReceived() override {}
+  HandshakeState GetHandshakeState() const override { return HANDSHAKE_START; }
 
  private:
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters> params_;
@@ -741,7 +749,8 @@ class MockQuicSpdySession : public QuicSpdySession {
                     QuicStreamOffset bytes_written));
 
   MOCK_METHOD2(OnStreamHeaders,
-               void(QuicStreamId stream_id, QuicStringPiece headers_data));
+               void(QuicStreamId stream_id,
+                    quiche::QuicheStringPiece headers_data));
   MOCK_METHOD2(OnStreamHeadersPriority,
                void(QuicStreamId stream_id,
                     const spdy::SpdyStreamPrecedence& precedence));
@@ -753,7 +762,8 @@ class MockQuicSpdySession : public QuicSpdySession {
                     size_t frame_len,
                     const QuicHeaderList& header_list));
   MOCK_METHOD2(OnPromiseHeaders,
-               void(QuicStreamId stream_id, QuicStringPiece headers_data));
+               void(QuicStreamId stream_id,
+                    quiche::QuicheStringPiece headers_data));
   MOCK_METHOD3(OnPromiseHeadersComplete,
                void(QuicStreamId stream_id,
                     QuicStreamId promised_stream_id,
@@ -796,18 +806,18 @@ class TestQuicSpdyServerSession : public QuicServerSessionBase {
   MOCK_METHOD0(CreateOutgoingBidirectionalStream, QuicSpdyStream*());
   MOCK_METHOD0(CreateOutgoingUnidirectionalStream, QuicSpdyStream*());
   MOCK_CONST_METHOD1(SelectAlpn,
-                     std::vector<QuicStringPiece>::const_iterator(
-                         const std::vector<QuicStringPiece>&));
-  QuicCryptoServerStreamBase* CreateQuicCryptoServerStream(
+                     std::vector<quiche::QuicheStringPiece>::const_iterator(
+                         const std::vector<quiche::QuicheStringPiece>&));
+  std::unique_ptr<QuicCryptoServerStreamBase> CreateQuicCryptoServerStream(
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache) override;
 
   // Override to not send max header list size.
   void OnCryptoHandshakeEvent(CryptoHandshakeEvent event) override;
 
-  QuicCryptoServerStream* GetMutableCryptoStream() override;
+  QuicCryptoServerStreamBase* GetMutableCryptoStream() override;
 
-  const QuicCryptoServerStream* GetCryptoStream() const override;
+  const QuicCryptoServerStreamBase* GetCryptoStream() const override;
 
   MockQuicCryptoServerStreamHelper* helper() { return &helper_; }
 
@@ -1071,8 +1081,12 @@ class MockQuicConnectionDebugVisitor : public QuicConnectionDebugVisitor {
   MOCK_METHOD1(OnVersionNegotiationPacket,
                void(const QuicVersionNegotiationPacket&));
 
-  MOCK_METHOD3(OnRetryPacket,
-               void(QuicConnectionId, QuicConnectionId, QuicStringPiece));
+  MOCK_METHOD5(OnRetryPacket,
+               void(QuicConnectionId,
+                    QuicConnectionId,
+                    quiche::QuicheStringPiece,
+                    quiche::QuicheStringPiece,
+                    quiche::QuicheStringPiece));
 };
 
 class MockReceivedPacketManager : public QuicReceivedPacketManager {
@@ -1210,7 +1224,7 @@ QuicHeaderList AsHeaderList(const T& container) {
 }
 
 // Utility function that stores |str|'s data in |iov|.
-inline void MakeIOVector(QuicStringPiece str, struct iovec* iov) {
+inline void MakeIOVector(quiche::QuicheStringPiece str, struct iovec* iov) {
   iov->iov_base = const_cast<char*>(str.data());
   iov->iov_len = static_cast<size_t>(str.size());
 }
@@ -1240,8 +1254,12 @@ StreamType DetermineStreamType(QuicStreamId id,
 // Utility function that stores message_data in |storage| and returns a
 // QuicMemSliceSpan.
 QuicMemSliceSpan MakeSpan(QuicBufferAllocator* allocator,
-                          QuicStringPiece message_data,
+                          quiche::QuicheStringPiece message_data,
                           QuicMemSliceStorage* storage);
+
+// Creates a MemSlice using a singleton trivial buffer allocator.  Performs a
+// copy.
+QuicMemSlice MemSliceFromString(quiche::QuicheStringPiece data);
 
 // Used to compare ReceivedPacketInfo.
 MATCHER_P(ReceivedPacketInfoEquals, info, "") {
@@ -1261,8 +1279,8 @@ MATCHER_P2(InRange, min, max, "") {
 // EXPECT_THAT(stream_->connection_error()), IsError(QUIC_INTERNAL_ERROR));
 MATCHER_P(IsError,
           expected,
-          QuicStrCat(negation ? "isn't equal to " : "is equal to ",
-                     QuicErrorCodeToString(expected))) {
+          quiche::QuicheStrCat(negation ? "isn't equal to " : "is equal to ",
+                               QuicErrorCodeToString(expected))) {
   *result_listener << QuicErrorCodeToString(arg);
   return arg == expected;
 }
@@ -1270,8 +1288,8 @@ MATCHER_P(IsError,
 // Shorthand for IsError(QUIC_NO_ERROR).
 // Example usage: EXPECT_THAT(stream_->connection_error(), IsQuicNoError());
 MATCHER(IsQuicNoError,
-        QuicStrCat(negation ? "isn't equal to " : "is equal to ",
-                   QuicErrorCodeToString(QUIC_NO_ERROR))) {
+        quiche::QuicheStrCat(negation ? "isn't equal to " : "is equal to ",
+                             QuicErrorCodeToString(QUIC_NO_ERROR))) {
   *result_listener << QuicErrorCodeToString(arg);
   return arg == QUIC_NO_ERROR;
 }
@@ -1281,8 +1299,8 @@ MATCHER(IsQuicNoError,
 // EXPECT_THAT(stream_->stream_error(), IsStreamError(QUIC_INTERNAL_ERROR));
 MATCHER_P(IsStreamError,
           expected,
-          QuicStrCat(negation ? "isn't equal to " : "is equal to ",
-                     QuicRstStreamErrorCodeToString(expected))) {
+          quiche::QuicheStrCat(negation ? "isn't equal to " : "is equal to ",
+                               QuicRstStreamErrorCodeToString(expected))) {
   *result_listener << QuicRstStreamErrorCodeToString(arg);
   return arg == expected;
 }
@@ -1290,8 +1308,9 @@ MATCHER_P(IsStreamError,
 // Shorthand for IsStreamError(QUIC_STREAM_NO_ERROR).  Example usage:
 // EXPECT_THAT(stream_->stream_error(), IsQuicStreamNoError());
 MATCHER(IsQuicStreamNoError,
-        QuicStrCat(negation ? "isn't equal to " : "is equal to ",
-                   QuicRstStreamErrorCodeToString(QUIC_STREAM_NO_ERROR))) {
+        quiche::QuicheStrCat(
+            negation ? "isn't equal to " : "is equal to ",
+            QuicRstStreamErrorCodeToString(QUIC_STREAM_NO_ERROR))) {
   *result_listener << QuicRstStreamErrorCodeToString(arg);
   return arg == QUIC_STREAM_NO_ERROR;
 }

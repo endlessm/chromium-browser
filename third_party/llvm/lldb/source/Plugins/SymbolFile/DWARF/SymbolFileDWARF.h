@@ -21,7 +21,6 @@
 
 #include "lldb/Core/UniqueCStringMap.h"
 #include "lldb/Core/dwarf.h"
-#include "lldb/Expression/DWARFExpression.h"
 #include "lldb/Symbol/DebugMacros.h"
 #include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Symbol/SymbolFile.h"
@@ -47,7 +46,6 @@ class DWARFDebugInfo;
 class DWARFDebugInfoEntry;
 class DWARFDebugLine;
 class DWARFDebugRanges;
-class DWARFDebugRngLists;
 class DWARFDeclContext;
 class DWARFFormValue;
 class DWARFTypeUnit;
@@ -91,8 +89,6 @@ public:
 
   static lldb_private::SymbolFile *
   CreateInstance(lldb::ObjectFileSP objfile_sp);
-
-  static lldb_private::FileSpecList GetSymlinkPaths();
 
   // Constructors and Destructors
 
@@ -224,9 +220,6 @@ public:
 
   uint32_t GetPluginVersion() override;
 
-  const lldb_private::DWARFDataExtractor &get_debug_loc_data();
-  const lldb_private::DWARFDataExtractor &get_debug_loclists_data();
-
   DWARFDebugAbbrev *DebugAbbrev();
 
   const DWARFDebugAbbrev *DebugAbbrev() const;
@@ -236,9 +229,6 @@ public:
   const DWARFDebugInfo *DebugInfo() const;
 
   DWARFDebugRanges *GetDebugRanges();
-  DWARFDebugRngLists *GetDebugRngLists();
-
-  const lldb_private::DWARFDataExtractor &DebugLocData();
 
   static bool SupportedVersion(uint16_t version);
 
@@ -261,9 +251,6 @@ public:
   static DWARFDIE GetParentSymbolContextDIE(const DWARFDIE &die);
 
   virtual lldb::CompUnitSP ParseCompileUnit(DWARFCompileUnit &dwarf_cu);
-
-  virtual lldb_private::DWARFExpression::LocationListFormat
-  GetLocationListFormat() const;
 
   lldb::ModuleSP GetExternalModule(lldb_private::ConstString name);
 
@@ -289,7 +276,7 @@ public:
 
   lldb::user_id_t GetUID(DIERef ref);
 
-  virtual std::unique_ptr<SymbolFileDWARFDwo>
+  std::unique_ptr<SymbolFileDWARFDwo>
   GetDwoSymbolFileForCompileUnit(DWARFUnit &dwarf_cu,
                                  const DWARFDebugInfoEntry &cu_die);
 
@@ -394,6 +381,13 @@ protected:
   bool ResolveFunction(const DWARFDIE &die, bool include_inlines,
                        lldb_private::SymbolContextList &sc_list);
 
+  /// Resolve functions and (possibly) blocks for the given file address and a
+  /// compile unit. The compile unit comes from the sc argument and it must be
+  /// set. The results of the lookup (if any) are written back to the symbol
+  /// context.
+  void ResolveFunctionAndBlock(lldb::addr_t file_vm_addr, bool lookup_block,
+                               lldb_private::SymbolContext &sc);
+
   virtual lldb::TypeSP
   FindDefinitionTypeForDWARFDeclContext(const DWARFDeclContext &die_decl_ctx);
 
@@ -427,6 +421,18 @@ protected:
 
   bool ClassContainsSelector(const DWARFDIE &class_die,
                              lldb_private::ConstString selector);
+
+  /// Parse call site entries (DW_TAG_call_site), including any nested call site
+  /// parameters (DW_TAG_call_site_parameter).
+  std::vector<std::unique_ptr<lldb_private::CallEdge>>
+  CollectCallEdges(lldb::ModuleSP module, DWARFDIE function_die);
+
+  /// If this symbol file is linked to by a debug map (see
+  /// SymbolFileDWARFDebugMap), and \p file_addr is a file address relative to
+  /// an object file, adjust \p file_addr so that it is relative to the main
+  /// binary. Returns the adjusted address, or \p file_addr if no adjustment is
+  /// needed, on success and LLDB_INVALID_ADDRESS otherwise.
+  lldb::addr_t FixupAddress(lldb::addr_t file_addr);
 
   bool FixupAddress(lldb_private::Address &addr);
 
@@ -499,7 +505,6 @@ protected:
   typedef llvm::StringMap<DIERefSet> NameToOffsetMap;
   NameToOffsetMap m_function_scope_qualified_name_map;
   std::unique_ptr<DWARFDebugRanges> m_ranges;
-  std::unique_ptr<DWARFDebugRngLists> m_rnglists;
   UniqueDWARFASTTypeMap m_unique_ast_type_map;
   DIEToTypePtr m_die_to_type;
   DIEToVariableSP m_die_to_variable_sp;

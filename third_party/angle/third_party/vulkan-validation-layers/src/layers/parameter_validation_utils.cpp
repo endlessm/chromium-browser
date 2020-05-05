@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (C) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (C) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -90,10 +90,11 @@ bool StatelessValidation::validate_instance_extensions(const VkInstanceCreateInf
 }
 
 template <typename ExtensionState>
-bool extension_state_by_name(const ExtensionState &extensions, const char *extension_name) {
-    if (!extension_name) return false;  // null strings specify nothing
+ExtEnabled extension_state_by_name(const ExtensionState &extensions, const char *extension_name) {
+    if (!extension_name) return kNotEnabled;  // null strings specify nothing
     auto info = ExtensionState::get_info(extension_name);
-    bool state = info.state ? extensions.*(info.state) : false;  // unknown extensions can't be enabled in extension struct
+    ExtEnabled state =
+        info.state ? extensions.*(info.state) : kNotEnabled;  // unknown extensions can't be enabled in extension struct
     return state;
 }
 
@@ -175,6 +176,14 @@ void StatelessValidation::PostCallRecordCreateDevice(VkPhysicalDevice physicalDe
         phys_dev_ext_props.ray_tracing_props = ray_tracing_props;
     }
 
+    if (device_extensions.vk_ext_transform_feedback) {
+        // Get the needed transform feedback limits
+        auto transform_feedback_props = lvl_init_struct<VkPhysicalDeviceTransformFeedbackPropertiesEXT>();
+        auto prop2 = lvl_init_struct<VkPhysicalDeviceProperties2KHR>(&transform_feedback_props);
+        DispatchGetPhysicalDeviceProperties2KHR(physicalDevice, &prop2);
+        phys_dev_ext_props.transform_feedback_props = transform_feedback_props;
+    }
+
     stateless_validation->phys_dev_ext_props = this->phys_dev_ext_props;
 
     // Save app-enabled features in this device's validation object
@@ -190,7 +199,7 @@ void StatelessValidation::PostCallRecordCreateDevice(VkPhysicalDevice physicalDe
         tmp_features2_state.features = {};
     }
     // Use pCreateInfo->pNext to get full chain
-    tmp_features2_state.pNext = SafePnextCopy(pCreateInfo->pNext);
+    stateless_validation->device_createinfo_pnext = SafePnextCopy(pCreateInfo->pNext);
     stateless_validation->physical_device_features2 = tmp_features2_state;
 }
 
@@ -212,13 +221,25 @@ bool StatelessValidation::manual_PreCallValidateCreateDevice(VkPhysicalDevice ph
     }
 
     {
-        bool maint1 = extension_state_by_name(device_extensions, VK_KHR_MAINTENANCE1_EXTENSION_NAME);
-        bool negative_viewport = extension_state_by_name(device_extensions, VK_AMD_NEGATIVE_VIEWPORT_HEIGHT_EXTENSION_NAME);
+        bool maint1 = IsExtEnabled(extension_state_by_name(device_extensions, VK_KHR_MAINTENANCE1_EXTENSION_NAME));
+        bool negative_viewport =
+            IsExtEnabled(extension_state_by_name(device_extensions, VK_AMD_NEGATIVE_VIEWPORT_HEIGHT_EXTENSION_NAME));
         if (maint1 && negative_viewport) {
             skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                             "VUID-VkDeviceCreateInfo-ppEnabledExtensionNames-00374",
                             "VkDeviceCreateInfo->ppEnabledExtensionNames must not simultaneously include VK_KHR_maintenance1 and "
                             "VK_AMD_negative_viewport_height.");
+        }
+    }
+
+    {
+        bool khr_bda = IsExtEnabled(extension_state_by_name(device_extensions, VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME));
+        bool ext_bda = IsExtEnabled(extension_state_by_name(device_extensions, VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME));
+        if (khr_bda && ext_bda) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkDeviceCreateInfo-ppEnabledExtensionNames-03328",
+                            "VkDeviceCreateInfo->ppEnabledExtensionNames must not contain both VK_KHR_buffer_device_address and "
+                            "VK_EXT_buffer_device_address.");
         }
     }
 
@@ -1671,7 +1692,7 @@ bool StatelessValidation::manual_PreCallValidateCreateGraphicsPipelines(VkDevice
                             }
                         }
                         const auto *line_features =
-                            lvl_find_in_chain<VkPhysicalDeviceLineRasterizationFeaturesEXT>(physical_device_features2.pNext);
+                            lvl_find_in_chain<VkPhysicalDeviceLineRasterizationFeaturesEXT>(device_createinfo_pnext);
                         if (line_state->lineRasterizationMode == VK_LINE_RASTERIZATION_MODE_RECTANGULAR_EXT &&
                             (!line_features || !line_features->rectangularLines)) {
                             skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
@@ -2185,6 +2206,24 @@ bool StatelessValidation::manual_PreCallValidateCreateSampler(VkDevice device, c
                                 "are VK_FILTER_CUBIC_IMG.");
             }
         }
+
+        const auto *sampler_conversion = lvl_find_in_chain<VkSamplerYcbcrConversionInfo>(pCreateInfo->pNext);
+        if (sampler_conversion != nullptr) {
+            if ((pCreateInfo->addressModeU != VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE) ||
+                (pCreateInfo->addressModeV != VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE) ||
+                (pCreateInfo->addressModeW != VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE) ||
+                (pCreateInfo->anisotropyEnable != VK_FALSE) || (pCreateInfo->unnormalizedCoordinates != VK_FALSE)) {
+                skip |= log_msg(
+                    report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                    "VUID-VkSamplerCreateInfo-addressModeU-01646",
+                    "vkCreateSampler():  SamplerYCbCrConversion is enabled: "
+                    "addressModeU (%s), addressModeV (%s), addressModeW (%s) must be CLAMP_TO_EDGE, and anisotropyEnable (%s) "
+                    "and unnormalizedCoordinates (%s) must be VK_FALSE.",
+                    string_VkSamplerAddressMode(pCreateInfo->addressModeU), string_VkSamplerAddressMode(pCreateInfo->addressModeV),
+                    string_VkSamplerAddressMode(pCreateInfo->addressModeW), pCreateInfo->anisotropyEnable ? "VK_TRUE" : "VK_FALSE",
+                    pCreateInfo->unnormalizedCoordinates ? "VK_TRUE" : "VK_FALSE");
+            }
+        }
     }
 
     return skip;
@@ -2459,8 +2498,7 @@ bool StatelessValidation::manual_PreCallValidateBeginCommandBuffer(VkCommandBuff
 
         const auto *conditional_rendering = lvl_find_in_chain<VkCommandBufferInheritanceConditionalRenderingInfoEXT>(pInfo->pNext);
         if (conditional_rendering) {
-            const auto *cr_features =
-                lvl_find_in_chain<VkPhysicalDeviceConditionalRenderingFeaturesEXT>(physical_device_features2.pNext);
+            const auto *cr_features = lvl_find_in_chain<VkPhysicalDeviceConditionalRenderingFeaturesEXT>(device_createinfo_pnext);
             const auto inherited_conditional_rendering = cr_features && cr_features->inheritedConditionalRendering;
             if (!inherited_conditional_rendering && conditional_rendering->conditionalRenderingEnable == VK_TRUE) {
                 skip |= log_msg(
@@ -2854,7 +2892,7 @@ bool StatelessValidation::manual_PreCallValidateQueuePresentKHR(VkQueue queue, c
         const auto *present_regions = lvl_find_in_chain<VkPresentRegionsKHR>(pPresentInfo->pNext);
         if (present_regions) {
             // TODO: This and all other pNext extension dependencies should be added to code-generation
-            skip |= require_device_extension(device_extensions.vk_khr_incremental_present, "vkQueuePresentKHR",
+            skip |= require_device_extension(IsExtEnabled(device_extensions.vk_khr_incremental_present), "vkQueuePresentKHR",
                                              VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME);
             if (present_regions->swapchainCount != pPresentInfo->swapchainCount) {
                 skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
@@ -3329,6 +3367,79 @@ bool StatelessValidation::manual_PreCallValidateAllocateMemory(VkDevice device, 
                             "VUID-VkMemoryPriorityAllocateInfoEXT-priority-02602",
                             "priority (=%f) must be between `0` and `1`, inclusive.", chained_prio_struct->priority);
         }
+
+        VkMemoryAllocateFlags flags = 0;
+        auto flags_info = lvl_find_in_chain<VkMemoryAllocateFlagsInfo>(pAllocateInfo->pNext);
+        if (flags_info) {
+            flags = flags_info->flags;
+        }
+
+        auto opaque_alloc_info = lvl_find_in_chain<VkMemoryOpaqueCaptureAddressAllocateInfoKHR>(pAllocateInfo->pNext);
+        if (opaque_alloc_info && opaque_alloc_info->opaqueCaptureAddress != 0) {
+            if (!(flags & VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR)) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkMemoryAllocateInfo-opaqueCaptureAddress-03329",
+                                "If opaqueCaptureAddress is non-zero, VkMemoryAllocateFlagsInfo::flags must include "
+                                "VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR.");
+            }
+
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+            auto import_memory_win32_handle = lvl_find_in_chain<VkImportMemoryWin32HandleInfoKHR>(pAllocateInfo->pNext);
+#endif
+            auto import_memory_fd = lvl_find_in_chain<VkImportMemoryFdInfoKHR>(pAllocateInfo->pNext);
+            auto import_memory_host_pointer = lvl_find_in_chain<VkImportMemoryHostPointerInfoEXT>(pAllocateInfo->pNext);
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+            auto import_memory_ahb = lvl_find_in_chain<VkImportAndroidHardwareBufferInfoANDROID>(pAllocateInfo->pNext);
+#endif
+
+            if (import_memory_host_pointer) {
+                skip |= log_msg(
+                    report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                    "VUID-VkMemoryAllocateInfo-pNext-03332",
+                    "If the pNext chain includes a VkImportMemoryHostPointerInfoEXT structure, opaqueCaptureAddress must be zero.");
+            }
+            if (
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+                (import_memory_win32_handle && import_memory_win32_handle->handleType) ||
+#endif
+                (import_memory_fd && import_memory_fd->handleType) ||
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+                (import_memory_ahb && import_memory_ahb->buffer) ||
+#endif
+                (import_memory_host_pointer && import_memory_host_pointer->handleType)) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkMemoryAllocateInfo-opaqueCaptureAddress-03333",
+                                "If the parameters define an import operation, opaqueCaptureAddress must be zero.");
+            }
+        }
+
+        if (flags) {
+            VkBool32 capture_replay = false;
+            VkBool32 buffer_device_address = false;
+            const auto *vulkan_12_features = lvl_find_in_chain<VkPhysicalDeviceVulkan12Features>(device_createinfo_pnext);
+            if (vulkan_12_features) {
+                capture_replay = vulkan_12_features->bufferDeviceAddressCaptureReplay;
+                buffer_device_address = vulkan_12_features->bufferDeviceAddress;
+            } else {
+                const auto *bda_features =
+                    lvl_find_in_chain<VkPhysicalDeviceBufferDeviceAddressFeaturesKHR>(device_createinfo_pnext);
+                if (bda_features) {
+                    capture_replay = bda_features->bufferDeviceAddressCaptureReplay;
+                    buffer_device_address = bda_features->bufferDeviceAddress;
+                }
+            }
+            if ((flags & VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR) && !capture_replay) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkMemoryAllocateInfo-flags-03330",
+                                "If VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR is set, "
+                                "bufferDeviceAddressCaptureReplay must be enabled.");
+            }
+            if ((flags & VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR) && !buffer_device_address) {
+                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                                "VUID-VkMemoryAllocateInfo-flags-03331",
+                                "If VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR is set, bufferDeviceAddress must be enabled.");
+            }
+        }
     }
     return skip;
 }
@@ -3635,8 +3746,7 @@ bool StatelessValidation::manual_PreCallValidateCmdBindIndexBuffer(VkCommandBuff
                         "vkCmdBindIndexBuffer() indexType must not be VK_INDEX_TYPE_NONE_NV.");
     }
 
-    const auto *index_type_uint8_features =
-        lvl_find_in_chain<VkPhysicalDeviceIndexTypeUint8FeaturesEXT>(physical_device_features2.pNext);
+    const auto *index_type_uint8_features = lvl_find_in_chain<VkPhysicalDeviceIndexTypeUint8FeaturesEXT>(device_createinfo_pnext);
     if (indexType == VK_INDEX_TYPE_UINT8_EXT && !index_type_uint8_features->indexTypeUint8) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                         HandleToUint64(commandBuffer), "VUID-vkCmdBindIndexBuffer-indexType-02765",
@@ -3693,4 +3803,53 @@ bool StatelessValidation::manual_PreCallValidateAcquireNextImage2KHR(VkDevice de
     }
 
     return skip;
+}
+
+bool StatelessValidation::manual_PreCallValidateCmdDrawIndirectByteCountEXT(VkCommandBuffer commandBuffer, uint32_t instanceCount,
+                                                                            uint32_t firstInstance, VkBuffer counterBuffer,
+                                                                            VkDeviceSize counterBufferOffset,
+                                                                            uint32_t counterOffset, uint32_t vertexStride) const {
+    bool skip = false;
+
+    if ((vertexStride <= 0) || (vertexStride > phys_dev_ext_props.transform_feedback_props.maxTransformFeedbackBufferDataStride)) {
+        skip |= log_msg(
+            report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT, HandleToUint64(counterBuffer),
+            "VUID-vkCmdDrawIndirectByteCountEXT-vertexStride-02289",
+            "vkCmdDrawIndirectByteCountEXT: vertexStride (%d) must be between 0 and maxTransformFeedbackBufferDataStride (%d).",
+            vertexStride, phys_dev_ext_props.transform_feedback_props.maxTransformFeedbackBufferDataStride);
+    }
+
+    return skip;
+}
+
+bool StatelessValidation::ValidateCreateSamplerYcbcrConversion(VkDevice device,
+                                                               const VkSamplerYcbcrConversionCreateInfo *pCreateInfo,
+                                                               const VkAllocationCallbacks *pAllocator,
+                                                               VkSamplerYcbcrConversion *pYcbcrConversion,
+                                                               const char *apiName) const {
+    bool skip = false;
+
+    // Check samplerYcbcrConversion feature is set
+    const auto *ycbcr_features = lvl_find_in_chain<VkPhysicalDeviceSamplerYcbcrConversionFeatures>(device_createinfo_pnext);
+    if ((ycbcr_features == nullptr) || (ycbcr_features->samplerYcbcrConversion == VK_FALSE)) {
+        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                        "VUID-vkCreateSamplerYcbcrConversion-None-01648", "samplerYcbcrConversion must be enabled to call %s.",
+                        apiName);
+    }
+    return skip;
+}
+
+bool StatelessValidation::manual_PreCallValidateCreateSamplerYcbcrConversion(VkDevice device,
+                                                                             const VkSamplerYcbcrConversionCreateInfo *pCreateInfo,
+                                                                             const VkAllocationCallbacks *pAllocator,
+                                                                             VkSamplerYcbcrConversion *pYcbcrConversion) const {
+    return ValidateCreateSamplerYcbcrConversion(device, pCreateInfo, pAllocator, pYcbcrConversion,
+                                                "vkCreateSamplerYcbcrConversion");
+}
+
+bool StatelessValidation::manual_PreCallValidateCreateSamplerYcbcrConversionKHR(
+    VkDevice device, const VkSamplerYcbcrConversionCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator,
+    VkSamplerYcbcrConversion *pYcbcrConversion) const {
+    return ValidateCreateSamplerYcbcrConversion(device, pCreateInfo, pAllocator, pYcbcrConversion,
+                                                "vkCreateSamplerYcbcrConversionKHR");
 }

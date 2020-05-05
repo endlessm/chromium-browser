@@ -160,6 +160,7 @@ static VkPrimitiveTopology gr_primitive_type_to_vk_topology(GrPrimitiveType prim
             return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
         case GrPrimitiveType::kLineStrip:
             return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+        case GrPrimitiveType::kPatches:
         case GrPrimitiveType::kPath:
             SK_ABORT("Unsupported primitive type");
     }
@@ -188,15 +189,15 @@ static VkStencilOp stencil_op_to_vk_stencil_op(GrStencilOp op) {
         VK_STENCIL_OP_INCREMENT_AND_CLAMP,  // kIncClamp
         VK_STENCIL_OP_DECREMENT_AND_CLAMP,  // kDecClamp
     };
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(gTable) == kGrStencilOpCount);
-    GR_STATIC_ASSERT(0 == (int)GrStencilOp::kKeep);
-    GR_STATIC_ASSERT(1 == (int)GrStencilOp::kZero);
-    GR_STATIC_ASSERT(2 == (int)GrStencilOp::kReplace);
-    GR_STATIC_ASSERT(3 == (int)GrStencilOp::kInvert);
-    GR_STATIC_ASSERT(4 == (int)GrStencilOp::kIncWrap);
-    GR_STATIC_ASSERT(5 == (int)GrStencilOp::kDecWrap);
-    GR_STATIC_ASSERT(6 == (int)GrStencilOp::kIncClamp);
-    GR_STATIC_ASSERT(7 == (int)GrStencilOp::kDecClamp);
+    static_assert(SK_ARRAY_COUNT(gTable) == kGrStencilOpCount);
+    static_assert(0 == (int)GrStencilOp::kKeep);
+    static_assert(1 == (int)GrStencilOp::kZero);
+    static_assert(2 == (int)GrStencilOp::kReplace);
+    static_assert(3 == (int)GrStencilOp::kInvert);
+    static_assert(4 == (int)GrStencilOp::kIncWrap);
+    static_assert(5 == (int)GrStencilOp::kDecWrap);
+    static_assert(6 == (int)GrStencilOp::kIncClamp);
+    static_assert(7 == (int)GrStencilOp::kDecClamp);
     SkASSERT(op < (GrStencilOp)kGrStencilOpCount);
     return gTable[(int)op];
 }
@@ -212,15 +213,15 @@ static VkCompareOp stencil_func_to_vk_compare_op(GrStencilTest test) {
         VK_COMPARE_OP_EQUAL,               // kEqual
         VK_COMPARE_OP_NOT_EQUAL,           // kNotEqual
     };
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(gTable) == kGrStencilTestCount);
-    GR_STATIC_ASSERT(0 == (int)GrStencilTest::kAlways);
-    GR_STATIC_ASSERT(1 == (int)GrStencilTest::kNever);
-    GR_STATIC_ASSERT(2 == (int)GrStencilTest::kGreater);
-    GR_STATIC_ASSERT(3 == (int)GrStencilTest::kGEqual);
-    GR_STATIC_ASSERT(4 == (int)GrStencilTest::kLess);
-    GR_STATIC_ASSERT(5 == (int)GrStencilTest::kLEqual);
-    GR_STATIC_ASSERT(6 == (int)GrStencilTest::kEqual);
-    GR_STATIC_ASSERT(7 == (int)GrStencilTest::kNotEqual);
+    static_assert(SK_ARRAY_COUNT(gTable) == kGrStencilTestCount);
+    static_assert(0 == (int)GrStencilTest::kAlways);
+    static_assert(1 == (int)GrStencilTest::kNever);
+    static_assert(2 == (int)GrStencilTest::kGreater);
+    static_assert(3 == (int)GrStencilTest::kGEqual);
+    static_assert(4 == (int)GrStencilTest::kLess);
+    static_assert(5 == (int)GrStencilTest::kLEqual);
+    static_assert(6 == (int)GrStencilTest::kEqual);
+    static_assert(7 == (int)GrStencilTest::kNotEqual);
     SkASSERT(test < (GrStencilTest)kGrStencilTestCount);
 
     return gTable[(int)test];
@@ -355,25 +356,25 @@ static VkBlendFactor blend_coeff_to_vk_blend(GrBlendCoeff coeff) {
         VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA,      // kIS2A_GrBlendCoeff
         VK_BLEND_FACTOR_ZERO,                      // kIllegal_GrBlendCoeff
     };
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(gTable) == kGrBlendCoeffCnt);
-    GR_STATIC_ASSERT(0 == kZero_GrBlendCoeff);
-    GR_STATIC_ASSERT(1 == kOne_GrBlendCoeff);
-    GR_STATIC_ASSERT(2 == kSC_GrBlendCoeff);
-    GR_STATIC_ASSERT(3 == kISC_GrBlendCoeff);
-    GR_STATIC_ASSERT(4 == kDC_GrBlendCoeff);
-    GR_STATIC_ASSERT(5 == kIDC_GrBlendCoeff);
-    GR_STATIC_ASSERT(6 == kSA_GrBlendCoeff);
-    GR_STATIC_ASSERT(7 == kISA_GrBlendCoeff);
-    GR_STATIC_ASSERT(8 == kDA_GrBlendCoeff);
-    GR_STATIC_ASSERT(9 == kIDA_GrBlendCoeff);
-    GR_STATIC_ASSERT(10 == kConstC_GrBlendCoeff);
-    GR_STATIC_ASSERT(11 == kIConstC_GrBlendCoeff);
-    GR_STATIC_ASSERT(12 == kConstA_GrBlendCoeff);
-    GR_STATIC_ASSERT(13 == kIConstA_GrBlendCoeff);
-    GR_STATIC_ASSERT(14 == kS2C_GrBlendCoeff);
-    GR_STATIC_ASSERT(15 == kIS2C_GrBlendCoeff);
-    GR_STATIC_ASSERT(16 == kS2A_GrBlendCoeff);
-    GR_STATIC_ASSERT(17 == kIS2A_GrBlendCoeff);
+    static_assert(SK_ARRAY_COUNT(gTable) == kGrBlendCoeffCnt);
+    static_assert(0 == kZero_GrBlendCoeff);
+    static_assert(1 == kOne_GrBlendCoeff);
+    static_assert(2 == kSC_GrBlendCoeff);
+    static_assert(3 == kISC_GrBlendCoeff);
+    static_assert(4 == kDC_GrBlendCoeff);
+    static_assert(5 == kIDC_GrBlendCoeff);
+    static_assert(6 == kSA_GrBlendCoeff);
+    static_assert(7 == kISA_GrBlendCoeff);
+    static_assert(8 == kDA_GrBlendCoeff);
+    static_assert(9 == kIDA_GrBlendCoeff);
+    static_assert(10 == kConstC_GrBlendCoeff);
+    static_assert(11 == kIConstC_GrBlendCoeff);
+    static_assert(12 == kConstA_GrBlendCoeff);
+    static_assert(13 == kIConstA_GrBlendCoeff);
+    static_assert(14 == kS2C_GrBlendCoeff);
+    static_assert(15 == kIS2C_GrBlendCoeff);
+    static_assert(16 == kS2A_GrBlendCoeff);
+    static_assert(17 == kIS2A_GrBlendCoeff);
 
     SkASSERT((unsigned)coeff < kGrBlendCoeffCnt);
     return gTable[coeff];
@@ -407,25 +408,25 @@ static VkBlendOp blend_equation_to_vk_blend_op(GrBlendEquation equation) {
         // Illegal.
         VK_BLEND_OP_ADD,
     };
-    GR_STATIC_ASSERT(0 == kAdd_GrBlendEquation);
-    GR_STATIC_ASSERT(1 == kSubtract_GrBlendEquation);
-    GR_STATIC_ASSERT(2 == kReverseSubtract_GrBlendEquation);
-    GR_STATIC_ASSERT(3 == kScreen_GrBlendEquation);
-    GR_STATIC_ASSERT(4 == kOverlay_GrBlendEquation);
-    GR_STATIC_ASSERT(5 == kDarken_GrBlendEquation);
-    GR_STATIC_ASSERT(6 == kLighten_GrBlendEquation);
-    GR_STATIC_ASSERT(7 == kColorDodge_GrBlendEquation);
-    GR_STATIC_ASSERT(8 == kColorBurn_GrBlendEquation);
-    GR_STATIC_ASSERT(9 == kHardLight_GrBlendEquation);
-    GR_STATIC_ASSERT(10 == kSoftLight_GrBlendEquation);
-    GR_STATIC_ASSERT(11 == kDifference_GrBlendEquation);
-    GR_STATIC_ASSERT(12 == kExclusion_GrBlendEquation);
-    GR_STATIC_ASSERT(13 == kMultiply_GrBlendEquation);
-    GR_STATIC_ASSERT(14 == kHSLHue_GrBlendEquation);
-    GR_STATIC_ASSERT(15 == kHSLSaturation_GrBlendEquation);
-    GR_STATIC_ASSERT(16 == kHSLColor_GrBlendEquation);
-    GR_STATIC_ASSERT(17 == kHSLLuminosity_GrBlendEquation);
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(gTable) == kGrBlendEquationCnt);
+    static_assert(0 == kAdd_GrBlendEquation);
+    static_assert(1 == kSubtract_GrBlendEquation);
+    static_assert(2 == kReverseSubtract_GrBlendEquation);
+    static_assert(3 == kScreen_GrBlendEquation);
+    static_assert(4 == kOverlay_GrBlendEquation);
+    static_assert(5 == kDarken_GrBlendEquation);
+    static_assert(6 == kLighten_GrBlendEquation);
+    static_assert(7 == kColorDodge_GrBlendEquation);
+    static_assert(8 == kColorBurn_GrBlendEquation);
+    static_assert(9 == kHardLight_GrBlendEquation);
+    static_assert(10 == kSoftLight_GrBlendEquation);
+    static_assert(11 == kDifference_GrBlendEquation);
+    static_assert(12 == kExclusion_GrBlendEquation);
+    static_assert(13 == kMultiply_GrBlendEquation);
+    static_assert(14 == kHSLHue_GrBlendEquation);
+    static_assert(15 == kHSLSaturation_GrBlendEquation);
+    static_assert(16 == kHSLColor_GrBlendEquation);
+    static_assert(17 == kHSLLuminosity_GrBlendEquation);
+    static_assert(SK_ARRAY_COUNT(gTable) == kGrBlendEquationCnt);
 
     SkASSERT((unsigned)equation < kGrBlendCoeffCnt);
     return gTable[equation];
@@ -458,7 +459,7 @@ static bool blend_coeff_refs_constant(GrBlendCoeff coeff) {
         false,
     };
     return gCoeffReferencesBlendConst[coeff];
-    GR_STATIC_ASSERT(kGrBlendCoeffCnt == SK_ARRAY_COUNT(gCoeffReferencesBlendConst));
+    static_assert(kGrBlendCoeffCnt == SK_ARRAY_COUNT(gCoeffReferencesBlendConst));
     // Individual enum asserts already made in blend_coeff_to_vk_blend
 }
 
@@ -510,8 +511,8 @@ static void setup_raster_state(const GrPipeline& pipeline,
     rasterInfo->flags = 0;
     rasterInfo->depthClampEnable = VK_FALSE;
     rasterInfo->rasterizerDiscardEnable = VK_FALSE;
-    rasterInfo->polygonMode = caps->wireframeMode() ? VK_POLYGON_MODE_LINE
-                                                    : VK_POLYGON_MODE_FILL;
+    rasterInfo->polygonMode = (caps->wireframeMode() || pipeline.isWireframe()) ?
+            VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
     rasterInfo->cullMode = VK_CULL_MODE_NONE;
     rasterInfo->frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterInfo->depthBiasEnable = VK_FALSE;
@@ -519,6 +520,19 @@ static void setup_raster_state(const GrPipeline& pipeline,
     rasterInfo->depthBiasClamp = 0.0f;
     rasterInfo->depthBiasSlopeFactor = 0.0f;
     rasterInfo->lineWidth = 1.0f;
+}
+
+static void setup_conservative_raster_info(
+        VkPipelineRasterizationConservativeStateCreateInfoEXT* conservativeRasterInfo) {
+    memset(conservativeRasterInfo, 0,
+           sizeof(VkPipelineRasterizationConservativeStateCreateInfoEXT));
+    conservativeRasterInfo->sType =
+            VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT;
+    conservativeRasterInfo->pNext = nullptr;
+    conservativeRasterInfo->flags = 0;
+    conservativeRasterInfo->conservativeRasterizationMode =
+            VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT;
+    conservativeRasterInfo->extraPrimitiveOverestimationSize = 0;
 }
 
 static void setup_dynamic_state(VkPipelineDynamicStateCreateInfo* dynamicInfo,
@@ -587,6 +601,14 @@ GrVkPipeline* GrVkPipeline::Create(
 
     VkPipelineRasterizationStateCreateInfo rasterInfo;
     setup_raster_state(programInfo.pipeline(), gpu->caps(), &rasterInfo);
+
+    VkPipelineRasterizationConservativeStateCreateInfoEXT conservativeRasterInfo;
+    if (programInfo.pipeline().usesConservativeRaster()) {
+        SkASSERT(gpu->caps()->conservativeRasterSupport());
+        setup_conservative_raster_info(&conservativeRasterInfo);
+        conservativeRasterInfo.pNext = rasterInfo.pNext;
+        rasterInfo.pNext = &conservativeRasterInfo;
+    }
 
     VkDynamicState dynamicStates[3];
     VkPipelineDynamicStateCreateInfo dynamicInfo;

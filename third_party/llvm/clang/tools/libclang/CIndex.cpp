@@ -757,6 +757,11 @@ bool CursorVisitor::VisitClassTemplatePartialSpecializationDecl(
 }
 
 bool CursorVisitor::VisitTemplateTypeParmDecl(TemplateTypeParmDecl *D) {
+  if (const auto *TC = D->getTypeConstraint())
+    if (Visit(MakeCXCursor(TC->getImmediatelyDeclaredConstraint(), StmtParent,
+                           TU, RegionOfInterest)))
+      return true;
+
   // Visit the default argument.
   if (D->hasDefaultArgument() && !D->defaultArgumentWasInherited())
     if (TypeSourceInfo *DefArg = D->getDefaultArgumentInfo())
@@ -2030,6 +2035,7 @@ public:
   void VisitOMPCriticalDirective(const OMPCriticalDirective *D);
   void VisitOMPParallelForDirective(const OMPParallelForDirective *D);
   void VisitOMPParallelForSimdDirective(const OMPParallelForSimdDirective *D);
+  void VisitOMPParallelMasterDirective(const OMPParallelMasterDirective *D);
   void VisitOMPParallelSectionsDirective(const OMPParallelSectionsDirective *D);
   void VisitOMPTaskDirective(const OMPTaskDirective *D);
   void VisitOMPTaskyieldDirective(const OMPTaskyieldDirective *D);
@@ -2454,6 +2460,12 @@ void OMPClauseEnqueue::VisitOMPUseDevicePtrClause(const OMPUseDevicePtrClause *C
 void OMPClauseEnqueue::VisitOMPIsDevicePtrClause(const OMPIsDevicePtrClause *C) {
   VisitOMPClauseList(C);
 }
+void OMPClauseEnqueue::VisitOMPNontemporalClause(
+    const OMPNontemporalClause *C) {
+  VisitOMPClauseList(C);
+  for (const auto *E : C->private_refs())
+    Visitor->AddStmt(E);
+}
 }
 
 void EnqueueVisitor::EnqueueChildren(const OMPClause *S) {
@@ -2809,6 +2821,11 @@ EnqueueVisitor::VisitOMPParallelForDirective(const OMPParallelForDirective *D) {
 void EnqueueVisitor::VisitOMPParallelForSimdDirective(
     const OMPParallelForSimdDirective *D) {
   VisitOMPLoopDirective(D);
+}
+
+void EnqueueVisitor::VisitOMPParallelMasterDirective(
+    const OMPParallelMasterDirective *D) {
+  VisitOMPExecutableDirective(D);
 }
 
 void EnqueueVisitor::VisitOMPParallelSectionsDirective(
@@ -5038,7 +5055,12 @@ CXString clang_getCursorDisplayName(CXCursor C) {
       // There is no parameter name, which makes this tricky. Try to come up
       // with something useful that isn't too long.
       if (TemplateTypeParmDecl *TTP = dyn_cast<TemplateTypeParmDecl>(Param))
-        OS << (TTP->wasDeclaredWithTypename()? "typename" : "class");
+        if (const auto *TC = TTP->getTypeConstraint()) {
+          TC->getConceptNameInfo().printName(OS, Policy);
+          if (TC->hasExplicitTemplateArgs())
+            OS << "<...>";
+        } else
+          OS << (TTP->wasDeclaredWithTypename()? "typename" : "class");
       else if (NonTypeTemplateParmDecl *NTTP
                                     = dyn_cast<NonTypeTemplateParmDecl>(Param))
         OS << NTTP->getType().getAsString(Policy);
@@ -5455,6 +5477,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
     return cxstring::createRef("OMPParallelForDirective");
   case CXCursor_OMPParallelForSimdDirective:
     return cxstring::createRef("OMPParallelForSimdDirective");
+  case CXCursor_OMPParallelMasterDirective:
+    return cxstring::createRef("OMPParallelMasterDirective");
   case CXCursor_OMPParallelSectionsDirective:
     return cxstring::createRef("OMPParallelSectionsDirective");
   case CXCursor_OMPTaskDirective:
@@ -6316,6 +6340,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::UsingPack:
   case Decl::Concept:
   case Decl::LifetimeExtendedTemporary:
+  case Decl::RequiresExprBody:
     return C;
 
   // Declaration kinds that don't make any sense here, but are

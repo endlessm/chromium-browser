@@ -122,10 +122,17 @@ namespace dawn_native { namespace d3d12 {
             const ShaderModuleDescriptor* descriptor) override;
         ResultOrError<SwapChainBase*> CreateSwapChainImpl(
             const SwapChainDescriptor* descriptor) override;
+        ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
             const TextureViewDescriptor* descriptor) override;
+
+        void Destroy() override;
+        MaybeError WaitForIdleForDestruction() override;
 
         Serial mCompletedSerial = 0;
         Serial mLastSubmittedSerial = 0;
@@ -151,8 +158,6 @@ namespace dawn_native { namespace d3d12 {
         std::unique_ptr<DescriptorHeapAllocator> mDescriptorHeapAllocator;
         std::unique_ptr<MapRequestTracker> mMapRequestTracker;
         std::unique_ptr<ResourceAllocatorManager> mResourceAllocatorManager;
-
-        dawn_native::PCIInfo mPCIInfo;
     };
 
 }}  // namespace dawn_native::d3d12

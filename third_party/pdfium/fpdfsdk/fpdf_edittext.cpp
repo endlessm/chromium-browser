@@ -31,6 +31,9 @@
 #include "third_party/base/ptr_util.h"
 
 // These checks are here because core/ and public/ cannot depend on each other.
+static_assert(static_cast<int>(TextRenderingMode::MODE_UNKNOWN) ==
+                  FPDF_TEXTRENDERMODE_UNKNOWN,
+              "TextRenderingMode::MODE_UNKNOWN value mismatch");
 static_assert(static_cast<int>(TextRenderingMode::MODE_FILL) ==
                   FPDF_TEXTRENDERMODE_FILL,
               "TextRenderingMode::MODE_FILL value mismatch");
@@ -55,6 +58,10 @@ static_assert(static_cast<int>(TextRenderingMode::MODE_FILL_STROKE_CLIP) ==
 static_assert(static_cast<int>(TextRenderingMode::MODE_CLIP) ==
                   FPDF_TEXTRENDERMODE_CLIP,
               "TextRenderingMode::MODE_CLIP value mismatch");
+static_assert(static_cast<int>(TextRenderingMode::MODE_LAST) ==
+                  FPDF_TEXTRENDERMODE_LAST,
+              "TextRenderingMode::MODE_LAST value mismatch");
+
 namespace {
 
 CPDF_Dictionary* LoadFontDesc(CPDF_Document* pDoc,
@@ -511,26 +518,21 @@ FPDFText_LoadStandardFont(FPDF_DOCUMENT document, FPDF_BYTESTRING font) {
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFTextObj_GetMatrix(FPDF_PAGEOBJECT text,
-                                                          double* a,
-                                                          double* b,
-                                                          double* c,
-                                                          double* d,
-                                                          double* e,
-                                                          double* f) {
-  if (!a || !b || !c || !d || !e || !f)
+                                                          FS_MATRIX* matrix) {
+  if (!matrix)
     return false;
 
   CPDF_TextObject* pTextObj = CPDFTextObjectFromFPDFPageObject(text);
   if (!pTextObj)
     return false;
 
-  std::tie(*a, *b, *c, *d, *e, *f) = pTextObj->GetTextMatrix().AsTuple();
+  *matrix = FSMatrixFromCFXMatrix(pTextObj->GetTextMatrix());
   return true;
 }
 
-FPDF_EXPORT double FPDF_CALLCONV FPDFTextObj_GetFontSize(FPDF_PAGEOBJECT text) {
+FPDF_EXPORT float FPDF_CALLCONV FPDFTextObj_GetFontSize(FPDF_PAGEOBJECT text) {
   CPDF_TextObject* pTextObj = CPDFTextObjectFromFPDFPageObject(text);
-  return pTextObj ? pTextObj->GetFontSize() : 0;
+  return pTextObj ? pTextObj->GetFontSize() : 0.0f;
 }
 
 FPDF_EXPORT unsigned long FPDF_CALLCONV
@@ -594,6 +596,23 @@ FPDF_EXPORT FPDF_TEXT_RENDERMODE FPDF_CALLCONV
 FPDFTextObj_GetTextRenderMode(FPDF_PAGEOBJECT text) {
   CPDF_TextObject* pTextObj = CPDFTextObjectFromFPDFPageObject(text);
   if (!pTextObj)
-    return -1;
+    return FPDF_TEXTRENDERMODE_UNKNOWN;
   return static_cast<FPDF_TEXT_RENDERMODE>(pTextObj->m_TextState.GetTextMode());
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFTextObj_SetTextRenderMode(FPDF_PAGEOBJECT text,
+                              FPDF_TEXT_RENDERMODE render_mode) {
+  if (render_mode <= FPDF_TEXTRENDERMODE_UNKNOWN ||
+      render_mode > FPDF_TEXTRENDERMODE_LAST) {
+    return false;
+  }
+
+  CPDF_TextObject* pTextObj = CPDFTextObjectFromFPDFPageObject(text);
+  if (!pTextObj)
+    return false;
+
+  pTextObj->m_TextState.SetTextMode(
+      static_cast<TextRenderingMode>(render_mode));
+  return true;
 }

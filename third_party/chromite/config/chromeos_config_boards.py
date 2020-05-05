@@ -86,6 +86,7 @@ x86_internal_release_boards = frozenset([
     'banon',
     'betty',
     'betty-arc64',
+    'betty-arcvm-master',
     'betty-arcvm-pi',
     'betty-pi-arc',
     'betty-qt-arc',
@@ -118,7 +119,6 @@ x86_internal_release_boards = frozenset([
     'gnawty',
     'grunt',
     'guado',
-    'guado-accelerator',
     'guado_labstation',
     'hatch',
     'hatch-diskswap',
@@ -137,6 +137,7 @@ x86_internal_release_boards = frozenset([
     'lars',
     'lulu',
     'monroe',
+    'mushu',
     'nami',
     'nautilus',
     'ninja',
@@ -145,6 +146,7 @@ x86_internal_release_boards = frozenset([
     'novato-arc64',
     'octopus',
     'orco',
+    'palkia',
     'poppy',
     'puff',
     'pyro',
@@ -191,7 +193,6 @@ brillo_boards = frozenset([
 
 accelerator_boards = frozenset([
     'fizz-accelerator',
-    'guado-accelerator',
 ])
 
 beaglebone_boards = frozenset([

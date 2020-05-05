@@ -2,29 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {SamplingHeapProfileNode} from './HeapProfileView.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @extends {UI.VBox}
  */
-Profiler.LiveHeapProfileView = class extends UI.VBox {
+export class LiveHeapProfileView extends UI.VBox {
   constructor() {
     super(true);
-    /** @type {!Map<string, !Profiler.LiveHeapProfileView.GridNode>} */
+    /** @type {!Map<string, !GridNode>} */
     this._gridNodeByUrl = new Map();
     this.registerRequiredCSS('profiler/liveHeapProfile.css');
 
-    this._setting = Common.settings.moduleSetting('memoryLiveHeapProfile');
+    this._setting = self.Common.settings.moduleSetting('memoryLiveHeapProfile');
     const toolbar = new UI.Toolbar('live-heap-profile-toolbar', this.contentElement);
 
     this._toggleRecordAction =
-        /** @type {!UI.Action }*/ (UI.actionRegistry.action('live-heap-profile.toggle-recording'));
+        /** @type {!UI.Action }*/ (self.UI.actionRegistry.action('live-heap-profile.toggle-recording'));
     this._toggleRecordButton = UI.Toolbar.createActionButton(this._toggleRecordAction);
     this._toggleRecordButton.setToggled(this._setting.get());
     toolbar.appendToolbarItem(this._toggleRecordButton);
 
-    const mainTarget = SDK.targetManager.mainTarget();
+    const mainTarget = self.SDK.targetManager.mainTarget();
     if (mainTarget && mainTarget.model(SDK.ResourceTreeModel)) {
       const startWithReloadAction =
-          /** @type {!UI.Action }*/ (UI.actionRegistry.action('live-heap-profile.start-with-reload'));
+          /** @type {!UI.Action }*/ (self.UI.actionRegistry.action('live-heap-profile.start-with-reload'));
       this._startWithReloadButton = UI.Toolbar.createActionButton(startWithReloadAction);
       toolbar.appendToolbarItem(this._startWithReloadButton);
     }
@@ -60,7 +62,7 @@ Profiler.LiveHeapProfileView = class extends UI.VBox {
       },
       {id: 'url', title: ls`Script URL`, fixedWidth: false, sortable: true, tooltip: ls`URL of the script source`}
     ];
-    const dataGrid = new DataGrid.SortableDataGrid(columns);
+    const dataGrid = new DataGrid.SortableDataGrid({displayName: ls`Heap Profile`, columns});
     dataGrid.setResizeMethod(DataGrid.DataGrid.ResizeMethod.Last);
     dataGrid.element.classList.add('flex-auto');
     dataGrid.element.addEventListener('keydown', this._onKeyDown.bind(this), false);
@@ -101,7 +103,7 @@ Profiler.LiveHeapProfileView = class extends UI.VBox {
   async _poll() {
     const pollId = this._currentPollId;
     do {
-      const isolates = Array.from(SDK.isolateManager.isolates());
+      const isolates = Array.from(self.SDK.isolateManager.isolates());
       const profiles = await Promise.all(
           isolates.map(isolate => isolate.heapProfilerModel() && isolate.heapProfilerModel().getSamplingProfile()));
       if (this._currentPollId !== pollId) {
@@ -139,7 +141,7 @@ Profiler.LiveHeapProfileView = class extends UI.VBox {
       if (node) {
         node.updateNode(size, isolateCount);
       } else {
-        node = new Profiler.LiveHeapProfileView.GridNode(url, size, isolateCount);
+        node = new GridNode(url, size, isolateCount);
         this._gridNodeByUrl.set(url, node);
         rootNode.appendChild(node);
       }
@@ -209,7 +211,7 @@ Profiler.LiveHeapProfileView = class extends UI.VBox {
     if (!node || !node._url) {
       return;
     }
-    const sourceCode = Workspace.workspace.uiSourceCodeForURL(node._url);
+    const sourceCode = self.Workspace.workspace.uiSourceCodeForURL(node._url);
     if (sourceCode) {
       Common.Revealer.reveal(sourceCode);
     }
@@ -243,7 +245,7 @@ Profiler.LiveHeapProfileView = class extends UI.VBox {
     if (!reload) {
       return;
     }
-    const mainTarget = SDK.targetManager.mainTarget();
+    const mainTarget = self.SDK.targetManager.mainTarget();
     if (!mainTarget) {
       return;
     }
@@ -256,9 +258,9 @@ Profiler.LiveHeapProfileView = class extends UI.VBox {
   async _stopRecording() {
     this._setting.set(false);
   }
-};
+}
 
-Profiler.LiveHeapProfileView.GridNode = class extends DataGrid.SortableDataGridNode {
+export class GridNode extends DataGrid.SortableDataGridNode {
   /**
    * @param {string} url
    * @param {number} size
@@ -305,12 +307,12 @@ Profiler.LiveHeapProfileView.GridNode = class extends DataGrid.SortableDataGridN
     }
     return cell;
   }
-};
+}
 
 /**
  * @implements {UI.ActionDelegate}
  */
-Profiler.LiveHeapProfileView.ActionDelegate = class {
+export class ActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -320,15 +322,15 @@ Profiler.LiveHeapProfileView.ActionDelegate = class {
   handleAction(context, actionId) {
     (async () => {
       const profileViewId = 'live_heap_profile';
-      await UI.viewManager.showView(profileViewId);
-      const widget = await UI.viewManager.view(profileViewId).widget();
-      this._innerHandleAction(/** @type {!Profiler.LiveHeapProfileView} */ (widget), actionId);
+      await self.UI.viewManager.showView(profileViewId);
+      const widget = await self.UI.viewManager.view(profileViewId).widget();
+      this._innerHandleAction(/** @type {!LiveHeapProfileView} */ (widget), actionId);
     })();
     return true;
   }
 
   /**
-   * @param {!Profiler.LiveHeapProfileView} profilerView
+   * @param {!LiveHeapProfileView} profilerView
    * @param {string} actionId
    */
   _innerHandleAction(profilerView, actionId) {
@@ -343,4 +345,4 @@ Profiler.LiveHeapProfileView.ActionDelegate = class {
         console.assert(false, `Unknown action: ${actionId}`);
     }
   }
-};
+}

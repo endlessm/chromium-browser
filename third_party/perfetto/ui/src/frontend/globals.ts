@@ -14,11 +14,13 @@
 
 import {assertExists} from '../base/logging';
 import {DeferredAction} from '../common/actions';
+import {AggregateCpuData} from '../common/aggregation_data';
 import {CurrentSearchResults, SearchSummary} from '../common/search_data';
 import {CallsiteInfo, createEmptyState, State} from '../common/state';
 
 import {FrontendLocalState} from './frontend_local_state';
 import {RafScheduler} from './raf_scheduler';
+import {ServiceWorkerController} from './service_worker_controller';
 
 type Dispatch = (action: DeferredAction) => void;
 type TrackDataStore = Map<string, {}>;
@@ -84,6 +86,7 @@ class Globals {
   private _state?: State = undefined;
   private _frontendLocalState?: FrontendLocalState = undefined;
   private _rafScheduler?: RafScheduler = undefined;
+  private _serviceWorkerController?: ServiceWorkerController = undefined;
 
   // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
   private _trackDataStore?: TrackDataStore = undefined;
@@ -96,12 +99,21 @@ class Globals {
   private _numQueriesQueued = 0;
   private _bufferUsage?: number = undefined;
   private _recordingLog?: string = undefined;
+  private _aggregateCpuData: AggregateCpuData = {
+    strings: [],
+    procNameId: new Uint16Array(0),
+    pid: new Uint32Array(0),
+    threadNameId: new Uint16Array(0),
+    tid: new Uint32Array(0),
+    totalDur: new Float64Array(0),
+    occurrences: new Uint16Array(0)
+  };
   private _currentSearchResults: CurrentSearchResults = {
     sliceIds: new Float64Array(0),
     tsStarts: new Float64Array(0),
     utids: new Float64Array(0),
     trackIds: [],
-    refTypes: [],
+    sources: [],
     totalResults: 0,
   };
   searchSummary: SearchSummary = {
@@ -116,6 +128,7 @@ class Globals {
     this._state = createEmptyState();
     this._frontendLocalState = new FrontendLocalState();
     this._rafScheduler = new RafScheduler();
+    this._serviceWorkerController = new ServiceWorkerController();
 
     // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
     this._trackDataStore = new Map<string, {}>();
@@ -145,6 +158,10 @@ class Globals {
 
   get rafScheduler() {
     return assertExists(this._rafScheduler);
+  }
+
+  get serviceWorkerController() {
+    return assertExists(this._serviceWorkerController);
   }
 
   // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
@@ -178,6 +195,14 @@ class Globals {
 
   set counterDetails(click: CounterDetails) {
     this._counterDetails = assertExists(click);
+  }
+
+  get aggregateCpuData(): AggregateCpuData {
+    return assertExists(this._aggregateCpuData);
+  }
+
+  set aggregateCpuData(value: AggregateCpuData) {
+    this._aggregateCpuData = value;
   }
 
   get heapProfileDetails() {
@@ -244,6 +269,7 @@ class Globals {
     this._state = undefined;
     this._frontendLocalState = undefined;
     this._rafScheduler = undefined;
+    this._serviceWorkerController = undefined;
 
     // TODO(hjd): Unify trackDataStore, queryResults, overviewStore, threads.
     this._trackDataStore = undefined;
@@ -257,8 +283,17 @@ class Globals {
       tsStarts: new Float64Array(0),
       utids: new Float64Array(0),
       trackIds: [],
-      refTypes: [],
+      sources: [],
       totalResults: 0,
+    };
+    this._aggregateCpuData = {
+      strings: [],
+      procNameId: new Uint16Array(0),
+      pid: new Uint32Array(0),
+      threadNameId: new Uint16Array(0),
+      tid: new Uint32Array(0),
+      totalDur: new Float64Array(0),
+      occurrences: new Uint16Array(0)
     };
   }
 

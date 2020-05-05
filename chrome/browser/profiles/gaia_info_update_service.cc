@@ -69,7 +69,7 @@ void GAIAInfoUpdateService::Update() {
   auto maybe_account_info =
       identity_manager_
           ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
-              identity_manager_->GetUnconsentedPrimaryAccountInfo().account_id);
+              unconsented_primary_account_info.account_id);
   if (maybe_account_info.has_value())
     Update(maybe_account_info.value());
 }
@@ -92,17 +92,12 @@ void GAIAInfoUpdateService::Update(const AccountInfo& info) {
                             base::UTF16ToUTF8(hosted_domain));
 
   if (info.picture_url == kNoPictureURLFound) {
-    entry->SetGAIAPicture(gfx::Image());
+    entry->SetGAIAPicture(std::string(), gfx::Image());
   } else if (!info.account_image.IsEmpty()) {
-    if (info.account_image.ToSkBitmap()->width() !=
-        signin::kAccountInfoImageSize) {
-      // All newly downloaded images should be of
-      // |signin::kAccountInfoImageSize| size.
-      return;
-    }
     // Only set the image if it is not empty, to avoid clearing the image if we
     // fail to download it on one of the 24 hours interval to refresh the data.
-    entry->SetGAIAPicture(info.account_image);
+    entry->SetGAIAPicture(info.last_downloaded_image_url_with_size,
+                          info.account_image);
   }
 }
 
@@ -123,7 +118,7 @@ void GAIAInfoUpdateService::ClearProfileEntry() {
   gaia_id_of_profile_attribute_entry_ = "";
   entry->SetGAIAName(base::string16());
   entry->SetGAIAGivenName(base::string16());
-  entry->SetGAIAPicture(gfx::Image());
+  entry->SetGAIAPicture(std::string(), gfx::Image());
   // Unset the cached URL.
   profile_prefs_->ClearPref(prefs::kGoogleServicesHostedDomain);
 }
@@ -139,7 +134,13 @@ void GAIAInfoUpdateService::OnPrimaryAccountSet(
 
 void GAIAInfoUpdateService::OnPrimaryAccountCleared(
     const CoreAccountInfo& previous_primary_account_info) {
-  ClearProfileEntry();
+  // Do not clear the profile if there is an unconsented primary account.
+  if (!ShouldUpdate()) {
+    ClearProfileEntry();
+    return;
+  }
+  DCHECK_EQ(identity_manager_->GetUnconsentedPrimaryAccountInfo().gaia,
+            previous_primary_account_info.gaia);
 }
 
 void GAIAInfoUpdateService::OnUnconsentedPrimaryAccountChanged(
@@ -170,6 +171,5 @@ void GAIAInfoUpdateService::OnExtendedAccountInfoUpdated(
 
 bool GAIAInfoUpdateService::ShouldUpdate() {
   return identity_manager_->HasPrimaryAccount() ||
-         (identity_manager_->HasUnconsentedPrimaryAccount() &&
-          base::FeatureList::IsEnabled(kPersistUPAInProfileInfoCache));
+         identity_manager_->HasUnconsentedPrimaryAccount();
 }

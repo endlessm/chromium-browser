@@ -14,6 +14,7 @@ import json
 import hashlib
 import os
 import struct
+import subprocess
 
 import mock
 
@@ -260,7 +261,7 @@ class SkylabHWLabCommandsTest(cros_test_lib.RunCommandTestCase):
     self.assertEqual(result.to_raise, None)
     self.assertEqual(result.json_dump_result, None)
 
-    self.rc.assertCommandCalled(create_cmd, redirect_stdout=True)
+    self.rc.assertCommandCalled(create_cmd, stdout=True)
     self.assertEqual(self.rc.call_count, 1)
 
   def testCreateSuiteAndWait(self):
@@ -297,8 +298,8 @@ class SkylabHWLabCommandsTest(cros_test_lib.RunCommandTestCase):
     self.assertEqual(result.to_raise, None)
     self.assertEqual(result.json_dump_result, None)
 
-    self.rc.assertCommandCalled(create_cmd, redirect_stdout=True)
-    self.rc.assertCommandCalled(wait_cmd, redirect_stdout=True)
+    self.rc.assertCommandCalled(create_cmd, stdout=True)
+    self.rc.assertCommandCalled(wait_cmd, stdout=True)
     self.assertEqual(self.rc.call_count, 2)
 
   def testSuiteFailure(self):
@@ -374,7 +375,7 @@ class SkylabHWLabCommandsTest(cros_test_lib.RunCommandTestCase):
     self.assertEqual(result.json_dump_result, None)
 
     self.rc.assertCommandCalled(
-        create_cmd, redirect_stdout=True, input=test_plan)
+        create_cmd, stdout=True, input=test_plan)
     self.assertEqual(self.rc.call_count, 1)
 
 
@@ -593,7 +594,7 @@ The suite job has another 2:39:39.789250 till timeout.
       cmd_result = self.RunHWTestSuite()
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
-                             encoding='utf-8', combine_stdout_stderr=True,
+                             encoding='utf-8', stderr=subprocess.STDOUT,
                              env=mock.ANY)
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
 
@@ -629,10 +630,10 @@ The suite job has another 2:39:39.789250 till timeout.
                                        suite_min_duts=self._suite_min_duts)
     self.assertEqual(cmd_result, (None, None))
     self.assertCommandCalled(self.create_cmd, capture_output=True,
-                             combine_stdout_stderr=True, env=mock.ANY,
+                             stderr=subprocess.STDOUT, env=mock.ANY,
                              encoding='utf-8')
     self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                             combine_stdout_stderr=True, env=mock.ANY,
+                             stderr=subprocess.STDOUT, env=mock.ANY,
                              encoding='utf-8')
     self.assertIn(self.WAIT_OUTPUT, '\n'.join(output.GetStdoutLines()))
     self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
@@ -684,7 +685,7 @@ The suite job has another 2:39:39.789250 till timeout.
       cmd_result = self.RunHWTestSuite(wait_for_results=True)
       self.assertIsInstance(cmd_result.to_raise, failures_lib.TestLabFailure)
       self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                               combine_stdout_stderr=True, env=mock.ANY,
+                               stderr=subprocess.STDOUT, env=mock.ANY,
                                encoding='utf-8')
 
   def testRunHWTestBoardNotAvailable(self):
@@ -739,10 +740,10 @@ The suite job has another 2:39:39.789250 till timeout.
     with self.OutputCapturer() as output:
       self.RunHWTestSuite(wait_for_results=self._wait_for_results)
       self.assertCommandCalled(self.create_cmd, capture_output=True,
-                               combine_stdout_stderr=True, env=mock.ANY,
+                               stderr=subprocess.STDOUT, env=mock.ANY,
                                encoding='utf-8')
       self.assertCommandCalled(self.wait_cmd, capture_output=True,
-                               combine_stdout_stderr=True, env=mock.ANY,
+                               stderr=subprocess.STDOUT, env=mock.ANY,
                                encoding='utf-8')
       self.assertIn(self.WAIT_RETRY_OUTPUT.strip(),
                     '\n'.join(output.GetStdoutLines()))
@@ -760,10 +761,10 @@ The suite job has another 2:39:39.789250 till timeout.
       with self.OutputCapturer() as output:
         self.RunHWTestSuite(wait_for_results=self._wait_for_results)
         self.assertCommandCalled(self.create_cmd, capture_output=True,
-                                 combine_stdout_stderr=True, env=mock.ANY,
+                                 stderr=subprocess.STDOUT, env=mock.ANY,
                                  encoding='utf-8')
         self.assertCommandCalled(self.json_dump_cmd, capture_output=True,
-                                 combine_stdout_stderr=True, env=mock.ANY,
+                                 stderr=subprocess.STDOUT, env=mock.ANY,
                                  encoding='utf-8')
         self.assertIn(self.JOB_ID_OUTPUT, '\n'.join(output.GetStdoutLines()))
         self.assertIn(self.JSON_OUTPUT, '\n'.join(output.GetStdoutLines()))
@@ -1322,7 +1323,7 @@ class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
       m.assert_called_once_with(self._buildroot, ['autotest'],
                                 os.path.join(self._tarball_dir,
                                              'autotest.tar.bz2'),
-                                cwd=self._cwd, error_code_ok=True)
+                                cwd=self._cwd, check=False)
 
   def testBuildAutotestPackagesTarball(self):
     """Tests that generating the autotest packages tarball is correct."""
@@ -1374,7 +1375,7 @@ class BuildTarballTests(cros_test_lib.RunCommandTempDirTestCase):
     tar_mock.assert_called_once_with(
         self._buildroot, expected_files,
         os.path.join(self._tarball_dir, commands.AUTOTEST_SERVER_PACKAGE),
-        cwd=self._cwd, extra_args=mock.ANY, error_code_ok=True)
+        cwd=self._cwd, extra_args=mock.ANY, check=False)
 
   def testBuildTastTarball(self):
     """Tests that generating the Tast private bundles tarball is correct."""
@@ -1889,7 +1890,7 @@ class GenerateAFDOArtifactsTests(
 
     self.mock_command.assert_called_once_with(
         self.buildroot, cmd,
-        chromite_cmd=True, redirect_stdout=True)
+        chromite_cmd=True, stdout=True)
 
     # Verify the input proto has all the information
     input_proto = json.loads(osutils.ReadFile(input_proto_file))
@@ -1948,7 +1949,7 @@ class VerifyAFDOArtifactsTests(
 
     self.mock_command.assert_called_once_with(
         self.buildroot, cmd,
-        chromite_cmd=True, redirect_stdout=True)
+        chromite_cmd=True, stdout=True)
 
     # Verify the input proto has all the information
     input_proto = json.loads(osutils.ReadFile(input_proto_file))

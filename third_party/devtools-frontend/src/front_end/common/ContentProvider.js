@@ -112,37 +112,10 @@ export const performSearchInContent = function(content, query, caseSensitive, is
  */
 export const contentAsDataURL = function(content, mimeType, contentEncoded, charset) {
   const maxDataUrlSize = 1024 * 1024;
-  if (content === null || content.length > maxDataUrlSize) {
+  if (content === undefined || content === null || content.length > maxDataUrlSize) {
     return null;
   }
 
   return 'data:' + mimeType + (charset ? ';charset=' + charset : '') + (contentEncoded ? ';base64' : '') + ',' +
       content;
 };
-
-/* Legacy exported object */
-self.Common = self.Common || {};
-Common = Common || {};
-
-/**
- * @interface
- */
-Common.ContentProvider = ContentProvider;
-
-/**
- * @constructor
- */
-Common.ContentProvider.SearchMatch = SearchMatch;
-Common.ContentProvider.performSearchInContent = performSearchInContent;
-Common.ContentProvider.contentAsDataURL = contentAsDataURL;
-
-/**
- * @typedef {{
-  *    content: string,
-  *    isEncoded: boolean,
-  * }|{
-  *    error: string,
-  *    isEncoded: boolean,
-  * }}
-  */
-Common.DeferredContent;

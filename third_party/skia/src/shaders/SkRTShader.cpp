@@ -6,6 +6,7 @@
  */
 
 #include "include/core/SkData.h"
+#include "include/effects/SkRuntimeEffect.h"
 #include "src/core/SkArenaAlloc.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkReadBuffer.h"
@@ -14,35 +15,25 @@
 
 #include "src/sksl/SkSLByteCode.h"
 #include "src/sksl/SkSLCompiler.h"
+#include "src/sksl/SkSLInterpreter.h"
 
 #if SK_SUPPORT_GPU
-#include "include/private/GrRecordingContext.h"
-#include "src/gpu/GrCaps.h"
 #include "src/gpu/GrColorInfo.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/SkGr.h"
-
-#include "src/gpu/GrFragmentProcessor.h"
+#include "src/gpu/GrFPArgs.h"
 #include "src/gpu/effects/GrSkSLFP.h"
-#include "src/gpu/effects/generated/GrMixerEffect.h"
-
-static inline uint32_t new_sksl_unique_id() {
-    return GrSkSLFP::NewIndex();
-}
-#else
-static inline uint32_t new_sksl_unique_id() {
-    return 0;   // not used w/o GPU
-}
 #endif
 
-SkRTShader::SkRTShader(int index, SkString sksl, sk_sp<SkData> inputs, const SkMatrix* localMatrix,
+SkRTShader::SkRTShader(sk_sp<SkRuntimeEffect> effect, sk_sp<SkData> inputs,
+                       const SkMatrix* localMatrix, sk_sp<SkShader>* children, size_t childCount,
                        bool isOpaque)
-    : SkShaderBase(localMatrix)
-    , fSkSL(std::move(sksl))
-    , fInputs(std::move(inputs))
-    , fUniqueID(index)
-    , fIsOpaque(isOpaque)
-{}
+        : SkShaderBase(localMatrix)
+        , fEffect(std::move(effect))
+        , fIsOpaque(isOpaque)
+        , fInputs(std::move(inputs))
+        , fChildren(children, children + childCount) {
+}
+
+SkRTShader::~SkRTShader() = default;
 
 bool SkRTShader::onAppendStages(const SkStageRec& rec) const {
     SkMatrix inverse;
@@ -53,31 +44,22 @@ bool SkRTShader::onAppendStages(const SkStageRec& rec) const {
     auto ctx = rec.fAlloc->make<SkRasterPipeline_InterpreterCtx>();
     ctx->paintColor = rec.fPaint.getColor4f();
     ctx->inputs = fInputs->data();
-    ctx->ninputs = fInputs->size() / 4;
+    ctx->ninputs = fEffect->uniformSize() / 4;
     ctx->shaderConvention = true;
 
-    SkAutoMutexExclusive ama(fByteCodeMutex);
-    if (!fByteCode) {
-        SkSL::Compiler c;
-        auto prog = c.convertProgram(SkSL::Program::kPipelineStage_Kind,
-                                     SkSL::String(fSkSL.c_str()),
-                                     SkSL::Program::Settings());
-        if (c.errorCount()) {
-            SkDebugf("%s\n", c.errorText().c_str());
+    SkAutoMutexExclusive ama(fInterpreterMutex);
+    if (!fInterpreter) {
+        auto [byteCode, errorText] = fEffect->toByteCode(fInputs->data());
+        if (!byteCode) {
+            SkDebugf("%s\n", errorText.c_str());
             return false;
         }
-        fByteCode = c.toByteCode(*prog);
-        if (c.errorCount()) {
-            SkDebugf("%s\n", c.errorText().c_str());
-            return false;
-        }
-        SkASSERT(fByteCode);
-        if (!fByteCode->getFunction("main")) {
-            return false;
-        }
+        fMain = byteCode->getFunction("main");
+        fInterpreter.reset(new SkSL::Interpreter<SkRasterPipeline_InterpreterCtx::VECTOR_WIDTH>(
+                                                                      std::move(byteCode)));
     }
-    ctx->byteCode = fByteCode.get();
-    ctx->fn = ctx->byteCode->getFunction("main");
+    ctx->fn = fMain;
+    ctx->interpreter = fInterpreter.get();
 
     rec.fPipeline->append(SkRasterPipeline::seed_shader);
     rec.fPipeline->append_matrix(rec.fAlloc, inverse);
@@ -99,7 +81,7 @@ void SkRTShader::flatten(SkWriteBuffer& buffer) const {
         flags |= kHasLocalMatrix_Flag;
     }
 
-    buffer.writeString(fSkSL.c_str());
+    buffer.writeString(fEffect->source().c_str());
     if (fInputs) {
         buffer.writeDataAsByteArray(fInputs.get());
     } else {
@@ -109,14 +91,13 @@ void SkRTShader::flatten(SkWriteBuffer& buffer) const {
     if (flags & kHasLocalMatrix_Flag) {
         buffer.writeMatrix(this->getLocalMatrix());
     }
+    buffer.write32(fChildren.size());
+    for (const auto& child : fChildren) {
+        buffer.writeFlattenable(child.get());
+    }
 }
 
 sk_sp<SkFlattenable> SkRTShader::CreateProc(SkReadBuffer& buffer) {
-    // We don't have a way to ensure that indices are consistent and correct when deserializing.
-    // Perhaps we should have a hash table to map strings to indices? For now, all shaders get a
-    // new unique ID after serialization.
-    int index = new_sksl_unique_id();
-
     SkString sksl;
     buffer.readString(&sksl);
     sk_sp<SkData> inputs = buffer.readByteArrayAsData();
@@ -129,8 +110,18 @@ sk_sp<SkFlattenable> SkRTShader::CreateProc(SkReadBuffer& buffer) {
         localMPtr = &localM;
     }
 
-    return sk_sp<SkFlattenable>(new SkRTShader(index, std::move(sksl), std::move(inputs),
-                                               localMPtr, isOpaque));
+    std::vector<sk_sp<SkShader>> children;
+    children.resize(buffer.read32());
+    for (size_t i = 0; i < children.size(); ++i) {
+        children[i] = buffer.readShader();
+    }
+
+    // We don't have a way to ensure that indices are consistent and correct when deserializing.
+    // Perhaps we should have a hash table to map strings to indices? For now, all shaders get a
+    // new unique ID after serialization.
+    auto effect = std::get<0>(SkRuntimeEffect::Make(std::move(sksl)));
+    return sk_sp<SkFlattenable>(new SkRTShader(std::move(effect), std::move(inputs), localMPtr,
+                                               children.data(), children.size(), isOpaque));
 }
 
 #if SK_SUPPORT_GPU
@@ -139,18 +130,20 @@ std::unique_ptr<GrFragmentProcessor> SkRTShader::asFragmentProcessor(const GrFPA
     if (!this->totalLocalMatrix(args.fPreLocalMatrix, args.fPostLocalMatrix)->invert(&matrix)) {
         return nullptr;
     }
-    return GrSkSLFP::Make(args.fContext, fUniqueID, "runtime-shader", fSkSL,
-                          fInputs->data(), fInputs->size(), SkSL::Program::kPipelineStage_Kind,
-                          &matrix);
+    auto fp = GrSkSLFP::Make(args.fContext, fEffect, "runtime-shader",
+                             fInputs->data(), fInputs->size(), &matrix);
+    for (const auto& child : fChildren) {
+        auto childFP = child ? as_SB(child)->asFragmentProcessor(args) : nullptr;
+        if (!childFP) {
+            // TODO: This is the case that should eventually mean "the original input color"
+            return nullptr;
+        }
+        fp->addChild(std::move(childFP));
+    }
+    if (GrColorTypeClampType(args.fDstColorInfo->colorType()) != GrClampType::kNone) {
+        return GrFragmentProcessor::ClampPremulOutput(std::move(fp));
+    } else {
+        return fp;
+    }
 }
 #endif
-
-SkRuntimeShaderFactory::SkRuntimeShaderFactory(SkString sksl, bool isOpaque)
-    : fIndex(new_sksl_unique_id())
-    , fSkSL(std::move(sksl))
-    , fIsOpaque(isOpaque) {}
-
-sk_sp<SkShader> SkRuntimeShaderFactory::make(sk_sp<SkData> inputs, const SkMatrix* localMatrix) {
-    return sk_sp<SkShader>(
-            new SkRTShader(fIndex, fSkSL, std::move(inputs), localMatrix, fIsOpaque));
-}

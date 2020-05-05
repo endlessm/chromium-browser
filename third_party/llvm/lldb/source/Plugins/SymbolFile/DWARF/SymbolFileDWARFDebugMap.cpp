@@ -1,4 +1,4 @@
-//===-- SymbolFileDWARFDebugMap.cpp -----------------------------*- C++ -*-===//
+//===-- SymbolFileDWARFDebugMap.cpp ---------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -812,12 +812,8 @@ uint32_t SymbolFileDWARFDebugMap::ResolveSymbolContext(
 
     if (!resolve) {
       FileSpec so_file_spec;
-      if (GetFileSpecForSO(i, so_file_spec)) {
-        // Match the full path if the incoming file_spec has a directory (not
-        // just a basename)
-        const bool full_match = (bool)file_spec.GetDirectory();
-        resolve = FileSpec::Equal(file_spec, so_file_spec, full_match);
-      }
+      if (GetFileSpecForSO(i, so_file_spec))
+        resolve = FileSpec::Match(file_spec, so_file_spec);
     }
     if (resolve) {
       SymbolFileDWARF *oso_dwarf = GetSymbolFileByOSOIndex(i);
@@ -1229,6 +1225,9 @@ CompilerDeclContext SymbolFileDWARFDebugMap::FindNamespace(
 void SymbolFileDWARFDebugMap::DumpClangAST(Stream &s) {
   ForEachSymbolFile([&s](SymbolFileDWARF *oso_dwarf) -> bool {
     oso_dwarf->DumpClangAST(s);
+    // The underlying assumption is that DumpClangAST(...) will obtain the
+    // AST from the underlying TypeSystem and therefore we only need to do
+    // this once and can stop after the first iteration hence we return true.
     return true;
   });
 }

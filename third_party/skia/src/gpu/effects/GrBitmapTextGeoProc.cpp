@@ -121,16 +121,18 @@ private:
 GrBitmapTextGeoProc::GrBitmapTextGeoProc(const GrShaderCaps& caps,
                                          const SkPMColor4f& color,
                                          bool wideColor,
-                                         const sk_sp<GrTextureProxy>* proxies,
-                                         int numActiveProxies,
-                                         const GrSamplerState& params, GrMaskFormat format,
-                                         const SkMatrix& localMatrix, bool usesW)
+                                         const GrSurfaceProxyView* views,
+                                         int numActiveViews,
+                                         GrSamplerState params,
+                                         GrMaskFormat format,
+                                         const SkMatrix& localMatrix,
+                                         bool usesW)
         : INHERITED(kGrBitmapTextGeoProc_ClassID)
         , fColor(color)
         , fLocalMatrix(localMatrix)
         , fUsesW(usesW)
         , fMaskFormat(format) {
-    SkASSERT(numActiveProxies <= kMaxTextures);
+    SkASSERT(numActiveViews <= kMaxTextures);
 
     if (usesW) {
         fInPosition = {"inPosition", kFloat3_GrVertexAttribType, kFloat3_GrSLType};
@@ -148,39 +150,39 @@ GrBitmapTextGeoProc::GrBitmapTextGeoProc(const GrShaderCaps& caps,
                         caps.integerSupport() ? kUShort2_GrSLType : kFloat2_GrSLType};
     this->setVertexAttributes(&fInPosition, 3);
 
-    if (numActiveProxies) {
-        fAtlasDimensions = proxies[0]->dimensions();
+    if (numActiveViews) {
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
-    for (int i = 0; i < numActiveProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
-        fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                  proxies[i]->textureSwizzle());
+    for (int i = 0; i < numActiveViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
+        fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
     }
-    this->setTextureSamplerCnt(numActiveProxies);
+    this->setTextureSamplerCnt(numActiveViews);
 }
 
-void GrBitmapTextGeoProc::addNewProxies(const sk_sp<GrTextureProxy>* proxies,
-                                        int numActiveProxies,
-                                        const GrSamplerState& params) {
-    SkASSERT(numActiveProxies <= kMaxTextures);
+void GrBitmapTextGeoProc::addNewViews(const GrSurfaceProxyView* views,
+                                      int numActiveViews,
+                                      GrSamplerState params) {
+    SkASSERT(numActiveViews <= kMaxTextures);
     // Just to make sure we don't try to add too many proxies
-    numActiveProxies = SkTMin(numActiveProxies, kMaxTextures);
+    numActiveViews = SkTMin(numActiveViews, kMaxTextures);
 
     if (!fTextureSamplers[0].isInitialized()) {
-        fAtlasDimensions = proxies[0]->dimensions();
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
 
-    for (int i = 0; i < numActiveProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
+    for (int i = 0; i < numActiveViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
 
         if (!fTextureSamplers[i].isInitialized()) {
-            fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                      proxies[i]->textureSwizzle());
+            fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
         }
     }
-    this->setTextureSamplerCnt(numActiveProxies);
+    this->setTextureSamplerCnt(numActiveViews);
 }
 
 void GrBitmapTextGeoProc::getGLSLProcessorKey(const GrShaderCaps& caps,
@@ -199,14 +201,7 @@ GR_DEFINE_GEOMETRY_PROCESSOR_TEST(GrBitmapTextGeoProc);
 #if GR_TEST_UTILS
 
 GrGeometryProcessor* GrBitmapTextGeoProc::TestCreate(GrProcessorTestData* d) {
-    int texIdx = d->fRandom->nextBool() ? GrProcessorUnitTest::kSkiaPMTextureIdx
-                                        : GrProcessorUnitTest::kAlphaTextureIdx;
-    sk_sp<GrTextureProxy> proxies[kMaxTextures] = {
-        d->textureProxy(texIdx),
-        nullptr,
-        nullptr,
-        nullptr
-    };
+    auto [proxy, ct, at] = d->randomProxy();
 
     GrSamplerState::WrapMode wrapModes[2];
     GrTest::TestWrapModes(d->fRandom, wrapModes);
@@ -214,23 +209,27 @@ GrGeometryProcessor* GrBitmapTextGeoProc::TestCreate(GrProcessorTestData* d) {
                                                    ? GrSamplerState::Filter::kBilerp
                                                    : GrSamplerState::Filter::kNearest);
 
-    GrMaskFormat format = kARGB_GrMaskFormat; // init to avoid warning
-    switch (d->fRandom->nextULessThan(3)) {
-        case 0:
+    GrMaskFormat format;
+    switch (ct) {
+        case GrColorType::kAlpha_8:
             format = kA8_GrMaskFormat;
             break;
-        case 1:
+        case GrColorType::kBGR_565:
             format = kA565_GrMaskFormat;
             break;
-        case 2:
+        case GrColorType::kRGBA_8888:
+        default:  // It doesn't really matter that color type and mask format agree.
             format = kARGB_GrMaskFormat;
             break;
     }
+    GrSurfaceOrigin origin = proxy->origin();
+    const GrSwizzle& swizzle = proxy->textureSwizzle();
+    GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
 
     return GrBitmapTextGeoProc::Make(d->allocator(), *d->caps()->shaderCaps(),
                                      SkPMColor4f::FromBytes_RGBA(GrRandomColor(d->fRandom)),
                                      d->fRandom->nextBool(),
-                                     proxies, 1, samplerState, format,
+                                     &view, 1, samplerState, format,
                                      GrTest::TestMatrix(d->fRandom), d->fRandom->nextBool());
 }
 #endif

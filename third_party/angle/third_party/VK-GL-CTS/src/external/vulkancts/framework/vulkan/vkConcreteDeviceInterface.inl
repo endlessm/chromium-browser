@@ -160,11 +160,16 @@ virtual void				cmdEndRenderPass2KHR							(VkCommandBuffer commandBuffer, const
 virtual VkResult			getSwapchainStatusKHR							(VkDevice device, VkSwapchainKHR swapchain) const;
 virtual VkResult			importFenceFdKHR								(VkDevice device, const VkImportFenceFdInfoKHR* pImportFenceFdInfo) const;
 virtual VkResult			getFenceFdKHR									(VkDevice device, const VkFenceGetFdInfoKHR* pGetFdInfo, int* pFd) const;
+virtual VkResult			acquireProfilingLockKHR							(VkDevice device, const VkAcquireProfilingLockInfoKHR* pInfo) const;
+virtual void				releaseProfilingLockKHR							(VkDevice device) const;
 virtual void				cmdDrawIndirectCountKHR							(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer, VkDeviceSize countBufferOffset, deUint32 maxDrawCount, deUint32 stride) const;
 virtual void				cmdDrawIndexedIndirectCountKHR					(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer, VkDeviceSize countBufferOffset, deUint32 maxDrawCount, deUint32 stride) const;
 virtual VkResult			getSemaphoreCounterValueKHR						(VkDevice device, VkSemaphore semaphore, deUint64* pValue) const;
 virtual VkResult			waitSemaphoresKHR								(VkDevice device, const VkSemaphoreWaitInfoKHR* pWaitInfo, deUint64 timeout) const;
 virtual VkResult			signalSemaphoreKHR								(VkDevice device, const VkSemaphoreSignalInfoKHR* pSignalInfo) const;
+virtual VkDeviceAddress		getBufferDeviceAddressKHR						(VkDevice device, const VkBufferDeviceAddressInfoKHR* pInfo) const;
+virtual uint64_t			getBufferOpaqueCaptureAddressKHR				(VkDevice device, const VkBufferDeviceAddressInfoKHR* pInfo) const;
+virtual uint64_t			getDeviceMemoryOpaqueCaptureAddressKHR			(VkDevice device, const VkDeviceMemoryOpaqueCaptureAddressInfoKHR* pInfo) const;
 virtual VkResult			getPipelineExecutablePropertiesKHR				(VkDevice device, const VkPipelineInfoKHR* pPipelineInfo, deUint32* pExecutableCount, VkPipelineExecutablePropertiesKHR* pProperties) const;
 virtual VkResult			getPipelineExecutableStatisticsKHR				(VkDevice device, const VkPipelineExecutableInfoKHR* pExecutableInfo, deUint32* pStatisticCount, VkPipelineExecutableStatisticKHR* pStatistics) const;
 virtual VkResult			getPipelineExecutableInternalRepresentationsKHR	(VkDevice device, const VkPipelineExecutableInfoKHR* pExecutableInfo, deUint32* pInternalRepresentationCount, VkPipelineExecutableInternalRepresentationKHR* pInternalRepresentations) const;
@@ -250,7 +255,7 @@ virtual VkResult			releasePerformanceConfigurationINTEL			(VkDevice device, VkPe
 virtual VkResult			queueSetPerformanceConfigurationINTEL			(VkQueue queue, VkPerformanceConfigurationINTEL configuration) const;
 virtual VkResult			getPerformanceParameterINTEL					(VkDevice device, VkPerformanceParameterTypeINTEL parameter, VkPerformanceValueINTEL* pValue) const;
 virtual void				setLocalDimmingAMD								(VkDevice device, VkSwapchainKHR swapChain, VkBool32 localDimmingEnable) const;
-virtual VkDeviceAddress		getBufferDeviceAddressEXT						(VkDevice device, const VkBufferDeviceAddressInfoEXT* pInfo) const;
+virtual VkDeviceAddress		getBufferDeviceAddressEXT						(VkDevice device, const VkBufferDeviceAddressInfoKHR* pInfo) const;
 virtual void				cmdSetLineStippleEXT							(VkCommandBuffer commandBuffer, deUint32 lineStippleFactor, deUint16 lineStipplePattern) const;
 virtual void				resetQueryPoolEXT								(VkDevice device, VkQueryPool queryPool, deUint32 firstQuery, deUint32 queryCount) const;
 virtual VkResult			getAndroidHardwareBufferPropertiesANDROID		(VkDevice device, const struct pt::AndroidHardwareBufferPtr buffer, VkAndroidHardwareBufferPropertiesANDROID* pProperties) const;

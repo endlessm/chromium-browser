@@ -3,7 +3,7 @@
  */
 bool checkMandatoryFeatures(const vkt::Context& context)
 {
-	if ( !vk::isInstanceExtensionSupported(context.getUsedApiVersion(), context.getInstanceExtensions(), "VK_KHR_get_physical_device_properties2") )
+	if ( !context.isInstanceFunctionalitySupported("VK_KHR_get_physical_device_properties2") )
 		TCU_THROW(NotSupportedError, "Extension VK_KHR_get_physical_device_properties2 is not present");
 
 	VkPhysicalDevice					physicalDevice		= context.getPhysicalDevice();
@@ -74,6 +74,16 @@ bool checkMandatoryFeatures(const vkt::Context& context)
 		physicalDeviceScalarBlockLayoutFeaturesEXT.sType = getStructureType<VkPhysicalDeviceScalarBlockLayoutFeaturesEXT>();
 		*nextPtr = &physicalDeviceScalarBlockLayoutFeaturesEXT;
 		nextPtr  = &physicalDeviceScalarBlockLayoutFeaturesEXT.pNext;
+	}
+
+	vk::VkPhysicalDeviceTimelineSemaphoreFeaturesKHR physicalDeviceTimelineSemaphoreFeaturesKHR;
+	deMemset(&physicalDeviceTimelineSemaphoreFeaturesKHR, 0, sizeof(physicalDeviceTimelineSemaphoreFeaturesKHR));
+
+	if ( isExtensionSupported(deviceExtensions, RequiredExtension("VK_KHR_timeline_semaphore")) )
+	{
+		physicalDeviceTimelineSemaphoreFeaturesKHR.sType = getStructureType<VkPhysicalDeviceTimelineSemaphoreFeaturesKHR>();
+		*nextPtr = &physicalDeviceTimelineSemaphoreFeaturesKHR;
+		nextPtr  = &physicalDeviceTimelineSemaphoreFeaturesKHR.pNext;
 	}
 
 	vk::VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR physicalDeviceUniformBufferStandardLayoutFeaturesKHR;
@@ -319,6 +329,15 @@ bool checkMandatoryFeatures(const vkt::Context& context)
 		if ( physicalDevicePipelineExecutablePropertiesFeaturesKHR.pipelineExecutableInfo == VK_FALSE )
 		{
 			log << tcu::TestLog::Message << "Mandatory feature pipelineExecutableInfo not supported" << tcu::TestLog::EndMessage;
+			result = false;
+		}
+	}
+
+	if ( isExtensionSupported(deviceExtensions, RequiredExtension("VK_KHR_timeline_semaphore")) )
+	{
+		if ( physicalDeviceTimelineSemaphoreFeaturesKHR.timelineSemaphore == VK_FALSE )
+		{
+			log << tcu::TestLog::Message << "Mandatory feature timelineSemaphore not supported" << tcu::TestLog::EndMessage;
 			result = false;
 		}
 	}

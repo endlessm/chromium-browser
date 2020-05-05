@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "discovery/mdns/mdns_receiver.h"
 #include "discovery/mdns/mdns_record_changed_callback.h"
 #include "discovery/mdns/mdns_records.h"
 #include "platform/api/task_runner.h"
@@ -15,16 +16,12 @@ namespace openscreen {
 namespace discovery {
 
 class MdnsRandom;
-class MdnsReceiver;
 class MdnsSender;
 class MdnsQuestionTracker;
 class MdnsRecordTracker;
 
-class MdnsQuerier {
+class MdnsQuerier : public MdnsReceiver::ResponseClient {
  public:
-  using ClockNowFunctionPtr = openscreen::platform::ClockNowFunctionPtr;
-  using TaskRunner = openscreen::platform::TaskRunner;
-
   MdnsQuerier(MdnsSender* sender,
               MdnsReceiver* receiver,
               TaskRunner* task_runner,
@@ -34,11 +31,12 @@ class MdnsQuerier {
   MdnsQuerier(MdnsQuerier&& other) noexcept = delete;
   MdnsQuerier& operator=(const MdnsQuerier& other) = delete;
   MdnsQuerier& operator=(MdnsQuerier&& other) noexcept = delete;
-  ~MdnsQuerier();
+  ~MdnsQuerier() override;
 
   // Starts an mDNS query with the given name, DNS type, and DNS class.  Updated
   // records are passed to |callback|.  The caller must ensure |callback|
   // remains alive while it is registered with a query.
+  // NOTE: NSEC records cannot be queried for.
   void StartQuery(const DomainName& name,
                   DnsType dns_type,
                   DnsClass dns_class,
@@ -52,6 +50,11 @@ class MdnsQuerier {
                  DnsClass dns_class,
                  MdnsRecordChangedCallback* callback);
 
+  // Re-initializes the process of service discovery for the provided domain
+  // name. All ongoing queries for this domain are restarted and any previously
+  // received query results are discarded.
+  void ReinitializeQueries(const DomainName& name);
+
  private:
   struct CallbackInfo {
     MdnsRecordChangedCallback* const callback;
@@ -59,8 +62,10 @@ class MdnsQuerier {
     const DnsClass dns_class;
   };
 
-  // Callback passed to MdnsReceiver
-  void OnMessageReceived(const MdnsMessage& message);
+  friend class MdnsQuerierTest;
+
+  // MdnsReceiver::ResponseClient overrides.
+  void OnMessageReceived(const MdnsMessage& message) override;
 
   // Callback passed to owned MdnsRecordTrackers
   void OnRecordExpired(const MdnsRecord& record);
@@ -72,6 +77,10 @@ class MdnsQuerier {
 
   void AddQuestion(const MdnsQuestion& question);
   void AddRecord(const MdnsRecord& record);
+
+  std::vector<MdnsRecord::ConstRef> GetKnownAnswers(const DomainName& name,
+                                                    DnsType type,
+                                                    DnsClass clazz);
 
   MdnsSender* const sender_;
   MdnsReceiver* const receiver_;

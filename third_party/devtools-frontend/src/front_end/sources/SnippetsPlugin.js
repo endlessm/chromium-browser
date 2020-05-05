@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Sources.SnippetsPlugin = class extends Sources.UISourceCodeFrame.Plugin {
+import {Plugin} from './Plugin.js';
+
+export class SnippetsPlugin extends Plugin {
   /**
    * @param {!SourceFrame.SourcesTextEditor} textEditor
    * @param {!Workspace.UISourceCode} uiSourceCode
@@ -24,12 +26,12 @@ Sources.SnippetsPlugin = class extends Sources.UISourceCodeFrame.Plugin {
 
   /**
    * @override
-   * @return {!Array<!UI.ToolbarItem>}
+   * @return {!Promise<!Array<!UI.ToolbarItem>>}
    */
-  rightToolbarItems() {
+  async rightToolbarItems() {
     const runSnippet = UI.Toolbar.createActionButtonForId('debugger.run-snippet');
     runSnippet.setText(Host.isMac() ? Common.UIString('\u2318+Enter') : Common.UIString('Ctrl+Enter'));
 
     return [runSnippet];
   }
-};
+}

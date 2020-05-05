@@ -13,9 +13,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/gfx/native_pixmap.h"
 #include "ui/gfx/presentation_feedback.h"
-#include "ui/ozone/common/linux/gbm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
 #include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_gpu_util.h"
@@ -63,13 +63,14 @@ class HardwareDisplayControllerTest : public testing::Test {
   scoped_refptr<ui::DrmFramebuffer> CreateBuffer() {
     std::unique_ptr<ui::GbmBuffer> buffer = drm_->gbm_device()->CreateBuffer(
         DRM_FORMAT_XRGB8888, kDefaultModeSize, GBM_BO_USE_SCANOUT);
-    return ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get());
+    return ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get(),
+                                              kDefaultModeSize);
   }
 
   scoped_refptr<ui::DrmFramebuffer> CreateOverlayBuffer() {
     std::unique_ptr<ui::GbmBuffer> buffer = drm_->gbm_device()->CreateBuffer(
         DRM_FORMAT_XRGB8888, kOverlaySize, GBM_BO_USE_SCANOUT);
-    return ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get());
+    return ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get(), kOverlaySize);
   }
 
  protected:

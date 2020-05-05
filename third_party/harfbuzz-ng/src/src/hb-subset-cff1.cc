@@ -331,7 +331,7 @@ struct cff1_cs_opset_flatten_t : cff1_cs_opset_t<cff1_cs_opset_flatten_t, flatte
 struct range_list_t : hb_vector_t<code_pair_t>
 {
   /* replace the first glyph ID in the "glyph" field each range with a nLeft value */
-  bool finalize (unsigned int last_glyph)
+  bool complete (unsigned int last_glyph)
   {
     bool  two_byte = false;
     for (unsigned int i = (*this).length; i > 0; i--)
@@ -402,7 +402,7 @@ struct cff1_subr_subsetter_t : subr_subsetter_t<cff1_subr_subsetter_t, CFF1Subrs
   cff1_subr_subsetter_t (const OT::cff1::accelerator_subset_t &acc_, const hb_subset_plan_t *plan_)
     : subr_subsetter_t (acc_, plan_) {}
 
-  static void finalize_parsed_str (cff1_cs_interp_env_t &env, subr_subset_param_t& param, parsed_cs_str_t &charstring)
+  static void complete_parsed_str (cff1_cs_interp_env_t &env, subr_subset_param_t& param, parsed_cs_str_t &charstring)
   {
     /* insert width at the beginning of the charstring as necessary */
     if (env.has_width)
@@ -484,7 +484,7 @@ struct cff_subset_plan {
       hb_codepoint_t  old_glyph;
       if (!plan->old_gid_for_new_gid (glyph, &old_glyph))
       {
-      	/* Retain the code for the old missing glyph ID */
+	/* Retain the code for the old missing glyph ID */
 	old_glyph = glyph;
       }
       code = acc.glyph_to_code (old_glyph);
@@ -515,7 +515,7 @@ struct cff_subset_plan {
     }
     supp_codes.fini ();
 
-    subset_enc_code_ranges.finalize (glyph);
+    subset_enc_code_ranges.complete (glyph);
 
     assert (subset_enc_num_codes <= 0xFF);
     size0 = Encoding0::min_size + HBUINT8::static_size * subset_enc_num_codes;
@@ -544,7 +544,7 @@ struct cff_subset_plan {
       hb_codepoint_t  old_glyph;
       if (!plan->old_gid_for_new_gid (glyph, &old_glyph))
       {
-      	/* Retain the SID for the old missing glyph ID */
+	/* Retain the SID for the old missing glyph ID */
 	old_glyph = glyph;
       }
       sid = acc.glyph_to_sid (old_glyph);
@@ -560,7 +560,7 @@ struct cff_subset_plan {
       last_sid = sid;
     }
 
-    bool two_byte = subset_charset_ranges.finalize (glyph);
+    bool two_byte = subset_charset_ranges.complete (glyph);
 
     size0 = Charset0::min_size + HBUINT16::static_size * (plan->num_output_glyphs () - 1);
     if (!two_byte)
@@ -620,7 +620,7 @@ struct cff_subset_plan {
     for (hb_codepoint_t new_glyph = 0; new_glyph < plan->num_output_glyphs (); new_glyph++)
     {
       if (!plan->old_gid_for_new_gid(new_glyph, &old_glyph))
-      	continue;
+	continue;
       if (new_glyph != old_glyph) {
 	gid_renum = true;
 	break;
@@ -655,7 +655,7 @@ struct cff_subset_plan {
       unsigned int topDictSize = TopDict::calculate_serialized_size (topdict_mod, topSzr);
       offsets.topDictInfo.offSize = calcOffSize(topDictSize);
       if (unlikely (offsets.topDictInfo.offSize > 4))
-      	return false;
+	return false;
       final_size += CFF1IndexOf<TopDict>::calculate_serialized_size<cff1_top_dict_values_mod_t>
 						(offsets.topDictInfo.offSize,
 						 &topdict_mod, 1, topdict_sizes, topSzr);
@@ -683,7 +683,7 @@ struct cff_subset_plan {
       if (unlikely (!collect_sids_in_dicts (acc)))
 	return false;
       if (unlikely (sidmap.get_population () > 0x8000))	/* assumption: a dict won't reference that many strings */
-      	return false;
+	return false;
       if (subset_charset)
 	offsets.charsetInfo.size = plan_subset_charset (acc, plan);
 
@@ -727,7 +727,7 @@ struct cff_subset_plan {
       unsigned int dataSize = subset_globalsubrs.total_size ();
       offsets.globalSubrsInfo.offSize = calcOffSize (dataSize);
       if (unlikely (offsets.globalSubrsInfo.offSize > 4))
-      	return false;
+	return false;
       offsets.globalSubrsInfo.size = CFF1Subrs::calculate_serialized_size (offsets.globalSubrsInfo.offSize, subset_globalsubrs.length, dataSize);
 
       /* local subrs */
@@ -795,7 +795,7 @@ struct cff_subset_plan {
 
       offsets.FDArrayInfo.offSize = calcOffSize (dictsSize);
       if (unlikely (offsets.FDArrayInfo.offSize > 4))
-      	return false;
+	return false;
       final_size += CFF1Index::calculate_serialized_size (offsets.FDArrayInfo.offSize, subset_fdcount, dictsSize);
     }
 
@@ -805,7 +805,7 @@ struct cff_subset_plan {
       unsigned int dataSize = subset_charstrings.total_size ();
       offsets.charStringsInfo.offSize = calcOffSize (dataSize);
       if (unlikely (offsets.charStringsInfo.offSize > 4))
-      	return false;
+	return false;
       final_size += CFF1CharStrings::calculate_serialized_size (offsets.charStringsInfo.offSize, plan->num_output_glyphs (), dataSize);
     }
 

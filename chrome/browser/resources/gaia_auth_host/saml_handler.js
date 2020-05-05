@@ -164,16 +164,22 @@ cr.define('cr.login', function() {
       this.apiVersion_ = 0;
 
       /**
-       * Saml API token received.
-       * @type {string}
+       * Saml API tokens received.
+       * @type {Object}
        */
-      this.apiToken_ = null;
+      this.apiTokenStore_ = {};
 
       /**
-       * Saml API password bytes.
+       * Saml API confirmation token. Set by last 'confirm' call.
+       */
+      this.confirmToken_ = null;
+
+      /**
+       * Saml API password bytes set by last 'add' call. Needed to not break
+       * existing behavior.
        * @type {string}
        */
-      this.apiPasswordBytes_ = null;
+      this.lastApiPasswordBytes_ = null;
 
       /**
        * Whether to abort the authentication flow and show an error message
@@ -278,7 +284,7 @@ cr.define('cr.login', function() {
      * @return {boolean}
      */
     get samlApiUsed() {
-      return !!this.apiPasswordBytes_;
+      return !!this.lastApiPasswordBytes_;
     }
 
     /**
@@ -286,7 +292,13 @@ cr.define('cr.login', function() {
      * @return {string}
      */
     get apiPasswordBytes() {
-      return this.apiPasswordBytes_;
+      if (this.confirmToken_ != null &&
+          typeof (this.apiTokenStore_[this.confirmToken_]) == 'object' &&
+          typeof (this.apiTokenStore_[this.confirmToken_]['passwordBytes']) ==
+              'string') {
+        return this.apiTokenStore_[this.confirmToken_]['passwordBytes'];
+      }
+      return this.lastApiPasswordBytes_;
     }
 
     /**
@@ -377,8 +389,9 @@ cr.define('cr.login', function() {
 
       this.apiInitialized_ = false;
       this.apiVersion_ = 0;
-      this.apiToken_ = null;
-      this.apiPasswordBytes_ = null;
+      this.apiTokenStore_ = {};
+      this.confirmToken_ = null;
+      this.lastApiPasswordBytes_ = null;
       this.passwordAttributes_ =
           samlPasswordAttributes.PasswordAttributes.EMPTY;
     }
@@ -671,6 +684,8 @@ cr.define('cr.login', function() {
           'pageLoaded', this.onPageLoaded_.bind(this, channel));
       channel.registerMessage(
           'getSAMLFlag', this.onGetSAMLFlag_.bind(this, channel));
+      channel.registerMessage(
+          'scrollInfo', this.onScrollInfo_.bind(this, channel));
     }
 
     sendInitializationSuccess_(channel) {
@@ -718,13 +733,15 @@ cr.define('cr.login', function() {
         }
         // Not setting |email_| and |gaiaId_| because this API call will
         // eventually be followed by onCompleteLogin_() which does set it.
-        this.apiToken_ = call.token;
-        this.apiPasswordBytes_ = call.passwordBytes;
+        this.apiTokenStore_[call.token] = call;
+        this.lastApiPasswordBytes_ = call.passwordBytes;
 
         this.dispatchEvent(new CustomEvent('apiPasswordAdded'));
       } else if (call.method == 'confirm') {
-        if (call.token != this.apiToken_) {
+        if (!call.token in this.apiTokenStore_) {
           console.error('SamlHandler.onAPICall_: token mismatch');
+        } else {
+          this.confirmToken_ = call.token;
         }
       } else {
         console.error('SamlHandler.onAPICall_: unknown message');
@@ -746,6 +763,22 @@ cr.define('cr.login', function() {
           domain: this.authDomain
         }
       }));
+    }
+
+    onScrollInfo_(channel, msg) {
+      const scrollTop = msg.scrollTop;
+      const scrollHeight = msg.scrollHeight;
+      const clientHeight = this.webview_.clientHeight;
+
+      if (scrollTop === undefined || scrollHeight === undefined) {
+        return;
+      }
+
+      this.webview_.classList.toggle('can-scroll', clientHeight < scrollHeight);
+      this.webview_.classList.toggle('is-scrolled', scrollTop > 0);
+      const scrolledToBottom = (scrollTop > 0) /*is-scrolled*/ &&
+          (Math.ceil(scrollTop + clientHeight) >= scrollHeight);
+      this.webview_.classList.toggle('scrolled-to-bottom', scrolledToBottom);
     }
 
     onPermissionRequest_(permissionEvent) {

@@ -5,7 +5,7 @@
 /**
  * @implements {Search.SearchScope}
  */
-Network.NetworkSearchScope = class {
+export class NetworkSearchScope {
   /**
    * @override
    * @param {!Common.Progress} progress
@@ -24,7 +24,8 @@ Network.NetworkSearchScope = class {
    */
   async performSearch(searchConfig, progress, searchResultCallback, searchFinishedCallback) {
     const promises = [];
-    const requests = SDK.networkLog.requests().filter(request => searchConfig.filePathMatchesFileQuery(request.url()));
+    const requests =
+        self.SDK.networkLog.requests().filter(request => searchConfig.filePathMatchesFileQuery(request.url()));
     progress.setTotalWork(requests.length);
     for (const request of requests) {
       const promise = this._searchRequest(searchConfig, request, progress);
@@ -48,7 +49,7 @@ Network.NetworkSearchScope = class {
    * @param {!Search.SearchConfig} searchConfig
    * @param {!SDK.NetworkRequest} request
    * @param {!Common.Progress} progress
-   * @return {!Promise<?Network.NetworkSearchResult>}
+   * @return {!Promise<?NetworkSearchResult>}
    */
   async _searchRequest(searchConfig, request, progress) {
     let bodyMatches = [];
@@ -61,23 +62,23 @@ Network.NetworkSearchScope = class {
     }
     const locations = [];
     if (stringMatchesQuery(request.url())) {
-      locations.push(Network.UIRequestLocation.urlMatch(request));
+      locations.push(UIRequestLocation.urlMatch(request));
     }
     for (const header of request.requestHeaders()) {
       if (headerMatchesQuery(header)) {
-        locations.push(Network.UIRequestLocation.requestHeaderMatch(request, header));
+        locations.push(UIRequestLocation.requestHeaderMatch(request, header));
       }
     }
     for (const header of request.responseHeaders) {
       if (headerMatchesQuery(header)) {
-        locations.push(Network.UIRequestLocation.responseHeaderMatch(request, header));
+        locations.push(UIRequestLocation.responseHeaderMatch(request, header));
       }
     }
     for (const match of bodyMatches) {
-      locations.push(Network.UIRequestLocation.bodyMatch(request, match));
+      locations.push(UIRequestLocation.bodyMatch(request, match));
     }
     progress.worked();
-    return new Network.NetworkSearchResult(request, locations);
+    return new NetworkSearchResult(request, locations);
 
     /**
      * @param {!SDK.NetworkRequest.NameValue} header
@@ -111,9 +112,9 @@ Network.NetworkSearchScope = class {
    */
   stopSearch() {
   }
-};
+}
 
-Network.UIRequestLocation = class {
+export class UIRequestLocation {
   /**
    * @param {!SDK.NetworkRequest} request
    * @param {?SDK.NetworkRequest.NameValue} requestHeader
@@ -134,7 +135,7 @@ Network.UIRequestLocation = class {
    * @param {?SDK.NetworkRequest.NameValue} header
    */
   static requestHeaderMatch(request, header) {
-    return new Network.UIRequestLocation(request, header, null, null, false);
+    return new UIRequestLocation(request, header, null, null, false);
   }
 
   /**
@@ -142,7 +143,7 @@ Network.UIRequestLocation = class {
    * @param {?SDK.NetworkRequest.NameValue} header
    */
   static responseHeaderMatch(request, header) {
-    return new Network.UIRequestLocation(request, null, header, null, false);
+    return new UIRequestLocation(request, null, header, null, false);
   }
 
   /**
@@ -150,24 +151,24 @@ Network.UIRequestLocation = class {
    * @param {?Common.ContentProvider.SearchMatch} searchMatch
    */
   static bodyMatch(request, searchMatch) {
-    return new Network.UIRequestLocation(request, null, null, searchMatch, false);
+    return new UIRequestLocation(request, null, null, searchMatch, false);
   }
 
   /**
    * @param {!SDK.NetworkRequest} request
    */
   static urlMatch(request) {
-    return new Network.UIRequestLocation(request, null, null, null, true);
+    return new UIRequestLocation(request, null, null, null, true);
   }
-};
+}
 
 /**
  * @implements Search.SearchResult
  */
-Network.NetworkSearchResult = class {
+export class NetworkSearchResult {
   /**
    * @param {!SDK.NetworkRequest} request
-   * @param {!Array<!Network.UIRequestLocation>} locations
+   * @param {!Array<!UIRequestLocation>} locations
    */
   constructor(request, locations) {
     this._request = request;
@@ -244,4 +245,4 @@ Network.NetworkSearchResult = class {
     }
     return location.searchMatch.lineNumber + 1;
   }
-};
+}

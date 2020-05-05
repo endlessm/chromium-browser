@@ -138,6 +138,7 @@ struct Chunk {
     Group,
     RawContent,
     Relocation,
+    Relr,
     NoBits,
     Note,
     Hash,
@@ -192,6 +193,9 @@ struct Section : public Chunk {
   // This can be used to override the sh_size field. It does not affect the
   // content written.
   Optional<llvm::yaml::Hex64> ShSize;
+
+  // This can be used to override the sh_flags field.
+  Optional<llvm::yaml::Hex64> ShFlags;
 };
 
 // Fill is a block of data which is placed outside of sections. It is
@@ -437,6 +441,17 @@ struct RelocationSection : Section {
   }
 };
 
+struct RelrSection : Section {
+  Optional<std::vector<llvm::yaml::Hex64>> Entries;
+  Optional<yaml::BinaryRef> Content;
+
+  RelrSection() : Section(ChunkKind::Relr) {}
+
+  static bool classof(const Chunk *S) {
+    return S->Kind == ChunkKind::Relr;
+  }
+};
+
 struct SymtabShndxSection : Section {
   std::vector<uint32_t> Entries;
 
@@ -481,7 +496,7 @@ struct Object {
   // top-level key, which automatically ensures that invariants like there
   // being a single SHT_SYMTAB section are upheld.
   Optional<std::vector<Symbol>> Symbols;
-  std::vector<Symbol> DynamicSymbols;
+  Optional<std::vector<Symbol>> DynamicSymbols;
 
   std::vector<Section *> getSections() {
     std::vector<Section *> Ret;

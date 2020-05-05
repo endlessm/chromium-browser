@@ -22,15 +22,26 @@ namespace autofill {
 
 class CreditCardFormEventLogger : public FormEventLoggerBase {
  public:
-  // Form Events for autofill with bank name available for display.
-  enum BankNameDisplayedFormEvent {
-    // A dropdown with suggestions was shown and at least one suggestion has a
-    // bank name. Logged at most once per page load.
-    FORM_EVENT_SUGGESTIONS_SHOWN_WITH_BANK_NAME_AVAILABLE_ONCE = 0,
-    // A server suggestion was used to fill the form and at least one suggestion
-    // has a bank name. Logged at most once per page load.
-    FORM_EVENT_SERVER_SUGGESTION_FILLED_WITH_BANK_NAME_AVAILABLE_ONCE,
-    BANK_NAME_NUM_FORM_EVENTS,
+  // Metric for tracking which card unmask authentication method was used.
+  enum class UnmaskAuthFlowType {
+    kNone = 0,
+    // Only CVC prompt was shown.
+    kCvc = 1,
+    // Only WebAuthn prompt was shown.
+    kFido = 2,
+    // CVC authentication was required in addition to WebAuthn.
+    kCvcThenFido = 3,
+    // WebAuthn prompt failed and fell back to CVC prompt.
+    kCvcFallbackFromFido = 4,
+  };
+  enum class UnmaskAuthFlowEvent {
+    // Authentication prompt is shown.
+    kPromptShown = 0,
+    // Authentication prompt successfully completed.
+    kPromptCompleted = 1,
+    // Form was submitted.
+    kFormSubmitted = 2,
+    kMaxValue = kFormSubmitted,
   };
 
   CreditCardFormEventLogger(
@@ -49,14 +60,18 @@ class CreditCardFormEventLogger : public FormEventLoggerBase {
                                  const FormStructure& form,
                                  AutofillSyncSigninState sync_state);
 
-  void SetBankNameAvailable();
-
   // In case of masked cards, caller must make sure this gets called before
   // the card is upgraded to a full card.
   void OnDidFillSuggestion(const CreditCard& credit_card,
                            const FormStructure& form,
                            const AutofillField& field,
                            AutofillSyncSigninState sync_state);
+
+  // Logging what type of authentication flow was prompted.
+  void LogCardUnmaskAuthenticationPromptShown(UnmaskAuthFlowType flow);
+
+  // Logging when an authentication prompt is completed.
+  void LogCardUnmaskAuthenticationPromptCompleted(UnmaskAuthFlowType flow);
 
  protected:
   // FormEventLoggerBase pure-virtual overrides.
@@ -78,11 +93,12 @@ class CreditCardFormEventLogger : public FormEventLoggerBase {
   using FormEventLoggerBase::Log;
 
  private:
-  void Log(BankNameDisplayedFormEvent event) const;
   FormEvent GetCardNumberStatusFormEvent(const CreditCard& credit_card);
+  void RecordCardUnmaskFlowEvent(UnmaskAuthFlowType flow,
+                                 UnmaskAuthFlowEvent event);
 
   bool is_context_secure_ = false;
-  bool has_logged_bank_name_available_ = false;
+  UnmaskAuthFlowType current_authentication_flow_;
   bool has_logged_masked_server_card_suggestion_selected_ = false;
   bool logged_suggestion_filled_was_masked_server_card_ = false;
 

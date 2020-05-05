@@ -126,6 +126,8 @@ public:
 
     bool onAccessPixels(SkPixmap*) override;
 
+    bool android_utils_clipWithStencil() override;
+
 protected:
     bool onReadPixels(const SkPixmap&, int, int) override;
     bool onWritePixels(const SkPixmap&, int, int) override;
@@ -167,7 +169,7 @@ private:
                            const SkIRect& imageRect,
                            const SkMatrix& viewMatrix,
                            const SkMatrix& srcToDstRectMatrix,
-                           const GrSamplerState& params,
+                           GrSamplerState params,
                            const SkRect* srcRectPtr,
                            int maxTileSize,
                            int* tileSize,
@@ -189,7 +191,7 @@ private:
                          const SkMatrix& srcToDstMatrix,
                          const SkRect& srcRect,
                          const SkIRect& clippedSrcRect,
-                         const GrSamplerState& params,
+                         GrSamplerState params,
                          const SkPaint& paint,
                          SkCanvas::SrcRectConstraint,
                          int tileSize,
@@ -200,7 +202,7 @@ private:
                         const SkMatrix& viewMatrix,
                         const SkRect& dstRect,
                         const SkRect& srcRect,
-                        const GrSamplerState& samplerState,
+                        GrSamplerState samplerState,
                         const SkPaint& paint,
                         SkCanvas::SrcRectConstraint,
                         bool bicubic,

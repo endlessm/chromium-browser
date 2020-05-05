@@ -81,8 +81,7 @@ TEST_F(StructTraitsTest, BeginFrameArgs) {
   const uint64_t sequence_number = 10;
   const bool animate_only = true;
   BeginFrameArgs input;
-  input.source_id = source_id;
-  input.sequence_number = sequence_number;
+  input.frame_id = BeginFrameId(source_id, sequence_number);
   input.frame_time = frame_time;
   input.deadline = deadline;
   input.interval = interval;
@@ -93,8 +92,8 @@ TEST_F(StructTraitsTest, BeginFrameArgs) {
   BeginFrameArgs output;
   mojo::test::SerializeAndDeserialize<mojom::BeginFrameArgs>(&input, &output);
 
-  EXPECT_EQ(source_id, output.source_id);
-  EXPECT_EQ(sequence_number, output.sequence_number);
+  EXPECT_EQ(source_id, output.frame_id.source_id);
+  EXPECT_EQ(sequence_number, output.frame_id.sequence_number);
   EXPECT_EQ(frame_time, output.frame_time);
   EXPECT_EQ(deadline, output.deadline);
   EXPECT_EQ(interval, output.interval);
@@ -108,15 +107,14 @@ TEST_F(StructTraitsTest, BeginFrameAck) {
   const uint64_t sequence_number = 10;
   const bool has_damage = true;
   BeginFrameAck input;
-  input.source_id = source_id;
-  input.sequence_number = sequence_number;
+  input.frame_id = BeginFrameId(source_id, sequence_number);
   input.has_damage = has_damage;
 
   BeginFrameAck output;
   mojo::test::SerializeAndDeserialize<mojom::BeginFrameAck>(&input, &output);
 
-  EXPECT_EQ(source_id, output.source_id);
-  EXPECT_EQ(sequence_number, output.sequence_number);
+  EXPECT_EQ(source_id, output.frame_id.source_id);
+  EXPECT_EQ(sequence_number, output.frame_id.sequence_number);
   EXPECT_TRUE(output.has_damage);
 }
 
@@ -659,7 +657,8 @@ TEST_F(StructTraitsTest, CompositorFrameMetadata) {
   input.activation_dependencies = activation_dependencies;
   input.deadline = frame_deadline;
   input.frame_token = frame_token;
-  input.begin_frame_ack.sequence_number = begin_frame_ack_sequence_number;
+  input.begin_frame_ack.frame_id.sequence_number =
+      begin_frame_ack_sequence_number;
   input.min_page_scale_factor = min_page_scale_factor;
   input.top_controls_visible_height.emplace(top_controls_visible_height);
   input.local_surface_id_allocation_time = local_surface_id_allocation_time;
@@ -688,7 +687,7 @@ TEST_F(StructTraitsTest, CompositorFrameMetadata) {
   EXPECT_EQ(frame_deadline, output.deadline);
   EXPECT_EQ(frame_token, output.frame_token);
   EXPECT_EQ(begin_frame_ack_sequence_number,
-            output.begin_frame_ack.sequence_number);
+            output.begin_frame_ack.frame_id.sequence_number);
   EXPECT_EQ(min_page_scale_factor, output.min_page_scale_factor);
   EXPECT_EQ(*output.top_controls_visible_height, top_controls_visible_height);
   EXPECT_EQ(local_surface_id_allocation_time,
@@ -926,7 +925,7 @@ TEST_F(StructTraitsTest, QuadListBasic) {
       sqs, rect3, rect3, SurfaceRange(fallback_surface_id, primary_surface_id),
       SK_ColorBLUE, false);
 
-  const gfx::Rect rect4(1234, 5678, 9101112, 13141516);
+  const gfx::Rect rect4(1234, 5678, 91012, 13141);
   const ResourceId resource_id4(1337);
   const RenderPassId render_pass_id = 1234u;
   const gfx::RectF mask_uv_rect(0, 0, 1337.1f, 1234.2f);
@@ -942,7 +941,7 @@ TEST_F(StructTraitsTest, QuadListBasic) {
                            filters_origin, tex_coord_rect,
                            force_anti_aliasing_off, backdrop_filter_quality);
 
-  const gfx::Rect rect5(123, 567, 91011, 131415);
+  const gfx::Rect rect5(123, 567, 91011, 13141);
   const ResourceId resource_id5(1337);
   const float vertex_opacity[4] = {1.f, 2.f, 3.f, 4.f};
   const bool premultiplied_alpha = true;

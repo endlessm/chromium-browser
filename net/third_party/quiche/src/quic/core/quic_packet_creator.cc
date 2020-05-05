@@ -21,15 +21,16 @@
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_aligned.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_exported_stats.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_server_stats.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace {
@@ -50,6 +51,14 @@ QuicLongHeaderType EncryptionlevelToLongHeaderType(EncryptionLevel level) {
     default:
       QUIC_BUG << EncryptionLevelToString(level);
       return INVALID_PACKET_TYPE;
+  }
+}
+
+void LogCoalesceStreamFrameStatus(bool success) {
+  if (GetQuicReloadableFlag(quic_log_coalesce_stream_frame_frequency)) {
+    QUIC_RELOADABLE_FLAG_COUNT(quic_log_coalesce_stream_frame_frequency);
+    QUIC_HISTOGRAM_BOOL("QuicSession.CoalesceStreamFrameStatus", success,
+                        "Success rate of coalesing stream frames attempt.");
   }
 }
 
@@ -214,8 +223,8 @@ void QuicPacketCreator::UpdatePacketNumberLength(
   const uint64_t current_delta =
       packet_.packet_number + 1 - least_packet_awaited_by_peer;
   const uint64_t delta = std::max(current_delta, max_packets_in_flight);
-  packet_.packet_number_length = QuicFramer::GetMinPacketNumberLength(
-      framer_->transport_version(), QuicPacketNumber(delta * 4));
+  packet_.packet_number_length =
+      QuicFramer::GetMinPacketNumberLength(QuicPacketNumber(delta * 4));
 }
 
 void QuicPacketCreator::SkipNPacketNumbers(
@@ -329,17 +338,6 @@ bool QuicPacketCreator::HasRoomForMessageFrame(QuicByteCount length) {
   return BytesFree() >= message_frame_size;
 }
 
-// TODO(fkastenholz): this method should not use constant values for
-// the last-frame-in-packet and data-length parameters to
-// GetMinStreamFrameSize.  Proper values should be plumbed in from
-// higher up. This was left this way for now for a few reasons. First,
-// higher up calls to StreamFramePacketOverhead() do not always know
-// this information, leading to a cascade of changes and B) the
-// higher-up software does not always loop, calling
-// StreamFramePacketOverhead() once for every packet -- eg there is
-// a test in quic_connection_test that calls it once and assumes that
-// the value is the same for all packets.
-
 // static
 size_t QuicPacketCreator::StreamFramePacketOverhead(
     QuicTransportVersion version,
@@ -357,21 +355,10 @@ size_t QuicPacketCreator::StreamFramePacketOverhead(
                              packet_number_length, retry_token_length_length, 0,
                              length_length) +
 
-         // Assumes this is a packet with a single stream frame in it. Since
-         // last_frame_in_packet is set true, the size of the length field is
-         // not included in the calculation. This is OK because in other places
-         // in the code, the logic adds back 2 (the size of the Google QUIC
-         // length) when a frame is not the last frame of the packet. This is
-         // also acceptable for IETF Quic; even though the length field could be
-         // 8 bytes long, in practice it will not be longer than 2 bytes (enough
-         // to encode 16K).  A length that would be encoded in 2 bytes (0xfff)
-         // is passed just for cleanliness.
-         //
-         // TODO(fkastenholz): This is very hacky and feels brittle. Ideally we
-         // would calculate the correct lengths at the correct time, based on
-         // the state at that time/place.
+         // Assumes a packet with a single stream frame, which omits the length,
+         // causing the data length argument to be ignored.
          QuicFramer::GetMinStreamFrameSize(version, 1u, offset, true,
-                                           kMaxOutgoingPacketSize);
+                                           kMaxOutgoingPacketSize /* unused */);
 }
 
 void QuicPacketCreator::CreateStreamFrame(QuicStreamId id,
@@ -1069,16 +1056,16 @@ QuicVariableLengthIntegerLength QuicPacketCreator::GetRetryTokenLengthLength()
   return VARIABLE_LENGTH_INTEGER_LENGTH_0;
 }
 
-QuicStringPiece QuicPacketCreator::GetRetryToken() const {
+quiche::QuicheStringPiece QuicPacketCreator::GetRetryToken() const {
   if (QuicVersionHasLongHeaderLengths(framer_->transport_version()) &&
       HasIetfLongHeader() &&
       EncryptionlevelToLongHeaderType(packet_.encryption_level) == INITIAL) {
     return retry_token_;
   }
-  return QuicStringPiece();
+  return quiche::QuicheStringPiece();
 }
 
-void QuicPacketCreator::SetRetryToken(QuicStringPiece retry_token) {
+void QuicPacketCreator::SetRetryToken(quiche::QuicheStringPiece retry_token) {
   retry_token_ = std::string(retry_token);
 }
 
@@ -1212,18 +1199,13 @@ QuicConsumedData QuicPacketCreator::ConsumeDataFastPath(
     CreateAndSerializeStreamFrame(id, write_length, total_bytes_consumed,
                                   offset + total_bytes_consumed, fin,
                                   next_transmission_type_, &bytes_consumed);
-    if (GetQuicReloadableFlag(
-            quic_close_connection_on_failed_consume_data_fast_path)) {
-      QUIC_RELOADABLE_FLAG_COUNT(
-          quic_close_connection_on_failed_consume_data_fast_path);
-      if (bytes_consumed == 0) {
-        const std::string error_details =
-            "Failed in CreateAndSerializeStreamFrame.";
-        QUIC_BUG << error_details;
-        delegate_->OnUnrecoverableError(QUIC_FAILED_TO_SERIALIZE_PACKET,
-                                        error_details);
-        break;
-      }
+    if (bytes_consumed == 0) {
+      const std::string error_details =
+          "Failed in CreateAndSerializeStreamFrame.";
+      QUIC_BUG << error_details;
+      delegate_->OnUnrecoverableError(QUIC_FAILED_TO_SERIALIZE_PACKET,
+                                      error_details);
+      break;
     }
     total_bytes_consumed += bytes_consumed;
   }
@@ -1458,19 +1440,21 @@ bool QuicPacketCreator::AddFrame(const QuicFrame& frame,
       (packet_.encryption_level == ENCRYPTION_INITIAL ||
        packet_.encryption_level == ENCRYPTION_HANDSHAKE)) {
     const std::string error_details =
-        QuicStrCat("Cannot send stream data with level: ",
-                   EncryptionLevelToString(packet_.encryption_level));
+        quiche::QuicheStrCat("Cannot send stream data with level: ",
+                             EncryptionLevelToString(packet_.encryption_level));
     QUIC_BUG << error_details;
     delegate_->OnUnrecoverableError(
         QUIC_ATTEMPT_TO_SEND_UNENCRYPTED_STREAM_DATA, error_details);
     return false;
   }
 
-  if (GetQuicRestartFlag(quic_coalesce_stream_frames_2) &&
-      frame.type == STREAM_FRAME &&
-      MaybeCoalesceStreamFrame(frame.stream_frame)) {
-    QUIC_RESTART_FLAG_COUNT_N(quic_coalesce_stream_frames_2, 1, 3);
-    return true;
+  if (frame.type == STREAM_FRAME) {
+    if (MaybeCoalesceStreamFrame(frame.stream_frame)) {
+      LogCoalesceStreamFrameStatus(true);
+      return true;
+    } else {
+      LogCoalesceStreamFrameStatus(false);
+    }
   }
 
   size_t frame_len = framer_->GetSerializedFrameLength(

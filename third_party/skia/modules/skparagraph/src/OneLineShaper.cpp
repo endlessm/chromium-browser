@@ -333,30 +333,54 @@ void OneLineShaper::sortOutGlyphs(std::function<void(GlyphRange)>&& sortOutUnres
         block.end = fCurrentRun->size();
         sortOutUnresolvedBLock(block);
     }
-
 }
 
-void OneLineShaper::iterateThroughFontStyles(SkSpan<Block> styleSpan,
+void OneLineShaper::iterateThroughFontStyles(TextRange textRange,
+                                             SkSpan<Block> styleSpan,
                                              const ShapeSingleFontVisitor& visitor) {
     Block combinedBlock;
+    SkTArray<SkShaper::Feature> features;
+
+    auto addFeatures = [&features](const Block& block) {
+        for (auto& ff : block.fStyle.getFontFeatures()) {
+            if (ff.fName.size() != 4) {
+                SkDEBUGF("Incorrect font feature: %s=%d\n", ff.fName.c_str(), ff.fValue);
+                continue;
+            }
+            SkShaper::Feature feature = {
+                SkSetFourByteTag(ff.fName[0], ff.fName[1], ff.fName[2], ff.fName[3]),
+                SkToU32(ff.fValue),
+                block.fRange.start,
+                block.fRange.end
+            };
+            features.emplace_back(feature);
+        }
+    };
+
     for (auto& block : styleSpan) {
-        SkASSERT(combinedBlock.fRange.width() == 0 ||
-                 combinedBlock.fRange.end == block.fRange.start);
+        BlockRange blockRange(SkTMax(block.fRange.start, textRange.start), SkTMin(block.fRange.end, textRange.end));
+        if (blockRange.empty()) {
+            continue;
+        }
+        SkASSERT(combinedBlock.fRange.width() == 0 || combinedBlock.fRange.end == block.fRange.start);
 
         if (!combinedBlock.fRange.empty()) {
             if (block.fStyle.matchOneAttribute(StyleType::kFont, combinedBlock.fStyle)) {
-                combinedBlock.add(block.fRange);
+                combinedBlock.add(blockRange);
+                addFeatures(block);
                 continue;
             }
             // Resolve all characters in the block for this style
-            visitor(combinedBlock);
+            visitor(combinedBlock, features);
         }
 
-        combinedBlock.fRange = block.fRange;
+        combinedBlock.fRange = blockRange;
         combinedBlock.fStyle = block.fStyle;
+        features.reset();
+        addFeatures(block);
     }
 
-    visitor(combinedBlock);
+    visitor(combinedBlock, features);
 #ifdef SK_DEBUG
     //printState();
 #endif
@@ -392,17 +416,38 @@ void OneLineShaper::matchResolvedFonts(const TextStyle& textStyle,
 
 bool OneLineShaper::iterateThroughShapingRegions(const ShapeVisitor& shape) {
 
+    SkTArray<BidiRegion> bidiRegions;
+    if (!fParagraph->calculateBidiRegions(&bidiRegions)) {
+        return false;
+    }
+
+    size_t bidiIndex = 0;
+
     SkScalar advanceX = 0;
     for (auto& placeholder : fParagraph->fPlaceholders) {
-        // Shape the text
-        if (placeholder.fTextBefore.width() > 0) {
-            // Set up the iterators
-            SkSpan<const char> textSpan = fParagraph->text(placeholder.fTextBefore);
-            SkSpan<Block> styleSpan(fParagraph->fTextStyles.begin() + placeholder.fBlocksBefore.start,
-                                    placeholder.fBlocksBefore.width());
 
-            if (!shape(textSpan, styleSpan, advanceX, placeholder.fTextBefore.start)) {
-                return false;
+        if (placeholder.fTextBefore.width() > 0) {
+            // Shape the text by bidi regions
+            while (bidiIndex < bidiRegions.size()) {
+                BidiRegion& bidiRegion = bidiRegions[bidiIndex];
+                auto start = SkTMax(bidiRegion.text.start, placeholder.fTextBefore.start);
+                auto end = SkTMin(bidiRegion.text.end, placeholder.fTextBefore.end);
+
+                // Set up the iterators (the style iterator points to a bigger region that it could
+                TextRange textRange(start, end);
+                auto blockRange = fParagraph->findAllBlocks(textRange);
+                SkSpan<Block> styleSpan(fParagraph->blocks(blockRange));
+
+                // Shape the text between placeholders
+                if (!shape(textRange, styleSpan, advanceX, start, bidiRegion.direction)) {
+                    return false;
+                }
+
+                if (end == bidiRegion.text.end) {
+                    ++bidiIndex;
+                } else /*if (end == placeholder.fTextBefore.end)*/ {
+                    break;
+                }
             }
         }
 
@@ -428,7 +473,7 @@ bool OneLineShaper::iterateThroughShapingRegions(const ShapeVisitor& shape) {
         auto& run = fParagraph->fRuns.emplace_back(this->fParagraph,
                                        runInfo,
                                        0,
-                                       1.0f,
+                                       0.0f,
                                        fParagraph->fRuns.count(),
                                        advanceX);
 
@@ -445,12 +490,11 @@ bool OneLineShaper::shape() {
 
     // The text can be broken into many shaping sequences
     // (by place holders, possibly, by hard line breaks or tabs, too)
-    uint8_t textDirection = fParagraph->fParagraphStyle.getTextDirection() == TextDirection::kLtr  ? 2 : 1;
     auto limitlessWidth = std::numeric_limits<SkScalar>::max();
 
     auto result = iterateThroughShapingRegions(
-            [this, textDirection, limitlessWidth]
-            (SkSpan<const char> textSpan, SkSpan<Block> styleSpan, SkScalar& advanceX, TextIndex textStart) {
+            [this, limitlessWidth]
+            (TextRange textRange, SkSpan<Block> styleSpan, SkScalar& advanceX, TextIndex textStart, uint8_t textDirection) {
 
         // Set up the shaper and shape the next
         auto shaper = SkShaper::MakeShapeDontWrapOrReorder();
@@ -459,12 +503,13 @@ bool OneLineShaper::shape() {
             return false;
         }
 
-        iterateThroughFontStyles(styleSpan,
-                [this, &shaper, textDirection, limitlessWidth, &advanceX](Block block) {
+        iterateThroughFontStyles(textRange, styleSpan,
+                [this, &shaper, textDirection, limitlessWidth, &advanceX]
+                (Block block, SkTArray<SkShaper::Feature> features) {
             auto blockSpan = SkSpan<Block>(&block, 1);
 
             // Start from the beginning (hoping that it's a simple case one block - one run)
-            fHeight = block.fStyle.getHeight();
+            fHeight = block.fStyle.getHeightOverride() ? block.fStyle.getHeight() : 0;
             fAdvance = SkVector::Make(advanceX, 0);
             fCurrentText = block.fRange;
             fUnresolvedBlocks.emplace(RunBlock(block.fRange));
@@ -495,8 +540,10 @@ bool OneLineShaper::shape() {
                     }
 
                     fCurrentText = unresolvedRange;
-                    shaper->shape(unresolvedText.begin(), unresolvedText.size(), fontIter, *bidi,
-                                  *script, lang, limitlessWidth, this);
+                    shaper->shape(unresolvedText.begin(), unresolvedText.size(),
+                            fontIter, *bidi,*script, lang,
+                            features.data(), features.size(),
+                            limitlessWidth, this);
 
                     // Take off the queue the block we tried to resolved -
                     // whatever happened, we have now smaller pieces of it to deal with
@@ -507,7 +554,7 @@ bool OneLineShaper::shape() {
                 return !fUnresolvedBlocks.empty();
             });
 
-            this->finish(block.fRange, block.fStyle.getHeight(), advanceX);
+            this->finish(block.fRange, fHeight, advanceX);
         });
 
         return true;

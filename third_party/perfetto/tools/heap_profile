@@ -31,8 +31,8 @@ import time
 import urllib
 
 TRACE_TO_TEXT_SHAS = {
-    'linux': '74cb40d9413d7ad756e327e09e46a8adde90db92',
-    'mac': '47045bc6abd4f9113969211f37fdd2259b0c1cc3',
+    'linux': 'f9c206e242c49ebd4ec5e4138c61f4fb2816065b',
+    'mac': '7e1803f5c51d0763061d2980fd9af5750ac9d9c8',
 }
 TRACE_TO_TEXT_PATH = tempfile.gettempdir()
 TRACE_TO_TEXT_BASE_URL = ('https://storage.googleapis.com/perfetto/')
@@ -99,7 +99,10 @@ data_sources {{
 duration_ms: {duration}
 write_into_file: true
 flush_timeout_ms: 30000
+flush_period_ms: 604800000
 '''
+
+# flush_period_ms of 1 week to suppress trace_processor_shell warning.
 
 CONTINUOUS_DUMP = """
       continuous_dump_config {{
@@ -118,6 +121,13 @@ def sigint_handler(sig, frame):
   global IS_INTERRUPTED
   IS_INTERRUPTED = True
 
+
+def print_no_profile_error():
+  print("No profiles generated", file=sys.stderr)
+  print(
+    "If this is unexpected, check "
+    "https://docs.perfetto.dev/#/heapprofd?id=troubleshooting.",
+    file=sys.stderr)
 
 def main(argv):
   parser = argparse.ArgumentParser()
@@ -167,12 +177,12 @@ def main(argv):
   parser.add_argument(
       "--no-running",
       action="store_true",
-      help="Do not target already running processes.")
+      help="Do not target already running processes. Requires Android 11.")
   parser.add_argument(
       "--no-startup",
       action="store_true",
       help="Do not target processes that start during "
-      "the profile.")
+      "the profile. Requires Android 11.")
   parser.add_argument(
       "--shmem-size",
       help="Size of buffer between client and "
@@ -344,6 +354,7 @@ def main(argv):
   old_handler = signal.signal(signal.SIGINT, sigint_handler)
   print("Profiling active. Press Ctrl+C to terminate.")
   print("You may disconnect your device.")
+  print()
   exists = True
   device_connected = True
   while not device_connected or (exists and not IS_INTERRUPTED):
@@ -376,23 +387,21 @@ def main(argv):
       '/tmp/profile'
   ],
                         stdout=NULL)
+
   trace_to_text_output = subprocess.check_output(
-      [trace_to_text_binary, 'profile', '/tmp/profile'])
+      [trace_to_text_binary, 'profile', '/tmp/profile'],
+      env=os.environ)
   profile_path = None
   for word in trace_to_text_output.split():
     if 'heap_profile-' in word:
       profile_path = word
   if profile_path is None:
-    print("Could not find trace_to_text output path.", file=sys.stderr)
+    print_no_profile_error();
     return 1
 
   profile_files = os.listdir(profile_path)
   if not profile_files:
-    print("No profiles generated", file=sys.stderr)
-    print(
-        "If this is unexpected, check "
-        "https://docs.perfetto.dev/#/heapprofd?id=troubleshooting.",
-        file=sys.stderr)
+    print_no_profile_error();
     return 1
 
   subprocess.check_call(
@@ -405,6 +414,18 @@ def main(argv):
     os.unlink(symlink_path)
   os.symlink(profile_path, symlink_path)
   shutil.copyfile('/tmp/profile', os.path.join(profile_path, 'raw-trace'))
+
+  binary_path = os.getenv('PERFETTO_BINARY_PATH')
+  if binary_path is not None:
+      with open(os.path.join(profile_path, 'symbols'), 'w') as fd:
+          ret = subprocess.call([
+              trace_to_text_binary, 'symbolize',
+              os.path.join(profile_path, 'raw-trace')],
+              env=os.environ,
+              stdout=fd)
+          if ret != 0:
+              print("Failed to symbolize. Continuing without symbols.",
+                    file=sys.stderr)
 
   print("Wrote profiles to {} (symlink {})".format(profile_path, symlink_path))
   print("These can be viewed using pprof. Googlers: head to pprof/ and "

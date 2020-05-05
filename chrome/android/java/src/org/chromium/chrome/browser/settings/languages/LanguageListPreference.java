@@ -4,8 +4,8 @@
 
 package org.chromium.chrome.browser.settings.languages;
 
-import static org.chromium.chrome.browser.ui.widget.listmenu.BasicListMenu.buildMenuListItem;
-import static org.chromium.chrome.browser.ui.widget.listmenu.BasicListMenu.buildMenuListItemWithEndIcon;
+import static org.chromium.components.browser_ui.widget.listmenu.BasicListMenu.buildMenuListItem;
+import static org.chromium.components.browser_ui.widget.listmenu.BasicListMenu.buildMenuListItemWithEndIcon;
 
 import android.content.Context;
 import android.support.v7.preference.Preference;
@@ -21,10 +21,10 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.translate.TranslateBridge;
-import org.chromium.chrome.browser.ui.widget.TintedDrawable;
-import org.chromium.chrome.browser.ui.widget.listmenu.BasicListMenu;
-import org.chromium.chrome.browser.ui.widget.listmenu.ListMenu;
-import org.chromium.chrome.browser.ui.widget.listmenu.ListMenuItemProperties;
+import org.chromium.components.browser_ui.widget.TintedDrawable;
+import org.chromium.components.browser_ui.widget.listmenu.BasicListMenu;
+import org.chromium.components.browser_ui.widget.listmenu.ListMenu;
+import org.chromium.components.browser_ui.widget.listmenu.ListMenuItemProperties;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 
@@ -88,7 +88,7 @@ public class LanguageListPreference extends Preference {
                 int textId = model.get(ListMenuItemProperties.TITLE_ID);
                 if (textId == R.string.languages_item_option_offer_to_translate) {
                     // Toggle current blocked state of this language.
-                    boolean state = model.get(ListMenuItemProperties.MENU_ITEM_ID) != 0;
+                    boolean state = model.get(ListMenuItemProperties.END_ICON_ID) == 0;
                     TranslateBridge.setLanguageBlockedState(info.getCode(), !state);
                     LanguagesManager.recordAction(state
                                     ? LanguagesManager.LanguageSettingsActionType
@@ -106,6 +106,10 @@ public class LanguageListPreference extends Preference {
                 } else if (textId == R.string.menu_item_move_to_top) {
                     LanguagesManager.getInstance().moveLanguagePosition(
                             info.getCode(), -position, true);
+                }
+                // Re-generate list items.
+                if (textId != R.string.remove) {
+                    notifyDataSetChanged();
                 }
             };
             ((LanguageRowViewHolder) holder)

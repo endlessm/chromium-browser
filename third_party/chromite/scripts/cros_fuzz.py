@@ -502,7 +502,7 @@ def GenerateCoverageReport(fuzzer, shared_libraries):
   ]
 
   # TODO(metzman): Investigate error messages printed by this command.
-  cros_build_lib.run(command, redirect_stderr=True, debug_level=logging.DEBUG)
+  cros_build_lib.run(command, stderr=True, debug_level=logging.DEBUG)
   return coverage_directory
 
 
@@ -969,7 +969,7 @@ def EnterSysrootShell():
       command,
       extra_env=GetFuzzExtraEnv(),
       debug_level=logging.INFO,
-      error_code_ok=True).returncode
+      check=False).returncode
 
 
 def StripFuzzerPrefixes(fuzzer_name):

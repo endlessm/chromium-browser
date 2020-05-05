@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class ImagePreview {
+import * as Common from '../common/common.js';
+import * as UI from '../ui/ui.js';
+
+export class ImagePreview {
   /**
    * @param {!SDK.Target} target
    * @param {string} originalImageURL
@@ -42,12 +45,12 @@ export default class ImagePreview {
      * @return {boolean}
      */
     function isImageResource(resource) {
-      return !!resource && resource.resourceType() === Common.resourceTypes.Image;
+      return !!resource && resource.resourceType() === Common.ResourceType.resourceTypes.Image;
     }
 
     function buildContent() {
       const container = createElement('table');
-      UI.appendStyle(container, 'components/imagePreview.css');
+      UI.Utils.appendStyle(container, 'components/imagePreview.css');
       container.className = 'image-preview-container';
       const intrinsicWidth = imageElement.naturalWidth;
       const intrinsicHeight = imageElement.naturalHeight;
@@ -109,17 +112,8 @@ export default class ImagePreview {
    * @return {string}
    */
   static defaultAltTextForImageURL(url) {
-    const parsedImageURL = new Common.ParsedURL(url);
+    const parsedImageURL = new Common.ParsedURL.ParsedURL(url);
     const imageSourceText = parsedImageURL.isValid ? parsedImageURL.displayName : ls`unknown source`;
     return ls`Image from ${imageSourceText}`;
   }
 }
-
-/* Legacy exported object */
-self.Components = self.Components || {};
-
-/* Legacy exported object */
-Components = Components || {};
-
-/** @constructor */
-Components.ImagePreview = ImagePreview;

@@ -14,7 +14,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_server_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
@@ -23,6 +22,8 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/simple_quic_framer.h"
 #include "net/third_party/quiche/src/quic/test_tools/simple_session_cache.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/test_tools/quiche_test_utils.h"
 
 using testing::_;
 
@@ -61,7 +62,6 @@ class QuicCryptoClientStreamTest : public QuicTest {
   }
 
   void UseTlsHandshake() {
-    SetQuicReloadableFlag(quic_supports_tls_handshake, true);
     supported_versions_.clear();
     for (ParsedQuicVersion version : AllSupportedVersions()) {
       if (version.handshake_protocol != PROTOCOL_TLS1_3) {
@@ -104,13 +104,13 @@ class QuicCryptoClientStreamTest : public QuicTest {
 
 TEST_F(QuicCryptoClientStreamTest, NotInitiallyConected) {
   EXPECT_FALSE(stream()->encryption_established());
-  EXPECT_FALSE(stream()->handshake_confirmed());
+  EXPECT_FALSE(stream()->one_rtt_keys_available());
 }
 
 TEST_F(QuicCryptoClientStreamTest, ConnectedAfterSHLO) {
   CompleteCryptoHandshake();
   EXPECT_TRUE(stream()->encryption_established());
-  EXPECT_TRUE(stream()->handshake_confirmed());
+  EXPECT_TRUE(stream()->one_rtt_keys_available());
   EXPECT_FALSE(stream()->IsResumption());
 }
 
@@ -120,7 +120,7 @@ TEST_F(QuicCryptoClientStreamTest, ConnectedAfterTlsHandshake) {
   CompleteCryptoHandshake();
   EXPECT_EQ(PROTOCOL_TLS1_3, stream()->handshake_protocol());
   EXPECT_TRUE(stream()->encryption_established());
-  EXPECT_TRUE(stream()->handshake_confirmed());
+  EXPECT_TRUE(stream()->one_rtt_keys_available());
   EXPECT_FALSE(stream()->IsResumption());
 }
 
@@ -137,7 +137,7 @@ TEST_F(QuicCryptoClientStreamTest,
       connection_, stream(), AlpnForVersion(connection_->version()));
   EXPECT_EQ(PROTOCOL_TLS1_3, stream()->handshake_protocol());
   EXPECT_TRUE(stream()->encryption_established());
-  EXPECT_TRUE(stream()->handshake_confirmed());
+  EXPECT_TRUE(stream()->one_rtt_keys_available());
 }
 
 TEST_F(QuicCryptoClientStreamTest, TlsResumption) {
@@ -151,7 +151,7 @@ TEST_F(QuicCryptoClientStreamTest, TlsResumption) {
 
   EXPECT_EQ(PROTOCOL_TLS1_3, stream()->handshake_protocol());
   EXPECT_TRUE(stream()->encryption_established());
-  EXPECT_TRUE(stream()->handshake_confirmed());
+  EXPECT_TRUE(stream()->one_rtt_keys_available());
   EXPECT_FALSE(stream()->IsResumption());
 
   // Create a second connection
@@ -160,7 +160,7 @@ TEST_F(QuicCryptoClientStreamTest, TlsResumption) {
 
   EXPECT_EQ(PROTOCOL_TLS1_3, stream()->handshake_protocol());
   EXPECT_TRUE(stream()->encryption_established());
-  EXPECT_TRUE(stream()->handshake_confirmed());
+  EXPECT_TRUE(stream()->one_rtt_keys_available());
   EXPECT_TRUE(stream()->IsResumption());
 }
 
@@ -297,9 +297,9 @@ TEST_F(QuicCryptoClientStreamTest, ServerConfigUpdate) {
   EXPECT_EQ("xstk", state->source_address_token());
 
   const std::string& cached_scfg = state->server_config();
-  test::CompareCharArraysWithHexError(
+  quiche::test::CompareCharArraysWithHexError(
       "scfg", cached_scfg.data(), cached_scfg.length(),
-      reinterpret_cast<char*>(scfg), QUIC_ARRAYSIZE(scfg));
+      reinterpret_cast<char*>(scfg), QUICHE_ARRAYSIZE(scfg));
 
   QuicStreamSequencer* sequencer = QuicStreamPeer::sequencer(stream());
   EXPECT_FALSE(QuicStreamSequencerPeer::IsUnderlyingBufferAllocated(sequencer));

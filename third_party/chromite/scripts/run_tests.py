@@ -20,6 +20,7 @@ import multiprocessing
 import os
 import signal
 import stat
+import subprocess
 import sys
 import tempfile
 
@@ -75,7 +76,6 @@ SPECIAL_TESTS = {
     'cli/cros/cros_chroot_unittest': INSIDE,
     'cli/cros/cros_debug_unittest': INSIDE,
     'cli/cros/lint_unittest': INSIDE,
-    'cli/cros/lint_autotest_unittest': INSIDE,
     'cli/deploy_unittest': INSIDE,
     'lib/alerts_unittest': INSIDE,
     'lib/androidbuild_unittest': INSIDE,
@@ -161,8 +161,8 @@ def RunTest(test, interp, cmd, tmpfile, finished, total):
 
   with cros_build_lib.TimedSection() as timer:
     ret = cros_build_lib.run(
-        cmd, capture_output=True, error_code_ok=True,
-        combine_stdout_stderr=True, debug_level=logging.DEBUG,
+        cmd, capture_output=True, check=False,
+        stderr=subprocess.STDOUT, debug_level=logging.DEBUG,
         int_timeout=SIGINT_TIMEOUT)
 
   with finished.get_lock():
@@ -330,7 +330,7 @@ def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1,
 
 def RunTests(tests, jobs=1, chroot_available=True, network=False,
              config_skew=False, dryrun=False, failfast=False, pyver=None):
-  """Execute |paths| with |jobs| in parallel (including |network| tests).
+  """Execute |tests| with |jobs| in parallel (including |network| tests).
 
   Args:
     tests: The tests to run.
@@ -505,8 +505,9 @@ def ClearPythonCacheFiles():
       capture_output=True)
   for subdir in set(os.path.dirname(x) for x in result.stdout.split('\0')):
     for path in glob.glob(os.path.join(subdir, '*.pyc')):
-      osutils.SafeUnlink(path)
-    osutils.RmDir(os.path.join(subdir, '__pycache__'), ignore_missing=True)
+      osutils.SafeUnlink(path, sudo=True)
+    osutils.RmDir(os.path.join(subdir, '__pycache__'), ignore_missing=True,
+                  sudo=True)
 
 
 def ChrootAvailable():
@@ -612,6 +613,14 @@ def main(argv):
     cros_build_lib.Die('The root directory has broken ownership: %i:%i'
                        ' (should be 0:0)\nFix with: sudo chown 0:0 /' %
                        (st.st_uid, st.st_gid))
+
+  # Sanity check the settings to avoid bitrot.
+  for test in SPECIAL_TESTS:
+    if not os.path.exists(test):
+      cros_build_lib.Die('SPECIAL_TESTS is stale: delete old %s' % test)
+  for test in SLOW_TESTS:
+    if not os.path.exists(test):
+      cros_build_lib.Die('SLOW_TESTS is stale: delete old %s' % test)
 
   if opts.quick:
     SPECIAL_TESTS.update(SLOW_TESTS)

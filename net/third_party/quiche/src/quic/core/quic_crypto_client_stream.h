@@ -62,20 +62,20 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
   //     the client a fallback ServerConfig.
   static const int kMaxClientHellos = 4;
 
-  // QuicCryptoClientStream creates a HandshakerDelegate at construction time
+  // QuicCryptoClientStream creates a HandshakerInterface at construction time
   // based on the QuicTransportVersion of the connection. Different
-  // HandshakerDelegates provide implementations of different crypto handshake
+  // HandshakerInterfaces provide implementations of different crypto handshake
   // protocols. Currently QUIC crypto is the only protocol implemented; a future
-  // HandshakerDelegate will use TLS as the handshake protocol.
+  // HandshakerInterface will use TLS as the handshake protocol.
   // QuicCryptoClientStream delegates all of its public methods to its
-  // HandshakerDelegate.
+  // HandshakerInterface.
   //
   // This setup of the crypto stream delegating its implementation to the
   // handshaker results in the handshaker reading and writing bytes on the
   // crypto stream, instead of the handshaker passing the stream bytes to send.
-  class QUIC_EXPORT_PRIVATE HandshakerDelegate {
+  class QUIC_EXPORT_PRIVATE HandshakerInterface {
    public:
-    virtual ~HandshakerDelegate() {}
+    virtual ~HandshakerInterface() {}
 
     // Performs a crypto handshake with the server. Returns true if the
     // connection is still connected.
@@ -104,8 +104,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
     // for the connection.
     virtual bool encryption_established() const = 0;
 
-    // Returns true once the crypto handshake has completed.
-    virtual bool handshake_confirmed() const = 0;
+    // Returns true once 1RTT keys are available.
+    virtual bool one_rtt_keys_available() const = 0;
 
     // Returns the parameters negotiated in the crypto handshake.
     virtual const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
@@ -117,6 +117,15 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
     // Used by QuicCryptoStream to know how much unprocessed data can be
     // buffered at each encryption level.
     virtual size_t BufferSizeLimitForLevel(EncryptionLevel level) const = 0;
+
+    // Returns current handshake state.
+    virtual HandshakeState GetHandshakeState() const = 0;
+
+    // Called when a 1RTT packet has been acknowledged.
+    virtual void OnOneRttPacketAcknowledged() = 0;
+
+    // Called when handshake done has been received.
+    virtual void OnHandshakeDoneReceived() = 0;
   };
 
   // ProofHandler is an interface that handles callbacks from the crypto
@@ -157,22 +166,25 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientStream
 
   // From QuicCryptoStream
   bool encryption_established() const override;
-  bool handshake_confirmed() const override;
+  bool one_rtt_keys_available() const override;
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
   void OnPacketDecrypted(EncryptionLevel /*level*/) override {}
+  void OnOneRttPacketAcknowledged() override;
+  void OnHandshakeDoneReceived() override;
+  HandshakeState GetHandshakeState() const override;
   size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
 
   std::string chlo_hash() const;
 
  protected:
-  void set_handshaker(std::unique_ptr<HandshakerDelegate> handshaker) {
+  void set_handshaker(std::unique_ptr<HandshakerInterface> handshaker) {
     handshaker_ = std::move(handshaker);
   }
 
  private:
-  std::unique_ptr<HandshakerDelegate> handshaker_;
+  std::unique_ptr<HandshakerInterface> handshaker_;
 };
 
 }  // namespace quic

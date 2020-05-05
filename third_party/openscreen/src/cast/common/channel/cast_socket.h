@@ -5,17 +5,15 @@
 #ifndef CAST_COMMON_CHANNEL_CAST_SOCKET_H_
 #define CAST_COMMON_CHANNEL_CAST_SOCKET_H_
 
+#include <array>
+#include <memory>
 #include <vector>
 
+#include "cast/common/channel/proto/cast_channel.pb.h"
 #include "platform/api/tls_connection.h"
 
+namespace openscreen {
 namespace cast {
-namespace channel {
-
-using openscreen::Error;
-using TlsConnection = openscreen::platform::TlsConnection;
-
-class CastMessage;
 
 uint32_t GetNextSocketId();
 
@@ -31,7 +29,8 @@ class CastSocket : public TlsConnection::Client {
     // Called when a terminal error on |socket| has occurred.
     virtual void OnError(CastSocket* socket, Error error) = 0;
 
-    virtual void OnMessage(CastSocket* socket, CastMessage message) = 0;
+    virtual void OnMessage(CastSocket* socket,
+                           ::cast::channel::CastMessage message) = 0;
   };
 
   CastSocket(std::unique_ptr<TlsConnection> connection,
@@ -43,34 +42,32 @@ class CastSocket : public TlsConnection::Client {
   // write-blocked, in which case |message| will be queued.  An error will be
   // returned if |message| cannot be serialized for any reason, even while
   // write-blocked.
-  Error SendMessage(const CastMessage& message);
+  [[nodiscard]] Error SendMessage(const ::cast::channel::CastMessage& message);
 
   void SetClient(Client* client);
+
+  std::array<uint8_t, 2> GetSanitizedIpAddress();
 
   uint32_t socket_id() const { return socket_id_; }
 
   // TlsConnection::Client overrides.
-  void OnWriteBlocked(TlsConnection* connection) override;
-  void OnWriteUnblocked(TlsConnection* connection) override;
   void OnError(TlsConnection* connection, Error error) override;
   void OnRead(TlsConnection* connection, std::vector<uint8_t> block) override;
 
  private:
-  enum class State {
-    kOpen,
-    kBlocked,
-    kError,
+  enum class State : bool {
+    kOpen = true,
+    kError = false,
   };
 
-  Client* client_;  // May never be null.
   const std::unique_ptr<TlsConnection> connection_;
-  std::vector<uint8_t> read_buffer_;
+  Client* client_;  // May never be null.
   const uint32_t socket_id_;
+  std::vector<uint8_t> read_buffer_;
   State state_ = State::kOpen;
-  std::vector<std::vector<uint8_t>> message_queue_;
 };
 
-}  // namespace channel
 }  // namespace cast
+}  // namespace openscreen
 
 #endif  // CAST_COMMON_CHANNEL_CAST_SOCKET_H_

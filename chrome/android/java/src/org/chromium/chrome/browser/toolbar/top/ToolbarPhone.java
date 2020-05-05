@@ -48,6 +48,7 @@ import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.MathUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.Invalidator;
@@ -74,15 +75,14 @@ import org.chromium.chrome.browser.toolbar.ToolbarColors;
 import org.chromium.chrome.browser.toolbar.ToolbarManager;
 import org.chromium.chrome.browser.toolbar.bottom.BottomToolbarVariationManager;
 import org.chromium.chrome.browser.toolbar.top.TopToolbarCoordinator.UrlExpansionObserver;
-import org.chromium.chrome.browser.ui.styles.ChromeColors;
-import org.chromium.chrome.browser.ui.widget.animation.CancelAwareAnimatorListener;
-import org.chromium.chrome.browser.ui.widget.animation.Interpolators;
-import org.chromium.chrome.browser.util.ColorUtils;
-import org.chromium.chrome.browser.util.MathUtils;
-import org.chromium.chrome.browser.util.ViewUtils;
+import org.chromium.components.browser_ui.styles.ChromeColors;
+import org.chromium.components.browser_ui.widget.animation.CancelAwareAnimatorListener;
+import org.chromium.components.browser_ui.widget.animation.Interpolators;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.ui.base.LocalizationUtils;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.interpolators.BakedBezierInterpolator;
+import org.chromium.ui.util.ColorUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -1687,6 +1687,11 @@ public class ToolbarPhone extends ToolbarLayout implements Invalidator.Client, O
         if (mLayoutUpdateHost != null) mLayoutUpdateHost.requestUpdate();
     }
 
+    @Override
+    public HomeButton getHomeButtonForTesting() {
+        return mHomeButton;
+    }
+
     private void removeHomeButton() {
         mHomeButton.setVisibility(GONE);
     }
@@ -1913,12 +1918,7 @@ public class ToolbarPhone extends ToolbarLayout implements Invalidator.Client, O
 
         triggerUrlFocusAnimation(inTabSwitcherMode && !urlHasFocus());
 
-        if (inTabSwitcherMode) {
-            mUrlBar.setText("");
-        } else if (getToolbarDataProvider() != null
-                && getToolbarDataProvider().getUrlBarData() != null) {
-            mUrlBar.setText(getToolbarDataProvider().getUrlBarData().displayText);
-        }
+        if (inTabSwitcherMode) mUrlBar.setText("");
 
         return true;
     }
@@ -1953,6 +1953,14 @@ public class ToolbarPhone extends ToolbarLayout implements Invalidator.Client, O
             mDelayedTabSwitcherModeAnimation.start();
         } else {
             updateViewsForTabSwitcherMode();
+        }
+
+        // Set the url bar text back after finished hiding the tab switcher.
+        if (getToolbarDataProvider().shouldShowLocationBarInOverviewMode()
+                && mTabSwitcherState == STATIC_TAB && getToolbarDataProvider() != null
+                && getToolbarDataProvider().getUrlBarData() != null) {
+            assert !getToolbarDataProvider().isInOverviewAndShowingOmnibox();
+            mUrlBar.setText(getToolbarDataProvider().getUrlBarData().displayText);
         }
     }
 

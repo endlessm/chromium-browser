@@ -28,6 +28,12 @@
           type="chrome_html"
           compress="gzip"/>
       <structure
+          name="IDR_TAB_STRIP_TAB_GROUP_JS"
+          file="${root_gen_dir}/chrome/browser/resources/tab_strip/tab_group.js"
+          use_base_dir="false"
+          type="chrome_html"
+          compress="gzip"/>
+      <structure
           name="IDR_TAB_STRIP_TAB_LIST_JS"
           file="${root_gen_dir}/chrome/browser/resources/tab_strip/tab_list.js"
           use_base_dir="false"
@@ -93,6 +99,11 @@
       <include
           name="IDR_TAB_STRIP_TAB_BLUETOOTH_CONNECTED_SVG"
           file="alert_indicators/tab_bluetooth_connected.svg"
+          type="BINDATA"
+          compress="gzip" />
+      <include
+          name="IDR_TAB_STRIP_TAB_HID_CONNECTED_SVG"
+          file="alert_indicators/tab_hid_connected.svg"
           type="BINDATA"
           compress="gzip" />
       <include

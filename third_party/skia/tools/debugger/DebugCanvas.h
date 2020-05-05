@@ -16,11 +16,13 @@
 #include "include/pathops/SkPathOps.h"
 #include "include/private/SkTArray.h"
 #include "tools/UrlDataManager.h"
+#include "tools/debugger/DebugLayerManager.h"
 #include "tools/debugger/DrawCommand.h"
 
 class GrAuditTrail;
 class SkNWayCanvas;
 class SkPicture;
+class DebugLayerManager;
 
 class DebugCanvas : public SkCanvasVirtualEnforcer<SkCanvas> {
 public:
@@ -29,6 +31,21 @@ public:
     DebugCanvas(SkIRect bounds);
 
     ~DebugCanvas() override;
+
+    /**
+     * Provide a DebugLayerManager for mskp files containing layer information
+     * when set this DebugCanvas will attempt to parse layer info from annotations.
+     * it will store layer pictures to the layer manager, and interpret some drawImageRects
+     * as layer draws, deferring to the layer manager for images.
+     * Provide a frame number that will be passed to all layer manager functions to identify this
+     * DebugCanvas.
+     *
+     * Used only in wasm debugger animations.
+     */
+    void setLayerManagerAndFrame(DebugLayerManager* lm, int frame) {
+        fLayerManager = lm;
+        fFrame = frame;
+    }
 
     /**
      * Enable or disable overdraw visualization
@@ -42,6 +59,8 @@ public:
      */
     void setClipVizColor(SkColor clipVizColor) { this->fClipVizColor = clipVizColor; }
 
+    void setAndroidClipViz(bool enable) {this->fShowAndroidClip = enable; }
+
     void setDrawGpuOpBounds(bool drawGpuOpBounds) { fDrawGpuOpBounds = drawGpuOpBounds; }
 
     bool getDrawGpuOpBounds() const { return fDrawGpuOpBounds; }
@@ -54,6 +73,8 @@ public:
 
     /**
         Executes the draw calls up to the specified index.
+        Does not clear the canvas to transparent black first,
+        if needed, caller should do that first.
         @param canvas  The canvas being drawn to
         @param index  The index of the final command being executed
         @param m an optional Mth gpu op to highlight, or -1
@@ -94,13 +115,13 @@ public:
     void toggleCommand(int index, bool toggle);
 
     /**
-        Returns a JSON object representing up to the Nth draw, where N is less than
-        DebugCanvas::getSize(). The encoder may use the UrlDataManager to store binary data such
+        Returns a JSON object representing all commands in the picture.
+        The encoder may use the UrlDataManager to store binary data such
         as images, referring to them via URLs embedded in the JSON.
      */
-    void toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager, int n, SkCanvas*);
+    void toJSON(SkJSONWriter& writer, UrlDataManager& urlDataManager, SkCanvas*);
 
-    void toJSONOpsTask(SkJSONWriter& writer, int n, SkCanvas*);
+    void toJSONOpsTask(SkJSONWriter& writer, SkCanvas*);
 
     void detachCommands(SkTDArray<DrawCommand*>* dst) { fCommandVector.swap(*dst); }
 
@@ -110,9 +131,11 @@ protected:
     bool              onDoSaveBehind(const SkRect*) override;
     void              willRestore() override;
 
+    void didConcat44(const SkScalar[16]) override;
     void didConcat(const SkMatrix&) override;
-
     void didSetMatrix(const SkMatrix&) override;
+    void didScale(SkScalar, SkScalar) override;
+    void didTranslate(SkScalar, SkScalar) override;
 
     void onDrawAnnotation(const SkRect&, const char[], SkData*) override;
     void onDrawDRRect(const SkRRect&, const SkRRect&, const SkPaint&) override;
@@ -203,9 +226,22 @@ private:
     SkMatrix                fMatrix;
     SkIRect                 fClip;
 
-    bool    fOverdrawViz;
+    bool    fOverdrawViz = false;
     SkColor fClipVizColor;
-    bool    fDrawGpuOpBounds;
+    bool    fDrawGpuOpBounds = false;
+    bool    fShowAndroidClip = false;
+
+    // When not negative, indicates the render node id of the layer represented by the next
+    // drawPicture call.
+    int         fnextDrawPictureLayerId = -1;
+    int         fnextDrawImageRectLayerId = -1;
+    SkIRect     fnextDrawPictureDirtyRect;
+    // may be null, in which case layer annotations are ignored.
+    DebugLayerManager* fLayerManager = nullptr;
+    // May be set when DebugCanvas is used in playing back an animation.
+    // Only used for passing to fLayerManager to identify itself.
+    int fFrame = -1;
+    SkRect fAndroidClip = SkRect::MakeEmpty();
 
     /**
         Adds the command to the class' vector of commands.
@@ -215,7 +251,7 @@ private:
 
     GrAuditTrail* getAuditTrail(SkCanvas*);
 
-    void drawAndCollectOps(int n, SkCanvas*);
+    void drawAndCollectOps(SkCanvas*);
     void cleanupAuditTrail(SkCanvas*);
 
     typedef SkCanvasVirtualEnforcer<SkCanvas> INHERITED;

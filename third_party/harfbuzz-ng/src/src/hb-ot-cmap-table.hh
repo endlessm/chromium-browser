@@ -238,12 +238,20 @@ struct CmapSubtableFormat4
   void serialize (hb_serialize_context_t *c,
 		  Iterator it)
   {
+    auto format4_iter =
+    + it
+    | hb_filter ([&] (const hb_pair_t<hb_codepoint_t, hb_codepoint_t> _)
+		 { return _.first <= 0xFFFF; })
+    ;
+
+    if (format4_iter.len () == 0) return;
+
     unsigned table_initpos = c->length ();
     if (unlikely (!c->extend_min (*this))) return;
     this->format = 4;
 
     //serialize endCode[]
-    HBUINT16 *endCode = serialize_endcode_array (c, it);
+    HBUINT16 *endCode = serialize_endcode_array (c, format4_iter);
     if (unlikely (!endCode)) return;
 
     unsigned segcount = (c->length () - min_size) / HBUINT16::static_size;
@@ -252,14 +260,14 @@ struct CmapSubtableFormat4
     if (unlikely (!c->allocate_size<HBUINT16> (HBUINT16::static_size))) return; // 2 bytes of padding.
 
    // serialize startCode[]
-    HBUINT16 *startCode = serialize_startcode_array (c, it);
+    HBUINT16 *startCode = serialize_startcode_array (c, format4_iter);
     if (unlikely (!startCode)) return;
 
     //serialize idDelta[]
-    HBINT16 *idDelta = serialize_idDelta_array (c, it, endCode, startCode, segcount);
+    HBINT16 *idDelta = serialize_idDelta_array (c, format4_iter, endCode, startCode, segcount);
     if (unlikely (!idDelta)) return;
 
-    HBUINT16 *idRangeOffset = serialize_rangeoffset_glyid (c, it, endCode, startCode, idDelta, segcount);
+    HBUINT16 *idRangeOffset = serialize_rangeoffset_glyid (c, format4_iter, endCode, startCode, idDelta, segcount);
     if (unlikely (!c->check_success (idRangeOffset))) return;
 
     if (unlikely (!c->check_assign(this->length, c->length () - table_initpos))) return;
@@ -291,27 +299,28 @@ struct CmapSubtableFormat4
 
     bool get_glyph (hb_codepoint_t codepoint, hb_codepoint_t *glyph) const
     {
-      /* Custom two-array bsearch. */
-      int min = 0, max = (int) this->segCount - 1;
-      const HBUINT16 *startCount = this->startCount;
-      const HBUINT16 *endCount = this->endCount;
-      unsigned int i;
-      while (min <= max)
+      struct CustomRange
       {
-	int mid = ((unsigned int) min + (unsigned int) max) / 2;
-	if (codepoint < startCount[mid])
-	  max = mid - 1;
-	else if (codepoint > endCount[mid])
-	  min = mid + 1;
-	else
+	int cmp (hb_codepoint_t k,
+		 unsigned distance) const
 	{
-	  i = mid;
-	  goto found;
+	  if (k > last) return +1;
+	  if (k < (&last)[distance]) return -1;
+	  return 0;
 	}
-      }
-      return false;
+        HBUINT16 last;
+      };
 
-    found:
+      const HBUINT16 *found =hb_bsearch (codepoint,
+					 this->endCount,
+					 this->segCount,
+					 2,
+					 _hb_cmp_method<hb_codepoint_t, CustomRange, unsigned>,
+					 this->segCount + 1);
+      if (!found)
+        return false;
+      unsigned int i = found - endCount;
+
       hb_codepoint_t gid;
       unsigned int rangeOffset = this->idRangeOffset[i];
       if (rangeOffset == 0)
@@ -333,8 +342,10 @@ struct CmapSubtableFormat4
       *glyph = gid;
       return true;
     }
+
     HB_INTERNAL static bool get_glyph_func (const void *obj, hb_codepoint_t codepoint, hb_codepoint_t *glyph)
     { return ((const accelerator_t *) obj)->get_glyph (codepoint, glyph); }
+
     void collect_unicodes (hb_set_t *out) const
     {
       unsigned int count = this->segCount;

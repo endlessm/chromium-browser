@@ -12,6 +12,7 @@
 #include "net/third_party/quiche/src/quic/tools/quic_simple_crypto_server_stream_helper.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_dispatcher.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_server_session.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -54,7 +55,7 @@ class CustomStreamSession : public QuicSimpleServerSession {
     return QuicSimpleServerSession::CreateIncomingStream(id);
   }
 
-  QuicCryptoServerStreamBase* CreateQuicCryptoServerStream(
+  std::unique_ptr<QuicCryptoServerStreamBase> CreateQuicCryptoServerStream(
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache) override {
     if (crypto_stream_factory_) {
@@ -92,10 +93,10 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
         stream_factory_(nullptr),
         crypto_stream_factory_(nullptr) {}
 
-  QuicServerSessionBase* CreateQuicSession(
+  std::unique_ptr<QuicSession> CreateQuicSession(
       QuicConnectionId id,
       const QuicSocketAddress& client,
-      QuicStringPiece alpn,
+      quiche::QuicheStringPiece alpn,
       const ParsedQuicVersion& version) override {
     QuicReaderMutexLock lock(&factory_lock_);
     if (session_factory_ == nullptr && stream_factory_ == nullptr &&
@@ -107,9 +108,9 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
                            /* owns_writer= */ false, Perspective::IS_SERVER,
                            ParsedQuicVersionVector{version});
 
-    QuicServerSessionBase* session = nullptr;
+    std::unique_ptr<QuicServerSessionBase> session;
     if (stream_factory_ != nullptr || crypto_stream_factory_ != nullptr) {
-      session = new CustomStreamSession(
+      session = std::make_unique<CustomStreamSession>(
           config(), GetSupportedVersions(), connection, this, session_helper(),
           crypto_config(), compressed_certs_cache(), stream_factory_,
           crypto_stream_factory_, server_backend());

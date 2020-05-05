@@ -11,6 +11,7 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 namespace quic {
 
@@ -41,9 +42,10 @@ void QuicControlFrameManager::WriteOrBufferQuicFrame(QuicFrame frame) {
   if (control_frames_.size() > kMaxNumControlFrames) {
     session_->connection()->CloseConnection(
         QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES,
-        QuicStrCat("More than ", kMaxNumControlFrames,
-                   "buffered control frames, least_unacked: ", least_unacked_,
-                   ", least_unsent_: ", least_unsent_),
+        quiche::QuicheStrCat(
+            "More than ", kMaxNumControlFrames,
+            "buffered control frames, least_unacked: ", least_unacked_,
+            ", least_unsent_: ", least_unsent_),
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
     return;
   }
@@ -108,6 +110,12 @@ void QuicControlFrameManager::WriteOrBufferStopSending(uint16_t code,
       new QuicStopSendingFrame(++last_control_frame_id_, stream_id, code)));
 }
 
+void QuicControlFrameManager::WriteOrBufferHandshakeDone() {
+  QUIC_DVLOG(1) << "Writing HANDSHAKE_DONE";
+  WriteOrBufferQuicFrame(
+      QuicFrame(QuicHandshakeDoneFrame(++last_control_frame_id_)));
+}
+
 void QuicControlFrameManager::WritePing() {
   QUIC_DVLOG(1) << "Writing PING_FRAME";
   if (HasBufferedFrames()) {
@@ -121,9 +129,10 @@ void QuicControlFrameManager::WritePing() {
   if (control_frames_.size() > kMaxNumControlFrames) {
     session_->connection()->CloseConnection(
         QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES,
-        QuicStrCat("More than ", kMaxNumControlFrames,
-                   "buffered control frames, least_unacked: ", least_unacked_,
-                   ", least_unsent_: ", least_unsent_),
+        quiche::QuicheStrCat(
+            "More than ", kMaxNumControlFrames,
+            "buffered control frames, least_unacked: ", least_unacked_,
+            ", least_unsent_: ", least_unsent_),
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
     return;
   }

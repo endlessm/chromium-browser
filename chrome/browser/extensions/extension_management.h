@@ -182,7 +182,7 @@ class ExtensionManagement : public KeyedService {
                            std::string* required_version) const;
 
   // Returns whether the profile associated with this instance is supervised.
-  bool IsChild() const { return is_child_; }
+  bool is_child() const { return is_child_; }
 
  private:
   using SettingsIdMap =

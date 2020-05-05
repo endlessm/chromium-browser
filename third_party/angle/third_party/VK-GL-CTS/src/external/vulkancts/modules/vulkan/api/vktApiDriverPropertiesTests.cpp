@@ -65,6 +65,9 @@ static const deUint32 knownDriverIds[] =
 
 static const VkConformanceVersionKHR knownConformanceVersions[] =
 {
+	makeConformanceVersionKHR(1, 1, 6, 3),
+	makeConformanceVersionKHR(1, 1, 6, 2),
+	makeConformanceVersionKHR(1, 1, 6, 1),
 	makeConformanceVersionKHR(1, 1, 6, 0),
 	makeConformanceVersionKHR(1, 1, 5, 2),
 	makeConformanceVersionKHR(1, 1, 5, 1),
@@ -99,7 +102,7 @@ DE_INLINE bool operator==(const VkConformanceVersionKHR& a, const VkConformanceV
 void checkSupport (Context& context, const TestType config)
 {
 	DE_UNREF(config);
-	context.requireDeviceExtension("VK_KHR_driver_properties");
+	context.requireDeviceFunctionality("VK_KHR_driver_properties");
 }
 
 void testDriverMatch (const VkPhysicalDeviceDriverPropertiesKHR& deviceDriverProperties)
@@ -131,8 +134,18 @@ void testInfoZeroTerminated (const VkPhysicalDeviceDriverPropertiesKHR& deviceDr
 		TCU_FAIL("Driver info is not a null-terminated string");
 }
 
-void testVersion (const VkPhysicalDeviceDriverPropertiesKHR& deviceDriverProperties)
+void testVersion (const VkPhysicalDeviceDriverPropertiesKHR& deviceDriverProperties, deUint32 usedApiVersion)
 {
+	const deUint32 apiMajorVersion = VK_VERSION_MAJOR(usedApiVersion);
+	const deUint32 apiMinorVersion = VK_VERSION_MINOR(usedApiVersion);
+
+	if (deviceDriverProperties.conformanceVersion.major < apiMajorVersion ||
+		(deviceDriverProperties.conformanceVersion.major == apiMajorVersion &&
+		 deviceDriverProperties.conformanceVersion.minor < apiMinorVersion))
+	{
+		TCU_FAIL("Wrong driver conformance version (older than used API version)");
+	}
+
 	for (const VkConformanceVersionKHR* pConformanceVersion  = knownConformanceVersions;
 										pConformanceVersion != DE_ARRAY_END(knownConformanceVersions);
 									  ++pConformanceVersion)
@@ -141,7 +154,7 @@ void testVersion (const VkPhysicalDeviceDriverPropertiesKHR& deviceDriverPropert
 			return;
 	}
 
-	TCU_FAIL("Wrong driver conformance version");
+	TCU_FAIL("Wrong driver conformance version (not known)");
 }
 
 tcu::TestStatus testQueryProperties (Context& context, const TestType testType)
@@ -165,11 +178,11 @@ tcu::TestStatus testQueryProperties (Context& context, const TestType testType)
 	// Verify the returned values
 	switch (testType)
 	{
-		case TEST_TYPE_DRIVER_ID_MATCH:			testDriverMatch			(deviceDriverProperties);	break;
-		case TEST_TYPE_NAME_IS_NOT_EMPTY:		testNameIsNotEmpty		(deviceDriverProperties);	break;
-		case TEST_TYPE_NAME_ZERO_TERMINATED:	testNameZeroTerminated	(deviceDriverProperties);	break;
-		case TEST_TYPE_INFO_ZERO_TERMINATED:	testInfoZeroTerminated	(deviceDriverProperties);	break;
-		case TEST_TYPE_VERSION:					testVersion				(deviceDriverProperties);	break;
+		case TEST_TYPE_DRIVER_ID_MATCH:			testDriverMatch			(deviceDriverProperties);								break;
+		case TEST_TYPE_NAME_IS_NOT_EMPTY:		testNameIsNotEmpty		(deviceDriverProperties);								break;
+		case TEST_TYPE_NAME_ZERO_TERMINATED:	testNameZeroTerminated	(deviceDriverProperties);								break;
+		case TEST_TYPE_INFO_ZERO_TERMINATED:	testInfoZeroTerminated	(deviceDriverProperties);								break;
+		case TEST_TYPE_VERSION:					testVersion				(deviceDriverProperties, context.getUsedApiVersion());	break;
 		default:								TCU_THROW(InternalError, "Unknown test type specified");
 	}
 

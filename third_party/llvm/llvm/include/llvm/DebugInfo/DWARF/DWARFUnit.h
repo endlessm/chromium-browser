@@ -210,7 +210,7 @@ class DWARFUnit {
   StringRef StringSection;
   const DWARFSection &StringOffsetSection;
   const DWARFSection *AddrOffsetSection;
-  uint32_t AddrOffsetSectionBase = 0;
+  Optional<uint64_t> AddrOffsetSectionBase;
   bool isLittleEndian;
   bool IsDWO;
   const DWARFUnitVector &UnitVector;
@@ -427,14 +427,18 @@ public:
   /// an entry in the rangelist table's offset array and is supplied by
   /// DW_FORM_rnglistx.
   Optional<uint64_t> getRnglistOffset(uint32_t Index) {
-    if (RngListTable)
-      return RngListTable->getOffsetEntry(Index);
+    if (!RngListTable)
+      return None;
+    if (Optional<uint64_t> Off = RngListTable->getOffsetEntry(Index))
+      return *Off + RangeSectionBase;
     return None;
   }
 
   Optional<uint64_t> getLoclistOffset(uint32_t Index) {
-    if (LoclistTableHeader)
-      return LoclistTableHeader->getOffsetEntry(Index);
+    if (!LoclistTableHeader)
+      return None;
+    if (Optional<uint64_t> Off = LoclistTableHeader->getOffsetEntry(Index))
+      return *Off + getLocSectionBase();
     return None;
   }
   Expected<DWARFAddressRangesVector> collectAddressRanges();

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/guid.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/gtest_util.h"
 #include "base/test/mock_callback.h"
@@ -71,6 +72,7 @@ class FakeClient : public Client {
   std::string GetLocale() override { return ""; }
   std::string GetCountryCode() override { return ""; }
   DeviceContext GetDeviceContext() override { return DeviceContext(); }
+  MOCK_METHOD0(GetWebContents, content::WebContents*());
   MOCK_METHOD1(Shutdown, void(Metrics::DropOutReason reason));
   MOCK_METHOD0(AttachUI, void());
   MOCK_METHOD0(DestroyUI, void());
@@ -82,7 +84,8 @@ class FakeClient : public Client {
 // Same as non-mock, but provides default mock callbacks.
 struct MockCollectUserDataOptions : public CollectUserDataOptions {
   MockCollectUserDataOptions() {
-    base::MockOnceCallback<void(UserData*)> mock_confirm_callback;
+    base::MockOnceCallback<void(UserData*, const UserModel*)>
+        mock_confirm_callback;
     confirm_callback = mock_confirm_callback.Get();
     base::MockOnceCallback<void(int)> mock_actions_callback;
     additional_actions_callback = mock_actions_callback.Get();
@@ -110,6 +113,8 @@ class ControllerTest : public content::RenderViewHostTestHarness {
     mock_web_controller_ = web_controller.get();
     auto service = std::make_unique<NiceMock<MockService>>();
     mock_service_ = service.get();
+
+    ON_CALL(fake_client_, GetWebContents).WillByDefault(Return(web_contents()));
 
     controller_ = std::make_unique<Controller>(
         web_contents(), &fake_client_, task_environment()->GetMockTickClock(),
@@ -185,10 +190,10 @@ class ControllerTest : public content::RenderViewHostTestHarness {
   }
 
   void SimulateNavigateToUrl(const GURL& url) {
+    SetLastCommittedUrl(url);
     content::NavigationSimulator::NavigateAndCommitFromDocument(
         url, web_contents()->GetMainFrame());
     content::WebContentsTester::For(web_contents())->TestSetIsLoading(false);
-    SetLastCommittedUrl(url);
     controller_->DidFinishLoad(nullptr, GURL(""));
   }
 
@@ -214,7 +219,13 @@ class ControllerTest : public content::RenderViewHostTestHarness {
         .WillRepeatedly(RunOnceCallback<2>(true, response_str));
   }
 
+  UserData* GetUserData() { return controller_->user_data_.get(); }
+
   UiDelegate* GetUiDelegate() { return controller_.get(); }
+
+  void SetNavigatingToNewDocument(bool value) {
+    controller_->navigating_to_new_document_ = value;
+  }
 
   // |task_environment_| must be the first field, to make sure that everything
   // runs in the same task environment.
@@ -421,6 +432,7 @@ TEST_F(ControllerTest, NoRelevantScriptYet) {
   Start("http://a.example.com/path");
   EXPECT_EQ(AutofillAssistantState::STARTING, controller_->GetState());
 }
+
 TEST_F(ControllerTest, ReportPromptAndSuggestionsChanged) {
   SupportsScriptResponseProto script_response;
   AddRunnableScript(&script_response, "script1");
@@ -543,45 +555,6 @@ TEST_F(ControllerTest, CloseCustomTab) {
   EXPECT_CALL(fake_client_,
               Shutdown(Metrics::DropOutReason::CUSTOM_TAB_CLOSED));
   EXPECT_TRUE(controller_->PerformUserAction(0));
-}
-
-TEST_F(ControllerTest, Reset) {
-  // 1. Fetch scripts for URL, which in contains a single "reset" script.
-  SupportsScriptResponseProto script_response;
-  auto* reset_script = AddRunnableScript(&script_response, "reset");
-  RunOnce(reset_script);
-  std::string script_response_str;
-  script_response.SerializeToString(&script_response_str);
-  EXPECT_CALL(*mock_service_, OnGetScriptsForUrl(_, _, _))
-      .WillRepeatedly(RunOnceCallback<2>(true, script_response_str));
-
-  Start("http://a.example.com/path");
-  EXPECT_THAT(controller_->GetUserActions(),
-              ElementsAre(Property(&UserAction::chip,
-                                   Field(&Chip::text, StrEq("reset")))));
-
-  // 2. Execute the "reset" script, which contains a reset action.
-  ActionsResponseProto actions_response;
-  actions_response.add_actions()->mutable_reset();
-  std::string actions_response_str;
-  actions_response.SerializeToString(&actions_response_str);
-  EXPECT_CALL(*mock_service_, OnGetActions(StrEq("reset"), _, _, _, _, _))
-      .WillOnce(RunOnceCallback<5>(true, actions_response_str));
-
-  controller_->GetClientMemory()->set_selected_card(
-      std::make_unique<autofill::CreditCard>());
-  EXPECT_TRUE(controller_->GetClientMemory()->has_selected_card());
-
-  EXPECT_TRUE(controller_->PerformUserAction(0));
-
-  // Resetting should have cleared the client memory
-  EXPECT_FALSE(controller_->GetClientMemory()->has_selected_card());
-
-  // The reset script should be available again, even though it's marked
-  // RunOnce, as the script state should have been cleared as well.
-  EXPECT_THAT(controller_->GetUserActions(),
-              ElementsAre(Property(&UserAction::chip,
-                                   Field(&Chip::text, StrEq("reset")))));
 }
 
 TEST_F(ControllerTest, RefreshScriptWhenDomainChanges) {
@@ -949,6 +922,18 @@ TEST_F(ControllerTest, RemoveListener) {
       GURL("http://initialurl.com"), web_contents()->GetMainFrame());
 
   EXPECT_THAT(listener.events, IsEmpty());
+}
+
+TEST_F(ControllerTest, DelayStartupIfLoading) {
+  SetNavigatingToNewDocument(true);
+
+  Start("http://a.example.com/");
+  EXPECT_EQ(AutofillAssistantState::INACTIVE, controller_->GetState());
+
+  content::NavigationSimulator::NavigateAndCommitFromDocument(
+      GURL("http://b.example.com"), web_contents()->GetMainFrame());
+  EXPECT_THAT(states_, ElementsAre(AutofillAssistantState::STARTING,
+                                   AutofillAssistantState::STOPPED));
 }
 
 TEST_F(ControllerTest, WaitForNavigationActionTimesOut) {
@@ -1343,6 +1328,78 @@ TEST_F(ControllerTest, TrackThenAutostart) {
                                    AutofillAssistantState::TRACKING));
 }
 
+TEST_F(ControllerTest, BrowseStateStopsOnDifferentDomain) {
+  SupportsScriptResponseProto script_response;
+  AddRunnableScript(&script_response, "runnable")
+      ->mutable_presentation()
+      ->set_autostart(true);
+  ActionsResponseProto runnable_script;
+  auto* prompt = runnable_script.add_actions()->mutable_prompt();
+  prompt->set_browse_mode(true);
+  prompt->add_choices()->mutable_chip()->set_text("continue");
+  SetupActionsForScript("runnable", runnable_script);
+  std::string response_str;
+  script_response.SerializeToString(&response_str);
+  EXPECT_CALL(*mock_service_,
+              OnGetScriptsForUrl(GURL("http://example.com/"), _, _))
+      .WillOnce(RunOnceCallback<2>(true, response_str));
+  EXPECT_CALL(*mock_service_,
+              OnGetScriptsForUrl(GURL("http://b.example.com/"), _, _))
+      .Times(0);
+  EXPECT_CALL(*mock_service_,
+              OnGetScriptsForUrl(GURL("http://c.example.com/"), _, _))
+      .Times(0);
+
+  Start("http://example.com/");
+  EXPECT_EQ(AutofillAssistantState::BROWSE, controller_->GetState());
+
+  SimulateNavigateToUrl(GURL("http://b.example.com/"));
+  EXPECT_EQ(AutofillAssistantState::BROWSE, controller_->GetState());
+
+  SimulateNavigateToUrl(GURL("http://c.example.com/"));
+  EXPECT_EQ(AutofillAssistantState::BROWSE, controller_->GetState());
+
+  // go back.
+  SetLastCommittedUrl(GURL("http://b.example.com"));
+  content::NavigationSimulator::GoBack(web_contents());
+  EXPECT_EQ(AutofillAssistantState::BROWSE, controller_->GetState());
+
+  // Shut down once the user moves to a different domain
+  EXPECT_CALL(fake_client_, Shutdown(Metrics::DropOutReason::NAVIGATION));
+  SimulateNavigateToUrl(GURL("http://other-example.com/"));
+}
+
+TEST_F(ControllerTest, PromptStateStopsOnGoBack) {
+  SupportsScriptResponseProto script_response;
+  AddRunnableScript(&script_response, "runnable")
+      ->mutable_presentation()
+      ->set_autostart(true);
+  ActionsResponseProto runnable_script;
+  auto* prompt = runnable_script.add_actions()->mutable_prompt();
+  prompt->set_browse_mode(false);
+  prompt->add_choices()->mutable_chip()->set_text("continue");
+  SetupActionsForScript("runnable", runnable_script);
+  std::string response_str;
+  script_response.SerializeToString(&response_str);
+  EXPECT_CALL(*mock_service_,
+              OnGetScriptsForUrl(GURL("http://example.com/"), _, _))
+      .WillOnce(RunOnceCallback<2>(true, response_str));
+
+  Start("http://example.com/");
+  EXPECT_EQ(AutofillAssistantState::PROMPT, controller_->GetState());
+
+  SimulateNavigateToUrl(GURL("http://b.example.com/"));
+  EXPECT_EQ(AutofillAssistantState::PROMPT, controller_->GetState());
+
+  SimulateNavigateToUrl(GURL("http://c.example.com/"));
+  EXPECT_EQ(AutofillAssistantState::PROMPT, controller_->GetState());
+
+  // go back.
+  EXPECT_CALL(fake_client_, Shutdown(Metrics::DropOutReason::NAVIGATION));
+  SetLastCommittedUrl(GURL("http://b.example.com"));
+  content::NavigationSimulator::GoBack(web_contents());
+}
+
 TEST_F(ControllerTest, UnexpectedNavigationDuringPromptAction_Tracking) {
   SupportsScriptResponseProto script_response;
   AddRunnableScript(&script_response, "runnable");
@@ -1462,6 +1519,7 @@ TEST_F(ControllerTest, UserDataFormContactInfo) {
   options->request_payer_name = true;
   options->request_payer_email = true;
   options->request_payer_phone = true;
+  options->contact_details_name = "selected_profile";
 
   testing::InSequence seq;
   EXPECT_CALL(mock_observer_, OnUserActionsChanged(UnorderedElementsAre(
@@ -1486,9 +1544,10 @@ TEST_F(ControllerTest, UserDataFormContactInfo) {
                              base::UTF8ToUTF16("+1 23 456 789 01"));
   controller_->SetContactInfo(
       std::make_unique<autofill::AutofillProfile>(contact_profile));
-  EXPECT_THAT(
-      controller_->GetUserData()->contact_profile->Compare(contact_profile),
-      Eq(0));
+  EXPECT_THAT(controller_->GetUserData()
+                  ->selected_address("selected_profile")
+                  ->Compare(contact_profile),
+              Eq(0));
 }
 
 TEST_F(ControllerTest, UserDataFormCreditCard) {
@@ -1496,6 +1555,7 @@ TEST_F(ControllerTest, UserDataFormCreditCard) {
   auto user_data = std::make_unique<UserData>();
 
   options->request_payment_method = true;
+  options->billing_address_name = "billing_address";
   testing::InSequence seq;
   EXPECT_CALL(mock_observer_, OnUserActionsChanged(UnorderedElementsAre(
                                   Property(&UserAction::enabled, Eq(false)))))
@@ -1543,10 +1603,10 @@ TEST_F(ControllerTest, UserDataFormCreditCard) {
   controller_->SetCreditCard(
       std::make_unique<autofill::CreditCard>(*credit_card),
       std::make_unique<autofill::AutofillProfile>(*billing_address));
-  EXPECT_THAT(controller_->GetUserData()->card->Compare(*credit_card), Eq(0));
-  EXPECT_THAT(
-      controller_->GetUserData()->billing_address->Compare(*billing_address),
-      Eq(0));
+  EXPECT_THAT(GetUserData()->selected_card_->Compare(*credit_card), Eq(0));
+  EXPECT_THAT(GetUserData()->selected_addresses_["billing_address"]->Compare(
+                  *billing_address),
+              Eq(0));
 }
 
 TEST_F(ControllerTest, SetTermsAndConditions) {
@@ -1568,7 +1628,7 @@ TEST_F(ControllerTest, SetTermsAndConditions) {
                                 UserData::FieldChange::TERMS_AND_CONDITIONS))
       .Times(1);
   controller_->SetTermsAndConditions(TermsAndConditionsState::ACCEPTED);
-  EXPECT_THAT(controller_->GetUserData()->terms_and_conditions,
+  EXPECT_THAT(controller_->GetUserData()->terms_and_conditions_,
               Eq(TermsAndConditionsState::ACCEPTED));
 }
 
@@ -1591,7 +1651,7 @@ TEST_F(ControllerTest, SetLoginOption) {
       OnUserDataChanged(Not(nullptr), UserData::FieldChange::LOGIN_CHOICE))
       .Times(1);
   controller_->SetLoginOption("1");
-  EXPECT_THAT(controller_->GetUserData()->login_choice_identifier, Eq("1"));
+  EXPECT_THAT(controller_->GetUserData()->login_choice_identifier_, Eq("1"));
 }
 
 TEST_F(ControllerTest, SetShippingAddress) {
@@ -1599,6 +1659,7 @@ TEST_F(ControllerTest, SetShippingAddress) {
   auto user_data = std::make_unique<UserData>();
 
   options->request_shipping = true;
+  options->shipping_address_name = "shipping_address";
   testing::InSequence seq;
   EXPECT_CALL(mock_observer_, OnUserActionsChanged(UnorderedElementsAre(
                                   Property(&UserAction::enabled, Eq(false)))))
@@ -1621,21 +1682,28 @@ TEST_F(ControllerTest, SetShippingAddress) {
       .Times(1);
   controller_->SetShippingAddress(
       std::make_unique<autofill::AutofillProfile>(*shipping_address));
-  EXPECT_THAT(
-      controller_->GetUserData()->shipping_address->Compare(*shipping_address),
-      Eq(0));
+  EXPECT_THAT(GetUserData()->selected_addresses_["shipping_address"]->Compare(
+                  *shipping_address),
+              Eq(0));
 }
 
 TEST_F(ControllerTest, SetAdditionalValues) {
   auto options = std::make_unique<MockCollectUserDataOptions>();
+  ValueProto value1;
+  value1.mutable_strings()->add_values("123456789");
 
   base::OnceCallback<void(UserData*, UserData::FieldChange*)> callback =
-      base::BindOnce([](UserData* user_data, UserData::FieldChange* change) {
-        user_data->additional_values_to_store["key1"] = "123456789";
-        user_data->additional_values_to_store["key2"] = "";
-        user_data->additional_values_to_store["key3"] = "";
-        *change = UserData::FieldChange::ADDITIONAL_VALUES;
-      });
+      base::BindLambdaForTesting(
+          [&](UserData* user_data, UserData::FieldChange* change) {
+            ValueProto value2;
+            value2.mutable_strings()->add_values("");
+            ValueProto value3;
+            value3.mutable_strings()->add_values("");
+            user_data->additional_values_["key1"] = value1;
+            user_data->additional_values_["key2"] = value2;
+            user_data->additional_values_["key3"] = value3;
+            *change = UserData::FieldChange::ADDITIONAL_VALUES;
+          });
 
   controller_->WriteUserData(std::move(callback));
 
@@ -1645,19 +1713,28 @@ TEST_F(ControllerTest, SetAdditionalValues) {
       .Times(1);
   controller_->SetCollectUserDataOptions(options.get());
 
-  EXPECT_CALL(
-      mock_observer_,
-      OnUserDataChanged(Not(nullptr), UserData::FieldChange::ADDITIONAL_VALUES))
-      .Times(2);
-  controller_->SetAdditionalValue("key2", "value2");
-  controller_->SetAdditionalValue("key3", "value3");
-  EXPECT_EQ(controller_->GetUserData()->additional_values_to_store.at("key1"),
-            "123456789");
-  EXPECT_EQ(controller_->GetUserData()->additional_values_to_store.at("key2"),
-            "value2");
-  EXPECT_EQ(controller_->GetUserData()->additional_values_to_store.at("key3"),
-            "value3");
-  EXPECT_DCHECK_DEATH(controller_->SetAdditionalValue("key4", "someValue"));
+  for (int i = 0; i < 2; ++i) {
+    EXPECT_CALL(mock_observer_, OnUserActionsChanged(UnorderedElementsAre(
+                                    Property(&UserAction::enabled, Eq(true)))))
+        .Times(1);
+    EXPECT_CALL(mock_observer_,
+                OnUserDataChanged(Not(nullptr),
+                                  UserData::FieldChange::ADDITIONAL_VALUES))
+        .Times(1);
+  }
+  ValueProto value4;
+  value4.mutable_strings()->add_values("value2");
+  ValueProto value5;
+  value5.mutable_strings()->add_values("value3");
+  controller_->SetAdditionalValue("key2", value4);
+  controller_->SetAdditionalValue("key3", value5);
+  EXPECT_EQ(controller_->GetUserData()->additional_values_.at("key1"), value1);
+  EXPECT_EQ(controller_->GetUserData()->additional_values_.at("key2"), value4);
+  EXPECT_EQ(controller_->GetUserData()->additional_values_.at("key3"), value5);
+
+  ValueProto value6;
+  value6.mutable_strings()->add_values("someValue");
+  EXPECT_DCHECK_DEATH(controller_->SetAdditionalValue("key4", value6));
 }
 
 TEST_F(ControllerTest, SetOverlayColors) {
@@ -1677,23 +1754,259 @@ TEST_F(ControllerTest, SetOverlayColors) {
 }
 
 TEST_F(ControllerTest, SetDateTimeRange) {
+  testing::InSequence seq;
+
   auto options = std::make_unique<MockCollectUserDataOptions>();
-  auto user_data = std::make_unique<UserData>();
+  options->request_date_time_range = true;
+  auto* time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("08:00 AM");
+  time_slot->set_comparison_value(0);
+  time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("09:00 AM");
+  time_slot->set_comparison_value(1);
+
   controller_->SetCollectUserDataOptions(options.get());
 
   EXPECT_CALL(mock_observer_,
               OnUserDataChanged(Not(nullptr),
                                 UserData::FieldChange::DATE_TIME_RANGE_START))
       .Times(1);
-  controller_->SetDateTimeRangeStart(2019, 11, 14, 9, 42, 0);
-  EXPECT_EQ(controller_->GetUserData()->date_time_range_start.date().day(), 14);
+  DateProto start_date;
+  start_date.set_year(2020);
+  start_date.set_month(1);
+  start_date.set_day(20);
+  controller_->SetDateTimeRangeStartDate(start_date);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->year(),
+            2020);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->month(),
+            1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->day(), 20);
+
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_START))
+      .Times(1);
+  controller_->SetDateTimeRangeStartTimeSlot(0);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_timeslot_, 0);
 
   EXPECT_CALL(mock_observer_,
               OnUserDataChanged(Not(nullptr),
                                 UserData::FieldChange::DATE_TIME_RANGE_END))
       .Times(1);
-  controller_->SetDateTimeRangeEnd(2019, 11, 15, 9, 42, 0);
-  EXPECT_EQ(controller_->GetUserData()->date_time_range_end.date().day(), 15);
+  DateProto end_date;
+  end_date.set_year(2020);
+  end_date.set_month(1);
+  end_date.set_day(25);
+  controller_->SetDateTimeRangeEndDate(end_date);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->year(),
+            2020);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->month(), 1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->day(), 25);
+
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_END))
+      .Times(1);
+  controller_->SetDateTimeRangeEndTimeSlot(1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_timeslot_, 1);
+}
+
+TEST_F(ControllerTest, SetDateTimeRangeStartDateAfterEndDate) {
+  testing::InSequence seq;
+
+  auto options = std::make_unique<MockCollectUserDataOptions>();
+  options->request_date_time_range = true;
+  auto* time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("08:00 AM");
+  time_slot->set_comparison_value(0);
+  time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("09:00 AM");
+  time_slot->set_comparison_value(1);
+
+  DateProto date;
+  date.set_year(2020);
+  date.set_month(1);
+  date.set_day(20);
+  GetUserData()->date_time_range_start_date_ = date;
+  GetUserData()->date_time_range_end_date_ = date;
+
+  controller_->SetCollectUserDataOptions(options.get());
+
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_START))
+      .Times(1);
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_END))
+      .Times(1);
+
+  date.set_day(21);
+  controller_->SetDateTimeRangeStartDate(date);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->year(),
+            2020);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->month(),
+            1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->day(), 21);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_,
+            base::nullopt);
+}
+
+TEST_F(ControllerTest, SetDateTimeRangeEndDateBeforeStartDate) {
+  testing::InSequence seq;
+
+  auto options = std::make_unique<MockCollectUserDataOptions>();
+  options->request_date_time_range = true;
+  auto* time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("08:00 AM");
+  time_slot->set_comparison_value(0);
+  time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("09:00 AM");
+  time_slot->set_comparison_value(1);
+
+  DateProto date;
+  date.set_year(2020);
+  date.set_month(1);
+  date.set_day(20);
+  GetUserData()->date_time_range_start_date_ = date;
+  GetUserData()->date_time_range_end_date_ = date;
+
+  controller_->SetCollectUserDataOptions(options.get());
+
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_END))
+      .Times(1);
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_START))
+      .Times(1);
+
+  date.set_day(19);
+  controller_->SetDateTimeRangeEndDate(date);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->year(),
+            2020);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->month(), 1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->day(), 19);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_,
+            base::nullopt);
+}
+
+TEST_F(ControllerTest, SetDateTimeRangeSameDatesStartTimeAfterEndTime) {
+  testing::InSequence seq;
+
+  auto options = std::make_unique<MockCollectUserDataOptions>();
+  options->request_date_time_range = true;
+  auto* time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("08:00 AM");
+  time_slot->set_comparison_value(0);
+  time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("09:00 AM");
+  time_slot->set_comparison_value(1);
+
+  DateProto date;
+  date.set_year(2020);
+  date.set_month(1);
+  date.set_day(20);
+  GetUserData()->date_time_range_start_date_ = date;
+  GetUserData()->date_time_range_end_date_ = date;
+  GetUserData()->date_time_range_end_timeslot_ = 0;
+
+  controller_->SetCollectUserDataOptions(options.get());
+
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_START))
+      .Times(1);
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_END))
+      .Times(1);
+
+  controller_->SetDateTimeRangeStartTimeSlot(1);
+  EXPECT_EQ(*controller_->GetUserData()->date_time_range_start_timeslot_, 1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_timeslot_,
+            base::nullopt);
+}
+
+TEST_F(ControllerTest, SetDateTimeRangeSameDatesEndTimeBeforeStartTime) {
+  testing::InSequence seq;
+
+  auto options = std::make_unique<MockCollectUserDataOptions>();
+  options->request_date_time_range = true;
+  auto* time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("08:00 AM");
+  time_slot->set_comparison_value(0);
+  time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("09:00 AM");
+  time_slot->set_comparison_value(1);
+
+  DateProto date;
+  date.set_year(2020);
+  date.set_month(1);
+  date.set_day(20);
+  GetUserData()->date_time_range_start_date_ = date;
+  GetUserData()->date_time_range_end_date_ = date;
+  GetUserData()->date_time_range_start_timeslot_ = 1;
+
+  controller_->SetCollectUserDataOptions(options.get());
+
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_END))
+      .Times(1);
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_START))
+      .Times(1);
+
+  controller_->SetDateTimeRangeEndTimeSlot(0);
+  EXPECT_EQ(*controller_->GetUserData()->date_time_range_end_timeslot_, 0);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_timeslot_,
+            base::nullopt);
+}
+
+TEST_F(ControllerTest, SetDateTimeRangeSameDateValidTime) {
+  testing::InSequence seq;
+
+  auto options = std::make_unique<MockCollectUserDataOptions>();
+  options->request_date_time_range = true;
+  auto* time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("08:00 AM");
+  time_slot->set_comparison_value(0);
+  time_slot = options->date_time_range.add_time_slots();
+  time_slot->set_label("09:00 AM");
+  time_slot->set_comparison_value(1);
+
+  DateProto date;
+  date.set_year(2020);
+  date.set_month(1);
+  date.set_day(20);
+  GetUserData()->date_time_range_start_date_ = date;
+  GetUserData()->date_time_range_end_date_ = date;
+
+  controller_->SetCollectUserDataOptions(options.get());
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_START))
+      .Times(1);
+  EXPECT_CALL(mock_observer_,
+              OnUserDataChanged(Not(nullptr),
+                                UserData::FieldChange::DATE_TIME_RANGE_END))
+      .Times(1);
+  controller_->SetDateTimeRangeStartTimeSlot(0);
+  controller_->SetDateTimeRangeEndTimeSlot(1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->year(),
+            2020);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->month(),
+            1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_date_->day(), 20);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->year(),
+            2020);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->month(), 1);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_end_date_->day(), 20);
+  EXPECT_EQ(controller_->GetUserData()->date_time_range_start_timeslot_, 0);
+  EXPECT_EQ(*controller_->GetUserData()->date_time_range_end_timeslot_, 1);
 }
 
 TEST_F(ControllerTest, ChangeClientSettings) {
@@ -1719,13 +2032,73 @@ TEST_F(ControllerTest, WriteUserData) {
 
   base::OnceCallback<void(UserData*, UserData::FieldChange*)> callback =
       base::BindOnce([](UserData* data, UserData::FieldChange* change) {
-        data->terms_and_conditions = TermsAndConditionsState::ACCEPTED;
+        data->terms_and_conditions_ = TermsAndConditionsState::ACCEPTED;
         *change = UserData::FieldChange::TERMS_AND_CONDITIONS;
       });
 
   controller_->WriteUserData(std::move(callback));
-  EXPECT_EQ(controller_->GetUserData()->terms_and_conditions,
+  EXPECT_EQ(GetUserData()->terms_and_conditions_,
             TermsAndConditionsState::ACCEPTED);
+}
+
+TEST_F(ControllerTest, ExpandOrCollapseBottomSheet) {
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(mock_observer_, OnCollapseBottomSheet()).Times(1);
+    EXPECT_CALL(mock_observer_, OnExpandBottomSheet()).Times(1);
+  }
+  controller_->CollapseBottomSheet();
+  controller_->ExpandBottomSheet();
+}
+
+TEST_F(ControllerTest, ShouldPromptActionExpandSheet) {
+  // Expect this to be true initially.
+  EXPECT_TRUE(controller_->ShouldPromptActionExpandSheet());
+
+  controller_->SetExpandSheetForPromptAction(false);
+  EXPECT_FALSE(controller_->ShouldPromptActionExpandSheet());
+
+  controller_->SetExpandSheetForPromptAction(true);
+  EXPECT_TRUE(controller_->ShouldPromptActionExpandSheet());
+}
+
+TEST_F(ControllerTest, SecondPromptActionShouldDefaultToExpandSheet) {
+  SupportsScriptResponseProto script_response;
+  AddRunnableScript(&script_response, "runnable")
+      ->mutable_presentation()
+      ->set_autostart(true);
+  SetNextScriptResponse(script_response);
+
+  ActionsResponseProto runnable_script;
+  // Prompt action 1 which disables auto expand.
+  auto* prompt_action = runnable_script.add_actions()->mutable_prompt();
+  prompt_action->add_choices()->mutable_chip()->set_text("continue");
+  prompt_action->set_disable_force_expand_sheet(true);
+
+  // Prompt action 2 using the default should fall back to auto expand again.
+  runnable_script.add_actions()
+      ->mutable_prompt()
+      ->add_choices()
+      ->mutable_chip()
+      ->set_text("next");
+
+  SetupActionsForScript("runnable", runnable_script);
+  Start();
+
+  // The first prompt should not auto expand.
+  EXPECT_EQ(AutofillAssistantState::PROMPT, controller_->GetState());
+  EXPECT_FALSE(controller_->ShouldPromptActionExpandSheet());
+  ASSERT_THAT(controller_->GetUserActions(), SizeIs(1));
+  EXPECT_EQ(controller_->GetUserActions()[0].chip().text, "continue");
+
+  // Click "continue"
+  EXPECT_TRUE(controller_->PerformUserAction(0));
+
+  // The second prompt should fall back to default auto expand again.
+  EXPECT_EQ(AutofillAssistantState::PROMPT, controller_->GetState());
+  EXPECT_TRUE(controller_->ShouldPromptActionExpandSheet());
+  ASSERT_THAT(controller_->GetUserActions(), SizeIs(1));
+  EXPECT_EQ(controller_->GetUserActions()[0].chip().text, "next");
 }
 
 }  // namespace autofill_assistant

@@ -11,7 +11,9 @@
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_server_config.h"
 #include "net/third_party/quiche/src/quic/core/crypto/transport_parameters.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_hostname_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -39,11 +41,11 @@ void TlsServerHandshaker::SignatureCallback::Cancel() {
   handshaker_ = nullptr;
 }
 
-TlsServerHandshaker::TlsServerHandshaker(QuicCryptoStream* stream,
-                                         QuicSession* session,
+TlsServerHandshaker::TlsServerHandshaker(QuicSession* session,
                                          SSL_CTX* ssl_ctx,
                                          ProofSource* proof_source)
-    : TlsHandshaker(stream, session, ssl_ctx),
+    : TlsHandshaker(this, session),
+      QuicCryptoServerStreamBase(session),
       proof_source_(proof_source),
       crypto_negotiated_params_(new QuicCryptoNegotiatedParameters),
       tls_connection_(ssl_ctx, this) {
@@ -118,6 +120,10 @@ void TlsServerHandshaker::OnPacketDecrypted(EncryptionLevel level) {
   }
 }
 
+void TlsServerHandshaker::OnHandshakeDoneReceived() {
+  DCHECK(false);
+}
+
 bool TlsServerHandshaker::ShouldSendExpectCTHeader() const {
   return false;
 }
@@ -126,8 +132,8 @@ bool TlsServerHandshaker::encryption_established() const {
   return encryption_established_;
 }
 
-bool TlsServerHandshaker::handshake_confirmed() const {
-  return handshake_confirmed_;
+bool TlsServerHandshaker::one_rtt_keys_available() const {
+  return one_rtt_keys_available_;
 }
 
 const QuicCryptoNegotiatedParameters&
@@ -137,6 +143,16 @@ TlsServerHandshaker::crypto_negotiated_params() const {
 
 CryptoMessageParser* TlsServerHandshaker::crypto_message_parser() {
   return TlsHandshaker::crypto_message_parser();
+}
+
+HandshakeState TlsServerHandshaker::GetHandshakeState() const {
+  if (one_rtt_keys_available_) {
+    return HANDSHAKE_CONFIRMED;
+  }
+  if (state_ >= STATE_ENCRYPTION_HANDSHAKE_DATA_PROCESSED) {
+    return HANDSHAKE_PROCESSED;
+  }
+  return HANDSHAKE_START;
 }
 
 size_t TlsServerHandshaker::BufferSizeLimitForLevel(
@@ -262,8 +278,7 @@ void TlsServerHandshaker::FinishHandshake() {
   state_ = STATE_HANDSHAKE_COMPLETE;
 
   encryption_established_ = true;
-  handshake_confirmed_ = true;
-  delegate()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
+  one_rtt_keys_available_ = true;
 
   // Fill crypto_negotiated_params_:
   const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl());
@@ -271,9 +286,10 @@ void TlsServerHandshaker::FinishHandshake() {
     crypto_negotiated_params_->cipher_suite = SSL_CIPHER_get_value(cipher);
   }
   crypto_negotiated_params_->key_exchange_group = SSL_get_curve_id(ssl());
-  // TODO(fayang): Replace this with DiscardOldKeys(ENCRYPTION_HANDSHAKE) when
-  // handshake key discarding settles down.
-  delegate()->NeuterHandshakeData();
+
+  delegate()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
+  delegate()->DiscardOldEncryptionKey(ENCRYPTION_HANDSHAKE);
+  delegate()->DiscardOldDecryptionKey(ENCRYPTION_HANDSHAKE);
 }
 
 ssl_private_key_result_t TlsServerHandshaker::PrivateKeySign(
@@ -281,7 +297,7 @@ ssl_private_key_result_t TlsServerHandshaker::PrivateKeySign(
     size_t* out_len,
     size_t max_out,
     uint16_t sig_alg,
-    QuicStringPiece in) {
+    quiche::QuicheStringPiece in) {
   signature_callback_ = new SignatureCallback(this);
   proof_source_->ComputeTlsSignature(
       session()->connection()->self_address(), hostname_, sig_alg, in,
@@ -314,6 +330,8 @@ int TlsServerHandshaker::SelectCertificate(int* out_alert) {
   const char* hostname = SSL_get_servername(ssl(), TLSEXT_NAMETYPE_host_name);
   if (hostname) {
     hostname_ = hostname;
+    crypto_negotiated_params_->sni =
+        QuicHostnameUtils::NormalizeHostname(hostname_);
   } else {
     QUIC_LOG(INFO) << "No hostname indicated in SNI";
   }
@@ -366,7 +384,7 @@ int TlsServerHandshaker::SelectAlpn(const uint8_t** out,
   CBS all_alpns;
   CBS_init(&all_alpns, in, in_len);
 
-  std::vector<QuicStringPiece> alpns;
+  std::vector<quiche::QuicheStringPiece> alpns;
   while (CBS_len(&all_alpns) > 0) {
     CBS alpn;
     if (!CBS_get_u8_length_prefixed(&all_alpns, &alpn)) {

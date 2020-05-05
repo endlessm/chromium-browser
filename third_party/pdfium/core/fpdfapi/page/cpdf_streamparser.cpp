@@ -179,7 +179,7 @@ RetainPtr<CPDF_Stream> CPDF_StreamParser::ReadInlineStream(
   } else {
     dwStreamSize = DecodeInlineStream(m_pBuf.subspan(m_Pos), width, height,
                                       decoder, pParam, dwOrigSize);
-    if (static_cast<int>(dwStreamSize) < 0)
+    if (!pdfium::base::IsValueInRangeForNumericType<int>(dwStreamSize))
       return nullptr;
 
     uint32_t dwSavePos = m_Pos;
@@ -217,7 +217,7 @@ CPDF_StreamParser::SyntaxType CPDF_StreamParser::ParseNextElement() {
   if (!PositionIsInBounds())
     return EndOfData;
 
-  int ch = m_pBuf[m_Pos++];
+  uint8_t ch = m_pBuf[m_Pos++];
   while (1) {
     while (PDFCharIsWhitespace(ch)) {
       if (!PositionIsInBounds())
@@ -377,7 +377,7 @@ void CPDF_StreamParser::GetNextWord(bool& bIsNumber) {
   if (!PositionIsInBounds())
     return;
 
-  int ch = m_pBuf[m_Pos++];
+  uint8_t ch = m_pBuf[m_Pos++];
   while (1) {
     while (PDFCharIsWhitespace(ch)) {
       if (!PositionIsInBounds()) {
@@ -561,8 +561,7 @@ ByteString CPDF_StreamParser::ReadHexString() {
   bool bFirst = true;
   int code = 0;
   while (PositionIsInBounds()) {
-    int ch = m_pBuf[m_Pos++];
-
+    uint8_t ch = m_pBuf[m_Pos++];
     if (ch == '>')
       break;
 

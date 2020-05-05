@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Resources.BackgroundServiceView = class extends UI.VBox {
+import {BackgroundServiceModel, Events} from './BackgroundServiceModel.js';  // eslint-disable-line no-unused-vars
+
+export class BackgroundServiceView extends UI.VBox {
   /**
    * @param {string} serviceName The name of the background service.
    * @return {string} The UI String to display.
@@ -28,7 +30,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
 
   /**
    * @param {!Protocol.BackgroundService.ServiceName} serviceName
-   * @param {!Resources.BackgroundServiceModel} model
+   * @param {!BackgroundServiceModel} model
    */
   constructor(serviceName, model) {
     super(true);
@@ -38,12 +40,10 @@ Resources.BackgroundServiceView = class extends UI.VBox {
     /** @const {!Protocol.BackgroundService.ServiceName} */
     this._serviceName = serviceName;
 
-    /** @const {!Resources.BackgroundServiceModel} */
+    /** @const {!BackgroundServiceModel} */
     this._model = model;
-    this._model.addEventListener(
-        Resources.BackgroundServiceModel.Events.RecordingStateChanged, this._onRecordingStateChanged, this);
-    this._model.addEventListener(
-        Resources.BackgroundServiceModel.Events.BackgroundServiceEventReceived, this._onEventReceived, this);
+    this._model.addEventListener(Events.RecordingStateChanged, this._onRecordingStateChanged, this);
+    this._model.addEventListener(Events.BackgroundServiceEventReceived, this._onEventReceived, this);
     this._model.enable(this._serviceName);
 
     /** @const {?SDK.ServiceWorkerManager} */
@@ -56,7 +56,8 @@ Resources.BackgroundServiceView = class extends UI.VBox {
 
 
     /** @const {!UI.Action} */
-    this._recordAction = /** @type {!UI.Action} */ (UI.actionRegistry.action('background-service.toggle-recording'));
+    this._recordAction =
+        /** @type {!UI.Action} */ (self.UI.actionRegistry.action('background-service.toggle-recording'));
     /** @type {?UI.ToolbarButton} */
     this._recordButton = null;
 
@@ -84,7 +85,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
     /** @const {!UI.VBox} */
     this._previewPanel = new UI.VBox();
 
-    /** @type {?Resources.BackgroundServiceView.EventDataNode} */
+    /** @type {?EventDataNode} */
     this._selectedEventNode = null;
 
     /** @type {?UI.Widget} */
@@ -198,7 +199,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
    */
   _addEvent(serviceEvent) {
     const data = this._createEventData(serviceEvent);
-    const dataNode = new Resources.BackgroundServiceView.EventDataNode(data, serviceEvent.eventMetadata);
+    const dataNode = new EventDataNode(data, serviceEvent.eventMetadata);
     this._dataGrid.rootNode().appendChild(dataNode);
 
     if (this._dataGrid.rootNode().children.length === 1) {
@@ -211,7 +212,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
    * @return {!DataGrid.DataGrid}
    */
   _createDataGrid() {
-    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([
+    const columns = /** @type {!Array<!DataGrid.ColumnDescriptor>} */ ([
       {id: 'id', title: ls`#`, weight: 1},
       {id: 'timestamp', title: ls`Timestamp`, weight: 8},
       {id: 'eventName', title: ls`Event`, weight: 10},
@@ -219,12 +220,11 @@ Resources.BackgroundServiceView = class extends UI.VBox {
       {id: 'swScope', title: ls`SW Scope`, weight: 2},
       {id: 'instanceId', title: ls`Instance ID`, weight: 10},
     ]);
-    const dataGrid = new DataGrid.DataGrid(columns);
+    const dataGrid = new DataGrid.DataGrid({displayName: ls`Background Services`, columns});
     dataGrid.setStriped(true);
 
     dataGrid.addEventListener(
-        DataGrid.DataGrid.Events.SelectedNode,
-        event => this._showPreview(/** @type {!Resources.BackgroundServiceView.EventDataNode} */ (event.data)));
+        DataGrid.DataGrid.Events.SelectedNode, event => this._showPreview(/** @type {!EventDataNode} */ (event.data)));
 
     return dataGrid;
   }
@@ -301,7 +301,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
   }
 
   /**
-   * @param {?Resources.BackgroundServiceView.EventDataNode} dataNode
+   * @param {?EventDataNode} dataNode
    */
   _showPreview(dataNode) {
     if (this._selectedEventNode && this._selectedEventNode === dataNode) {
@@ -329,7 +329,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
       centered.createChild('p').textContent = ls`Select an entry to view metadata`;
     } else if (this._recordButton.toggled()) {
       // Inform users that we are recording/waiting for events.
-      const featureName = Resources.BackgroundServiceView.getUIString(this._serviceName);
+      const featureName = BackgroundServiceView.getUIString(this._serviceName);
       centered.createChild('p').textContent = ls`Recording ${featureName} activity...`;
       centered.createChild('p').textContent =
           ls`DevTools will record all ${featureName} activity for up to 3 days, even when closed.`;
@@ -338,7 +338,7 @@ Resources.BackgroundServiceView = class extends UI.VBox {
 
       const recordKey = createElementWithClass('b', 'background-service-shortcut');
       recordKey.textContent =
-          UI.shortcutRegistry.shortcutDescriptorsForAction('background-service.toggle-recording')[0].name;
+          self.UI.shortcutRegistry.shortcutDescriptorsForAction('background-service.toggle-recording')[0].name;
 
       const inlineButton = UI.createInlineButton(landingRecordButton);
       inlineButton.classList.add('background-service-record-inline-button');
@@ -367,21 +367,9 @@ Resources.BackgroundServiceView = class extends UI.VBox {
     await stream.write(JSON.stringify(events, undefined, 2));
     stream.close();
   }
-};
+}
 
-/**
- * @typedef {{
- *    id: number,
- *    timestamp: string,
- *    origin: string,
- *    swScope: string,
- *    eventName: string,
- *    instanceId: string,
- * }}
- */
-Resources.BackgroundServiceView.EventData;
-
-Resources.BackgroundServiceView.EventDataNode = class extends DataGrid.DataGridNode {
+export class EventDataNode extends DataGrid.DataGridNode {
   /**
    * @param {!Object<string, string>} data
    * @param {!Array<!Protocol.BackgroundService.EventMetadata>} eventMetadata
@@ -420,13 +408,13 @@ Resources.BackgroundServiceView.EventDataNode = class extends DataGrid.DataGridN
 
     return preview;
   }
-};
+}
 
 /**
  * @implements {UI.ActionDelegate}
  * @unrestricted
  */
-Resources.BackgroundServiceView.ActionDelegate = class {
+export class ActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -434,7 +422,7 @@ Resources.BackgroundServiceView.ActionDelegate = class {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    const view = context.flavor(Resources.BackgroundServiceView);
+    const view = context.flavor(BackgroundServiceView);
     switch (actionId) {
       case 'background-service.toggle-recording':
         view._toggleRecording();
@@ -442,4 +430,4 @@ Resources.BackgroundServiceView.ActionDelegate = class {
     }
     return false;
   }
-};
+}

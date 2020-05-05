@@ -24,6 +24,7 @@
 #include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
 #include "src/gpu/glsl/GrGLSLVarying.h"
 #include "src/gpu/ops/GrMeshDrawOp.h"
+#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 
 namespace {
 class Op : public GrMeshDrawOp {
@@ -124,8 +125,11 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        flushState->executeDrawsAndUploadsForMeshDrawOp(
-                this, chainBounds, GrProcessorSet::MakeEmptySet());
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 GrProcessorSet::MakeEmptySet(),
+                                                                 GrPipeline::InputFlags::kNone);
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
     int fNumAttribs;
@@ -140,8 +144,8 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(VertexAttributeCount, reporter, ctxInfo) {
     GrGpu* gpu = context->priv().getGpu();
 #endif
 
-    auto renderTargetContext = context->priv().makeDeferredRenderTargetContext(
-            SkBackingFit::kApprox, 1, 1, GrColorType::kRGBA_8888, nullptr);
+    auto renderTargetContext = GrRenderTargetContext::Make(
+            context, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kApprox, {1, 1});
     if (!renderTargetContext) {
         ERRORF(reporter, "Could not create render target context.");
         return;

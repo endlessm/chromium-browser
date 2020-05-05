@@ -171,6 +171,22 @@ private:
     return isInlineImmediate(N, true);
   }
 
+  bool isInlineImmediate16(int64_t Imm) const {
+    return AMDGPU::isInlinableLiteral16(Imm, Subtarget->hasInv2PiInlineImm());
+  }
+
+  bool isInlineImmediate32(int64_t Imm) const {
+    return AMDGPU::isInlinableLiteral32(Imm, Subtarget->hasInv2PiInlineImm());
+  }
+
+  bool isInlineImmediate64(int64_t Imm) const {
+    return AMDGPU::isInlinableLiteral64(Imm, Subtarget->hasInv2PiInlineImm());
+  }
+
+  bool isInlineImmediate(const APFloat &Imm) const {
+    return Subtarget->getInstrInfo()->isInlineConstant(Imm);
+  }
+
   bool isVGPRImm(const SDNode *N) const;
   bool isUniformLoad(const SDNode *N) const;
   bool isUniformBr(const SDNode *N) const;
@@ -236,7 +252,6 @@ private:
   bool SelectMOVRELOffset(SDValue Index, SDValue &Base, SDValue &Offset) const;
 
   bool SelectVOP3Mods_NNaN(SDValue In, SDValue &Src, SDValue &SrcMods) const;
-  bool SelectVOP3Mods_f32(SDValue In, SDValue &Src, SDValue &SrcMods) const;
   bool SelectVOP3ModsImpl(SDValue In, SDValue &Src, unsigned &SrcMods) const;
   bool SelectVOP3Mods(SDValue In, SDValue &Src, SDValue &SrcMods) const;
   bool SelectVOP3NoMods(SDValue In, SDValue &Src) const;
@@ -244,10 +259,6 @@ private:
                        SDValue &Clamp, SDValue &Omod) const;
   bool SelectVOP3NoMods0(SDValue In, SDValue &Src, SDValue &SrcMods,
                          SDValue &Clamp, SDValue &Omod) const;
-
-  bool SelectVOP3Mods0Clamp0OMod(SDValue In, SDValue &Src, SDValue &SrcMods,
-                                 SDValue &Clamp,
-                                 SDValue &Omod) const;
 
   bool SelectVOP3OMods(SDValue In, SDValue &Src,
                        SDValue &Clamp, SDValue &Omod) const;
@@ -1331,6 +1342,7 @@ bool AMDGPUDAGToDAGISel::SelectMUBUF(SDValue Addr, SDValue &Ptr,
                                      SDValue &TFE, SDValue &DLC,
                                      SDValue &SWZ) const {
   // Subtarget prefers to use flat instruction
+  // FIXME: This should be a pattern predicate and not reach here
   if (Subtarget->useFlatForGlobal())
     return false;
 
@@ -1426,6 +1438,7 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFAddr64(SDValue Addr, SDValue &SRsrc,
   SDValue Ptr, Offen, Idxen, Addr64;
 
   // addr64 bit was removed for volcanic islands.
+  // FIXME: This should be a pattern predicate and not reach here
   if (!Subtarget->hasAddr64())
     return false;
 
@@ -2416,15 +2429,6 @@ bool AMDGPUDAGToDAGISel::SelectVOP3Mods_NNaN(SDValue In, SDValue &Src,
   return isNoNanSrc(Src);
 }
 
-bool AMDGPUDAGToDAGISel::SelectVOP3Mods_f32(SDValue In, SDValue &Src,
-                                            SDValue &SrcMods) const {
-  if (In.getValueType() == MVT::f32)
-    return SelectVOP3Mods(In, Src, SrcMods);
-  Src = In;
-  SrcMods = CurDAG->getTargetConstant(0, SDLoc(In), MVT::i32);;
-  return true;
-}
-
 bool AMDGPUDAGToDAGISel::SelectVOP3NoMods(SDValue In, SDValue &Src) const {
   if (In.getOpcode() == ISD::FABS || In.getOpcode() == ISD::FNEG)
     return false;
@@ -2440,14 +2444,6 @@ bool AMDGPUDAGToDAGISel::SelectVOP3Mods0(SDValue In, SDValue &Src,
   Clamp = CurDAG->getTargetConstant(0, DL, MVT::i1);
   Omod = CurDAG->getTargetConstant(0, DL, MVT::i1);
 
-  return SelectVOP3Mods(In, Src, SrcMods);
-}
-
-bool AMDGPUDAGToDAGISel::SelectVOP3Mods0Clamp0OMod(SDValue In, SDValue &Src,
-                                                   SDValue &SrcMods,
-                                                   SDValue &Clamp,
-                                                   SDValue &Omod) const {
-  Clamp = Omod = CurDAG->getTargetConstant(0, SDLoc(In), MVT::i32);
   return SelectVOP3Mods(In, Src, SrcMods);
 }
 

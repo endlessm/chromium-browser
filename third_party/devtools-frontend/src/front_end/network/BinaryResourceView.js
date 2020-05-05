@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Network.BinaryResourceView = class extends UI.VBox {
+export class BinaryResourceView extends UI.VBox {
   /**
    * @param {string} base64content
    * @param {string} contentUrl
@@ -24,22 +24,22 @@ Network.BinaryResourceView = class extends UI.VBox {
 
     this._toolbar = new UI.Toolbar('binary-view-toolbar', this.element);
 
-    /** @type {!Array<!Network.BinaryResourceView.BinaryViewObject>} */
+    /** @type {!Array<!BinaryViewObject>} */
     this._binaryViewObjects = [
-      new Network.BinaryResourceView.BinaryViewObject(
+      new BinaryViewObject(
           'base64', ls`Base64`, ls`Copied as Base64`,
           this._binaryResourceViewFactory.createBase64View.bind(this._binaryResourceViewFactory),
           this._binaryResourceViewFactory.base64.bind(this._binaryResourceViewFactory)),
-      new Network.BinaryResourceView.BinaryViewObject(
+      new BinaryViewObject(
           'hex', ls`Hex Viewer`, ls`Copied as Hex`,
           this._binaryResourceViewFactory.createHexView.bind(this._binaryResourceViewFactory),
           this._binaryResourceViewFactory.hex.bind(this._binaryResourceViewFactory)),
-      new Network.BinaryResourceView.BinaryViewObject(
+      new BinaryViewObject(
           'utf8', ls`UTF-8`, ls`Copied as UTF-8`,
           this._binaryResourceViewFactory.createUtf8View.bind(this._binaryResourceViewFactory),
           this._binaryResourceViewFactory.utf8.bind(this._binaryResourceViewFactory)),
     ];
-    this._binaryViewTypeSetting = Common.settings.createSetting('binaryViewType', 'hex');
+    this._binaryViewTypeSetting = self.Common.settings.createSetting('binaryViewType', 'hex');
     this._binaryViewTypeCombobox = new UI.ToolbarComboBox(this._binaryViewTypeChanged.bind(this), ls`Binary view type`);
     for (const viewObject of this._binaryViewObjects) {
       this._binaryViewTypeCombobox.addOption(
@@ -64,7 +64,7 @@ Network.BinaryResourceView = class extends UI.VBox {
   }
 
   /**
-   * @return {?Network.BinaryResourceView.BinaryViewObject}
+   * @return {?BinaryViewObject}
    */
   _getCurrentViewObject() {
     const filter = obj => obj.type === this._binaryViewTypeSetting.get();
@@ -82,7 +82,7 @@ Network.BinaryResourceView = class extends UI.VBox {
     this._copiedText.setText(viewObject.copiedMessage);
     this._copiedText.element.classList.remove('fadeout');
     /**
-     * @this {!Network.BinaryResourceView}
+     * @this {!BinaryResourceView}
      */
     function addFadeoutClass() {
       this._copiedText.element.classList.add('fadeout');
@@ -156,9 +156,9 @@ Network.BinaryResourceView = class extends UI.VBox {
       Host.InspectorFrontendHost.copyText(content.content);
     });
   }
-};
+}
 
-Network.BinaryResourceView.BinaryViewObject = class {
+export class BinaryViewObject {
   /**
    * @param {string} type
    * @param {string} label
@@ -186,4 +186,4 @@ Network.BinaryResourceView.BinaryViewObject = class {
     }
     return this._view;
   }
-};
+}

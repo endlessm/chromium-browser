@@ -48,6 +48,7 @@ class GlobalObject;
 class GlobalValue;
 class GlobalVariable;
 class MachineBasicBlock;
+class MachineBlockFrequencyInfo;
 class MachineConstantPoolValue;
 class MachineDominatorTree;
 class MachineFunction;
@@ -58,7 +59,6 @@ class MachineModuleInfo;
 class MachineOptimizationRemarkEmitter;
 class MCAsmInfo;
 class MCCFIInstruction;
-struct MCCodePaddingContext;
 class MCContext;
 class MCExpr;
 class MCInst;
@@ -69,6 +69,7 @@ class MCSymbol;
 class MCTargetOptions;
 class MDNode;
 class Module;
+class ProfileSummaryInfo;
 class raw_ostream;
 class RemarkStreamer;
 class StackMaps;
@@ -107,6 +108,13 @@ public:
 
   /// Optimization remark emitter.
   MachineOptimizationRemarkEmitter *ORE;
+
+  MachineBlockFrequencyInfo *MBFI;
+
+  ProfileSummaryInfo *PSI;
+
+  /// The symbol for the entry in __patchable_function_entires.
+  MCSymbol *CurrentPatchableFunctionEntrySym = nullptr;
 
   /// The symbol for the current function. This is recalculated at the beginning
   /// of each call to runOnMachineFunction().
@@ -281,6 +289,9 @@ public:
   /// Emit a table with all XRay instrumentation points.
   void emitXRayTable();
 
+  DenseMap<const MCSection *, unsigned> PatchableFunctionEntryID;
+  void emitPatchableFunctionEntries();
+
   //===------------------------------------------------------------------===//
   // MachineFunctionPass Implementation.
   //===------------------------------------------------------------------===//
@@ -440,6 +451,9 @@ public:
   /// Targets can override this to customize the output of IMPLICIT_DEF
   /// instructions in verbose mode.
   virtual void emitImplicitDef(const MachineInstr *MI) const;
+
+  /// Emit N NOP instructions.
+  void emitNops(unsigned N);
 
   //===------------------------------------------------------------------===//
   // Symbol Lowering Routines.
@@ -645,7 +659,7 @@ public:
 
   /// Return the alignment for the specified \p GV.
   static Align getGVAlignment(const GlobalValue *GV, const DataLayout &DL,
-                              Align InAlign = Align::None());
+                              Align InAlign = Align(1));
 
 private:
   /// Private state for PrintSpecial()
@@ -690,8 +704,6 @@ private:
   GCMetadataPrinter *GetOrCreateGCPrinter(GCStrategy &S);
   /// Emit GlobalAlias or GlobalIFunc.
   void emitGlobalIndirectSymbol(Module &M, const GlobalIndirectSymbol &GIS);
-  void setupCodePaddingContext(const MachineBasicBlock &MBB,
-                               MCCodePaddingContext &Context) const;
 };
 
 } // end namespace llvm

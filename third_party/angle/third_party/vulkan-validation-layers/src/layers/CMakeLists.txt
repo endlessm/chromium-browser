@@ -23,7 +23,7 @@ if(WIN32)
 elseif(ANDROID)
     add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR -DVK_USE_PLATFORM_ANDROID_KHX)
 elseif(APPLE)
-    add_definitions(-DVK_USE_PLATFORM_MACOS_MVK)
+    add_definitions(-DVK_USE_PLATFORM_MACOS_MVK -DVK_USE_PLATFORM_METAL_EXT)
     if(CMAKE_GENERATOR MATCHES "^Xcode.*")
         add_custom_target(mk_layer_config_dir ALL
                           COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)
@@ -224,7 +224,7 @@ if(BUILD_LAYERS)
     # TARGET_FILE_DIR, specifically)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generator.cmake" "configure_file(\"\${INPUT_FILE}\" \"\${OUTPUT_FILE}\")")
     foreach(TARGET_NAME ${TARGET_NAMES})
-        set(CONFIG_DEFINES -DINPUT_FILE="${CMAKE_CURRENT_SOURCE_DIR}/json/${TARGET_NAME}.json.in" -DVK_VERSION=1.1.${vk_header_version})
+        set(CONFIG_DEFINES -DINPUT_FILE="${CMAKE_CURRENT_SOURCE_DIR}/json/${TARGET_NAME}.json.in" -DVK_VERSION=1.2.${vk_header_version})
         # If this json file is not a metalayer, get the needed properties from that target
         if(TARGET ${TARGET_NAME})
             set(CONFIG_DEFINES
@@ -249,7 +249,7 @@ if(BUILD_LAYERS)
             set(INSTALL_DEFINES
                 -DINPUT_FILE="${CMAKE_CURRENT_SOURCE_DIR}/json/${TARGET_NAME}.json.in"
                 -DOUTPUT_FILE="${CMAKE_CURRENT_BINARY_DIR}/staging-json/${TARGET_NAME}.json"
-                -DVK_VERSION=1.1.${vk_header_version})
+                -DVK_VERSION=1.2.${vk_header_version})
             # If this json file is not a metalayer, get the needed properties from that target
             if(TARGET ${TARGET_NAME})
                 set(INSTALL_DEFINES ${INSTALL_DEFINES} -DRELATIVE_LAYER_BINARY="$<TARGET_FILE_NAME:${TARGET_NAME}>")

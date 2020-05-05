@@ -41,7 +41,7 @@ export class WorkerWrapper {
 
     /** @type {!Promise<!Worker>} */
     this._workerPromise = new Promise(fulfill => {
-      this._worker = new Worker(url);
+      this._worker = new Worker(url, {type: 'module'});
       this._worker.onmessage = onMessage.bind(this);
 
       /**
@@ -93,12 +93,3 @@ export class WorkerWrapper {
     this._workerPromise.then(worker => worker.onerror = listener);
   }
 }
-
-/* Legacy exported object */
-self.Common = self.Common || {};
-Common = Common || {};
-
-/**
- * @constructor
- */
-Common.Worker = WorkerWrapper;

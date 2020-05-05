@@ -101,7 +101,7 @@ ErrorOr<MdnsRecordTracker::UpdateType> MdnsRecordTracker::Update(
 
     // Goodbye records do not need to be requeried, set the attempt count to the
     // last item, which is 100% of TTL, i.e. record expiration.
-    attempt_count_ = openscreen::countof(kTtlFractions) - 1;
+    attempt_count_ = countof(kTtlFractions) - 1;
   } else {
     record_ = new_record;
     attempt_count_ = 0;
@@ -123,9 +123,13 @@ void MdnsRecordTracker::ExpireSoon() {
 
   // Set the attempt count to the last item, which is 100% of TTL, i.e. record
   // expiration, to prevent any requeries
-  attempt_count_ = openscreen::countof(kTtlFractions) - 1;
+  attempt_count_ = countof(kTtlFractions) - 1;
   start_time_ = now_function_();
   send_alarm_.Schedule([this] { SendQuery(); }, GetNextSendTime());
+}
+
+bool MdnsRecordTracker::IsNearingExpiry() {
+  return (now_function_() - start_time_) > record_.ttl() / 2;
 }
 
 void MdnsRecordTracker::SendQuery() {
@@ -144,13 +148,13 @@ void MdnsRecordTracker::SendQuery() {
   }
 }
 
-openscreen::platform::Clock::time_point MdnsRecordTracker::GetNextSendTime() {
-  OSP_DCHECK(attempt_count_ < openscreen::countof(kTtlFractions));
+Clock::time_point MdnsRecordTracker::GetNextSendTime() {
+  OSP_DCHECK(attempt_count_ < countof(kTtlFractions));
 
   double ttl_fraction = kTtlFractions[attempt_count_++];
 
   // Do not add random variation to the expiration time (last fraction of TTL)
-  if (attempt_count_ != openscreen::countof(kTtlFractions)) {
+  if (attempt_count_ != countof(kTtlFractions)) {
     ttl_fraction += random_delay_->GetRecordTtlVariation();
   }
 
@@ -160,28 +164,48 @@ openscreen::platform::Clock::time_point MdnsRecordTracker::GetNextSendTime() {
 }
 
 MdnsQuestionTracker::MdnsQuestionTracker(MdnsQuestion question,
+                                         KnownAnswerQuery query,
                                          MdnsSender* sender,
                                          TaskRunner* task_runner,
                                          ClockNowFunctionPtr now_function,
                                          MdnsRandom* random_delay)
     : MdnsTracker(sender, task_runner, now_function, random_delay),
       question_(std::move(question)),
-      send_delay_(kMinimumQueryInterval) {
+      send_delay_(kMinimumQueryInterval),
+      known_answer_query_(query) {
   // The initial query has to be sent after a random delay of 20-120
   // milliseconds.
-  const Clock::duration delay = random_delay_->GetInitialQueryDelay();
-  send_alarm_.Schedule([this] { MdnsQuestionTracker::SendQuery(); },
-                       now_function_() + delay);
+  send_alarm_.ScheduleFromNow([this] { MdnsQuestionTracker::SendQuery(); },
+                              random_delay_->GetInitialQueryDelay());
 }
 
 void MdnsQuestionTracker::SendQuery() {
   MdnsMessage message(CreateMessageId(), MessageType::Query);
   message.AddQuestion(question_);
-  // TODO(yakimakha): Implement known-answer suppression by adding known
-  // answers to the question
+
+  // Send the message and additional known answer packets as needed.
+  std::vector<MdnsRecord::ConstRef> known_answers = known_answer_query_(
+      question_.name(), question_.dns_type(), question_.dns_class());
+  for (auto it = known_answers.begin(); it != known_answers.end();) {
+    if (message.CanAddRecord(*it)) {
+      message.AddAnswer(std::move(*it++));
+    } else if (message.questions().empty() && message.answers().empty()) {
+      // This case should never happen, because it means a record is too large
+      // to fit into its own message.
+      OSP_LOG << "Encountered unreasonably large message in cache. Skipping "
+              << "known answer in suppressions...";
+      it++;
+    } else {
+      message.set_truncated();
+      sender_->SendMulticast(message);
+      message = MdnsMessage(CreateMessageId(), MessageType::Query);
+    }
+  }
   sender_->SendMulticast(message);
-  send_alarm_.Schedule([this] { MdnsQuestionTracker::SendQuery(); },
-                       now_function_() + send_delay_);
+
+  // Reschedule this task to run again per FRC spec.
+  send_alarm_.ScheduleFromNow([this] { MdnsQuestionTracker::SendQuery(); },
+                              send_delay_);
   send_delay_ = send_delay_ * kIntervalIncreaseFactor;
   if (send_delay_ > kMaximumQueryInterval) {
     send_delay_ = kMaximumQueryInterval;

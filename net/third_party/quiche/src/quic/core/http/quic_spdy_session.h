@@ -24,7 +24,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/spdy/core/http2_frame_decoder_adapter.h"
 
 namespace quic {
@@ -95,10 +95,10 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
   void Initialize() override;
 
   // QpackEncoder::DecoderStreamErrorDelegate implementation.
-  void OnDecoderStreamError(QuicStringPiece error_message) override;
+  void OnDecoderStreamError(quiche::QuicheStringPiece error_message) override;
 
   // QpackDecoder::EncoderStreamErrorDelegate implementation.
-  void OnEncoderStreamError(QuicStringPiece error_message) override;
+  void OnEncoderStreamError(quiche::QuicheStringPiece error_message) override;
 
   // Called by |headers_stream_| when headers with a priority have been
   // received for a stream.  This method will only be called for server streams.
@@ -127,6 +127,14 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
   virtual void OnPriorityFrame(QuicStreamId stream_id,
                                const spdy::SpdyStreamPrecedence& precedence);
 
+  // Called when an HTTP/3 PRIORITY_UPDATE frame has been received for a request
+  // stream.  Returns false and closes connection if |stream_id| is invalid.
+  bool OnPriorityUpdateForRequestStream(QuicStreamId stream_id, int urgency);
+
+  // Called when an HTTP/3 PRIORITY_UPDATE frame has been received for a push
+  // stream.  Returns false and closes connection if |push_id| is invalid.
+  bool OnPriorityUpdateForPushStream(QuicStreamId push_id, int urgency);
+
   // Sends contents of |iov| to h2_deframer_, returns number of bytes processed.
   size_t ProcessHeaderData(const struct iovec& iov);
 
@@ -141,16 +149,16 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
       const spdy::SpdyStreamPrecedence& precedence,
       QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener);
 
-  // Writes a PRIORITY frame the to peer. Returns the size in bytes of the
-  // resulting PRIORITY frame for QUIC_VERSION_43 and above. Otherwise, does
+  // Writes an HTTP/2 PRIORITY frame the to peer. Returns the size in bytes of
+  // the resulting PRIORITY frame for QUIC_VERSION_43 and above. Otherwise, does
   // nothing and returns 0.
   size_t WritePriority(QuicStreamId id,
                        QuicStreamId parent_stream_id,
                        int weight,
                        bool exclusive);
 
-  // Writes a HTTP/3 PRIORITY frame to the peer.
-  void WriteH3Priority(const PriorityFrame& priority);
+  // Writes an HTTP/3 PRIORITY_UPDATE frame to the peer.
+  void WriteHttp3PriorityUpdate(const PriorityUpdateFrame& priority_update);
 
   // Process received HTTP/3 GOAWAY frame. This method should only be called on
   // the client side.
@@ -273,6 +281,8 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
            (qpack_decoder_ && qpack_decoder_->dynamic_table_entry_referenced());
   }
 
+  void OnStreamCreated(QuicSpdyStream* stream);
+
  protected:
   // Override CreateIncomingStream(), CreateOutgoingBidirectionalStream() and
   // CreateOutgoingUnidirectionalStream() with QuicSpdyStream return type to
@@ -282,7 +292,7 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
   virtual QuicSpdyStream* CreateOutgoingBidirectionalStream() = 0;
   virtual QuicSpdyStream* CreateOutgoingUnidirectionalStream() = 0;
 
-  QuicSpdyStream* GetSpdyDataStream(const QuicStreamId stream_id);
+  QuicSpdyStream* GetOrCreateSpdyDataStream(const QuicStreamId stream_id);
 
   // If an incoming stream can be created, return true.
   virtual bool ShouldCreateIncomingStream(QuicStreamId id) = 0;
@@ -363,7 +373,7 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
                   const spdy::SpdyStreamPrecedence& precedence);
 
   void CloseConnectionOnDuplicateHttp3UnidirectionalStreams(
-      QuicStringPiece type);
+      quiche::QuicheStringPiece type);
 
   // Sends any data which should be sent at the start of a connection,
   // including the initial SETTINGS frame, etc.
@@ -441,8 +451,12 @@ class QUIC_EXPORT_PRIVATE QuicSpdySession
   // If the endpoint has sent HTTP/3 GOAWAY frame.
   bool http3_goaway_sent_;
 
-  // If the sendpoint has sent the initial HTTP/3 MAX_PUSH_ID frame.
+  // If the endpoint has sent the initial HTTP/3 MAX_PUSH_ID frame.
   bool http3_max_push_id_sent_;
+
+  // Priority values received in PRIORITY_UPDATE frames for streams that are not
+  // open yet.
+  QuicUnorderedMap<QuicStreamId, int> buffered_stream_priorities_;
 };
 
 }  // namespace quic

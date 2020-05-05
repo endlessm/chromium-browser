@@ -164,6 +164,7 @@ GLenum VariableComponentType(GLenum type)
         case GL_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
+        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
             return GL_INT;
         case GL_UNSIGNED_INT:
         case GL_UNSIGNED_INT_VEC2:
@@ -205,6 +206,54 @@ size_t VariableInternalSize(GLenum type)
 size_t VariableExternalSize(GLenum type)
 {
     return VariableComponentSize(VariableComponentType(type)) * VariableComponentCount(type);
+}
+
+std::string GetGLSLTypeString(GLenum type)
+{
+    switch (type)
+    {
+        case GL_BOOL:
+            return "bool";
+        case GL_INT:
+            return "int";
+        case GL_UNSIGNED_INT:
+            return "uint";
+        case GL_FLOAT:
+            return "float";
+        case GL_BOOL_VEC2:
+            return "bvec2";
+        case GL_BOOL_VEC3:
+            return "bvec3";
+        case GL_BOOL_VEC4:
+            return "bvec4";
+        case GL_INT_VEC2:
+            return "ivec2";
+        case GL_INT_VEC3:
+            return "ivec3";
+        case GL_INT_VEC4:
+            return "ivec4";
+        case GL_FLOAT_VEC2:
+            return "vec2";
+        case GL_FLOAT_VEC3:
+            return "vec3";
+        case GL_FLOAT_VEC4:
+            return "vec4";
+        case GL_UNSIGNED_INT_VEC2:
+            return "uvec2";
+        case GL_UNSIGNED_INT_VEC3:
+            return "uvec3";
+        case GL_UNSIGNED_INT_VEC4:
+            return "uvec4";
+        case GL_FLOAT_MAT2:
+            return "mat2";
+        case GL_FLOAT_MAT3:
+            return "mat3";
+        case GL_FLOAT_MAT4:
+            return "mat4";
+        default:
+            UNREACHABLE();
+            return nullptr;
+    }
 }
 
 GLenum VariableBoolVectorType(GLenum type)
@@ -292,6 +341,7 @@ int VariableRowCount(GLenum type)
         case GL_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
+        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
             return 1;
         case GL_FLOAT_MAT2:
         case GL_FLOAT_MAT3x2:
@@ -358,6 +408,7 @@ int VariableColumnCount(GLenum type)
         case GL_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
+        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
             return 1;
         case GL_BOOL_VEC2:
         case GL_FLOAT_VEC2:
@@ -417,6 +468,7 @@ bool IsSamplerType(GLenum type)
         case GL_SAMPLER_2D_SHADOW:
         case GL_SAMPLER_CUBE_SHADOW:
         case GL_SAMPLER_2D_ARRAY_SHADOW:
+        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
             return true;
     }
 
@@ -760,6 +812,7 @@ int VariableSortOrder(GLenum type)
         case GL_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_IMAGE_CUBE:
         case GL_UNSIGNED_INT_ATOMIC_COUNTER:
+        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
             return 6;
 
         default:

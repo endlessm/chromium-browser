@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class ConsolePrompt extends UI.Widget {
+import {ConsolePanel} from './ConsolePanel.js';
+
+export class ConsolePrompt extends UI.Widget {
   constructor() {
     super();
     this.registerRequiredCSS('console/consolePrompt.css');
     this._addCompletionsFromHistory = true;
-    this._history = new Console.ConsoleHistoryManager();
+    this._history = new ConsoleHistoryManager();
 
     this._initialText = '';
     /** @type {?UI.TextEditor} */
@@ -26,7 +28,7 @@ export default class ConsolePrompt extends UI.Widget {
     this.element.appendChild(this._promptIcon);
     this._iconThrottler = new Common.Throttler(0);
 
-    this._eagerEvalSetting = Common.settings.moduleSetting('consoleEagerEval');
+    this._eagerEvalSetting = self.Common.settings.moduleSetting('consoleEagerEval');
     this._eagerEvalSetting.addChangeListener(this._eagerSettingChanged.bind(this));
     this._eagerPreviewElement.classList.toggle('hidden', !this._eagerEvalSetting.get());
 
@@ -43,7 +45,7 @@ export default class ConsolePrompt extends UI.Widget {
 
     /**
      * @param {!UI.TextEditorFactory} factory
-     * @this {Console.ConsolePrompt}
+     * @this {ConsolePrompt}
      */
     function gotFactory(factory) {
       this._editor = factory.createEditor({
@@ -111,7 +113,7 @@ export default class ConsolePrompt extends UI.Widget {
    */
   async _requestPreview() {
     const text = this._editor.textWithCurrentSuggestion().trim();
-    const executionContext = UI.context.flavor(SDK.ExecutionContext);
+    const executionContext = self.UI.context.flavor(SDK.ExecutionContext);
     const {preview, result} =
         await ObjectUI.JavaScriptREPL.evaluateAndBuildPreview(text, true /* throwOnSideEffect */, 500);
     this._innerPreviewElement.removeChildren();
@@ -141,7 +143,7 @@ export default class ConsolePrompt extends UI.Widget {
   }
 
   /**
-   * @return {!Console.ConsoleHistoryManager}
+   * @return {!ConsoleHistoryManager}
    */
   history() {
     return this._history;
@@ -306,15 +308,15 @@ export default class ConsolePrompt extends UI.Widget {
    */
   async _appendCommand(text, useCommandLineAPI) {
     this.setText('');
-    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
+    const currentExecutionContext = self.UI.context.flavor(SDK.ExecutionContext);
     if (currentExecutionContext) {
       const executionContext = currentExecutionContext;
-      const message = SDK.consoleModel.addCommandMessage(executionContext, text);
-      const wrappedResult = await ObjectUI.JavaScriptREPL.preprocessExpression(text);
-      SDK.consoleModel.evaluateCommandInConsole(
-          executionContext, message, wrappedResult.text, useCommandLineAPI,
-          /* awaitPromise */ wrappedResult.preprocessed);
-      if (Console.ConsolePanel.instance().isShowing()) {
+      const message = self.SDK.consoleModel.addCommandMessage(executionContext, text);
+      const expression = ObjectUI.JavaScriptREPL.preprocessExpression(text);
+      self.SDK.consoleModel.evaluateCommandInConsole(
+          executionContext, message, expression, useCommandLineAPI,
+          /* awaitPromise */ false);
+      if (ConsolePanel.instance().isShowing()) {
         Host.userMetrics.actionTaken(Host.UserMetrics.Action.CommandEvaluatedInConsolePanel);
       }
     }
@@ -477,21 +479,3 @@ export class ConsoleHistoryManager {
 export const Events = {
   TextChanged: Symbol('TextChanged')
 };
-
-/* Legacy exported object */
-self.Console = self.Console || {};
-
-/* Legacy exported object */
-Console = Console || {};
-
-/**
- * @constructor
- */
-Console.ConsolePrompt = ConsolePrompt;
-
-Console.ConsolePrompt.Events = Events;
-
-/**
- * @constructor
- */
-Console.ConsoleHistoryManager = ConsoleHistoryManager;

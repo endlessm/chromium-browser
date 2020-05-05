@@ -5,7 +5,7 @@
 /**
  * @implements {UI.ActionDelegate}
  */
-PerfUI.GCActionDelegate = class {
+export class GCActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -13,9 +13,9 @@ PerfUI.GCActionDelegate = class {
    * @return {boolean}
    */
   handleAction(context, actionId) {
-    for (const heapProfilerModel of SDK.targetManager.models(SDK.HeapProfilerModel)) {
+    for (const heapProfilerModel of self.SDK.targetManager.models(SDK.HeapProfilerModel)) {
       heapProfilerModel.collectGarbage();
     }
     return true;
   }
-};
+}

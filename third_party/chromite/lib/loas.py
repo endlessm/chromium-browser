@@ -69,8 +69,8 @@ class Loas(object):
     cmd = ['prodcertstatus', '--check_loas_cert_location', 'sslenrolled']
     result = cros_build_lib.sudo_run(cmd,
                                      user=self.user,
-                                     error_code_ok=True,
-                                     redirect_stdout=True,
+                                     check=False,
+                                     stdout=True,
                                      encoding='utf-8')
 
     # Figure out how many days are left.  The command should display:

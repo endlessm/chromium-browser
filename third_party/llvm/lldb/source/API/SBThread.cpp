@@ -1,4 +1,4 @@
-//===-- SBThread.cpp --------------------------------------------*- C++ -*-===//
+//===-- SBThread.cpp ------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -1037,7 +1037,7 @@ SBError SBThread::JumpToLine(lldb::SBFileSpec &file_spec, uint32_t line) {
 
   Thread *thread = exe_ctx.GetThreadPtr();
 
-  Status err = thread->JumpToLine(file_spec.get(), line, true);
+  Status err = thread->JumpToLine(file_spec.ref(), line, true);
   sb_error.SetError(err);
   return LLDB_RECORD_RESULT(sb_error);
 }

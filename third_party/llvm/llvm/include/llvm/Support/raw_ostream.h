@@ -21,6 +21,7 @@
 #include <cstring>
 #include <string>
 #include <system_error>
+#include <type_traits>
 
 namespace llvm {
 
@@ -354,6 +355,17 @@ private:
   virtual void anchor();
 };
 
+/// Call the appropriate insertion operator, given an rvalue reference to a
+/// raw_ostream object and return a stream of the same type as the argument.
+template <typename OStream, typename T>
+typename std::enable_if<!std::is_reference<OStream>::value &&
+                            std::is_base_of<raw_ostream, OStream>::value,
+                        OStream &&>::type
+operator<<(OStream &&OS, const T &Value) {
+  OS << Value;
+  return std::move(OS);
+}
+
 /// An abstract base class for streams implementations that also support a
 /// pwrite operation. This is useful for code that can mostly stream out data,
 /// but needs to patch in a header that needs to know the output size.
@@ -553,7 +565,7 @@ public:
   void flush() = delete;
 
   /// Return a StringRef for the vector contents.
-  StringRef str() { return StringRef(OS.data(), OS.size()); }
+  StringRef str() const { return StringRef(OS.data(), OS.size()); }
 };
 
 /// A raw_ostream that discards all output.

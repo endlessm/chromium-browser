@@ -38,7 +38,7 @@
 #include "chrome/common/url_constants.h"
 #include "components/download/public/common/download_item.h"
 #include "components/prefs/pref_service.h"
-#include "components/safe_browsing/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/render_process_host.h"
@@ -317,7 +317,7 @@ void DownloadsDOMHandler::RemoveDownloads(const DownloadVector& to_remove) {
   IdSet ids;
 
   for (auto* download : to_remove) {
-    if (download->IsDangerous()) {
+    if (download->IsDangerous() || download->IsMixedContent()) {
       // Don't allow users to revive dangerous downloads; just nuke 'em.
       download->Remove();
       continue;
@@ -402,6 +402,18 @@ void DownloadsDOMHandler::DangerPromptDone(
   if (!item || item->IsDone())
     return;
   CountDownloadsDOMEvents(DOWNLOADS_DOM_EVENT_SAVE_DANGEROUS);
+
+  // If a download is mixed content, validate that first. Is most cases, mixed
+  // content warnings will occur first, but in the worst case scenario, we show
+  // a dangerous warning twice. That's better than showing a mixed content
+  // warning, then dismissing the dangerous download warning. Since mixed
+  // content downloads triggering the UI are temporary and rare to begin with,
+  // this should very rarely occur.
+  if (item->IsMixedContent()) {
+    item->ValidateMixedContentDownload();
+    return;
+  }
+
   item->ValidateDangerousDownload();
 }
 

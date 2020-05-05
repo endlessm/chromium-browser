@@ -59,7 +59,6 @@ def _CreateJob(request):
 
   # Validate arguments and convert them to canonical internal representation.
   quests = _GenerateQuests(arguments)
-  changes = _ValidateChanges(arguments)
 
   bug_id = _ValidateBugId(arguments.get('bug_id'))
   comparison_mode = _ValidateComparisonMode(arguments.get('comparison_mode'))
@@ -70,6 +69,7 @@ def _CreateJob(request):
   pin = _ValidatePin(arguments.get('pin'))
   tags = _ValidateTags(arguments.get('tags'))
   user = _ValidateUser(arguments.get('user'))
+  changes = _ValidateChanges(comparison_mode, arguments)
 
   # TODO(dberris): Make this the default when we've graduated the beta.
   use_execution_engine = (
@@ -103,9 +103,9 @@ def _CreateJob(request):
     target = arguments.get('target')
     task_options = performance_bisection.TaskOptions(
         build_option_template=performance_bisection.BuildOptionTemplate(
-            builder=arguments.get('configuration'),
-            target=arguments.get('target'),
-            bucket='master.tryserver.chromium.perf',
+            builder=arguments.get('builder'),
+            target=target,
+            bucket=arguments.get('bucket', 'master.tryserver.chromium.perf'),
         ),
         test_option_template=performance_bisection.TestOptionTemplate(
             swarming_server=arguments.get('swarming_server'),
@@ -118,6 +118,7 @@ def _CreateJob(request):
                 grouping_label=arguments.get('grouping_label'),
                 story=arguments.get('story'),
                 statistic=arguments.get('statistic'),
+                histogram_name=arguments.get('chart'),
             ),
             graph_json_options=read_value.GraphJsonOptions(
                 chart=arguments.get('chart'), trace=arguments.get('trace')),
@@ -172,11 +173,17 @@ def _ValidateBugId(bug_id):
     raise ValueError(_ERROR_BUG_ID)
 
 
-def _ValidateChanges(arguments):
+def _ValidateChanges(comparison_mode, arguments):
   changes = arguments.get('changes')
   if changes:
     # FromData() performs input validation.
     return [change.Change.FromData(c) for c in json.loads(changes)]
+
+  # Currently we only want try job support compare BASE and BASE+PATH
+  # So override start and end to ensure they are same
+  if comparison_mode == job_state.TRY:
+    arguments['start_git_hash'] = arguments['base_git_hash']
+    arguments['end_git_hash'] = arguments['base_git_hash']
 
   commit_1 = change.Commit.FromDict({
       'repository': arguments.get('repository'),

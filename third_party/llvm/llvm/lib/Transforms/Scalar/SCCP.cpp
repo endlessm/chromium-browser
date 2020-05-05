@@ -507,6 +507,24 @@ private:
     return LV;
   }
 
+  LatticeVal toLatticeVal(const ValueLatticeElement &V, Type *T) {
+    LatticeVal Res;
+    if (V.isUndefined())
+      return Res;
+
+    if (V.isConstant()) {
+      Res.markConstant(V.getConstant());
+      return Res;
+    }
+    if (V.isConstantRange() && V.getConstantRange().isSingleElement()) {
+      Res.markConstant(
+          ConstantInt::get(T, *V.getConstantRange().getSingleElement()));
+      return Res;
+    }
+    Res.markOverdefined();
+    return Res;
+  }
+
   ValueLatticeElement &getParamState(Value *V) {
     assert(!V->getType()->isStructTy() && "Should use getStructValueState");
 
@@ -1329,10 +1347,12 @@ CallOverdefined:
       } else {
         // Most other parts of the Solver still only use the simpler value
         // lattice, so we propagate changes for parameters to both lattices.
-        LatticeVal ConcreteArgument = getValueState(*CAI);
-        bool ParamChanged =
-            getParamState(&*AI).mergeIn(ConcreteArgument.toValueLattice(), DL);
-         bool ValueChanged = mergeInValue(&*AI, ConcreteArgument);
+        ValueLatticeElement ConcreteArgument =
+            isa<Argument>(*CAI) ? getParamState(*CAI)
+                                : getValueState(*CAI).toValueLattice();
+        bool ParamChanged = getParamState(&*AI).mergeIn(ConcreteArgument, DL);
+        bool ValueChanged =
+            mergeInValue(&*AI, toLatticeVal(ConcreteArgument, AI->getType()));
         // Add argument to work list, if the state of a parameter changes but
         // ValueState does not change (because it is already overdefined there),
         // We have to take changes in ParamState into account, as it is used
@@ -2197,7 +2217,7 @@ bool llvm::runIPSCCP(
     findReturnsToZap(*F, ReturnsToZap, Solver);
   }
 
-  for (const auto &F : Solver.getMRVFunctionsTracked()) {
+  for (auto F : Solver.getMRVFunctionsTracked()) {
     assert(F->getReturnType()->isStructTy() &&
            "The return type should be a struct");
     StructType *STy = cast<StructType>(F->getReturnType());

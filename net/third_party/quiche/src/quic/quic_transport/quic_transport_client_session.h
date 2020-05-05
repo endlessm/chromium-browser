@@ -21,10 +21,11 @@
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_optional.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_protocol.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_session_interface.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -37,11 +38,22 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
    public:
     virtual ~ClientVisitor() {}
 
+    // Notifies the visitor when the client indication has been sent and the
+    // connection is ready to exchange application data.
+    virtual void OnSessionReady() = 0;
+
     // Notifies the visitor when a new stream has been received.  The stream in
     // question can be retrieved using AcceptIncomingBidirectionalStream() or
     // AcceptIncomingUnidirectionalStream().
     virtual void OnIncomingBidirectionalStreamAvailable() = 0;
     virtual void OnIncomingUnidirectionalStreamAvailable() = 0;
+
+    // Notifies the visitor when a new datagram has been received.
+    virtual void OnDatagramReceived(quiche::QuicheStringPiece datagram) = 0;
+
+    // Notifies the visitor that a new outgoing stream can now be created.
+    virtual void OnCanCreateNewOutgoingBidirectionalStream() = 0;
+    virtual void OnCanCreateNewOutgoingUnidirectionalStream() = 0;
   };
 
   QuicTransportClientSession(QuicConnection* connection,
@@ -56,6 +68,8 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
   std::vector<std::string> GetAlpnsToOffer() const override {
     return std::vector<std::string>({QuicTransportAlpn()});
   }
+  void OnAlpnSelected(quiche::QuicheStringPiece alpn) override;
+  bool alpn_received() const { return alpn_received_; }
 
   void CryptoConnect() { crypto_stream_->CryptoConnect(); }
 
@@ -83,6 +97,7 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
 
   void OnCryptoHandshakeEvent(CryptoHandshakeEvent event) override;
   void SetDefaultEncryptionLevel(EncryptionLevel level) override;
+  void OnMessageReceived(quiche::QuicheStringPiece message) override;
 
   // Return the earliest incoming stream that has been received by the session
   // but has not been accepted.  Returns nullptr if there are no incoming
@@ -94,6 +109,8 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
   using QuicSession::CanOpenNextOutgoingUnidirectionalStream;
   QuicTransportStream* OpenOutgoingBidirectionalStream();
   QuicTransportStream* OpenOutgoingUnidirectionalStream();
+
+  using QuicSession::datagram_queue;
 
  protected:
   class QUIC_EXPORT_PRIVATE ClientIndication : public QuicStream {
@@ -116,11 +133,14 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
   // Creates the client indication stream and sends the client indication on it.
   void SendClientIndication();
 
+  void OnCanCreateNewOutgoingStream(bool unidirectional) override;
+
   std::unique_ptr<QuicCryptoClientStream> crypto_stream_;
   GURL url_;
   url::Origin origin_;
   ClientVisitor* visitor_;  // not owned
   bool client_indication_sent_ = false;
+  bool alpn_received_ = false;
   bool ready_ = false;
 
   // Contains all of the streams that has been received by the session but have

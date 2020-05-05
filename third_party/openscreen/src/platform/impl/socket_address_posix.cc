@@ -4,12 +4,12 @@
 
 #include "platform/impl/socket_address_posix.h"
 
+#include <cstring>
 #include <vector>
 
 #include "util/logging.h"
 
 namespace openscreen {
-namespace platform {
 
 SocketAddressPosix::SocketAddressPosix(const struct sockaddr& address) {
   if (address.sa_family == AF_INET) {
@@ -20,7 +20,8 @@ SocketAddressPosix::SocketAddressPosix(const struct sockaddr& address) {
     endpoint_.port = ntohs(internal_address_.v4.sin_port);
   } else if (address.sa_family == AF_INET6) {
     memcpy(&internal_address_, &address, sizeof(struct sockaddr_in6));
-    endpoint_.address = IPAddress(internal_address_.v6.sin6_addr.s6_addr);
+    endpoint_.address = IPAddress(IPAddress::Version::kV6,
+                                  internal_address_.v6.sin6_addr.s6_addr);
     endpoint_.port = ntohs(internal_address_.v6.sin6_port);
   } else {
     OSP_NOTREACHED() << "Unknown address type";
@@ -55,7 +56,7 @@ struct sockaddr* SocketAddressPosix::address() {
     default:
       OSP_NOTREACHED();
       return nullptr;
-  };
+  }
 }
 
 const struct sockaddr* SocketAddressPosix::address() const {
@@ -81,5 +82,4 @@ socklen_t SocketAddressPosix::size() const {
       return 0;
   }
 }
-}  // namespace platform
 }  // namespace openscreen

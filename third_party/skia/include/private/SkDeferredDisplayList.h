@@ -15,8 +15,10 @@
 class SkDeferredDisplayListPriv;
 
 #if SK_SUPPORT_GPU
+#include "include/private/GrRecordingContext.h"
 #include "include/private/SkTArray.h"
 #include <map>
+class GrOpMemoryPool;
 class GrRenderTask;
 class GrRenderTargetProxy;
 struct GrCCPerOpsTaskPaths;
@@ -59,7 +61,15 @@ public:
     const SkDeferredDisplayListPriv priv() const;
 
 private:
-    friend class GrDrawingManager; // for access to 'fRenderTasks', 'fLazyProxyData', 'fOpPOD'
+#if SK_SUPPORT_GPU
+    // TODO: we should probably also store the GrProgramDescs - since we already have
+    // them
+    SK_API const SkTDArray<const GrProgramInfo*>& programInfos() const {
+        return fProgramInfos;
+    }
+#endif
+
+    friend class GrDrawingManager; // for access to 'fRenderTasks', 'fLazyProxyData', 'fArenas'
     friend class SkDeferredDisplayListRecorder; // for access to 'fLazyProxyData'
     friend class SkDeferredDisplayListPriv;
 
@@ -69,9 +79,15 @@ private:
     // This needs to match the same type in GrCoverageCountingPathRenderer.h
     using PendingPathsMap = std::map<uint32_t, sk_sp<GrCCPerOpsTaskPaths>>;
 
-    SkTArray<sk_sp<GrRenderTask>>   fRenderTasks;
+    // These are ordered such that the destructor cleans op tasks up first (which may refer back
+    // to the arena and memory pool in their destructors).
+    GrRecordingContext::OwnedArenas fArenas;
     PendingPathsMap                 fPendingPaths;  // This is the path data from CCPR.
-    std::unique_ptr<SkArenaAlloc>   fRecordTimeData;
+    SkTArray<sk_sp<GrRenderTask>>   fRenderTasks;
+
+    // The program infos should be stored in 'fRecordTimeData' so do not need to be ref counted
+    // or deleted in the destructor.
+    SkTDArray<const GrProgramInfo*> fProgramInfos;
 #endif
     sk_sp<LazyProxyData>            fLazyProxyData;
 };

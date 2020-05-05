@@ -1,10 +1,8 @@
-/*
- * Copyright 2018 The Chromium Authors. All rights reserved.
- * Use of this source code is governed by a BSD-style license that can be
- * found in the LICENSE file.
- */
+// Copyright 2018 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
-Sources.BreakpointEditDialog = class extends UI.Widget {
+export class BreakpointEditDialog extends UI.Widget {
   /**
    * @param {number} editorLineNumber
    * @param {string} oldCondition
@@ -20,8 +18,8 @@ Sources.BreakpointEditDialog = class extends UI.Widget {
     this._editor = null;
     this.element.tabIndex = -1;
 
-    const logpointPrefix = Sources.BreakpointEditDialog.LogpointPrefix;
-    const logpointSuffix = Sources.BreakpointEditDialog._LogpointSuffix;
+    const logpointPrefix = LogpointPrefix;
+    const logpointSuffix = LogpointSuffix;
     this._isLogpoint = oldCondition.startsWith(logpointPrefix) && oldCondition.endsWith(logpointSuffix);
     if (this._isLogpoint) {
       oldCondition = oldCondition.substring(logpointPrefix.length, oldCondition.length - logpointSuffix.length);
@@ -33,11 +31,9 @@ Sources.BreakpointEditDialog = class extends UI.Widget {
     toolbar.appendText(`Line ${editorLineNumber + 1}:`);
 
     this._typeSelector = new UI.ToolbarComboBox(this._onTypeChanged.bind(this), ls`Breakpoint type`);
-    this._typeSelector.createOption(ls`Breakpoint`, Sources.BreakpointEditDialog.BreakpointType.Breakpoint);
-    const conditionalOption = this._typeSelector.createOption(
-        ls`Conditional breakpoint`, Sources.BreakpointEditDialog.BreakpointType.Conditional);
-    const logpointOption =
-        this._typeSelector.createOption(ls`Logpoint`, Sources.BreakpointEditDialog.BreakpointType.Logpoint);
+    this._typeSelector.createOption(ls`Breakpoint`, BreakpointType.Breakpoint);
+    const conditionalOption = this._typeSelector.createOption(ls`Conditional breakpoint`, BreakpointType.Conditional);
+    const logpointOption = this._typeSelector.createOption(ls`Logpoint`, BreakpointType.Logpoint);
     this._typeSelector.select(this._isLogpoint ? logpointOption : conditionalOption);
     toolbar.appendToolbarItem(this._typeSelector);
 
@@ -68,14 +64,14 @@ Sources.BreakpointEditDialog = class extends UI.Widget {
    * @return {string}
    */
   static _conditionForLogpoint(condition) {
-    return `${Sources.BreakpointEditDialog.LogpointPrefix}${condition}${Sources.BreakpointEditDialog._LogpointSuffix}`;
+    return `${LogpointPrefix}${condition}${LogpointSuffix}`;
   }
 
   _onTypeChanged() {
     const value = this._typeSelector.selectedOption().value;
-    this._isLogpoint = value === Sources.BreakpointEditDialog.BreakpointType.Logpoint;
+    this._isLogpoint = value === BreakpointType.Logpoint;
     this._updatePlaceholder();
-    if (value === Sources.BreakpointEditDialog.BreakpointType.Breakpoint) {
+    if (value === BreakpointType.Breakpoint) {
       this._editor.setText('');
       this._finishEditing(true);
     }
@@ -83,10 +79,10 @@ Sources.BreakpointEditDialog = class extends UI.Widget {
 
   _updatePlaceholder() {
     const selectedValue = this._typeSelector.selectedOption().value;
-    if (selectedValue === Sources.BreakpointEditDialog.BreakpointType.Conditional) {
+    if (selectedValue === BreakpointType.Conditional) {
       this._editor.setPlaceholder(ls`Expression to check before pausing, e.g. x > 5`);
       this._typeSelector.element.title = ls`Pause only when the condition is true`;
-    } else if (selectedValue === Sources.BreakpointEditDialog.BreakpointType.Logpoint) {
+    } else if (selectedValue === BreakpointType.Logpoint) {
       this._editor.setPlaceholder(ls`Log message, e.g. 'x is', x`);
       this._typeSelector.element.title = ls`Log a message to Console, do not break`;
     }
@@ -103,7 +99,7 @@ Sources.BreakpointEditDialog = class extends UI.Widget {
     this._editor.widget().detach();
     let condition = this._editor.text();
     if (this._isLogpoint) {
-      condition = Sources.BreakpointEditDialog._conditionForLogpoint(condition);
+      condition = BreakpointEditDialog._conditionForLogpoint(condition);
     }
     this._onFinish({committed, condition});
   }
@@ -125,12 +121,12 @@ Sources.BreakpointEditDialog = class extends UI.Widget {
       this._finishEditing(false);
     }
   }
-};
+}
 
-Sources.BreakpointEditDialog.LogpointPrefix = '/** DEVTOOLS_LOGPOINT */ console.log(';
-Sources.BreakpointEditDialog._LogpointSuffix = ')';
+export const LogpointPrefix = '/** DEVTOOLS_LOGPOINT */ console.log(';
+export const LogpointSuffix = ')';
 
-Sources.BreakpointEditDialog.BreakpointType = {
+export const BreakpointType = {
   Breakpoint: 'Breakpoint',
   Conditional: 'Conditional',
   Logpoint: 'Logpoint',

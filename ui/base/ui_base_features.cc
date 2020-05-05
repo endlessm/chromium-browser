@@ -103,18 +103,9 @@ bool IsUsingWMPointerForTouch() {
          base::FeatureList::IsEnabled(kPointerEventsForTouch);
 }
 
-// Enables DirectManipulation API for processing Precision Touchpad events.
-const base::Feature kPrecisionTouchpad{"PrecisionTouchpad",
-                                       base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Enables Logging for DirectManipulation.
 const base::Feature kPrecisionTouchpadLogging{
     "PrecisionTouchpadLogging", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Enables Swipe left/right to navigation back/forward API for processing
-// Precision Touchpad events.
-const base::Feature kPrecisionTouchpadScrollPhase{
-    "PrecisionTouchpadScrollPhase", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // defined(OS_WIN)
 
 #if defined(OS_WIN) || defined(OS_CHROMEOS)
@@ -134,15 +125,20 @@ const base::Feature kDirectManipulationStylus = {
 };
 #endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
+// Disable the FormControlsRefresh feature for all platforms. See
+// crbug.com/1057669.
 const base::Feature kFormControlsRefresh = {"FormControlsRefresh",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
+                                            base::FEATURE_DISABLED_BY_DEFAULT
+};
 
 // Enable WebUI accessibility enhancements for review and testing.
 const base::Feature kWebUIA11yEnhancements{"WebUIA11yEnhancements",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsFormControlsRefreshEnabled() {
-  return base::FeatureList::IsEnabled(features::kFormControlsRefresh);
+  static const bool form_controls_refresh_enabled =
+      base::FeatureList::IsEnabled(features::kFormControlsRefresh);
+  return form_controls_refresh_enabled;
 }
 
 bool IsAutomaticUiAdjustmentsForTouchEnabled() {
@@ -165,4 +161,12 @@ bool IsOzoneDrmMojo() {
 const base::Feature kHandwritingGesture = {"HandwritingGesture",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
+
+const base::Feature kSynchronousPageFlipTesting{
+    "SynchronousPageFlipTesting", base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool IsSynchronousPageFlipTestingEnabled() {
+  return base::FeatureList::IsEnabled(kSynchronousPageFlipTesting);
+}
+
 }  // namespace features

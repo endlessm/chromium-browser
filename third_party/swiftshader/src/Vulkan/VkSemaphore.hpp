@@ -18,24 +18,26 @@
 #include "VkConfig.h"
 #include "VkObject.hpp"
 
+#include "marl/event.h"
+#include <mutex>
+
 #if VK_USE_PLATFORM_FUCHSIA
-#include <zircon/types.h>
+#	include <zircon/types.h>
 #endif
 
-namespace vk
-{
+namespace vk {
 
 class Semaphore : public Object<Semaphore, VkSemaphore>
 {
 public:
-	Semaphore(const VkSemaphoreCreateInfo* pCreateInfo, void* mem);
-	void destroy(const VkAllocationCallbacks* pAllocator);
+	Semaphore(const VkSemaphoreCreateInfo *pCreateInfo, void *mem, const VkAllocationCallbacks *pAllocator);
+	void destroy(const VkAllocationCallbacks *pAllocator);
 
-	static size_t ComputeRequiredAllocationSize(const VkSemaphoreCreateInfo* pCreateInfo);
+	static size_t ComputeRequiredAllocationSize(const VkSemaphoreCreateInfo *pCreateInfo);
 
 	void wait();
 
-	void wait(const VkPipelineStageFlags& flag)
+	void wait(const VkPipelineStageFlags &flag)
 	{
 		// NOTE: not sure what else to do here?
 		wait();
@@ -45,25 +47,32 @@ public:
 
 #if SWIFTSHADER_EXTERNAL_SEMAPHORE_OPAQUE_FD
 	VkResult importFd(int fd, bool temporaryImport);
-	VkResult exportFd(int* pFd) const;
+	VkResult exportFd(int *pFd);
 #endif
 
 #if VK_USE_PLATFORM_FUCHSIA
 	VkResult importHandle(zx_handle_t handle, bool temporaryImport);
-	VkResult exportHandle(zx_handle_t *pHandle) const;
+	VkResult exportHandle(zx_handle_t *pHandle);
 #endif
 
-private:
 	class External;
-	class Impl;
-	Impl* impl = nullptr;
+
+private:
+	void allocateExternal();
+	void deallocateExternal();
+
+	const VkAllocationCallbacks *allocator = nullptr;
+	marl::Event internal;
+	std::mutex mutex;
+	External *external = nullptr;
+	bool temporaryImport = false;
 };
 
-static inline Semaphore* Cast(VkSemaphore object)
+static inline Semaphore *Cast(VkSemaphore object)
 {
 	return Semaphore::Cast(object);
 }
 
-} // namespace vk
+}  // namespace vk
 
-#endif // VK_SEMAPHORE_HPP_
+#endif  // VK_SEMAPHORE_HPP_

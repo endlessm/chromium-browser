@@ -56,7 +56,8 @@ enum AccessChainFlagBits
 	ACCESS_CHAIN_INDEX_IS_LITERAL_BIT = 1 << 0,
 	ACCESS_CHAIN_CHAIN_ONLY_BIT = 1 << 1,
 	ACCESS_CHAIN_PTR_CHAIN_BIT = 1 << 2,
-	ACCESS_CHAIN_SKIP_REGISTER_EXPRESSION_READ_BIT = 1 << 3
+	ACCESS_CHAIN_SKIP_REGISTER_EXPRESSION_READ_BIT = 1 << 3,
+	ACCESS_CHAIN_LITERAL_MSB_FORCE_ID = 1 << 4
 };
 typedef uint32_t AccessChainFlags;
 
@@ -275,6 +276,9 @@ protected:
 
 	virtual bool builtin_translates_to_nonarray(spv::BuiltIn builtin) const;
 
+	void emit_copy_logical_type(uint32_t lhs_id, uint32_t lhs_type_id, uint32_t rhs_id, uint32_t rhs_type_id,
+	                            SmallVector<uint32_t> chain);
+
 	StringStream<> buffer;
 
 	template <typename T>
@@ -463,6 +467,8 @@ protected:
 	                             SPIRType::BaseType input_type, SPIRType::BaseType expected_result_type);
 	void emit_binary_func_op_cast(uint32_t result_type, uint32_t result_id, uint32_t op0, uint32_t op1, const char *op,
 	                              SPIRType::BaseType input_type, bool skip_cast_if_equal_type);
+	void emit_binary_func_op_cast_clustered(uint32_t result_type, uint32_t result_id, uint32_t op0, uint32_t op1,
+	                                        const char *op, SPIRType::BaseType input_type);
 	void emit_trinary_func_op_cast(uint32_t result_type, uint32_t result_id, uint32_t op0, uint32_t op1, uint32_t op2,
 	                               const char *op, SPIRType::BaseType input_type);
 	void emit_trinary_func_op_bitextract(uint32_t result_type, uint32_t result_id, uint32_t op0, uint32_t op1,
@@ -503,7 +509,7 @@ protected:
 
 	std::string flattened_access_chain(uint32_t base, const uint32_t *indices, uint32_t count,
 	                                   const SPIRType &target_type, uint32_t offset, uint32_t matrix_stride,
-	                                   bool need_transpose);
+	                                   uint32_t array_stride, bool need_transpose);
 	std::string flattened_access_chain_struct(uint32_t base, const uint32_t *indices, uint32_t count,
 	                                          const SPIRType &target_type, uint32_t offset);
 	std::string flattened_access_chain_matrix(uint32_t base, const uint32_t *indices, uint32_t count,
@@ -516,6 +522,7 @@ protected:
 	                                                               uint32_t count, uint32_t offset,
 	                                                               uint32_t word_stride, bool *need_transpose = nullptr,
 	                                                               uint32_t *matrix_stride = nullptr,
+	                                                               uint32_t *array_stride = nullptr,
 	                                                               bool ptr_chain = false);
 
 	const char *index_to_swizzle(uint32_t index);
@@ -558,7 +565,8 @@ protected:
 	virtual void emit_block_hints(const SPIRBlock &block);
 	virtual std::string to_initializer_expression(const SPIRVariable &var);
 
-	bool buffer_is_packing_standard(const SPIRType &type, BufferPackingStandard packing, uint32_t start_offset = 0,
+	bool buffer_is_packing_standard(const SPIRType &type, BufferPackingStandard packing,
+	                                uint32_t *failed_index = nullptr, uint32_t start_offset = 0,
 	                                uint32_t end_offset = ~(0u));
 	std::string buffer_to_packing_standard(const SPIRType &type, bool support_std430_without_scalar_layout);
 
@@ -703,6 +711,8 @@ protected:
 	void reorder_type_alias();
 
 	void propagate_nonuniform_qualifier(uint32_t id);
+
+	static const char *vector_swizzle(int vecsize, int index);
 
 private:
 	void init();

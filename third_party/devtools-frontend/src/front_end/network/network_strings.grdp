@@ -123,6 +123,9 @@
   <message name="IDS_DEVTOOLS_2ad7f735dd6d0dedb0d010a612854a17" desc="An option in the user agent dropdown menu in the Network conditions tool">
     <ph name="LOCKED_1">Internet Explorer 8</ph>
   </message>
+  <message name="IDS_DEVTOOLS_2cc979d2cc5eda80f702a242ad5242cf" desc="Tooltip to explain lack of raw headers for a particular network request">
+    Only provisional headers are available because this request was not sent over the network and instead was served from a local cache, which doesn&apos;t store the original request headers. Disable cache to see full request headers.
+  </message>
   <message name="IDS_DEVTOOLS_2d13df6f8b5e4c5af9f87e0dc39df69d" desc="Text in Network Data Grid Node of the Network panel">
     Pending
   </message>
@@ -134,6 +137,9 @@
   </message>
   <message name="IDS_DEVTOOLS_30ad3ea5e350075c1c0a1171c5006ed7" desc="Text in Network Panel of the Network panel">
     Fetching frames...
+  </message>
+  <message name="IDS_DEVTOOLS_311103989003f5bc6a01fca15ccb4fa4" desc="Data grid name for Web Socket Frame data grids">
+    Web Socket Frame
   </message>
   <message name="IDS_DEVTOOLS_31977081ea2c828cc70e6151ab5d7da8" desc="Text in Request Headers View of the Network panel">
     view decoded
@@ -201,6 +207,9 @@
   <message name="IDS_DEVTOOLS_4145ea54b6f576d7646d6a68eb39813f" desc="An option in the user agent dropdown menu in the Network conditions tool">
     <ph name="LOCKED_1">Opera (Presto) — Mac</ph>
   </message>
+  <message name="IDS_DEVTOOLS_41d98c4bb351da4733feff7e1ad628a5" desc="Error text for empty list widget input in Request Blocking tool">
+    Pattern input cannot be empty.
+  </message>
   <message name="IDS_DEVTOOLS_41de6d6cfb8953c021bbe4ba0701c8a1" desc="Text in Network Item View of the Network panel">
     Messages
   </message>
@@ -246,11 +255,11 @@
   <message name="IDS_DEVTOOLS_4dec8df20c6bc162fd77420b6f17edc5" desc="Aria accessible name in Network Log View of the Network panel">
     Resource types to include
   </message>
-  <message name="IDS_DEVTOOLS_4e5684a9fc5a7bde112a0519e77f4b37" desc="Label for a filter in the Network panel">
-    Only show requests with SameSite issues
-  </message>
   <message name="IDS_DEVTOOLS_4e88c13fb97f356a81c48bf2644bef51" desc="Text in Request Timing View of the Network panel">
     Connection Start
+  </message>
+  <message name="IDS_DEVTOOLS_4fda1e980a77182467d3a97d8e4aecf0" desc="Text describing the depth of a top level node in the network datagrid">
+    level 1
   </message>
   <message name="IDS_DEVTOOLS_5023e5b1d1c02cf168a9a67dda6d2d87" desc="Text in Network Panel of the Network panel">
     Show overview
@@ -293,6 +302,9 @@
   </message>
   <message name="IDS_DEVTOOLS_59f2df528ff5c941c8d6308288a83141" desc="An option in the user agent dropdown menu in the Network conditions tool">
     <ph name="LOCKED_1">Chrome — iPad</ph>
+  </message>
+  <message name="IDS_DEVTOOLS_5c60f46c60a82151a2f1a9f7145ed8eb" desc="Tooltip for a filter in the Network panel">
+    Only show requests with blocked response cookies
   </message>
   <message name="IDS_DEVTOOLS_5cb98890f19c13e5fce52287187d9803" desc="Text in Network Log View of the Network panel">
     <ph name="SELECTEDNODENUMBER">$1s<ex>3</ex></ph> / <ph name="NODECOUNT">$2s<ex>5</ex></ph> requests
@@ -348,6 +360,9 @@
   <message name="IDS_DEVTOOLS_6dec00f9ae08edb5af58e6efb699dba0" desc="Label for showing request cookies that were not actually sent">
     show filtered out request cookies
   </message>
+  <message name="IDS_DEVTOOLS_6e458346abf37cc727a811ea1d71034a" desc="Data grid name for Event Source data grids">
+    Event Source
+  </message>
   <message name="IDS_DEVTOOLS_6e68a529a38966508d348e9f65d7ea31" desc="Title of an action in the network tool to toggle recording">
     Record network log
   </message>
@@ -360,6 +375,15 @@
   <message name="IDS_DEVTOOLS_722e6ea747a62b7f93bb017d3dd04cbd" desc="Op codes continuation frame of map in Resource Web Socket Frame View of the Network panel">
     Continuation Frame
   </message>
+  <message name="IDS_DEVTOOLS_82764787c77b4c9e53993b15d31a11c5" desc="Text to announce to screen readers that network data is available.">
+    Network Data Available
+  </message>
+  <message name="IDS_DEVTOOLS_b67f775562210192587e38f66a6ae380" desc="Label for a filter in the Network panel">
+    Has blocked cookies
+  </message>
+  <message name="IDS_DEVTOOLS_7734a3eb999c4910e2ae5dcd906bdefc" desc="Data grid name for Network Log data grids">
+    Network Log
+  </message>
   <message name="IDS_DEVTOOLS_b85f4d2fed0fc1c5f95fd4a49ff6f2e7" desc="A tag of Network Conditions tool that can be searched in the command menu">
     user-agent
   </message>
@@ -368,6 +392,9 @@
   </message>
   <message name="IDS_DEVTOOLS_ca092ce554360617d7bb503ff16dcb7c" desc="Text for toggling the view of header data (e.g. query string parameters) from parsed to source in the headers tab">
     View source
+  </message>
+  <message name="IDS_DEVTOOLS_ce89cbfed44c10f5dd21427be154f288" desc="Text in Network Log View of the Network panel">
+    Copy as Node.js fetch
   </message>
   <message name="IDS_DEVTOOLS_d07d8b2f741d82961c330af95e739d27" desc="Text for toggling header data (e.g. query string parameters) from encoded to decoded in the headers tab">
     View decoded
@@ -381,6 +408,9 @@
   <message name="IDS_DEVTOOLS_da3211be40e2b7282b37431dc1e6ceb6" desc="An option in the user agent dropdown menu in the Network conditions tool">
     <ph name="LOCKED_1">Googlebot Desktop</ph>
   </message>
+  <message name="IDS_DEVTOOLS_de9b14d980b77c264d42463f407180be" desc="Message to explain lack of raw headers for a particular network request">
+    Provisional headers are shown
+  </message>
   <message name="IDS_DEVTOOLS_e4217cfa8bdee0baaa2249db59b8671b" desc="Text for toggling the view of header data (e.g. query string parameters) from source to parsed in the headers tab">
     View parsed
   </message>
@@ -389,6 +419,9 @@
   </message>
   <message name="IDS_DEVTOOLS_842ad9796db643e88bd614ac51a99734" desc="Text in Request Initiator View of the Network panel">
     This request has no initiator data.
+  </message>
+  <message name="IDS_DEVTOOLS_e48c00bc05b642164b5520137b66d011" desc="Text in Network Log View of the Network panel">
+    Copy all as Node.js fetch
   </message>
   <message name="IDS_DEVTOOLS_f5a6d40aab4d260009df79b7dab7e6a0" desc="An option in the user agent dropdown menu in the Network conditions tool">
     <ph name="LOCKED_1">Microsoft Edge — iPhone</ph>
@@ -816,9 +849,6 @@
   <message name="IDS_DEVTOOLS_de99618e7e2cc63c7262c12965fa31f3" desc="Latency format in Network Time Calculator of the Network panel">
     <ph name="PH1">$1s<ex>20ms</ex></ph> latency
   </message>
-  <message name="IDS_DEVTOOLS_de9b14d980b77c264d42463f407180be" desc="Text in Request Headers View of the Network panel">
-    Provisional headers are shown
-  </message>
   <message name="IDS_DEVTOOLS_df080c10e2e9f1e98c180fe2645f6132" desc="Text in Request Headers View of the Network panel">
     Request URL
   </message>
@@ -917,6 +947,12 @@
   </message>
   <message name="IDS_DEVTOOLS_f95d3d09fc16ae9294fbef87ac8d17cb" desc="Text in Network Data Grid Node of the Network panel">
     (pending)
+  </message>
+  <message name="IDS_DEVTOOLS_fa3e0746749fe7ce056ebf7811bdc3fc" desc="Error text for duplicate list widget input in Request Blocking tool">
+    Pattern already exists.
+  </message>
+  <message name="IDS_DEVTOOLS_fae735abadea1bcebd7d6f96bc5e3523" desc="Message to explain lack of raw headers for a particular network request">
+    Provisional headers are shown. Disable cache to see full headers.
   </message>
   <message name="IDS_DEVTOOLS_fae900d6e2cf6b54ffae8cad77b9e2a6" desc="Text of a DOM element in Network Data Grid Node of the Network panel">
     (prefetch cache)

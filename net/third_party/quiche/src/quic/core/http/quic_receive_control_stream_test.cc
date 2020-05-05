@@ -8,10 +8,11 @@
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_stream_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace test {
@@ -43,7 +44,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& tp) {
-  return QuicStrCat(
+  return quiche::QuicheStrCat(
       ParsedQuicVersionToString(tp.version), "_",
       (tp.perspective == Perspective::IS_CLIENT ? "client" : "server"));
 }
@@ -88,7 +89,7 @@ class QuicReceiveControlStreamTest : public QuicTestWithParam<TestParams> {
                                 session_.transport_version(), 3);
     char type[] = {kControlStream};
 
-    QuicStreamFrame data1(id, false, 0, QuicStringPiece(type, 1));
+    QuicStreamFrame data1(id, false, 0, quiche::QuicheStringPiece(type, 1));
     session_.OnStreamFrame(data1);
 
     receive_control_stream_ =
@@ -109,10 +110,12 @@ class QuicReceiveControlStreamTest : public QuicTestWithParam<TestParams> {
     return std::string(buffer.get(), settings_frame_length);
   }
 
-  std::string PriorityFrame(const PriorityFrame& frame) {
+  std::string SerializePriorityUpdateFrame(
+      const PriorityUpdateFrame& priority_update) {
     std::unique_ptr<char[]> priority_buffer;
     QuicByteCount priority_frame_length =
-        HttpEncoder::SerializePriorityFrame(frame, &priority_buffer);
+        HttpEncoder::SerializePriorityUpdateFrame(priority_update,
+                                                  &priority_buffer);
     return std::string(priority_buffer.get(), priority_frame_length);
   }
 
@@ -220,27 +223,28 @@ TEST_P(QuicReceiveControlStreamTest, ReceiveWrongFrame) {
   std::string data = std::string(buffer.get(), header_length);
 
   QuicStreamFrame frame(receive_control_stream_->id(), false, 1, data);
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_DECODER_ERROR, _, _));
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_HTTP_FRAME_UNEXPECTED_ON_CONTROL_STREAM, _, _));
   receive_control_stream_->OnStreamFrame(frame);
 }
 
-TEST_P(QuicReceiveControlStreamTest, ReceivePriorityFrame) {
-  if (perspective() == Perspective::IS_CLIENT) {
-    return;
-  }
-  SetQuicFlag(FLAGS_quic_allow_http3_priority, true);
-  struct PriorityFrame frame;
-  frame.prioritized_type = REQUEST_STREAM;
-  frame.dependency_type = ROOT_OF_TREE;
-  frame.prioritized_element_id = stream_->id();
-  frame.weight = 1;
-  std::string serialized_frame = PriorityFrame(frame);
-  QuicStreamFrame data(receive_control_stream_->id(), false, 1,
-                       serialized_frame);
+TEST_P(QuicReceiveControlStreamTest,
+       ReceivePriorityUpdateFrameBeforeSettingsFrame) {
+  std::string serialized_frame = SerializePriorityUpdateFrame({});
+  QuicStreamFrame data(receive_control_stream_->id(), /* fin = */ false,
+                       /* offset = */ 1, serialized_frame);
 
-  EXPECT_EQ(3u, stream_->precedence().spdy3_priority());
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_INVALID_STREAM_ID,
+                      "PRIORITY_UPDATE frame received before SETTINGS.", _))
+      .WillOnce(
+          Invoke(connection_, &MockQuicConnection::ReallyCloseConnection));
+  EXPECT_CALL(*connection_, SendConnectionClosePacket(_, _));
+  EXPECT_CALL(session_, OnConnectionClosed(_, _));
+
   receive_control_stream_->OnStreamFrame(data);
-  EXPECT_EQ(1u, stream_->precedence().spdy3_priority());
 }
 
 TEST_P(QuicReceiveControlStreamTest, ReceiveGoAwayFrame) {
@@ -256,7 +260,9 @@ TEST_P(QuicReceiveControlStreamTest, ReceiveGoAwayFrame) {
   EXPECT_FALSE(session_.http3_goaway_received());
 
   if (perspective() == Perspective::IS_SERVER) {
-    EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_DECODER_ERROR, _, _));
+    EXPECT_CALL(
+        *connection_,
+        CloseConnection(QUIC_HTTP_FRAME_UNEXPECTED_ON_CONTROL_STREAM, _, _));
   }
 
   receive_control_stream_->OnStreamFrame(frame);
@@ -274,8 +280,9 @@ TEST_P(QuicReceiveControlStreamTest, PushPromiseOnControlStreamShouldClose) {
       push_promise, &buffer);
   QuicStreamFrame frame(receive_control_stream_->id(), false, 1, buffer.get(),
                         length);
-  // TODO(lassey) Check for HTTP_WRONG_STREAM error code.
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_DECODER_ERROR, _, _))
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_HTTP_FRAME_UNEXPECTED_ON_CONTROL_STREAM, _, _))
       .WillOnce(
           Invoke(connection_, &MockQuicConnection::ReallyCloseConnection));
   EXPECT_CALL(*connection_, SendConnectionClosePacket(_, _));
@@ -285,7 +292,7 @@ TEST_P(QuicReceiveControlStreamTest, PushPromiseOnControlStreamShouldClose) {
 
 // Regression test for b/137554973: unknown frames should be consumed.
 TEST_P(QuicReceiveControlStreamTest, ConsumeUnknownFrame) {
-  std::string unknown_frame = QuicTextUtils::HexDecode(
+  std::string unknown_frame = quiche::QuicheTextUtils::HexDecode(
       "21"        // reserved frame type
       "03"        // payload length
       "666f6f");  // payload "foo"

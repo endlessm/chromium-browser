@@ -320,15 +320,15 @@ DrawResult SampleLocationsGM::onDraw(
         return DrawResult::kSkip;
     }
 
-    auto offscreenRTC = ctx->priv().makeDeferredRenderTargetContext(
-            SkBackingFit::kExact, 200, 200, rtc->colorInfo().colorType(), nullptr,
-            rtc->numSamples(), GrMipMapped::kNo, fOrigin);
+    auto offscreenRTC = GrRenderTargetContext::Make(
+            ctx, rtc->colorInfo().colorType(), nullptr, SkBackingFit::kExact, {200, 200},
+            rtc->numSamples(), GrMipMapped::kNo, GrProtected::kNo, fOrigin);
     if (!offscreenRTC) {
         *errorMsg = "Failed to create offscreen render target.";
         return DrawResult::kFail;
     }
     if (offscreenRTC->numSamples() <= 1 &&
-        !offscreenRTC->proxy()->canUseMixedSamples(*ctx->priv().caps())) {
+        !offscreenRTC->asRenderTargetProxy()->canUseMixedSamples(*ctx->priv().caps())) {
         *errorMsg = "MSAA and mixed samples only.";
         return DrawResult::kSkip;
     }

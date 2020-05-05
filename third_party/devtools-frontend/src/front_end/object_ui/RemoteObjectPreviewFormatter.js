@@ -1,10 +1,15 @@
 // Copyright (c) 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+
+import * as SDK from '../sdk/sdk.js';
+
 /**
  * @unrestricted
  */
-export default class RemoteObjectPreviewFormatter {
+export class RemoteObjectPreviewFormatter {
   /**
    * @param {!Protocol.Runtime.PropertyPreview} a
    * @param {!Protocol.Runtime.PropertyPreview} b
@@ -51,9 +56,9 @@ export default class RemoteObjectPreviewFormatter {
     if (description) {
       let text;
       if (isArrayOrTypedArray) {
-        const arrayLength = SDK.RemoteObject.arrayLength(preview);
+        const arrayLength = SDK.RemoteObject.RemoteObject.arrayLength(preview);
         const arrayLengthText = arrayLength > 1 ? ('(' + arrayLength + ')') : '';
-        const arrayName = SDK.RemoteObject.arrayNameFromDescription(description);
+        const arrayName = SDK.RemoteObject.RemoteObject.arrayNameFromDescription(description);
         text = arrayName === 'Array' ? arrayLengthText : (arrayName + arrayLengthText);
       } else {
         const hideDescription = description === 'Object';
@@ -135,7 +140,7 @@ export default class RemoteObjectPreviewFormatter {
    * @param {!Protocol.Runtime.ObjectPreview} preview
    */
   _appendArrayPropertiesPreview(parentElement, preview) {
-    const arrayLength = SDK.RemoteObject.arrayLength(preview);
+    const arrayLength = SDK.RemoteObject.RemoteObject.arrayLength(preview);
     const indexProperties = preview.properties.filter(p => toArrayIndex(p.name) !== -1).sort(arrayEntryComparator);
     const otherProperties = preview.properties.filter(p => toArrayIndex(p.name) === -1)
                                 .sort(RemoteObjectPreviewFormatter._objectPropertyComparator);
@@ -210,7 +215,8 @@ export default class RemoteObjectPreviewFormatter {
     function appendUndefined(index) {
       const span = parentElement.createChild('span', 'object-value-undefined');
       const count = index - lastNonEmptyArrayIndex - 1;
-      span.textContent = count !== 1 ? Common.UIString('empty × %d', count) : Common.UIString('empty');
+      span.textContent =
+          count !== 1 ? Common.UIString.UIString('empty × %d', count) : Common.UIString.UIString('empty');
       elementsAdded = true;
     }
   }
@@ -266,7 +272,7 @@ export default class RemoteObjectPreviewFormatter {
 
     if (type === 'accessor') {
       span.textContent = '(...)';
-      span.title = Common.UIString('The property is computed with a getter');
+      span.title = Common.UIString.UIString('The property is computed with a getter');
       return span;
     }
 
@@ -322,18 +328,3 @@ export const createSpansForNodeTitle = function(container, nodeTitle) {
     container.createChild('span', 'webkit-html-attribute-name').textContent = match[3];
   }
 };
-
-/* Legacy exported object */
-self.ObjectUI = self.ObjectUI || {};
-
-/* Legacy exported object */
-ObjectUI = ObjectUI || {};
-
-/** @constructor */
-ObjectUI.RemoteObjectPreviewFormatter = RemoteObjectPreviewFormatter;
-
-/**
- * @param {!Element} container
- * @param {string} nodeTitle
- */
-ObjectUI.RemoteObjectPreviewFormatter.createSpansForNodeTitle = createSpansForNodeTitle;

@@ -20,7 +20,7 @@ export class Revealer {
  * @param {boolean=} omitFocus
  * @return {!Promise.<undefined>}
  */
-export const reveal = function(revealable, omitFocus) {
+export let reveal = function(revealable, omitFocus) {
   if (!revealable) {
     return Promise.reject(new Error('Can\'t reveal ' + revealable));
   }
@@ -39,6 +39,10 @@ export const reveal = function(revealable, omitFocus) {
   }
 };
 
+export function setRevealForTest(newReveal) {
+  reveal = newReveal;
+}
+
 /**
  * @param {?Object} revealable
  * @return {?string}
@@ -50,14 +54,3 @@ export const revealDestination = function(revealable) {
   }
   return extension.descriptor()['destination'];
 };
-
-/* Legacy exported object */
-self.Common = self.Common || {};
-Common = Common || {};
-
-/**
- * @interface
- */
-Common.Revealer = Revealer;
-Common.Revealer.reveal = reveal;
-Common.Revealer.revealDestination = revealDestination;

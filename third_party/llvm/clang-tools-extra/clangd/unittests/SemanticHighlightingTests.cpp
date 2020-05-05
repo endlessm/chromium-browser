@@ -55,6 +55,7 @@ std::vector<HighlightingToken> getExpectedTokens(Annotations &Test) {
       {HighlightingKind::DependentType, "DependentType"},
       {HighlightingKind::DependentName, "DependentName"},
       {HighlightingKind::TemplateParameter, "TemplateParameter"},
+      {HighlightingKind::Concept, "Concept"},
       {HighlightingKind::Primitive, "Primitive"},
       {HighlightingKind::Macro, "Macro"}};
   std::vector<HighlightingToken> ExpectedTokens;
@@ -108,6 +109,7 @@ void checkHighlightings(llvm::StringRef Code,
   // FIXME: Auto-completion in a template requires disabling delayed template
   // parsing.
   TU.ExtraArgs.push_back("-fno-delayed-template-parsing");
+  TU.ExtraArgs.push_back("-std=c++2a");
 
   for (auto File : AdditionalFiles)
     TU.AdditionalFiles.insert({File.first, File.second});
@@ -269,7 +271,7 @@ TEST(SemanticHighlighting, GetsCorrectTokens) {
       R"cpp(
       struct $Class[[AA]] {
         int $Field[[A]];
-      }
+      };
       int $Variable[[B]];
       $Class[[AA]] $Variable[[A]]{$Variable[[B]]};
     )cpp",
@@ -353,6 +355,7 @@ TEST(SemanticHighlighting, GetsCorrectTokens) {
       };
       class $Class[[Foo]] {};
       class $Class[[Bar]] {
+      public:
         $Class[[Foo]] $Field[[Fo]];
         $Enum[[En]] $Field[[E]];
         int $Field[[I]];
@@ -407,8 +410,8 @@ TEST(SemanticHighlighting, GetsCorrectTokens) {
       }
     )cpp",
       R"cpp(
-      template<typename $TemplateParameter[[T]], 
-        void (T::*$TemplateParameter[[method]])(int)>
+      template<typename $TemplateParameter[[T]],
+        void ($TemplateParameter[[T]]::*$TemplateParameter[[method]])(int)>
       struct $Class[[G]] {
         void $Method[[foo]](
             $TemplateParameter[[T]] *$Parameter[[O]]) {
@@ -430,6 +433,7 @@ TEST(SemanticHighlighting, GetsCorrectTokens) {
         $Class[[G]]<$Class[[F]], &$Class[[F]]::$Method[[f]]> $LocalVariable[[GG]];
         $LocalVariable[[GG]].$Method[[foo]](&$LocalVariable[[FF]]);
         $Class[[A]]<$Function[[foo]]> $LocalVariable[[AA]];
+      }
     )cpp",
       // Tokens that share a source range but have conflicting Kinds are not
       // highlighted.
@@ -464,7 +468,7 @@ TEST(SemanticHighlighting, GetsCorrectTokens) {
         $Macro[[INC_VAR]]($LocalVariable[[variable]]);
       }
       void $Macro[[SOME_NAME]]();
-      $Macro[[DEF_VAR]]($Variable[[XYZ]], 567);
+      $Macro[[DEF_VAR]]($Variable[[MMMMM]], 567);
       $Macro[[DEF_VAR_REV]](756, $Variable[[AB]]);
 
       #define $Macro[[CALL_FN]](F) F();
@@ -525,7 +529,7 @@ $InactiveCode[[]]      #endif
         using $Typedef[[LVReference]] = $TemplateParameter[[T]] &;
         using $Typedef[[RVReference]] = $TemplateParameter[[T]]&&;
         using $Typedef[[Array]] = $TemplateParameter[[T]]*[3];
-        using $Typedef[[MemberPointer]] = int (A::*)(int);
+        using $Typedef[[MemberPointer]] = int ($Class[[A]]::*)(int);
 
         // Use various previously defined typedefs in a function type.
         void $Method[[func]](
@@ -597,7 +601,7 @@ $InactiveCode[[]]      #endif
       struct $Class[[Foo]] {
         $Class[[Foo]]<$TemplateParameter[[TT]], $TemplateParameter[[TTs]]...>
           *$Field[[t]];
-      }
+      };
     )cpp",
       // Inactive code highlighting
       R"cpp(
@@ -625,6 +629,43 @@ $InactiveCode[[]]      int Inactive3;
 $InactiveCode[[]]      #else
       int $Variable[[Active2]];
       #endif
+    )cpp",
+      // Argument to 'sizeof...'
+      R"cpp(
+      template <typename... $TemplateParameter[[Elements]]>
+      struct $Class[[TupleSize]] {
+        static const int $StaticField[[size]] =
+sizeof...($TemplateParameter[[Elements]]);
+      };
+    )cpp",
+      // More dependent types
+      R"cpp(
+      template <typename $TemplateParameter[[T]]>
+      struct $Class[[Waldo]] {
+        using $Typedef[[Location1]] = typename $TemplateParameter[[T]]
+            ::$DependentType[[Resolver]]::$DependentType[[Location]];
+        using $Typedef[[Location2]] = typename $TemplateParameter[[T]]
+            ::template $DependentType[[Resolver]]<$TemplateParameter[[T]]>
+            ::$DependentType[[Location]];
+        using $Typedef[[Location3]] = typename $TemplateParameter[[T]]
+            ::$DependentType[[Resolver]]
+            ::template $DependentType[[Location]]<$TemplateParameter[[T]]>;
+        static const int $StaticField[[Value]] = $TemplateParameter[[T]]
+            ::$DependentType[[Resolver]]::$DependentName[[Value]];
+      };
+    )cpp",
+      // Concepts
+      R"cpp(
+      template <typename $TemplateParameter[[T]]>
+      concept $Concept[[Fooable]] = 
+          requires($TemplateParameter[[T]] $Parameter[[F]]) {
+            $Parameter[[F]].$DependentName[[foo]]();
+          };
+      template <typename $TemplateParameter[[T]]>
+          requires $Concept[[Fooable]]<$TemplateParameter[[T]]>
+      void $Function[[bar]]($TemplateParameter[[T]] $Parameter[[F]]) {
+        $Parameter[[F]].$DependentName[[foo]]();
+      }
     )cpp"};
   for (const auto &TestCase : TestCases) {
     checkHighlightings(TestCase);
@@ -634,7 +675,6 @@ $InactiveCode[[]]      #else
     class $Class[[A]] {
       #include "imp.h"
     };
-    #endif
   )cpp",
                      {{"imp.h", R"cpp(
     int someMethod();
@@ -656,11 +696,10 @@ $InactiveCode[[]]      #else
 }
 
 TEST(SemanticHighlighting, GeneratesHighlightsWhenFileChange) {
-  class HighlightingsCounterDiagConsumer : public DiagnosticsConsumer {
+  class HighlightingsCounter : public ClangdServer::Callbacks {
   public:
     std::atomic<int> Count = {0};
 
-    void onDiagnosticsReady(PathRef, std::vector<Diag>) override {}
     void onHighlightingsReady(
         PathRef File, std::vector<HighlightingToken> Highlightings) override {
       ++Count;
@@ -672,11 +711,11 @@ TEST(SemanticHighlighting, GeneratesHighlightsWhenFileChange) {
   FS.Files[FooCpp] = "";
 
   MockCompilationDatabase MCD;
-  HighlightingsCounterDiagConsumer DiagConsumer;
-  ClangdServer Server(MCD, FS, DiagConsumer, ClangdServer::optsForTest());
+  HighlightingsCounter Counter;
+  ClangdServer Server(MCD, FS, ClangdServer::optsForTest(), &Counter);
   Server.addDocument(FooCpp, "int a;");
   ASSERT_TRUE(Server.blockUntilIdleForTest()) << "Waiting for server";
-  ASSERT_EQ(DiagConsumer.Count, 1);
+  ASSERT_EQ(Counter.Count, 1);
 }
 
 TEST(SemanticHighlighting, toSemanticHighlightingInformation) {

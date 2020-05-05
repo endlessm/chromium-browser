@@ -68,6 +68,8 @@ namespace dawn_native { namespace vulkan {
         Serial GetPendingCommandSerial() const override;
         MaybeError SubmitPendingCommands();
 
+        // Dawn Native API
+
         TextureBase* CreateTextureWrappingVulkanImage(
             const ExternalImageDescriptor* descriptor,
             ExternalMemoryHandle memoryHandle,
@@ -117,6 +119,10 @@ namespace dawn_native { namespace vulkan {
             const ShaderModuleDescriptor* descriptor) override;
         ResultOrError<SwapChainBase*> CreateSwapChainImpl(
             const SwapChainDescriptor* descriptor) override;
+        ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
@@ -126,6 +132,10 @@ namespace dawn_native { namespace vulkan {
         void GatherQueueFromDevice();
 
         void InitTogglesFromDriver();
+        void ApplyDepth24PlusS8Toggle();
+
+        void Destroy() override;
+        MaybeError WaitForIdleForDestruction() override;
 
         // To make it easier to use fn it is a public const member. However
         // the Device is allowed to mutate them through these private methods.

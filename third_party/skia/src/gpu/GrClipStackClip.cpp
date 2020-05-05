@@ -7,7 +7,6 @@
 
 #include "include/private/SkTo.h"
 #include "src/core/SkClipOpPriv.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/GrAppliedClip.h"
@@ -125,7 +124,7 @@ bool GrClipStackClip::PathNeedsSWRenderer(GrRecordingContext* context,
         GrShape shape(path, GrStyle::SimpleFill());
         GrPathRenderer::CanDrawPathArgs canDrawArgs;
         canDrawArgs.fCaps = context->priv().caps();
-        canDrawArgs.fProxy = renderTargetContext->proxy();
+        canDrawArgs.fProxy = renderTargetContext->asRenderTargetProxy();
         canDrawArgs.fClipConservativeBounds = &scissorRect;
         canDrawArgs.fViewMatrix = &viewMatrix;
         canDrawArgs.fShape = &shape;
@@ -355,18 +354,10 @@ sk_sp<GrTextureProxy> GrClipStackClip::createAlphaClipMask(GrRecordingContext* c
         return proxy;
     }
 
-    auto isProtected = proxy->isProtected() ? GrProtected::kYes : GrProtected::kNo;
-    auto rtc = context->priv().makeDeferredRenderTargetContextWithFallback(SkBackingFit::kApprox,
-                                                                           reducedClip.width(),
-                                                                           reducedClip.height(),
-                                                                           GrColorType::kAlpha_8,
-                                                                           nullptr,
-                                                                           1,
-                                                                           GrMipMapped::kNo,
-                                                                           kTopLeft_GrSurfaceOrigin,
-                                                                           nullptr,
-                                                                           SkBudgeted::kYes,
-                                                                           isProtected);
+    auto rtc = GrRenderTargetContext::MakeWithFallback(
+            context, GrColorType::kAlpha_8, nullptr, SkBackingFit::kApprox,
+            {reducedClip.width(), reducedClip.height()}, 1, GrMipMapped::kNo, proxy->isProtected(),
+            kTopLeft_GrSurfaceOrigin);
     if (!rtc) {
         return nullptr;
     }
@@ -491,15 +482,17 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
         GrSurfaceDesc desc;
         desc.fWidth = maskSpaceIBounds.width();
         desc.fHeight = maskSpaceIBounds.height();
-        desc.fConfig = kAlpha_8_GrPixelConfig;
 
         GrBackendFormat format = caps->getDefaultBackendFormat(GrColorType::kAlpha_8,
                                                                GrRenderable::kNo);
+
+        GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(format, GrColorType::kAlpha_8);
 
         // MDB TODO: We're going to fill this proxy with an ASAP upload (which is out of order wrt
         // to ops), so it can't have any pending IO.
         proxy = proxyProvider->createProxy(format,
                                            desc,
+                                           swizzle,
                                            GrRenderable::kNo,
                                            1,
                                            kTopLeft_GrSurfaceOrigin,
@@ -508,7 +501,7 @@ sk_sp<GrTextureProxy> GrClipStackClip::createSoftwareClipMask(
                                            SkBudgeted::kYes,
                                            GrProtected::kNo);
 
-        auto uploader = skstd::make_unique<GrTDeferredProxyUploader<ClipMaskData>>(reducedClip);
+        auto uploader = std::make_unique<GrTDeferredProxyUploader<ClipMaskData>>(reducedClip);
         GrTDeferredProxyUploader<ClipMaskData>* uploaderRaw = uploader.get();
         auto drawAndUploadMask = [uploaderRaw, maskSpaceIBounds] {
             TRACE_EVENT0("skia.gpu", "Threaded SW Clip Mask Render");

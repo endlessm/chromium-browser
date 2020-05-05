@@ -2,10 +2,10 @@
 // This file is ***GENERATED***.  Do Not Edit.
 // See layer_chassis_generator.py for modifications.
 
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ static const VkExtensionProperties instance_extensions[] = {{VK_EXT_DEBUG_REPORT
 static const VkExtensionProperties device_extensions[] = {
     {VK_EXT_VALIDATION_CACHE_EXTENSION_NAME, VK_EXT_VALIDATION_CACHE_SPEC_VERSION},
     {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, VK_EXT_DEBUG_MARKER_SPEC_VERSION},
+    {VK_EXT_TOOLING_INFO_EXTENSION_NAME, VK_EXT_TOOLING_INFO_SPEC_VERSION}
 };
 
 typedef struct {
@@ -337,6 +338,17 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
     return table.GetInstanceProcAddr(instance, funcName);
 }
 
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetPhysicalDeviceProcAddr(VkInstance instance, const char *funcName) {
+    const auto &item = name_to_funcptr_map.find(funcName);
+    if (item != name_to_funcptr_map.end()) {
+        return reinterpret_cast<PFN_vkVoidFunction>(item->second.funcptr);
+    }
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
+    auto &table = layer_data->instance_dispatch_table;
+    if (!table.GetPhysicalDeviceProcAddr) return nullptr;
+    return table.GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL EnumerateInstanceLayerProperties(uint32_t *pCount, VkLayerProperties *pProperties) {
     return util_GetLayerProperties(1, &global_layer, pCount, pProperties);
 }
@@ -372,7 +384,13 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
     if (fpCreateInstance == NULL) return VK_ERROR_INITIALIZATION_FAILED;
     chain_info->u.pLayerInfo = chain_info->u.pLayerInfo->pNext;
     uint32_t specified_version = (pCreateInfo->pApplicationInfo ? pCreateInfo->pApplicationInfo->apiVersion : VK_API_VERSION_1_0);
-    uint32_t api_version = (specified_version < VK_API_VERSION_1_1) ? VK_API_VERSION_1_0 : VK_API_VERSION_1_1;
+    uint32_t api_version;
+    if (specified_version < VK_API_VERSION_1_1)
+        api_version = VK_API_VERSION_1_0;
+    else if (specified_version < VK_API_VERSION_1_2)
+        api_version = VK_API_VERSION_1_1;
+    else
+        api_version = VK_API_VERSION_1_2;
     auto report_data = new debug_report_data{};
     report_data->instance_pnext_chain = SafePnextCopy(pCreateInfo->pNext);
     ActivateInstanceDebugCallbacks(report_data);
@@ -432,6 +450,8 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
         local_object_dispatch.emplace_back(gpu_assisted);
     }
     gpu_assisted->container_type = LayerObjectTypeGpuAssisted;
+    gpu_assisted->api_version = api_version;
+    gpu_assisted->report_data = report_data;
 
     // If handle wrapping is disabled via the ValidationFeatures extension, override build flag
     if (local_disables.handle_wrapping) {
@@ -901,6 +921,59 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateBuffer(
     return result;
 }
 
+
+// Handle tooling queries manually as this is a request for layer information
+
+VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceToolPropertiesEXT(
+    VkPhysicalDevice                            physicalDevice,
+    uint32_t*                                   pToolCount,
+    VkPhysicalDeviceToolPropertiesEXT*          pToolProperties) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
+    bool skip = false;
+
+    static const VkPhysicalDeviceToolPropertiesEXT khronos_layer_tool_props = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TOOL_PROPERTIES_EXT,
+        nullptr,
+        "Khronos Validation Layer",
+        STRINGIFY(VK_HEADER_VERSION),
+        VK_TOOL_PURPOSE_VALIDATION_BIT_EXT | VK_TOOL_PURPOSE_ADDITIONAL_FEATURES_BIT_EXT | VK_TOOL_PURPOSE_DEBUG_REPORTING_BIT_EXT | VK_TOOL_PURPOSE_DEBUG_MARKERS_BIT_EXT,
+        "Khronos Validation Layer",
+        OBJECT_LAYER_NAME
+    };
+
+    auto original_pToolProperties = pToolProperties;
+
+
+    if (pToolProperties != nullptr) {
+        *pToolProperties = khronos_layer_tool_props;
+        pToolProperties = ((*pToolCount > 1) ? &pToolProperties[1] : nullptr);
+        (*pToolCount)--;
+    }
+
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+    }
+
+    VkResult result = DispatchGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+
+    if (original_pToolProperties != nullptr) {
+        pToolProperties = original_pToolProperties;
+    }
+    (*pToolCount)++;
+
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties, result);
+    }
+    return result;
+}
 
 
 // ValidationCache APIs do not dispatch
@@ -4387,6 +4460,305 @@ VKAPI_ATTR void VKAPI_CALL GetDescriptorSetLayoutSupport(
 }
 
 
+VKAPI_ATTR void VKAPI_CALL CmdDrawIndirectCount(
+    VkCommandBuffer                             commandBuffer,
+    VkBuffer                                    buffer,
+    VkDeviceSize                                offset,
+    VkBuffer                                    countBuffer,
+    VkDeviceSize                                countBufferOffset,
+    uint32_t                                    maxDrawCount,
+    uint32_t                                    stride) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCmdDrawIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCmdDrawIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+    }
+    DispatchCmdDrawIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCmdDrawIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL CmdDrawIndexedIndirectCount(
+    VkCommandBuffer                             commandBuffer,
+    VkBuffer                                    buffer,
+    VkDeviceSize                                offset,
+    VkBuffer                                    countBuffer,
+    VkDeviceSize                                countBufferOffset,
+    uint32_t                                    maxDrawCount,
+    uint32_t                                    stride) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCmdDrawIndexedIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCmdDrawIndexedIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+    }
+    DispatchCmdDrawIndexedIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCmdDrawIndexedIndirectCount(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2(
+    VkDevice                                    device,
+    const VkRenderPassCreateInfo2*              pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkRenderPass*                               pRenderPass) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+    }
+    VkResult result = DispatchCreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCreateRenderPass2(device, pCreateInfo, pAllocator, pRenderPass, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR void VKAPI_CALL CmdBeginRenderPass2(
+    VkCommandBuffer                             commandBuffer,
+    const VkRenderPassBeginInfo*                pRenderPassBegin,
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCmdBeginRenderPass2(commandBuffer, pRenderPassBegin, pSubpassBeginInfo);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCmdBeginRenderPass2(commandBuffer, pRenderPassBegin, pSubpassBeginInfo);
+    }
+    DispatchCmdBeginRenderPass2(commandBuffer, pRenderPassBegin, pSubpassBeginInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCmdBeginRenderPass2(commandBuffer, pRenderPassBegin, pSubpassBeginInfo);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL CmdNextSubpass2(
+    VkCommandBuffer                             commandBuffer,
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo,
+    const VkSubpassEndInfo*                     pSubpassEndInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCmdNextSubpass2(commandBuffer, pSubpassBeginInfo, pSubpassEndInfo);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCmdNextSubpass2(commandBuffer, pSubpassBeginInfo, pSubpassEndInfo);
+    }
+    DispatchCmdNextSubpass2(commandBuffer, pSubpassBeginInfo, pSubpassEndInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCmdNextSubpass2(commandBuffer, pSubpassBeginInfo, pSubpassEndInfo);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL CmdEndRenderPass2(
+    VkCommandBuffer                             commandBuffer,
+    const VkSubpassEndInfo*                     pSubpassEndInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCmdEndRenderPass2(commandBuffer, pSubpassEndInfo);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCmdEndRenderPass2(commandBuffer, pSubpassEndInfo);
+    }
+    DispatchCmdEndRenderPass2(commandBuffer, pSubpassEndInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCmdEndRenderPass2(commandBuffer, pSubpassEndInfo);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL ResetQueryPool(
+    VkDevice                                    device,
+    VkQueryPool                                 queryPool,
+    uint32_t                                    firstQuery,
+    uint32_t                                    queryCount) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateResetQueryPool(device, queryPool, firstQuery, queryCount);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordResetQueryPool(device, queryPool, firstQuery, queryCount);
+    }
+    DispatchResetQueryPool(device, queryPool, firstQuery, queryCount);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordResetQueryPool(device, queryPool, firstQuery, queryCount);
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL GetSemaphoreCounterValue(
+    VkDevice                                    device,
+    VkSemaphore                                 semaphore,
+    uint64_t*                                   pValue) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetSemaphoreCounterValue(device, semaphore, pValue);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetSemaphoreCounterValue(device, semaphore, pValue);
+    }
+    VkResult result = DispatchGetSemaphoreCounterValue(device, semaphore, pValue);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetSemaphoreCounterValue(device, semaphore, pValue, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphores(
+    VkDevice                                    device,
+    const VkSemaphoreWaitInfo*                  pWaitInfo,
+    uint64_t                                    timeout) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateWaitSemaphores(device, pWaitInfo, timeout);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordWaitSemaphores(device, pWaitInfo, timeout);
+    }
+    VkResult result = DispatchWaitSemaphores(device, pWaitInfo, timeout);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordWaitSemaphores(device, pWaitInfo, timeout, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL SignalSemaphore(
+    VkDevice                                    device,
+    const VkSemaphoreSignalInfo*                pSignalInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateSignalSemaphore(device, pSignalInfo);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordSignalSemaphore(device, pSignalInfo);
+    }
+    VkResult result = DispatchSignalSemaphore(device, pSignalInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordSignalSemaphore(device, pSignalInfo, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddress(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetBufferDeviceAddress(device, pInfo);
+        if (skip) return 0;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetBufferDeviceAddress(device, pInfo);
+    }
+    VkDeviceAddress result = DispatchGetBufferDeviceAddress(device, pInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetBufferDeviceAddress(device, pInfo, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR uint64_t VKAPI_CALL GetBufferOpaqueCaptureAddress(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetBufferOpaqueCaptureAddress(device, pInfo);
+        if (skip) return 0;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetBufferOpaqueCaptureAddress(device, pInfo);
+    }
+    uint64_t result = DispatchGetBufferOpaqueCaptureAddress(device, pInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetBufferOpaqueCaptureAddress(device, pInfo);
+    }
+    return result;
+}
+
+VKAPI_ATTR uint64_t VKAPI_CALL GetDeviceMemoryOpaqueCaptureAddress(
+    VkDevice                                    device,
+    const VkDeviceMemoryOpaqueCaptureAddressInfo* pInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetDeviceMemoryOpaqueCaptureAddress(device, pInfo);
+        if (skip) return 0;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetDeviceMemoryOpaqueCaptureAddress(device, pInfo);
+    }
+    uint64_t result = DispatchGetDeviceMemoryOpaqueCaptureAddress(device, pInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetDeviceMemoryOpaqueCaptureAddress(device, pInfo);
+    }
+    return result;
+}
+
+
 VKAPI_ATTR void VKAPI_CALL DestroySurfaceKHR(
     VkInstance                                  instance,
     VkSurfaceKHR                                surface,
@@ -5783,7 +6155,7 @@ VKAPI_ATTR void VKAPI_CALL UpdateDescriptorSetWithTemplateKHR(
 
 VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2KHR(
     VkDevice                                    device,
-    const VkRenderPassCreateInfo2KHR*           pCreateInfo,
+    const VkRenderPassCreateInfo2*              pCreateInfo,
     const VkAllocationCallbacks*                pAllocator,
     VkRenderPass*                               pRenderPass) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
@@ -5808,7 +6180,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2KHR(
 VKAPI_ATTR void VKAPI_CALL CmdBeginRenderPass2KHR(
     VkCommandBuffer                             commandBuffer,
     const VkRenderPassBeginInfo*                pRenderPassBegin,
-    const VkSubpassBeginInfoKHR*                pSubpassBeginInfo) {
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
     bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
@@ -5829,8 +6201,8 @@ VKAPI_ATTR void VKAPI_CALL CmdBeginRenderPass2KHR(
 
 VKAPI_ATTR void VKAPI_CALL CmdNextSubpass2KHR(
     VkCommandBuffer                             commandBuffer,
-    const VkSubpassBeginInfoKHR*                pSubpassBeginInfo,
-    const VkSubpassEndInfoKHR*                  pSubpassEndInfo) {
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo,
+    const VkSubpassEndInfo*                     pSubpassEndInfo) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
     bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
@@ -5851,7 +6223,7 @@ VKAPI_ATTR void VKAPI_CALL CmdNextSubpass2KHR(
 
 VKAPI_ATTR void VKAPI_CALL CmdEndRenderPass2KHR(
     VkCommandBuffer                             commandBuffer,
-    const VkSubpassEndInfoKHR*                  pSubpassEndInfo) {
+    const VkSubpassEndInfo*                     pSubpassEndInfo) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(commandBuffer), layer_data_map);
     bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
@@ -6521,7 +6893,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetSemaphoreCounterValueKHR(
 
 VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphoresKHR(
     VkDevice                                    device,
-    const VkSemaphoreWaitInfoKHR*               pWaitInfo,
+    const VkSemaphoreWaitInfo*                  pWaitInfo,
     uint64_t                                    timeout) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     bool skip = false;
@@ -6544,7 +6916,7 @@ VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphoresKHR(
 
 VKAPI_ATTR VkResult VKAPI_CALL SignalSemaphoreKHR(
     VkDevice                                    device,
-    const VkSemaphoreSignalInfoKHR*             pSignalInfo) {
+    const VkSemaphoreSignalInfo*                pSignalInfo) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
@@ -6568,6 +6940,73 @@ VKAPI_ATTR VkResult VKAPI_CALL SignalSemaphoreKHR(
 
 
 
+
+
+VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressKHR(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetBufferDeviceAddressKHR(device, pInfo);
+        if (skip) return 0;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetBufferDeviceAddressKHR(device, pInfo);
+    }
+    VkDeviceAddress result = DispatchGetBufferDeviceAddressKHR(device, pInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetBufferDeviceAddressKHR(device, pInfo, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR uint64_t VKAPI_CALL GetBufferOpaqueCaptureAddressKHR(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetBufferOpaqueCaptureAddressKHR(device, pInfo);
+        if (skip) return 0;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetBufferOpaqueCaptureAddressKHR(device, pInfo);
+    }
+    uint64_t result = DispatchGetBufferOpaqueCaptureAddressKHR(device, pInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetBufferOpaqueCaptureAddressKHR(device, pInfo);
+    }
+    return result;
+}
+
+VKAPI_ATTR uint64_t VKAPI_CALL GetDeviceMemoryOpaqueCaptureAddressKHR(
+    VkDevice                                    device,
+    const VkDeviceMemoryOpaqueCaptureAddressInfo* pInfo) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetDeviceMemoryOpaqueCaptureAddressKHR(device, pInfo);
+        if (skip) return 0;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetDeviceMemoryOpaqueCaptureAddressKHR(device, pInfo);
+    }
+    uint64_t result = DispatchGetDeviceMemoryOpaqueCaptureAddressKHR(device, pInfo);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetDeviceMemoryOpaqueCaptureAddressKHR(device, pInfo);
+    }
+    return result;
+}
 
 
 VKAPI_ATTR VkResult VKAPI_CALL GetPipelineExecutablePropertiesKHR(
@@ -9103,7 +9542,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateMetalSurfaceEXT(
 
 VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressEXT(
     VkDevice                                    device,
-    const VkBufferDeviceAddressInfoEXT*         pInfo) {
+    const VkBufferDeviceAddressInfo*            pInfo) {
     auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
     bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
@@ -9122,6 +9561,7 @@ VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressEXT(
     }
     return result;
 }
+
 
 
 
@@ -9514,6 +9954,19 @@ const std::unordered_map<std::string, function_data> name_to_funcptr_map = {
     {"vkGetPhysicalDeviceExternalFenceProperties", {true, (void*)GetPhysicalDeviceExternalFenceProperties}},
     {"vkGetPhysicalDeviceExternalSemaphoreProperties", {true, (void*)GetPhysicalDeviceExternalSemaphoreProperties}},
     {"vkGetDescriptorSetLayoutSupport", {false, (void*)GetDescriptorSetLayoutSupport}},
+    {"vkCmdDrawIndirectCount", {false, (void*)CmdDrawIndirectCount}},
+    {"vkCmdDrawIndexedIndirectCount", {false, (void*)CmdDrawIndexedIndirectCount}},
+    {"vkCreateRenderPass2", {false, (void*)CreateRenderPass2}},
+    {"vkCmdBeginRenderPass2", {false, (void*)CmdBeginRenderPass2}},
+    {"vkCmdNextSubpass2", {false, (void*)CmdNextSubpass2}},
+    {"vkCmdEndRenderPass2", {false, (void*)CmdEndRenderPass2}},
+    {"vkResetQueryPool", {false, (void*)ResetQueryPool}},
+    {"vkGetSemaphoreCounterValue", {false, (void*)GetSemaphoreCounterValue}},
+    {"vkWaitSemaphores", {false, (void*)WaitSemaphores}},
+    {"vkSignalSemaphore", {false, (void*)SignalSemaphore}},
+    {"vkGetBufferDeviceAddress", {false, (void*)GetBufferDeviceAddress}},
+    {"vkGetBufferOpaqueCaptureAddress", {false, (void*)GetBufferOpaqueCaptureAddress}},
+    {"vkGetDeviceMemoryOpaqueCaptureAddress", {false, (void*)GetDeviceMemoryOpaqueCaptureAddress}},
     {"vkDestroySurfaceKHR", {true, (void*)DestroySurfaceKHR}},
     {"vkGetPhysicalDeviceSurfaceSupportKHR", {true, (void*)GetPhysicalDeviceSurfaceSupportKHR}},
     {"vkGetPhysicalDeviceSurfaceCapabilitiesKHR", {true, (void*)GetPhysicalDeviceSurfaceCapabilitiesKHR}},
@@ -9635,6 +10088,9 @@ const std::unordered_map<std::string, function_data> name_to_funcptr_map = {
     {"vkGetSemaphoreCounterValueKHR", {false, (void*)GetSemaphoreCounterValueKHR}},
     {"vkWaitSemaphoresKHR", {false, (void*)WaitSemaphoresKHR}},
     {"vkSignalSemaphoreKHR", {false, (void*)SignalSemaphoreKHR}},
+    {"vkGetBufferDeviceAddressKHR", {false, (void*)GetBufferDeviceAddressKHR}},
+    {"vkGetBufferOpaqueCaptureAddressKHR", {false, (void*)GetBufferOpaqueCaptureAddressKHR}},
+    {"vkGetDeviceMemoryOpaqueCaptureAddressKHR", {false, (void*)GetDeviceMemoryOpaqueCaptureAddressKHR}},
     {"vkGetPipelineExecutablePropertiesKHR", {false, (void*)GetPipelineExecutablePropertiesKHR}},
     {"vkGetPipelineExecutableStatisticsKHR", {false, (void*)GetPipelineExecutableStatisticsKHR}},
     {"vkGetPipelineExecutableInternalRepresentationsKHR", {false, (void*)GetPipelineExecutableInternalRepresentationsKHR}},
@@ -9766,6 +10222,7 @@ const std::unordered_map<std::string, function_data> name_to_funcptr_map = {
     {"vkCreateMetalSurfaceEXT", {true, (void*)CreateMetalSurfaceEXT}},
 #endif
     {"vkGetBufferDeviceAddressEXT", {false, (void*)GetBufferDeviceAddressEXT}},
+    {"vkGetPhysicalDeviceToolPropertiesEXT", {true, (void*)GetPhysicalDeviceToolPropertiesEXT}},
     {"vkGetPhysicalDeviceCooperativeMatrixPropertiesNV", {true, (void*)GetPhysicalDeviceCooperativeMatrixPropertiesNV}},
     {"vkGetPhysicalDeviceSupportedFramebufferMixedSamplesCombinationsNV", {true, (void*)GetPhysicalDeviceSupportedFramebufferMixedSamplesCombinationsNV}},
 #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -9823,6 +10280,11 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(V
     return vulkan_layer_chassis::GetInstanceProcAddr(instance, funcName);
 }
 
+VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_layerGetPhysicalDeviceProcAddr(VkInstance instance,
+                                                                                           const char *funcName) {
+    return vulkan_layer_chassis::GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct) {
     assert(pVersionStruct != NULL);
     assert(pVersionStruct->sType == LAYER_NEGOTIATE_INTERFACE_STRUCT);
@@ -9831,7 +10293,7 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVe
     if (pVersionStruct->loaderLayerInterfaceVersion >= 2) {
         pVersionStruct->pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
         pVersionStruct->pfnGetDeviceProcAddr = vkGetDeviceProcAddr;
-        pVersionStruct->pfnGetPhysicalDeviceProcAddr = nullptr;
+        pVersionStruct->pfnGetPhysicalDeviceProcAddr = vk_layerGetPhysicalDeviceProcAddr;
     }
 
     return VK_SUCCESS;

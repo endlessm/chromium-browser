@@ -251,7 +251,7 @@ void BluetoothAdapterBlueZ::Shutdown() {
   bluez::BluezDBusManager::Get()
       ->GetBluetoothAgentManagerClient()
       ->UnregisterAgent(dbus::ObjectPath(kAgentPath), base::DoNothing(),
-                        base::Bind(&OnUnregisterAgentError));
+                        base::BindOnce(&OnUnregisterAgentError));
 
   agent_.reset();
 
@@ -448,6 +448,13 @@ bool BluetoothAdapterBlueZ::IsDiscovering() const {
   if (!IsPresent())
     return false;
 
+  return NumScanningDiscoverySessions() > 0;
+}
+
+bool BluetoothAdapterBlueZ::IsDiscoveringForTesting() const {
+  if (!IsPresent())
+    return false;
+
   bluez::BluetoothAdapterClient::Properties* properties =
       bluez::BluezDBusManager::Get()
           ->GetBluetoothAdapterClient()
@@ -638,6 +645,11 @@ void BluetoothAdapterBlueZ::DeviceAdded(const dbus::ObjectPath& object_path) {
 
   devices_[device_bluez->GetAddress()] = base::WrapUnique(device_bluez);
 
+  if (properties->rssi.is_valid() && properties->eir.is_valid()) {
+    NotifyDeviceAdvertisementReceived(device_bluez, properties->rssi.value(),
+                                      properties->eir.value());
+  }
+
   for (auto& observer : observers_)
     observer.DeviceAdded(this, device_bluez);
 }
@@ -712,12 +724,15 @@ void BluetoothAdapterBlueZ::DevicePropertyChanged(
   if (property_name == properties->mtu.name())
     NotifyDeviceMTUChanged(device_bluez, properties->mtu.value());
 
-  // We use the RSSI as a proxy for receiving an advertisement because it's
-  // usually updated whenever an advertisement is received.
-  if (property_name == properties->rssi.name() && properties->rssi.is_valid() &&
-      properties->eir.is_valid())
+  // Bluez does not currently provide an explicit signal for an advertisement
+  // packet being received. Currently, it implicitly does so by notifying of an
+  // RSSI change. We also listen for whether the EIR packet data has changed.
+  if ((property_name == properties->rssi.name() ||
+       property_name == properties->eir.name()) &&
+      properties->rssi.is_valid() && properties->eir.is_valid()) {
     NotifyDeviceAdvertisementReceived(device_bluez, properties->rssi.value(),
                                       properties->eir.value());
+  }
 
   if (property_name == properties->connected.name())
     NotifyDeviceConnectedStateChanged(device_bluez,
@@ -775,12 +790,13 @@ void BluetoothAdapterBlueZ::AgentManagerAdded(
   BLUETOOTH_LOG(DEBUG) << "Registering pairing agent";
   bluez::BluezDBusManager::Get()
       ->GetBluetoothAgentManagerClient()
-      ->RegisterAgent(dbus::ObjectPath(kAgentPath),
-                      bluetooth_agent_manager::kKeyboardDisplayCapability,
-                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgent,
-                                 weak_ptr_factory_.GetWeakPtr()),
-                      base::Bind(&BluetoothAdapterBlueZ::OnRegisterAgentError,
-                                 weak_ptr_factory_.GetWeakPtr()));
+      ->RegisterAgent(
+          dbus::ObjectPath(kAgentPath),
+          bluetooth_agent_manager::kKeyboardDisplayCapability,
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRegisterAgent,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRegisterAgentError,
+                         weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BluetoothAdapterBlueZ::AgentManagerRemoved(
@@ -936,10 +952,10 @@ void BluetoothAdapterBlueZ::OnRegisterAgent() {
       ->GetBluetoothAgentManagerClient()
       ->RequestDefaultAgent(
           dbus::ObjectPath(kAgentPath),
-          base::Bind(&BluetoothAdapterBlueZ::OnRequestDefaultAgent,
-                     weak_ptr_factory_.GetWeakPtr()),
-          base::Bind(&BluetoothAdapterBlueZ::OnRequestDefaultAgentError,
-                     weak_ptr_factory_.GetWeakPtr()));
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRequestDefaultAgent,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::BindOnce(&BluetoothAdapterBlueZ::OnRequestDefaultAgentError,
+                         weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BluetoothAdapterBlueZ::OnRegisterAgentError(

@@ -1208,9 +1208,11 @@ static void update_prev_partition(VP9_COMP *cpi, MACROBLOCK *x, int segment_id,
 }
 
 static void chroma_check(VP9_COMP *cpi, MACROBLOCK *x, int bsize,
-                         unsigned int y_sad, int is_key_frame) {
+                         unsigned int y_sad, int is_key_frame,
+                         int scene_change_detected) {
   int i;
   MACROBLOCKD *xd = &x->e_mbd;
+  int shift = 2;
 
   if (is_key_frame) return;
 
@@ -1221,6 +1223,9 @@ static void chroma_check(VP9_COMP *cpi, MACROBLOCK *x, int bsize,
          vp9_noise_estimate_extract_level(&cpi->noise_estimate) < kMedium))
       return;
   }
+
+  if (cpi->oxcf.content == VP9E_CONTENT_SCREEN && scene_change_detected)
+    shift = 5;
 
   for (i = 1; i <= 2; ++i) {
     unsigned int uv_sad = UINT_MAX;
@@ -1234,7 +1239,7 @@ static void chroma_check(VP9_COMP *cpi, MACROBLOCK *x, int bsize,
 
     // TODO(marpan): Investigate if we should lower this threshold if
     // superblock is detected as skin.
-    x->color_sensitivity[i - 1] = uv_sad > (y_sad >> 2);
+    x->color_sensitivity[i - 1] = uv_sad > (y_sad >> shift);
   }
 }
 
@@ -1320,8 +1325,10 @@ static int choose_partitioning(VP9_COMP *cpi, const TileInfo *const tile,
   int pixels_wide = 64, pixels_high = 64;
   int64_t thresholds[4] = { cpi->vbp_thresholds[0], cpi->vbp_thresholds[1],
                             cpi->vbp_thresholds[2], cpi->vbp_thresholds[3] };
-  int force_64_split = cpi->rc.high_source_sad ||
-                       (cpi->use_svc && cpi->svc.high_source_sad_superframe) ||
+  int scene_change_detected =
+      cpi->rc.high_source_sad ||
+      (cpi->use_svc && cpi->svc.high_source_sad_superframe);
+  int force_64_split = scene_change_detected ||
                        (cpi->oxcf.content == VP9E_CONTENT_SCREEN &&
                         cpi->compute_source_sad_onepass &&
                         cpi->sf.use_source_sad && !x->zero_temp_sad_source);
@@ -1538,7 +1545,7 @@ static int choose_partitioning(VP9_COMP *cpi, const TileInfo *const tile,
           mi_row + block_height / 2 < cm->mi_rows) {
         set_block_size(cpi, x, xd, mi_row, mi_col, BLOCK_64X64);
         x->variance_low[0] = 1;
-        chroma_check(cpi, x, bsize, y_sad, is_key_frame);
+        chroma_check(cpi, x, bsize, y_sad, is_key_frame, scene_change_detected);
         if (cpi->sf.svc_use_lowres_part &&
             cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 2)
           update_partition_svc(cpi, BLOCK_64X64, mi_row, mi_col);
@@ -1555,7 +1562,7 @@ static int choose_partitioning(VP9_COMP *cpi, const TileInfo *const tile,
     // TODO(jianj) : tune the threshold.
     if (cpi->sf.copy_partition_flag && y_sad_last < cpi->vbp_threshold_copy &&
         copy_partitioning(cpi, x, xd, mi_row, mi_col, segment_id, sb_offset)) {
-      chroma_check(cpi, x, bsize, y_sad, is_key_frame);
+      chroma_check(cpi, x, bsize, y_sad, is_key_frame, scene_change_detected);
       if (cpi->sf.svc_use_lowres_part &&
           cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 2)
         update_partition_svc(cpi, BLOCK_64X64, mi_row, mi_col);
@@ -1784,7 +1791,7 @@ static int choose_partitioning(VP9_COMP *cpi, const TileInfo *const tile,
                           mi_col, mi_row);
   }
 
-  chroma_check(cpi, x, bsize, y_sad, is_key_frame);
+  chroma_check(cpi, x, bsize, y_sad, is_key_frame, scene_change_detected);
   if (vt2) vpx_free(vt2);
   return 0;
 }
@@ -3803,6 +3810,60 @@ static int get_rdmult_delta(VP9_COMP *cpi, BLOCK_SIZE bsize, int mi_row,
 }
 #endif  // !CONFIG_REALTIME_ONLY
 
+#if CONFIG_RATE_CTRL
+static void store_superblock_partition_info(
+    const PC_TREE *const pc_tree, PARTITION_INFO *partition_info,
+    const int square_size_4x4, const int num_unit_rows, const int num_unit_cols,
+    const int row_start_4x4, const int col_start_4x4) {
+  const int subblock_square_size_4x4 = square_size_4x4 >> 1;
+  if (row_start_4x4 >= num_unit_rows || col_start_4x4 >= num_unit_cols) return;
+  assert(pc_tree->partitioning != PARTITION_INVALID);
+  // End node, no split.
+  if (pc_tree->partitioning == PARTITION_NONE ||
+      pc_tree->partitioning == PARTITION_HORZ ||
+      pc_tree->partitioning == PARTITION_VERT || square_size_4x4 == 1) {
+    const int block_width_4x4 = (pc_tree->partitioning == PARTITION_VERT)
+                                    ? square_size_4x4 >> 1
+                                    : square_size_4x4;
+    const int block_height_4x4 = (pc_tree->partitioning == PARTITION_HORZ)
+                                     ? square_size_4x4 >> 1
+                                     : square_size_4x4;
+    int i, j;
+    for (i = 0; i < block_height_4x4; ++i) {
+      for (j = 0; j < block_width_4x4; ++j) {
+        const int row_4x4 = row_start_4x4 + i;
+        const int col_4x4 = col_start_4x4 + j;
+        const int unit_index = row_4x4 * num_unit_cols + col_4x4;
+        partition_info[unit_index].row = row_4x4 << 2;
+        partition_info[unit_index].column = col_4x4 << 2;
+        partition_info[unit_index].row_start = row_start_4x4 << 2;
+        partition_info[unit_index].column_start = col_start_4x4 << 2;
+        partition_info[unit_index].width = block_width_4x4 << 2;
+        partition_info[unit_index].height = block_height_4x4 << 2;
+      }
+    }
+    return;
+  }
+  // recursively traverse partition tree when partition is split.
+  assert(pc_tree->partitioning == PARTITION_SPLIT);
+  store_superblock_partition_info(pc_tree->split[0], partition_info,
+                                  subblock_square_size_4x4, num_unit_rows,
+                                  num_unit_cols, row_start_4x4, col_start_4x4);
+  store_superblock_partition_info(pc_tree->split[1], partition_info,
+                                  subblock_square_size_4x4, num_unit_rows,
+                                  num_unit_cols, row_start_4x4,
+                                  col_start_4x4 + subblock_square_size_4x4);
+  store_superblock_partition_info(
+      pc_tree->split[2], partition_info, subblock_square_size_4x4,
+      num_unit_rows, num_unit_cols, row_start_4x4 + subblock_square_size_4x4,
+      col_start_4x4);
+  store_superblock_partition_info(
+      pc_tree->split[3], partition_info, subblock_square_size_4x4,
+      num_unit_rows, num_unit_cols, row_start_4x4 + subblock_square_size_4x4,
+      col_start_4x4 + subblock_square_size_4x4);
+}
+#endif  // CONFIG_RATE_CTRL
+
 #if !CONFIG_REALTIME_ONLY
 // TODO(jingning,jimbankoski,rbultje): properly skip partition types that are
 // unlikely to be selected depending on previous rate-distortion optimization
@@ -4377,6 +4438,16 @@ static int rd_pick_partition(VP9_COMP *cpi, ThreadData *td,
     int output_enabled = (bsize == BLOCK_64X64);
     encode_sb(cpi, td, tile_info, tp, mi_row, mi_col, output_enabled, bsize,
               pc_tree);
+#if CONFIG_RATE_CTRL
+    // Store partition info.
+    if (output_enabled) {
+      const int num_unit_rows = get_num_unit_4x4(cpi->frame_info.frame_height);
+      const int num_unit_cols = get_num_unit_4x4(cpi->frame_info.frame_width);
+      store_superblock_partition_info(
+          pc_tree, cpi->partition_info, num_4x4_blocks_wide_lookup[BLOCK_64X64],
+          num_unit_rows, num_unit_cols, mi_row << 1, mi_col << 1);
+    }
+#endif  // CONFIG_RATE_CTRL
   }
 
   if (bsize == BLOCK_64X64) {

@@ -21,7 +21,7 @@ class QuicCryptoServerStreamPeer;
 }  // namespace test
 
 class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
-    : public QuicCryptoServerStream::HandshakerDelegate,
+    : public QuicCryptoServerStream::HandshakerInterface,
       public QuicCryptoHandshaker {
  public:
   // |crypto_config| must outlive the stream.
@@ -38,7 +38,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
 
   ~QuicCryptoServerHandshaker() override;
 
-  // From HandshakerDelegate
+  // From HandshakerInterface
   void CancelOutstandingCallbacks() override;
   bool GetBase64SHA256ClientChannelID(std::string* output) const override;
   void SendServerConfigUpdate(
@@ -55,10 +55,11 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
 
   // From QuicCryptoStream
   bool encryption_established() const override;
-  bool handshake_confirmed() const override;
+  bool one_rtt_keys_available() const override;
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
+  HandshakeState GetHandshakeState() const override;
   size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
 
   // From QuicCryptoHandshaker
@@ -85,8 +86,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
     encryption_established_ = encryption_established;
   }
 
-  void set_handshake_confirmed(bool handshake_confirmed) {
-    handshake_confirmed_ = handshake_confirmed;
+  void set_one_rtt_keys_available(bool one_rtt_keys_available) {
+    one_rtt_keys_available_ = one_rtt_keys_available;
   }
 
  private:
@@ -227,7 +228,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerHandshaker
   ProcessClientHelloCallback* process_client_hello_cb_;
 
   bool encryption_established_;
-  bool handshake_confirmed_;
+  bool one_rtt_keys_available_;
+  bool one_rtt_packet_decrypted_;
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters>
       crypto_negotiated_params_;
 };

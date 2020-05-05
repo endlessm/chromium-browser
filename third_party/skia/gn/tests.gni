@@ -50,6 +50,7 @@ tests_sources = [
   "$_tests/ColorTest.cpp",
   "$_tests/CopySurfaceTest.cpp",
   "$_tests/CubicMapTest.cpp",
+  "$_tests/DebugLayerManagerTest.cpp",
   "$_tests/DashPathEffectTest.cpp",
   "$_tests/DataRefTest.cpp",
   "$_tests/DefaultPathRendererTest.cpp",
@@ -146,6 +147,7 @@ tests_sources = [
   "$_tests/Matrix44Test.cpp",
   "$_tests/MatrixClipCollapseTest.cpp",
   "$_tests/MatrixTest.cpp",
+  "$_tests/MatrixColorFilterTest.cpp",
   "$_tests/MemoryTest.cpp",
   "$_tests/MemsetTest.cpp",
   "$_tests/MessageBusTest.cpp",
@@ -241,6 +243,7 @@ tests_sources = [
   "$_tests/SkRasterPipelineTest.cpp",
   "$_tests/SkRemoteGlyphCacheTest.cpp",
   "$_tests/SkResourceCacheTest.cpp",
+  "$_tests/SkRuntimeEffectTest.cpp",
   "$_tests/SkSLErrorTest.cpp",
   "$_tests/SkSLFPTest.cpp",
   "$_tests/SkSLGLSLTest.cpp",
@@ -308,6 +311,7 @@ tests_sources = [
 
 gl_tests_sources = [
   "$_tests/BackendAllocationTest.cpp",
+  "$_tests/CompressedBackendAllocationTest.cpp",
   "$_tests/EGLImageTest.cpp",
   "$_tests/GrGLExtensionsTest.cpp",
   "$_tests/ProxyTest.cpp",

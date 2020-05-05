@@ -5,13 +5,12 @@
 #ifndef PLATFORM_API_TASK_RUNNER_H_
 #define PLATFORM_API_TASK_RUNNER_H_
 
-#include <future>
+#include <future>  // NOLINT
+#include <utility>
 
-#include "absl/types/optional.h"
 #include "platform/api/time.h"
 
 namespace openscreen {
-namespace platform {
 
 // A thread-safe API surface that allows for posting tasks. The underlying
 // implementation may be single or multi-threaded, and all complication should
@@ -53,7 +52,6 @@ class TaskRunner {
   virtual bool IsRunningOnTaskRunner() { return true; }
 };
 
-}  // namespace platform
 }  // namespace openscreen
 
 #endif  // PLATFORM_API_TASK_RUNNER_H_

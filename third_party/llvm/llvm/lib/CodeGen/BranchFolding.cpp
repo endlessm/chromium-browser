@@ -24,6 +24,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
@@ -38,6 +39,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/MachineSizeOpts.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -103,6 +105,7 @@ namespace {
     void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<MachineBlockFrequencyInfo>();
       AU.addRequired<MachineBranchProbabilityInfo>();
+      AU.addRequired<ProfileSummaryInfoWrapperPass>();
       AU.addRequired<TargetPassConfig>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
@@ -126,10 +129,11 @@ bool BranchFolderPass::runOnMachineFunction(MachineFunction &MF) {
   // HW that requires structurized CFG.
   bool EnableTailMerge = !MF.getTarget().requiresStructuredCFG() &&
                          PassConfig->getEnableTailMerge();
-  BranchFolder::MBFIWrapper MBBFreqInfo(
+  MBFIWrapper MBBFreqInfo(
       getAnalysis<MachineBlockFrequencyInfo>());
   BranchFolder Folder(EnableTailMerge, /*CommonHoist=*/true, MBBFreqInfo,
-                      getAnalysis<MachineBranchProbabilityInfo>());
+                      getAnalysis<MachineBranchProbabilityInfo>(),
+                      &getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI());
   auto *MMIWP = getAnalysisIfAvailable<MachineModuleInfoWrapperPass>();
   return Folder.OptimizeFunction(
       MF, MF.getSubtarget().getInstrInfo(), MF.getSubtarget().getRegisterInfo(),
@@ -139,9 +143,10 @@ bool BranchFolderPass::runOnMachineFunction(MachineFunction &MF) {
 BranchFolder::BranchFolder(bool defaultEnableTailMerge, bool CommonHoist,
                            MBFIWrapper &FreqInfo,
                            const MachineBranchProbabilityInfo &ProbInfo,
+                           ProfileSummaryInfo *PSI,
                            unsigned MinTailLength)
     : EnableHoistCommonCode(CommonHoist), MinCommonTailLength(MinTailLength),
-      MBBFreqInfo(FreqInfo), MBPI(ProbInfo) {
+      MBBFreqInfo(FreqInfo), MBPI(ProbInfo), PSI(PSI) {
   if (MinCommonTailLength == 0)
     MinCommonTailLength = TailMergeSize;
   switch (FlagEnableTailMerge) {
@@ -444,7 +449,7 @@ static unsigned EstimateRuntime(MachineBasicBlock::iterator I,
       continue;
     if (I->isCall())
       Time += 10;
-    else if (I->mayLoad() || I->mayStore())
+    else if (I->mayLoadOrStore())
       Time += 2;
     else
       ++Time;
@@ -494,42 +499,6 @@ BranchFolder::MergePotentialsElt::operator<(const MergePotentialsElt &o) const {
 #else
   return false;
 #endif
-}
-
-BlockFrequency
-BranchFolder::MBFIWrapper::getBlockFreq(const MachineBasicBlock *MBB) const {
-  auto I = MergedBBFreq.find(MBB);
-
-  if (I != MergedBBFreq.end())
-    return I->second;
-
-  return MBFI.getBlockFreq(MBB);
-}
-
-void BranchFolder::MBFIWrapper::setBlockFreq(const MachineBasicBlock *MBB,
-                                             BlockFrequency F) {
-  MergedBBFreq[MBB] = F;
-}
-
-raw_ostream &
-BranchFolder::MBFIWrapper::printBlockFreq(raw_ostream &OS,
-                                          const MachineBasicBlock *MBB) const {
-  return MBFI.printBlockFreq(OS, getBlockFreq(MBB));
-}
-
-raw_ostream &
-BranchFolder::MBFIWrapper::printBlockFreq(raw_ostream &OS,
-                                          const BlockFrequency Freq) const {
-  return MBFI.printBlockFreq(OS, Freq);
-}
-
-void BranchFolder::MBFIWrapper::view(const Twine &Name, bool isSimple) {
-  MBFI.view(Name, isSimple);
-}
-
-uint64_t
-BranchFolder::MBFIWrapper::getEntryFreq() const {
-  return MBFI.getEntryFreq();
 }
 
 /// CountTerminators - Count the number of terminators in the given
@@ -585,7 +554,9 @@ ProfitableToMerge(MachineBasicBlock *MBB1, MachineBasicBlock *MBB2,
                   MachineBasicBlock::iterator &I2, MachineBasicBlock *SuccBB,
                   MachineBasicBlock *PredBB,
                   DenseMap<const MachineBasicBlock *, int> &EHScopeMembership,
-                  bool AfterPlacement) {
+                  bool AfterPlacement,
+                  MBFIWrapper &MBBFreqInfo,
+                  ProfileSummaryInfo *PSI) {
   // It is never profitable to tail-merge blocks from two different EH scopes.
   if (!EHScopeMembership.empty()) {
     auto EHScope1 = EHScopeMembership.find(MBB1);
@@ -682,7 +653,11 @@ ProfitableToMerge(MachineBasicBlock *MBB1, MachineBasicBlock *MBB2,
   // branch instruction, which is likely to be smaller than the 2
   // instructions that would be deleted in the merge.
   MachineFunction *MF = MBB1->getParent();
-  return EffectiveTailLen >= 2 && MF->getFunction().hasOptSize() &&
+  bool OptForSize =
+      MF->getFunction().hasOptSize() ||
+      (llvm::shouldOptimizeForSize(MBB1, PSI, &MBBFreqInfo.getMBFI()) &&
+       llvm::shouldOptimizeForSize(MBB2, PSI, &MBBFreqInfo.getMBFI()));
+  return EffectiveTailLen >= 2 && OptForSize &&
          (FullBlockTail1 || FullBlockTail2);
 }
 
@@ -704,7 +679,7 @@ unsigned BranchFolder::ComputeSameTails(unsigned CurHash,
                             CommonTailLen, TrialBBI1, TrialBBI2,
                             SuccBB, PredBB,
                             EHScopeMembership,
-                            AfterBlockPlacement)) {
+                            AfterBlockPlacement, MBBFreqInfo, PSI)) {
         if (CommonTailLen > maxCommonTailLength) {
           SameTails.clear();
           maxCommonTailLength = CommonTailLen;
@@ -824,7 +799,7 @@ mergeOperations(MachineBasicBlock::iterator MBBIStartPos,
     assert(MBBICommon->isIdenticalTo(*MBBI) && "Expected matching MIIs!");
 
     // Merge MMOs from memory operations in the common block.
-    if (MBBICommon->mayLoad() || MBBICommon->mayStore())
+    if (MBBICommon->mayLoadOrStore())
       MBBICommon->cloneMergedMemRefs(*MBB->getParent(), {&*MBBICommon, &*MBBI});
     // Drop undef flags if they aren't present in all merged instructions.
     for (unsigned I = 0, E = MBBICommon->getNumOperands(); I != E; ++I) {
@@ -1426,7 +1401,7 @@ ReoptimizeBlock:
     // has been used, but it can happen if tail merging splits a fall-through
     // predecessor of a block.
     // This has to check PrevBB->succ_size() because EH edges are ignored by
-    // AnalyzeBranch.
+    // analyzeBranch.
     if (PriorCond.empty() && !PriorTBB && MBB->pred_size() == 1 &&
         PrevBB.succ_size() == 1 &&
         !MBB->hasAddressTaken() && !MBB->isEHPad()) {
@@ -1534,8 +1509,10 @@ ReoptimizeBlock:
     }
   }
 
-  if (!IsEmptyBlock(MBB) && MBB->pred_size() == 1 &&
-      MF.getFunction().hasOptSize()) {
+  bool OptForSize =
+      MF.getFunction().hasOptSize() ||
+      llvm::shouldOptimizeForSize(MBB, PSI, &MBBFreqInfo.getMBFI());
+  if (!IsEmptyBlock(MBB) && MBB->pred_size() == 1 && OptForSize) {
     // Changing "Jcc foo; foo: jmp bar;" into "Jcc bar;" might change the branch
     // direction, thereby defeating careful block placement and regressing
     // performance. Therefore, only consider this for optsize functions.

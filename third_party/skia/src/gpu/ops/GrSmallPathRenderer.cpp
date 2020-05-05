@@ -29,13 +29,9 @@
 #include "src/gpu/ops/GrMeshDrawOp.h"
 #include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 
-#define ATLAS_TEXTURE_WIDTH 2048
-#define ATLAS_TEXTURE_HEIGHT 2048
-#define PLOT_WIDTH  512
-#define PLOT_HEIGHT 256
-
-#define NUM_PLOTS_X   (ATLAS_TEXTURE_WIDTH / PLOT_WIDTH)
-#define NUM_PLOTS_Y   (ATLAS_TEXTURE_HEIGHT / PLOT_HEIGHT)
+static constexpr size_t kMaxAtlasTextureBytes = 2048 * 2048;
+static constexpr size_t kPlotWidth = 512;
+static constexpr size_t kPlotHeight = 256;
 
 #ifdef DF_PATH_TRACKING
 static int g_NumCachedShapes = 0;
@@ -43,12 +39,12 @@ static int g_NumFreedShapes = 0;
 #endif
 
 // mip levels
-static const SkScalar kIdealMinMIP = 12;
-static const SkScalar kMaxMIP = 162;
+static constexpr SkScalar kIdealMinMIP = 12;
+static constexpr SkScalar kMaxMIP = 162;
 
-static const SkScalar kMaxDim = 73;
-static const SkScalar kMinSize = SK_ScalarHalf;
-static const SkScalar kMaxSize = 2*kMaxMIP;
+static constexpr SkScalar kMaxDim = 73;
+static constexpr SkScalar kMinSize = SK_ScalarHalf;
+static constexpr SkScalar kMaxSize = 2*kMaxMIP;
 
 class ShapeDataKey {
 public:
@@ -120,10 +116,10 @@ private:
 
 class ShapeData {
 public:
-    ShapeDataKey           fKey;
-    GrDrawOpAtlas::AtlasID fID;
-    SkRect                 fBounds;
-    GrIRect16              fTextureCoords;
+    ShapeDataKey               fKey;
+    GrDrawOpAtlas::PlotLocator fPlotLocator;
+    SkRect                     fBounds;
+    GrIRect16                  fTextureCoords;
     SK_DECLARE_INTERNAL_LLIST_INTERFACE(ShapeData);
 
     static inline const ShapeDataKey& GetKey(const ShapeData& data) {
@@ -138,17 +134,16 @@ public:
 
 
 // Callback to clear out internal path cache when eviction occurs
-void GrSmallPathRenderer::HandleEviction(GrDrawOpAtlas::AtlasID id, void* pr) {
-    GrSmallPathRenderer* dfpr = (GrSmallPathRenderer*)pr;
+void GrSmallPathRenderer::evict(GrDrawOpAtlas::PlotLocator plotLocator) {
     // remove any paths that use this plot
     ShapeDataList::Iter iter;
-    iter.init(dfpr->fShapeList, ShapeDataList::Iter::kHead_IterStart);
+    iter.init(fShapeList, ShapeDataList::Iter::kHead_IterStart);
     ShapeData* shapeData;
     while ((shapeData = iter.get())) {
         iter.next();
-        if (id == shapeData->fID) {
-            dfpr->fShapeCache.remove(shapeData->fKey);
-            dfpr->fShapeList.remove(shapeData);
+        if (plotLocator == shapeData->fPlotLocator) {
+            fShapeCache.remove(shapeData->fKey);
+            fShapeList.remove(shapeData);
             delete shapeData;
 #ifdef DF_PATH_TRACKING
             ++g_NumFreedPaths;
@@ -276,10 +271,10 @@ public:
     void visitProxies(const VisitProxyFunc& func) const override {
         fHelper.visitProxies(func);
 
-        const sk_sp<GrTextureProxy>* proxies = fAtlas->getProxies();
+        const GrSurfaceProxyView* views = fAtlas->getViews();
         for (uint32_t i = 0; i < fAtlas->numActivePages(); ++i) {
-            SkASSERT(proxies[i]);
-            func(proxies[i].get(), GrMipMapped::kNo);
+            SkASSERT(views[i].proxy());
+            func(views[i].proxy(), GrMipMapped::kNo);
         }
     }
 
@@ -319,17 +314,17 @@ private:
         int instanceCount = fShapes.count();
 
         static constexpr int kMaxTextures = GrDistanceFieldPathGeoProc::kMaxTextures;
-        GR_STATIC_ASSERT(GrBitmapTextGeoProc::kMaxTextures == kMaxTextures);
+        static_assert(GrBitmapTextGeoProc::kMaxTextures == kMaxTextures);
 
         FlushInfo flushInfo;
         flushInfo.fFixedDynamicState = target->makeFixedDynamicState(kMaxTextures);
         int numActiveProxies = fAtlas->numActivePages();
-        const auto proxies = fAtlas->getProxies();
+        const auto views = fAtlas->getViews();
         for (int i = 0; i < numActiveProxies; ++i) {
             // This op does not know its atlas proxies when it is added to a GrOpsTasks, so the
             // proxies don't get added during the visitProxies call. Thus we add them here.
-            flushInfo.fFixedDynamicState->fPrimitiveProcessorTextures[i] = proxies[i].get();
-            target->sampledProxyArray()->push_back(proxies[i].get());
+            flushInfo.fFixedDynamicState->fPrimitiveProcessorTextures[i] = views[i].proxy();
+            target->sampledProxyArray()->push_back(views[i].proxy());
         }
 
         // Setup GrGeometryProcessor
@@ -353,9 +348,10 @@ private:
             } else {
                 matrix = &SkMatrix::I();
             }
-            flushInfo.fGeometryProcessor = GrDistanceFieldPathGeoProc::Make(target->allocator(),
-                    *target->caps().shaderCaps(), *matrix, fWideColor, fAtlas->getProxies(),
-                    fAtlas->numActivePages(), GrSamplerState::ClampBilerp(), flags);
+            flushInfo.fGeometryProcessor = GrDistanceFieldPathGeoProc::Make(
+                    target->allocator(), *target->caps().shaderCaps(), *matrix, fWideColor,
+                    fAtlas->getViews(), fAtlas->numActivePages(), GrSamplerState::Filter::kBilerp,
+                    flags);
         } else {
             SkMatrix invert;
             if (fHelper.usesLocalCoords()) {
@@ -364,10 +360,10 @@ private:
                 }
             }
 
-            flushInfo.fGeometryProcessor = GrBitmapTextGeoProc::Make(target->allocator(),
-                    *target->caps().shaderCaps(), this->color(), fWideColor, fAtlas->getProxies(),
-                    fAtlas->numActivePages(), GrSamplerState::ClampNearest(), kA8_GrMaskFormat,
-                    invert, false);
+            flushInfo.fGeometryProcessor = GrBitmapTextGeoProc::Make(
+                    target->allocator(), *target->caps().shaderCaps(), this->color(), fWideColor,
+                    fAtlas->getViews(), fAtlas->numActivePages(), GrSamplerState::Filter::kNearest,
+                    kA8_GrMaskFormat, invert, false);
         }
 
         // allocate vertices
@@ -441,7 +437,7 @@ private:
                 // check to see if df path is cached
                 ShapeDataKey key(args.fShape, SkScalarCeilToInt(desiredDimension));
                 shapeData = fShapeCache->find(key);
-                if (nullptr == shapeData || !fAtlas->hasID(shapeData->fID)) {
+                if (nullptr == shapeData || !fAtlas->hasID(shapeData->fPlotLocator)) {
                     // Remove the stale cache entry
                     if (shapeData) {
                         fShapeCache->remove(shapeData->fKey);
@@ -466,7 +462,7 @@ private:
                 // check to see if bitmap path is cached
                 ShapeDataKey key(args.fShape, args.fViewMatrix);
                 shapeData = fShapeCache->find(key);
-                if (nullptr == shapeData || !fAtlas->hasID(shapeData->fID)) {
+                if (nullptr == shapeData || !fAtlas->hasID(shapeData->fPlotLocator)) {
                     // Remove the stale cache entry
                     if (shapeData) {
                         fShapeCache->remove(shapeData->fKey);
@@ -488,7 +484,8 @@ private:
             }
 
             auto uploadTarget = target->deferredUploadTarget();
-            fAtlas->setLastUseToken(shapeData->fID, uploadTarget->tokenTracker()->nextDrawToken());
+            fAtlas->setLastUseToken(
+                    shapeData->fPlotLocator, uploadTarget->tokenTracker()->nextDrawToken());
 
             this->writePathVertices(fAtlas, vertices, GrVertexColor(args.fColor, fWideColor),
                                     args.fViewMatrix, shapeData);
@@ -500,11 +497,11 @@ private:
 
     bool addToAtlas(GrMeshDrawOp::Target* target, FlushInfo* flushInfo, GrDrawOpAtlas* atlas,
                     int width, int height, const void* image,
-                    GrDrawOpAtlas::AtlasID* id, SkIPoint16* atlasLocation) const {
+                    GrDrawOpAtlas::PlotLocator* plotLocator, SkIPoint16* atlasLocation) const {
         auto resourceProvider = target->resourceProvider();
         auto uploadTarget = target->deferredUploadTarget();
 
-        GrDrawOpAtlas::ErrorCode code = atlas->addToAtlas(resourceProvider, id,
+        GrDrawOpAtlas::ErrorCode code = atlas->addToAtlas(resourceProvider, plotLocator,
                                                           uploadTarget, width, height,
                                                           image, atlasLocation);
         if (GrDrawOpAtlas::ErrorCode::kError == code) {
@@ -514,7 +511,7 @@ private:
         if (GrDrawOpAtlas::ErrorCode::kTryAgain == code) {
             this->flush(target, flushInfo);
 
-            code = atlas->addToAtlas(resourceProvider, id, uploadTarget, width, height,
+            code = atlas->addToAtlas(resourceProvider, plotLocator, uploadTarget, width, height,
                                      image, atlasLocation);
         }
 
@@ -570,13 +567,11 @@ private:
 
         SkPath path;
         shape.asPath(&path);
-#ifndef SK_USE_LEGACY_DISTANCE_FIELDS
         // Generate signed distance field directly from SkPath
         bool succeed = GrGenerateDistanceFieldFromPath((unsigned char*)dfStorage.get(),
                                         path, drawMatrix,
                                         width, height, width * sizeof(unsigned char));
         if (!succeed) {
-#endif
             // setup bitmap backing
             SkAutoPixmapStorage dst;
             if (!dst.tryAlloc(SkImageInfo::MakeA8(devPathBounds.width(),
@@ -604,22 +599,20 @@ private:
             SkGenerateDistanceFieldFromA8Image((unsigned char*)dfStorage.get(),
                                                (const unsigned char*)dst.addr(),
                                                dst.width(), dst.height(), dst.rowBytes());
-#ifndef SK_USE_LEGACY_DISTANCE_FIELDS
         }
-#endif
 
         // add to atlas
         SkIPoint16 atlasLocation;
-        GrDrawOpAtlas::AtlasID id;
+        GrDrawOpAtlas::PlotLocator plotLocator;
 
         if (!this->addToAtlas(target, flushInfo, atlas,
-                              width, height, dfStorage.get(), &id, &atlasLocation)) {
+                              width, height, dfStorage.get(), &plotLocator, &atlasLocation)) {
             return false;
         }
 
         // add to cache
         shapeData->fKey.set(shape, dimension);
-        shapeData->fID = id;
+        shapeData->fPlotLocator = plotLocator;
 
         shapeData->fBounds = SkRect::Make(devPathBounds);
         shapeData->fBounds.offset(-translateX, -translateY);
@@ -629,7 +622,7 @@ private:
         shapeData->fBounds.fBottom /= scale;
 
         // We pack the 2bit page index in the low bit of the u and v texture coords
-        uint16_t pageIndex = GrDrawOpAtlas::GetPageIndexFromID(id);
+        uint16_t pageIndex = GrDrawOpAtlas::GetPageIndexFromID(plotLocator);
         SkASSERT(pageIndex < 4);
         uint16_t uBit = (pageIndex >> 1) & 0x1;
         uint16_t vBit = pageIndex & 0x1;
@@ -712,22 +705,22 @@ private:
 
         // add to atlas
         SkIPoint16 atlasLocation;
-        GrDrawOpAtlas::AtlasID id;
+        GrDrawOpAtlas::PlotLocator plotLocator;
 
-        if (!this->addToAtlas(target, flushInfo, atlas,
-                              dst.width(), dst.height(), dst.addr(), &id, &atlasLocation)) {
+        if (!this->addToAtlas(target, flushInfo, atlas, dst.width(), dst.height(),
+                dst.addr(), &plotLocator, &atlasLocation)) {
             return false;
         }
 
         // add to cache
         shapeData->fKey.set(shape, ctm);
-        shapeData->fID = id;
+        shapeData->fPlotLocator = plotLocator;
 
         shapeData->fBounds = SkRect::Make(devPathBounds);
         shapeData->fBounds.offset(-translateX, -translateY);
 
         // We pack the 2bit page index in the low bit of the u and v texture coords
-        uint16_t pageIndex = GrDrawOpAtlas::GetPageIndexFromID(id);
+        uint16_t pageIndex = GrDrawOpAtlas::GetPageIndexFromID(plotLocator);
         SkASSERT(pageIndex < 4);
         uint16_t uBit = (pageIndex >> 1) & 0x1;
         uint16_t vBit = pageIndex & 0x1;
@@ -776,22 +769,24 @@ private:
     void flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const {
         GrGeometryProcessor* gp = flushInfo->fGeometryProcessor;
         int numAtlasTextures = SkToInt(fAtlas->numActivePages());
-        auto proxies = fAtlas->getProxies();
+        const auto views = fAtlas->getViews();
         if (gp->numTextureSamplers() != numAtlasTextures) {
             for (int i = gp->numTextureSamplers(); i < numAtlasTextures; ++i) {
-                flushInfo->fFixedDynamicState->fPrimitiveProcessorTextures[i] = proxies[i].get();
+                flushInfo->fFixedDynamicState->fPrimitiveProcessorTextures[i] = views[i].proxy();
                 // This op does not know its atlas proxies when it is added to a GrOpsTasks, so the
                 // proxies don't get added during the visitProxies call. Thus we add them here.
-                target->sampledProxyArray()->push_back(proxies[i].get());
+                target->sampledProxyArray()->push_back(views[i].proxy());
             }
             // During preparation the number of atlas pages has increased.
             // Update the proxies used in the GP to match.
             if (fUsesDistanceField) {
-                reinterpret_cast<GrDistanceFieldPathGeoProc*>(gp)->addNewProxies(
-                    fAtlas->getProxies(), fAtlas->numActivePages(), GrSamplerState::ClampBilerp());
+                reinterpret_cast<GrDistanceFieldPathGeoProc*>(gp)->addNewViews(
+                        fAtlas->getViews(), fAtlas->numActivePages(),
+                        GrSamplerState::Filter::kBilerp);
             } else {
-                reinterpret_cast<GrBitmapTextGeoProc*>(gp)->addNewProxies(
-                    fAtlas->getProxies(), fAtlas->numActivePages(), GrSamplerState::ClampNearest());
+                reinterpret_cast<GrBitmapTextGeoProc*>(gp)->addNewViews(
+                        fAtlas->getViews(), fAtlas->numActivePages(),
+                        GrSamplerState::Filter::kNearest);
             }
         }
 
@@ -812,13 +807,19 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags(),
+                                                                 fHelper.stencilSettings());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
     const SkPMColor4f& color() const { return fShapes[0].fColor; }
     bool usesDistanceField() const { return fUsesDistanceField; }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         SmallPathOp* that = t->cast<SmallPathOp>();
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
             return CombineResult::kCannotCombine;
@@ -838,7 +839,7 @@ private:
         // We can position on the cpu unless we're in perspective,
         // but also need to make sure local matrices are identical
         if ((thisCtm.hasPerspective() || fHelper.usesLocalCoords()) &&
-            !thisCtm.cheapEqualTo(thatCtm)) {
+            !SkMatrixPriv::CheapEqual(thisCtm, thatCtm)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -884,14 +885,14 @@ bool GrSmallPathRenderer::onDrawPath(const DrawPathArgs& args) {
     if (!fAtlas) {
         const GrBackendFormat format = args.fContext->priv().caps()->getDefaultBackendFormat(
                 GrColorType::kAlpha_8, GrRenderable::kNo);
-        fAtlas = GrDrawOpAtlas::Make(args.fContext->priv().proxyProvider(),
-                                     format,
-                                     GrColorType::kAlpha_8,
-                                     ATLAS_TEXTURE_WIDTH, ATLAS_TEXTURE_HEIGHT,
-                                     PLOT_WIDTH, PLOT_HEIGHT,
-                                     GrDrawOpAtlas::AllowMultitexturing::kYes,
-                                     &GrSmallPathRenderer::HandleEviction,
-                                     (void*)this);
+
+        GrDrawOpAtlasConfig atlasConfig(args.fContext->priv().caps()->maxTextureSize(),
+                                        kMaxAtlasTextureBytes);
+        SkISize size = atlasConfig.atlasDimensions(kA8_GrMaskFormat);
+        fAtlas = GrDrawOpAtlas::Make(args.fContext->priv().proxyProvider(), format,
+                                     GrColorType::kAlpha_8, size.width(), size.height(),
+                                     kPlotWidth, kPlotHeight, this,
+                                     GrDrawOpAtlas::AllowMultitexturing::kYes, this);
         if (!fAtlas) {
             return false;
         }
@@ -909,9 +910,10 @@ bool GrSmallPathRenderer::onDrawPath(const DrawPathArgs& args) {
 
 #if GR_TEST_UTILS
 
-struct GrSmallPathRenderer::PathTestStruct {
+struct GrSmallPathRenderer::PathTestStruct : public GrDrawOpAtlas::EvictionCallback,
+                                             public GrDrawOpAtlas::GenerationCounter {
     PathTestStruct() : fContextID(SK_InvalidGenID), fAtlas(nullptr) {}
-    ~PathTestStruct() { this->reset(); }
+    ~PathTestStruct() override { this->reset(); }
 
     void reset() {
         ShapeDataList::Iter iter;
@@ -926,17 +928,16 @@ struct GrSmallPathRenderer::PathTestStruct {
         fShapeCache.reset();
     }
 
-    static void HandleEviction(GrDrawOpAtlas::AtlasID id, void* pr) {
-        PathTestStruct* dfpr = (PathTestStruct*)pr;
+    void evict(GrDrawOpAtlas::PlotLocator plotLocator) override {
         // remove any paths that use this plot
         ShapeDataList::Iter iter;
-        iter.init(dfpr->fShapeList, ShapeDataList::Iter::kHead_IterStart);
+        iter.init(fShapeList, ShapeDataList::Iter::kHead_IterStart);
         ShapeData* shapeData;
         while ((shapeData = iter.get())) {
             iter.next();
-            if (id == shapeData->fID) {
-                dfpr->fShapeCache.remove(shapeData->fKey);
-                dfpr->fShapeList.remove(shapeData);
+            if (plotLocator == shapeData->fPlotLocator) {
+                fShapeCache.remove(shapeData->fKey);
+                fShapeList.remove(shapeData);
                 delete shapeData;
             }
         }
@@ -974,13 +975,14 @@ GR_DRAW_OP_TEST_DEFINE(SmallPathOp) {
         gTestStruct.reset();
         const GrBackendFormat format = context->priv().caps()->getDefaultBackendFormat(
                 GrColorType::kAlpha_8, GrRenderable::kNo);
-        gTestStruct.fAtlas = GrDrawOpAtlas::Make(context->priv().proxyProvider(),
-                                                 format, GrColorType::kAlpha_8,
-                                                 ATLAS_TEXTURE_WIDTH, ATLAS_TEXTURE_HEIGHT,
-                                                 PLOT_WIDTH, PLOT_HEIGHT,
-                                                 GrDrawOpAtlas::AllowMultitexturing::kYes,
-                                                 &PathTestStruct::HandleEviction,
-                                                 (void*)&gTestStruct);
+        GrDrawOpAtlasConfig atlasConfig(context->priv().caps()->maxTextureSize(),
+                                        kMaxAtlasTextureBytes);
+        SkISize size = atlasConfig.atlasDimensions(kA8_GrMaskFormat);
+        gTestStruct.fAtlas =
+                GrDrawOpAtlas::Make(context->priv().proxyProvider(), format, GrColorType::kAlpha_8,
+                                    size.width(), size.height(), kPlotWidth, kPlotHeight,
+                                    &gTestStruct,
+                                    GrDrawOpAtlas::AllowMultitexturing::kYes, &gTestStruct);
     }
 
     SkMatrix viewMatrix = GrTest::TestMatrix(random);

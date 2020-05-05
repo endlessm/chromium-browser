@@ -8,6 +8,7 @@
 #include "url/origin.h"
 #include "net/third_party/quiche/src/quic/core/quic_dispatcher.h"
 #include "net/third_party/quiche/src/quic/tools/quic_transport_simple_server_session.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -23,16 +24,15 @@ class QuicTransportSimpleServerDispatcher : public QuicDispatcher {
       std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
       std::unique_ptr<QuicAlarmFactory> alarm_factory,
       uint8_t expected_server_connection_id_length,
-      QuicTransportSimpleServerSession::Mode mode,
       std::vector<url::Origin> accepted_origins);
 
  protected:
-  QuicSession* CreateQuicSession(QuicConnectionId server_connection_id,
-                                 const QuicSocketAddress& peer_address,
-                                 QuicStringPiece alpn,
-                                 const ParsedQuicVersion& version) override;
+  std::unique_ptr<QuicSession> CreateQuicSession(
+      QuicConnectionId server_connection_id,
+      const QuicSocketAddress& peer_address,
+      quiche::QuicheStringPiece alpn,
+      const ParsedQuicVersion& version) override;
 
-  QuicTransportSimpleServerSession::Mode mode_;
   std::vector<url::Origin> accepted_origins_;
 };
 

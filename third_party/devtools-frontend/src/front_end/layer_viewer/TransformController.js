@@ -1,8 +1,6 @@
-/*
- * Copyright 2014 The Chromium Authors. All rights reserved.
- * Use of this source code is governed by a BSD-style license that can be
- * found in the LICENSE file.
- */
+// Copyright 2014 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 /**
  * @unrestricted
@@ -95,7 +93,7 @@ export class TransformController extends Common.Object {
   }
 
   /**
-   * @param {!LayerViewer.TransformController.Modes} mode
+   * @param {!Modes} mode
    */
   _setMode(mode) {
     if (this._mode === mode) {
@@ -296,24 +294,3 @@ export const Modes = {
   Pan: 'Pan',
   Rotate: 'Rotate',
 };
-
-/* Legacy exported object */
-self.LayerViewer = self.LayerViewer || {};
-
-/* Legacy exported object */
-LayerViewer = LayerViewer || {};
-
-/**
- * @constructor
- */
-LayerViewer.TransformController = TransformController;
-
-/**
- * @enum {symbol}
- */
-LayerViewer.TransformController.Events = Events;
-
-/**
- * @enum {string}
- */
-LayerViewer.TransformController.Modes = Modes;

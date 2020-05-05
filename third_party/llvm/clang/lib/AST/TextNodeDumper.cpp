@@ -489,6 +489,9 @@ void TextNodeDumper::visitInlineCommandComment(
   case comments::InlineCommandComment::RenderEmphasized:
     OS << " RenderEmphasized";
     break;
+  case comments::InlineCommandComment::RenderAnchor:
+    OS << " RenderAnchor";
+    break;
   }
 
   for (unsigned i = 0, e = C->getNumArgs(); i != e; ++i)
@@ -1198,6 +1201,11 @@ void TextNodeDumper::VisitAutoType(const AutoType *T) {
     OS << " decltype(auto)";
   if (!T->isDeduced())
     OS << " undeduced";
+  if (T->isConstrained()) {
+    dumpDeclRef(T->getTypeConstraintConcept());
+    for (const auto &Arg : T->getTypeConstraintArguments())
+      VisitTemplateArgument(Arg);
+  }
 }
 
 void TextNodeDumper::VisitTemplateSpecializationType(
@@ -1336,6 +1344,17 @@ void TextNodeDumper::VisitFunctionDecl(const FunctionDecl *D) {
   // ParmVarDecls yet.
   if (!D->param_empty() && !D->param_begin())
     OS << " <<<NULL params x " << D->getNumParams() << ">>>";
+}
+
+void TextNodeDumper::VisitLifetimeExtendedTemporaryDecl(
+    const LifetimeExtendedTemporaryDecl *D) {
+  OS << " extended by ";
+  dumpBareDeclRef(D->getExtendingDecl());
+  OS << " mangling ";
+  {
+    ColorScope Color(OS, ShowColors, ValueColor);
+    OS << D->getManglingNumber();
+  }
 }
 
 void TextNodeDumper::VisitFieldDecl(const FieldDecl *D) {
@@ -1680,7 +1699,16 @@ void TextNodeDumper::VisitBuiltinTemplateDecl(const BuiltinTemplateDecl *D) {
 }
 
 void TextNodeDumper::VisitTemplateTypeParmDecl(const TemplateTypeParmDecl *D) {
-  if (D->wasDeclaredWithTypename())
+  if (const auto *TC = D->getTypeConstraint()) {
+    OS << " ";
+    dumpBareDeclRef(TC->getNamedConcept());
+    if (TC->getNamedConcept() != TC->getFoundDecl()) {
+      OS << " (";
+      dumpBareDeclRef(TC->getFoundDecl());
+      OS << ")";
+    }
+    Visit(TC->getImmediatelyDeclaredConstraint());
+  } else if (D->wasDeclaredWithTypename())
     OS << " typename";
   else
     OS << " class";

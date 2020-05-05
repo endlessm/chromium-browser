@@ -2,11 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-PerfUI.LineLevelProfile = {};
-
-PerfUI.LineLevelProfile.Performance = class {
+export class Performance {
   constructor() {
-    this._helper = new PerfUI.LineLevelProfile._Helper('performance');
+    this._helper = new Helper('performance');
   }
 
   reset() {
@@ -63,11 +61,11 @@ PerfUI.LineLevelProfile.Performance = class {
     }
     this._helper.scheduleUpdate();
   }
-};
+}
 
-PerfUI.LineLevelProfile.Memory = class {
+export class Memory {
   constructor() {
-    this._helper = new PerfUI.LineLevelProfile._Helper('memory');
+    this._helper = new Helper('memory');
   }
 
   reset() {
@@ -99,9 +97,9 @@ PerfUI.LineLevelProfile.Memory = class {
       helper.addLineData(target, script, line, node.selfSize);
     }
   }
-};
+}
 
-PerfUI.LineLevelProfile._Helper = class {
+export class Helper {
   /**
    * @param {string} type
    */
@@ -151,7 +149,7 @@ PerfUI.LineLevelProfile._Helper = class {
 
   _doUpdate() {
     this._locationPool.disposeAll();
-    Workspace.workspace.uiSourceCodes().forEach(uiSourceCode => uiSourceCode.removeDecorationsForType(this._type));
+    self.Workspace.workspace.uiSourceCodes().forEach(uiSourceCode => uiSourceCode.removeDecorationsForType(this._type));
     for (const targetToScript of this._lineData) {
       const target = /** @type {?SDK.Target} */ (targetToScript[0]);
       const debuggerModel = target ? target.model(SDK.DebuggerModel) : null;
@@ -162,7 +160,7 @@ PerfUI.LineLevelProfile._Helper = class {
         // debuggerModel is null when the profile is loaded from file.
         // Try to get UISourceCode by the URL in this case.
         const uiSourceCode = !debuggerModel && typeof scriptIdOrUrl === 'string' ?
-            Workspace.workspace.uiSourceCodeForURL(scriptIdOrUrl) :
+            self.Workspace.workspace.uiSourceCodeForURL(scriptIdOrUrl) :
             null;
         if (!debuggerModel && !uiSourceCode) {
           continue;
@@ -178,15 +176,15 @@ PerfUI.LineLevelProfile._Helper = class {
               debuggerModel.createRawLocationByURL(scriptIdOrUrl, line, 0) :
               debuggerModel.createRawLocationByScriptId(String(scriptIdOrUrl), line, 0);
           if (rawLocation) {
-            new PerfUI.LineLevelProfile.Presentation(rawLocation, this._type, data, this._locationPool);
+            new Presentation(rawLocation, this._type, data, this._locationPool);
           }
         }
       }
     }
   }
-};
+}
 
-PerfUI.LineLevelProfile.Presentation = class {
+export class Presentation {
   /**
    * @param {!SDK.DebuggerModel.Location} rawLocation
    * @param {string} type
@@ -197,7 +195,8 @@ PerfUI.LineLevelProfile.Presentation = class {
     this._type = type;
     this._time = time;
     this._uiLocation = null;
-    Bindings.debuggerWorkspaceBinding.createLiveLocation(rawLocation, this.updateLocation.bind(this), locationPool);
+    self.Bindings.debuggerWorkspaceBinding.createLiveLocation(
+        rawLocation, this.updateLocation.bind(this), locationPool);
   }
 
   /**
@@ -212,12 +211,12 @@ PerfUI.LineLevelProfile.Presentation = class {
       this._uiLocation.uiSourceCode.addLineDecoration(this._uiLocation.lineNumber, this._type, this._time);
     }
   }
-};
+}
 
 /**
  * @implements {SourceFrame.LineDecorator}
  */
-PerfUI.LineLevelProfile.LineDecorator = class {
+export class LineDecorator {
   /**
    * @override
    * @param {!Workspace.UISourceCode} uiSourceCode
@@ -270,4 +269,4 @@ PerfUI.LineLevelProfile.LineDecorator = class {
     }
     return element;
   }
-};
+}

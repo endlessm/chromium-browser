@@ -14,7 +14,7 @@
 
 #include "dawn_native/metal/BackendMTL.h"
 
-#include "common/Constants.h"
+#include "common/GPUInfo.h"
 #include "common/Platform.h"
 #include "dawn_native/Instance.h"
 #include "dawn_native/MetalBackend.h"
@@ -39,11 +39,11 @@ namespace dawn_native { namespace metal {
         };
 
 #if defined(DAWN_PLATFORM_MACOS)
-        const Vendor kVendors[] = {{"AMD", kVendorID_AMD},
-                                   {"Radeon", kVendorID_AMD},
-                                   {"Intel", kVendorID_Intel},
-                                   {"Geforce", kVendorID_Nvidia},
-                                   {"Quadro", kVendorID_Nvidia}};
+        const Vendor kVendors[] = {{"AMD", gpu_info::kVendorID_AMD},
+                                   {"Radeon", gpu_info::kVendorID_AMD},
+                                   {"Intel", gpu_info::kVendorID_Intel},
+                                   {"Geforce", gpu_info::kVendorID_Nvidia},
+                                   {"Quadro", gpu_info::kVendorID_Nvidia}};
 
         // Find vendor ID from MTLDevice name.
         MaybeError GetVendorIdFromVendors(id<MTLDevice> device, PCIIDs* ids) {
@@ -103,7 +103,8 @@ namespace dawn_native { namespace metal {
         //
         // [device registryID] is the ID for one of the IOGraphicsAccelerator2 and we can see that
         // their parent always is an IOPCIDevice that has properties for the device and vendor IDs.
-        MaybeError GetDeviceIORegistryPCIInfo(id<MTLDevice> device, PCIIDs* ids) {
+        MaybeError API_AVAILABLE(macos(10.13))
+            GetDeviceIORegistryPCIInfo(id<MTLDevice> device, PCIIDs* ids) {
             // Get a matching dictionary for the IOGraphicsAccelerator2
             CFMutableDictionaryRef matchingDict = IORegistryEntryIDMatching([device registryID]);
             if (matchingDict == nullptr) {
@@ -143,7 +144,7 @@ namespace dawn_native { namespace metal {
         MaybeError GetDevicePCIInfo(id<MTLDevice> device, PCIIDs* ids) {
             // [device registryID] is introduced on macOS 10.13+, otherwise workaround to get vendor
             // id by vendor name on old macOS
-            if ([NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:{10, 13, 0}]) {
+            if (@available(macos 10.13, *)) {
                 return GetDeviceIORegistryPCIInfo(device, ids);
             } else {
                 return GetVendorIdFromVendors(device, ids);
@@ -175,7 +176,7 @@ namespace dawn_native { namespace metal {
     class Adapter : public AdapterBase {
       public:
         Adapter(InstanceBase* instance, id<MTLDevice> device)
-            : AdapterBase(instance, BackendType::Metal), mDevice([device retain]) {
+            : AdapterBase(instance, wgpu::BackendType::Metal), mDevice([device retain]) {
             mPCIInfo.name = std::string([mDevice.name UTF8String]);
 
             PCIIDs ids;
@@ -185,12 +186,12 @@ namespace dawn_native { namespace metal {
             };
 
 #if defined(DAWN_PLATFORM_IOS)
-            mDeviceType = DeviceType::IntegratedGPU;
+            mAdapterType = wgpu::AdapterType::IntegratedGPU;
 #elif defined(DAWN_PLATFORM_MACOS)
             if ([device isLowPower]) {
-                mDeviceType = DeviceType::IntegratedGPU;
+                mAdapterType = wgpu::AdapterType::IntegratedGPU;
             } else {
-                mDeviceType = DeviceType::DiscreteGPU;
+                mAdapterType = wgpu::AdapterType::DiscreteGPU;
             }
 #else
 #    error "Unsupported Apple platform."
@@ -220,7 +221,8 @@ namespace dawn_native { namespace metal {
 
     // Implementation of the Metal backend's BackendConnection
 
-    Backend::Backend(InstanceBase* instance) : BackendConnection(instance, BackendType::Metal) {
+    Backend::Backend(InstanceBase* instance)
+        : BackendConnection(instance, wgpu::BackendType::Metal) {
         if (GetInstance()->IsBackendValidationEnabled()) {
             setenv("METAL_DEVICE_WRAPPER_TYPE", "1", 1);
         }
@@ -228,9 +230,10 @@ namespace dawn_native { namespace metal {
 
     std::vector<std::unique_ptr<AdapterBase>> Backend::DiscoverDefaultAdapters() {
         std::vector<std::unique_ptr<AdapterBase>> adapters;
-
-        if (@available(macOS 10.11, *)) {
+        BOOL supportedVersion = NO;
 #if defined(DAWN_PLATFORM_MACOS)
+        if (@available(macOS 10.11, *)) {
+            supportedVersion = YES;
             NSArray<id<MTLDevice>>* devices = MTLCopyAllDevices();
 
             for (id<MTLDevice> device in devices) {
@@ -238,14 +241,18 @@ namespace dawn_native { namespace metal {
             }
 
             [devices release];
+        }
 #endif
-        } else if (@available(iOS 8.0, *)) {
+
 #if defined(DAWN_PLATFORM_IOS)
+        if (@available(iOS 8.0, *)) {
+            supportedVersion = YES;
             // iOS only has a single device so MTLCopyAllDevices doesn't exist there.
             adapters.push_back(
                 std::make_unique<Adapter>(GetInstance(), MTLCreateSystemDefaultDevice()));
+        }
 #endif
-        } else {
+        if (!supportedVersion) {
             UNREACHABLE();
         }
         return adapters;

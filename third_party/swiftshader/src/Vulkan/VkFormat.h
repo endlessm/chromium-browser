@@ -15,15 +15,11 @@
 #ifndef VK_FORMAT_UTILS_HPP_
 #define VK_FORMAT_UTILS_HPP_
 
+#include "System/Types.hpp"
+
 #include <Vulkan/VulkanPlatform.h>
 
-namespace sw
-{
-	struct float4;
-}
-
-namespace vk
-{
+namespace vk {
 
 class Format
 {
@@ -34,9 +30,9 @@ public:
 
 	bool isUnsignedNormalized() const;
 	bool isSignedNormalized() const;
-	bool isSignedNonNormalizedInteger() const;
-	bool isUnsignedNonNormalizedInteger() const;
-	bool isNonNormalizedInteger() const;
+	bool isSignedUnnormalizedInteger() const;
+	bool isUnsignedUnnormalizedInteger() const;
+	bool isUnnormalizedInteger() const;
 
 	VkImageAspectFlags getAspects() const;
 	Format getAspectFormat(VkImageAspectFlags aspect) const;
@@ -76,6 +72,6 @@ private:
 	VkFormat format = VK_FORMAT_UNDEFINED;
 };
 
-} // namespace vk
+}  // namespace vk
 
 #endif // VK_FORMAT_UTILS_HPP_

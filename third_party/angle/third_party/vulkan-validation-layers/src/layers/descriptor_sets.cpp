@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (C) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (C) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -346,7 +346,7 @@ cvdescriptorset::DescriptorSetLayout::DescriptorSetLayout(const VkDescriptorSetL
 bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
     const debug_report_data *report_data, const VkDescriptorSetLayoutCreateInfo *create_info, const bool push_descriptor_ext,
     const uint32_t max_push_descriptors, const bool descriptor_indexing_ext,
-    const VkPhysicalDeviceDescriptorIndexingFeaturesEXT *descriptor_indexing_features,
+    const VkPhysicalDeviceVulkan12Features *core12_features,
     const VkPhysicalDeviceInlineUniformBlockFeaturesEXT *inline_uniform_block_features,
     const VkPhysicalDeviceInlineUniformBlockPropertiesEXT *inline_uniform_block_props, const DeviceExtensions *device_extensions) {
     bool skip = false;
@@ -427,7 +427,7 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
     if (flags_create_info) {
         if (flags_create_info->bindingCount != 0 && flags_create_info->bindingCount != create_info->bindingCount) {
             skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-bindingCount-03002",
+                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-bindingCount-03002",
                             "VkDescriptorSetLayoutCreateInfo::bindingCount (%d) != "
                             "VkDescriptorSetLayoutBindingFlagsCreateInfoEXT::bindingCount (%d)",
                             create_info->bindingCount, flags_create_info->bindingCount);
@@ -445,46 +445,46 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
                     }
 
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER &&
-                        !descriptor_indexing_features->descriptorBindingUniformBufferUpdateAfterBind) {
+                        !core12_features->descriptorBindingUniformBufferUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingUniformBufferUpdateAfterBind-03005",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if ((binding_info.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) &&
-                        !descriptor_indexing_features->descriptorBindingSampledImageUpdateAfterBind) {
+                        !core12_features->descriptorBindingSampledImageUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingSampledImageUpdateAfterBind-03006",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE &&
-                        !descriptor_indexing_features->descriptorBindingStorageImageUpdateAfterBind) {
+                        !core12_features->descriptorBindingStorageImageUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingStorageImageUpdateAfterBind-03007",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER &&
-                        !descriptor_indexing_features->descriptorBindingStorageBufferUpdateAfterBind) {
+                        !core12_features->descriptorBindingStorageBufferUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingStorageBufferUpdateAfterBind-03008",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER &&
-                        !descriptor_indexing_features->descriptorBindingUniformTexelBufferUpdateAfterBind) {
+                        !core12_features->descriptorBindingUniformTexelBufferUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingUniformTexelBufferUpdateAfterBind-03009",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER &&
-                        !descriptor_indexing_features->descriptorBindingStorageTexelBufferUpdateAfterBind) {
+                        !core12_features->descriptorBindingStorageTexelBufferUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingStorageTexelBufferUpdateAfterBind-03010",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
@@ -492,14 +492,14 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-None-03011",
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-None-03011",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
 
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT &&
                         !inline_uniform_block_features->descriptorBindingInlineUniformBlockUpdateAfterBind) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-"
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
                                         "descriptorBindingInlineUniformBlockUpdateAfterBind-02211",
                                         "Invalid flags (VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT) for "
                                         "VkDescriptorSetLayoutBinding entry %" PRIu32
@@ -509,18 +509,18 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
                 }
 
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT) {
-                    if (!descriptor_indexing_features->descriptorBindingUpdateUnusedWhilePending) {
+                    if (!core12_features->descriptorBindingUpdateUnusedWhilePending) {
                         skip |= log_msg(
                             report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-descriptorBindingUpdateUnusedWhilePending-03012",
+                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingUpdateUnusedWhilePending-03012",
                             "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                 }
 
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT) {
-                    if (!descriptor_indexing_features->descriptorBindingPartiallyBound) {
+                    if (!core12_features->descriptorBindingPartiallyBound) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-descriptorBindingPartiallyBound-03013",
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingPartiallyBound-03013",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                 }
@@ -528,20 +528,20 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT) {
                     if (binding_info.binding != max_binding) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-pBindingFlags-03004",
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03004",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
 
-                    if (!descriptor_indexing_features->descriptorBindingVariableDescriptorCount) {
+                    if (!core12_features->descriptorBindingVariableDescriptorCount) {
                         skip |= log_msg(
                             report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-descriptorBindingVariableDescriptorCount-03014",
+                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingVariableDescriptorCount-03014",
                             "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if ((binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) {
                         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-pBindingFlags-03015",
+                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03015",
                                         "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                 }
@@ -551,7 +551,7 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
                      (VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
                       VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT))) {
                     skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                    "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfoEXT-flags-03003",
+                                    "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-flags-03003",
                                     "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                 }
             }
@@ -576,13 +576,12 @@ cvdescriptorset::AllocateDescriptorSetsData::AllocateDescriptorSetsData(uint32_t
 
 cvdescriptorset::DescriptorSet::DescriptorSet(const VkDescriptorSet set, DESCRIPTOR_POOL_STATE *pool_state,
                                               const std::shared_ptr<DescriptorSetLayout const> &layout, uint32_t variable_count,
-                                              cvdescriptorset::DescriptorSet::StateTracker *state_data,
-                                              const debug_report_data *report_data)
+                                              const cvdescriptorset::DescriptorSet::StateTracker *state_data)
     : some_update_(false),
       set_(set),
       pool_state_(pool_state),
       p_layout_(layout),
-      report_data_(report_data),
+      state_data_(state_data),
       variable_count_(variable_count),
       change_count_(0) {
     // Foreach binding, create default descriptors of given type
@@ -985,7 +984,7 @@ void cvdescriptorset::DescriptorSet::PerformWriteUpdate(ValidationStateTracker *
         // Loop over the updates for a single binding at a time
         uint32_t update_count = std::min(descriptors_remaining, current_binding.GetDescriptorCount() - offset);
         for (uint32_t di = 0; di < update_count; ++di, ++update_index) {
-            descriptors_[global_idx + di]->WriteUpdate(dev_data, update, update_index);
+            descriptors_[global_idx + di]->WriteUpdate(state_data_, update, update_index);
         }
         // Roll over to next binding in case of consecutive update
         descriptors_remaining -= update_count;
@@ -1202,7 +1201,9 @@ bool CoreChecks::ValidateCopyUpdate(const VkCopyDescriptorSet *update, const Des
     }
 
     // Update parameters all look good and descriptor updated so verify update contents
-    if (!VerifyCopyUpdateContents(update, src_set, src_type, src_start_idx, func_name, error_code, error_msg)) return false;
+    if (!VerifyCopyUpdateContents(update, src_set, src_type, src_start_idx, dst_set, dst_type, dst_start_idx, func_name, error_code,
+                                  error_msg))
+        return false;
 
     // All checks passed so update is good
     return true;
@@ -1217,7 +1218,7 @@ void cvdescriptorset::DescriptorSet::PerformCopyUpdate(ValidationStateTracker *d
         auto src = src_set->descriptors_[src_start_idx + di].get();
         auto dst = descriptors_[dst_start_idx + di].get();
         if (src->updated) {
-            dst->CopyUpdate(dev_data, src);
+            dst->CopyUpdate(state_data_, src);
             some_update_ = true;
             change_count_++;
         } else {
@@ -1267,7 +1268,7 @@ void cvdescriptorset::DescriptorSet::UpdateDrawState(ValidationStateTracker *dev
         // We aren't validating descriptors created with PARTIALLY_BOUND or UPDATE_AFTER_BIND, so don't record state
         auto flags = p_layout_->GetDescriptorBindingFlagsFromIndex(index);
         if (flags & (VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT)) {
-            if (flags & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT) {
+            if (!(flags & VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT)) {
                 cb_node->validate_descriptorsets_in_queuesubmit[set_][pipe->pipeline][binding] = binding_req_pair.second;
             }
             continue;
@@ -1367,13 +1368,13 @@ void cvdescriptorset::DescriptorSet::UpdateValidationCache(const CMD_BUFFER_STAT
     }
 }
 
-cvdescriptorset::SamplerDescriptor::SamplerDescriptor(ValidationStateTracker *dev_data, const VkSampler *immut)
+cvdescriptorset::SamplerDescriptor::SamplerDescriptor(const ValidationStateTracker *dev_data, const VkSampler *immut)
     : sampler_(VK_NULL_HANDLE), immutable_(false) {
     updated = false;
     descriptor_class = PlainSampler;
     if (immut) {
         sampler_ = *immut;
-        sampler_state_ = dev_data->GetSamplerShared(sampler_);
+        sampler_state_ = dev_data->GetConstCastShared<SAMPLER_STATE>(sampler_);
         immutable_ = true;
         updated = true;
     }
@@ -1563,7 +1564,7 @@ bool CoreChecks::ValidateImageUpdate(VkImageView image_view, VkImageLayout image
 
         struct ExtensionLayout {
             VkImageLayout layout;
-            bool DeviceExtensions::*extension;
+            ExtEnabled DeviceExtensions::*extension;
         };
 
         const static std::array<ExtensionLayout, 3> extended_layouts{
@@ -1600,20 +1601,20 @@ bool CoreChecks::ValidateImageUpdate(VkImageView image_view, VkImageLayout image
     return true;
 }
 
-void cvdescriptorset::SamplerDescriptor::WriteUpdate(ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
+void cvdescriptorset::SamplerDescriptor::WriteUpdate(const ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
                                                      const uint32_t index) {
     if (!immutable_) {
         sampler_ = update->pImageInfo[index].sampler;
-        sampler_state_ = dev_data->GetSamplerShared(sampler_);
+        sampler_state_ = dev_data->GetConstCastShared<SAMPLER_STATE>(sampler_);
     }
     updated = true;
 }
 
-void cvdescriptorset::SamplerDescriptor::CopyUpdate(ValidationStateTracker *dev_data, const Descriptor *src) {
+void cvdescriptorset::SamplerDescriptor::CopyUpdate(const ValidationStateTracker *dev_data, const Descriptor *src) {
     if (!immutable_) {
         auto update_sampler = static_cast<const SamplerDescriptor *>(src)->sampler_;
         sampler_ = update_sampler;
-        sampler_state_ = dev_data->GetSamplerShared(sampler_);
+        sampler_state_ = dev_data->GetConstCastShared<SAMPLER_STATE>(sampler_);
     }
     updated = true;
 }
@@ -1625,42 +1626,42 @@ void cvdescriptorset::SamplerDescriptor::UpdateDrawState(ValidationStateTracker 
     }
 }
 
-cvdescriptorset::ImageSamplerDescriptor::ImageSamplerDescriptor(ValidationStateTracker *dev_data, const VkSampler *immut)
+cvdescriptorset::ImageSamplerDescriptor::ImageSamplerDescriptor(const ValidationStateTracker *dev_data, const VkSampler *immut)
     : sampler_(VK_NULL_HANDLE), immutable_(false), image_view_(VK_NULL_HANDLE), image_layout_(VK_IMAGE_LAYOUT_UNDEFINED) {
     updated = false;
     descriptor_class = ImageSampler;
     if (immut) {
         sampler_ = *immut;
-        sampler_state_ = dev_data->GetSamplerShared(sampler_);
+        sampler_state_ = dev_data->GetConstCastShared<SAMPLER_STATE>(sampler_);
         immutable_ = true;
     }
 }
 
-void cvdescriptorset::ImageSamplerDescriptor::WriteUpdate(ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
-                                                          const uint32_t index) {
+void cvdescriptorset::ImageSamplerDescriptor::WriteUpdate(const ValidationStateTracker *dev_data,
+                                                          const VkWriteDescriptorSet *update, const uint32_t index) {
     updated = true;
     const auto &image_info = update->pImageInfo[index];
     if (!immutable_) {
         sampler_ = image_info.sampler;
-        sampler_state_ = dev_data->GetSamplerShared(sampler_);
+        sampler_state_ = dev_data->GetConstCastShared<SAMPLER_STATE>(sampler_);
     }
     image_view_ = image_info.imageView;
     image_layout_ = image_info.imageLayout;
-    image_view_state_ = dev_data->GetImageViewShared(image_view_);
+    image_view_state_ = dev_data->GetConstCastShared<IMAGE_VIEW_STATE>(image_view_);
 }
 
-void cvdescriptorset::ImageSamplerDescriptor::CopyUpdate(ValidationStateTracker *dev_data, const Descriptor *src) {
+void cvdescriptorset::ImageSamplerDescriptor::CopyUpdate(const ValidationStateTracker *dev_data, const Descriptor *src) {
     if (!immutable_) {
         auto update_sampler = static_cast<const ImageSamplerDescriptor *>(src)->sampler_;
         sampler_ = update_sampler;
-        sampler_state_ = dev_data->GetSamplerShared(sampler_);
+        sampler_state_ = dev_data->GetConstCastShared<SAMPLER_STATE>(sampler_);
     }
     auto image_view = static_cast<const ImageSamplerDescriptor *>(src)->image_view_;
     auto image_layout = static_cast<const ImageSamplerDescriptor *>(src)->image_layout_;
     updated = true;
     image_view_ = image_view;
     image_layout_ = image_layout;
-    image_view_state_ = dev_data->GetImageViewShared(image_view_);
+    image_view_state_ = dev_data->GetConstCastShared<IMAGE_VIEW_STATE>(image_view_);
 }
 
 void cvdescriptorset::ImageSamplerDescriptor::UpdateDrawState(ValidationStateTracker *dev_data, CMD_BUFFER_STATE *cb_node) {
@@ -1684,22 +1685,22 @@ cvdescriptorset::ImageDescriptor::ImageDescriptor(const VkDescriptorType type)
     if (VK_DESCRIPTOR_TYPE_STORAGE_IMAGE == type) storage_ = true;
 }
 
-void cvdescriptorset::ImageDescriptor::WriteUpdate(ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
+void cvdescriptorset::ImageDescriptor::WriteUpdate(const ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
                                                    const uint32_t index) {
     updated = true;
     const auto &image_info = update->pImageInfo[index];
     image_view_ = image_info.imageView;
     image_layout_ = image_info.imageLayout;
-    image_view_state_ = dev_data->GetImageViewShared(image_view_);
+    image_view_state_ = dev_data->GetConstCastShared<IMAGE_VIEW_STATE>(image_view_);
 }
 
-void cvdescriptorset::ImageDescriptor::CopyUpdate(ValidationStateTracker *dev_data, const Descriptor *src) {
+void cvdescriptorset::ImageDescriptor::CopyUpdate(const ValidationStateTracker *dev_data, const Descriptor *src) {
     auto image_view = static_cast<const ImageDescriptor *>(src)->image_view_;
     auto image_layout = static_cast<const ImageDescriptor *>(src)->image_layout_;
     updated = true;
     image_view_ = image_view;
     image_layout_ = image_layout;
-    image_view_state_ = dev_data->GetImageViewShared(image_view_);
+    image_view_state_ = dev_data->GetConstCastShared<IMAGE_VIEW_STATE>(image_view_);
 }
 
 void cvdescriptorset::ImageDescriptor::UpdateDrawState(ValidationStateTracker *dev_data, CMD_BUFFER_STATE *cb_node) {
@@ -1724,23 +1725,23 @@ cvdescriptorset::BufferDescriptor::BufferDescriptor(const VkDescriptorType type)
         storage_ = true;
     }
 }
-void cvdescriptorset::BufferDescriptor::WriteUpdate(ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
+void cvdescriptorset::BufferDescriptor::WriteUpdate(const ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
                                                     const uint32_t index) {
     updated = true;
     const auto &buffer_info = update->pBufferInfo[index];
     buffer_ = buffer_info.buffer;
     offset_ = buffer_info.offset;
     range_ = buffer_info.range;
-    buffer_state_ = dev_data->GetBufferShared(buffer_);
+    buffer_state_ = dev_data->GetConstCastShared<BUFFER_STATE>(buffer_);
 }
 
-void cvdescriptorset::BufferDescriptor::CopyUpdate(ValidationStateTracker *dev_data, const Descriptor *src) {
+void cvdescriptorset::BufferDescriptor::CopyUpdate(const ValidationStateTracker *dev_data, const Descriptor *src) {
     auto buff_desc = static_cast<const BufferDescriptor *>(src);
     updated = true;
     buffer_ = buff_desc->buffer_;
     offset_ = buff_desc->offset_;
     range_ = buff_desc->range_;
-    buffer_state_ = dev_data->GetBufferShared(buffer_);
+    buffer_state_ = dev_data->GetConstCastShared<BUFFER_STATE>(buffer_);
 }
 
 void cvdescriptorset::BufferDescriptor::UpdateDrawState(ValidationStateTracker *dev_data, CMD_BUFFER_STATE *cb_node) {
@@ -1754,17 +1755,17 @@ cvdescriptorset::TexelDescriptor::TexelDescriptor(const VkDescriptorType type) :
     if (VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER == type) storage_ = true;
 }
 
-void cvdescriptorset::TexelDescriptor::WriteUpdate(ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
+void cvdescriptorset::TexelDescriptor::WriteUpdate(const ValidationStateTracker *dev_data, const VkWriteDescriptorSet *update,
                                                    const uint32_t index) {
     updated = true;
     buffer_view_ = update->pTexelBufferView[index];
-    buffer_view_state_ = dev_data->GetBufferViewShared(buffer_view_);
+    buffer_view_state_ = dev_data->GetConstCastShared<BUFFER_VIEW_STATE>(buffer_view_);
 }
 
-void cvdescriptorset::TexelDescriptor::CopyUpdate(ValidationStateTracker *dev_data, const Descriptor *src) {
+void cvdescriptorset::TexelDescriptor::CopyUpdate(const ValidationStateTracker *dev_data, const Descriptor *src) {
     updated = true;
     buffer_view_ = static_cast<const TexelDescriptor *>(src)->buffer_view_;
-    buffer_view_state_ = dev_data->GetBufferViewShared(buffer_view_);
+    buffer_view_state_ = dev_data->GetConstCastShared<BUFFER_VIEW_STATE>(buffer_view_);
 }
 
 void cvdescriptorset::TexelDescriptor::UpdateDrawState(ValidationStateTracker *dev_data, CMD_BUFFER_STATE *cb_node) {
@@ -1945,10 +1946,11 @@ std::string cvdescriptorset::DescriptorSet::StringifySetAndLayout() const {
     auto layout_handle = p_layout_->GetDescriptorSetLayout();
     if (IsPushDescriptor()) {
         string_sprintf(&out, "Push Descriptors defined with VkDescriptorSetLayout %s",
-                       report_data_->FormatHandle(layout_handle).c_str());
+                       state_data_->report_data->FormatHandle(layout_handle).c_str());
     } else {
-        string_sprintf(&out, "VkDescriptorSet %s allocated with VkDescriptorSetLayout %s", report_data_->FormatHandle(set_).c_str(),
-                       report_data_->FormatHandle(layout_handle).c_str());
+        string_sprintf(&out, "VkDescriptorSet %s allocated with VkDescriptorSetLayout %s",
+                       state_data_->report_data->FormatHandle(set_).c_str(),
+                       state_data_->report_data->FormatHandle(layout_handle).c_str());
     }
     return out;
 };
@@ -2110,9 +2112,10 @@ bool CoreChecks::ValidateBufferUpdate(VkDescriptorBufferInfo const *buffer_info,
     return true;
 }
 // Verify that the contents of the update are ok, but don't perform actual update
-bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, const DescriptorSet *src_set, VkDescriptorType type,
-                                          uint32_t index, const char *func_name, std::string *error_code,
-                                          std::string *error_msg) const {
+bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, const DescriptorSet *src_set,
+                                          VkDescriptorType src_type, uint32_t src_index, const DescriptorSet *dst_set,
+                                          VkDescriptorType dst_type, uint32_t dst_index, const char *func_name,
+                                          std::string *error_code, std::string *error_msg) const {
     // Note : Repurposing some Write update error codes here as specific details aren't called out for copy updates like they are
     // for write updates
     using DescriptorClass = cvdescriptorset::DescriptorClass;
@@ -2123,10 +2126,25 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
     using TexelDescriptor = cvdescriptorset::TexelDescriptor;
 
     auto device_data = this;
-    switch (src_set->GetDescriptorFromGlobalIndex(index)->descriptor_class) {
+
+    if (dst_type == VK_DESCRIPTOR_TYPE_SAMPLER) {
+        for (uint32_t di = 0; di < update->descriptorCount; ++di) {
+            const auto dst_desc = dst_set->GetDescriptorFromGlobalIndex(dst_index + di);
+            if (!dst_desc->updated) continue;
+            if (dst_desc->IsImmutableSampler()) {
+                *error_code = "VUID-VkCopyDescriptorSet-dstBinding-02753";
+                std::stringstream error_str;
+                error_str << "Attempted copy update to an immutable sampler descriptor.";
+                *error_msg = error_str.str();
+                return false;
+            }
+        }
+    }
+
+    switch (src_set->GetDescriptorFromGlobalIndex(src_index)->descriptor_class) {
         case DescriptorClass::PlainSampler: {
             for (uint32_t di = 0; di < update->descriptorCount; ++di) {
-                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(index + di);
+                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(src_index + di);
                 if (!src_desc->updated) continue;
                 if (!src_desc->IsImmutableSampler()) {
                     auto update_sampler = static_cast<const SamplerDescriptor *>(src_desc)->GetSampler();
@@ -2145,7 +2163,7 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
         }
         case DescriptorClass::ImageSampler: {
             for (uint32_t di = 0; di < update->descriptorCount; ++di) {
-                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(index + di);
+                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(src_index + di);
                 if (!src_desc->updated) continue;
                 auto img_samp_desc = static_cast<const ImageSamplerDescriptor *>(src_desc);
                 // First validate sampler
@@ -2164,7 +2182,7 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
                 // Validate image
                 auto image_view = img_samp_desc->GetImageView();
                 auto image_layout = img_samp_desc->GetImageLayout();
-                if (!ValidateImageUpdate(image_view, image_layout, type, func_name, error_code, error_msg)) {
+                if (!ValidateImageUpdate(image_view, image_layout, src_type, func_name, error_code, error_msg)) {
                     std::stringstream error_str;
                     error_str << "Attempted copy update to combined image sampler descriptor failed due to: " << error_msg->c_str();
                     *error_msg = error_str.str();
@@ -2175,12 +2193,12 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
         }
         case DescriptorClass::Image: {
             for (uint32_t di = 0; di < update->descriptorCount; ++di) {
-                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(index + di);
+                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(src_index + di);
                 if (!src_desc->updated) continue;
                 auto img_desc = static_cast<const ImageDescriptor *>(src_desc);
                 auto image_view = img_desc->GetImageView();
                 auto image_layout = img_desc->GetImageLayout();
-                if (!ValidateImageUpdate(image_view, image_layout, type, func_name, error_code, error_msg)) {
+                if (!ValidateImageUpdate(image_view, image_layout, src_type, func_name, error_code, error_msg)) {
                     std::stringstream error_str;
                     error_str << "Attempted copy update to image descriptor failed due to: " << error_msg->c_str();
                     *error_msg = error_str.str();
@@ -2191,7 +2209,7 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
         }
         case DescriptorClass::TexelBuffer: {
             for (uint32_t di = 0; di < update->descriptorCount; ++di) {
-                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(index + di);
+                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(src_index + di);
                 if (!src_desc->updated) continue;
                 auto buffer_view = static_cast<const TexelDescriptor *>(src_desc)->GetBufferView();
                 auto bv_state = device_data->GetBufferViewState(buffer_view);
@@ -2203,7 +2221,7 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
                     return false;
                 }
                 auto buffer = bv_state->create_info.buffer;
-                if (!cvdescriptorset::ValidateBufferUsage(GetBufferState(buffer), type, error_code, error_msg)) {
+                if (!cvdescriptorset::ValidateBufferUsage(GetBufferState(buffer), src_type, error_code, error_msg)) {
                     std::stringstream error_str;
                     error_str << "Attempted copy update to texel buffer descriptor failed due to: " << error_msg->c_str();
                     *error_msg = error_str.str();
@@ -2214,10 +2232,10 @@ bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, con
         }
         case DescriptorClass::GeneralBuffer: {
             for (uint32_t di = 0; di < update->descriptorCount; ++di) {
-                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(index + di);
+                const auto src_desc = src_set->GetDescriptorFromGlobalIndex(src_index + di);
                 if (!src_desc->updated) continue;
                 auto buffer = static_cast<const BufferDescriptor *>(src_desc)->GetBuffer();
-                if (!cvdescriptorset::ValidateBufferUsage(GetBufferState(buffer), type, error_code, error_msg)) {
+                if (!cvdescriptorset::ValidateBufferUsage(GetBufferState(buffer), src_type, error_code, error_msg)) {
                     std::stringstream error_str;
                     error_str << "Attempted copy update to buffer descriptor failed due to: " << error_msg->c_str();
                     *error_msg = error_str.str();
@@ -2294,7 +2312,7 @@ bool CoreChecks::ValidateAllocateDescriptorSets(const VkDescriptorSetAllocateInf
         if (count_allocate_info->descriptorSetCount != 0 &&
             count_allocate_info->descriptorSetCount != p_alloc_info->descriptorSetCount) {
             skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT, 0,
-                            "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfoEXT-descriptorSetCount-03045",
+                            "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfo-descriptorSetCount-03045",
                             "VkDescriptorSetAllocateInfo::descriptorSetCount (%d) != "
                             "VkDescriptorSetVariableDescriptorCountAllocateInfoEXT::descriptorSetCount (%d)",
                             p_alloc_info->descriptorSetCount, count_allocate_info->descriptorSetCount);
@@ -2305,7 +2323,7 @@ bool CoreChecks::ValidateAllocateDescriptorSets(const VkDescriptorSetAllocateInf
                 if (count_allocate_info->pDescriptorCounts[i] > layout->GetDescriptorCountFromBinding(layout->GetMaxBinding())) {
                     skip |= log_msg(
                         report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT, 0,
-                        "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfoEXT-pSetLayouts-03046",
+                        "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfo-pSetLayouts-03046",
                         "pDescriptorCounts[%d] = (%d), binding's descriptorCount = (%d)", i,
                         count_allocate_info->pDescriptorCounts[i], layout->GetDescriptorCountFromBinding(layout->GetMaxBinding()));
                 }
@@ -2522,6 +2540,8 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                 // Validate image
                 auto image_view = update->pImageInfo[di].imageView;
                 auto image_layout = update->pImageInfo[di].imageLayout;
+                auto iv_state = GetImageViewState(image_view);
+                auto image_state = iv_state->image_state.get();
                 if (!ValidateImageUpdate(image_view, image_layout, update->descriptorType, func_name, error_code, error_msg)) {
                     std::stringstream error_str;
                     error_str << "Attempted write update to combined image sampler descriptor failed due to: "
@@ -2533,7 +2553,6 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                     ImageSamplerDescriptor *desc = (ImageSamplerDescriptor *)dest_set->GetDescriptorFromGlobalIndex(index + di);
                     if (desc->IsImmutableSampler()) {
                         auto sampler_state = GetSamplerState(desc->GetSampler());
-                        auto iv_state = GetImageViewState(image_view);
                         if (iv_state && sampler_state) {
                             if (iv_state->samplerConversion != sampler_state->samplerConversion) {
                                 *error_code = "VUID-VkWriteDescriptorSet-descriptorType-01948";
@@ -2546,7 +2565,6 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                             }
                         }
                     } else {
-                        auto iv_state = GetImageViewState(image_view);
                         if (iv_state && (iv_state->samplerConversion != VK_NULL_HANDLE)) {
                             *error_code = "VUID-VkWriteDescriptorSet-descriptorType-02738";
                             std::stringstream error_str;
@@ -2559,9 +2577,32 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                         }
                     }
                 }
+                if (FormatIsMultiplane(image_state->createInfo.format)) {
+                    // multiplane formats must be created with mutable format bit
+                    if (0 == (image_state->createInfo.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)) {
+                        *error_code = "VUID-VkDescriptorImageInfo-sampler-01564";
+                        std::stringstream error_str;
+                        error_str << "image " << HandleToUint64(image_state->image) << " combined image sampler is a multi-planar "
+                                  << "format and was not was not created with the VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT";
+                        *error_msg = error_str.str();
+                        return false;
+                    }
+                    // image view need aspect mask for only the planes supported of format
+                    VkImageAspectFlags legal_aspect_flags = (VK_IMAGE_ASPECT_PLANE_0_BIT | VK_IMAGE_ASPECT_PLANE_1_BIT);
+                    legal_aspect_flags |= (FormatPlaneCount(image_state->createInfo.format) == 3) ? VK_IMAGE_ASPECT_PLANE_2_BIT : 0;
+                    if (0 != (iv_state->create_info.subresourceRange.aspectMask & (~legal_aspect_flags))) {
+                        *error_code = "VUID-VkDescriptorImageInfo-sampler-01564";
+                        std::stringstream error_str;
+                        error_str << "image " << HandleToUint64(image_state->image) << " combined image sampler is a multi-planar "
+                                  << "format and " << HandleToUint64(iv_state->image_view) << " aspectMask must only include "
+                                  << string_VkImageAspectFlags(legal_aspect_flags).c_str();
+                        *error_msg = error_str.str();
+                        return false;
+                    }
+                }
             }
         }
-        // fall through
+        // Fall through
         case VK_DESCRIPTOR_TYPE_SAMPLER: {
             for (uint32_t di = 0; di < update->descriptorCount; ++di) {
                 SamplerDescriptor *desc = (SamplerDescriptor *)dest_set->GetDescriptorFromGlobalIndex(index + di);
@@ -2574,8 +2615,12 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                         *error_msg = error_str.str();
                         return false;
                     }
-                } else {
-                    // TODO : Warn here
+                } else if (update->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER) {
+                    *error_code = "VUID-VkWriteDescriptorSet-descriptorType-02752";
+                    std::stringstream error_str;
+                    error_str << "Attempted write update to an immutable sampler descriptor.";
+                    *error_msg = error_str.str();
+                    return false;
                 }
             }
             break;

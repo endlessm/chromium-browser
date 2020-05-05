@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class ChangesSidebar extends UI.Widget {
+export class ChangesSidebar extends UI.Widget {
   /**
    * @param {!WorkspaceDiff.WorkspaceDiff} workspaceDiff
    */
@@ -12,10 +12,11 @@ export default class ChangesSidebar extends UI.Widget {
     this._treeoutline.registerRequiredCSS('changes/changesSidebar.css');
     this._treeoutline.setComparator((a, b) => a.titleAsText().compareTo(b.titleAsText()));
     this._treeoutline.addEventListener(UI.TreeOutline.Events.ElementSelected, this._selectionChanged, this);
+    UI.ARIAUtils.markAsTablist(this._treeoutline.contentElement);
 
     this.element.appendChild(this._treeoutline.element);
 
-    /** @type {!Map<!Workspace.UISourceCode, !Changes.ChangesSidebar.UISourceCodeTreeElement>} */
+    /** @type {!Map<!Workspace.UISourceCode, !UISourceCodeTreeElement>} */
     this._treeElements = new Map();
     this._workspaceDiff = workspaceDiff;
     this._workspaceDiff.modifiedUISourceCodes().forEach(this._addUISourceCode.bind(this));
@@ -104,6 +105,7 @@ export class UISourceCodeTreeElement extends UI.TreeElement {
     super();
     this.uiSourceCode = uiSourceCode;
     this.listItemElement.classList.add('navigator-' + uiSourceCode.contentType().name() + '-tree-item');
+    UI.ARIAUtils.markAsTab(this.listItemElement);
 
     let iconType = 'largeicon-navigator-file';
     if (Snippets.isSnippetsUISourceCode(this.uiSourceCode)) {
@@ -139,24 +141,3 @@ export class UISourceCodeTreeElement extends UI.TreeElement {
     Common.EventTarget.removeEventListeners(this._eventListeners);
   }
 }
-
-/* Legacy exported object */
-self.Changes = self.Changes || {};
-
-/* Legacy exported object */
-Changes = Changes || {};
-
-/**
- * @constructor
- */
-Changes.ChangesSidebar = ChangesSidebar;
-
-/**
- * @enum {symbol}
- */
-Changes.ChangesSidebar.Events = Events;
-
-/**
- * @constructor
- */
-Changes.ChangesSidebar.UISourceCodeTreeElement = UISourceCodeTreeElement;

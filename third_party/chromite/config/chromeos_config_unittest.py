@@ -632,16 +632,9 @@ class CBuildBotTest(ChromeosConfigTestBase):
   def testHWTestsReleaseBuilderRequirement(self):
     """Make sure all release configs run hw tests."""
     expected_exceptions = set((
-        # See b/140317527.
-        'arkham-release',
-        'gale-release',
-        'mistral-release',
-        'whirlwind-release',
-        # See crbug.com/1011171.
-        'expresso-release',
-        'jacuzzi-release',
-        'zork-release',
-    ))
+        build_name
+        for build_name, config in self.site_config.items()
+        if config.hw_tests_disabled_bug))
     missing_tests = set()
     running_tests = set()
     for build_name, config in self.site_config.items():
@@ -658,7 +651,7 @@ class CBuildBotTest(ChromeosConfigTestBase):
           continue
         elif check_name not in expected_exceptions:
           # If it's not listed as an exception, it needs to run hardware tests.
-          if not config.hw_tests:
+          if not config.hw_tests and not config.hw_tests_disabled_bug:
             missing_tests.add(build_name)
         elif config.hw_tests:
           # It is listed as an exception, and it is running hardware tests.  It
@@ -673,30 +666,8 @@ class CBuildBotTest(ChromeosConfigTestBase):
   def testHWTestsReleaseBuilderWeakRequirement(self):
     """Make sure most release configs run hw tests."""
     for build_name, config in self.site_config.items():
-      # crbug/871967: clapper-release* hwtests are intentionally currently
-      # turned off.
-      if build_name.startswith('clapper'):
+      if config.hw_tests_disabled_bug:
         continue
-
-      if build_name.startswith('betty'):
-        continue
-
-      if build_name.startswith('novato'):
-        continue
-
-      if build_name.startswith('amd64-generic'):
-        continue
-
-      # crbug.com/1011171: expresso, jacuzzi, and zork do not run hwtests in the
-      # release builder.
-      if build_name.startswith(('expresso', 'jacuzzi', 'zork')):
-        continue
-
-      # Jetstream boards currently do not run hwtests in the release builder,
-      # b/140317527.
-      if build_name.startswith(('arkham', 'gale', 'mistral', 'whirlwind')):
-        continue
-
       if (config.build_type == 'canary' and 'test' in config.images and
           config.upload_hw_test_artifacts and config.hwqual):
         self.assertTrue(
@@ -820,39 +791,6 @@ class CBuildBotTest(ChromeosConfigTestBase):
           else:
             self.assertEqual(child_config.afdo_use, prev_value,
                              msg % (child_config.name, build_name))
-
-  def testReleaseAFDOConfigs(self):
-    """Verify that <board>-release-afdo config have generate and use children.
-
-    These configs should have a 'generate' and a 'use' child config. Also,
-    any 'generate' and 'use' configs should be children of a release-afdo
-    config.
-    """
-    msg = 'Config %s should have %s as a parent'
-    parent_suffix = config_lib.CONFIG_TYPE_RELEASE_AFDO
-    generate_suffix = '%s-generate' % parent_suffix
-    use_suffix = '%s-use' % parent_suffix
-    for build_name, config in self.site_config.items():
-      if build_name.endswith(parent_suffix):
-        self.assertEqual(
-            len(config.child_configs), 2,
-            'Config %s should have 2 child configs' % build_name)
-        for child_config in config.child_configs:
-          child_name = child_config.name
-          self.assertTrue(child_name.endswith(generate_suffix) or
-                          child_name.endswith(use_suffix),
-                          'Config %s has wrong %s child' %
-                          (build_name, child_config))
-      if build_name.endswith(generate_suffix):
-        parent_config_name = build_name.replace(generate_suffix,
-                                                parent_suffix)
-        self.assertTrue(parent_config_name in self.site_config,
-                        msg % (build_name, parent_config_name))
-      if build_name.endswith(use_suffix):
-        parent_config_name = build_name.replace(use_suffix,
-                                                parent_suffix)
-        self.assertTrue(parent_config_name in self.site_config,
-                        msg % (build_name, parent_config_name))
 
   def testNoGrandChildConfigs(self):
     """Verify that no child configs have a child config."""

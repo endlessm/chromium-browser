@@ -30,19 +30,19 @@
 /**
  * @unrestricted
  */
-export default class PropertiesWidget extends UI.ThrottledWidget {
+export class PropertiesWidget extends UI.ThrottledWidget {
   constructor() {
     super(true /* isWebComponent */);
     this.registerRequiredCSS('elements/propertiesWidget.css');
 
-    SDK.targetManager.addModelListener(SDK.DOMModel, SDK.DOMModel.Events.AttrModified, this._onNodeChange, this);
-    SDK.targetManager.addModelListener(SDK.DOMModel, SDK.DOMModel.Events.AttrRemoved, this._onNodeChange, this);
-    SDK.targetManager.addModelListener(
+    self.SDK.targetManager.addModelListener(SDK.DOMModel, SDK.DOMModel.Events.AttrModified, this._onNodeChange, this);
+    self.SDK.targetManager.addModelListener(SDK.DOMModel, SDK.DOMModel.Events.AttrRemoved, this._onNodeChange, this);
+    self.SDK.targetManager.addModelListener(
         SDK.DOMModel, SDK.DOMModel.Events.CharacterDataModified, this._onNodeChange, this);
-    SDK.targetManager.addModelListener(
+    self.SDK.targetManager.addModelListener(
         SDK.DOMModel, SDK.DOMModel.Events.ChildNodeCountUpdated, this._onNodeChange, this);
-    UI.context.addFlavorChangeListener(SDK.DOMNode, this._setNode, this);
-    this._node = UI.context.flavor(SDK.DOMNode);
+    self.UI.context.addFlavorChangeListener(SDK.DOMNode, this._setNode, this);
+    this._node = self.UI.context.flavor(SDK.DOMNode);
 
     this._treeOutline = new ObjectUI.ObjectPropertiesSectionsTreeOutline({readOnly: true});
     this._treeOutline.setShowSelectionOnKeyboardFocus(/* show */ true, /* preventTabOrder */ false);
@@ -170,14 +170,3 @@ export default class PropertiesWidget extends UI.ThrottledWidget {
 }
 
 export const _objectGroupName = 'properties-sidebar-pane';
-
-/* Legacy exported object */
-self.Elements = self.Elements || {};
-
-/* Legacy exported object */
-Elements = Elements || {};
-
-/** @constructor */
-Elements.PropertiesWidget = PropertiesWidget;
-
-Elements.PropertiesWidget._objectGroupName = _objectGroupName;

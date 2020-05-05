@@ -19,6 +19,7 @@
 #include "CodeGenModule.h"
 #include "ConstantEmitter.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -292,13 +293,6 @@ StringRef CGDebugInfo::getObjCMethodName(const ObjCMethodDecl *OMD) {
     }
   } else if (const auto *OCD = dyn_cast<ObjCCategoryImplDecl>(DC)) {
     OS << OCD->getClassInterface()->getName() << '(' << OCD->getName() << ')';
-  } else if (isa<ObjCProtocolDecl>(DC)) {
-    // We can extract the type of the class from the self pointer.
-    if (ImplicitParamDecl *SelfDecl = OMD->getSelfDecl()) {
-      QualType ClassTy =
-          cast<ObjCObjectPointerType>(SelfDecl->getType())->getPointeeType();
-      ClassTy.print(OS, PrintingPolicy(LangOptions()));
-    }
   }
   OS << ' ' << OMD->getSelector().getAsString() << ']';
 
@@ -597,6 +591,7 @@ void CGDebugInfo::CreateCompileUnit() {
   case codegenoptions::DebugDirectivesOnly:
     EmissionKind = llvm::DICompileUnit::DebugDirectivesOnly;
     break;
+  case codegenoptions::DebugInfoConstructor:
   case codegenoptions::LimitedDebugInfo:
   case codegenoptions::FullDebugInfo:
     EmissionKind = llvm::DICompileUnit::FullDebug;
@@ -615,6 +610,10 @@ void CGDebugInfo::CreateCompileUnit() {
       remapDIPath(MainFileName), remapDIPath(getCurrentDirname()), CSInfo,
       getSource(SM, SM.getMainFileID()));
 
+  StringRef Sysroot;
+  if (CGM.getCodeGenOpts().getDebuggerTuning() == llvm::DebuggerKind::LLDB)
+    Sysroot = CGM.getHeaderSearchOpts().Sysroot;
+
   // Create new compile unit.
   TheCU = DBuilder.createCompileUnit(
       LangTag, CUFile, CGOpts.EmitVersionIdentMetadata ? Producer : "",
@@ -625,7 +624,7 @@ void CGDebugInfo::CreateCompileUnit() {
           ? llvm::DICompileUnit::DebugNameTableKind::None
           : static_cast<llvm::DICompileUnit::DebugNameTableKind>(
                 CGOpts.DebugNameTable),
-      CGOpts.DebugRangesBaseAddress);
+      CGOpts.DebugRangesBaseAddress, Sysroot);
 }
 
 llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
@@ -814,6 +813,10 @@ llvm::DIType *CGDebugInfo::CreateType(const BuiltinType *BT) {
   // Bit size and offset of the type.
   uint64_t Size = CGM.getContext().getTypeSize(BT);
   return DBuilder.createBasicType(BTName, Size, Encoding);
+}
+
+llvm::DIType *CGDebugInfo::CreateType(const AutoType *Ty) {
+  return DBuilder.createUnspecifiedType("auto");
 }
 
 llvm::DIType *CGDebugInfo::CreateType(const ComplexType *Ty) {
@@ -1141,10 +1144,11 @@ llvm::DIType *CGDebugInfo::CreateType(const TypedefType *Ty,
   // declared.
   SourceLocation Loc = Ty->getDecl()->getLocation();
 
+  uint32_t Align = getDeclAlignIfRequired(Ty->getDecl(), CGM.getContext());
   // Typedefs are derived from some other type.
   return DBuilder.createTypedef(Underlying, Ty->getDecl()->getName(),
                                 getOrCreateFile(Loc), getLineNumber(Loc),
-                                getDeclContextDescriptor(Ty->getDecl()));
+                                getDeclContextDescriptor(Ty->getDecl()), Align);
 }
 
 static unsigned getDwarfCC(CallingConv CC) {
@@ -1462,16 +1466,18 @@ void CGDebugInfo::CollectRecordFields(
 
 llvm::DISubroutineType *
 CGDebugInfo::getOrCreateMethodType(const CXXMethodDecl *Method,
-                                   llvm::DIFile *Unit) {
+                                   llvm::DIFile *Unit, bool decl) {
   const FunctionProtoType *Func = Method->getType()->getAs<FunctionProtoType>();
   if (Method->isStatic())
     return cast_or_null<llvm::DISubroutineType>(
         getOrCreateType(QualType(Func, 0), Unit));
-  return getOrCreateInstanceMethodType(Method->getThisType(), Func, Unit);
+  return getOrCreateInstanceMethodType(Method->getThisType(), Func, Unit, decl);
 }
 
-llvm::DISubroutineType *CGDebugInfo::getOrCreateInstanceMethodType(
-    QualType ThisPtr, const FunctionProtoType *Func, llvm::DIFile *Unit) {
+llvm::DISubroutineType *
+CGDebugInfo::getOrCreateInstanceMethodType(QualType ThisPtr,
+                                           const FunctionProtoType *Func,
+                                           llvm::DIFile *Unit, bool decl) {
   // Add "this" pointer.
   llvm::DITypeRefArray Args(
       cast<llvm::DISubroutineType>(getOrCreateType(QualType(Func, 0), Unit))
@@ -1479,9 +1485,12 @@ llvm::DISubroutineType *CGDebugInfo::getOrCreateInstanceMethodType(
   assert(Args.size() && "Invalid number of arguments!");
 
   SmallVector<llvm::Metadata *, 16> Elts;
-
   // First element is always return type. For 'void' functions it is NULL.
-  Elts.push_back(Args[0]);
+  QualType temp = Func->getReturnType();
+  if (temp->getTypeClass() == Type::Auto && decl)
+    Elts.push_back(CreateType(cast<AutoType>(temp)));
+  else
+    Elts.push_back(Args[0]);
 
   // "this" pointer is always first argument.
   const CXXRecordDecl *RD = ThisPtr->getPointeeCXXRecordDecl();
@@ -1540,7 +1549,7 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
       isa<CXXConstructorDecl>(Method) || isa<CXXDestructorDecl>(Method);
 
   StringRef MethodName = getFunctionName(Method);
-  llvm::DISubroutineType *MethodTy = getOrCreateMethodType(Method, Unit);
+  llvm::DISubroutineType *MethodTy = getOrCreateMethodType(Method, Unit, true);
 
   // Since a single ctor/dtor corresponds to multiple functions, it doesn't
   // make sense to give a single ctor/dtor a linkage name.
@@ -1651,6 +1660,12 @@ llvm::DISubprogram *CGDebugInfo::CreateCXXMemberFunction(
     Flags |= llvm::DINode::FlagRValueReference;
   if (CGM.getLangOpts().Optimize)
     SPFlags |= llvm::DISubprogram::SPFlagOptimized;
+
+  // In this debug mode, emit type info for a class when its constructor type
+  // info is emitted.
+  if (DebugKind == codegenoptions::DebugInfoConstructor)
+    if (const CXXConstructorDecl *CD = dyn_cast<CXXConstructorDecl>(Method))
+      completeClass(CD->getParent());
 
   llvm::DINodeArray TParamsArray = CollectFunctionTemplateParams(Method, Unit);
   llvm::DISubprogram *SP = DBuilder.createMethod(
@@ -2048,7 +2063,7 @@ void CGDebugInfo::CollectVTableInfo(const CXXRecordDecl *RD, llvm::DIFile *Unit,
 
 llvm::DIType *CGDebugInfo::getOrCreateRecordType(QualType RTy,
                                                  SourceLocation Loc) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   llvm::DIType *T = getOrCreateType(RTy, getOrCreateFile(Loc));
   return T;
 }
@@ -2060,7 +2075,7 @@ llvm::DIType *CGDebugInfo::getOrCreateInterfaceType(QualType D,
 
 llvm::DIType *CGDebugInfo::getOrCreateStandaloneType(QualType D,
                                                      SourceLocation Loc) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   assert(!D.isNull() && "null type");
   llvm::DIType *T = getOrCreateType(D, getOrCreateFile(Loc));
   assert(T && "could not create debug info for type");
@@ -2214,6 +2229,17 @@ static bool shouldOmitDefinition(codegenoptions::DebugInfoKind DebugKind,
   if (CXXDecl->hasDefinition() && CXXDecl->isDynamicClass() &&
       !isClassOrMethodDLLImport(CXXDecl))
     return true;
+
+  // In constructor debug mode, only emit debug info for a class when its
+  // constructor is emitted. Skip this optimization if the class or any of
+  // its methods are marked dllimport.
+  if (DebugKind == codegenoptions::DebugInfoConstructor &&
+      !CXXDecl->isLambda() && !isClassOrMethodDLLImport(CXXDecl)) {
+    for (const auto *Ctor : CXXDecl->ctors()) {
+      if (Ctor->isUserProvided())
+        return true;
+    }
+  }
 
   TemplateSpecializationKind Spec = TSK_Undeclared;
   if (const auto *SD = dyn_cast<ClassTemplateSpecializationDecl>(RD))
@@ -2458,7 +2484,7 @@ CGDebugInfo::getOrCreateModuleRef(ExternalASTSource::ASTSourceDescriptor Mod,
                          CreateSkeletonCU);
   llvm::DIModule *DIMod =
       DBuilder.createModule(Parent, Mod.getModuleName(), ConfigMacros,
-                            Mod.getPath(), CGM.getHeaderSearchOpts().Sysroot);
+                            Mod.getPath());
   ModuleCache[M].reset(DIMod);
   return DIMod;
 }
@@ -2759,7 +2785,7 @@ llvm::DIType *CGDebugInfo::CreateType(const MemberPointerType *Ty,
   return DBuilder.createMemberPointerType(
       getOrCreateInstanceMethodType(
           CXXMethodDecl::getThisType(FPT, Ty->getMostRecentCXXRecordDecl()),
-          FPT, U),
+          FPT, U, false),
       ClassType, Size, /*Align=*/0, Flags);
 }
 
@@ -3275,7 +3301,7 @@ void CGDebugInfo::collectFunctionDeclProps(GlobalDecl GD, llvm::DIFile *Unit,
                               DebugKind <= codegenoptions::DebugLineTablesOnly))
     LinkageName = StringRef();
 
-  if (DebugKind >= codegenoptions::LimitedDebugInfo) {
+  if (CGM.getCodeGenOpts().hasReducedDebugInfo()) {
     if (const NamespaceDecl *NSDecl =
             dyn_cast_or_null<NamespaceDecl>(FD->getDeclContext()))
       FDContext = getOrCreateNamespace(NSDecl);
@@ -3500,6 +3526,9 @@ llvm::DISubprogram *CGDebugInfo::getObjCMethodDeclaration(
   if (CGM.getCodeGenOpts().DwarfVersion < 5 && !OMD->isDirectMethod())
     return nullptr;
 
+  if (OMD->isDirectMethod())
+    SPFlags |= llvm::DISubprogram::SPFlagObjCDirect;
+
   // Starting with DWARF V5 method declarations are emitted as children of
   // the interface type.
   auto *ID = dyn_cast_or_null<ObjCInterfaceDecl>(D->getDeclContext());
@@ -3531,7 +3560,7 @@ llvm::DISubroutineType *CGDebugInfo::getOrCreateFunctionType(const Decl *D,
     return DBuilder.createSubroutineType(DBuilder.getOrCreateTypeArray(None));
 
   if (const auto *Method = dyn_cast<CXXMethodDecl>(D))
-    return getOrCreateMethodType(Method, F);
+    return getOrCreateMethodType(Method, F, false);
 
   const auto *FTy = FnType->getAs<FunctionType>();
   CallingConv CC = FTy ? FTy->getCallConv() : CallingConv::CC_C;
@@ -3959,7 +3988,7 @@ llvm::DILocalVariable *CGDebugInfo::EmitDeclare(const VarDecl *VD,
                                                 llvm::Optional<unsigned> ArgNo,
                                                 CGBuilderTy &Builder,
                                                 const bool UsePointerValue) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   assert(!LexicalBlockStack.empty() && "Region stack mismatch, stack empty!");
   if (VD->hasAttr<NoDebugAttr>())
     return nullptr;
@@ -4093,12 +4122,12 @@ llvm::DILocalVariable *
 CGDebugInfo::EmitDeclareOfAutoVariable(const VarDecl *VD, llvm::Value *Storage,
                                        CGBuilderTy &Builder,
                                        const bool UsePointerValue) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   return EmitDeclare(VD, Storage, llvm::None, Builder, UsePointerValue);
 }
 
 void CGDebugInfo::EmitLabel(const LabelDecl *D, CGBuilderTy &Builder) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   assert(!LexicalBlockStack.empty() && "Region stack mismatch, stack empty!");
 
   if (D->hasAttr<NoDebugAttr>())
@@ -4134,7 +4163,7 @@ llvm::DIType *CGDebugInfo::CreateSelfType(const QualType &QualTy,
 void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(
     const VarDecl *VD, llvm::Value *Storage, CGBuilderTy &Builder,
     const CGBlockInfo &blockInfo, llvm::Instruction *InsertPoint) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   assert(!LexicalBlockStack.empty() && "Region stack mismatch, stack empty!");
 
   if (Builder.GetInsertBlock() == nullptr)
@@ -4205,7 +4234,7 @@ void CGDebugInfo::EmitDeclareOfBlockDeclRefVariable(
 void CGDebugInfo::EmitDeclareOfArgVariable(const VarDecl *VD, llvm::Value *AI,
                                            unsigned ArgNo,
                                            CGBuilderTy &Builder) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   EmitDeclare(VD, AI, ArgNo, Builder);
 }
 
@@ -4262,7 +4291,7 @@ void CGDebugInfo::EmitDeclareOfBlockLiteralArgVariable(const CGBlockInfo &block,
                                                        unsigned ArgNo,
                                                        llvm::AllocaInst *Alloca,
                                                        CGBuilderTy &Builder) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   ASTContext &C = CGM.getContext();
   const BlockDecl *blockDecl = block.getBlockDecl();
 
@@ -4428,7 +4457,7 @@ llvm::DIGlobalVariableExpression *CGDebugInfo::CollectAnonRecordDecls(
 
 void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
                                      const VarDecl *D) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   if (D->hasAttr<NoDebugAttr>())
     return;
 
@@ -4487,7 +4516,7 @@ void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
 
     GVE = DBuilder.createGlobalVariableExpression(
         DContext, DeclName, LinkageName, Unit, LineNo, getOrCreateType(T, Unit),
-        Var->hasLocalLinkage(),
+        Var->hasLocalLinkage(), true,
         Expr.empty() ? nullptr : DBuilder.createExpression(Expr),
         getOrCreateStaticDataMemberDeclarationOrNull(D), TemplateParameters,
         Align);
@@ -4497,7 +4526,7 @@ void CGDebugInfo::EmitGlobalVariable(llvm::GlobalVariable *Var,
 }
 
 void CGDebugInfo::EmitGlobalVariable(const ValueDecl *VD, const APValue &Init) {
-  assert(DebugKind >= codegenoptions::LimitedDebugInfo);
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
   if (VD->hasAttr<NoDebugAttr>())
     return;
   llvm::TimeTraceScope TimeScope("DebugConstGlobalVariable", [&]() {
@@ -4590,8 +4619,27 @@ void CGDebugInfo::EmitGlobalVariable(const ValueDecl *VD, const APValue &Init) {
 
   GV.reset(DBuilder.createGlobalVariableExpression(
       DContext, Name, StringRef(), Unit, getLineNumber(VD->getLocation()), Ty,
-      true, InitExpr, getOrCreateStaticDataMemberDeclarationOrNull(VarD),
+      true, true, InitExpr, getOrCreateStaticDataMemberDeclarationOrNull(VarD),
       TemplateParameters, Align));
+}
+
+void CGDebugInfo::EmitExternalVariable(llvm::GlobalVariable *Var,
+                                       const VarDecl *D) {
+  assert(CGM.getCodeGenOpts().hasReducedDebugInfo());
+  if (D->hasAttr<NoDebugAttr>())
+    return;
+
+  auto Align = getDeclAlignIfRequired(D, CGM.getContext());
+  llvm::DIFile *Unit = getOrCreateFile(D->getLocation());
+  StringRef Name = D->getName();
+  llvm::DIType *Ty = getOrCreateType(D->getType(), Unit);
+
+  llvm::DIScope *DContext = getDeclContextDescriptor(D);
+  llvm::DIGlobalVariableExpression *GVE =
+      DBuilder.createGlobalVariableExpression(
+          DContext, Name, StringRef(), Unit, getLineNumber(D->getLocation()),
+          Ty, false, false, nullptr, nullptr, nullptr, Align);
+  Var->addDebugInfo(GVE);
 }
 
 llvm::DIScope *CGDebugInfo::getCurrentContextDescriptor(const Decl *D) {
@@ -4602,7 +4650,7 @@ llvm::DIScope *CGDebugInfo::getCurrentContextDescriptor(const Decl *D) {
 }
 
 void CGDebugInfo::EmitUsingDirective(const UsingDirectiveDecl &UD) {
-  if (CGM.getCodeGenOpts().getDebugInfo() < codegenoptions::LimitedDebugInfo)
+  if (!CGM.getCodeGenOpts().hasReducedDebugInfo())
     return;
   const NamespaceDecl *NSDecl = UD.getNominatedNamespace();
   if (!NSDecl->isAnonymousNamespace() ||
@@ -4615,7 +4663,7 @@ void CGDebugInfo::EmitUsingDirective(const UsingDirectiveDecl &UD) {
 }
 
 void CGDebugInfo::EmitUsingDecl(const UsingDecl &UD) {
-  if (CGM.getCodeGenOpts().getDebugInfo() < codegenoptions::LimitedDebugInfo)
+  if (!CGM.getCodeGenOpts().hasReducedDebugInfo())
     return;
   assert(UD.shadow_size() &&
          "We shouldn't be codegening an invalid UsingDecl containing no decls");
@@ -4656,7 +4704,7 @@ void CGDebugInfo::EmitImportDecl(const ImportDecl &ID) {
 
 llvm::DIImportedEntity *
 CGDebugInfo::EmitNamespaceAlias(const NamespaceAliasDecl &NA) {
-  if (CGM.getCodeGenOpts().getDebugInfo() < codegenoptions::LimitedDebugInfo)
+  if (!CGM.getCodeGenOpts().hasReducedDebugInfo())
     return nullptr;
   auto &VH = NamespaceAliasCache[&NA];
   if (VH)
@@ -4778,7 +4826,7 @@ void CGDebugInfo::finalize() {
 }
 
 void CGDebugInfo::EmitExplicitCastType(QualType Ty) {
-  if (CGM.getCodeGenOpts().getDebugInfo() < codegenoptions::LimitedDebugInfo)
+  if (!CGM.getCodeGenOpts().hasReducedDebugInfo())
     return;
 
   if (auto *DieTy = getOrCreateType(Ty, TheCU->getFile()))

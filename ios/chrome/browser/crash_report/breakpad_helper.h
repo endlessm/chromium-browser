@@ -11,6 +11,9 @@
 
 namespace breakpad_helper {
 
+// Key for breadcrumbs attached to crash reports.
+extern NSString* const kBreadcrumbs;
+
 // Starts the crash handlers. This must be run as soon as possible to catch
 // early crashes.
 void Start(const std::string& channel_name);
@@ -68,6 +71,9 @@ void SetMemoryWarningInProgress(bool value);
 
 // Sets a key indicating that UI thread is frozen (if value is 'true'),
 // otherwise remove the key.
+// Setting the value is synchronous as it is expected to be set just before the
+// report generation.
+// Unsetting the value is asynchronous.
 void SetHangReport(bool value);
 
 // Sets a key indicating the current free memory amount in KB. 0 does not remove
@@ -123,6 +129,9 @@ void SetGridToVisibleTabAnimation(NSString* to_view_controller,
 // Removes the key to help debug a crash when animating from grid to visible
 // tab.
 void RemoveGridToVisibleTabAnimation();
+
+// Sets a key with the given |breadcrumbs|.
+void SetBreadcrumbEvents(NSString* breadcrumbs);
 
 // Sets a key in browser to store the playback state of media player (audio or
 // video). This function records a new start. This function is called for each

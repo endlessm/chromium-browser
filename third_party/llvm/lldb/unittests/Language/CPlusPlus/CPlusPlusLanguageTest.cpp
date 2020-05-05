@@ -1,4 +1,4 @@
-//===-- CPlusPlusLanguageTest.cpp -------------------------------*- C++ -*-===//
+//===-- CPlusPlusLanguageTest.cpp -----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -191,6 +191,8 @@ TEST(CPlusPlusLanguage, FindAlternateFunctionManglings) {
   EXPECT_THAT(FindAlternate("_ZN1A1fEx"), Contains("_ZN1A1fEl"));
   EXPECT_THAT(FindAlternate("_ZN1A1fEy"), Contains("_ZN1A1fEm"));
   EXPECT_THAT(FindAlternate("_ZN1A1fEai"), Contains("_ZN1A1fEci"));
+  EXPECT_THAT(FindAlternate("_ZN1AC1Ev"), Contains("_ZN1AC2Ev"));
+  EXPECT_THAT(FindAlternate("_ZN1AD1Ev"), Contains("_ZN1AD2Ev"));
   EXPECT_THAT(FindAlternate("_bogus"), IsEmpty());
 }
 

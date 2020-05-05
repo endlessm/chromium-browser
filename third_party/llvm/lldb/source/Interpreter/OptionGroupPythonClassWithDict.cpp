@@ -1,4 +1,4 @@
-//===-- OptionGroupPythonClassWithDict.cpp ----------------------------------*- C++ -*-===//
+//===-- OptionGroupPythonClassWithDict.cpp --------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -127,6 +127,7 @@ void OptionGroupPythonClassWithDict::OptionParsingStarting(
   // the user didn't pass any -k -v pairs.  We want to be able to warn if these
   // were passed when the function they passed won't use them.
   m_dict_sp.reset();
+  m_name.clear();
 }
 
 Status OptionGroupPythonClassWithDict::OptionParsingFinished(

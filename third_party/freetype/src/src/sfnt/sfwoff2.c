@@ -4,7 +4,7 @@
  *
  *   WOFF2 format management (base).
  *
- * Copyright (C) 2019 by
+ * Copyright (C) 2019-2020 by
  * Nikhil Ramakrishnan, David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -302,7 +302,7 @@
     {
       v = 0;
       for ( i = aligned_size ; i < size; ++i )
-        v |= buf[i] << ( 24 - 8 * ( i & 3 ) );
+        v |= (FT_ULong)buf[i] << ( 24 - 8 * ( i & 3 ) );
       checksum += v;
     }
 
@@ -1465,9 +1465,17 @@
     *sfnt_bytes = sfnt;
     *out_offset = dest_offset;
 
+    FT_FREE( advance_widths );
+    FT_FREE( lsbs );
+    FT_FREE( hmtx_table );
+
     return error;
 
   Fail:
+    FT_FREE( advance_widths );
+    FT_FREE( lsbs );
+    FT_FREE( hmtx_table );
+
     if ( !error )
       error = FT_THROW( Invalid_Table );
 
@@ -1513,9 +1521,9 @@
     info->glyf_table = find_table( indices, num_tables, TTAG_glyf );
     info->loca_table = find_table( indices, num_tables, TTAG_loca );
 
-    if ( !( info->glyf_table && info->loca_table ) )
+    if ( ( info->glyf_table == NULL ) ^ ( info->loca_table == NULL ) )
     {
-      FT_ERROR(( "Both `glyph' and `loca' tables must be present.\n" ));
+      FT_ERROR(( "One of `glyf'/`loca' tables missing.\n" ));
       return FT_THROW( Invalid_Table );
     }
 

@@ -51,12 +51,13 @@
 #include "perfetto/ext/base/string_utils.h"
 #include "perfetto/ext/base/thread_task_runner.h"
 
-#include "src/profiling/memory/utils.h"
 #include "src/profiling/memory/wire_protocol.h"
 
 namespace perfetto {
 namespace profiling {
 namespace {
+
+constexpr base::TimeMillis kMapsReparseInterval{500};
 
 constexpr size_t kMaxFrames = 1000;
 
@@ -115,65 +116,6 @@ std::unique_ptr<unwindstack::Regs> CreateRegsFromRawData(
   return ret;
 }
 
-StackOverlayMemory::StackOverlayMemory(std::shared_ptr<unwindstack::Memory> mem,
-                                       uint64_t sp,
-                                       uint8_t* stack,
-                                       size_t size)
-    : mem_(std::move(mem)), sp_(sp), stack_end_(sp + size), stack_(stack) {}
-
-size_t StackOverlayMemory::Read(uint64_t addr, void* dst, size_t size) {
-  if (addr >= sp_ && addr + size <= stack_end_ && addr + size > sp_) {
-    size_t offset = static_cast<size_t>(addr - sp_);
-    memcpy(dst, stack_ + offset, size);
-    return size;
-  }
-
-  return mem_->Read(addr, dst, size);
-}
-
-FDMemory::FDMemory(base::ScopedFile mem_fd) : mem_fd_(std::move(mem_fd)) {}
-
-size_t FDMemory::Read(uint64_t addr, void* dst, size_t size) {
-  ssize_t rd = ReadAtOffsetClobberSeekPos(*mem_fd_, dst, size,
-                                          static_cast<off64_t>(addr));
-  if (rd == -1) {
-    PERFETTO_DPLOG("read of %zu at offset %" PRIu64, size, addr);
-    return 0;
-  }
-  return static_cast<size_t>(rd);
-}
-
-FileDescriptorMaps::FileDescriptorMaps(base::ScopedFile fd)
-    : fd_(std::move(fd)) {}
-
-bool FileDescriptorMaps::Parse() {
-  // If the process has already exited, lseek or ReadFileDescriptor will
-  // return false.
-  if (lseek(*fd_, 0, SEEK_SET) == -1)
-    return false;
-
-  std::string content;
-  if (!base::ReadFileDescriptor(*fd_, &content))
-    return false;
-  return android::procinfo::ReadMapFileContent(
-      &content[0], [&](uint64_t start, uint64_t end, uint16_t flags,
-                       uint64_t pgoff, ino_t, const char* name) {
-        // Mark a device map in /dev/ and not in /dev/ashmem/ specially.
-        if (strncmp(name, "/dev/", 5) == 0 &&
-            strncmp(name + 5, "ashmem/", 7) != 0) {
-          flags |= unwindstack::MAPS_FLAGS_DEVICE_MAP;
-        }
-        unwindstack::MapInfo* prev_map =
-            maps_.empty() ? nullptr : maps_.back().get();
-        maps_.emplace_back(
-            new unwindstack::MapInfo(prev_map, start, end, pgoff, flags, name));
-      });
-}
-
-void FileDescriptorMaps::Reset() {
-  maps_.clear();
-}
-
 bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
   AllocMetadata* alloc_metadata = msg->alloc_header;
   std::unique_ptr<unwindstack::Regs> regs(CreateRegsFromRawData(
@@ -194,7 +136,8 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
                                            alloc_metadata->stack_pointer, stack,
                                            msg->payload_size);
 
-  unwindstack::Unwinder unwinder(kMaxFrames, &metadata->maps, regs.get(), mems);
+  unwindstack::Unwinder unwinder(kMaxFrames, &metadata->fd_maps, regs.get(),
+                                 mems);
 #if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
   unwinder.SetJitDebug(metadata->jit_debug.get(), regs->Arch());
   unwinder.SetDexFiles(metadata->dex_files.get(), regs->Arch());
@@ -204,8 +147,14 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
   uint8_t error_code = 0;
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (attempt > 0) {
+      if (metadata->last_maps_reparse_time + kMapsReparseInterval >
+          base::GetWallTimeMs()) {
+        PERFETTO_DLOG("Skipping reparse due to rate limit.");
+        break;
+      }
       PERFETTO_DLOG("Reparsing maps");
       metadata->ReparseMaps();
+      metadata->last_maps_reparse_time = base::GetWallTimeMs();
       // Regs got invalidated by libuwindstack's speculative jump.
       // Reset.
       ReadFromRawData(regs.get(), alloc_metadata->register_data);
@@ -224,7 +173,7 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
   for (unwindstack::FrameData& fd : frames) {
     std::string build_id;
     if (fd.map_name != "") {
-      unwindstack::MapInfo* map_info = metadata->maps.Find(fd.pc);
+      unwindstack::MapInfo* map_info = metadata->fd_maps.Find(fd.pc);
       if (map_info)
         build_id = map_info->GetBuildID();
     }

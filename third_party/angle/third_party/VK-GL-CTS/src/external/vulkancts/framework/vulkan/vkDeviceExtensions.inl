@@ -52,5 +52,8 @@ static const char* s_allowedDeviceKhrExtensions[] =
 	"VK_KHR_shader_clock",
 	"VK_KHR_spirv_1_4",
 	"VK_KHR_shader_subgroup_extended_types",
+	"VK_KHR_separate_depth_stencil_layouts",
+	"VK_KHR_performance_query",
+	"VK_KHR_buffer_device_address",
 };
 

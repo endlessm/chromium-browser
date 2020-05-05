@@ -207,6 +207,8 @@ public:
 
   bool hasBranchDivergence() { return false; }
 
+  bool useGPUDivergenceAnalysis() { return false; }
+
   bool isSourceOfDivergence(const Value *V) { return false; }
 
   bool isAlwaysUniform(const Value *V) { return false; }
@@ -633,7 +635,8 @@ public:
       TTI::OperandValueKind Opd2Info = TTI::OK_AnyValue,
       TTI::OperandValueProperties Opd1PropInfo = TTI::OP_None,
       TTI::OperandValueProperties Opd2PropInfo = TTI::OP_None,
-      ArrayRef<const Value *> Args = ArrayRef<const Value *>()) {
+      ArrayRef<const Value *> Args = ArrayRef<const Value *>(),
+      const Instruction *CxtI = nullptr) {
     // Check if any of the operands are vector operands.
     const TargetLoweringBase *TLI = getTLI();
     int ISD = TLI->InstructionOpcodeToISD(Opcode);
@@ -1285,6 +1288,9 @@ public:
     case Intrinsic::fmuladd:
       ISDs.push_back(ISD::FMA);
       break;
+    case Intrinsic::experimental_constrained_fmuladd:
+      ISDs.push_back(ISD::STRICT_FMA);
+      break;
     // FIXME: We should return 0 whenever getIntrinsicCost == TCC_Free.
     case Intrinsic::lifetime_start:
     case Intrinsic::lifetime_end:
@@ -1508,6 +1514,12 @@ public:
     if (IID == Intrinsic::fmuladd)
       return ConcreteTTI->getArithmeticInstrCost(BinaryOperator::FMul, RetTy) +
              ConcreteTTI->getArithmeticInstrCost(BinaryOperator::FAdd, RetTy);
+    if (IID == Intrinsic::experimental_constrained_fmuladd)
+      return ConcreteTTI->getIntrinsicCost(
+                 Intrinsic::experimental_constrained_fmul, RetTy, Tys,
+                 nullptr) +
+             ConcreteTTI->getIntrinsicCost(
+                 Intrinsic::experimental_constrained_fadd, RetTy, Tys, nullptr);
 
     // Else, assume that we need to scalarize this intrinsic. For math builtins
     // this will emit a costly libcall, adding call overhead and spills. Make it

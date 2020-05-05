@@ -31,7 +31,7 @@
 /**
  * @unrestricted
  */
-Sources.FilePathScoreFunction = class {
+export class FilePathScoreFunction {
   /**
    * @param {string} query
    */
@@ -199,4 +199,4 @@ Sources.FilePathScoreFunction = class {
       return this._sequenceCharScore(query, data, i, j - consecutiveMatch, consecutiveMatch);
     }
   }
-};
+}

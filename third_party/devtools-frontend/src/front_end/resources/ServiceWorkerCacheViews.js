@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
+export class ServiceWorkerCacheView extends UI.SimpleView {
   /**
    * @param {!SDK.ServiceWorkerCacheModel} model
    * @param {!SDK.ServiceWorkerCacheModel.Cache} cache
@@ -107,7 +107,7 @@ Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
    * @return {!DataGrid.DataGrid}
    */
   _createDataGrid() {
-    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([
+    const columns = /** @type {!Array<!DataGrid.ColumnDescriptor>} */ ([
       {id: 'number', title: '#', sortable: false, width: '3px'},
       {id: 'name', title: Common.UIString('Name'), weight: 4, sortable: true},
       {id: 'responseType', title: ls`Response-Type`, weight: 1, align: DataGrid.DataGrid.Align.Right, sortable: true},
@@ -127,8 +127,12 @@ Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
         sortable: true
       }
     ]);
-    const dataGrid = new DataGrid.DataGrid(
-        columns, undefined, this._deleteButtonClicked.bind(this), this._updateData.bind(this, true));
+    const dataGrid = new DataGrid.DataGrid({
+      displayName: ls`Service Worker Cache`,
+      columns,
+      deleteCallback: this._deleteButtonClicked.bind(this),
+      refreshCallback: this._updateData.bind(this, true)
+    });
 
     dataGrid.addEventListener(DataGrid.DataGrid.Events.SortingChanged, this._sortingChanged, this);
 
@@ -208,7 +212,7 @@ Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
    * @param {number} skipCount
    * @param {!Array<!Protocol.CacheStorage.DataEntry>} entries
    * @param {number} returnCount
-   * @this {Resources.ServiceWorkerCacheView}
+   * @this {ServiceWorkerCacheView}
    */
   _updateDataCallback(skipCount, entries, returnCount) {
     const selected = this._dataGrid.selectedNode && this._dataGrid.selectedNode.data.url();
@@ -229,7 +233,7 @@ Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
       const entry = entries[i];
       let node = oldEntries.get(entry.requestURL);
       if (!node || node.data.responseTime !== entry.responseTime) {
-        node = new Resources.ServiceWorkerCacheView.DataGridNode(i, this._createRequest(entry), entry.responseType);
+        node = new DataGridNode(i, this._createRequest(entry), entry.responseType);
         node.selectable = true;
       } else {
         node.data.number = i;
@@ -293,10 +297,10 @@ Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
    * @param {!SDK.NetworkRequest} request
    */
   async _previewCachedResponse(request) {
-    let preview = request[Resources.ServiceWorkerCacheView._previewSymbol];
+    let preview = request[ServiceWorkerCacheView._previewSymbol];
     if (!preview) {
-      preview = new Resources.ServiceWorkerCacheView.RequestView(request);
-      request[Resources.ServiceWorkerCacheView._previewSymbol] = preview;
+      preview = new RequestView(request);
+      request[ServiceWorkerCacheView._previewSymbol] = preview;
     }
 
     // It is possible that table selection changes before the preview opens.
@@ -352,11 +356,11 @@ Resources.ServiceWorkerCacheView = class extends UI.SimpleView {
 
   _updatedForTest() {
   }
-};
+}
 
-Resources.ServiceWorkerCacheView._previewSymbol = Symbol('preview');
+ServiceWorkerCacheView._previewSymbol = Symbol('preview');
 
-Resources.ServiceWorkerCacheView.DataGridNode = class extends DataGrid.DataGridNode {
+export class DataGridNode extends DataGrid.DataGridNode {
   /**
    * @param {number} number
    * @param {!SDK.NetworkRequest} request
@@ -406,9 +410,9 @@ Resources.ServiceWorkerCacheView.DataGridNode = class extends DataGrid.DataGridN
     cell.title = this._request.url();
     return cell;
   }
-};
+}
 
-Resources.ServiceWorkerCacheView.RequestView = class extends UI.VBox {
+export class RequestView extends UI.VBox {
   /**
    * @param {!SDK.NetworkRequest} request
    */
@@ -417,7 +421,7 @@ Resources.ServiceWorkerCacheView.RequestView = class extends UI.VBox {
 
     this._tabbedPane = new UI.TabbedPane();
     this._tabbedPane.addEventListener(UI.TabbedPane.Events.TabSelected, this._tabSelected, this);
-    this._resourceViewTabSetting = Common.settings.createSetting('cacheStorageViewTab', 'preview');
+    this._resourceViewTabSetting = self.Common.settings.createSetting('cacheStorageViewTab', 'preview');
 
     this._tabbedPane.appendTab('headers', Common.UIString('Headers'), new Network.RequestHeadersView(request));
     this._tabbedPane.appendTab('preview', Common.UIString('Preview'), new Network.RequestPreviewView(request));
@@ -450,4 +454,4 @@ Resources.ServiceWorkerCacheView.RequestView = class extends UI.VBox {
     }
     this._resourceViewTabSetting.set(event.data.tabId);
   }
-};
+}

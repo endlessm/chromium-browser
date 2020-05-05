@@ -199,10 +199,11 @@ struct hb_array_t : hb_iter_with_fallback_t<hb_array_t<Type>, Type&>
   template <typename T,
 	    unsigned P = sizeof (Type),
 	    hb_enable_if (P == 1)>
-  bool in_range (const T *p, unsigned int size = T::static_size) const
+  bool check_range (const T *p, unsigned int size = T::static_size) const
   {
-    return ((const char *) p) >= arrayZ
-	&& ((const char *) p + size) <= arrayZ + length;
+    return arrayZ <= ((const char *) p)
+	&& ((const char *) p) <= arrayZ + length
+	&& (unsigned int) (arrayZ + length - (const char *) p) >= size;
   }
 
   /* Only call if you allocated the underlying array using malloc() or similar. */
@@ -300,23 +301,15 @@ struct hb_sorted_array_t :
 	      hb_bfind_not_found_t not_found = HB_BFIND_NOT_FOUND_DONT_STORE,
 	      unsigned int to_store = (unsigned int) -1) const
   {
-    int min = 0, max = (int) this->length - 1;
-    const Type *array = this->arrayZ;
-    while (min <= max)
+    unsigned pos;
+
+    if (bsearch_impl (x, &pos))
     {
-      int mid = ((unsigned int) min + (unsigned int) max) / 2;
-      int c = array[mid].cmp (x);
-      if (c < 0)
-	max = mid - 1;
-      else if (c > 0)
-	min = mid + 1;
-      else
-      {
-	if (i)
-	  *i = mid;
-	return true;
-      }
+      if (i)
+	*i = pos;
+      return true;
     }
+
     if (i)
     {
       switch (not_found)
@@ -329,13 +322,21 @@ struct hb_sorted_array_t :
 	  break;
 
 	case HB_BFIND_NOT_FOUND_STORE_CLOSEST:
-	  if (max < 0 || (max < (int) this->length && array[max].cmp (x) > 0))
-	    max++;
-	  *i = max;
+	  *i = pos;
 	  break;
       }
     }
     return false;
+  }
+  template <typename T>
+  bool bsearch_impl (const T &x, unsigned *pos) const
+  {
+    return hb_bsearch_impl (pos,
+			    x,
+			    this->arrayZ,
+			    this->length,
+			    sizeof (Type),
+			    _hb_cmp_method<T, Type>);
   }
 };
 template <typename T> inline hb_sorted_array_t<T>

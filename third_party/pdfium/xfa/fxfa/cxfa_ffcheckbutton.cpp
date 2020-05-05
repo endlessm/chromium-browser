@@ -35,7 +35,7 @@ bool CXFA_FFCheckButton::LoadWidget() {
   auto pNew = pdfium::MakeUnique<CFWL_CheckBox>(GetFWLApp());
   CFWL_CheckBox* pCheckBox = pNew.get();
   SetNormalWidget(std::move(pNew));
-  pCheckBox->SetFFWidget(this);
+  pCheckBox->SetAdapterIface(this);
 
   CFWL_NoteDriver* pNoteDriver = pCheckBox->GetOwnerApp()->GetNoteDriver();
   pNoteDriver->RegisterEventTarget(pCheckBox, pCheckBox);
@@ -250,12 +250,13 @@ bool CXFA_FFCheckButton::OnLButtonUp(uint32_t dwFlags,
   if (!GetNormalWidget() || !IsButtonDown())
     return false;
 
+  ObservedPtr<CXFA_FFCheckButton> pWatched(this);
   SetButtonDown(false);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::LeftButtonUp, dwFlags,
       FWLToClient(point)));
 
-  return true;
+  return !!pWatched;
 }
 
 XFA_CHECKSTATE CXFA_FFCheckButton::FWLState2XFAState() {

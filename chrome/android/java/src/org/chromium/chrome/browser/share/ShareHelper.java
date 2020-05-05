@@ -21,6 +21,8 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
+import android.content.res.Resources;
+import android.content.res.Resources.NotFoundException;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -33,6 +35,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
@@ -49,9 +52,12 @@ import org.chromium.base.StrictModeContext;
 import org.chromium.base.metrics.CachedMetrics;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
+import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.content_public.browser.RenderWidgetHostView;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
+import org.chromium.ui.base.Clipboard;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.base.WindowAndroid.IntentCallback;
 
@@ -90,8 +96,8 @@ public class ShareHelper {
     public static final String EXTRA_TASK_ID = "org.chromium.chrome.extra.TASK_ID";
 
     private static final String JPEG_EXTENSION = ".jpg";
-    private static final String PACKAGE_NAME_KEY = "last_shared_package_name";
-    private static final String CLASS_NAME_KEY = "last_shared_class_name";
+    private static final String PACKAGE_NAME_KEY_SUFFIX = "last_shared_package_name";
+    private static final String CLASS_NAME_KEY_SUFFIX = "last_shared_class_name";
     private static final String EXTRA_SHARE_SCREENSHOT_AS_STREAM = "share_screenshot_as_stream";
 
     /**
@@ -141,17 +147,68 @@ public class ShareHelper {
         }
     }
 
-    private static void deleteShareImageFiles(File file) {
-        if (!file.exists()) return;
+    /**
+     * Delete the |file|, if the |file| is a directory, delete the files and directories in the
+     * directory recursively.
+     *
+     * @param file The {@link File} or directory to be deleted.
+     * @param reservedFilepath The filepath should not to be deleted.
+     * @return Whether the |folder| has file to keep/reserve.
+     */
+    private static boolean deleteFiles(File file, @Nullable String reservedFilepath) {
+        if (!file.exists()) return false;
+        if (reservedFilepath != null && file.isFile()
+                && file.getPath().endsWith(reservedFilepath)) {
+            return true;
+        }
+
+        boolean anyChildKept = false;
         if (file.isDirectory()) {
             File[] file_list = file.listFiles();
             if (file_list != null) {
-                for (File f : file_list) deleteShareImageFiles(f);
+                for (File child : file_list) {
+                    anyChildKept |= deleteFiles(child, reservedFilepath);
+                }
             }
         }
-        if (!file.delete()) {
+
+        // file.delete() will fail if |file| is a directory and has a file need to keep. In this
+        // case, the log should not been recorded since it is correct.
+        if (!anyChildKept && !file.delete()) {
             Log.w(TAG, "Failed to delete share image file: %s", file.getAbsolutePath());
+            return true;
         }
+        return anyChildKept;
+    }
+
+    /**
+     * Check if the file related to |fileUri| is in the |folder|.
+     *
+     * @param fileUri The {@link Uri} related to the file to be checked.
+     * @param folder The folder that may contain the |fileUrl|.
+     * @return Whether the |fileUri| is in the |folder|.
+     */
+    private static boolean isUriInDirectory(Uri fileUri, File folder) {
+        if (fileUri == null) return false;
+
+        Uri chromeUriPrefix = ContentUriUtils.getContentUriFromFile(folder);
+        if (chromeUriPrefix == null) return false;
+
+        return fileUri.toString().startsWith(chromeUriPrefix.toString());
+    }
+
+    /**
+     * Check if the system clipboard contains a Uri that comes from Chrome. If yes, return the file
+     * name from the Uri, otherwise return null.
+     *
+     * @return The file name if system clipboard contains a Uri from Chrome, otherwise return null.
+     */
+    private static String getClipboardCurrentFilepath() throws IOException {
+        Uri clipboardUri = Clipboard.getInstance().getUri();
+        if (isUriInDirectory(clipboardUri, getSharedFilesDirectory())) {
+            return clipboardUri.getPath();
+        }
+        return null;
     }
 
     /**
@@ -315,7 +372,7 @@ public class ShareHelper {
     public static void clearSharedImages() {
         AsyncTask.SERIAL_EXECUTOR.execute(() -> {
             try {
-                deleteShareImageFiles(getSharedFilesDirectory());
+                deleteFiles(getSharedFilesDirectory(), getClipboardCurrentFilepath());
             } catch (IOException ie) {
                 // Ignore exception.
             }
@@ -560,6 +617,21 @@ public class ShareHelper {
         }
     }
 
+    /**
+     * Show the default share sheet. On L+ this is the Android system share sheet on K and below
+     * this is a custom share dialog.
+     * @param params The share parameters.
+     */
+    static void showDefaultShareUi(ShareParams params) {
+        if (TargetChosenReceiver.isSupported()) {
+            // On L+ open system share sheet.
+            makeIntentAndShare(params, null);
+        } else {
+            // On K and below open custom share dialog.
+            showShareDialog(params);
+        }
+    }
+
     static void makeIntentAndShare(ShareParams params, @Nullable ComponentName component) {
         Intent intent = getShareLinkIntent(params);
         intent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT | Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP);
@@ -651,11 +723,24 @@ public class ShareHelper {
     @VisibleForTesting
     public static void setLastShareComponentName(
             ComponentName component, @Nullable String sourcePackageName) {
-        SharedPreferences preferences = getSharePreferences(sourcePackageName);
+        if (sourcePackageName == null) {
+            setLastShareComponentNameForChrome(component);
+            return;
+        }
+
+        SharedPreferences preferences = getExternalAppSharingSharedPreferences();
         SharedPreferences.Editor editor = preferences.edit();
         editor.putString(getPackageNameKey(sourcePackageName), component.getPackageName());
         editor.putString(getClassNameKey(sourcePackageName), component.getClassName());
         editor.apply();
+    }
+
+    private static void setLastShareComponentNameForChrome(ComponentName component) {
+        SharedPreferencesManager preferencesManager = SharedPreferencesManager.getInstance();
+        preferencesManager.writeString(
+                ChromePreferenceKeys.SHARING_LAST_SHARED_PACKAGE_NAME, component.getPackageName());
+        preferencesManager.writeString(
+                ChromePreferenceKeys.SHARING_LAST_SHARED_CLASS_NAME, component.getClassName());
     }
 
     @VisibleForTesting
@@ -741,25 +826,63 @@ public class ShareHelper {
      */
     @Nullable
     public static ComponentName getLastShareComponentName(@Nullable String sourcePackageName) {
-        SharedPreferences preferences = getSharePreferences(sourcePackageName);
+        if (sourcePackageName == null) {
+            return getLastShareByChromeComponentName();
+        }
+
+        SharedPreferences preferences = getExternalAppSharingSharedPreferences();
         String packageName = preferences.getString(getPackageNameKey(sourcePackageName), null);
         String className = preferences.getString(getClassNameKey(sourcePackageName), null);
+        return createComponentName(packageName, className);
+    }
+
+    /**
+     * Gets the {@link ComponentName} of the app that was used to last share by Chrome.
+     */
+    @Nullable
+    public static ComponentName getLastShareByChromeComponentName() {
+        SharedPreferencesManager preferencesManager = SharedPreferencesManager.getInstance();
+        String packageName = preferencesManager.readString(
+                ChromePreferenceKeys.SHARING_LAST_SHARED_PACKAGE_NAME, null);
+        String className = preferencesManager.readString(
+                ChromePreferenceKeys.SHARING_LAST_SHARED_CLASS_NAME, null);
+        return createComponentName(packageName, className);
+    }
+
+    private static ComponentName createComponentName(String packageName, String className) {
         if (packageName == null || className == null) return null;
         return new ComponentName(packageName, className);
     }
 
-    private static SharedPreferences getSharePreferences(@Nullable String sourcePackageName) {
-        return sourcePackageName != null
-                ? ContextUtils.getApplicationContext().getSharedPreferences(
-                          EXTERNAL_APP_SHARING_PREF_FILE_NAME, Context.MODE_PRIVATE)
-                : ContextUtils.getAppSharedPreferences();
+    private static SharedPreferences getExternalAppSharingSharedPreferences() {
+        return ContextUtils.getApplicationContext().getSharedPreferences(
+                EXTERNAL_APP_SHARING_PREF_FILE_NAME, Context.MODE_PRIVATE);
     }
 
-    private static String getPackageNameKey(@Nullable String sourcePackageName) {
-        return (TextUtils.isEmpty(sourcePackageName) ? "" : sourcePackageName) + PACKAGE_NAME_KEY;
+    private static String getPackageNameKey(@NonNull String sourcePackageName) {
+        return sourcePackageName + PACKAGE_NAME_KEY_SUFFIX;
     }
 
-    private static String getClassNameKey(@Nullable String sourcePackageName) {
-        return (TextUtils.isEmpty(sourcePackageName) ? "" : sourcePackageName) + CLASS_NAME_KEY;
+    private static String getClassNameKey(@NonNull String sourcePackageName) {
+        return sourcePackageName + CLASS_NAME_KEY_SUFFIX;
+    }
+
+    /**
+     * Loads the icon for the provided ResolveInfo.
+     * @param info The ResolveInfo to load the icon for.
+     * @param manager The package manager to use to load the icon.
+     */
+    static Drawable loadIconForResolveInfo(ResolveInfo info, PackageManager manager) {
+        try {
+            final int iconRes = info.getIconResource();
+            if (iconRes != 0) {
+                Resources res = manager.getResourcesForApplication(info.activityInfo.packageName);
+                Drawable icon = ApiCompatibilityUtils.getDrawable(res, iconRes);
+                return icon;
+            }
+        } catch (NameNotFoundException | NotFoundException e) {
+            // Could not find the icon. loadIcon call below will return the default app icon.
+        }
+        return info.loadIcon(manager);
     }
 }

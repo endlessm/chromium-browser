@@ -58,6 +58,8 @@
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/login/login_handler.h"
+#include "chrome/browser/ui/login/login_handler_test_utils.h"
 #include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/saml_challenge_key_handler.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
@@ -164,6 +166,13 @@ constexpr char kDifferentDomainSAMLUserGaiaId[] = "eve-gaia";
 constexpr char kIdPHost[] = "login.corp.example.com";
 constexpr char kAdditionalIdPHost[] = "login2.corp.example.com";
 
+// The header that the server returns in a HTTP response to ask the client to
+// authenticate.
+constexpr char kAuthenticateResponseHeader[] = "WWW-Authenticate";
+
+// The response header that the client sends to transfer HTTP auth credentials.
+constexpr char kAuthorizationRequestHeader[] = "Authorization";
+
 constexpr char kSAMLIdPCookieName[] = "saml";
 constexpr char kSAMLIdPCookieValue1[] = "value-1";
 constexpr char kSAMLIdPCookieValue2[] = "value-2";
@@ -245,6 +254,7 @@ class FakeSamlIdp {
   void SetLoginAuthHTMLTemplate(const std::string& template_file);
   void SetRefreshURL(const GURL& refresh_url);
   void SetCookieValue(const std::string& cookie_value);
+  void SetRequireHttpBasicAuth(bool require_http_basic_auth);
   void SetSamlResponseFile(const std::string& xml_file);
   bool IsLastChallengeResponseExists() const;
   const std::string& GetLastChallengeResponse() const;
@@ -253,6 +263,20 @@ class FakeSamlIdp {
       const net::test_server::HttpRequest& request);
 
  private:
+  // Enumerates requests that this FakeSamlIdp may get.
+  enum class RequestType {
+    // Not a known request.
+    kUnknown,
+    kLogin,
+    kLoginAuth,
+    kLoginWithDeviceAttestation,
+    kLoginCheckDeviceAnswer
+  };
+
+  // Returns the RequestType that corresponds to |url|, or RequestType::Unknown
+  // if this is not a request for the FakeSamlIdp.
+  RequestType ParseRequestTypeFromRequestPath(const GURL& request_url) const;
+
   std::unique_ptr<HttpResponse> BuildResponseForLogin(
       const HttpRequest& request,
       const GURL& request_url);
@@ -288,6 +312,8 @@ class FakeSamlIdp {
   GURL refresh_url_;
   std::string cookie_value_;
   std::string saml_response_{"fake_response"};
+
+  bool require_http_basic_auth_ = false;
 
   base::Optional<std::string> challenge_response_;
 
@@ -344,32 +370,65 @@ void FakeSamlIdp::SetCookieValue(const std::string& cookie_value) {
   cookie_value_ = cookie_value;
 }
 
+void FakeSamlIdp::SetRequireHttpBasicAuth(bool require_http_basic_auth) {
+  require_http_basic_auth_ = require_http_basic_auth;
+}
+
 std::unique_ptr<net::test_server::HttpResponse> FakeSamlIdp::HandleRequest(
     const net::test_server::HttpRequest& request) {
   // The scheme and host of the URL is actually not important but required to
   // get a valid GURL in order to parse |request.relative_url|.
   GURL request_url = GURL("http://localhost").Resolve(request.relative_url);
+  const RequestType request_type = ParseRequestTypeFromRequestPath(request_url);
+
+  if (request_type == RequestType::kUnknown) {
+    // Ignore this request. Note that another handler may still care.
+    LOG(INFO) << "Request is ignored by FakeSamlIdp: " << request.GetURL();
+    return std::unique_ptr<HttpResponse>();
+  }
+
+  // For HTTP Basic Auth, we don't care to check the credentials, just
+  // if some credentials were provided. If not, respond with an authentication
+  // request that should make the browser pop up a credentials entry UI.
+  if (require_http_basic_auth_ &&
+      !base::Contains(request.headers, kAuthorizationRequestHeader)) {
+    auto http_response =
+        std::make_unique<net::test_server::BasicHttpResponse>();
+    http_response->set_code(net::HTTP_UNAUTHORIZED);
+    http_response->AddCustomHeader(kAuthenticateResponseHeader,
+                                   "Basic realm=\"test realm\"");
+    return http_response;
+  }
+
+  switch (request_type) {
+    case RequestType::kLogin:
+      return BuildResponseForLogin(request, request_url);
+    case RequestType::kLoginAuth:
+      return BuildResponseForLoginAuth(request, request_url);
+    case RequestType::kLoginWithDeviceAttestation:
+      return BuildResponseForLoginWithDeviceAttestation(request, request_url);
+    case RequestType::kLoginCheckDeviceAnswer:
+      return BuildResponseForCheckDeviceAnswer(request, request_url);
+    case RequestType::kUnknown:
+      NOTREACHED();
+      return std::unique_ptr<HttpResponse>();
+  }
+}
+
+FakeSamlIdp::RequestType FakeSamlIdp::ParseRequestTypeFromRequestPath(
+    const GURL& request_url) const {
   std::string request_path = request_url.path();
 
-  if (request_path == login_url_.path()) {
-    return BuildResponseForLogin(request, request_url);
-  }
+  if (request_path == login_url_.path())
+    return RequestType::kLogin;
+  if (request_path == login_auth_path_)
+    return RequestType::kLoginAuth;
+  if (request_path == login_with_device_attest_url_.path())
+    return RequestType::kLoginWithDeviceAttestation;
+  if (request_path == login_check_device_answer_url_.path())
+    return RequestType::kLoginCheckDeviceAnswer;
 
-  if (request_path == login_auth_path_) {
-    return BuildResponseForLoginAuth(request, request_url);
-  }
-
-  if (request_path == login_with_device_attest_url_.path()) {
-    return BuildResponseForLoginWithDeviceAttestation(request, request_url);
-  }
-
-  if (request_path == login_check_device_answer_url_.path()) {
-    return BuildResponseForCheckDeviceAnswer(request, request_url);
-  }
-
-  // All other requests can be ignored.
-  LOG(WARNING) << "Request is ignored by FakeSamlIdp: " << request.GetURL();
-  return std::unique_ptr<HttpResponse>();
+  return RequestType::kUnknown;
 }
 
 std::unique_ptr<HttpResponse> FakeSamlIdp::BuildResponseForLogin(
@@ -660,16 +719,10 @@ class SamlTest : public OobeBaseTest {
   DISALLOW_COPY_AND_ASSIGN(SamlTest);
 };
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_SamlUI DISABLED_SamlUI
-#else
-#define MAYBE_SamlUI SamlUI
-#endif
 // Tests that signin frame should display the SAML notice and the 'back' button
 // when SAML IdP page is loaded. And the 'back' button goes back to gaia on
 // clicking.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_SamlUI) {
+IN_PROC_BROWSER_TEST_F(SamlTest, SamlUI) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
 
@@ -701,14 +754,65 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_SamlUI) {
   test::OobeJS().ExpectHiddenPath({"gaia-signin", "saml-notice-container"});
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_CredentialPassingAPI DISABLED_CredentialPassingAPI
-#else
-#define MAYBE_CredentialPassingAPI CredentialPassingAPI
-#endif
+// The SAML IdP requires HTTP Protocol-level authentication (Basic in this
+// case).
+IN_PROC_BROWSER_TEST_F(SamlTest, IdpRequiresHttpAuth) {
+  fake_saml_idp()->SetRequireHttpBasicAuth(true);
+  fake_saml_idp()->SetLoginHTMLTemplate("saml_api_login.html");
+  fake_saml_idp()->SetLoginAuthHTMLTemplate("saml_api_login_auth.html");
+
+  // This is not calling StartSamlAndWaitForIdpPageLoad because it has
+  // to wait for the auth credentials entry dialog in between. Also, only load
+  // the gaia page first so we can get a pointer to the gaia frame's
+  // WebContents.
+  WaitForGaiaPageLoad();
+
+  content::WebContents* gaia_frame_web_contents =
+      signin::GetAuthFrameWebContents(GetLoginUI()->GetWebContents(),
+                                      gaia_frame_parent_);
+  content::NavigationController* gaia_frame_navigation_controller =
+      &(gaia_frame_web_contents->GetController());
+
+  // Start observing before initiating SAML sign-in.
+  content::DOMMessageQueue message_queue;
+  LoginPromptBrowserTestObserver login_prompt_observer;
+  login_prompt_observer.Register(content::Source<content::NavigationController>(
+      gaia_frame_navigation_controller));
+  WindowedAuthNeededObserver auth_needed_waiter(
+      gaia_frame_navigation_controller);
+
+  SetupAuthFlowChangeListener();
+  LoginDisplayHost::default_host()
+      ->GetOobeUI()
+      ->GetView<GaiaScreenHandler>()
+      ->ShowSigninScreenForTest(kFirstSAMLUserEmail, "", "[]");
+
+  auth_needed_waiter.Wait();
+  ASSERT_FALSE(login_prompt_observer.handlers().empty());
+  LoginHandler* handler = *login_prompt_observer.handlers().begin();
+  // Note that the actual credentials don't matter because |fake_saml_idp()|
+  // doesn't check those (only that something has been provided).
+  handler->SetAuth(base::UTF8ToUTF16("user"), base::UTF8ToUTF16("pwd"));
+
+  // Now the SAML sign-in form should actually load.
+  std::string message;
+  do {
+    ASSERT_TRUE(message_queue.WaitForMessage(&message));
+  } while (message != "\"SamlLoaded\"");
+
+  // Fill-in the SAML IdP form and submit.
+  SigninFrameJS().TypeIntoPath("fake_user", {"Email"});
+  SigninFrameJS().TypeIntoPath("not_the_password", {"Dummy"});
+  SigninFrameJS().TypeIntoPath("actual_password", {"Password"});
+
+  SigninFrameJS().TapOn("Submit");
+
+  // Login should finish login and a session should start.
+  test::WaitForPrimaryUserSessionStart();
+}
+
 // Tests the sign-in flow when the credentials passing API is used.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_CredentialPassingAPI) {
+IN_PROC_BROWSER_TEST_F(SamlTest, CredentialPassingAPI) {
   base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_api_login.html");
   fake_saml_idp()->SetLoginAuthHTMLTemplate("saml_api_login_auth.html");
@@ -740,14 +844,41 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_CredentialPassingAPI) {
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 1, 1);
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_ScrapedSingle DISABLED_ScrapedSingle
-#else
-#define MAYBE_ScrapedSingle ScrapedSingle
-#endif
+// Tests the sign-in flow when the credentials passing API is used w/o 'confirm'
+// call. The password from the last 'add' should be used.
+IN_PROC_BROWSER_TEST_F(SamlTest, CredentialPassingAPIWithoutConfirm) {
+  base::HistogramTester histogram_tester;
+  fake_saml_idp()->SetLoginHTMLTemplate("saml_api_login.html");
+  fake_saml_idp()->SetLoginAuthHTMLTemplate(
+      "saml_api_login_auth_without_confirm.html");
+  StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
+
+  // Fill-in the SAML IdP form and submit.
+  SigninFrameJS().TypeIntoPath("fake_user", {"Email"});
+  SigninFrameJS().TypeIntoPath("last_password", {"Dummy"});
+  SigninFrameJS().TypeIntoPath("not_confirmed_password", {"Password"});
+
+  SigninFrameJS().TapOn("Submit");
+
+  // Login should finish login and a session should start.
+  test::WaitForPrimaryUserSessionStart();
+
+  // Verify that last password sent by 'add' used.
+  Key key("last_password");
+  key.Transform(Key::KEY_TYPE_SALTED_SHA256_TOP_HALF,
+                SystemSaltGetter::ConvertRawSaltToHexString(
+                    FakeCryptohomeClient::GetStubSystemSalt()));
+  EXPECT_EQ(key.GetSecret(), cryptohome_client_->salted_hashed_secret());
+
+  EXPECT_TRUE(user_manager::known_user::GetIsUsingSAMLPrincipalsAPI(
+      AccountId::FromUserEmailGaiaId(kFirstSAMLUserEmail,
+                                     kFirstSAMLUserGaiaId)));
+
+  histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 1, 1);
+}
+
 // Tests the single password scraped flow.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedSingle) {
+IN_PROC_BROWSER_TEST_F(SamlTest, ScrapedSingle) {
   base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
@@ -784,14 +915,8 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedSingle) {
                                       1, 1);
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_ScrapedDynamic DISABLED_ScrapedDynamic
-#else
-#define MAYBE_ScrapedDynamic ScrapedDynamic
-#endif
 // Tests password scraping from a dynamically created password field.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedDynamic) {
+IN_PROC_BROWSER_TEST_F(SamlTest, ScrapedDynamic) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
 
@@ -817,14 +942,8 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedDynamic) {
                                      kFirstSAMLUserGaiaId)));
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_ScrapedMultiple DISABLED_ScrapedMultiple
-#else
-#define MAYBE_ScrapedMultiple ScrapedMultiple
-#endif
 // Tests the multiple password scraped flow.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedMultiple) {
+IN_PROC_BROWSER_TEST_F(SamlTest, ScrapedMultiple) {
   base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_two_passwords.html");
 
@@ -854,14 +973,8 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedMultiple) {
                                       2, 1);
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_ScrapedNone DISABLED_ScrapedNone
-#else
-#define MAYBE_ScrapedNone ScrapedNone
-#endif
 // Tests the no password scraped flow.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedNone) {
+IN_PROC_BROWSER_TEST_F(SamlTest, ScrapedNone) {
   base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_no_passwords.html");
 
@@ -892,17 +1005,10 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_ScrapedNone) {
                                       0, 1);
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_UseAutenticatedUserEmailAddress \
-  DISABLED_UseAutenticatedUserEmailAddress
-#else
-#define MAYBE_UseAutenticatedUserEmailAddress UseAutenticatedUserEmailAddress
-#endif
 // Types |bob@corp.example.com| into the GAIA login form but then authenticates
 // as |alice@corp.example.com| via SAML. Verifies that the logged-in user is
 // correctly identified as Alice.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_UseAutenticatedUserEmailAddress) {
+IN_PROC_BROWSER_TEST_F(SamlTest, UseAutenticatedUserEmailAddress) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   // Type |bob@corp.example.com| into the GAIA login form.
   StartSamlAndWaitForIdpPageLoad(kSecondSAMLUserEmail);
@@ -922,18 +1028,9 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_UseAutenticatedUserEmailAddress) {
   EXPECT_EQ(kFirstSAMLUserEmail, user->GetAccountId().GetUserEmail());
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_FailToRetrieveAutenticatedUserEmailAddress \
-  DISABLED_FailToRetrieveAutenticatedUserEmailAddress
-#else
-#define MAYBE_FailToRetrieveAutenticatedUserEmailAddress \
-  FailToRetrieveAutenticatedUserEmailAddress
-#endif
 // Verifies that if the authenticated user's e-mail address cannot be retrieved,
 // an error message is shown.
-IN_PROC_BROWSER_TEST_F(SamlTest,
-                       MAYBE_FailToRetrieveAutenticatedUserEmailAddress) {
+IN_PROC_BROWSER_TEST_F(SamlTest, FailToRetrieveAutenticatedUserEmailAddress) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
 
@@ -947,15 +1044,9 @@ IN_PROC_BROWSER_TEST_F(SamlTest,
             WaitForAndGetFatalErrorMessage());
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_PasswordConfirmFlow DISABLED_PasswordConfirmFlow
-#else
-#define MAYBE_PasswordConfirmFlow PasswordConfirmFlow
-#endif
 // Tests the password confirm flow when more than one password is scraped: show
 // error on the first failure and fatal error on the second failure.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_PasswordConfirmFlow) {
+IN_PROC_BROWSER_TEST_F(SamlTest, PasswordConfirmFlow) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_two_passwords.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
 
@@ -986,16 +1077,10 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_PasswordConfirmFlow) {
       WaitForAndGetFatalErrorMessage());
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_NoticeUpdatedOnRedirect DISABLED_NoticeUpdatedOnRedirect
-#else
-#define MAYBE_NoticeUpdatedOnRedirect NoticeUpdatedOnRedirect
-#endif
 // Verifies that when the login flow redirects from one host to another, the
 // notice shown to the user is updated. This guards against regressions of
 // http://crbug.com/447818.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_NoticeUpdatedOnRedirect) {
+IN_PROC_BROWSER_TEST_F(SamlTest, NoticeUpdatedOnRedirect) {
   // Start another https server at |kAdditionalIdPHost|.
   HTTPSForwarder saml_https_forwarder_2;
   ASSERT_TRUE(saml_https_forwarder_2.Initialize(
@@ -1042,15 +1127,9 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_NoticeUpdatedOnRedirect) {
   test::OobeJS().ExpectVisiblePath({"gaia-signin", "saml-notice-container"});
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_HTTPRedirectDisallowed DISABLED_HTTPRedirectDisallowed
-#else
-#define MAYBE_HTTPRedirectDisallowed HTTPRedirectDisallowed
-#endif
 // Verifies that when GAIA attempts to redirect to a SAML IdP served over http,
 // not https, the redirect is blocked and an error message is shown.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_HTTPRedirectDisallowed) {
+IN_PROC_BROWSER_TEST_F(SamlTest, HTTPRedirectDisallowed) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
 
   WaitForSigninScreen();
@@ -1065,16 +1144,10 @@ IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_HTTPRedirectDisallowed) {
             WaitForAndGetFatalErrorMessage());
 }
 
-// Flakily times out in debug builds. crbug.com/1021594
-#if !defined(NDEBUG)
-#define MAYBE_MetaRefreshToHTTPDisallowed DISABLED_MetaRefreshToHTTPDisallowed
-#else
-#define MAYBE_MetaRefreshToHTTPDisallowed MetaRefreshToHTTPDisallowed
-#endif
 // Verifies that when GAIA attempts to redirect to a page served over http, not
 // https, via an HTML meta refresh, the redirect is blocked and an error message
 // is shown. This guards against regressions of http://crbug.com/359515.
-IN_PROC_BROWSER_TEST_F(SamlTest, MAYBE_MetaRefreshToHTTPDisallowed) {
+IN_PROC_BROWSER_TEST_F(SamlTest, MetaRefreshToHTTPDisallowed) {
   const GURL url = embedded_test_server()->base_url().Resolve("/SSO");
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_instant_meta_refresh.html");
   fake_saml_idp()->SetRefreshURL(url);
@@ -1136,13 +1209,7 @@ void SAMLEnrollmentTest::StartSamlAndWaitForIdpPageLoad(
   OobeBaseTest::WaitForGaiaPageEvent("authFlowChange");
 }
 
-// Flakily times out in debug builds. crbug.com/1030393
-#if !defined(NDEBUG)
-#define MAYBE_WithoutCredentialsPassingAPI DISABLED_WithoutCredentialsPassingAPI
-#else
-#define MAYBE_WithoutCredentialsPassingAPI WithoutCredentialsPassingAPI
-#endif
-IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, MAYBE_WithoutCredentialsPassingAPI) {
+IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, WithoutCredentialsPassingAPI) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
 
@@ -1154,13 +1221,7 @@ IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, MAYBE_WithoutCredentialsPassingAPI) {
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepDeviceAttributes);
 }
 
-// Flakily times out in debug builds. crbug.com/1030810
-#if !defined(NDEBUG)
-#define MAYBE_WithCredentialsPassingAPI DISABLED_WithCredentialsPassingAPI
-#else
-#define MAYBE_WithCredentialsPassingAPI WithCredentialsPassingAPI
-#endif
-IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, MAYBE_WithCredentialsPassingAPI) {
+IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, WithCredentialsPassingAPI) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_api_login.html");
   fake_saml_idp()->SetLoginAuthHTMLTemplate("saml_api_login_auth.html");
   StartSamlAndWaitForIdpPageLoad(kFirstSAMLUserEmail);
@@ -1596,8 +1657,8 @@ IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SAMLInterstitialChangeAccount) {
   test::OobeJS()
       .CreateVisibilityWaiter(false, {"gaia-signin", "gaia-loading"})
       ->Wait();
-  test::OobeJS().ExpectHasClass("non-transparent",
-                                {"gaia-signin", "signin-frame-container"});
+  test::OobeJS().ExpectHasNoAttribute(
+      "transparent", {"gaia-signin", "signin-frame-container"});
   test::OobeJS().ExpectHiddenPath({"gaia-signin", "offline-gaia"});
   test::OobeJS().ExpectHiddenPath({"gaia-signin", "saml-interstitial"});
 }
@@ -1773,8 +1834,8 @@ INSTANTIATE_TEST_SUITE_P(SAMLPasswordAttributesSuite,
                          testing::Bool());
 
 void FakeGetCertificateCallbackTrue(
-    const attestation::AttestationFlow::CertificateCallback& callback) {
-  callback.Run(attestation::ATTESTATION_SUCCESS, "certificate");
+    attestation::AttestationFlow::CertificateCallback callback) {
+  std::move(callback).Run(attestation::ATTESTATION_SUCCESS, "certificate");
 }
 
 void FakeEnterpriseChallenge(

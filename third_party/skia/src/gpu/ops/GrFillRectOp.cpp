@@ -280,10 +280,16 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags(),
+                                                                 fHelper.stencilSettings());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         TRACE_EVENT0("skia.gpu", TRACE_FUNC);
         const auto* that = t->cast<FillRectOp>();
 

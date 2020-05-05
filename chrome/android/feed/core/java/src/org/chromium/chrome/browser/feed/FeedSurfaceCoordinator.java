@@ -9,12 +9,12 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.ScrollView;
 
 import androidx.annotation.Nullable;
@@ -35,20 +35,18 @@ import org.chromium.chrome.browser.feed.library.api.host.stream.SnackbarCallback
 import org.chromium.chrome.browser.feed.library.api.host.stream.StreamConfiguration;
 import org.chromium.chrome.browser.feed.library.api.host.stream.TooltipApi;
 import org.chromium.chrome.browser.feed.tooltip.BasicTooltipApi;
-import org.chromium.chrome.browser.gesturenav.HistoryNavigationDelegate;
-import org.chromium.chrome.browser.gesturenav.HistoryNavigationLayout;
 import org.chromium.chrome.browser.native_page.ContextMenuManager;
 import org.chromium.chrome.browser.ntp.NewTabPageLayout;
 import org.chromium.chrome.browser.ntp.SnapScrollHelper;
 import org.chromium.chrome.browser.ntp.snippets.SectionHeaderView;
 import org.chromium.chrome.browser.signin.PersonalizedSigninPromoView;
-import org.chromium.chrome.browser.snackbar.Snackbar;
-import org.chromium.chrome.browser.snackbar.SnackbarManager;
-import org.chromium.chrome.browser.ui.widget.displaystyle.UiConfig;
-import org.chromium.chrome.browser.ui.widget.displaystyle.ViewResizer;
-import org.chromium.chrome.browser.util.ViewUtils;
+import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
+import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.feed.R;
+import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
+import org.chromium.components.browser_ui.widget.displaystyle.ViewResizer;
 import org.chromium.ui.UiUtils;
+import org.chromium.ui.base.ViewUtils;
 
 import java.util.Arrays;
 
@@ -67,7 +65,7 @@ public class FeedSurfaceCoordinator {
     private final FeedSurfaceMediator mMediator;
 
     private UiConfig mUiConfig;
-    private HistoryNavigationLayout mRootView;
+    private FrameLayout mRootView;
     private ContextMenuManager mContextMenuManager;
 
     // Used when Feed is enabled.
@@ -223,7 +221,7 @@ public class FeedSurfaceCoordinator {
     /**
      * Provides the additional capabilities needed for the container view.
      */
-    private class RootView extends HistoryNavigationLayout {
+    private class RootView extends FrameLayout {
         /**
          * @param context The context of the application.
          */
@@ -265,7 +263,6 @@ public class FeedSurfaceCoordinator {
      * Constructs a new FeedSurfaceCoordinator.
      *
      * @param activity The containing {@link ChromeActivity}.
-     * @param historyNavigationDelegate The {@link HistoryNavigationDelegate} for the root view.
      * @param snapScrollHelper The {@link SnapScrollHelper} for the New Tab Page.
      * @param ntpHeader The extra header on top of the feeds for the New Tab Page.
      * @param sectionHeaderView The {@link SectionHeaderView} for the feed.
@@ -274,7 +271,6 @@ public class FeedSurfaceCoordinator {
      * @param delegate The constructing {@link FeedSurfaceDelegate}.
      */
     public FeedSurfaceCoordinator(ChromeActivity activity,
-            @Nullable HistoryNavigationDelegate historyNavigationDelegate,
             @Nullable SnapScrollHelper snapScrollHelper, @Nullable View ntpHeader,
             @Nullable SectionHeaderView sectionHeaderView, ActionApi actionApi,
             boolean showDarkBackground, FeedSurfaceDelegate delegate) {
@@ -292,9 +288,6 @@ public class FeedSurfaceCoordinator {
 
         mRootView = new RootView(mActivity);
         mRootView.setPadding(0, resources.getDimensionPixelOffset(R.dimen.tab_strip_height), 0, 0);
-        if (historyNavigationDelegate != null) {
-            mRootView.setNavigationDelegate(historyNavigationDelegate);
-        }
         mUiConfig = new UiConfig(mRootView);
 
         // Mediator should be created before any Stream changes.
@@ -442,7 +435,8 @@ public class FeedSurfaceCoordinator {
         }
 
         mScrollViewForPolicy = new PolicyScrollView(mActivity);
-        mScrollViewForPolicy.setBackgroundColor(Color.WHITE);
+        mScrollViewForPolicy.setBackgroundColor(ApiCompatibilityUtils.getColor(
+                mActivity.getResources(), R.color.modern_primary_color));
         mScrollViewForPolicy.setVerticalScrollBarEnabled(false);
 
         // Make scroll view focusable so that it is the next focusable view when the url bar clears

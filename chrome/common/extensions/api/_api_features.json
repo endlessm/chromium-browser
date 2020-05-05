@@ -107,9 +107,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
-      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -321,10 +318,7 @@
   }, {
     "channel": "stable",
     "contexts": ["webui"],
-    "matches": [
-      "chrome://extensions/*",
-      "chrome://extensions-frame/*"  // TODO(dbeam): still needed?
-    ]
+    "matches": ["chrome://extensions/*"]
   }],
   // All devtools APIs are implemented by hand, so don't compile them.
   "devtools.inspectedWindow": {
@@ -438,16 +432,12 @@
   "extension.sendRequest": {
     "contexts": ["blessed_extension", "unblessed_extension", "content_script"]
   },
-  "extensionOptionsInternal": [{
-    "internal": true,
-    "contexts": ["blessed_extension"],
-    "dependencies": ["permission:embeddedExtensionOptions"]
-  }, {
+  "extensionOptionsInternal": {
     "internal": true,
     "channel": "stable",
     "contexts": ["webui"],
-    "matches": ["chrome://extensions-frame/*", "chrome://extensions/*"]
-  }],
+    "matches": ["chrome://extensions/*"]
+  },
   // This is not a real API, only here for documentation purposes.
   // See http://crbug.com/275944 for background.
   "extensionsManifestTypes": {
@@ -500,7 +490,8 @@
   },
   "i18n": {
     "channel": "stable",
-    "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
+    "extension_types": ["extension", "legacy_packaged_app", "platform_app",
+                        "login_screen_extension"],
     "contexts": ["blessed_extension", "unblessed_extension", "content_script",
                  "lock_screen_extension"],
     "disallow_for_service_workers": true
@@ -635,9 +626,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
-      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -691,8 +679,6 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://multidevice-setup/*",
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
       "chrome://os-settings/*",
       "chrome://settings/*",
       "chrome://oobe/*"
@@ -728,8 +714,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
       "chrome://os-settings/*",
       "chrome://settings/*"
     ]
@@ -796,10 +780,7 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
-      "chrome://os-settings/*",
-      "chrome://settings/*"
+      "chrome://os-settings/*"
     ]
   }],
   "virtualKeyboardPrivate": {

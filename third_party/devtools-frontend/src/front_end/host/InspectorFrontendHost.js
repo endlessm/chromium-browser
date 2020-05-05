@@ -27,11 +27,17 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import * as Common from '../common/common.js';
+
+import {EventDescriptors, Events} from './InspectorFrontendHostAPI.js';
+import {streamWrite as resourceLoaderStreamWrite} from './ResourceLoader.js';
+
 /**
  * @implements {InspectorFrontendHostAPI}
  * @unrestricted
  */
-class InspectorFrontendHostStub {
+export class InspectorFrontendHostStub {
   /**
    * @suppressGlobalPropertiesCheck
    */
@@ -54,7 +60,7 @@ class InspectorFrontendHostStub {
     this._urlsBeingSaved = new Map();
 
     /**
-     * @type {!Common.EventTarget}
+     * @type {!Common.EventTarget.EventTarget}
      */
     this.events;
   }
@@ -132,7 +138,7 @@ class InspectorFrontendHostStub {
    * @suppressGlobalPropertiesCheck
    */
   inspectedURLChanged(url) {
-    document.title = Common.UIString('DevTools - %s', url.replace(/^https?:\/\//, ''));
+    document.title = Common.UIString.UIString('DevTools - %s', url.replace(/^https?:\/\//, ''));
   }
 
   /**
@@ -154,7 +160,7 @@ class InspectorFrontendHostStub {
       document.execCommand('copy');
       document.body.removeChild(input);
     } else {
-      Common.console.error('Clipboard is not enabled in hosted mode. Please inspect using chrome://inspect');
+      self.Common.console.error('Clipboard is not enabled in hosted mode. Please inspect using chrome://inspect');
     }
   }
 
@@ -171,7 +177,8 @@ class InspectorFrontendHostStub {
    * @param {string} fileSystemPath
    */
   showItemInFolder(fileSystemPath) {
-    Common.console.error('Show item in folder is not enabled in hosted mode. Please inspect using chrome://inspect');
+    self.Common.console.error(
+        'Show item in folder is not enabled in hosted mode. Please inspect using chrome://inspect');
   }
 
   /**
@@ -187,7 +194,7 @@ class InspectorFrontendHostStub {
       this._urlsBeingSaved.set(url, buffer);
     }
     buffer.push(content);
-    this.events.dispatchEventToListeners(Host.InspectorFrontendHostAPI.Events.SavedURL, {url, fileSystemPath: url});
+    this.events.dispatchEventToListeners(Events.SavedURL, {url, fileSystemPath: url});
   }
 
   /**
@@ -198,7 +205,7 @@ class InspectorFrontendHostStub {
   append(url, content) {
     const buffer = this._urlsBeingSaved.get(url);
     buffer.push(content);
-    this.events.dispatchEventToListeners(Host.InspectorFrontendHostAPI.Events.AppendedToURL, url);
+    this.events.dispatchEventToListeners(Events.AppendedToURL, url);
   }
 
   /**
@@ -251,7 +258,7 @@ class InspectorFrontendHostStub {
    * @override
    */
   requestFileSystems() {
-    this.events.dispatchEventToListeners(Host.InspectorFrontendHostAPI.Events.FileSystemsLoaded, []);
+    this.events.dispatchEventToListeners(Events.FileSystemsLoaded, []);
   }
 
   /**
@@ -288,7 +295,7 @@ class InspectorFrontendHostStub {
   loadNetworkResource(url, headers, streamId, callback) {
     Root.Runtime.loadResourcePromise(url)
         .then(function(text) {
-          Host.ResourceLoader.streamWrite(streamId, text);
+          resourceLoaderStreamWrite(streamId, text);
           callback({statusCode: 200});
         })
         .catch(function() {
@@ -504,17 +511,17 @@ class InspectorFrontendHostStub {
 /**
  * @type {!InspectorFrontendHostStub}
  */
-let _InspectorFrontendHost = window.InspectorFrontendHost;
+export let InspectorFrontendHostInstance = window.InspectorFrontendHost;
 
 /**
  * @unrestricted
  */
 class InspectorFrontendAPIImpl {
   constructor() {
-    this._debugFrontend =
-        !!Root.Runtime.queryParam('debugFrontend') || (window['InspectorTest'] && window['InspectorTest']['debugTest']);
+    this._debugFrontend = (self.Root && Root.Runtime && !!Root.Runtime.queryParam('debugFrontend')) ||
+        (window['InspectorTest'] && window['InspectorTest']['debugTest']);
 
-    const descriptors = Host.InspectorFrontendHostAPI.EventDescriptors;
+    const descriptors = EventDescriptors;
     for (let i = 0; i < descriptors.length; ++i) {
       this[descriptors[i][1]] = this._dispatch.bind(this, descriptors[i][0], descriptors[i][2], descriptors[i][3]);
     }
@@ -538,7 +545,7 @@ class InspectorFrontendAPIImpl {
       // Single argument methods get dispatched with the param.
       if (signature.length < 2) {
         try {
-          _InspectorFrontendHost.events.dispatchEventToListeners(name, params[0]);
+          InspectorFrontendHostInstance.events.dispatchEventToListeners(name, params[0]);
         } catch (e) {
           console.error(e + ' ' + e.stack);
         }
@@ -549,7 +556,7 @@ class InspectorFrontendAPIImpl {
         data[signature[i]] = params[i];
       }
       try {
-        _InspectorFrontendHost.events.dispatchEventToListeners(name, data);
+        InspectorFrontendHostInstance.events.dispatchEventToListeners(name, data);
       } catch (e) {
         console.error(e + ' ' + e.stack);
       }
@@ -561,7 +568,7 @@ class InspectorFrontendAPIImpl {
    * @param {string} chunk
    */
   streamWrite(id, chunk) {
-    Host.ResourceLoader.streamWrite(id, chunk);
+    resourceLoaderStreamWrite(id, chunk);
   }
 }
 
@@ -569,26 +576,26 @@ class InspectorFrontendAPIImpl {
 
   function initializeInspectorFrontendHost() {
     let proto;
-    if (!_InspectorFrontendHost) {
+    if (!InspectorFrontendHostInstance) {
       // Instantiate stub for web-hosted mode if necessary.
-      window.InspectorFrontendHost = _InspectorFrontendHost = new InspectorFrontendHostStub();
+      window.InspectorFrontendHost = InspectorFrontendHostInstance = new InspectorFrontendHostStub();
     } else {
       // Otherwise add stubs for missing methods that are declared in the interface.
       proto = InspectorFrontendHostStub.prototype;
       for (const name of Object.getOwnPropertyNames(proto)) {
         const stub = proto[name];
-        if (typeof stub !== 'function' || _InspectorFrontendHost[name]) {
+        if (typeof stub !== 'function' || InspectorFrontendHostInstance[name]) {
           continue;
         }
 
         console.error(
             'Incompatible embedder: method Host.InspectorFrontendHost.' + name + ' is missing. Using stub instead.');
-        _InspectorFrontendHost[name] = stub;
+        InspectorFrontendHostInstance[name] = stub;
       }
     }
 
     // Attach the events object.
-    _InspectorFrontendHost.events = new Common.Object();
+    InspectorFrontendHostInstance.events = new Common.ObjectWrapper.ObjectWrapper();
   }
 
   // FIXME: This file is included into both apps, since the devtools_app needs the InspectorFrontendHostAPI only,
@@ -610,16 +617,5 @@ export function isUnderTest(prefs) {
   if (prefs) {
     return prefs['isUnderTest'] === 'true';
   }
-  return Common.settings && Common.settings.createSetting('isUnderTest', false).get();
+  return self.Common.settings && self.Common.settings.createSetting('isUnderTest', false).get();
 }
-
-/* Legacy exported object */
-self.Host = self.Host || {};
-
-/* Legacy exported object */
-Host = Host || {};
-
-/** @type {!InspectorFrontendHostStub} */
-Host.InspectorFrontendHost = _InspectorFrontendHost;
-
-Host.isUnderTest = isUnderTest;

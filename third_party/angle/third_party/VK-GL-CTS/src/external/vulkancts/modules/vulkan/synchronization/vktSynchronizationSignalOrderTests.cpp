@@ -260,32 +260,41 @@ MovePtr<Allocation> allocateAndBindMemory (const DeviceInterface&				vkd,
 }
 
 
-MovePtr<Allocation> importAndBindMemory (const DeviceInterface&				vkd,
-										 VkDevice							device,
-										 VkBuffer							buffer,
-										 NativeHandle&						nativeHandle,
-										 VkExternalMemoryHandleTypeFlagBits	externalType,
-										 const deUint32						exportedMemoryTypeIndex)
+MovePtr<Allocation> importAndBindMemory (const DeviceInterface&					vkd,
+										 VkDevice								device,
+										 VkBuffer								buffer,
+										 NativeHandle&							nativeHandle,
+										 VkExternalMemoryHandleTypeFlagBits		externalType,
+										 const deUint32							exportedMemoryTypeIndex)
 {
 	const VkMemoryRequirements	requirements			= getBufferMemoryRequirements(vkd, device, buffer);
-	Move<VkDeviceMemory>		memory					= importMemory(vkd, device, requirements, externalType, exportedMemoryTypeIndex, nativeHandle);
+	Move<VkDeviceMemory>		memory;
 
-	NativeHandle				nativeMemoryHandle;
+	if (!!buffer)
+		memory = importDedicatedMemory(vkd, device, buffer, requirements, externalType, exportedMemoryTypeIndex, nativeHandle);
+	else
+		memory = importMemory(vkd, device, requirements, externalType, exportedMemoryTypeIndex, nativeHandle);
 
 	VK_CHECK(vkd.bindBufferMemory(device, buffer, *memory, 0u));
 
 	return MovePtr<Allocation>(new SimpleAllocation(vkd, device, memory.disown()));
 }
 
-MovePtr<Allocation> importAndBindMemory (const DeviceInterface&				vkd,
-										 VkDevice							device,
-										 VkImage							image,
-										 NativeHandle&						nativeHandle,
-										 VkExternalMemoryHandleTypeFlagBits	externalType,
-										 deUint32							exportedMemoryTypeIndex)
+MovePtr<Allocation> importAndBindMemory (const DeviceInterface&					vkd,
+										 VkDevice								device,
+										 VkImage								image,
+										 NativeHandle&							nativeHandle,
+										 VkExternalMemoryHandleTypeFlagBits		externalType,
+										 deUint32								exportedMemoryTypeIndex)
 {
 	const VkMemoryRequirements	requirements	= getImageMemoryRequirements(vkd, device, image);
-	Move<VkDeviceMemory>		memory			=  importMemory(vkd, device, requirements, externalType, exportedMemoryTypeIndex, nativeHandle);
+	Move<VkDeviceMemory>		memory;
+
+	if (!!image)
+		memory = importDedicatedMemory(vkd, device, image, requirements, externalType, exportedMemoryTypeIndex, nativeHandle);
+	else
+		memory = importMemory(vkd, device, requirements, externalType, exportedMemoryTypeIndex, nativeHandle);
+
 	VK_CHECK(vkd.bindImageMemory(device, image, *memory, 0u));
 
 	return MovePtr<Allocation>(new SimpleAllocation(vkd, device, memory.disown()));
@@ -495,8 +504,13 @@ de::MovePtr<Resource> importResource (const DeviceInterface&				vkd,
 			1u,
 			&queueFamilyIndex
 		};
-		Move<VkBuffer>							buffer			= createBuffer(vkd, device, &createInfo);
-		MovePtr<Allocation>						allocation		= importAndBindMemory(vkd, device, *buffer, nativeHandle, externalType, exportedMemoryTypeIndex);
+		Move<VkBuffer>							buffer		= createBuffer(vkd, device, &createInfo);
+		MovePtr<Allocation>						allocation	= importAndBindMemory(vkd,
+																				  device,
+																				  *buffer,
+																				  nativeHandle,
+																				  externalType,
+																				  exportedMemoryTypeIndex);
 
 		return MovePtr<Resource>(new Resource(resourceDesc.type, buffer, allocation, offset, size));
 	}
@@ -730,7 +744,10 @@ public:
 			addSemaphore(vkB, *deviceB, semaphoresB, semaphoreHandlesB, timelineValuesB, false, timelineValuesA.back());
 		}
 
-		// Submit writes, each in its own VkSubmitInfo.
+		// Submit writes, each in its own VkSubmitInfo. With binary
+		// semaphores, submission don't wait on anything, with
+		// timeline semaphores, submissions wait on a host signal
+		// operation done below.
 		{
 			std::vector<VkTimelineSemaphoreSubmitInfoKHR>	timelineSubmitInfos;
 			std::vector<VkSubmitInfo>						submitInfos;
@@ -745,7 +762,8 @@ public:
 				{
 					VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR,	// VkStructureType	sType;
 					DE_NULL,												// const void*		pNext;
-					iterIdx == 0 ? 1u: 0,									// deUint32			waitSemaphoreValueCount
+					m_semaphoreType == VK_SEMAPHORE_TYPE_TIMELINE_KHR ?
+					1u: 0,													// deUint32			waitSemaphoreValueCount
 					&waitValue,												// const deUint64*	pWaitSemaphoreValues
 					1u,														// deUint32			signalSemaphoreValueCount
 					&timelineValuesA[iterIdx],								// const deUint64*	pSignalSemaphoreValues
@@ -1360,7 +1378,10 @@ public:
 
 		addSemaphore(vk, device, semaphoresB, semaphoreHandlesB, timelineValuesB, timelineValuesA.back());
 
-		// Submit writes, each in its own VkSubmitInfo.
+		// Submit writes, each in its own VkSubmitInfo. With binary
+		// semaphores, submission don't wait on anything, with
+		// timeline semaphores, submissions wait on a host signal
+		// operation done below.
 		{
 			std::vector<VkTimelineSemaphoreSubmitInfoKHR>	timelineSubmitInfos;
 			std::vector<VkSubmitInfo>						submitInfos;
@@ -1375,7 +1396,8 @@ public:
 				{
 					VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR,	// VkStructureType	sType;
 					DE_NULL,												// const void*		pNext;
-					iterIdx == 0 ? 1u: 0,									// deUint32			waitSemaphoreValueCount
+					m_semaphoreType == VK_SEMAPHORE_TYPE_TIMELINE_KHR ?
+					1u : 0u,												// deUint32			waitSemaphoreValueCount
 					&waitValue,												// const deUint64*	pWaitSemaphoreValues
 					1u,														// deUint32			signalSemaphoreValueCount
 					&timelineValuesA[iterIdx],								// const deUint64*	pSignalSemaphoreValues

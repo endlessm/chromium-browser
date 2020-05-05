@@ -1,10 +1,11 @@
 // Copyright (c) 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 /**
  * @implements {SDK.SDKModelObserver<!SDK.ServiceWorkerManager>}
  */
-Resources.ServiceWorkersView = class extends UI.VBox {
+export class ServiceWorkersView extends UI.VBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('resources/serviceWorkersView.css');
@@ -18,7 +19,7 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     this._toolbar = this._currentWorkersView.createToolbar();
     this._toolbar.makeWrappable(true /* growVertically */);
 
-    /** @type {!Map<!SDK.ServiceWorkerRegistration, !Resources.ServiceWorkersView.Section>} */
+    /** @type {!Map<!SDK.ServiceWorkerRegistration, !Section>} */
     this._sections = new Map();
     /** @type {symbol} */
     this._registrationSymbol = Symbol('Resources.ServiceWorkersView');
@@ -56,12 +57,12 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     this._updateCollapsedStyle();
 
     this._toolbar.appendToolbarItem(MobileThrottling.throttlingManager().createOfflineToolbarCheckbox());
-    const updateOnReloadSetting = Common.settings.createSetting('serviceWorkerUpdateOnReload', false);
+    const updateOnReloadSetting = self.Common.settings.createSetting('serviceWorkerUpdateOnReload', false);
     updateOnReloadSetting.setTitle(Common.UIString('Update on reload'));
     const forceUpdate = new UI.ToolbarSettingCheckbox(
         updateOnReloadSetting, ls`On page reload, force the service worker to update, and activate it`);
     this._toolbar.appendToolbarItem(forceUpdate);
-    const bypassServiceWorkerSetting = Common.settings.createSetting('bypassServiceWorker', false);
+    const bypassServiceWorkerSetting = self.Common.settings.createSetting('bypassServiceWorker', false);
     bypassServiceWorkerSetting.setTitle(Common.UIString('Bypass for network'));
     const fallbackToNetwork = new UI.ToolbarSettingCheckbox(
         bypassServiceWorkerSetting, ls`Bypass the service worker and load resources from the network`);
@@ -69,7 +70,7 @@ Resources.ServiceWorkersView = class extends UI.VBox {
 
     /** @type {!Map<!SDK.ServiceWorkerManager, !Array<!Common.EventTarget.EventDescriptor>>}*/
     this._eventListeners = new Map();
-    SDK.targetManager.observeModels(SDK.ServiceWorkerManager, this);
+    self.SDK.targetManager.observeModels(SDK.ServiceWorkerManager, this);
     this._updateListVisibility();
   }
 
@@ -245,7 +246,7 @@ Resources.ServiceWorkersView = class extends UI.VBox {
       const uiSection = this._getReportViewForOrigin(registration.securityOrigin).appendSection(title);
       uiSection.setUiGroupTitle(ls`Service worker for ${title}`);
       uiSection[this._registrationSymbol] = registration;
-      section = new Resources.ServiceWorkersView.Section(
+      section = new Section(
           /** @type {!SDK.ServiceWorkerManager} */ (this._manager), uiSection, registration);
       this._sections.set(registration, section);
     }
@@ -315,9 +316,9 @@ Resources.ServiceWorkersView = class extends UI.VBox {
     this._otherSWFilter.setAttribute('aria-checked', !expanded);
     this._filterChanged();
   }
-};
+}
 
-Resources.ServiceWorkersView.Section = class {
+export class Section {
   /**
    * @param {!SDK.ServiceWorkerManager} manager
    * @param {!UI.ReportView.Section} section
@@ -330,10 +331,10 @@ Resources.ServiceWorkersView.Section = class {
     /** @type {?symbol} */
     this._fingerprint = null;
     this._pushNotificationDataSetting =
-        Common.settings.createLocalSetting('pushData', Common.UIString('Test push message from DevTools.'));
-    this._syncTagNameSetting = Common.settings.createLocalSetting('syncTagName', 'test-tag-from-devtools');
+        self.Common.settings.createLocalSetting('pushData', Common.UIString('Test push message from DevTools.'));
+    this._syncTagNameSetting = self.Common.settings.createLocalSetting('syncTagName', 'test-tag-from-devtools');
     this._periodicSyncTagNameSetting =
-        Common.settings.createLocalSetting('periodicSyncTagName', 'test-tag-from-devtools');
+        self.Common.settings.createLocalSetting('periodicSyncTagName', 'test-tag-from-devtools');
 
     this._toolbar = section.createToolbar();
     this._toolbar.renderAsLinks();
@@ -354,11 +355,9 @@ Resources.ServiceWorkersView.Section = class {
         this._push.bind(this));
     this._createSyncNotificationField(
         Common.UIString('Sync'), this._syncTagNameSetting.get(), Common.UIString('Sync tag'), this._sync.bind(this));
-    if (Root.Runtime.experiments.isEnabled('backgroundServicesPeriodicBackgroundSync')) {
-      this._createSyncNotificationField(
-          ls`Periodic Sync`, this._periodicSyncTagNameSetting.get(), ls`Periodic Sync tag`,
-          tag => this._periodicSync(tag));
-    }
+    this._createSyncNotificationField(
+        ls`Periodic Sync`, this._periodicSyncTagNameSetting.get(), ls`Periodic Sync tag`,
+        tag => this._periodicSync(tag));
 
     this._linkifier = new Components.Linkifier();
     /** @type {!Map<string, !Protocol.Target.TargetInfo>} */
@@ -391,7 +390,7 @@ Resources.ServiceWorkersView.Section = class {
   }
 
   _scheduleUpdate() {
-    if (Resources.ServiceWorkersView._noThrottle) {
+    if (ServiceWorkersView._noThrottle) {
       this._update();
       return;
     }
@@ -407,7 +406,7 @@ Resources.ServiceWorkersView.Section = class {
     if (!version || !version.targetId) {
       return null;
     }
-    return SDK.targetManager.targetById(version.targetId);
+    return self.SDK.targetManager.targetById(version.targetId);
   }
 
   /**
@@ -454,7 +453,7 @@ Resources.ServiceWorkersView.Section = class {
       errorsLabel.classList.add('link');
       errorsLabel.tabIndex = 0;
       UI.ARIAUtils.setAccessibleName(errorsLabel, ls`${this._registration.errors.length} registration errors`);
-      self.onInvokeElement(errorsLabel, () => Common.console.show());
+      self.onInvokeElement(errorsLabel, () => self.Common.console.show());
       name.appendChild(errorsLabel);
     }
     this._sourceField.createChild('div', 'report-field-value-subtitle').textContent =
@@ -656,4 +655,4 @@ Resources.ServiceWorkersView.Section = class {
     shadowRoot.appendChild(contentElement);
     return contentElement;
   }
-};
+}

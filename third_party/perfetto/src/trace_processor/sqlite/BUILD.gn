@@ -19,6 +19,7 @@ if (enable_perfetto_trace_processor_sqlite) {
     sources = [
       "db_sqlite_table.cc",
       "db_sqlite_table.h",
+      "query_cache.h",
       "query_constraints.cc",
       "query_constraints.h",
       "scoped_db.h",
@@ -32,8 +33,10 @@ if (enable_perfetto_trace_processor_sqlite) {
       "../../../gn:default_deps",
       "../../../gn:sqlite",
       "../../../include/perfetto/trace_processor",
+      "../../../protos/perfetto/trace/ftrace:zero",
       "../../base",
       "../db:lib",
+      "../types",
     ]
   }
 
@@ -52,4 +55,4 @@ if (enable_perfetto_trace_processor_sqlite) {
       "../../base",
     ]
   }
-}  # if (enable_perfetto_trace_processor_sqlite)
+}

@@ -1,4 +1,4 @@
-//===-- Platform.cpp --------------------------------------------*- C++ -*-===//
+//===-- Platform.cpp ------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -406,7 +406,7 @@ void Platform::GetStatus(Stream &strm) {
   if (arch.IsValid()) {
     if (!arch.GetTriple().str().empty()) {
       strm.Printf("    Triple: ");
-      arch.DumpTriple(strm);
+      arch.DumpTriple(strm.AsRawOstream());
       strm.EOL();
     }
   }

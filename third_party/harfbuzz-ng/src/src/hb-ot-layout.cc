@@ -399,27 +399,6 @@ OT::GSUB::is_blacklisted (hb_blob_t *blob HB_UNUSED,
 #ifdef HB_NO_OT_LAYOUT_BLACKLIST
   return false;
 #endif
-
-#ifndef HB_NO_AAT_SHAPE
-  /* Mac OS X prefers morx over GSUB.  It also ships with various Indic fonts,
-   * all by 'MUTF' foundry (Tamil MN, Tamil Sangam MN, etc.), that have broken
-   * GSUB/GPOS tables.  Some have GSUB with zero scripts, those are ignored by
-   * our morx/GSUB preference code.  But if GSUB has non-zero scripts, we tend
-   * to prefer it over morx because we want to be consistent with other OpenType
-   * shapers.
-   *
-   * To work around broken Indic Mac system fonts, we ignore GSUB table if
-   * OS/2 VendorId is 'MUTF' and font has morx table as well.
-   *
-   * https://github.com/harfbuzz/harfbuzz/issues/1410
-   * https://github.com/harfbuzz/harfbuzz/issues/1348
-   * https://github.com/harfbuzz/harfbuzz/issues/1391
-   */
-  if (unlikely (face->table.OS2->achVendID == HB_TAG ('M','U','T','F') &&
-		face->table.morx->has_data ()))
-    return true;
-#endif
-
   return false;
 }
 
@@ -1212,6 +1191,72 @@ hb_ot_layout_collect_lookups (hb_face_t      *face,
   for (hb_codepoint_t feature_index = HB_SET_VALUE_INVALID;
        hb_set_next (&feature_indexes, &feature_index);)
     g.get_feature (feature_index).add_lookup_indexes_to (lookup_indexes);
+
+  g.feature_variation_collect_lookups (&feature_indexes, lookup_indexes);
+}
+
+/**
+ * hb_ot_layout_closure_lookups:
+ * @face: #hb_face_t to work upon
+ * @table_tag: HB_OT_TAG_GSUB or HB_OT_TAG_GPOS
+ * @lookup_indexes: (inout): lookup_indices collected from feature
+ * list
+ *
+ * Returns all inactive lookups reachable from lookup_indices
+ *
+ * Since: REPLACEME
+ **/
+void
+hb_ot_layout_closure_lookups (hb_face_t      *face,
+			      hb_tag_t        table_tag,
+			      const hb_set_t *glyphs,
+			      hb_set_t       *lookup_indexes /* IN/OUT */)
+{
+  hb_set_t visited_lookups, inactive_lookups;
+  OT::hb_closure_lookups_context_t c (face, glyphs, &visited_lookups, &inactive_lookups);
+
+  for (unsigned lookup_index : + hb_iter (lookup_indexes))
+  {
+    switch (table_tag)
+    {
+      case HB_OT_TAG_GSUB:
+      {
+        const OT::SubstLookup& l = face->table.GSUB->table->get_lookup (lookup_index);
+        l.closure_lookups (&c, lookup_index);
+        break;
+      }
+      case HB_OT_TAG_GPOS:
+      {
+        const OT::PosLookup& l = face->table.GPOS->table->get_lookup (lookup_index);
+        l.closure_lookups (&c, lookup_index);
+        break;
+      }
+    }
+  }
+
+  hb_set_union (lookup_indexes, &visited_lookups);
+  hb_set_subtract (lookup_indexes, &inactive_lookups);
+}
+
+/**
+ * hb_ot_layout_closure_features:
+ * @face: #hb_face_t to work upon
+ * @table_tag: HB_OT_TAG_GSUB or HB_OT_TAG_GPOS
+ * @lookup_indexes: (in): collected active lookup_indices
+ * @feature_indexes: (out): all active feature indexes collected
+ *
+ * Returns all active feature indexes
+ *
+ * Since: REPLACEME
+ **/
+void
+hb_ot_layout_closure_features (hb_face_t      *face,
+			       hb_tag_t        table_tag,
+			       const hb_map_t *lookup_indexes, /* IN */
+			       hb_set_t       *feature_indexes /* OUT */)
+{
+  const OT::GSUBGPOS &g = get_gsubgpos_table (face, table_tag);
+  g.closure_features (lookup_indexes, feature_indexes);
 }
 
 
@@ -1223,7 +1268,7 @@ hb_ot_layout_collect_lookups (hb_face_t      *face,
  * @lookup_index: The index of the feature lookup to query
  * @glyphs_before: (out): Array of glyphs preceding the substitution range
  * @glyphs_input: (out): Array of input glyphs that would be substituted by the lookup
- * @glyphs_after: (out): Array of glyphs following the substition range
+ * @glyphs_after: (out): Array of glyphs following the substitution range
  * @glyphs_output: (out): Array of glyphs that would be the substitued output of the lookup
  *
  * Fetches a list of all glyphs affected by the specified lookup in the
@@ -1957,7 +2002,7 @@ hb_ot_layout_substitute_lookup (OT::hb_ot_apply_context_t *c,
  *
  * Fetches a baseline value from the face.
  *
- * Return value: if found baseline value in the the font.
+ * Return value: if found baseline value in the font.
  *
  * Since: 2.6.0
  **/

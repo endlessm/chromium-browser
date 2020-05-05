@@ -34,6 +34,16 @@ QuicByteCount MaxAckHeightTracker::Update(QuicBandwidth bandwidth_estimate,
   if (aggregation_epoch_bytes_ <=
       GetQuicFlag(FLAGS_quic_ack_aggregation_bandwidth_threshold) *
           expected_bytes_acked) {
+    QUIC_DVLOG(3) << "Starting a new aggregation epoch because "
+                     "aggregation_epoch_bytes_ "
+                  << aggregation_epoch_bytes_
+                  << " is smaller than expected. "
+                     "quic_ack_aggregation_bandwidth_threshold:"
+                  << GetQuicFlag(FLAGS_quic_ack_aggregation_bandwidth_threshold)
+                  << ", expected_bytes_acked:" << expected_bytes_acked
+                  << ", bandwidth_estimate:" << bandwidth_estimate
+                  << ", aggregation_duration:"
+                  << (ack_time - aggregation_epoch_start_time_);
     // Reset to start measuring a new aggregation epoch.
     aggregation_epoch_bytes_ = bytes_acked;
     aggregation_epoch_start_time_ = ack_time;
@@ -46,6 +56,13 @@ QuicByteCount MaxAckHeightTracker::Update(QuicBandwidth bandwidth_estimate,
   // Compute how many extra bytes were delivered vs max bandwidth.
   QuicByteCount extra_bytes_acked =
       aggregation_epoch_bytes_ - expected_bytes_acked;
+  QUIC_DVLOG(3) << "Updating MaxAckHeight. ack_time:" << ack_time
+                << ", round trip count:" << round_trip_count
+                << ", bandwidth_estimate:" << bandwidth_estimate
+                << ", bytes_acked:" << bytes_acked
+                << ", expected_bytes_acked:" << expected_bytes_acked
+                << ", aggregation_epoch_bytes_:" << aggregation_epoch_bytes_
+                << ", extra_bytes_acked:" << extra_bytes_acked;
   max_ack_height_filter_.Update(extra_bytes_acked, round_trip_count);
   return extra_bytes_acked;
 }
@@ -64,7 +81,15 @@ BandwidthSampler::BandwidthSampler(
       max_tracked_packets_(GetQuicFlag(FLAGS_quic_max_tracked_packet_count)),
       unacked_packet_map_(unacked_packet_map),
       max_ack_height_tracker_(max_height_tracker_window_length),
-      total_bytes_acked_after_last_ack_event_(0) {}
+      total_bytes_acked_after_last_ack_event_(0) {
+  if (remove_packets_once_per_congestion_event_) {
+    QUIC_RELOADABLE_FLAG_COUNT(
+        quic_bw_sampler_remove_packets_once_per_congestion_event2);
+  }
+  if (one_bw_sample_per_ack_event_) {
+    QUIC_RELOADABLE_FLAG_COUNT(quic_one_bw_sample_per_ack_event2);
+  }
+}
 
 BandwidthSampler::~BandwidthSampler() {}
 
@@ -115,11 +140,90 @@ void BandwidthSampler::OnPacketSent(
     }
   }
 
-  bool success =
-      connection_state_map_.Emplace(packet_number, sent_time, bytes, *this);
+  bool success = connection_state_map_.Emplace(packet_number, sent_time, bytes,
+                                               bytes_in_flight + bytes, *this);
   QUIC_BUG_IF(!success) << "BandwidthSampler failed to insert the packet "
                            "into the map, most likely because it's already "
                            "in it.";
+}
+
+BandwidthSamplerInterface::CongestionEventSample
+BandwidthSampler::OnCongestionEvent(QuicTime ack_time,
+                                    const AckedPacketVector& acked_packets,
+                                    const LostPacketVector& lost_packets,
+                                    QuicBandwidth max_bandwidth,
+                                    QuicBandwidth est_bandwidth_upper_bound,
+                                    QuicRoundTripCount round_trip_count) {
+  DCHECK(one_bw_sample_per_ack_event());
+
+  CongestionEventSample event_sample;
+
+  SendTimeState last_lost_packet_send_state;
+
+  for (const LostPacket& packet : lost_packets) {
+    SendTimeState send_state =
+        OnPacketLost(packet.packet_number, packet.bytes_lost);
+    if (send_state.is_valid) {
+      last_lost_packet_send_state = send_state;
+    }
+  }
+
+  if (acked_packets.empty()) {
+    // Only populate send state for a loss-only event.
+    event_sample.last_packet_send_state = last_lost_packet_send_state;
+    return event_sample;
+  }
+
+  SendTimeState last_acked_packet_send_state;
+  for (const auto& packet : acked_packets) {
+    BandwidthSample sample =
+        OnPacketAcknowledged(ack_time, packet.packet_number);
+    if (!sample.state_at_send.is_valid) {
+      continue;
+    }
+
+    last_acked_packet_send_state = sample.state_at_send;
+
+    if (!sample.rtt.IsZero()) {
+      event_sample.sample_rtt = std::min(event_sample.sample_rtt, sample.rtt);
+    }
+    if (sample.bandwidth > event_sample.sample_max_bandwidth) {
+      event_sample.sample_max_bandwidth = sample.bandwidth;
+      event_sample.sample_is_app_limited = sample.state_at_send.is_app_limited;
+    }
+    const QuicByteCount inflight_sample =
+        total_bytes_acked() - last_acked_packet_send_state.total_bytes_acked;
+    if (inflight_sample > event_sample.sample_max_inflight) {
+      event_sample.sample_max_inflight = inflight_sample;
+    }
+  }
+
+  if (!last_lost_packet_send_state.is_valid) {
+    event_sample.last_packet_send_state = last_acked_packet_send_state;
+  } else if (!last_acked_packet_send_state.is_valid) {
+    event_sample.last_packet_send_state = last_lost_packet_send_state;
+  } else {
+    // If two packets are inflight and an alarm is armed to lose a packet and it
+    // wakes up late, then the first of two in flight packets could have been
+    // acknowledged before the wakeup, which re-evaluates loss detection, and
+    // could declare the later of the two lost. However, this is an edge case
+    // that should not happen in the test environments, hence the DCHECK.
+    DCHECK(lost_packets.back().packet_number <
+           acked_packets.back().packet_number)
+        << "Largest lost packet should be less than largest acked packet: "
+        << lost_packets.back().packet_number << " vs. "
+        << acked_packets.back().packet_number;
+    event_sample.last_packet_send_state =
+        lost_packets.back().packet_number > acked_packets.back().packet_number
+            ? last_lost_packet_send_state
+            : last_acked_packet_send_state;
+  }
+
+  max_bandwidth = std::max(max_bandwidth, event_sample.sample_max_bandwidth);
+  event_sample.extra_acked = OnAckEventEnd(
+      std::min(est_bandwidth_upper_bound, max_bandwidth), round_trip_count);
+
+  return event_sample;
 }
 
 QuicByteCount BandwidthSampler::OnAckEventEnd(
@@ -149,7 +253,9 @@ BandwidthSample BandwidthSampler::OnPacketAcknowledged(
   }
   BandwidthSample sample =
       OnPacketAcknowledgedInner(ack_time, packet_number, *sent_packet_pointer);
-  connection_state_map_.Remove(packet_number);
+  if (!remove_packets_once_per_congestion_event_) {
+    connection_state_map_.Remove(packet_number);
+  }
   return sample;
 }
 
@@ -220,16 +326,27 @@ BandwidthSample BandwidthSampler::OnPacketAcknowledgedInner(
   return sample;
 }
 
-SendTimeState BandwidthSampler::OnPacketLost(QuicPacketNumber packet_number) {
+SendTimeState BandwidthSampler::OnPacketLost(QuicPacketNumber packet_number,
+                                             QuicPacketLength bytes_lost) {
   // TODO(vasilvv): see the comment for the case of missing packets in
   // BandwidthSampler::OnPacketAcknowledged on why this does not raise a
   // QUIC_BUG when removal fails.
   SendTimeState send_time_state;
-  send_time_state.is_valid = connection_state_map_.Remove(
-      packet_number, [&](const ConnectionStateOnSentPacket& sent_packet) {
-        total_bytes_lost_ += sent_packet.size;
-        SentPacketToSendTimeState(sent_packet, &send_time_state);
-      });
+
+  if (remove_packets_once_per_congestion_event_) {
+    total_bytes_lost_ += bytes_lost;
+    ConnectionStateOnSentPacket* sent_packet_pointer =
+        connection_state_map_.GetEntry(packet_number);
+    if (sent_packet_pointer != nullptr) {
+      SentPacketToSendTimeState(*sent_packet_pointer, &send_time_state);
+    }
+  } else {
+    send_time_state.is_valid = connection_state_map_.Remove(
+        packet_number, [&](const ConnectionStateOnSentPacket& sent_packet) {
+          total_bytes_lost_ += sent_packet.size;
+          SentPacketToSendTimeState(sent_packet, &send_time_state);
+        });
+  }
   return send_time_state;
 }
 
@@ -251,6 +368,10 @@ void BandwidthSampler::RemoveObsoletePackets(QuicPacketNumber least_unacked) {
   // QuicSentPacketManager::RetransmitCryptoPackets retransmits a crypto packet,
   // the packet is removed from QuicUnackedPacketMap's inflight, but is not
   // marked as acked or lost in the BandwidthSampler.
+  if (remove_packets_once_per_congestion_event_) {
+    connection_state_map_.RemoveUpTo(least_unacked);
+    return;
+  }
   while (!connection_state_map_.IsEmpty() &&
          connection_state_map_.first_packet() < least_unacked) {
     connection_state_map_.Remove(

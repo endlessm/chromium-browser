@@ -1,29 +1,35 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {ScreencastView} from './ScreencastView.js';
+
+/** @type {!ScreencastApp} */
+let _appInstance;
+
 /**
  * @implements {Common.App}
  * @implements {SDK.SDKModelObserver<!SDK.ScreenCaptureModel>}
  * @unrestricted
  */
-export default class ScreencastApp {
+export class ScreencastApp {
   constructor() {
-    this._enabledSetting = Common.settings.createSetting('screencastEnabled', true);
+    this._enabledSetting = self.Common.settings.createSetting('screencastEnabled', true);
     this._toggleButton = new UI.ToolbarToggle(Common.UIString('Toggle screencast'), 'largeicon-phone');
     this._toggleButton.setToggled(this._enabledSetting.get());
     this._toggleButton.setEnabled(false);
     this._toggleButton.addEventListener(UI.ToolbarButton.Events.Click, this._toggleButtonClicked, this);
-    SDK.targetManager.observeModels(SDK.ScreenCaptureModel, this);
+    self.SDK.targetManager.observeModels(SDK.ScreenCaptureModel, this);
   }
 
   /**
-   * @return {!Screencast.ScreencastApp}
+   * @return {!ScreencastApp}
    */
   static _instance() {
-    if (!Screencast.ScreencastApp._appInstance) {
-      Screencast.ScreencastApp._appInstance = new Screencast.ScreencastApp();
+    if (!_appInstance) {
+      _appInstance = new ScreencastApp();
     }
-    return Screencast.ScreencastApp._appInstance;
+    return _appInstance;
   }
 
   /**
@@ -39,8 +45,8 @@ export default class ScreencastApp {
     this._rootSplitWidget.show(rootView.element);
     this._rootSplitWidget.hideMain();
 
-    this._rootSplitWidget.setSidebarWidget(UI.inspectorView);
-    UI.inspectorView.setOwnerSplit(this._rootSplitWidget);
+    this._rootSplitWidget.setSidebarWidget(self.UI.inspectorView);
+    self.UI.inspectorView.setOwnerSplit(this._rootSplitWidget);
     rootView.attachToDocument(document);
     rootView.focus();
   }
@@ -55,7 +61,7 @@ export default class ScreencastApp {
     }
     this._screenCaptureModel = screenCaptureModel;
     this._toggleButton.setEnabled(true);
-    this._screencastView = new Screencast.ScreencastView(screenCaptureModel);
+    this._screencastView = new ScreencastView(screenCaptureModel);
     this._rootSplitWidget.setMainWidget(this._screencastView);
     this._screencastView.initialize();
     this._onScreencastEnabledChanged();
@@ -106,7 +112,7 @@ export class ToolbarButtonProvider {
    * @return {?UI.ToolbarItem}
    */
   item() {
-    return Screencast.ScreencastApp._instance()._toggleButton;
+    return ScreencastApp._instance()._toggleButton;
   }
 }
 
@@ -120,30 +126,6 @@ export class ScreencastAppProvider {
    * @return {!Common.App}
    */
   createApp() {
-    return Screencast.ScreencastApp._instance();
+    return ScreencastApp._instance();
   }
 }
-
-/* Legacy exported object */
-self.Screencast = self.Screencast || {};
-
-/* Legacy exported object */
-Screencast = Screencast || {};
-
-/**
- * @constructor
- */
-Screencast.ScreencastApp = ScreencastApp;
-
-/**
- * @constructor
- */
-Screencast.ScreencastApp.ToolbarButtonProvider = ToolbarButtonProvider;
-
-/** @type {!Screencast.ScreencastApp} */
-Screencast.ScreencastApp._appInstance;
-
-/**
- * @constructor
- */
-Screencast.ScreencastAppProvider = ScreencastAppProvider;

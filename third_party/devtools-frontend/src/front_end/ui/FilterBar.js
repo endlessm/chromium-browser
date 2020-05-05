@@ -28,10 +28,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as Host from '../host/host.js';
+
+import {KeyboardShortcut, Modifiers} from './KeyboardShortcut.js';
+import {bindCheckbox} from './SettingsUI.js';
+import {Events, TextPrompt} from './TextPrompt.js';
+import {ToolbarButton, ToolbarSettingToggle} from './Toolbar.js';  // eslint-disable-line no-unused-vars
+import {CheckboxLabel} from './UIUtils.js';
+import {HBox} from './Widget.js';
+
 /**
  * @unrestricted
  */
-export default class FilterBar extends UI.HBox {
+export class FilterBar extends HBox {
   /**
    * @param {string} name
    * @param {boolean=} visibleByDefault
@@ -42,8 +52,10 @@ export default class FilterBar extends UI.HBox {
     this._enabled = true;
     this.element.classList.add('filter-bar');
 
-    this._stateSetting = Common.settings.createSetting('filterBar-' + name + '-toggled', !!visibleByDefault);
-    this._filterButton = new UI.ToolbarSettingToggle(this._stateSetting, 'largeicon-filter', Common.UIString('Filter'));
+    // Note: go via self.Common for globally-namespaced singletons.
+    this._stateSetting = self.self.Common.settings.createSetting('filterBar-' + name + '-toggled', !!visibleByDefault);
+    this._filterButton =
+        new ToolbarSettingToggle(this._stateSetting, 'largeicon-filter', Common.UIString.UIString('Filter'));
 
     this._filters = [];
 
@@ -52,7 +64,7 @@ export default class FilterBar extends UI.HBox {
   }
 
   /**
-   * @return {!UI.ToolbarButton}
+   * @return {!ToolbarButton}
    */
   filterButton() {
     return this._filterButton;
@@ -88,6 +100,7 @@ export default class FilterBar extends UI.HBox {
    */
   _filterChanged(event) {
     this._updateFilterButton();
+    this.dispatchEventToListeners(FilterBar.Events.Changed);
   }
 
   /**
@@ -148,10 +161,14 @@ export default class FilterBar extends UI.HBox {
   }
 }
 
+FilterBar.Events = {
+  Changed: Symbol('Changed'),
+};
+
 /**
  * @interface
  */
-export class FilterUI extends Common.EventTarget {
+export class FilterUI extends Common.EventTarget.EventTarget {
   /**
    * @return {boolean}
    */
@@ -170,10 +187,10 @@ FilterUI.Events = {
 };
 
 /**
- * @implements {UI.FilterUI}
+ * @implements {FilterUI}
  * @unrestricted
  */
-export class TextFilterUI extends Common.Object {
+export class TextFilterUI extends Common.ObjectWrapper.ObjectWrapper {
   constructor() {
     super();
     this._filterElement = createElement('div');
@@ -181,12 +198,12 @@ export class TextFilterUI extends Common.Object {
 
     this._filterInputElement = this._filterElement.createChild('span', 'filter-input-field');
 
-    this._prompt = new UI.TextPrompt();
+    this._prompt = new TextPrompt();
     this._prompt.initialize(this._completions.bind(this), ' ');
     this._proxyElement = this._prompt.attach(this._filterInputElement);
-    this._proxyElement.title = Common.UIString('e.g. /small[\\d]+/ url:a.com/b');
-    this._prompt.setPlaceholder(Common.UIString('Filter'));
-    this._prompt.addEventListener(UI.TextPrompt.Events.TextChanged, this._valueChanged.bind(this));
+    this._proxyElement.title = Common.UIString.UIString('e.g. /small[\\d]+/ url:a.com/b');
+    this._prompt.setPlaceholder(Common.UIString.UIString('Filter'));
+    this._prompt.addEventListener(Events.TextChanged, this._valueChanged.bind(this));
 
     /** @type {?function(string, string, boolean=):!Promise<!UI.SuggestBox.Suggestions>} */
     this._suggestionProvider = null;
@@ -256,24 +273,23 @@ export class TextFilterUI extends Common.Object {
  * @implements {FilterUI}
  * @unrestricted
  */
-export class NamedBitSetFilterUI extends Common.Object {
+export class NamedBitSetFilterUI extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {!Array.<!UI.NamedBitSetFilterUI.Item>} items
-   * @param {!Common.Setting=} setting
+   * @param {!Common.Settings.Setting=} setting
    */
   constructor(items, setting) {
     super();
     this._filtersElement = createElementWithClass('div', 'filter-bitset-filter');
     UI.ARIAUtils.markAsListBox(this._filtersElement);
     UI.ARIAUtils.markAsMultiSelectable(this._filtersElement);
-    this._filtersElement.title = Common.UIString(
-        '%sClick to select multiple types',
-        UI.KeyboardShortcut.shortcutToString('', UI.KeyboardShortcut.Modifiers.CtrlOrMeta));
+    this._filtersElement.title = Common.UIString.UIString(
+        '%sClick to select multiple types', KeyboardShortcut.shortcutToString('', Modifiers.CtrlOrMeta));
 
     this._allowedTypes = {};
     /** @type {!Array.<!Element>} */
     this._typeFilterElements = [];
-    this._addBit(NamedBitSetFilterUI.ALL_TYPES, Common.UIString('All'));
+    this._addBit(NamedBitSetFilterUI.ALL_TYPES, Common.UIString.UIString('All'));
     this._typeFilterElements[0].tabIndex = 0;
     this._filtersElement.createChild('div', 'filter-bitset-filter-divider');
 
@@ -367,7 +383,7 @@ export class NamedBitSetFilterUI extends Common.Object {
    */
   _onTypeFilterClicked(e) {
     let toggle;
-    if (Host.isMac()) {
+    if (Host.Platform.isMac()) {
       toggle = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
     } else {
       toggle = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
@@ -443,25 +459,25 @@ export class NamedBitSetFilterUI extends Common.Object {
 NamedBitSetFilterUI.ALL_TYPES = 'all';
 
 /**
- * @implements {UI.FilterUI}
+ * @implements {FilterUI}
  * @unrestricted
  */
-export class CheckboxFilterUI extends Common.Object {
+export class CheckboxFilterUI extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {string} className
    * @param {string} title
    * @param {boolean=} activeWhenChecked
-   * @param {!Common.Setting=} setting
+   * @param {!Common.Settings.Setting=} setting
    */
   constructor(className, title, activeWhenChecked, setting) {
     super();
     this._filterElement = createElementWithClass('div', 'filter-checkbox-filter');
     this._activeWhenChecked = !!activeWhenChecked;
-    this._label = UI.CheckboxLabel.create(title);
+    this._label = CheckboxLabel.create(title);
     this._filterElement.appendChild(this._label);
     this._checkboxElement = this._label.checkboxElement;
     if (setting) {
-      UI.SettingsUI.bindCheckbox(this._checkboxElement, setting);
+      bindCheckbox(this._checkboxElement, setting);
     } else {
       this._checkboxElement.checked = true;
     }
@@ -518,27 +534,3 @@ export class CheckboxFilterUI extends Common.Object {
     this._label.borderColor = borderColor;
   }
 }
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.FilterBar = FilterBar;
-
-/** @interface */
-UI.FilterUI = FilterUI;
-
-/** @constructor */
-UI.TextFilterUI = TextFilterUI;
-
-/** @constructor */
-UI.NamedBitSetFilterUI = NamedBitSetFilterUI;
-
-/** @constructor */
-UI.CheckboxFilterUI = CheckboxFilterUI;
-
-/** @typedef {{name: string, label: string, title: (string|undefined)}} */
-UI.NamedBitSetFilterUI.Item;

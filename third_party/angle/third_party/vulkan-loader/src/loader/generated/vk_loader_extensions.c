@@ -258,6 +258,9 @@ VKAPI_ATTR bool VKAPI_CALL loader_icd_init_entries(struct loader_icd_term *icd_t
     LOOKUP_GIPA(CreateMetalSurfaceEXT, false);
 #endif // VK_USE_PLATFORM_METAL_EXT
 
+    // ---- VK_EXT_tooling_info extension commands
+    LOOKUP_GIPA(GetPhysicalDeviceToolPropertiesEXT, false);
+
     // ---- VK_NV_cooperative_matrix extension commands
     LOOKUP_GIPA(GetPhysicalDeviceCooperativeMatrixPropertiesNV, false);
 
@@ -426,6 +429,21 @@ VKAPI_ATTR void VKAPI_CALL loader_init_device_dispatch_table(struct loader_dev_d
     table->DestroyDescriptorUpdateTemplate = (PFN_vkDestroyDescriptorUpdateTemplate)gpa(dev, "vkDestroyDescriptorUpdateTemplate");
     table->UpdateDescriptorSetWithTemplate = (PFN_vkUpdateDescriptorSetWithTemplate)gpa(dev, "vkUpdateDescriptorSetWithTemplate");
     table->GetDescriptorSetLayoutSupport = (PFN_vkGetDescriptorSetLayoutSupport)gpa(dev, "vkGetDescriptorSetLayoutSupport");
+
+    // ---- Core 1_2 commands
+    table->CmdDrawIndirectCount = (PFN_vkCmdDrawIndirectCount)gpa(dev, "vkCmdDrawIndirectCount");
+    table->CmdDrawIndexedIndirectCount = (PFN_vkCmdDrawIndexedIndirectCount)gpa(dev, "vkCmdDrawIndexedIndirectCount");
+    table->CreateRenderPass2 = (PFN_vkCreateRenderPass2)gpa(dev, "vkCreateRenderPass2");
+    table->CmdBeginRenderPass2 = (PFN_vkCmdBeginRenderPass2)gpa(dev, "vkCmdBeginRenderPass2");
+    table->CmdNextSubpass2 = (PFN_vkCmdNextSubpass2)gpa(dev, "vkCmdNextSubpass2");
+    table->CmdEndRenderPass2 = (PFN_vkCmdEndRenderPass2)gpa(dev, "vkCmdEndRenderPass2");
+    table->ResetQueryPool = (PFN_vkResetQueryPool)gpa(dev, "vkResetQueryPool");
+    table->GetSemaphoreCounterValue = (PFN_vkGetSemaphoreCounterValue)gpa(dev, "vkGetSemaphoreCounterValue");
+    table->WaitSemaphores = (PFN_vkWaitSemaphores)gpa(dev, "vkWaitSemaphores");
+    table->SignalSemaphore = (PFN_vkSignalSemaphore)gpa(dev, "vkSignalSemaphore");
+    table->GetBufferDeviceAddress = (PFN_vkGetBufferDeviceAddress)gpa(dev, "vkGetBufferDeviceAddress");
+    table->GetBufferOpaqueCaptureAddress = (PFN_vkGetBufferOpaqueCaptureAddress)gpa(dev, "vkGetBufferOpaqueCaptureAddress");
+    table->GetDeviceMemoryOpaqueCaptureAddress = (PFN_vkGetDeviceMemoryOpaqueCaptureAddress)gpa(dev, "vkGetDeviceMemoryOpaqueCaptureAddress");
 }
 
 // Init Device function pointer dispatch table with extension commands
@@ -539,6 +557,11 @@ VKAPI_ATTR void VKAPI_CALL loader_init_device_extension_dispatch_table(struct lo
     table->GetSemaphoreCounterValueKHR = (PFN_vkGetSemaphoreCounterValueKHR)gdpa(dev, "vkGetSemaphoreCounterValueKHR");
     table->WaitSemaphoresKHR = (PFN_vkWaitSemaphoresKHR)gdpa(dev, "vkWaitSemaphoresKHR");
     table->SignalSemaphoreKHR = (PFN_vkSignalSemaphoreKHR)gdpa(dev, "vkSignalSemaphoreKHR");
+
+    // ---- VK_KHR_buffer_device_address extension commands
+    table->GetBufferDeviceAddressKHR = (PFN_vkGetBufferDeviceAddressKHR)gdpa(dev, "vkGetBufferDeviceAddressKHR");
+    table->GetBufferOpaqueCaptureAddressKHR = (PFN_vkGetBufferOpaqueCaptureAddressKHR)gdpa(dev, "vkGetBufferOpaqueCaptureAddressKHR");
+    table->GetDeviceMemoryOpaqueCaptureAddressKHR = (PFN_vkGetDeviceMemoryOpaqueCaptureAddressKHR)gdpa(dev, "vkGetDeviceMemoryOpaqueCaptureAddressKHR");
 
     // ---- VK_KHR_pipeline_executable_properties extension commands
     table->GetPipelineExecutablePropertiesKHR = (PFN_vkGetPipelineExecutablePropertiesKHR)gdpa(dev, "vkGetPipelineExecutablePropertiesKHR");
@@ -906,6 +929,9 @@ VKAPI_ATTR void VKAPI_CALL loader_init_instance_extension_dispatch_table(VkLayer
     table->CreateMetalSurfaceEXT = (PFN_vkCreateMetalSurfaceEXT)gpa(inst, "vkCreateMetalSurfaceEXT");
 #endif // VK_USE_PLATFORM_METAL_EXT
 
+    // ---- VK_EXT_tooling_info extension commands
+    table->GetPhysicalDeviceToolPropertiesEXT = (PFN_vkGetPhysicalDeviceToolPropertiesEXT)gpa(inst, "vkGetPhysicalDeviceToolPropertiesEXT");
+
     // ---- VK_NV_cooperative_matrix extension commands
     table->GetPhysicalDeviceCooperativeMatrixPropertiesNV = (PFN_vkGetPhysicalDeviceCooperativeMatrixPropertiesNV)gpa(inst, "vkGetPhysicalDeviceCooperativeMatrixPropertiesNV");
 
@@ -1068,6 +1094,21 @@ VKAPI_ATTR void* VKAPI_CALL loader_lookup_device_dispatch_table(const VkLayerDis
     if (!strcmp(name, "UpdateDescriptorSetWithTemplate")) return (void *)table->UpdateDescriptorSetWithTemplate;
     if (!strcmp(name, "GetDescriptorSetLayoutSupport")) return (void *)table->GetDescriptorSetLayoutSupport;
 
+    // ---- Core 1_2 commands
+    if (!strcmp(name, "CmdDrawIndirectCount")) return (void *)table->CmdDrawIndirectCount;
+    if (!strcmp(name, "CmdDrawIndexedIndirectCount")) return (void *)table->CmdDrawIndexedIndirectCount;
+    if (!strcmp(name, "CreateRenderPass2")) return (void *)table->CreateRenderPass2;
+    if (!strcmp(name, "CmdBeginRenderPass2")) return (void *)table->CmdBeginRenderPass2;
+    if (!strcmp(name, "CmdNextSubpass2")) return (void *)table->CmdNextSubpass2;
+    if (!strcmp(name, "CmdEndRenderPass2")) return (void *)table->CmdEndRenderPass2;
+    if (!strcmp(name, "ResetQueryPool")) return (void *)table->ResetQueryPool;
+    if (!strcmp(name, "GetSemaphoreCounterValue")) return (void *)table->GetSemaphoreCounterValue;
+    if (!strcmp(name, "WaitSemaphores")) return (void *)table->WaitSemaphores;
+    if (!strcmp(name, "SignalSemaphore")) return (void *)table->SignalSemaphore;
+    if (!strcmp(name, "GetBufferDeviceAddress")) return (void *)table->GetBufferDeviceAddress;
+    if (!strcmp(name, "GetBufferOpaqueCaptureAddress")) return (void *)table->GetBufferOpaqueCaptureAddress;
+    if (!strcmp(name, "GetDeviceMemoryOpaqueCaptureAddress")) return (void *)table->GetDeviceMemoryOpaqueCaptureAddress;
+
     // ---- VK_KHR_swapchain extension commands
     if (!strcmp(name, "CreateSwapchainKHR")) return (void *)table->CreateSwapchainKHR;
     if (!strcmp(name, "DestroySwapchainKHR")) return (void *)table->DestroySwapchainKHR;
@@ -1171,6 +1212,11 @@ VKAPI_ATTR void* VKAPI_CALL loader_lookup_device_dispatch_table(const VkLayerDis
     if (!strcmp(name, "GetSemaphoreCounterValueKHR")) return (void *)table->GetSemaphoreCounterValueKHR;
     if (!strcmp(name, "WaitSemaphoresKHR")) return (void *)table->WaitSemaphoresKHR;
     if (!strcmp(name, "SignalSemaphoreKHR")) return (void *)table->SignalSemaphoreKHR;
+
+    // ---- VK_KHR_buffer_device_address extension commands
+    if (!strcmp(name, "GetBufferDeviceAddressKHR")) return (void *)table->GetBufferDeviceAddressKHR;
+    if (!strcmp(name, "GetBufferOpaqueCaptureAddressKHR")) return (void *)table->GetBufferOpaqueCaptureAddressKHR;
+    if (!strcmp(name, "GetDeviceMemoryOpaqueCaptureAddressKHR")) return (void *)table->GetDeviceMemoryOpaqueCaptureAddressKHR;
 
     // ---- VK_KHR_pipeline_executable_properties extension commands
     if (!strcmp(name, "GetPipelineExecutablePropertiesKHR")) return (void *)table->GetPipelineExecutablePropertiesKHR;
@@ -1542,6 +1588,9 @@ VKAPI_ATTR void* VKAPI_CALL loader_lookup_instance_dispatch_table(const VkLayerI
     if (!strcmp(name, "CreateMetalSurfaceEXT")) return (void *)table->CreateMetalSurfaceEXT;
 #endif // VK_USE_PLATFORM_METAL_EXT
 
+    // ---- VK_EXT_tooling_info extension commands
+    if (!strcmp(name, "GetPhysicalDeviceToolPropertiesEXT")) return (void *)table->GetPhysicalDeviceToolPropertiesEXT;
+
     // ---- VK_NV_cooperative_matrix extension commands
     if (!strcmp(name, "GetPhysicalDeviceCooperativeMatrixPropertiesNV")) return (void *)table->GetPhysicalDeviceCooperativeMatrixPropertiesNV;
 
@@ -1745,7 +1794,7 @@ VKAPI_ATTR void VKAPI_CALL UpdateDescriptorSetWithTemplateKHR(
 
 VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2KHR(
     VkDevice                                    device,
-    const VkRenderPassCreateInfo2KHR*           pCreateInfo,
+    const VkRenderPassCreateInfo2*              pCreateInfo,
     const VkAllocationCallbacks*                pAllocator,
     VkRenderPass*                               pRenderPass) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(device);
@@ -1755,22 +1804,22 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateRenderPass2KHR(
 VKAPI_ATTR void VKAPI_CALL CmdBeginRenderPass2KHR(
     VkCommandBuffer                             commandBuffer,
     const VkRenderPassBeginInfo*                pRenderPassBegin,
-    const VkSubpassBeginInfoKHR*                pSubpassBeginInfo) {
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(commandBuffer);
     disp->CmdBeginRenderPass2KHR(commandBuffer, pRenderPassBegin, pSubpassBeginInfo);
 }
 
 VKAPI_ATTR void VKAPI_CALL CmdNextSubpass2KHR(
     VkCommandBuffer                             commandBuffer,
-    const VkSubpassBeginInfoKHR*                pSubpassBeginInfo,
-    const VkSubpassEndInfoKHR*                  pSubpassEndInfo) {
+    const VkSubpassBeginInfo*                   pSubpassBeginInfo,
+    const VkSubpassEndInfo*                     pSubpassEndInfo) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(commandBuffer);
     disp->CmdNextSubpass2KHR(commandBuffer, pSubpassBeginInfo, pSubpassEndInfo);
 }
 
 VKAPI_ATTR void VKAPI_CALL CmdEndRenderPass2KHR(
     VkCommandBuffer                             commandBuffer,
-    const VkSubpassEndInfoKHR*                  pSubpassEndInfo) {
+    const VkSubpassEndInfo*                     pSubpassEndInfo) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(commandBuffer);
     disp->CmdEndRenderPass2KHR(commandBuffer, pSubpassEndInfo);
 }
@@ -2009,7 +2058,7 @@ VKAPI_ATTR VkResult VKAPI_CALL GetSemaphoreCounterValueKHR(
 
 VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphoresKHR(
     VkDevice                                    device,
-    const VkSemaphoreWaitInfoKHR*               pWaitInfo,
+    const VkSemaphoreWaitInfo*                  pWaitInfo,
     uint64_t                                    timeout) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(device);
     return disp->WaitSemaphoresKHR(device, pWaitInfo, timeout);
@@ -2017,9 +2066,33 @@ VKAPI_ATTR VkResult VKAPI_CALL WaitSemaphoresKHR(
 
 VKAPI_ATTR VkResult VKAPI_CALL SignalSemaphoreKHR(
     VkDevice                                    device,
-    const VkSemaphoreSignalInfoKHR*             pSignalInfo) {
+    const VkSemaphoreSignalInfo*                pSignalInfo) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(device);
     return disp->SignalSemaphoreKHR(device, pSignalInfo);
+}
+
+
+// ---- VK_KHR_buffer_device_address extension trampoline/terminators
+
+VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressKHR(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo) {
+    const VkLayerDispatchTable *disp = loader_get_dispatch(device);
+    return disp->GetBufferDeviceAddressKHR(device, pInfo);
+}
+
+VKAPI_ATTR uint64_t VKAPI_CALL GetBufferOpaqueCaptureAddressKHR(
+    VkDevice                                    device,
+    const VkBufferDeviceAddressInfo*            pInfo) {
+    const VkLayerDispatchTable *disp = loader_get_dispatch(device);
+    return disp->GetBufferOpaqueCaptureAddressKHR(device, pInfo);
+}
+
+VKAPI_ATTR uint64_t VKAPI_CALL GetDeviceMemoryOpaqueCaptureAddressKHR(
+    VkDevice                                    device,
+    const VkDeviceMemoryOpaqueCaptureAddressInfo* pInfo) {
+    const VkLayerDispatchTable *disp = loader_get_dispatch(device);
+    return disp->GetDeviceMemoryOpaqueCaptureAddressKHR(device, pInfo);
 }
 
 
@@ -3177,7 +3250,7 @@ VKAPI_ATTR VkResult VKAPI_CALL terminator_CreateImagePipeSurfaceFUCHSIA(
 
 VKAPI_ATTR VkDeviceAddress VKAPI_CALL GetBufferDeviceAddressEXT(
     VkDevice                                    device,
-    const VkBufferDeviceAddressInfoEXT*         pInfo) {
+    const VkBufferDeviceAddressInfo*            pInfo) {
     const VkLayerDispatchTable *disp = loader_get_dispatch(device);
     return disp->GetBufferDeviceAddressEXT(device, pInfo);
 }
@@ -3592,6 +3665,20 @@ bool extension_instance_gpa(struct loader_instance *ptr_instance, const char *na
     }
     if (!strcmp("vkSignalSemaphoreKHR", name)) {
         *addr = (void *)SignalSemaphoreKHR;
+        return true;
+    }
+
+    // ---- VK_KHR_buffer_device_address extension commands
+    if (!strcmp("vkGetBufferDeviceAddressKHR", name)) {
+        *addr = (void *)GetBufferDeviceAddressKHR;
+        return true;
+    }
+    if (!strcmp("vkGetBufferOpaqueCaptureAddressKHR", name)) {
+        *addr = (void *)GetBufferOpaqueCaptureAddressKHR;
+        return true;
+    }
+    if (!strcmp("vkGetDeviceMemoryOpaqueCaptureAddressKHR", name)) {
+        *addr = (void *)GetDeviceMemoryOpaqueCaptureAddressKHR;
         return true;
     }
 
@@ -4117,6 +4204,12 @@ bool extension_instance_gpa(struct loader_instance *ptr_instance, const char *na
         return true;
     }
 
+    // ---- VK_EXT_tooling_info extension commands
+    if (!strcmp("vkGetPhysicalDeviceToolPropertiesEXT", name)) {
+        *addr = (void *)GetPhysicalDeviceToolPropertiesEXT;
+        return true;
+    }
+
     // ---- VK_NV_cooperative_matrix extension commands
     if (!strcmp("vkGetPhysicalDeviceCooperativeMatrixPropertiesNV", name)) {
         *addr = (void *)GetPhysicalDeviceCooperativeMatrixPropertiesNV;
@@ -4479,6 +4572,9 @@ const VkLayerInstanceDispatchTable instance_disp = {
 #ifdef VK_USE_PLATFORM_METAL_EXT
     .CreateMetalSurfaceEXT = terminator_CreateMetalSurfaceEXT,
 #endif // VK_USE_PLATFORM_METAL_EXT
+
+    // ---- VK_EXT_tooling_info extension commands
+    .GetPhysicalDeviceToolPropertiesEXT = terminator_GetPhysicalDeviceToolPropertiesEXT,
 
     // ---- VK_NV_cooperative_matrix extension commands
     .GetPhysicalDeviceCooperativeMatrixPropertiesNV = terminator_GetPhysicalDeviceCooperativeMatrixPropertiesNV,

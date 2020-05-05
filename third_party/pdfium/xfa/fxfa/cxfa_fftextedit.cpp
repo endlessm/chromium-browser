@@ -19,6 +19,7 @@
 #include "xfa/fxfa/cxfa_eventparam.h"
 #include "xfa/fxfa/cxfa_ffapp.h"
 #include "xfa/fxfa/cxfa_ffdoc.h"
+#include "xfa/fxfa/cxfa_ffdocview.h"
 #include "xfa/fxfa/parser/cxfa_barcode.h"
 #include "xfa/fxfa/parser/cxfa_node.h"
 #include "xfa/fxfa/parser/cxfa_para.h"
@@ -47,7 +48,7 @@ bool CXFA_FFTextEdit::LoadWidget() {
   ASSERT(!IsLoaded());
   CFWL_Edit* pFWLEdit = pNewWidget.get();
   SetNormalWidget(std::move(pNewWidget));
-  pFWLEdit->SetFFWidget(this);
+  pFWLEdit->SetAdapterIface(this);
 
   CFWL_NoteDriver* pNoteDriver = pFWLEdit->GetOwnerApp()->GetNoteDriver();
   pNoteDriver->RegisterEventTarget(pFWLEdit, pFWLEdit);
@@ -119,27 +120,39 @@ bool CXFA_FFTextEdit::AcceptsFocusOnButtonDown(uint32_t dwFlags,
   return true;
 }
 
-void CXFA_FFTextEdit::OnLButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+bool CXFA_FFTextEdit::OnLButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+  ObservedPtr<CXFA_FFTextEdit> pWatched(this);
   if (!IsFocused()) {
     GetLayoutItem()->SetStatusBits(XFA_WidgetStatus_Focused);
     UpdateFWLData();
+    if (!pWatched)
+      return false;
+
     InvalidateRect();
   }
   SetButtonDown(true);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       GetNormalWidget(), FWL_MouseCommand::LeftButtonDown, dwFlags,
       FWLToClient(point)));
+
+  return !!pWatched;
 }
 
-void CXFA_FFTextEdit::OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+bool CXFA_FFTextEdit::OnRButtonDown(uint32_t dwFlags, const CFX_PointF& point) {
+  ObservedPtr<CXFA_FFTextEdit> pWatched(this);
   if (!IsFocused()) {
     GetLayoutItem()->SetStatusBits(XFA_WidgetStatus_Focused);
     UpdateFWLData();
+    if (!pWatched)
+      return false;
+
     InvalidateRect();
   }
   SetButtonDown(true);
   SendMessageToFWLWidget(pdfium::MakeUnique<CFWL_MessageMouse>(
       nullptr, FWL_MouseCommand::RightButtonDown, dwFlags, FWLToClient(point)));
+
+  return !!pWatched;
 }
 
 bool CXFA_FFTextEdit::OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
@@ -151,32 +164,47 @@ bool CXFA_FFTextEdit::OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
 }
 
 bool CXFA_FFTextEdit::OnSetFocus(CXFA_FFWidget* pOldWidget) {
+  ObservedPtr<CXFA_FFTextEdit> pWatched(this);
+  ObservedPtr<CXFA_FFWidget> pOldWatched(pOldWidget);
   GetLayoutItem()->ClearStatusBits(XFA_WidgetStatus_TextEditValueChanged);
   if (!IsFocused()) {
     GetLayoutItem()->SetStatusBits(XFA_WidgetStatus_Focused);
     UpdateFWLData();
+    if (!pWatched)
+      return false;
+
     InvalidateRect();
   }
-  if (!CXFA_FFWidget::OnSetFocus(pOldWidget))
+  if (!CXFA_FFWidget::OnSetFocus(pOldWatched.Get()))
     return false;
 
   SendMessageToFWLWidget(
       pdfium::MakeUnique<CFWL_MessageSetFocus>(nullptr, GetNormalWidget()));
 
-  return true;
+  return !!pWatched;
 }
 
 bool CXFA_FFTextEdit::OnKillFocus(CXFA_FFWidget* pNewWidget) {
+  ObservedPtr<CXFA_FFWidget> pWatched(this);
+  ObservedPtr<CXFA_FFWidget> pNewWatched(pNewWidget);
   SendMessageToFWLWidget(
       pdfium::MakeUnique<CFWL_MessageKillFocus>(nullptr, GetNormalWidget()));
+
+  if (!pWatched)
+    return false;
 
   GetLayoutItem()->ClearStatusBits(XFA_WidgetStatus_Focused);
   SetEditScrollOffset();
   ProcessCommittedData();
   UpdateFWLData();
   InvalidateRect();
+  if (!pWatched)
+    return false;
 
-  if (!CXFA_FFWidget::OnKillFocus(pNewWidget))
+  if (!CXFA_FFWidget::OnKillFocus(pNewWatched.Get()))
+    return false;
+
+  if (!pWatched)
     return false;
 
   GetLayoutItem()->ClearStatusBits(XFA_WidgetStatus_TextEditValueChanged);
@@ -186,7 +214,7 @@ bool CXFA_FFTextEdit::OnKillFocus(CXFA_FFWidget* pNewWidget) {
 bool CXFA_FFTextEdit::CommitData() {
   WideString wsText = ToEdit(GetNormalWidget())->GetText();
   if (m_pNode->SetValue(XFA_VALUEPICTURE_Edit, wsText)) {
-    m_pNode->UpdateUIDisplay(GetDoc()->GetDocView(), this);
+    GetDoc()->GetDocView()->UpdateUIDisplay(m_pNode.Get(), this);
     return true;
   }
   ValidateNumberField(wsText);
@@ -197,7 +225,7 @@ void CXFA_FFTextEdit::ValidateNumberField(const WideString& wsText) {
   if (GetNode()->GetFFWidgetType() != XFA_FFWidgetType::kNumericEdit)
     return;
 
-  IXFA_AppProvider* pAppProvider = GetApp()->GetAppProvider();
+  IXFA_AppProvider* pAppProvider = GetAppProvider();
   if (!pAppProvider)
     return;
 

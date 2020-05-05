@@ -70,7 +70,7 @@ class CounterTrack extends Track<Config, Data> {
       i: 'show_chart',
       tooltip: (this.config.scale === 'RELATIVE') ? 'Use zero-based scale' :
                                                     'Use relative scale',
-      selected: this.config.scale === 'RELATIVE',
+      showButton: this.config.scale === 'RELATIVE',
     }));
     return buttons;
   }
@@ -154,7 +154,7 @@ class CounterTrack extends Track<Config, Data> {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.font = '10px Google Sans';
+    ctx.font = '10px Roboto Condensed';
 
     if (this.hoveredValue !== undefined && this.hoveredTs !== undefined) {
       // TODO(hjd): Add units.

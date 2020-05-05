@@ -1,4 +1,4 @@
-//===-- CommandObjectBreakpoint.cpp -----------------------------*- C++ -*-===//
+//===-- CommandObjectBreakpoint.cpp ---------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,7 +12,6 @@
 #include "lldb/Breakpoint/BreakpointIDList.h"
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Host/OptionParser.h"
-#include "lldb/Interpreter/CommandCompletions.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/Interpreter/OptionArgParser.h"
@@ -24,7 +23,6 @@
 #include "lldb/Target/Language.h"
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"
-#include "lldb/Target/Thread.h"
 #include "lldb/Target/ThreadSpec.h"
 #include "lldb/Utility/RegularExpression.h"
 #include "lldb/Utility/StreamString.h"
@@ -276,7 +274,7 @@ public:
         m_func_name_type_mask |= eFunctionNameTypeBase;
         break;
 
-      case 'C':
+      case 'u':
         if (option_arg.getAsInteger(0, m_column))
           error.SetErrorStringWithFormat("invalid column number: %s",
                                          option_arg.str().c_str());

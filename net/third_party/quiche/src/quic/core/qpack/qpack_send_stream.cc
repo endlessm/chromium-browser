@@ -5,7 +5,8 @@
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_send_stream.h"
 
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 QpackSendStream::QpackSendStream(QuicStreamId id,
@@ -23,7 +24,7 @@ void QpackSendStream::OnStreamReset(const QuicRstStreamFrame& /*frame*/) {
       ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
 }
 
-void QpackSendStream::WriteStreamData(QuicStringPiece data) {
+void QpackSendStream::WriteStreamData(quiche::QuicheStringPiece data) {
   QuicConnection::ScopedPacketFlusher flusher(session()->connection());
   MaybeSendStreamType();
   WriteOrBufferData(data, false, nullptr);
@@ -32,10 +33,10 @@ void QpackSendStream::WriteStreamData(QuicStringPiece data) {
 void QpackSendStream::MaybeSendStreamType() {
   if (!stream_type_sent_) {
     char type[sizeof(http3_stream_type_)];
-    QuicDataWriter writer(QUIC_ARRAYSIZE(type), type);
+    QuicDataWriter writer(QUICHE_ARRAYSIZE(type), type);
     writer.WriteVarInt62(http3_stream_type_);
-    WriteOrBufferData(QuicStringPiece(writer.data(), writer.length()), false,
-                      nullptr);
+    WriteOrBufferData(quiche::QuicheStringPiece(writer.data(), writer.length()),
+                      false, nullptr);
     stream_type_sent_ = true;
   }
 }

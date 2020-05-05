@@ -73,6 +73,7 @@ static DEFINE_string(src, "",
 static DEFINE_string(png, "", "if set, save a .png proof to disk at this file location");
 static DEFINE_int(verbosity, 4, "level of verbosity (0=none to 5=debug)");
 static DEFINE_bool(suppressHeader, false, "don't print a header row before the results");
+static DEFINE_double(scale, 1, "Scale the size of the canvas and the zoom level by this factor.");
 
 static const char* header =
 "   accum    median       max       min   stddev  samples  sample_ms  clock  metric  config    bench";
@@ -268,6 +269,12 @@ static void run_ddl_benchmark(const sk_gpu_test::FenceSync* fenceSync,
         // The user wants to see the final result
         tiles.composeAllTiles(finalCanvas);
     }
+
+    // Make sure the gpu has finished all its work before we exit this function and delete the
+    // fence.
+    GrFlushInfo flushInfo;
+    flushInfo.fFlags = kSyncCpu_GrFlushFlag;
+    context->flush(flushInfo);
 }
 
 static void run_benchmark(const sk_gpu_test::FenceSync* fenceSync, SkSurface* surface,
@@ -296,6 +303,12 @@ static void run_benchmark(const sk_gpu_test::FenceSync* fenceSync, SkSurface* su
           sample.fDuration = now - sampleStart;
         } while (sample.fDuration < sampleDuration);
     } while (now < endTime || 0 == samples->size() % 2);
+
+    // Make sure the gpu has finished all its work before we exit this function and delete the
+    // fence.
+    GrFlushInfo flushInfo;
+    flushInfo.fFlags = kSyncCpu_GrFlushFlag;
+    surface->flush(SkSurface::BackendSurfaceAccess::kNoAccess, flushInfo);
 }
 
 static void run_gpu_time_benchmark(sk_gpu_test::GpuTimer* gpuTimer,
@@ -359,6 +372,12 @@ static void run_gpu_time_benchmark(sk_gpu_test::GpuTimer* gpuTimer,
     } while (now < endTime || 0 == samples->size() % 2);
 
     gpuTimer->deleteQuery(previousTime);
+
+    // Make sure the gpu has finished all its work before we exit this function and delete the
+    // fence.
+    GrFlushInfo flushInfo;
+    flushInfo.fFlags = kSyncCpu_GrFlushFlag;
+    surface->flush(SkSurface::BackendSurfaceAccess::kNoAccess, flushInfo);
 }
 
 void print_result(const std::vector<Sample>& samples, const char* config, const char* bench)  {
@@ -458,6 +477,14 @@ int main(int argc, char** argv) {
                         srcname.c_str(), SkScalarCeilToInt(skp->cullRect().width()),
                         SkScalarCeilToInt(skp->cullRect().height()), width, height);
     }
+    if (FLAGS_scale != 1) {
+        width *= FLAGS_scale;
+        height *= FLAGS_scale;
+        if (FLAGS_verbosity >= 3) {
+            fprintf(stderr, "Scale factor of %.2f: scaling to %ix%i.\n",
+                    FLAGS_scale, width, height);
+        }
+    }
 
     if (config->getSurfType() != SkCommandLineConfigGpu::SurfType::kDefault) {
         exitf(ExitErr::kUnavailable, "This tool only supports the default surface type. (%s)",
@@ -521,6 +548,9 @@ int main(int argc, char** argv) {
     }
     SkCanvas* canvas = surface->getCanvas();
     canvas->translate(-skp->cullRect().x(), -skp->cullRect().y());
+    if (FLAGS_scale != 1) {
+        canvas->scale(FLAGS_scale, FLAGS_scale);
+    }
     if (!FLAGS_gpuClock) {
         if (FLAGS_ddl) {
             run_ddl_benchmark(testCtx->fenceSync(), ctx, canvas, skp.get(), &samples);
@@ -557,7 +587,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    exit(0);
+    return(0);
 }
 
 static void draw_skp_and_flush(SkSurface* surface, const SkPicture* skp) {

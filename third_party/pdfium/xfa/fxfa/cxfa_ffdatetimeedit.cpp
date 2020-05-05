@@ -15,6 +15,7 @@
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fxfa/cxfa_eventparam.h"
 #include "xfa/fxfa/cxfa_ffdoc.h"
+#include "xfa/fxfa/cxfa_ffdocview.h"
 #include "xfa/fxfa/parser/cxfa_localevalue.h"
 #include "xfa/fxfa/parser/cxfa_para.h"
 #include "xfa/fxfa/parser/cxfa_value.h"
@@ -45,7 +46,7 @@ bool CXFA_FFDateTimeEdit::LoadWidget() {
   auto pNewPicker = pdfium::MakeUnique<CFWL_DateTimePicker>(GetFWLApp());
   CFWL_DateTimePicker* pWidget = pNewPicker.get();
   SetNormalWidget(std::move(pNewPicker));
-  pWidget->SetFFWidget(this);
+  pWidget->SetAdapterIface(this);
 
   CFWL_NoteDriver* pNoteDriver = pWidget->GetOwnerApp()->GetNoteDriver();
   pNoteDriver->RegisterEventTarget(pWidget, pWidget);
@@ -146,7 +147,7 @@ bool CXFA_FFDateTimeEdit::CommitData() {
   if (!m_pNode->SetValue(XFA_VALUEPICTURE_Edit, pPicker->GetEditText()))
     return false;
 
-  m_pNode->UpdateUIDisplay(GetDoc()->GetDocView(), this);
+  GetDoc()->GetDocView()->UpdateUIDisplay(m_pNode.Get(), this);
   return true;
 }
 

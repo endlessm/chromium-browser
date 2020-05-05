@@ -51,7 +51,6 @@ import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.ChromeApplication;
-import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.browserservices.Origin;
@@ -61,6 +60,7 @@ import org.chromium.chrome.browser.browserservices.SessionHandler;
 import org.chromium.chrome.browser.customtabs.dynamicmodule.ModuleLoader;
 import org.chromium.chrome.browser.customtabs.dynamicmodule.ModuleMetrics;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.init.ChainedTasks;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.metrics.PageLoadMetrics;
@@ -202,8 +202,6 @@ public class CustomTabsConnection {
     private @Nullable String mTrustedPublisherUrlPackage;
 
     private final HiddenTabHolder mHiddenTabHolder = new HiddenTabHolder();
-    /** @deprecated Use {@link ContextUtils} instead */
-    protected final Context mContext;
     protected final SessionDataHolder mSessionDataHolder;
     @VisibleForTesting
     final ClientManager mClientManager;
@@ -228,7 +226,6 @@ public class CustomTabsConnection {
      */
     public CustomTabsConnection() {
         super();
-        mContext = ContextUtils.getApplicationContext();
         mClientManager = new ClientManager();
         mLogRequests = CommandLine.getInstance().hasSwitch(LOG_SERVICE_REQUESTS);
         mSessionDataHolder =
@@ -374,7 +371,7 @@ public class CustomTabsConnection {
     /** Warmup activities that should only happen once. */
     private static void initializeBrowser(final Context context) {
         ThreadUtils.assertOnUiThread();
-        ChromeBrowserInitializer.getInstance(context).handleSynchronousStartupWithGpuWarmUp();
+        ChromeBrowserInitializer.getInstance().handleSynchronousStartupWithGpuWarmUp();
         ChildProcessLauncherHelper.warmUp(context, true);
     }
 
@@ -814,16 +811,30 @@ public class CustomTabsConnection {
         if (mWarmupTasks != null) mWarmupTasks.cancel();
 
         maybePreconnectToRedirectEndpoint(session, url, intent);
-        ChromeBrowserInitializer.getInstance().runNowOrAfterNativeInitialization(
+        ChromeBrowserInitializer.getInstance().runNowOrAfterFullBrowserStarted(
                 () -> handleParallelRequest(session, intent));
         maybePrefetchResources(session, intent);
+    }
+
+    /**
+     * Called each time a CCT tab is created to check if a client data header was set and if so
+     * forward it along to the native side.
+     * @param session Session identifier.
+     * @param webContents the WebContents of the new tab.
+     */
+    public void setClientDataHeaderForNewTab(
+            CustomTabsSessionToken session, WebContents webContents) {}
+
+    protected void setClientDataHeader(WebContents webContents, String header) {
+        if (TextUtils.isEmpty(header)) return;
+
+        CustomTabsConnectionJni.get().setClientDataHeader(webContents, header);
     }
 
     private void maybePreconnectToRedirectEndpoint(
             CustomTabsSessionToken session, String url, Intent intent) {
         // For the preconnection to not be a no-op, we need more than just the native library.
-        if (!ChromeBrowserInitializer.getInstance(ContextUtils.getApplicationContext())
-                        .hasNativeInitializationCompleted()) {
+        if (!ChromeBrowserInitializer.getInstance().isFullBrowserInitialized()) {
             return;
         }
         if (!ChromeFeatureList.isEnabled(ChromeFeatureList.CCT_REDIRECT_PRECONNECT)) return;
@@ -882,8 +893,7 @@ public class CustomTabsConnection {
         ThreadUtils.assertOnUiThread();
 
         if (!intent.hasExtra(PARALLEL_REQUEST_URL_KEY)) return ParallelRequestStatus.NO_REQUEST;
-        if (!ChromeBrowserInitializer.getInstance(ContextUtils.getApplicationContext())
-                        .hasNativeInitializationCompleted()) {
+        if (!ChromeBrowserInitializer.getInstance().isFullBrowserInitialized()) {
             return ParallelRequestStatus.FAILURE_NOT_INITIALIZED;
         }
         if (!mClientManager.getAllowParallelRequestForSession(session)) {
@@ -1206,10 +1216,13 @@ public class CustomTabsConnection {
     /**
      * Notifies the application that the user has selected to open the page in their browser.
      * @param session Session identifier.
+     * @param webContents the WebContents of the tab being taken out of CCT.
      * @return true if success. To protect Chrome exceptions in the client application are swallowed
      *     and false is returned.
      */
-    boolean notifyOpenInBrowser(CustomTabsSessionToken session) {
+    boolean notifyOpenInBrowser(CustomTabsSessionToken session, WebContents webContents) {
+        // Reset the client data header for the WebContents since it's not a CCT tab anymore.
+        if (webContents != null) CustomTabsConnectionJni.get().setClientDataHeader(webContents, "");
         return safeExtraCallback(session, OPEN_IN_BROWSER_CALLBACK,
                 getExtrasBundleForNavigationEventForSession(session));
     }
@@ -1587,5 +1600,6 @@ public class CustomTabsConnection {
         void createAndStartDetachedResourceRequest(Profile profile, CustomTabsSessionToken session,
                 String url, String origin, int referrerPolicy,
                 @DetachedResourceRequestMotivation int motivation);
+        void setClientDataHeader(WebContents webContents, String header);
     }
 }

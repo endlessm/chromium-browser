@@ -6,6 +6,7 @@
 #define CHROME_RENDERER_SUBRESOURCE_REDIRECT_SUBRESOURCE_REDIRECT_URL_LOADER_THROTTLE_H_
 
 #include "base/macros.h"
+#include "chrome/renderer/subresource_redirect/subresource_redirect_hints_agent.h"
 #include "content/public/common/resource_type.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 
@@ -15,15 +16,20 @@ class WebURLRequest;
 
 namespace subresource_redirect {
 
+class SubresourceRedirectHintsAgent;
+
 // This class handles internal redirects for subresouces on HTTPS sites to
 // compressed versions of subresources.
 class SubresourceRedirectURLLoaderThrottle : public blink::URLLoaderThrottle {
  public:
   static std::unique_ptr<SubresourceRedirectURLLoaderThrottle>
   MaybeCreateThrottle(const blink::WebURLRequest& request,
-                      content::ResourceType resource_type);
+                      int render_frame_id);
 
   ~SubresourceRedirectURLLoaderThrottle() override;
+
+  // virtual for testing.
+  virtual SubresourceRedirectHintsAgent* GetSubresourceRedirectHintsAgent();
 
   // blink::URLLoaderThrottle:
   void WillStartRequest(network::ResourceRequest* request,
@@ -47,7 +53,18 @@ class SubresourceRedirectURLLoaderThrottle : public blink::URLLoaderThrottle {
   void DetachFromCurrentSequence() override;
 
  private:
-  SubresourceRedirectURLLoaderThrottle();
+  friend class TestSubresourceRedirectURLLoaderThrottle;
+
+  SubresourceRedirectURLLoaderThrottle(int render_frame_id,
+                                       bool allowed_to_redirect);
+
+  // Render frame id to get the hints agent of the render frame.
+  const int render_frame_id_;
+
+  // Whether the subresource can be redirected or not and what was the reason if
+  // its not eligible.
+  SubresourceRedirectHintsAgent::RedirectResult redirect_result_;
+
   DISALLOW_COPY_AND_ASSIGN(SubresourceRedirectURLLoaderThrottle);
 };
 

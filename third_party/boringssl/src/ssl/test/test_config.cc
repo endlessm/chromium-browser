@@ -53,6 +53,7 @@ T *FindField(TestConfig *config, const Flag<T> (&flags)[N], const char *flag) {
 const Flag<bool> kBoolFlags[] = {
     {"-server", &TestConfig::is_server},
     {"-dtls", &TestConfig::is_dtls},
+    {"-quic", &TestConfig::is_quic},
     {"-fallback-scsv", &TestConfig::fallback_scsv},
     {"-require-any-client-certificate",
      &TestConfig::require_any_client_certificate},
@@ -134,7 +135,6 @@ const Flag<bool> kBoolFlags[] = {
     {"-ignore-tls13-downgrade", &TestConfig::ignore_tls13_downgrade},
     {"-expect-tls13-downgrade", &TestConfig::expect_tls13_downgrade},
     {"-handoff", &TestConfig::handoff},
-    {"-no-rsa-pss-rsae-certs", &TestConfig::no_rsa_pss_rsae_certs},
     {"-use-ocsp-callback", &TestConfig::use_ocsp_callback},
     {"-set-ocsp-in-callback", &TestConfig::set_ocsp_in_callback},
     {"-decline-ocsp-callback", &TestConfig::decline_ocsp_callback},
@@ -1131,6 +1131,37 @@ static enum ssl_select_cert_result_t SelectCertificateCallback(
   return ssl_select_cert_success;
 }
 
+static int SetQuicEncryptionSecrets(SSL *ssl, enum ssl_encryption_level_t level,
+                                    const uint8_t *read_secret,
+                                    const uint8_t *write_secret,
+                                    size_t secret_len) {
+  return GetTestState(ssl)->quic_transport->SetSecrets(
+      level, read_secret, write_secret, secret_len);
+}
+
+static int AddQuicHandshakeData(SSL *ssl, enum ssl_encryption_level_t level,
+                                const uint8_t *data, size_t len) {
+  return GetTestState(ssl)->quic_transport->WriteHandshakeData(level, data,
+                                                               len);
+}
+
+static int FlushQuicFlight(SSL *ssl) {
+  return GetTestState(ssl)->quic_transport->Flush();
+}
+
+static int SendQuicAlert(SSL *ssl, enum ssl_encryption_level_t level,
+                         uint8_t alert) {
+  // TODO(nharper): Support processing alerts.
+  return 0;
+}
+
+static const SSL_QUIC_METHOD g_quic_method = {
+    SetQuicEncryptionSecrets,
+    AddQuicHandshakeData,
+    FlushQuicFlight,
+    SendQuicAlert,
+};
+
 bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
   bssl::UniquePtr<SSL_CTX> ssl_ctx(
       SSL_CTX_new(is_dtls ? DTLS_method() : TLS_method()));
@@ -1231,9 +1262,6 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
   if (enable_ed25519) {
     SSL_CTX_set_ed25519_enabled(ssl_ctx.get(), 1);
   }
-  if (no_rsa_pss_rsae_certs) {
-    SSL_CTX_set_rsa_pss_rsae_certs_enabled(ssl_ctx.get(), 0);
-  }
 
   if (!verify_prefs.empty()) {
     std::vector<uint16_t> u16s(verify_prefs.begin(), verify_prefs.end());
@@ -1318,6 +1346,10 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
 
   if (server_preference) {
     SSL_CTX_set_options(ssl_ctx.get(), SSL_OP_CIPHER_SERVER_PREFERENCE);
+  }
+
+  if (is_quic) {
+    SSL_CTX_set_quic_method(ssl_ctx.get(), &g_quic_method);
   }
 
   return ssl_ctx;

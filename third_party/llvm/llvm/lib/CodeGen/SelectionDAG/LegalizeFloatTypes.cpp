@@ -100,6 +100,7 @@ void DAGTypeLegalizer::SoftenFloatResult(SDNode *N, unsigned ResNo) {
     case ISD::FNEG:        R = SoftenFloatRes_FNEG(N); break;
     case ISD::STRICT_FP_EXTEND:
     case ISD::FP_EXTEND:   R = SoftenFloatRes_FP_EXTEND(N); break;
+    case ISD::STRICT_FP_ROUND:
     case ISD::FP_ROUND:    R = SoftenFloatRes_FP_ROUND(N); break;
     case ISD::FP16_TO_FP:  R = SoftenFloatRes_FP16_TO_FP(N); break;
     case ISD::STRICT_FPOW:
@@ -124,6 +125,8 @@ void DAGTypeLegalizer::SoftenFloatResult(SDNode *N, unsigned ResNo) {
     case ISD::ATOMIC_SWAP: R = BitcastToInt_ATOMIC_SWAP(N); break;
     case ISD::SELECT:      R = SoftenFloatRes_SELECT(N); break;
     case ISD::SELECT_CC:   R = SoftenFloatRes_SELECT_CC(N); break;
+    case ISD::STRICT_SINT_TO_FP:
+    case ISD::STRICT_UINT_TO_FP:
     case ISD::SINT_TO_FP:
     case ISD::UINT_TO_FP:  R = SoftenFloatRes_XINT_TO_FP(N); break;
     case ISD::UNDEF:       R = SoftenFloatRes_UNDEF(N); break;
@@ -465,6 +468,14 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FP_EXTEND(SDNode *N) {
 
   SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
 
+  if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat) {
+    Op = GetPromotedFloat(Op);
+    // If the promotion did the FP_EXTEND to the destination type for us,
+    // there's nothing left to do here.
+    if (Op.getValueType() == N->getValueType(0))
+      return BitConvertToInteger(Op);
+  }
+
   // There's only a libcall for f16 -> f32, so proceed in two stages. Also, it's
   // entirely possible for both f16 and f32 to be legal, so use the fully
   // hard-float FP_EXTEND rather than FP16_TO_FP.
@@ -475,18 +486,6 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_FP_EXTEND(SDNode *N) {
       Chain = Op.getValue(1);
     } else {
       Op = DAG.getNode(ISD::FP_EXTEND, SDLoc(N), MVT::f32, Op);
-    }
-
-    if (getTypeAction(MVT::f32) == TargetLowering::TypeSoftenFloat)
-      AddToWorklist(Op.getNode());
-  }
-
-  if (getTypeAction(Op.getValueType()) == TargetLowering::TypePromoteFloat) {
-    Op = GetPromotedFloat(Op);
-    // If the promotion did the FP_EXTEND to the destination type for us,
-    // there's nothing left to do here.
-    if (Op.getValueType() == N->getValueType(0)) {
-      return BitConvertToInteger(Op);
     }
   }
 
@@ -663,8 +662,7 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_LOAD(SDNode *N) {
                        L->getAAInfo());
     // Legalized the chain result - switch anything that used the old chain to
     // use the new one.
-    if (N != NewL.getValue(1).getNode())
-      ReplaceValueWith(SDValue(N, 1), NewL.getValue(1));
+    ReplaceValueWith(SDValue(N, 1), NewL.getValue(1));
     return NewL;
   }
 
@@ -719,8 +717,10 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_VAARG(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::SoftenFloatRes_XINT_TO_FP(SDNode *N) {
-  bool Signed = N->getOpcode() == ISD::SINT_TO_FP;
-  EVT SVT = N->getOperand(0).getValueType();
+  bool IsStrict = N->isStrictFPOpcode();
+  bool Signed = N->getOpcode() == ISD::SINT_TO_FP ||
+                N->getOpcode() == ISD::STRICT_SINT_TO_FP;
+  EVT SVT = N->getOperand(IsStrict ? 1 : 0).getValueType();
   EVT RVT = N->getValueType(0);
   EVT NVT = EVT();
   SDLoc dl(N);
@@ -738,16 +738,20 @@ SDValue DAGTypeLegalizer::SoftenFloatRes_XINT_TO_FP(SDNode *N) {
   }
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported XINT_TO_FP!");
 
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
   // Sign/zero extend the argument if the libcall takes a larger type.
   SDValue Op = DAG.getNode(Signed ? ISD::SIGN_EXTEND : ISD::ZERO_EXTEND, dl,
-                           NVT, N->getOperand(0));
+                           NVT, N->getOperand(IsStrict ? 1 : 0));
   TargetLowering::MakeLibCallOptions CallOptions;
   CallOptions.setSExt(Signed);
-  EVT OpsVT[1] = { N->getOperand(0).getValueType() };
-  CallOptions.setTypeListBeforeSoften(OpsVT, N->getValueType(0), true);
-  return TLI.makeLibCall(DAG, LC,
-                         TLI.getTypeToTransformTo(*DAG.getContext(), RVT),
-                         Op, CallOptions, dl).first;
+  CallOptions.setTypeListBeforeSoften(SVT, RVT, true);
+  std::pair<SDValue, SDValue> Tmp =
+      TLI.makeLibCall(DAG, LC, TLI.getTypeToTransformTo(*DAG.getContext(), RVT),
+                      Op, CallOptions, dl, Chain);
+
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
+  return Tmp.first;
 }
 
 
@@ -786,6 +790,8 @@ bool DAGTypeLegalizer::SoftenFloatOperand(SDNode *N, unsigned OpNo) {
   case ISD::STRICT_LLRINT:
   case ISD::LLRINT:      Res = SoftenFloatOp_LLRINT(N); break;
   case ISD::SELECT_CC:   Res = SoftenFloatOp_SELECT_CC(N); break;
+  case ISD::STRICT_FSETCC:
+  case ISD::STRICT_FSETCCS:
   case ISD::SETCC:       Res = SoftenFloatOp_SETCC(N); break;
   case ISD::STORE:       Res = SoftenFloatOp_STORE(N, OpNo); break;
   case ISD::FCOPYSIGN:   Res = SoftenFloatOp_FCOPYSIGN(N); break;
@@ -935,26 +941,39 @@ SDValue DAGTypeLegalizer::SoftenFloatOp_SELECT_CC(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::SoftenFloatOp_SETCC(SDNode *N) {
-  SDValue NewLHS = N->getOperand(0), NewRHS = N->getOperand(1);
-  ISD::CondCode CCCode = cast<CondCodeSDNode>(N->getOperand(2))->get();
+  bool IsStrict = N->isStrictFPOpcode();
+  SDValue Op0 = N->getOperand(IsStrict ? 1 : 0);
+  SDValue Op1 = N->getOperand(IsStrict ? 2 : 1);
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  ISD::CondCode CCCode =
+      cast<CondCodeSDNode>(N->getOperand(IsStrict ? 3 : 2))->get();
 
-  EVT VT = NewLHS.getValueType();
-  NewLHS = GetSoftenedFloat(NewLHS);
-  NewRHS = GetSoftenedFloat(NewRHS);
-  TLI.softenSetCCOperands(DAG, VT, NewLHS, NewRHS, CCCode, SDLoc(N),
-                          N->getOperand(0), N->getOperand(1));
+  EVT VT = Op0.getValueType();
+  SDValue NewLHS = GetSoftenedFloat(Op0);
+  SDValue NewRHS = GetSoftenedFloat(Op1);
+  TLI.softenSetCCOperands(DAG, VT, NewLHS, NewRHS, CCCode, SDLoc(N), Op0, Op1,
+                          Chain, N->getOpcode() == ISD::STRICT_FSETCCS);
 
-  // If softenSetCCOperands returned a scalar, use it.
-  if (!NewRHS.getNode()) {
-    assert(NewLHS.getValueType() == N->getValueType(0) &&
-           "Unexpected setcc expansion!");
-    return NewLHS;
+  // Update N to have the operands specified.
+  if (NewRHS.getNode()) {
+    if (IsStrict)
+      NewLHS = DAG.getNode(ISD::SETCC, SDLoc(N), N->getValueType(0), NewLHS,
+                           NewRHS, DAG.getCondCode(CCCode));
+    else
+      return SDValue(DAG.UpdateNodeOperands(N, NewLHS, NewRHS,
+                                            DAG.getCondCode(CCCode)), 0);
   }
 
-  // Otherwise, update N to have the operands specified.
-  return SDValue(DAG.UpdateNodeOperands(N, NewLHS, NewRHS,
-                                DAG.getCondCode(CCCode)),
-                 0);
+  // Otherwise, softenSetCCOperands returned a scalar, use it.
+  assert((NewRHS.getNode() || NewLHS.getValueType() == N->getValueType(0)) &&
+         "Unexpected setcc expansion!");
+
+  if (IsStrict) {
+    ReplaceValueWith(SDValue(N, 0), NewLHS);
+    ReplaceValueWith(SDValue(N, 1), Chain);
+    return SDValue();
+  }
+  return NewLHS;
 }
 
 SDValue DAGTypeLegalizer::SoftenFloatOp_STORE(SDNode *N, unsigned OpNo) {
@@ -1108,36 +1127,61 @@ void DAGTypeLegalizer::ExpandFloatResult(SDNode *N, unsigned ResNo) {
 
   case ISD::ConstantFP: ExpandFloatRes_ConstantFP(N, Lo, Hi); break;
   case ISD::FABS:       ExpandFloatRes_FABS(N, Lo, Hi); break;
+  case ISD::STRICT_FMINNUM:
   case ISD::FMINNUM:    ExpandFloatRes_FMINNUM(N, Lo, Hi); break;
+  case ISD::STRICT_FMAXNUM:
   case ISD::FMAXNUM:    ExpandFloatRes_FMAXNUM(N, Lo, Hi); break;
+  case ISD::STRICT_FADD:
   case ISD::FADD:       ExpandFloatRes_FADD(N, Lo, Hi); break;
   case ISD::FCBRT:      ExpandFloatRes_FCBRT(N, Lo, Hi); break;
+  case ISD::STRICT_FCEIL:
   case ISD::FCEIL:      ExpandFloatRes_FCEIL(N, Lo, Hi); break;
   case ISD::FCOPYSIGN:  ExpandFloatRes_FCOPYSIGN(N, Lo, Hi); break;
+  case ISD::STRICT_FCOS:
   case ISD::FCOS:       ExpandFloatRes_FCOS(N, Lo, Hi); break;
+  case ISD::STRICT_FDIV:
   case ISD::FDIV:       ExpandFloatRes_FDIV(N, Lo, Hi); break;
+  case ISD::STRICT_FEXP:
   case ISD::FEXP:       ExpandFloatRes_FEXP(N, Lo, Hi); break;
+  case ISD::STRICT_FEXP2:
   case ISD::FEXP2:      ExpandFloatRes_FEXP2(N, Lo, Hi); break;
+  case ISD::STRICT_FFLOOR:
   case ISD::FFLOOR:     ExpandFloatRes_FFLOOR(N, Lo, Hi); break;
+  case ISD::STRICT_FLOG:
   case ISD::FLOG:       ExpandFloatRes_FLOG(N, Lo, Hi); break;
+  case ISD::STRICT_FLOG2:
   case ISD::FLOG2:      ExpandFloatRes_FLOG2(N, Lo, Hi); break;
+  case ISD::STRICT_FLOG10:
   case ISD::FLOG10:     ExpandFloatRes_FLOG10(N, Lo, Hi); break;
+  case ISD::STRICT_FMA:
   case ISD::FMA:        ExpandFloatRes_FMA(N, Lo, Hi); break;
+  case ISD::STRICT_FMUL:
   case ISD::FMUL:       ExpandFloatRes_FMUL(N, Lo, Hi); break;
+  case ISD::STRICT_FNEARBYINT:
   case ISD::FNEARBYINT: ExpandFloatRes_FNEARBYINT(N, Lo, Hi); break;
   case ISD::FNEG:       ExpandFloatRes_FNEG(N, Lo, Hi); break;
+  case ISD::STRICT_FP_EXTEND:
   case ISD::FP_EXTEND:  ExpandFloatRes_FP_EXTEND(N, Lo, Hi); break;
+  case ISD::STRICT_FPOW:
   case ISD::FPOW:       ExpandFloatRes_FPOW(N, Lo, Hi); break;
+  case ISD::STRICT_FPOWI:
   case ISD::FPOWI:      ExpandFloatRes_FPOWI(N, Lo, Hi); break;
+  case ISD::STRICT_FRINT:
   case ISD::FRINT:      ExpandFloatRes_FRINT(N, Lo, Hi); break;
+  case ISD::STRICT_FROUND:
   case ISD::FROUND:     ExpandFloatRes_FROUND(N, Lo, Hi); break;
+  case ISD::STRICT_FSIN:
   case ISD::FSIN:       ExpandFloatRes_FSIN(N, Lo, Hi); break;
+  case ISD::STRICT_FSQRT:
   case ISD::FSQRT:      ExpandFloatRes_FSQRT(N, Lo, Hi); break;
+  case ISD::STRICT_FSUB:
   case ISD::FSUB:       ExpandFloatRes_FSUB(N, Lo, Hi); break;
+  case ISD::STRICT_FTRUNC:
   case ISD::FTRUNC:     ExpandFloatRes_FTRUNC(N, Lo, Hi); break;
   case ISD::LOAD:       ExpandFloatRes_LOAD(N, Lo, Hi); break;
   case ISD::SINT_TO_FP:
   case ISD::UINT_TO_FP: ExpandFloatRes_XINT_TO_FP(N, Lo, Hi); break;
+  case ISD::STRICT_FREM:
   case ISD::FREM:       ExpandFloatRes_FREM(N, Lo, Hi); break;
   }
 
@@ -1161,6 +1205,36 @@ void DAGTypeLegalizer::ExpandFloatRes_ConstantFP(SDNode *N, SDValue &Lo,
                          dl, NVT);
 }
 
+void DAGTypeLegalizer::ExpandFloatRes_Unary(SDNode *N, RTLIB::Libcall LC,
+                                            SDValue &Lo, SDValue &Hi) {
+  bool IsStrict = N->isStrictFPOpcode();
+  unsigned Offset = IsStrict ? 1 : 0;
+  SDValue Op = N->getOperand(0 + Offset);
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  TargetLowering::MakeLibCallOptions CallOptions;
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, N->getValueType(0),
+                                                    Op, CallOptions, SDLoc(N),
+                                                    Chain);
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
+  GetPairElements(Tmp.first, Lo, Hi);
+}
+
+void DAGTypeLegalizer::ExpandFloatRes_Binary(SDNode *N, RTLIB::Libcall LC,
+                                             SDValue &Lo, SDValue &Hi) {
+  bool IsStrict = N->isStrictFPOpcode();
+  unsigned Offset = IsStrict ? 1 : 0;
+  SDValue Ops[] = { N->getOperand(0 + Offset), N->getOperand(1 + Offset) };
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  TargetLowering::MakeLibCallOptions CallOptions;
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, N->getValueType(0),
+                                                    Ops, CallOptions, SDLoc(N),
+                                                    Chain);
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
+  GetPairElements(Tmp.first, Lo, Hi);
+}
+
 void DAGTypeLegalizer::ExpandFloatRes_FABS(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
   assert(N->getValueType(0) == MVT::ppcf128 &&
@@ -1177,190 +1251,159 @@ void DAGTypeLegalizer::ExpandFloatRes_FABS(SDNode *N, SDValue &Lo,
 
 void DAGTypeLegalizer::ExpandFloatRes_FMINNUM(SDNode *N, SDValue &Lo,
                                               SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::FMIN_F32, RTLIB::FMIN_F64,
-                                         RTLIB::FMIN_F80, RTLIB::FMIN_F128,
-                                         RTLIB::FMIN_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::FMIN_F32, RTLIB::FMIN_F64,
+                                       RTLIB::FMIN_F80, RTLIB::FMIN_F128,
+                                       RTLIB::FMIN_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FMAXNUM(SDNode *N, SDValue &Lo,
                                               SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::FMAX_F32, RTLIB::FMAX_F64,
-                                         RTLIB::FMAX_F80, RTLIB::FMAX_F128,
-                                         RTLIB::FMAX_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::FMAX_F32, RTLIB::FMAX_F64,
+                                        RTLIB::FMAX_F80, RTLIB::FMAX_F128,
+                                        RTLIB::FMAX_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FADD(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::ADD_F32, RTLIB::ADD_F64,
-                                         RTLIB::ADD_F80, RTLIB::ADD_F128,
-                                         RTLIB::ADD_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::ADD_F32, RTLIB::ADD_F64,
+                                        RTLIB::ADD_F80, RTLIB::ADD_F128,
+                                        RTLIB::ADD_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FCBRT(SDNode *N, SDValue &Lo,
                                             SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0), RTLIB::CBRT_F32,
-                                         RTLIB::CBRT_F64, RTLIB::CBRT_F80,
-                                         RTLIB::CBRT_F128, RTLIB::CBRT_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0), RTLIB::CBRT_F32,
+                                       RTLIB::CBRT_F64, RTLIB::CBRT_F80,
+                                       RTLIB::CBRT_F128,
+                                       RTLIB::CBRT_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FCEIL(SDNode *N,
                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::CEIL_F32, RTLIB::CEIL_F64,
-                                         RTLIB::CEIL_F80, RTLIB::CEIL_F128,
-                                         RTLIB::CEIL_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::CEIL_F32, RTLIB::CEIL_F64,
+                                       RTLIB::CEIL_F80, RTLIB::CEIL_F128,
+                                       RTLIB::CEIL_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FCOPYSIGN(SDNode *N,
                                                 SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::COPYSIGN_F32,
-                                         RTLIB::COPYSIGN_F64,
-                                         RTLIB::COPYSIGN_F80,
-                                         RTLIB::COPYSIGN_F128,
-                                         RTLIB::COPYSIGN_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::COPYSIGN_F32,
+                                        RTLIB::COPYSIGN_F64,
+                                        RTLIB::COPYSIGN_F80,
+                                        RTLIB::COPYSIGN_F128,
+                                        RTLIB::COPYSIGN_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FCOS(SDNode *N,
                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::COS_F32, RTLIB::COS_F64,
-                                         RTLIB::COS_F80, RTLIB::COS_F128,
-                                         RTLIB::COS_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::COS_F32, RTLIB::COS_F64,
+                                       RTLIB::COS_F80, RTLIB::COS_F128,
+                                       RTLIB::COS_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FDIV(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
-  TargetLowering::MakeLibCallOptions CallOptions;
-  SDValue Call = TLI.makeLibCall(DAG, GetFPLibCall(N->getValueType(0),
-                                                   RTLIB::DIV_F32,
-                                                   RTLIB::DIV_F64,
-                                                   RTLIB::DIV_F80,
-                                                   RTLIB::DIV_F128,
-                                                   RTLIB::DIV_PPCF128),
-                                 N->getValueType(0), Ops, CallOptions,
-                                 SDLoc(N)).first;
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::DIV_F32,
+                                        RTLIB::DIV_F64,
+                                        RTLIB::DIV_F80,
+                                        RTLIB::DIV_F128,
+                                        RTLIB::DIV_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FEXP(SDNode *N,
                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::EXP_F32, RTLIB::EXP_F64,
-                                         RTLIB::EXP_F80, RTLIB::EXP_F128,
-                                         RTLIB::EXP_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::EXP_F32, RTLIB::EXP_F64,
+                                       RTLIB::EXP_F80, RTLIB::EXP_F128,
+                                       RTLIB::EXP_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FEXP2(SDNode *N,
                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::EXP2_F32, RTLIB::EXP2_F64,
-                                         RTLIB::EXP2_F80, RTLIB::EXP2_F128,
-                                         RTLIB::EXP2_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::EXP2_F32, RTLIB::EXP2_F64,
+                                       RTLIB::EXP2_F80, RTLIB::EXP2_F128,
+                                       RTLIB::EXP2_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FFLOOR(SDNode *N,
                                              SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::FLOOR_F32, RTLIB::FLOOR_F64,
-                                         RTLIB::FLOOR_F80, RTLIB::FLOOR_F128,
-                                         RTLIB::FLOOR_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::FLOOR_F32, RTLIB::FLOOR_F64,
+                                       RTLIB::FLOOR_F80, RTLIB::FLOOR_F128,
+                                       RTLIB::FLOOR_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FLOG(SDNode *N,
                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::LOG_F32, RTLIB::LOG_F64,
-                                         RTLIB::LOG_F80, RTLIB::LOG_F128,
-                                         RTLIB::LOG_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::LOG_F32, RTLIB::LOG_F64,
+                                       RTLIB::LOG_F80, RTLIB::LOG_F128,
+                                       RTLIB::LOG_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FLOG2(SDNode *N,
                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::LOG2_F32, RTLIB::LOG2_F64,
-                                         RTLIB::LOG2_F80, RTLIB::LOG2_F128,
-                                         RTLIB::LOG2_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::LOG2_F32, RTLIB::LOG2_F64,
+                                       RTLIB::LOG2_F80, RTLIB::LOG2_F128,
+                                       RTLIB::LOG2_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FLOG10(SDNode *N,
                                              SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::LOG10_F32, RTLIB::LOG10_F64,
-                                         RTLIB::LOG10_F80, RTLIB::LOG10_F128,
-                                         RTLIB::LOG10_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::LOG10_F32, RTLIB::LOG10_F64,
+                                       RTLIB::LOG10_F80, RTLIB::LOG10_F128,
+                                       RTLIB::LOG10_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FMA(SDNode *N, SDValue &Lo,
                                           SDValue &Hi) {
-  SDValue Ops[3] = { N->getOperand(0), N->getOperand(1), N->getOperand(2) };
+  bool IsStrict = N->isStrictFPOpcode();
+  unsigned Offset = IsStrict ? 1 : 0;
+  SDValue Ops[3] = { N->getOperand(0 + Offset), N->getOperand(1 + Offset),
+                     N->getOperand(2 + Offset) };
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
   TargetLowering::MakeLibCallOptions CallOptions;
-  SDValue Call = TLI.makeLibCall(DAG, GetFPLibCall(N->getValueType(0),
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, GetFPLibCall(N->getValueType(0),
                                                    RTLIB::FMA_F32,
                                                    RTLIB::FMA_F64,
                                                    RTLIB::FMA_F80,
                                                    RTLIB::FMA_F128,
                                                    RTLIB::FMA_PPCF128),
                                  N->getValueType(0), Ops, CallOptions,
-                                 SDLoc(N)).first;
-  GetPairElements(Call, Lo, Hi);
+                                 SDLoc(N), Chain);
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Tmp.second);
+  GetPairElements(Tmp.first, Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FMUL(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
-  TargetLowering::MakeLibCallOptions CallOptions;
-  SDValue Call = TLI.makeLibCall(DAG, GetFPLibCall(N->getValueType(0),
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
                                                    RTLIB::MUL_F32,
                                                    RTLIB::MUL_F64,
                                                    RTLIB::MUL_F80,
                                                    RTLIB::MUL_F128,
-                                                   RTLIB::MUL_PPCF128),
-                                 N->getValueType(0), Ops, CallOptions,
-                                 SDLoc(N)).first;
-  GetPairElements(Call, Lo, Hi);
+                                                   RTLIB::MUL_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FNEARBYINT(SDNode *N,
                                                  SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::NEARBYINT_F32,
-                                         RTLIB::NEARBYINT_F64,
-                                         RTLIB::NEARBYINT_F80,
-                                         RTLIB::NEARBYINT_F128,
-                                         RTLIB::NEARBYINT_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::NEARBYINT_F32,
+                                       RTLIB::NEARBYINT_F64,
+                                       RTLIB::NEARBYINT_F80,
+                                       RTLIB::NEARBYINT_F128,
+                                       RTLIB::NEARBYINT_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FNEG(SDNode *N, SDValue &Lo,
@@ -1375,106 +1418,105 @@ void DAGTypeLegalizer::ExpandFloatRes_FP_EXTEND(SDNode *N, SDValue &Lo,
                                                 SDValue &Hi) {
   EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), N->getValueType(0));
   SDLoc dl(N);
-  Hi = DAG.getNode(ISD::FP_EXTEND, dl, NVT, N->getOperand(0));
+  bool IsStrict = N->isStrictFPOpcode();
+
+  SDValue Chain;
+  if (IsStrict) {
+    // If the expanded type is the same as the input type, just bypass the node.
+    if (NVT == N->getOperand(1).getValueType()) {
+      Hi = N->getOperand(1);
+      Chain = N->getOperand(0);
+    } else {
+      // Other we need to extend.
+      Hi = DAG.getNode(ISD::STRICT_FP_EXTEND, dl, { NVT, MVT::Other },
+                       { N->getOperand(0), N->getOperand(1) });
+      Chain = Hi.getValue(1);
+    }
+  } else {
+    Hi = DAG.getNode(ISD::FP_EXTEND, dl, NVT, N->getOperand(0));
+  }
+
   Lo = DAG.getConstantFP(APFloat(DAG.EVTToAPFloatSemantics(NVT),
                                  APInt(NVT.getSizeInBits(), 0)), dl, NVT);
+
+  if (IsStrict)
+    ReplaceValueWith(SDValue(N, 1), Chain);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FPOW(SDNode *N,
                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::POW_F32, RTLIB::POW_F64,
-                                         RTLIB::POW_F80, RTLIB::POW_F128,
-                                         RTLIB::POW_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::POW_F32, RTLIB::POW_F64,
+                                        RTLIB::POW_F80, RTLIB::POW_F128,
+                                        RTLIB::POW_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FPOWI(SDNode *N,
                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::POWI_F32, RTLIB::POWI_F64,
-                                         RTLIB::POWI_F80, RTLIB::POWI_F128,
-                                         RTLIB::POWI_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::POWI_F32, RTLIB::POWI_F64,
+                                        RTLIB::POWI_F80, RTLIB::POWI_F128,
+                                        RTLIB::POWI_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FREM(SDNode *N,
                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::REM_F32, RTLIB::REM_F64,
-                                         RTLIB::REM_F80, RTLIB::REM_F128,
-                                         RTLIB::REM_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::REM_F32, RTLIB::REM_F64,
+                                        RTLIB::REM_F80, RTLIB::REM_F128,
+                                        RTLIB::REM_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FRINT(SDNode *N,
                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::RINT_F32, RTLIB::RINT_F64,
-                                         RTLIB::RINT_F80, RTLIB::RINT_F128,
-                                         RTLIB::RINT_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::RINT_F32, RTLIB::RINT_F64,
+                                       RTLIB::RINT_F80, RTLIB::RINT_F128,
+                                       RTLIB::RINT_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FROUND(SDNode *N,
                                              SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::ROUND_F32,
-                                         RTLIB::ROUND_F64,
-                                         RTLIB::ROUND_F80,
-                                         RTLIB::ROUND_F128,
-                                         RTLIB::ROUND_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::ROUND_F32,
+                                       RTLIB::ROUND_F64,
+                                       RTLIB::ROUND_F80,
+                                       RTLIB::ROUND_F128,
+                                       RTLIB::ROUND_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FSIN(SDNode *N,
                                            SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::SIN_F32, RTLIB::SIN_F64,
-                                         RTLIB::SIN_F80, RTLIB::SIN_F128,
-                                         RTLIB::SIN_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::SIN_F32, RTLIB::SIN_F64,
+                                       RTLIB::SIN_F80, RTLIB::SIN_F128,
+                                       RTLIB::SIN_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FSQRT(SDNode *N,
                                             SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::SQRT_F32, RTLIB::SQRT_F64,
-                                         RTLIB::SQRT_F80, RTLIB::SQRT_F128,
-                                         RTLIB::SQRT_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::SQRT_F32, RTLIB::SQRT_F64,
+                                       RTLIB::SQRT_F80, RTLIB::SQRT_F128,
+                                       RTLIB::SQRT_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FSUB(SDNode *N, SDValue &Lo,
                                            SDValue &Hi) {
-  SDValue Ops[2] = { N->getOperand(0), N->getOperand(1) };
-  TargetLowering::MakeLibCallOptions CallOptions;
-  SDValue Call = TLI.makeLibCall(DAG, GetFPLibCall(N->getValueType(0),
-                                                   RTLIB::SUB_F32,
-                                                   RTLIB::SUB_F64,
-                                                   RTLIB::SUB_F80,
-                                                   RTLIB::SUB_F128,
-                                                   RTLIB::SUB_PPCF128),
-                                 N->getValueType(0), Ops, CallOptions,
-                                 SDLoc(N)).first;
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Binary(N, GetFPLibCall(N->getValueType(0),
+                                        RTLIB::SUB_F32,
+                                        RTLIB::SUB_F64,
+                                        RTLIB::SUB_F80,
+                                        RTLIB::SUB_F128,
+                                        RTLIB::SUB_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_FTRUNC(SDNode *N,
                                              SDValue &Lo, SDValue &Hi) {
-  SDValue Call = LibCallify(GetFPLibCall(N->getValueType(0),
-                                         RTLIB::TRUNC_F32, RTLIB::TRUNC_F64,
-                                         RTLIB::TRUNC_F80, RTLIB::TRUNC_F128,
-                                         RTLIB::TRUNC_PPCF128),
-                            N, false);
-  GetPairElements(Call, Lo, Hi);
+  ExpandFloatRes_Unary(N, GetFPLibCall(N->getValueType(0),
+                                       RTLIB::TRUNC_F32, RTLIB::TRUNC_F64,
+                                       RTLIB::TRUNC_F80, RTLIB::TRUNC_F128,
+                                       RTLIB::TRUNC_PPCF128), Lo, Hi);
 }
 
 void DAGTypeLegalizer::ExpandFloatRes_LOAD(SDNode *N, SDValue &Lo,
@@ -1615,8 +1657,11 @@ bool DAGTypeLegalizer::ExpandFloatOperand(SDNode *N, unsigned OpNo) {
 
   case ISD::BR_CC:      Res = ExpandFloatOp_BR_CC(N); break;
   case ISD::FCOPYSIGN:  Res = ExpandFloatOp_FCOPYSIGN(N); break;
+  case ISD::STRICT_FP_ROUND:
   case ISD::FP_ROUND:   Res = ExpandFloatOp_FP_ROUND(N); break;
+  case ISD::STRICT_FP_TO_SINT:
   case ISD::FP_TO_SINT: Res = ExpandFloatOp_FP_TO_SINT(N); break;
+  case ISD::STRICT_FP_TO_UINT:
   case ISD::FP_TO_UINT: Res = ExpandFloatOp_FP_TO_UINT(N); break;
   case ISD::LROUND:     Res = ExpandFloatOp_LROUND(N); break;
   case ISD::LLROUND:    Res = ExpandFloatOp_LLROUND(N); break;
@@ -1705,34 +1750,72 @@ SDValue DAGTypeLegalizer::ExpandFloatOp_FCOPYSIGN(SDNode *N) {
 }
 
 SDValue DAGTypeLegalizer::ExpandFloatOp_FP_ROUND(SDNode *N) {
-  assert(N->getOperand(0).getValueType() == MVT::ppcf128 &&
+  bool IsStrict = N->isStrictFPOpcode();
+  assert(N->getOperand(IsStrict ? 1 : 0).getValueType() == MVT::ppcf128 &&
          "Logic only correct for ppcf128!");
   SDValue Lo, Hi;
-  GetExpandedFloat(N->getOperand(0), Lo, Hi);
-  // Round it the rest of the way (e.g. to f32) if needed.
-  return DAG.getNode(ISD::FP_ROUND, SDLoc(N),
-                     N->getValueType(0), Hi, N->getOperand(1));
+  GetExpandedFloat(N->getOperand(IsStrict ? 1 : 0), Lo, Hi);
+
+  if (!IsStrict)
+    // Round it the rest of the way (e.g. to f32) if needed.
+    return DAG.getNode(ISD::FP_ROUND, SDLoc(N),
+                       N->getValueType(0), Hi, N->getOperand(1));
+
+  // Eliminate the node if the input float type is the same as the output float
+  // type.
+  if (Hi.getValueType() == N->getValueType(0)) {
+    // Connect the output chain to the input chain, unlinking the node.
+    ReplaceValueWith(SDValue(N, 1), N->getOperand(0));
+    ReplaceValueWith(SDValue(N, 0), Hi);
+    return SDValue();
+  }
+
+  SDValue Expansion = DAG.getNode(ISD::STRICT_FP_ROUND, SDLoc(N),
+                                  {N->getValueType(0), MVT::Other},
+                                  {N->getOperand(0), Hi, N->getOperand(2)});
+  ReplaceValueWith(SDValue(N, 1), Expansion.getValue(1));
+  ReplaceValueWith(SDValue(N, 0), Expansion);
+  return SDValue();
 }
 
 SDValue DAGTypeLegalizer::ExpandFloatOp_FP_TO_SINT(SDNode *N) {
   EVT RVT = N->getValueType(0);
   SDLoc dl(N);
 
-  RTLIB::Libcall LC = RTLIB::getFPTOSINT(N->getOperand(0).getValueType(), RVT);
+  bool IsStrict = N->isStrictFPOpcode();
+  SDValue Op = N->getOperand(IsStrict ? 1 : 0);
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  RTLIB::Libcall LC = RTLIB::getFPTOSINT(Op.getValueType(), RVT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported FP_TO_SINT!");
   TargetLowering::MakeLibCallOptions CallOptions;
-  return TLI.makeLibCall(DAG, LC, RVT, N->getOperand(0), CallOptions, dl).first;
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, RVT, Op,
+                                                    CallOptions, dl, Chain);
+  if (!IsStrict)
+    return Tmp.first;
+
+  ReplaceValueWith(SDValue(N, 1), Tmp.second);
+  ReplaceValueWith(SDValue(N, 0), Tmp.first);
+  return SDValue();
 }
 
 SDValue DAGTypeLegalizer::ExpandFloatOp_FP_TO_UINT(SDNode *N) {
   EVT RVT = N->getValueType(0);
   SDLoc dl(N);
 
-  RTLIB::Libcall LC = RTLIB::getFPTOUINT(N->getOperand(0).getValueType(), RVT);
+  bool IsStrict = N->isStrictFPOpcode();
+  SDValue Op = N->getOperand(IsStrict ? 1 : 0);
+  SDValue Chain = IsStrict ? N->getOperand(0) : SDValue();
+  RTLIB::Libcall LC = RTLIB::getFPTOUINT(Op.getValueType(), RVT);
   assert(LC != RTLIB::UNKNOWN_LIBCALL && "Unsupported FP_TO_UINT!");
   TargetLowering::MakeLibCallOptions CallOptions;
-  return TLI.makeLibCall(DAG, LC, N->getValueType(0), N->getOperand(0),
-                         CallOptions, dl).first;
+  std::pair<SDValue, SDValue> Tmp = TLI.makeLibCall(DAG, LC, RVT, Op,
+                                                    CallOptions, dl, Chain);
+  if (!IsStrict)
+    return Tmp.first;
+
+  ReplaceValueWith(SDValue(N, 1), Tmp.second);
+  ReplaceValueWith(SDValue(N, 0), Tmp.first);
+  return SDValue();
 }
 
 SDValue DAGTypeLegalizer::ExpandFloatOp_SELECT_CC(SDNode *N) {
@@ -1959,12 +2042,11 @@ SDValue DAGTypeLegalizer::PromoteFloatOp_SELECT_CC(SDNode *N, unsigned OpNo) {
 // code.
 SDValue DAGTypeLegalizer::PromoteFloatOp_SETCC(SDNode *N, unsigned OpNo) {
   EVT VT = N->getValueType(0);
-  EVT NVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
   SDValue Op0 = GetPromotedFloat(N->getOperand(0));
   SDValue Op1 = GetPromotedFloat(N->getOperand(1));
   ISD::CondCode CCCode = cast<CondCodeSDNode>(N->getOperand(2))->get();
 
-  return DAG.getSetCC(SDLoc(N), NVT, Op0, Op1, CCCode);
+  return DAG.getSetCC(SDLoc(N), VT, Op0, Op1, CCCode);
 
 }
 
@@ -2301,7 +2383,6 @@ SDValue DAGTypeLegalizer::PromoteFloatRes_UNDEF(SDNode *N) {
 
 SDValue DAGTypeLegalizer::BitcastToInt_ATOMIC_SWAP(SDNode *N) {
   EVT VT = N->getValueType(0);
-  EVT NFPVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
 
   AtomicSDNode *AM = cast<AtomicSDNode>(N);
   SDLoc SL(N);
@@ -2315,13 +2396,19 @@ SDValue DAGTypeLegalizer::BitcastToInt_ATOMIC_SWAP(SDNode *N) {
                     { AM->getChain(), AM->getBasePtr(), CastVal },
                     AM->getMemOperand());
 
-  SDValue ResultCast = DAG.getNode(GetPromotionOpcode(VT, NFPVT), SL, NFPVT,
-                                   NewAtomic);
+  SDValue Result = NewAtomic;
+
+  if (getTypeAction(VT) == TargetLowering::TypePromoteFloat) {
+    EVT NFPVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
+    Result = DAG.getNode(GetPromotionOpcode(VT, NFPVT), SL, NFPVT,
+                                     NewAtomic);
+  }
+
   // Legalize the chain result by replacing uses of the old value chain with the
   // new one
   ReplaceValueWith(SDValue(N, 1), NewAtomic.getValue(1));
 
-  return ResultCast;
+  return Result;
 
 }
 

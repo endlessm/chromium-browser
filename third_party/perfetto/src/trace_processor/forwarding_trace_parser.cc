@@ -21,7 +21,6 @@
 #include "src/trace_processor/gzip_trace_parser.h"
 #include "src/trace_processor/importers/proto/proto_trace_parser.h"
 #include "src/trace_processor/importers/proto/proto_trace_tokenizer.h"
-#include "src/trace_processor/importers/systrace/systrace_trace_parser.h"
 #include "src/trace_processor/trace_sorter.h"
 
 #if PERFETTO_BUILDFLAG(PERFETTO_TP_FUCHSIA)
@@ -40,9 +39,18 @@ namespace perfetto {
 namespace trace_processor {
 namespace {
 
+#if !PERFETTO_BUILDFLAG(PERFETTO_ZLIB)
+const char kNoZlibErr[] =
+    "Cannot open compressed trace. zlib not enabled in the build config";
+#endif
+
+inline bool isspace(unsigned char c) {
+  return ::isspace(c);
+}
+
 std::string RemoveWhitespace(const std::string& input) {
   std::string str(input);
-  str.erase(std::remove_if(str.begin(), str.end(), ::isspace), str.end());
+  str.erase(std::remove_if(str.begin(), str.end(), isspace), str.end());
   return str;
 }
 
@@ -108,20 +116,28 @@ util::Status ForwardingTraceParser::Parse(std::unique_ptr<uint8_t[]> data,
       }
       case kSystraceTraceType:
         PERFETTO_DLOG("Systrace trace detected");
-#if PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
-        reader_.reset(new SystraceTraceParser(context_));
-        break;
-#else   // PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
-        return util::ErrStatus("Systrace support is disabled");
-#endif  // PERFETTO_BUILDFLAG(PERFETTO_TP_FTRACE)
+        if (context_->systrace_trace_parser) {
+          reader_ = std::move(context_->systrace_trace_parser);
+          break;
+        } else {
+          return util::ErrStatus("Systrace support is disabled");
+        }
       case kGzipTraceType:
         PERFETTO_DLOG("gzip trace detected");
+#if PERFETTO_BUILDFLAG(PERFETTO_ZLIB)
         reader_.reset(new GzipTraceParser(context_));
         break;
+#else
+        return util::ErrStatus(kNoZlibErr);
+#endif
       case kCtraceTraceType:
         PERFETTO_DLOG("ctrace trace detected");
+#if PERFETTO_BUILDFLAG(PERFETTO_ZLIB)
         reader_.reset(new GzipTraceParser(context_));
         break;
+#else
+        return util::ErrStatus(kNoZlibErr);
+#endif
       case kUnknownTraceType:
         return util::ErrStatus("Unknown trace type provided");
     }

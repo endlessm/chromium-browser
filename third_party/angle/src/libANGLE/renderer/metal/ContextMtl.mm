@@ -108,7 +108,7 @@ angle::Result ContextMtl::initialize()
     mBlendDesc.reset();
     mDepthStencilDesc.reset();
 
-    mTriFanIndexBuffer.initialize(this, 0, mtl::kBufferSettingOffsetAlignment,
+    mTriFanIndexBuffer.initialize(this, 0, mtl::kIndexBufferOffsetAlignment,
                                   kMaxTriFanLineLoopBuffersPerFrame);
     mLineLoopIndexBuffer.initialize(this, 0, 2 * sizeof(uint32_t),
                                     kMaxTriFanLineLoopBuffersPerFrame);
@@ -573,11 +573,15 @@ angle::Result ContextMtl::syncState(const gl::Context *context,
                 break;
             case gl::State::DIRTY_BIT_STENCIL_FUNCS_FRONT:
                 mDepthStencilDesc.updateStencilFrontFuncs(glState.getDepthStencilState());
+                mStencilRefFront =
+                    gl::clamp<int, int, int>(glState.getStencilRef(), 0, mtl::kStencilMaskAll);
                 mDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_DESC);
                 mDirtyBits.set(DIRTY_BIT_STENCIL_REF);
                 break;
             case gl::State::DIRTY_BIT_STENCIL_FUNCS_BACK:
                 mDepthStencilDesc.updateStencilBackFuncs(glState.getDepthStencilState());
+                mStencilRefBack =
+                    gl::clamp<int, int, int>(glState.getStencilBackRef(), 0, mtl::kStencilMaskAll);
                 mDirtyBits.set(DIRTY_BIT_DEPTH_STENCIL_DESC);
                 mDirtyBits.set(DIRTY_BIT_STENCIL_REF);
                 break;
@@ -626,6 +630,7 @@ angle::Result ContextMtl::syncState(const gl::Context *context,
             case gl::State::DIRTY_BIT_CLEAR_DEPTH:
                 break;
             case gl::State::DIRTY_BIT_CLEAR_STENCIL:
+                mClearStencil = glState.getStencilClearValue() & mtl::kStencilMaskAll;
                 break;
             case gl::State::DIRTY_BIT_UNPACK_STATE:
                 // This is a no-op, its only important to use the right unpack state when we do
@@ -979,16 +984,16 @@ float ContextMtl::getClearDepthValue() const
 }
 uint32_t ContextMtl::getClearStencilValue() const
 {
-    return static_cast<uint32_t>(getState().getStencilClearValue());
+    return mClearStencil;
 }
 uint32_t ContextMtl::getStencilMask() const
 {
-    return getState().getDepthStencilState().stencilWritemask;
+    return getState().getDepthStencilState().stencilWritemask & mtl::kStencilMaskAll;
 }
 
-bool ContextMtl::isDepthWriteEnabled() const
+bool ContextMtl::getDepthMask() const
 {
-    return mDepthStencilDesc.depthWriteEnabled;
+    return getState().getDepthStencilState().depthMask;
 }
 
 const mtl::Format &ContextMtl::getPixelFormat(angle::FormatID angleFormatId) const
@@ -1430,8 +1435,8 @@ angle::Result ContextMtl::setupDraw(const gl::Context *context,
                 ANGLE_TRY(handleDirtyDepthBias(context));
                 break;
             case DIRTY_BIT_STENCIL_REF:
-                mRenderEncoder.setStencilRefVals(mState.getStencilRef(),
-                                                 mState.getStencilBackRef());
+                mRenderEncoder.setStencilRefVals(mStencilRefFront,
+                                                 mStencilRefBack);
                 break;
             case DIRTY_BIT_BLEND_COLOR:
                 mRenderEncoder.setBlendColor(

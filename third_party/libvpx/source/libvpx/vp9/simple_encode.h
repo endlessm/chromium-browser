@@ -25,6 +25,95 @@ enum FrameType {
   kAlternateReference,
 };
 
+struct EncodeFrameInfo {
+  int show_idx;
+  FrameType frame_type;
+};
+
+// This structure is a copy of vp9 |nmv_component_counts|.
+struct NewMotionvectorComponentCounts {
+  std::vector<unsigned int> sign;
+  std::vector<unsigned int> classes;
+  std::vector<unsigned int> class0;
+  std::vector<std::vector<unsigned int>> bits;
+  std::vector<std::vector<unsigned int>> class0_fp;
+  std::vector<unsigned int> fp;
+  std::vector<unsigned int> class0_hp;
+  std::vector<unsigned int> hp;
+};
+
+// This structure is a copy of vp9 |nmv_context_counts|.
+struct NewMotionVectorContextCounts {
+  std::vector<unsigned int> joints;
+  std::vector<NewMotionvectorComponentCounts> comps;
+};
+
+// This structure is a copy of vp9 |tx_counts|.
+struct TransformSizeCounts {
+  // Transform size found in blocks of partition size 32x32.
+  // First dimension: transform size contexts (2).
+  // Second dimension: transform size type (3: 32x32, 16x16, 8x8)
+  std::vector<std::vector<unsigned int>> p32x32;
+  // Transform size found in blocks of partition size 16x16.
+  // First dimension: transform size contexts (2).
+  // Second dimension: transform size type (2: 16x16, 8x8)
+  std::vector<std::vector<unsigned int>> p16x16;
+  // Transform size found in blocks of partition size 8x8.
+  // First dimension: transform size contexts (2).
+  // Second dimension: transform size type (1: 8x8)
+  std::vector<std::vector<unsigned int>> p8x8;
+  // Overall transform size count.
+  std::vector<unsigned int> tx_totals;
+};
+
+// This structure is a copy of vp9 |FRAME_COUNTS|.
+struct FrameCounts {
+  // Intra prediction mode for luma plane. First dimension: block size (4).
+  // Second dimension: intra prediction mode (10).
+  std::vector<std::vector<unsigned int>> y_mode;
+  // Intra prediction mode for chroma plane. First and second dimension:
+  // intra prediction mode (10).
+  std::vector<std::vector<unsigned int>> uv_mode;
+  // Partition type. First dimension: partition contexts (16).
+  // Second dimension: partition type (4).
+  std::vector<std::vector<unsigned int>> partition;
+  // Transform coefficient.
+  std::vector<std::vector<
+      std::vector<std::vector<std::vector<std::vector<unsigned int>>>>>>
+      coef;
+  // End of block (the position of the last non-zero transform coefficient)
+  std::vector<std::vector<std::vector<std::vector<std::vector<unsigned int>>>>>
+      eob_branch;
+  // Interpolation filter type. First dimension: switchable filter contexts (4).
+  // Second dimension: filter types (3).
+  std::vector<std::vector<unsigned int>> switchable_interp;
+  // Inter prediction mode (the motion vector type).
+  // First dimension: inter mode contexts (7).
+  // Second dimension: mode type (4).
+  std::vector<std::vector<unsigned int>> inter_mode;
+  // Block is intra or inter predicted. First dimension: contexts (4).
+  // Second dimension: type (0 for intra, 1 for inter).
+  std::vector<std::vector<unsigned int>> intra_inter;
+  // Block is compound predicted (predicted from average of two blocks).
+  // First dimension: contexts (5).
+  // Second dimension: type (0 for single, 1 for compound prediction).
+  std::vector<std::vector<unsigned int>> comp_inter;
+  // Type of the reference frame. Only one reference frame.
+  // First dimension: context (5). Second dimension: context (2).
+  // Third dimension: count (2).
+  std::vector<std::vector<std::vector<unsigned int>>> single_ref;
+  // Type of the two reference frames.
+  // First dimension: context (5). Second dimension: count (2).
+  std::vector<std::vector<unsigned int>> comp_ref;
+  // Block skips transform and quantization, uses prediction as reconstruction.
+  // First dimension: contexts (3). Second dimension: type (0 not skip, 1 skip).
+  std::vector<std::vector<unsigned int>> skip;
+  // Transform size.
+  TransformSizeCounts tx;
+  // New motion vector.
+  NewMotionVectorContextCounts mv;
+};
+
 struct EncodeFrameResult {
   int show_idx;
   FrameType frame_type;
@@ -36,6 +125,29 @@ struct EncodeFrameResult {
   double psnr;
   uint64_t sse;
   int quantize_index;
+  FrameCounts frame_counts;
+};
+
+struct GroupOfPicture {
+  // This list will be updated internally in StartEncode() and
+  // EncodeFrame()/EncodeFrameWithQuantizeIndex().
+  // In EncodeFrame()/EncodeFrameWithQuantizeIndex(), the update will only be
+  // triggered when the coded frame is the last one in the previous group of
+  // pictures.
+  std::vector<EncodeFrameInfo> encode_frame_list;
+  // Indicates the index of the next coding frame in encode_frame_list.
+  // In other words, EncodeFrameInfo of the next coding frame can be
+  // obtained with encode_frame_list[next_encode_frame_index].
+  // Internally, next_encode_frame_index will be set to zero after the last
+  // frame of the group of pictures is coded. Otherwise, next_encode_frame_index
+  // will be increased after each EncodeFrame()/EncodeFrameWithQuantizeIndex()
+  // call.
+  int next_encode_frame_index;
+  // Number of show frames in this group of pictures.
+  int show_frame_count;
+  // The show index/timestamp of the earliest show frame in the group of
+  // pictures.
+  int start_show_index;
 };
 
 class SimpleEncode {
@@ -51,7 +163,10 @@ class SimpleEncode {
   // future encode.
   void ComputeFirstPassStats();
 
-  // Outputs the first pass stats.
+  // Outputs the first pass stats represented by a 2-D vector.
+  // One can use the frame index at first dimension to retrieve the stats for
+  // each video frame. The stats of each video frame is a vector of 25 double
+  // values. For details, please check FIRSTPASS_STATS in vp9_firstpass.h
   std::vector<std::vector<double>> ObserveFirstPassStats();
 
   // Initializes the encoder for actual encoding.
@@ -61,6 +176,21 @@ class SimpleEncode {
   // Frees the encoder.
   // This function should be called after StartEncode() or EncodeFrame().
   void EndEncode();
+
+  // Given a key_frame_index, computes this key frame group's size.
+  // The key frame group size includes one key frame plus the number of
+  // following inter frames. Note that the key frame group size only counts the
+  // show frames. The number of no show frames like alternate refereces are not
+  // counted.
+  int GetKeyFrameGroupSize(int key_frame_index) const;
+
+  // Provides the group of pictures that the next coding frame is in.
+  // Only call this function between StartEncode() and EndEncode()
+  GroupOfPicture ObserveGroupOfPicture() const;
+
+  // Gets encode_frame_info for the next coding frame.
+  // Only call this function between StartEncode() and EndEncode()
+  EncodeFrameInfo GetNextEncodeFrameInfo() const;
 
   // Encodes a frame
   // This function should be called after StartEncode() and before EndEncode().
@@ -76,6 +206,9 @@ class SimpleEncode {
   // This function should be called after ComputeFirstPassStats().
   int GetCodingFrameNum() const;
 
+  // Gets the total number of pixels of YUV planes per frame.
+  uint64_t GetFramePixelCount() const;
+
  private:
   class EncodeImpl;
 
@@ -87,6 +220,8 @@ class SimpleEncode {
   int num_frames_;
   std::FILE *file_;
   std::unique_ptr<EncodeImpl> impl_ptr_;
+
+  GroupOfPicture group_of_picture_;
 };
 
 }  // namespace vp9

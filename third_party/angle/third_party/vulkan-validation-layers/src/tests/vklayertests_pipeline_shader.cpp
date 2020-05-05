@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1103,6 +1103,7 @@ TEST_F(VkLayerTest, InvalidCmdBufferPipelineDestroyed) {
 }
 
 TEST_F(VkLayerTest, InvalidPipeline) {
+    SetTargetApiVersion(VK_API_VERSION_1_2);
     uint64_t fake_pipeline_handle = 0xbaad6001;
     VkPipeline bad_pipeline = reinterpret_cast<VkPipeline &>(fake_pipeline_handle);
 
@@ -1151,18 +1152,39 @@ TEST_F(VkLayerTest, InvalidPipeline) {
             (PFN_vkCmdDrawIndirectCountKHR)vk::GetDeviceProcAddr(m_device->device(), "vkCmdDrawIndirectCountKHR");
         ASSERT_NE(fpCmdDrawIndirectCountKHR, nullptr);
 
-        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndirectCountKHR-None-02700");
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndirectCount-None-02700");
         // stride must be a multiple of 4 and must be greater than or equal to sizeof(VkDrawIndirectCommand)
         fpCmdDrawIndirectCountKHR(m_commandBuffer->handle(), buffer.handle(), 0, buffer.handle(), 512, 1, 512);
         m_errorMonitor->VerifyFound();
 
+        if (m_device->props.apiVersion >= VK_API_VERSION_1_2) {
+            auto fpCmdDrawIndirectCount =
+                (PFN_vkCmdDrawIndirectCount)vk::GetDeviceProcAddr(m_device->device(), "vkCmdDrawIndirectCount");
+            ASSERT_NE(fpCmdDrawIndirectCount, nullptr);
+
+            m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndirectCount-None-02700");
+            // stride must be a multiple of 4 and must be greater than or equal to sizeof(VkDrawIndirectCommand)
+            fpCmdDrawIndirectCount(m_commandBuffer->handle(), buffer.handle(), 0, buffer.handle(), 512, 1, 512);
+            m_errorMonitor->VerifyFound();
+        }
+
         auto fpCmdDrawIndexedIndirectCountKHR =
             (PFN_vkCmdDrawIndexedIndirectCountKHR)vk::GetDeviceProcAddr(m_device->device(), "vkCmdDrawIndexedIndirectCountKHR");
         ASSERT_NE(fpCmdDrawIndexedIndirectCountKHR, nullptr);
-        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndexedIndirectCountKHR-None-02700");
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndexedIndirectCount-None-02700");
         // stride must be a multiple of 4 and must be greater than or equal to sizeof(VkDrawIndexedIndirectCommand)
         fpCmdDrawIndexedIndirectCountKHR(m_commandBuffer->handle(), buffer.handle(), 0, buffer.handle(), 512, 1, 512);
         m_errorMonitor->VerifyFound();
+
+        if (m_device->props.apiVersion >= VK_API_VERSION_1_2) {
+            auto fpCmdDrawIndexedIndirectCount =
+                (PFN_vkCmdDrawIndexedIndirectCount)vk::GetDeviceProcAddr(m_device->device(), "vkCmdDrawIndexedIndirectCount");
+            ASSERT_NE(fpCmdDrawIndexedIndirectCount, nullptr);
+            m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkCmdDrawIndexedIndirectCount-None-02700");
+            // stride must be a multiple of 4 and must be greater than or equal to sizeof(VkDrawIndexedIndirectCommand)
+            fpCmdDrawIndexedIndirectCount(m_commandBuffer->handle(), buffer.handle(), 0, buffer.handle(), 512, 1, 512);
+            m_errorMonitor->VerifyFound();
+        }
     }
 
     // Also try the Dispatch variants
@@ -2590,43 +2612,6 @@ TEST_F(VkLayerTest, CmdClearAttachmentTests) {
     m_commandBuffer->end();
 }
 
-TEST_F(VkLayerTest, VtxBufferBadIndex) {
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
-                                         "UNASSIGNED-CoreValidation-DrawState-VtxIndexOutOfBounds");
-
-    ASSERT_NO_FATAL_FAILURE(Init());
-    ASSERT_NO_FATAL_FAILURE(InitViewport());
-    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
-
-    VkPipelineMultisampleStateCreateInfo pipe_ms_state_ci = {};
-    pipe_ms_state_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    pipe_ms_state_ci.pNext = NULL;
-    pipe_ms_state_ci.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    pipe_ms_state_ci.sampleShadingEnable = 0;
-    pipe_ms_state_ci.minSampleShading = 1.0;
-    pipe_ms_state_ci.pSampleMask = NULL;
-
-    CreatePipelineHelper pipe(*this);
-    pipe.InitInfo();
-    pipe.pipe_ms_state_ci_ = pipe_ms_state_ci;
-    pipe.InitState();
-    pipe.CreateGraphicsPipeline();
-
-    m_commandBuffer->begin();
-    m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
-    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
-    // Don't care about actual data, just need to get to draw to flag error
-    const float vbo_data[3] = {1.f, 0.f, 1.f};
-    VkConstantBufferObj vbo(m_device, sizeof(vbo_data), (const void *)&vbo_data, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    m_commandBuffer->BindVertexBuffer(&vbo, (VkDeviceSize)0, 1);  // VBO idx 1, but no VBO in PSO
-    m_commandBuffer->Draw(1, 0, 0, 0);
-
-    m_errorMonitor->VerifyFound();
-
-    m_commandBuffer->EndRenderPass();
-    m_commandBuffer->end();
-}
-
 TEST_F(VkLayerTest, InvalidVertexBindingDescriptions) {
     TEST_DESCRIPTION(
         "Attempt to create a graphics pipeline where:"
@@ -3071,10 +3056,10 @@ TEST_F(VkLayerTest, CreatePipelineCheckShaderDescriptorNotAccessible) {
     m_errorMonitor->VerifyFound();
 }
 
-TEST_F(VkLayerTest, CreatePipelineCheckShaderPushConstantNotAccessible) {
+TEST_F(VkLayerTest, CreatePipelineCheckShaderPushConstantNotDeclared) {
     TEST_DESCRIPTION(
-        "Create a graphics pipeline in which a push constant range containing a push constant block member is not accessible from "
-        "the current shader stage.");
+        "Create a graphics pipeline in which a push constant range containing a push constant block member is not declared in the "
+        "layout.");
 
     ASSERT_NO_FATAL_FAILURE(Init());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
@@ -3103,9 +3088,8 @@ TEST_F(VkLayerTest, CreatePipelineCheckShaderPushConstantNotAccessible) {
     pipe.InitState();
     pipe.pipeline_layout_ = VkPipelineLayoutObj(m_device, {}, {push_constant_range});
 
-    m_errorMonitor->SetDesiredFailureMsg(
-        VK_DEBUG_REPORT_ERROR_BIT_EXT,
-        "Push constant range covering variable starting at offset 0 not accessible from stage VK_SHADER_STAGE_VERTEX_BIT");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
+                                         "Push constant range covering variable starting at offset 0 not declared in layout");
     pipe.CreateGraphicsPipeline();
     m_errorMonitor->VerifyFound();
 }
@@ -5641,7 +5625,7 @@ TEST_F(VkLayerTest, SubgroupExtendedTypesDisabled) {
     pipe.InitState();
     pipe.pipeline_layout_ = VkPipelineLayoutObj(m_device, {});
     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                         "VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR::shaderSubgroupExtendedTypes");
+                                         "VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures::shaderSubgroupExtendedTypes");
     pipe.CreateComputePipeline();
     m_errorMonitor->VerifyFound();
 }
@@ -6813,7 +6797,6 @@ TEST_F(VkLayerTest, RayTracingPipelineShaderGroups) {
 TEST_F(VkLayerTest, PipelineStageConditionalRenderingWithWrongQueue) {
     TEST_DESCRIPTION("Run CmdPipelineBarrier with VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT and wrong VkQueueFlagBits");
     ASSERT_NO_FATAL_FAILURE(Init());
-    // m_device->m_queue = m_device->dma_queues()[0]->handle();
     uint32_t only_transfer_queueFamilyIndex = UINT32_MAX;
 
     const auto q_props = vk_testing::PhysicalDevice(gpu()).queue_properties();

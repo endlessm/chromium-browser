@@ -16,6 +16,7 @@
 #include "printing/common/metafile_utils.h"
 #include "printing/metafile.h"
 #include "skia/ext/platform_canvas.h"
+#include "ui/accessibility/ax_tree_update.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -64,7 +65,11 @@ class PRINTING_EXPORT MetafileSkia : public Metafile {
                   const MacRenderPageParams& params) const override;
 #endif
 
+#if defined(OS_ANDROID)
+  bool SaveToFileDescriptor(int fd) const override;
+#else
   bool SaveTo(base::File* file) const override;
+#endif  // defined(OS_ANDROID)
 
   // Unlike FinishPage() or FinishDocument(), this is for out-of-process
   // subframe printing. It will just serialize the content into SkPicture
@@ -95,6 +100,11 @@ class PRINTING_EXPORT MetafileSkia : public Metafile {
   int GetDocumentCookie() const;
   const ContentToProxyIdMap& GetSubframeContentInfo() const;
 
+  const ui::AXTreeUpdate& accessibility_tree() const {
+    return accessibility_tree_;
+  }
+  ui::AXTreeUpdate& accessibility_tree() { return accessibility_tree_; }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(MetafileSkiaTest, TestFrameContent);
 
@@ -110,6 +120,8 @@ class PRINTING_EXPORT MetafileSkia : public Metafile {
   void CustomDataToSkPictureCallback(SkCanvas* canvas, uint32_t content_id);
 
   std::unique_ptr<MetafileSkiaData> data_;
+
+  ui::AXTreeUpdate accessibility_tree_;
 
   DISALLOW_COPY_AND_ASSIGN(MetafileSkia);
 };

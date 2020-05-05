@@ -12,6 +12,7 @@
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 
 namespace quic {
@@ -50,6 +51,7 @@ QuicReceivedPacketManager::QuicReceivedPacketManager(QuicConnectionStats* stats)
       ack_decimation_delay_(kAckDecimationDelay),
       unlimited_ack_decimation_(false),
       fast_ack_after_quiescence_(false),
+      one_immediate_ack_(false),
       local_max_ack_delay_(
           QuicTime::Delta::FromMilliseconds(kDefaultDelayedAckTimeMs)),
       ack_timeout_(QuicTime::Zero()),
@@ -87,6 +89,11 @@ void QuicReceivedPacketManager::SetFromConfig(const QuicConfig& config,
   }
   if (config.HasClientSentConnectionOption(kACKQ, perspective)) {
     fast_ack_after_quiescence_ = true;
+  }
+  if (GetQuicReloadableFlag(quic_one_immediate_ack) &&
+      config.HasClientSentConnectionOption(k1ACK, perspective)) {
+    QUIC_RELOADABLE_FLAG_COUNT(quic_one_immediate_ack);
+    one_immediate_ack_ = true;
   }
 }
 
@@ -245,12 +252,16 @@ void QuicReceivedPacketManager::MaybeUpdateAckTimeout(
     // before sending an ack.
     QuicTime::Delta ack_delay = std::min(
         local_max_ack_delay_, rtt_stats->min_rtt() * ack_decimation_delay_);
+    if (GetQuicReloadableFlag(quic_ack_delay_alarm_granularity)) {
+      QUIC_RELOADABLE_FLAG_COUNT(quic_ack_delay_alarm_granularity);
+      ack_delay = std::max(ack_delay, kAlarmGranularity);
+    }
     if (fast_ack_after_quiescence_ && now - time_of_previous_received_packet_ >
                                           rtt_stats->SmoothedOrInitialRtt()) {
       // Ack the first packet out of queiscence faster, because QUIC does
       // not pace the first few packets and commonly these may be handshake
       // or TLP packets, which we'd like to acknowledge quickly.
-      ack_delay = QuicTime::Delta::FromMilliseconds(1);
+      ack_delay = kAlarmGranularity;
     }
     MaybeUpdateAckTimeoutTo(now + ack_delay);
   } else {
@@ -264,7 +275,7 @@ void QuicReceivedPacketManager::MaybeUpdateAckTimeout(
       // Ack the first packet out of queiscence faster, because QUIC does
       // not pace the first few packets and commonly these may be handshake
       // or TLP packets, which we'd like to acknowledge quickly.
-      MaybeUpdateAckTimeoutTo(now + QuicTime::Delta::FromMilliseconds(1));
+      MaybeUpdateAckTimeoutTo(now + kAlarmGranularity);
     } else {
       MaybeUpdateAckTimeoutTo(now + local_max_ack_delay_);
     }
@@ -311,6 +322,9 @@ bool QuicReceivedPacketManager::HasMissingPackets() const {
 }
 
 bool QuicReceivedPacketManager::HasNewMissingPackets() const {
+  if (one_immediate_ack_) {
+    return HasMissingPackets() && ack_frame_.packets.LastIntervalLength() == 1;
+  }
   return HasMissingPackets() &&
          ack_frame_.packets.LastIntervalLength() <= kMaxPacketsAfterNewMissing;
 }

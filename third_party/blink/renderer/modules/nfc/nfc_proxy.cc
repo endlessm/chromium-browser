@@ -90,17 +90,16 @@ void NFCProxy::AddWriter(NDEFWriter* writer) {
 }
 
 void NFCProxy::Push(device::mojom::blink::NDEFMessagePtr message,
-                    device::mojom::blink::NDEFPushOptionsPtr options,
+                    device::mojom::blink::NDEFWriteOptionsPtr options,
                     device::mojom::blink::NFC::PushCallback cb) {
   EnsureMojoConnection();
   nfc_remote_->Push(std::move(message), std::move(options), std::move(cb));
 }
 
 void NFCProxy::CancelPush(
-    const String& target,
     device::mojom::blink::NFC::CancelPushCallback callback) {
   DCHECK(nfc_remote_);
-  nfc_remote_->CancelPush(StringToNDEFPushTarget(target), std::move(callback));
+  nfc_remote_->CancelPush(std::move(callback));
 }
 
 // device::mojom::blink::NFCClient implementation.
@@ -108,14 +107,23 @@ void NFCProxy::OnWatch(const Vector<uint32_t>& watch_ids,
                        const String& serial_number,
                        device::mojom::blink::NDEFMessagePtr message) {
   // Dispatch the event to all matched readers. We iterate on a copy of
-  // |readers_| because the user's NDEFReader#onreading event handler may call
-  // NDEFReader#stop() to modify |readers_| just during the iteration process.
-  // This loop is O(n^2), however, we assume the number of readers to be small
-  // so it'd be just OK.
+  // |readers_| because a reader's onreading event handler may remove itself
+  // from |readers_| just during the iteration process. This loop is O(n^2),
+  // however, we assume the number of readers to be small so it'd be just OK.
   ReaderMap copy = readers_;
   for (auto& pair : copy) {
     if (watch_ids.Contains(pair.value))
       pair.key->OnReading(serial_number, *message);
+  }
+}
+
+void NFCProxy::OnError(device::mojom::blink::NDEFErrorPtr error) {
+  // Dispatch the event to all readers. We iterate on a copy of |readers_|
+  // because a reader's onerror event handler may remove itself from |readers_|
+  // just during the iteration process.
+  ReaderMap copy = readers_;
+  for (auto& pair : copy) {
+    pair.key->OnError(error->error_message);
   }
 }
 
@@ -179,6 +187,13 @@ void NFCProxy::EnsureMojoConnection() {
       client_receiver_.BindNewPipeAndPassRemote(task_runner));
 }
 
+// This method will be called if either the NFC service is unavailable (such
+// as if the feature flag is disabled) or when the user revokes the NFC
+// permission after the Mojo connection has already been opened. It is
+// currently impossible to distinguish between these two cases.
+//
+// In the future this code may also handle the case where an out-of-process
+// Device Service encounters a fatal error and must be restarted.
 void NFCProxy::OnMojoConnectionError() {
   nfc_remote_.reset();
   client_receiver_.reset();

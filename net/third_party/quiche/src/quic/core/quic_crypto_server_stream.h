@@ -56,25 +56,32 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStreamBase : public QuicCryptoStream {
       const = 0;
   virtual void SetPreviousCachedNetworkParams(
       CachedNetworkParameters cached_network_params) = 0;
+
+  // NOTE: Indicating that the Expect-CT header should be sent here presents
+  // a layering violation to some extent. The Expect-CT header only applies to
+  // HTTP connections, while this class can be used for non-HTTP applications.
+  // However, it is exposed here because that is the only place where the
+  // configuration for the certificate used in the connection is accessible.
+  virtual bool ShouldSendExpectCTHeader() const = 0;
 };
 
 class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
     : public QuicCryptoServerStreamBase {
  public:
-  // QuicCryptoServerStream creates a HandshakerDelegate at construction time
+  // QuicCryptoServerStream creates a HandshakerInterface at construction time
   // based on the QuicTransportVersion of the connection. Different
-  // HandshakerDelegates provide implementations of different crypto handshake
+  // HandshakerInterfaces provide implementations of different crypto handshake
   // protocols. Currently QUIC crypto is the only protocol implemented; a future
-  // HandshakerDelegate will use TLS as the handshake protocol.
+  // HandshakerInterface will use TLS as the handshake protocol.
   // QuicCryptoServerStream delegates all of its public methods to its
-  // HandshakerDelegate.
+  // HandshakerInterface.
   //
   // This setup of the crypto stream delegating its implementation to the
   // handshaker results in the handshaker reading and writing bytes on the
   // crypto stream, instead of the handshake rpassing the stream bytes to send.
-  class QUIC_EXPORT_PRIVATE HandshakerDelegate {
+  class QUIC_EXPORT_PRIVATE HandshakerInterface {
    public:
-    virtual ~HandshakerDelegate() {}
+    virtual ~HandshakerInterface() {}
 
     // Cancel any outstanding callbacks, such as asynchronous validation of
     // client hello.
@@ -111,8 +118,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
     // for the connection.
     virtual bool encryption_established() const = 0;
 
-    // Returns true once the crypto handshake has completed.
-    virtual bool handshake_confirmed() const = 0;
+    // Returns true once 1RTT keys are available.
+    virtual bool one_rtt_keys_available() const = 0;
 
     // Returns the parameters negotiated in the crypto handshake.
     virtual const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
@@ -120,6 +127,9 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
 
     // Used by QuicCryptoStream to parse data received on this stream.
     virtual CryptoMessageParser* crypto_message_parser() = 0;
+
+    // Get current handshake state.
+    virtual HandshakeState GetHandshakeState() const = 0;
 
     // Used by QuicCryptoStream to know how much unprocessed data can be
     // buffered at each encryption level.
@@ -140,13 +150,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
                                       std::string* error_details) const = 0;
   };
 
-  // |crypto_config| must outlive the stream.
-  // |session| must outlive the stream.
-  // |helper| must outlive the stream.
-  QuicCryptoServerStream(const QuicCryptoServerConfig* crypto_config,
-                         QuicCompressedCertsCache* compressed_certs_cache,
-                         QuicSession* session,
-                         Helper* helper);
   QuicCryptoServerStream(const QuicCryptoServerStream&) = delete;
   QuicCryptoServerStream& operator=(const QuicCryptoServerStream&) = delete;
 
@@ -164,37 +167,70 @@ class QUIC_EXPORT_PRIVATE QuicCryptoServerStream
   bool ZeroRttAttempted() const override;
   void SetPreviousCachedNetworkParams(
       CachedNetworkParameters cached_network_params) override;
-
-  // NOTE: Indicating that the Expect-CT header should be sent here presents
-  // a layering violation to some extent. The Expect-CT header only applies to
-  // HTTP connections, while this class can be used for non-HTTP applications.
-  // However, it is exposed here because that is the only place where the
-  // configuration for the certificate used in the connection is accessible.
-  bool ShouldSendExpectCTHeader() const;
+  bool ShouldSendExpectCTHeader() const override;
 
   bool encryption_established() const override;
-  bool handshake_confirmed() const override;
+  bool one_rtt_keys_available() const override;
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
   void OnPacketDecrypted(EncryptionLevel level) override;
+  void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakeDoneReceived() override;
+  HandshakeState GetHandshakeState() const override;
   size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
   void OnSuccessfulVersionNegotiation(
       const ParsedQuicVersion& version) override;
 
  protected:
+  QUIC_EXPORT_PRIVATE friend std::unique_ptr<QuicCryptoServerStreamBase>
+  CreateCryptoServerStream(const QuicCryptoServerConfig* crypto_config,
+                           QuicCompressedCertsCache* compressed_certs_cache,
+                           QuicSession* session,
+                           Helper* helper);
+
+  QuicCryptoServerStream(const QuicCryptoServerConfig* crypto_config,
+                         QuicCompressedCertsCache* compressed_certs_cache,
+                         QuicSession* session,
+                         Helper* helper);
   // Provided so that subclasses can provide their own handshaker.
-  virtual HandshakerDelegate* handshaker() const;
+  // set_handshaker can only be called if this QuicCryptoServerStream's
+  // handshaker hasn't been set yet. If set_handshaker is called outside of
+  // OnSuccessfulVersionNegotiation, then that method must be overridden to not
+  // set a handshaker.
+  QuicCryptoServerStream(const QuicCryptoServerConfig* crypto_config,
+                         QuicCompressedCertsCache* compressed_certs_cache,
+                         QuicSession* session,
+                         Helper* helper,
+                         std::unique_ptr<HandshakerInterface> handshaker);
+  void set_handshaker(std::unique_ptr<HandshakerInterface> handshaker);
+  HandshakerInterface* handshaker() const;
+
+  const QuicCryptoServerConfig* crypto_config() const;
+  QuicCompressedCertsCache* compressed_certs_cache() const;
+  Helper* helper() const;
 
  private:
-  std::unique_ptr<HandshakerDelegate> handshaker_;
+  std::unique_ptr<HandshakerInterface> handshaker_;
+  // Latched value of quic_create_server_handshaker_in_constructor flag.
+  bool create_handshaker_in_constructor_;
 
   // Arguments from QuicCryptoServerStream constructor that might need to be
-  // passed to the HandshakerDelegate constructor in its late construction.
+  // passed to the HandshakerInterface constructor in its late construction.
   const QuicCryptoServerConfig* crypto_config_;
   QuicCompressedCertsCache* compressed_certs_cache_;
   Helper* helper_;
 };
+
+// Creates an appropriate QuicCryptoServerStream for the provided parameters,
+// including the version used by |session|. |crypto_config|, |session|, and
+// |helper| must all outlive the stream. The caller takes ownership of the
+// returned object.
+QUIC_EXPORT_PRIVATE std::unique_ptr<QuicCryptoServerStreamBase>
+CreateCryptoServerStream(const QuicCryptoServerConfig* crypto_config,
+                         QuicCompressedCertsCache* compressed_certs_cache,
+                         QuicSession* session,
+                         QuicCryptoServerStream::Helper* helper);
 
 }  // namespace quic
 

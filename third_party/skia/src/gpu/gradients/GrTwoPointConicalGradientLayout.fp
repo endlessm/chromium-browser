@@ -10,7 +10,7 @@ enum class Type {
     kRadial, kStrip, kFocal
 };
 
-in half4x4 gradientMatrix;
+in half3x3 gradientMatrix;
 
 layout(key) in Type type;
 layout(key) in bool isRadiusIncreasing;
@@ -297,6 +297,6 @@ void main() {
     GrTest::TestAsFPArgs asFPArgs(d);
     std::unique_ptr<GrFragmentProcessor> fp = as_SB(shader)->asFragmentProcessor(asFPArgs.args());
 
-    GrAlwaysAssert(fp);
+    SkASSERT_RELEASE(fp);
     return fp;
 }

@@ -1,4 +1,4 @@
-//===-- DataEncoder.cpp -----------------------------------------*- C++ -*-===//
+//===-- DataEncoder.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,9 +13,7 @@
 
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/MathExtras.h"
 
-#include <cassert>
 #include <cstddef>
 
 #include <string.h>

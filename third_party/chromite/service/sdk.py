@@ -95,15 +95,20 @@ class CreateArguments(object):
 class UpdateArguments(object):
   """Value object to handle the update arguments."""
 
-  def __init__(self, build_source=False, toolchain_targets=None):
+  def __init__(self,
+               build_source=False,
+               toolchain_targets=None,
+               toolchain_changed=False):
     """Update arguments init.
 
     Args:
       build_source (bool): Whether to build the source or use prebuilts.
       toolchain_targets (list): The list of build targets whose toolchains
         should be updated.
+      toolchain_changed (bool): Whether a toolchain change has occurred. Implies
+        build_source.
     """
-    self.build_source = build_source
+    self.build_source = build_source or toolchain_changed
     self.toolchain_targets = toolchain_targets
 
   def GetArgList(self):
@@ -118,7 +123,8 @@ class UpdateArguments(object):
       args.append('--nousepkg')
 
     if self.toolchain_targets:
-      args.extend(['--toolchain_boards', ','.join(self.toolchain_targets)])
+      if not self.build_source:
+        args.extend(['--toolchain_boards', ','.join(self.toolchain_targets)])
     else:
       args.append('--skip_toolchain_update')
 
@@ -218,6 +224,21 @@ def Delete(chroot=None):
   Clean(chroot, images=True)
 
 
+def Unmount(chroot=None):
+  """Unmount the chroot.
+
+  Args:
+    chroot (chroot_lib.Chroot): The chroot being unmounted, or None for the
+      default chroot.
+  """
+  logging.info('Unmounting the chroot.')
+  cmd = [os.path.join(constants.CHROMITE_BIN_DIR, 'cros_sdk'), '--unmount']
+  if chroot:
+    cmd.extend(['--chroot', chroot.path])
+
+  cros_build_lib.run(cmd)
+
+
 def GetChrootVersion(chroot_path=None):
   """Get the chroot version.
 
@@ -252,6 +273,12 @@ def Update(arguments):
   cmd = [os.path.join(constants.CROSUTILS_DIR, 'update_chroot')]
   cmd.extend(arguments.GetArgList())
 
-  cros_build_lib.run(cmd)
+  # The sdk update uses splitdebug instead of separatedebug. Make sure
+  # separatedebug is disabled and enable splitdebug.
+  existing = os.environ.get('FEATURES', '')
+  features = ' '.join((existing, '-separatedebug splitdebug')).strip()
+  extra_env = {'FEATURES': features}
+
+  cros_build_lib.run(cmd, extra_env=extra_env)
 
   return GetChrootVersion()

@@ -1,8 +1,8 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2015-2019 Valve Corporation
-# Copyright (c) 2015-2019 LunarG, Inc.
-# Copyright (c) 2015-2019 Google Inc.
+# Copyright (c) 2015-2020 Valve Corporation
+# Copyright (c) 2015-2020 LunarG, Inc.
+# Copyright (c) 2015-2020 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -128,6 +128,7 @@ class LayerChassisOutputGenerator(OutputGenerator):
         # Include functions here to be interecpted w/ manually implemented function bodies
         'vkGetDeviceProcAddr',
         'vkGetInstanceProcAddr',
+        'vkGetPhysicalDeviceProcAddr',
         'vkCreateDevice',
         'vkDestroyDevice',
         'vkCreateInstance',
@@ -149,8 +150,7 @@ class LayerChassisOutputGenerator(OutputGenerator):
         'vkDestroyValidationCacheEXT',
         'vkMergeValidationCachesEXT',
         'vkGetValidationCacheDataEXT',
-        # We don't wanna hook this function
-        'vkGetPhysicalDeviceProcAddr',
+        'vkGetPhysicalDeviceToolPropertiesEXT',
         ]
 
     alt_ret_codes = [
@@ -243,6 +243,11 @@ struct HashedUint64 {
 };
 
 extern vl_concurrent_unordered_map<uint64_t, uint64_t, 4, HashedUint64> unique_id_mapping;
+
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetPhysicalDeviceProcAddr(
+    VkInstance                                  instance,
+    const char*                                 funcName);
 """
 
     inline_custom_header_class_definition = """
@@ -359,6 +364,88 @@ class ValidationObject {
             return nullptr;
         };
 
+        // Debug Logging Templates
+        template <typename HANDLE_T>
+        bool LogError(HANDLE_T src_object, const std::string &vuid_text, const char *format, ...) const {
+
+            std::unique_lock<std::mutex> lock(report_data->debug_output_mutex);
+            // Avoid logging cost if msg is to be ignored
+            if (!(report_data->active_severities & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ||
+                !(report_data->active_types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)) {
+                return false;
+            }
+            va_list argptr;
+            va_start(argptr, format);
+            char *str;
+            if (-1 == vasprintf(&str, format, argptr)) {
+                str = nullptr;
+            }
+            va_end(argptr);
+
+            return LogMsgLocked(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VkHandleInfo<HANDLE_T>::kDebugReportObjectType,
+                HandleToUint64(src_object), vuid_text, str);
+        };
+
+        template <typename HANDLE_T>
+        bool LogWarning(HANDLE_T src_object, const std::string &vuid_text, const char *format, ...) const {
+            std::unique_lock<std::mutex> lock(report_data->debug_output_mutex);
+            // Avoid logging cost if msg is to be ignored
+            if (!(report_data->active_severities & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) ||
+                !(report_data->active_types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)) {
+                return false;
+            }
+            va_list argptr;
+            va_start(argptr, format);
+            char *str;
+            if (-1 == vasprintf(&str, format, argptr)) {
+                str = nullptr;
+            }
+            va_end(argptr);
+
+            return LogMsgLocked(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VkHandleInfo<HANDLE_T>::kDebugReportObjectType,
+                HandleToUint64(src_object), vuid_text, str);
+        };
+
+        template <typename HANDLE_T>
+        bool LogPerformanceWarning(HANDLE_T src_object, const std::string &vuid_text, const char *format, ...) const {
+            std::unique_lock<std::mutex> lock(report_data->debug_output_mutex);
+            // Avoid logging cost if msg is to be ignored
+            if (!(report_data->active_severities & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) ||
+                !(report_data->active_types & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)) {
+                return false;
+            }
+            va_list argptr;
+            va_start(argptr, format);
+            char *str;
+            if (-1 == vasprintf(&str, format, argptr)) {
+                str = nullptr;
+            }
+            va_end(argptr);
+
+            return LogMsgLocked(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VkHandleInfo<HANDLE_T>::kDebugReportObjectType,
+                HandleToUint64(src_object), vuid_text, str);
+        };
+
+        template <typename HANDLE_T>
+        bool LogInfo(HANDLE_T src_object, const std::string &vuid_text, const char *format, ...) const {
+            std::unique_lock<std::mutex> lock(report_data->debug_output_mutex);
+            // Avoid logging cost if msg is to be ignored
+            if (!(report_data->active_severities & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) ||
+                !(report_data->active_types & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)) {
+                return false;
+            }
+            va_list argptr;
+            va_start(argptr, format);
+            char *str;
+            if (-1 == vasprintf(&str, format, argptr)) {
+                str = nullptr;
+            }
+            va_end(argptr);
+
+            return LogMsgLocked(report_data, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, VkHandleInfo<HANDLE_T>::kDebugReportObjectType,
+                HandleToUint64(src_object), vuid_text, str);
+        };
+
         // Handle Wrapping Data
         // Reverse map display handles
         vl_concurrent_unordered_map<VkDisplayKHR, uint64_t, 0> display_id_reverse_mapping;
@@ -421,10 +508,10 @@ class ValidationObject {
 // This file is ***GENERATED***.  Do Not Edit.
 // See layer_chassis_generator.py for modifications.
 
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -486,6 +573,7 @@ static const VkExtensionProperties instance_extensions[] = {{VK_EXT_DEBUG_REPORT
 static const VkExtensionProperties device_extensions[] = {
     {VK_EXT_VALIDATION_CACHE_EXTENSION_NAME, VK_EXT_VALIDATION_CACHE_SPEC_VERSION},
     {VK_EXT_DEBUG_MARKER_EXTENSION_NAME, VK_EXT_DEBUG_MARKER_SPEC_VERSION},
+    {VK_EXT_TOOLING_INFO_EXTENSION_NAME, VK_EXT_TOOLING_INFO_SPEC_VERSION}
 };
 
 typedef struct {
@@ -757,6 +845,17 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
     return table.GetInstanceProcAddr(instance, funcName);
 }
 
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetPhysicalDeviceProcAddr(VkInstance instance, const char *funcName) {
+    const auto &item = name_to_funcptr_map.find(funcName);
+    if (item != name_to_funcptr_map.end()) {
+        return reinterpret_cast<PFN_vkVoidFunction>(item->second.funcptr);
+    }
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(instance), layer_data_map);
+    auto &table = layer_data->instance_dispatch_table;
+    if (!table.GetPhysicalDeviceProcAddr) return nullptr;
+    return table.GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL EnumerateInstanceLayerProperties(uint32_t *pCount, VkLayerProperties *pProperties) {
     return util_GetLayerProperties(1, &global_layer, pCount, pProperties);
 }
@@ -792,7 +891,13 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
     if (fpCreateInstance == NULL) return VK_ERROR_INITIALIZATION_FAILED;
     chain_info->u.pLayerInfo = chain_info->u.pLayerInfo->pNext;
     uint32_t specified_version = (pCreateInfo->pApplicationInfo ? pCreateInfo->pApplicationInfo->apiVersion : VK_API_VERSION_1_0);
-    uint32_t api_version = (specified_version < VK_API_VERSION_1_1) ? VK_API_VERSION_1_0 : VK_API_VERSION_1_1;
+    uint32_t api_version;
+    if (specified_version < VK_API_VERSION_1_1)
+        api_version = VK_API_VERSION_1_0;
+    else if (specified_version < VK_API_VERSION_1_2)
+        api_version = VK_API_VERSION_1_1;
+    else
+        api_version = VK_API_VERSION_1_2;
     auto report_data = new debug_report_data{};
     report_data->instance_pnext_chain = SafePnextCopy(pCreateInfo->pNext);
     ActivateInstanceDebugCallbacks(report_data);
@@ -852,6 +957,8 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
         local_object_dispatch.emplace_back(gpu_assisted);
     }
     gpu_assisted->container_type = LayerObjectTypeGpuAssisted;
+    gpu_assisted->api_version = api_version;
+    gpu_assisted->report_data = report_data;
 
     // If handle wrapping is disabled via the ValidationFeatures extension, override build flag
     if (local_disables.handle_wrapping) {
@@ -1322,6 +1429,59 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateBuffer(
 }
 
 
+// Handle tooling queries manually as this is a request for layer information
+
+VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceToolPropertiesEXT(
+    VkPhysicalDevice                            physicalDevice,
+    uint32_t*                                   pToolCount,
+    VkPhysicalDeviceToolPropertiesEXT*          pToolProperties) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
+    bool skip = false;
+
+    static const VkPhysicalDeviceToolPropertiesEXT khronos_layer_tool_props = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TOOL_PROPERTIES_EXT,
+        nullptr,
+        "Khronos Validation Layer",
+        STRINGIFY(VK_HEADER_VERSION),
+        VK_TOOL_PURPOSE_VALIDATION_BIT_EXT | VK_TOOL_PURPOSE_ADDITIONAL_FEATURES_BIT_EXT | VK_TOOL_PURPOSE_DEBUG_REPORTING_BIT_EXT | VK_TOOL_PURPOSE_DEBUG_MARKERS_BIT_EXT,
+        "Khronos Validation Layer",
+        OBJECT_LAYER_NAME
+    };
+
+    auto original_pToolProperties = pToolProperties;
+
+
+    if (pToolProperties != nullptr) {
+        *pToolProperties = khronos_layer_tool_props;
+        pToolProperties = ((*pToolCount > 1) ? &pToolProperties[1] : nullptr);
+        (*pToolCount)--;
+    }
+
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+    }
+
+    VkResult result = DispatchGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties);
+
+    if (original_pToolProperties != nullptr) {
+        pToolProperties = original_pToolProperties;
+    }
+    (*pToolCount)++;
+
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetPhysicalDeviceToolPropertiesEXT(physicalDevice, pToolCount, pToolProperties, result);
+    }
+    return result;
+}
+
 
 // ValidationCache APIs do not dispatch
 
@@ -1497,6 +1657,11 @@ VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(V
     return vulkan_layer_chassis::GetInstanceProcAddr(instance, funcName);
 }
 
+VK_LAYER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_layerGetPhysicalDeviceProcAddr(VkInstance instance,
+                                                                                           const char *funcName) {
+    return vulkan_layer_chassis::GetPhysicalDeviceProcAddr(instance, funcName);
+}
+
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface *pVersionStruct) {
     assert(pVersionStruct != NULL);
     assert(pVersionStruct->sType == LAYER_NEGOTIATE_INTERFACE_STRUCT);
@@ -1505,7 +1670,7 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVe
     if (pVersionStruct->loaderLayerInterfaceVersion >= 2) {
         pVersionStruct->pfnGetInstanceProcAddr = vkGetInstanceProcAddr;
         pVersionStruct->pfnGetDeviceProcAddr = vkGetDeviceProcAddr;
-        pVersionStruct->pfnGetPhysicalDeviceProcAddr = nullptr;
+        pVersionStruct->pfnGetPhysicalDeviceProcAddr = vk_layerGetPhysicalDeviceProcAddr;
     }
 
     return VK_SUCCESS;
@@ -1715,7 +1880,8 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVe
             'VkDeviceAddress': 'return 0;',
             'VkResult': 'return VK_ERROR_VALIDATION_FAILED_EXT;',
             'void': 'return;',
-            'uint32_t': 'return 0;'
+            'uint32_t': 'return 0;',
+            'uint64_t': 'return 0;'
             }
         resulttype = cmdinfo.elem.find('proto/type')
         assignresult = ''

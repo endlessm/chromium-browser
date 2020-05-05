@@ -13,6 +13,8 @@
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
+#include "clang/AST/DeclTemplate.h"
+#include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/QualTypeNames.h"
@@ -23,11 +25,14 @@
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/CodeCompleteConsumer.h"
+#include "clang/Sema/Designator.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Overload.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
+#include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaInternal.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -36,7 +41,9 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/raw_ostream.h"
 #include <list>
 #include <map>
 #include <string>
@@ -1309,7 +1316,7 @@ void ResultBuilder::AddResult(Result R, DeclContext *CurContext,
         /// Motivating case is const_iterator begin() const vs iterator begin().
         auto &OverloadSet = OverloadMap[std::make_pair(
             CurContext, Method->getDeclName().getAsOpaqueInteger())];
-        for (const DeclIndexPair& Entry : OverloadSet) {
+        for (const DeclIndexPair Entry : OverloadSet) {
           Result &Incumbent = Results[Entry.second];
           switch (compareOverloads(*Method,
                                    *cast<CXXMethodDecl>(Incumbent.Declaration),
@@ -2312,6 +2319,13 @@ static void AddOrdinaryNameResults(Sema::ParserCompletionContext CCC, Scope *S,
         Builder.AddChunk(CodeCompletionString::CK_SemiColon);
         Results.AddResult(Result(Builder.TakeString()));
       }
+      // For pointers, suggest 'return nullptr' in C++.
+      if (SemaRef.getLangOpts().CPlusPlus11 &&
+          (ReturnType->isPointerType() || ReturnType->isMemberPointerType())) {
+        Builder.AddTypedTextChunk("return nullptr");
+        Builder.AddChunk(CodeCompletionString::CK_SemiColon);
+        Results.AddResult(Result(Builder.TakeString()));
+      }
     }
 
     // goto identifier ;
@@ -2979,7 +2993,11 @@ static void AddTemplateParameterChunks(
     if (TemplateTypeParmDecl *TTP = dyn_cast<TemplateTypeParmDecl>(*P)) {
       if (TTP->wasDeclaredWithTypename())
         PlaceholderStr = "typename";
-      else
+      else if (const auto *TC = TTP->getTypeConstraint()) {
+        llvm::raw_string_ostream OS(PlaceholderStr);
+        TC->print(OS, Policy);
+        OS.flush();
+      } else
         PlaceholderStr = "class";
 
       if (TTP->getIdentifier()) {
@@ -3694,8 +3712,11 @@ CodeCompleteConsumer::OverloadCandidate::CreateSignatureString(
         Result.addBriefComment(RC->getBriefText(S.getASTContext()));
     }
     AddResultTypeChunk(S.Context, Policy, FDecl, QualType(), Result);
-    Result.AddTextChunk(
-        Result.getAllocator().CopyString(FDecl->getNameAsString()));
+
+    std::string Name;
+    llvm::raw_string_ostream OS(Name);
+    FDecl->getDeclName().print(OS, Policy);
+    Result.AddTextChunk(Result.getAllocator().CopyString(OS.str()));
   } else {
     Result.AddResultTypeChunk(Result.getAllocator().CopyString(
         Proto->getReturnType().getAsString(Policy)));
@@ -4708,6 +4729,23 @@ static void AddRecordMembersCompletionResults(
   }
 }
 
+// Returns the RecordDecl inside the BaseType, falling back to primary template
+// in case of specializations. Since we might not have a decl for the
+// instantiation/specialization yet, e.g. dependent code.
+static RecordDecl *getAsRecordDecl(const QualType BaseType) {
+  if (auto *RD = BaseType->getAsRecordDecl())
+    return RD;
+
+  if (const auto *TST = BaseType->getAs<TemplateSpecializationType>()) {
+    if (const auto *TD = dyn_cast_or_null<ClassTemplateDecl>(
+            TST->getTemplateName().getAsTemplateDecl())) {
+      return TD->getTemplatedDecl();
+    }
+  }
+
+  return nullptr;
+}
+
 void Sema::CodeCompleteMemberReferenceExpr(Scope *S, Expr *Base,
                                            Expr *OtherOpBase,
                                            SourceLocation OpLoc, bool IsArrow,
@@ -4756,6 +4794,8 @@ void Sema::CodeCompleteMemberReferenceExpr(Scope *S, Expr *Base,
     Base = ConvertedBase.get();
 
     QualType BaseType = Base->getType();
+    if (BaseType.isNull())
+      return false;
     ExprValueKind BaseKind = Base->getValueKind();
 
     if (IsArrow) {
@@ -4768,23 +4808,9 @@ void Sema::CodeCompleteMemberReferenceExpr(Scope *S, Expr *Base,
         return false;
     }
 
-    if (const RecordType *Record = BaseType->getAs<RecordType>()) {
+    if (RecordDecl *RD = getAsRecordDecl(BaseType)) {
       AddRecordMembersCompletionResults(*this, Results, S, BaseType, BaseKind,
-                                        Record->getDecl(),
-                                        std::move(AccessOpFixIt));
-    } else if (const auto *TST =
-                   BaseType->getAs<TemplateSpecializationType>()) {
-      TemplateName TN = TST->getTemplateName();
-      if (const auto *TD =
-              dyn_cast_or_null<ClassTemplateDecl>(TN.getAsTemplateDecl())) {
-        CXXRecordDecl *RD = TD->getTemplatedDecl();
-        AddRecordMembersCompletionResults(*this, Results, S, BaseType, BaseKind,
-                                          RD, std::move(AccessOpFixIt));
-      }
-    } else if (const auto *ICNT = BaseType->getAs<InjectedClassNameType>()) {
-      if (auto *RD = ICNT->getDecl())
-        AddRecordMembersCompletionResults(*this, Results, S, BaseType, BaseKind,
-                                          RD, std::move(AccessOpFixIt));
+                                        RD, std::move(AccessOpFixIt));
     } else if (!IsArrow && BaseType->isObjCObjectPointerType()) {
       // Objective-C property reference.
       AddedPropertiesSet AddedProperties;
@@ -4799,7 +4825,7 @@ void Sema::CodeCompleteMemberReferenceExpr(Scope *S, Expr *Base,
       }
 
       // Add properties from the protocols in a qualified interface.
-      for (auto *I : BaseType->getAs<ObjCObjectPointerType>()->quals())
+      for (auto *I : BaseType->castAs<ObjCObjectPointerType>()->quals())
         AddObjCProperties(CCContext, I, true, /*AllowNullaryMethods=*/true,
                           CurContext, AddedProperties, Results,
                           IsBaseExprStatement, /*IsClassProperty*/ false,
@@ -4812,7 +4838,7 @@ void Sema::CodeCompleteMemberReferenceExpr(Scope *S, Expr *Base,
               BaseType->getAs<ObjCObjectPointerType>())
         Class = ObjCPtr->getInterfaceDecl();
       else
-        Class = BaseType->getAs<ObjCObjectType>()->getInterface();
+        Class = BaseType->castAs<ObjCObjectType>()->getInterface();
 
       // Add all ivars from this class and its superclasses.
       if (Class) {
@@ -5269,6 +5295,44 @@ QualType Sema::ProduceCtorInitMemberSignatureHelp(
                                            MemberDecl->getLocation(), ArgExprs,
                                            OpenParLoc);
   return QualType();
+}
+
+void Sema::CodeCompleteDesignator(const QualType BaseType,
+                                  llvm::ArrayRef<Expr *> InitExprs,
+                                  const Designation &D) {
+  if (BaseType.isNull())
+    return;
+  // FIXME: Handle nested designations, e.g. : .x.^
+  if (!D.empty())
+    return;
+
+  const auto *RD = getAsRecordDecl(BaseType);
+  if (!RD)
+    return;
+  if (const auto *CTSD = llvm::dyn_cast<ClassTemplateSpecializationDecl>(RD)) {
+    // Template might not be instantiated yet, fall back to primary template in
+    // such cases.
+    if (CTSD->getTemplateSpecializationKind() == TSK_Undeclared)
+      RD = CTSD->getSpecializedTemplate()->getTemplatedDecl();
+  }
+  if (RD->fields().empty())
+    return;
+
+  CodeCompletionContext CCC(CodeCompletionContext::CCC_DotMemberAccess,
+                            BaseType);
+  ResultBuilder Results(*this, CodeCompleter->getAllocator(),
+                        CodeCompleter->getCodeCompletionTUInfo(), CCC);
+
+  Results.EnterNewScope();
+  for (const auto *FD : RD->fields()) {
+    // FIXME: Make use of previous designators to mark any fields before those
+    // inaccessible, and also compute the next initializer priority.
+    ResultBuilder::Result Result(FD, Results.getBasePriority(FD));
+    Results.AddResult(Result, CurContext, /*Hiding=*/nullptr);
+  }
+  Results.ExitScope();
+  HandleCodeCompleteResults(this, CodeCompleter, Results.getCompletionContext(),
+                            Results.data(), Results.size());
 }
 
 void Sema::CodeCompleteInitializer(Scope *S, Decl *D) {
@@ -7736,8 +7800,8 @@ static void AddObjCKeyValueCompletions(ObjCPropertyDecl *Property,
   if (IsInstanceMethod &&
       (ReturnType.isNull() ||
        (ReturnType->isObjCObjectPointerType() &&
-        ReturnType->getAs<ObjCObjectPointerType>()->getInterfaceDecl() &&
-        ReturnType->getAs<ObjCObjectPointerType>()
+        ReturnType->castAs<ObjCObjectPointerType>()->getInterfaceDecl() &&
+        ReturnType->castAs<ObjCObjectPointerType>()
                 ->getInterfaceDecl()
                 ->getName() == "NSArray"))) {
     std::string SelectorName = (Twine(Property->getName()) + "AtIndexes").str();
@@ -8123,8 +8187,8 @@ static void AddObjCKeyValueCompletions(ObjCPropertyDecl *Property,
   if (!IsInstanceMethod &&
       (ReturnType.isNull() ||
        (ReturnType->isObjCObjectPointerType() &&
-        ReturnType->getAs<ObjCObjectPointerType>()->getInterfaceDecl() &&
-        ReturnType->getAs<ObjCObjectPointerType>()
+        ReturnType->castAs<ObjCObjectPointerType>()->getInterfaceDecl() &&
+        ReturnType->castAs<ObjCObjectPointerType>()
                 ->getInterfaceDecl()
                 ->getName() == "NSSet"))) {
     std::string SelectorName =

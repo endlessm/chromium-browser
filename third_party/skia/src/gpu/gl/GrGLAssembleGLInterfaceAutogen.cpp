@@ -154,9 +154,19 @@ sk_sp<const GrGLInterface> GrGLMakeAssembledGLInterface(void *ctx, GrGLGetProc g
         GET_PROC(GetStringi);
     }
 
+    if (glVer >= GR_GL_VER(4,2)) {
+        GET_PROC(MemoryBarrier);
+    }
+
     GET_PROC(BindVertexArray);
     GET_PROC(DeleteVertexArrays);
     GET_PROC(GenVertexArrays);
+
+    if (glVer >= GR_GL_VER(4,0)) {
+        GET_PROC(PatchParameteri);
+    } else if (extensions.has("GL_ARB_tessellation_shader")) {
+        GET_PROC(PatchParameteri);
+    }
 
     if (glVer >= GR_GL_VER(3,0)) {
         GET_PROC(BindFragDataLocation);
@@ -489,6 +499,14 @@ sk_sp<const GrGLInterface> GrGLMakeAssembledGLInterface(void *ctx, GrGLGetProc g
         GET_PROC(GetShaderPrecisionFormat);
     } else if (extensions.has("GL_ARB_ES2_compatibility")) {
         GET_PROC(GetShaderPrecisionFormat);
+    }
+
+    if (extensions.has("GL_NV_fence")) {
+        GET_PROC_SUFFIX(DeleteFences, NV);
+        GET_PROC_SUFFIX(FinishFence, NV);
+        GET_PROC_SUFFIX(GenFences, NV);
+        GET_PROC_SUFFIX(SetFence, NV);
+        GET_PROC_SUFFIX(TestFence, NV);
     }
 
 

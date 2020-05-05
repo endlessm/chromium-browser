@@ -59,7 +59,8 @@ enum Tags : uint32_t {
   F(TRACE_WRITER_COMMIT_STARTUP_WRITER_BATCH), \
   F(FTRACE_READ_TICK), \
   F(FTRACE_CPU_READ_CYCLE), \
-  F(FTRACE_CPU_READ_BATCH)
+  F(FTRACE_CPU_READ_BATCH), \
+  F(KALLSYMS_PARSE)
 
 // Append only, see above.
 //
@@ -90,6 +91,11 @@ enum Counters : uint16_t {
 };
 constexpr char const* kCounterNames[] = {
     PERFETTO_METATRACE_COUNTERS(PERFETTO_METATRACE_TOSTRING)};
+
+inline void SuppressUnusedVarsInAmalgamatedBuild() {
+  (void)kCounterNames;
+  (void)kEventNames;
+}
 
 }  // namespace metatrace
 }  // namespace perfetto

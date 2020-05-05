@@ -17,17 +17,20 @@
 #include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
+#include "net/third_party/quiche/src/quic/core/quic_buffer_allocator.h"
 #include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
 #include "net/third_party/quiche/src/quic/core/quic_framer.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
+#include "net/third_party/quiche/src/quic/core/quic_simple_buffer_allocator.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_frame_builder.h"
 
 using testing::_;
@@ -160,11 +163,11 @@ std::unique_ptr<QuicPacket> BuildUnsizedDataPacket(
       header.length_length);
 }
 
-std::string Sha1Hash(QuicStringPiece data) {
+std::string Sha1Hash(quiche::QuicheStringPiece data) {
   char buffer[SHA_DIGEST_LENGTH];
   SHA1(reinterpret_cast<const uint8_t*>(data.data()), data.size(),
        reinterpret_cast<uint8_t*>(buffer));
-  return std::string(buffer, QUIC_ARRAYSIZE(buffer));
+  return std::string(buffer, QUICHE_ARRAYSIZE(buffer));
 }
 
 bool ClearControlFrame(const QuicFrame& frame) {
@@ -383,6 +386,11 @@ bool NoOpFramerVisitor::OnMessageFrame(const QuicMessageFrame& /*frame*/) {
   return true;
 }
 
+bool NoOpFramerVisitor::OnHandshakeDoneFrame(
+    const QuicHandshakeDoneFrame& /*frame*/) {
+  return true;
+}
+
 bool NoOpFramerVisitor::IsValidStatelessResetToken(
     QuicUint128 /*token*/) const {
   return false;
@@ -553,7 +561,7 @@ MockQuicSession::MockQuicSession(QuicConnection* connection,
 }
 
 MockQuicSession::~MockQuicSession() {
-  delete connection();
+  DeleteConnection();
 }
 
 QuicCryptoStream* MockQuicSession::GetMutableCryptoStream() {
@@ -593,7 +601,7 @@ bool MockQuicCryptoStream::encryption_established() const {
   return false;
 }
 
-bool MockQuicCryptoStream::handshake_confirmed() const {
+bool MockQuicCryptoStream::one_rtt_keys_available() const {
   return false;
 }
 
@@ -624,7 +632,7 @@ MockQuicSpdySession::MockQuicSpdySession(QuicConnection* connection,
 }
 
 MockQuicSpdySession::~MockQuicSpdySession() {
-  delete connection();
+  DeleteConnection();
 }
 
 QuicCryptoStream* MockQuicSpdySession::GetMutableCryptoStream() {
@@ -657,15 +665,15 @@ TestQuicSpdyServerSession::TestQuicSpdyServerSession(
 }
 
 TestQuicSpdyServerSession::~TestQuicSpdyServerSession() {
-  delete connection();
+  DeleteConnection();
 }
 
-QuicCryptoServerStreamBase*
+std::unique_ptr<QuicCryptoServerStreamBase>
 TestQuicSpdyServerSession::CreateQuicCryptoServerStream(
     const QuicCryptoServerConfig* crypto_config,
     QuicCompressedCertsCache* compressed_certs_cache) {
-  return new QuicCryptoServerStream(crypto_config, compressed_certs_cache, this,
-                                    &helper_);
+  return CreateCryptoServerStream(crypto_config, compressed_certs_cache, this,
+                                  &helper_);
 }
 
 void TestQuicSpdyServerSession::OnCryptoHandshakeEvent(
@@ -673,15 +681,14 @@ void TestQuicSpdyServerSession::OnCryptoHandshakeEvent(
   QuicSession::OnCryptoHandshakeEvent(event);
 }
 
-QuicCryptoServerStream* TestQuicSpdyServerSession::GetMutableCryptoStream() {
-  return static_cast<QuicCryptoServerStream*>(
-      QuicServerSessionBase::GetMutableCryptoStream());
+QuicCryptoServerStreamBase*
+TestQuicSpdyServerSession::GetMutableCryptoStream() {
+  return QuicServerSessionBase::GetMutableCryptoStream();
 }
 
-const QuicCryptoServerStream* TestQuicSpdyServerSession::GetCryptoStream()
+const QuicCryptoServerStreamBase* TestQuicSpdyServerSession::GetCryptoStream()
     const {
-  return static_cast<const QuicCryptoServerStream*>(
-      QuicServerSessionBase::GetCryptoStream());
+  return QuicServerSessionBase::GetCryptoStream();
 }
 
 TestQuicSpdyClientSession::TestQuicSpdyClientSession(
@@ -763,50 +770,6 @@ MockAckListener::~MockAckListener() {}
 MockNetworkChangeVisitor::MockNetworkChangeVisitor() {}
 
 MockNetworkChangeVisitor::~MockNetworkChangeVisitor() {}
-
-namespace {
-
-std::string HexDumpWithMarks(const char* data,
-                             int length,
-                             const bool* marks,
-                             int mark_length) {
-  static const char kHexChars[] = "0123456789abcdef";
-  static const int kColumns = 4;
-
-  const int kSizeLimit = 1024;
-  if (length > kSizeLimit || mark_length > kSizeLimit) {
-    QUIC_LOG(ERROR) << "Only dumping first " << kSizeLimit << " bytes.";
-    length = std::min(length, kSizeLimit);
-    mark_length = std::min(mark_length, kSizeLimit);
-  }
-
-  std::string hex;
-  for (const char* row = data; length > 0;
-       row += kColumns, length -= kColumns) {
-    for (const char* p = row; p < row + 4; ++p) {
-      if (p < row + length) {
-        const bool mark =
-            (marks && (p - data) < mark_length && marks[p - data]);
-        hex += mark ? '*' : ' ';
-        hex += kHexChars[(*p & 0xf0) >> 4];
-        hex += kHexChars[*p & 0x0f];
-        hex += mark ? '*' : ' ';
-      } else {
-        hex += "    ";
-      }
-    }
-    hex = hex + "  ";
-
-    for (const char* p = row; p < row + 4 && p < row + length; ++p) {
-      hex += (*p >= 0x20 && *p <= 0x7f) ? (*p) : '.';
-    }
-
-    hex = hex + '\n';
-  }
-  return hex;
-}
-
-}  // namespace
 
 QuicIpAddress TestPeerIPAddress() {
   return QuicIpAddress::Loopback4();
@@ -921,6 +884,7 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
   if (!versions) {
     versions = &supported_versions;
   }
+  EXPECT_FALSE(versions->empty());
   ParsedQuicVersion version = (*versions)[0];
   if (QuicVersionHasLongHeaderLengths(version.transport_version) &&
       version_flag) {
@@ -940,7 +904,7 @@ QuicEncryptedPacket* ConstructEncryptedPacket(
   if (!QuicVersionUsesCryptoFrames(version.transport_version)) {
     QuicFrame frame(
         QuicStreamFrame(QuicUtils::GetCryptoStreamId(version.transport_version),
-                        false, 0, QuicStringPiece(data)));
+                        false, 0, quiche::QuicheStringPiece(data)));
     frames.push_back(frame);
   } else {
     QuicFrame frame(new QuicCryptoFrame(level, 0, data));
@@ -1008,7 +972,8 @@ QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
     header.retry_token_length_length = VARIABLE_LENGTH_INTEGER_LENGTH_1;
     header.length_length = VARIABLE_LENGTH_INTEGER_LENGTH_2;
   }
-  QuicFrame frame(QuicStreamFrame(1, false, 0, QuicStringPiece(data)));
+  QuicFrame frame(
+      QuicStreamFrame(1, false, 0, quiche::QuicheStringPiece(data)));
   QuicFrames frames;
   frames.push_back(frame);
   QuicFramer framer({version}, QuicTime::Zero(), perspective,
@@ -1048,37 +1013,6 @@ QuicEncryptedPacket* ConstructMisFramedEncryptedPacket(
   return new QuicEncryptedPacket(buffer, encrypted_length, true);
 }
 
-void CompareCharArraysWithHexError(const std::string& description,
-                                   const char* actual,
-                                   const int actual_len,
-                                   const char* expected,
-                                   const int expected_len) {
-  EXPECT_EQ(actual_len, expected_len);
-  const int min_len = std::min(actual_len, expected_len);
-  const int max_len = std::max(actual_len, expected_len);
-  std::unique_ptr<bool[]> marks(new bool[max_len]);
-  bool identical = (actual_len == expected_len);
-  for (int i = 0; i < min_len; ++i) {
-    if (actual[i] != expected[i]) {
-      marks[i] = true;
-      identical = false;
-    } else {
-      marks[i] = false;
-    }
-  }
-  for (int i = min_len; i < max_len; ++i) {
-    marks[i] = true;
-  }
-  if (identical)
-    return;
-  ADD_FAILURE() << "Description:\n"
-                << description << "\n\nExpected:\n"
-                << HexDumpWithMarks(expected, expected_len, marks.get(),
-                                    max_len)
-                << "\nActual:\n"
-                << HexDumpWithMarks(actual, actual_len, marks.get(), max_len);
-}
-
 QuicConfig DefaultQuicConfig() {
   QuicConfig config;
   config.SetInitialMaxStreamDataBytesIncomingBidirectionalToSend(
@@ -1091,7 +1025,7 @@ QuicConfig DefaultQuicConfig() {
       kInitialStreamFlowControlWindowForTest);
   config.SetInitialSessionFlowControlWindowToSend(
       kInitialSessionFlowControlWindowForTest);
-  QuicConfigPeer::SetReceivedMaxIncomingBidirectionalStreams(
+  QuicConfigPeer::SetReceivedMaxBidirectionalStreams(
       &config, kDefaultMaxStreamsPerConnection);
   // Default enable NSTP.
   // This is unnecessary for versions > 44
@@ -1234,7 +1168,7 @@ StreamType DetermineStreamType(QuicStreamId id,
 }
 
 QuicMemSliceSpan MakeSpan(QuicBufferAllocator* allocator,
-                          QuicStringPiece message_data,
+                          quiche::QuicheStringPiece message_data,
                           QuicMemSliceStorage* storage) {
   if (message_data.length() == 0) {
     *storage =
@@ -1245,6 +1179,13 @@ QuicMemSliceSpan MakeSpan(QuicBufferAllocator* allocator,
                       message_data.length()};
   *storage = QuicMemSliceStorage(&iov, 1, allocator, kMaxOutgoingPacketSize);
   return storage->ToSpan();
+}
+
+QuicMemSlice MemSliceFromString(quiche::QuicheStringPiece data) {
+  static SimpleBufferAllocator* allocator = new SimpleBufferAllocator();
+  QuicUniqueBufferPtr buffer = MakeUniqueBuffer(allocator, data.size());
+  memcpy(buffer.get(), data.data(), data.size());
+  return QuicMemSlice(std::move(buffer), data.size());
 }
 
 }  // namespace test

@@ -250,6 +250,29 @@ class WebControllerBrowserTest : public content::ContentBrowserTest,
     done_callback.Run();
   }
 
+  ClientStatus GetElementTag(const Selector& selector,
+                             std::string* element_tag_output) {
+    base::RunLoop run_loop;
+    ClientStatus result;
+    web_controller_->GetElementTag(
+        selector, base::BindOnce(&WebControllerBrowserTest::OnGetElementTag,
+                                 base::Unretained(this), run_loop.QuitClosure(),
+                                 &result, element_tag_output));
+    run_loop.Run();
+    return result;
+  }
+
+  void OnGetElementTag(const base::Closure& done_callback,
+                       ClientStatus* successful_output,
+                       std::string* element_tag_output,
+                       const ClientStatus& status,
+                       const std::string& element_tag) {
+    EXPECT_EQ(ACTION_APPLIED, status.proto_status());
+    *successful_output = status;
+    *element_tag_output = element_tag;
+    done_callback.Run();
+  }
+
   void FindElement(const Selector& selector,
                    ClientStatus* status_out,
                    ElementFinder::Result* result_out) {
@@ -342,11 +365,11 @@ class WebControllerBrowserTest : public content::ContentBrowserTest,
 
   ClientStatus SetFieldValue(const Selector& selector,
                              const std::string& value,
-                             bool simulate_key_presses) {
+                             KeyboardValueFillStrategy fill_strategy) {
     base::RunLoop run_loop;
     ClientStatus result;
     web_controller_->SetFieldValue(
-        selector, value, simulate_key_presses, 0,
+        selector, value, fill_strategy, /* key_press_delay_in_millisecond= */ 0,
         base::BindOnce(&WebControllerBrowserTest::OnSetFieldValue,
                        base::Unretained(this), run_loop.QuitClosure(),
                        &result));
@@ -1125,6 +1148,26 @@ IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetOuterHtml) {
   EXPECT_EQ(R"(<div id="divToRemove">Text</div>)", html);
 }
 
+IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetElementTag) {
+  std::string element_tag;
+
+  // Div.
+  ASSERT_EQ(
+      ACTION_APPLIED,
+      GetElementTag(Selector({"#testOuterHtml"}), &element_tag).proto_status());
+  EXPECT_EQ("DIV", element_tag);
+
+  // Select.
+  ASSERT_EQ(ACTION_APPLIED,
+            GetElementTag(Selector({"#select"}), &element_tag).proto_status());
+  EXPECT_EQ("SELECT", element_tag);
+
+  // Input.
+  ASSERT_EQ(ACTION_APPLIED,
+            GetElementTag(Selector({"#input1"}), &element_tag).proto_status());
+  EXPECT_EQ("INPUT", element_tag);
+}
+
 IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetAndSetFieldValue) {
   std::vector<Selector> selectors;
   std::vector<std::string> expected_values;
@@ -1136,8 +1179,7 @@ IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetAndSetFieldValue) {
   GetFieldsValue(selectors, expected_values);
 
   EXPECT_EQ(ACTION_APPLIED,
-            SetFieldValue(a_selector, "foo", /* simulate_key_presses= */ false)
-                .proto_status());
+            SetFieldValue(a_selector, "foo", SET_VALUE).proto_status());
   expected_values.clear();
   expected_values.emplace_back("foo");
   GetFieldsValue(selectors, expected_values);
@@ -1148,10 +1190,38 @@ IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetAndSetFieldValue) {
   selectors.emplace_back(a_selector);
   EXPECT_EQ(ACTION_APPLIED,
             SetFieldValue(a_selector, /* Zürich */ "Z\xc3\xbcrich",
-                          /* simulate_key_presses= */ true)
+                          SIMULATE_KEY_PRESSES)
                 .proto_status());
   expected_values.clear();
   expected_values.emplace_back(/* ZÜRICH */ "Z\xc3\x9cRICH");
+  GetFieldsValue(selectors, expected_values);
+
+  selectors.clear();
+  a_selector.selectors.clear();
+  a_selector.selectors.emplace_back("#input2");
+  selectors.emplace_back(a_selector);
+  expected_values.clear();
+  expected_values.emplace_back("helloworld2");
+  GetFieldsValue(selectors, expected_values);
+  EXPECT_EQ(ACTION_APPLIED,
+            SetFieldValue(a_selector, /* value= */ "", SIMULATE_KEY_PRESSES)
+                .proto_status());
+  expected_values.clear();
+  expected_values.emplace_back("");
+  GetFieldsValue(selectors, expected_values);
+
+  selectors.clear();
+  a_selector.selectors.clear();
+  a_selector.selectors.emplace_back("#input3");
+  selectors.emplace_back(a_selector);
+  expected_values.clear();
+  expected_values.emplace_back("helloworld3");
+  GetFieldsValue(selectors, expected_values);
+  EXPECT_EQ(ACTION_APPLIED, SetFieldValue(a_selector, /* value= */ "",
+                                          SIMULATE_KEY_PRESSES_SELECT_VALUE)
+                                .proto_status());
+  expected_values.clear();
+  expected_values.emplace_back("");
   GetFieldsValue(selectors, expected_values);
 
   selectors.clear();
@@ -1162,10 +1232,8 @@ IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetAndSetFieldValue) {
   expected_values.emplace_back("");
   GetFieldsValue(selectors, expected_values);
 
-  EXPECT_EQ(
-      ELEMENT_RESOLUTION_FAILED,
-      SetFieldValue(a_selector, "foobar", /* simulate_key_presses= */ false)
-          .proto_status());
+  EXPECT_EQ(ELEMENT_RESOLUTION_FAILED,
+            SetFieldValue(a_selector, "foobar", SET_VALUE).proto_status());
 }
 
 IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetAndSetFieldValueInIFrame) {
@@ -1175,18 +1243,16 @@ IN_PROC_BROWSER_TEST_F(WebControllerBrowserTest, GetAndSetFieldValueInIFrame) {
   a_selector.selectors.clear();
   a_selector.selectors.emplace_back("#iframe");
   a_selector.selectors.emplace_back("#input");
-  EXPECT_EQ(ACTION_APPLIED, SetFieldValue(a_selector, "text",
-                                          /* simulate_key_presses= */ false)
-                                .proto_status());
+  EXPECT_EQ(ACTION_APPLIED,
+            SetFieldValue(a_selector, "text", SET_VALUE).proto_status());
   GetFieldsValue({a_selector}, {"text"});
 
   // OOPIF.
   a_selector.selectors.clear();
   a_selector.selectors.emplace_back("#iframeExternal");
   a_selector.selectors.emplace_back("#input");
-  EXPECT_EQ(ACTION_APPLIED, SetFieldValue(a_selector, "text",
-                                          /* simulate_key_presses= */ false)
-                                .proto_status());
+  EXPECT_EQ(ACTION_APPLIED,
+            SetFieldValue(a_selector, "text", SET_VALUE).proto_status());
   GetFieldsValue({a_selector}, {"text"});
 }
 

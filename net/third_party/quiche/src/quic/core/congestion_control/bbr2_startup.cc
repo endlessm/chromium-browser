@@ -8,6 +8,7 @@
 #include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_sender.h"
 #include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -97,6 +98,15 @@ void Bbr2StartupMode::CheckExcessiveLosses(
     ++loss_events_in_round_;
   }
 
+  if (model_->always_count_loss_events()) {
+    DCHECK_EQ(loss_events_in_round_, model_->loss_events_in_round());
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_bbr2_always_count_loss_events, 1, 2);
+  }
+
+  const int64_t loss_events_in_round = model_->always_count_loss_events()
+                                           ? model_->loss_events_in_round()
+                                           : loss_events_in_round_;
+
   // TODO(wub): In TCP, loss based exit only happens at end of a loss round, in
   // QUIC we use the end of the normal round here. It is possible to exit after
   // any congestion event, using information of the "rolling round".
@@ -106,13 +116,13 @@ void Bbr2StartupMode::CheckExcessiveLosses(
 
   QUIC_DVLOG(3)
       << sender_
-      << " CheckExcessiveLosses at end of round. loss_events_in_round_:"
-      << loss_events_in_round_
+      << " CheckExcessiveLosses at end of round. loss_events_in_round:"
+      << loss_events_in_round
       << ", threshold:" << Params().startup_full_loss_count << "  @ "
       << congestion_event.event_time;
 
   // At the end of a round trip. Check if loss is too high in this round.
-  if (loss_events_in_round_ >= Params().startup_full_loss_count &&
+  if (loss_events_in_round >= Params().startup_full_loss_count &&
       model_->IsInflightTooHigh(congestion_event)) {
     const QuicByteCount bdp = model_->BDP(model_->MaxBandwidth());
     QUIC_DVLOG(3) << sender_
@@ -120,6 +130,7 @@ void Bbr2StartupMode::CheckExcessiveLosses(
     model_->set_inflight_hi(bdp);
 
     full_bandwidth_reached_ = true;
+    sender_->connection_stats_->bbr_exit_startup_due_to_loss = true;
   }
 
   loss_events_in_round_ = 0;

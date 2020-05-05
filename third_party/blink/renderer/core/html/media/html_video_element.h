@@ -162,7 +162,8 @@ class CORE_EXPORT HTMLVideoElement final
                                                const FloatSize&) override;
   bool IsVideoElement() const override { return true; }
   bool WouldTaintOrigin() const override;
-  FloatSize ElementSize(const FloatSize&) const override;
+  FloatSize ElementSize(const FloatSize&,
+                        const RespectImageOrientationEnum) const override;
   const KURL& SourceURL() const override { return currentSrc(); }
   bool IsHTMLVideoElement() const override { return true; }
   // Video elements currently always go through RAM when used as a canvas image
@@ -174,7 +175,8 @@ class CORE_EXPORT HTMLVideoElement final
   ScriptPromise CreateImageBitmap(ScriptState*,
                                   EventTarget&,
                                   base::Optional<IntRect> crop_rect,
-                                  const ImageBitmapOptions*) override;
+                                  const ImageBitmapOptions*,
+                                  ExceptionState&) override;
 
   // WebMediaPlayerClient implementation.
   void OnBecamePersistentVideo(bool) final;
@@ -193,6 +195,8 @@ class CORE_EXPORT HTMLVideoElement final
   void MediaRemotingStopped(int error_code) final;
   WebMediaPlayer::DisplayType DisplayType() const final;
   bool IsInAutoPIP() const final;
+  void RequestEnterPictureInPicture() final;
+  void RequestExitPictureInPicture() final;
   void OnPictureInPictureStateChange() final;
 
   // Used by the PictureInPictureController as callback when the video element
@@ -217,6 +221,8 @@ class CORE_EXPORT HTMLVideoElement final
                           RegisteredEventListener&) override;
 
   void OnWebMediaPlayerCreated() final;
+
+  void AttributeChanged(const AttributeModificationParams& params) override;
 
  private:
   friend class MediaCustomControlsFullscreenDetectorTest;
@@ -245,6 +251,8 @@ class CORE_EXPORT HTMLVideoElement final
   void OnLoadFinished() final;
   void DidMoveToNewDocument(Document& old_document) override;
   void SetDisplayMode(DisplayMode) override;
+
+  void UpdatePictureInPictureAvailability();
 
   void OnViewportIntersectionChanged(
       const HeapVector<Member<IntersectionObserverEntry>>& entries);
@@ -280,6 +288,8 @@ class CORE_EXPORT HTMLVideoElement final
 
   IntSize overridden_intrinsic_size_;
   bool is_default_overridden_intrinsic_size_;
+
+  bool video_has_played_ = false;
 
   // The following is always false unless viewport intersection monitoring is
   // turned on via ActivateViewportIntersectionMonitoring().

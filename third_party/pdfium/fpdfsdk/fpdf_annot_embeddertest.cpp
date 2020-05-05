@@ -14,6 +14,7 @@
 #include "public/cpp/fpdf_scopers.h"
 #include "public/fpdf_annot.h"
 #include "public/fpdf_edit.h"
+#include "public/fpdf_formfill.h"
 #include "public/fpdfview.h"
 #include "testing/embedder_test.h"
 #include "testing/fx_string_testhelpers.h"
@@ -1194,7 +1195,7 @@ TEST_F(FPDFAnnotEmbedderTest, MAYBE_GetSetStringValue) {
 }
 
 TEST_F(FPDFAnnotEmbedderTest, GetNumberValue) {
-  // Open a file with three text annotations and load its first page.
+  // Open a file with four text annotations and load its first page.
   ASSERT_TRUE(OpenDocument("text_form_multiple.pdf"));
   FPDF_PAGE page = LoadPage(0);
   ASSERT_TRUE(page);
@@ -1480,6 +1481,7 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormFieldFlagsTextField) {
     // Check that the flag values are as expected.
     int flags = FPDFAnnot_GetFormFieldFlags(form_handle(), annot.get());
     EXPECT_FALSE(flags & FPDF_FORMFLAG_READONLY);
+    EXPECT_FALSE(flags & FPDF_FORMFLAG_TEXT_PASSWORD);
   }
 
   {
@@ -1490,6 +1492,18 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormFieldFlagsTextField) {
     // Check that the flag values are as expected.
     int flags = FPDFAnnot_GetFormFieldFlags(form_handle(), annot.get());
     EXPECT_TRUE(flags & FPDF_FORMFLAG_READONLY);
+    EXPECT_FALSE(flags & FPDF_FORMFLAG_TEXT_PASSWORD);
+  }
+
+  {
+    // Retrieve the fourth annotation: user-editable password text field.
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 3));
+    ASSERT_TRUE(annot);
+
+    // Check that the flag values are as expected.
+    int flags = FPDFAnnot_GetFormFieldFlags(form_handle(), annot.get());
+    EXPECT_FALSE(flags & FPDF_FORMFLAG_READONLY);
+    EXPECT_TRUE(flags & FPDF_FORMFLAG_TEXT_PASSWORD);
   }
 
   UnloadPage(page);
@@ -1547,19 +1561,23 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormAnnotNull) {
   ASSERT_TRUE(page);
 
   // Attempt to get an annotation where no annotation exists on page.
-  EXPECT_FALSE(FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 0, 0));
+  static const FS_POINTF kOriginPoint = {0.0f, 0.0f};
+  EXPECT_FALSE(
+      FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kOriginPoint));
 
+  static const FS_POINTF kValidPoint = {120.0f, 120.0f};
   {
     // Verify there is an annotation.
     ScopedFPDFAnnotation annot(
-        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 120, 120));
+        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kValidPoint));
     EXPECT_TRUE(annot);
   }
 
   // Try other bad inputs at a valid location.
-  EXPECT_FALSE(FPDFAnnot_GetFormFieldAtPoint(nullptr, nullptr, 120, 120));
-  EXPECT_FALSE(FPDFAnnot_GetFormFieldAtPoint(nullptr, page, 120, 120));
-  EXPECT_FALSE(FPDFAnnot_GetFormFieldAtPoint(form_handle(), nullptr, 120, 120));
+  EXPECT_FALSE(FPDFAnnot_GetFormFieldAtPoint(nullptr, nullptr, &kValidPoint));
+  EXPECT_FALSE(FPDFAnnot_GetFormFieldAtPoint(nullptr, page, &kValidPoint));
+  EXPECT_FALSE(
+      FPDFAnnot_GetFormFieldAtPoint(form_handle(), nullptr, &kValidPoint));
 
   UnloadPage(page);
 }
@@ -1572,8 +1590,9 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormAnnotAndCheckFlagsTextField) {
 
   {
     // Retrieve user-editable text field annotation.
+    static const FS_POINTF kPoint = {105.0f, 118.0f};
     ScopedFPDFAnnotation annot(
-        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 105, 118));
+        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kPoint));
     ASSERT_TRUE(annot);
 
     // Check that interactive form annotation flag values are as expected.
@@ -1583,8 +1602,9 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormAnnotAndCheckFlagsTextField) {
 
   {
     // Retrieve read-only text field annotation.
+    static const FS_POINTF kPoint = {105.0f, 202.0f};
     ScopedFPDFAnnotation annot(
-        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 105, 202));
+        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kPoint));
     ASSERT_TRUE(annot);
 
     // Check that interactive form annotation flag values are as expected.
@@ -1603,8 +1623,9 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormAnnotAndCheckFlagsComboBox) {
 
   {
     // Retrieve user-editable combobox annotation.
+    static const FS_POINTF kPoint = {102.0f, 363.0f};
     ScopedFPDFAnnotation annot(
-        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 102, 363));
+        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kPoint));
     ASSERT_TRUE(annot);
 
     // Check that interactive form annotation flag values are as expected.
@@ -1616,8 +1637,9 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormAnnotAndCheckFlagsComboBox) {
 
   {
     // Retrieve regular combobox annotation.
+    static const FS_POINTF kPoint = {102.0f, 413.0f};
     ScopedFPDFAnnotation annot(
-        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 102, 413));
+        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kPoint));
     ASSERT_TRUE(annot);
 
     // Check that interactive form annotation flag values are as expected.
@@ -1629,8 +1651,9 @@ TEST_F(FPDFAnnotEmbedderTest, GetFormAnnotAndCheckFlagsComboBox) {
 
   {
     // Retrieve read-only combobox annotation.
+    static const FS_POINTF kPoint = {102.0f, 513.0f};
     ScopedFPDFAnnotation annot(
-        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, 102, 513));
+        FPDFAnnot_GetFormFieldAtPoint(form_handle(), page, &kPoint));
     ASSERT_TRUE(annot);
 
     // Check that interactive form annotation flag values are as expected.
@@ -2013,7 +2036,7 @@ TEST_F(FPDFAnnotEmbedderTest, GetFontSizeTextField) {
   ASSERT_TRUE(page);
 
   {
-    // All 3 widgets have Tf font size 12.
+    // All 4 widgets have Tf font size 12.
     ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
     ASSERT_TRUE(annot);
 
@@ -2035,6 +2058,10 @@ TEST_F(FPDFAnnotEmbedderTest, GetFontSizeTextField) {
     ASSERT_TRUE(
         FPDFAnnot_GetFontSize(form_handle(), annot.get(), &value_three));
     EXPECT_EQ(12.0, value_three);
+
+    float value_four;
+    ASSERT_TRUE(FPDFAnnot_GetFontSize(form_handle(), annot.get(), &value_four));
+    EXPECT_EQ(12.0, value_four);
   }
 
   UnloadPage(page);
@@ -2208,5 +2235,153 @@ TEST_F(FPDFAnnotEmbedderTest, IsCheckedInvalidWidgetType) {
     ASSERT_FALSE(FPDFAnnot_IsChecked(form_handle(), annot.get()));
   }
 
+  UnloadPage(page);
+}
+
+TEST_F(FPDFAnnotEmbedderTest, GetFormFieldTypeTextField) {
+  ASSERT_TRUE(OpenDocument("text_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  {
+    EXPECT_EQ(-1, FPDFAnnot_GetFormFieldType(form_handle(), nullptr));
+
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
+    ASSERT_TRUE(annot);
+
+    EXPECT_EQ(-1, FPDFAnnot_GetFormFieldType(nullptr, annot.get()));
+
+    EXPECT_EQ(FPDF_FORMFIELD_TEXTFIELD,
+              FPDFAnnot_GetFormFieldType(form_handle(), annot.get()));
+  }
+  UnloadPage(page);
+}
+
+TEST_F(FPDFAnnotEmbedderTest, GetFormFieldTypeComboBox) {
+  ASSERT_TRUE(OpenDocument("combobox_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  {
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
+    ASSERT_TRUE(annot);
+    EXPECT_EQ(FPDF_FORMFIELD_COMBOBOX,
+              FPDFAnnot_GetFormFieldType(form_handle(), annot.get()));
+  }
+  UnloadPage(page);
+}
+
+TEST_F(FPDFAnnotEmbedderTest, GetFormFieldValueTextField) {
+  ASSERT_TRUE(OpenDocument("text_form_multiple.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  {
+    EXPECT_EQ(0u,
+              FPDFAnnot_GetFormFieldValue(form_handle(), nullptr, nullptr, 0));
+
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
+    ASSERT_TRUE(annot);
+
+    EXPECT_EQ(0u,
+              FPDFAnnot_GetFormFieldValue(nullptr, annot.get(), nullptr, 0));
+
+    unsigned long length_bytes =
+        FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(), nullptr, 0);
+    ASSERT_EQ(2u, length_bytes);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(length_bytes);
+    EXPECT_EQ(2u, FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(),
+                                              buf.data(), length_bytes));
+    EXPECT_EQ(L"", GetPlatformWString(buf.data()));
+  }
+  {
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 2));
+    ASSERT_TRUE(annot);
+
+    unsigned long length_bytes =
+        FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(), nullptr, 0);
+    ASSERT_EQ(18u, length_bytes);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(length_bytes);
+    EXPECT_EQ(18u, FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(),
+                                               buf.data(), length_bytes));
+    EXPECT_EQ(L"Elephant", GetPlatformWString(buf.data()));
+  }
+  UnloadPage(page);
+}
+
+TEST_F(FPDFAnnotEmbedderTest, GetFormFieldValueComboBox) {
+  ASSERT_TRUE(OpenDocument("combobox_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  {
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
+    ASSERT_TRUE(annot);
+
+    unsigned long length_bytes =
+        FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(), nullptr, 0);
+    ASSERT_EQ(2u, length_bytes);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(length_bytes);
+    EXPECT_EQ(2u, FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(),
+                                              buf.data(), length_bytes));
+    EXPECT_EQ(L"", GetPlatformWString(buf.data()));
+  }
+  {
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 1));
+    ASSERT_TRUE(annot);
+
+    unsigned long length_bytes =
+        FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(), nullptr, 0);
+    ASSERT_EQ(14u, length_bytes);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(length_bytes);
+    EXPECT_EQ(14u, FPDFAnnot_GetFormFieldValue(form_handle(), annot.get(),
+                                               buf.data(), length_bytes));
+    EXPECT_EQ(L"Banana", GetPlatformWString(buf.data()));
+  }
+  UnloadPage(page);
+}
+
+TEST_F(FPDFAnnotEmbedderTest, GetFormFieldNameTextField) {
+  ASSERT_TRUE(OpenDocument("text_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  {
+    EXPECT_EQ(0u,
+              FPDFAnnot_GetFormFieldName(form_handle(), nullptr, nullptr, 0));
+
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
+    ASSERT_TRUE(annot);
+
+    EXPECT_EQ(0u, FPDFAnnot_GetFormFieldName(nullptr, annot.get(), nullptr, 0));
+
+    unsigned long length_bytes =
+        FPDFAnnot_GetFormFieldName(form_handle(), annot.get(), nullptr, 0);
+    ASSERT_EQ(18u, length_bytes);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(length_bytes);
+    EXPECT_EQ(18u, FPDFAnnot_GetFormFieldName(form_handle(), annot.get(),
+                                              buf.data(), length_bytes));
+    EXPECT_EQ(L"Text Box", GetPlatformWString(buf.data()));
+  }
+  UnloadPage(page);
+}
+
+TEST_F(FPDFAnnotEmbedderTest, GetFormFieldNameComboBox) {
+  ASSERT_TRUE(OpenDocument("combobox_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+
+  {
+    ScopedFPDFAnnotation annot(FPDFPage_GetAnnot(page, 0));
+    ASSERT_TRUE(annot);
+
+    unsigned long length_bytes =
+        FPDFAnnot_GetFormFieldName(form_handle(), annot.get(), nullptr, 0);
+    ASSERT_EQ(30u, length_bytes);
+    std::vector<FPDF_WCHAR> buf = GetFPDFWideStringBuffer(length_bytes);
+    EXPECT_EQ(30u, FPDFAnnot_GetFormFieldName(form_handle(), annot.get(),
+                                              buf.data(), length_bytes));
+    EXPECT_EQ(L"Combo_Editable", GetPlatformWString(buf.data()));
+  }
   UnloadPage(page);
 }

@@ -111,8 +111,8 @@ const char* getResultName (VkResult value)
 		case VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT:	return "VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT";
 		case VK_ERROR_FRAGMENTATION_EXT:							return "VK_ERROR_FRAGMENTATION_EXT";
 		case VK_ERROR_NOT_PERMITTED_EXT:							return "VK_ERROR_NOT_PERMITTED_EXT";
-		case VK_ERROR_INVALID_DEVICE_ADDRESS_EXT:					return "VK_ERROR_INVALID_DEVICE_ADDRESS_EXT";
 		case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:			return "VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT";
+		case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR:			return "VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR";
 		case VK_RESULT_MAX_ENUM:									return "VK_RESULT_MAX_ENUM";
 		default:													return DE_NULL;
 	}
@@ -336,6 +336,13 @@ const char* getStructureTypeName (VkStructureType value)
 		case VK_STRUCTURE_TYPE_FENCE_GET_WIN32_HANDLE_INFO_KHR:									return "VK_STRUCTURE_TYPE_FENCE_GET_WIN32_HANDLE_INFO_KHR";
 		case VK_STRUCTURE_TYPE_IMPORT_FENCE_FD_INFO_KHR:										return "VK_STRUCTURE_TYPE_IMPORT_FENCE_FD_INFO_KHR";
 		case VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR:											return "VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR";
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR:					return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR";
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR:				return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR";
+		case VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR:							return "VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR";
+		case VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR:								return "VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR";
+		case VK_STRUCTURE_TYPE_ACQUIRE_PROFILING_LOCK_INFO_KHR:									return "VK_STRUCTURE_TYPE_ACQUIRE_PROFILING_LOCK_INFO_KHR";
+		case VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR:											return "VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR";
+		case VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR:								return "VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR";
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR:								return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR";
 		case VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR:										return "VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR";
 		case VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR:											return "VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR";
@@ -471,8 +478,10 @@ const char* getStructureTypeName (VkStructureType value)
 		case VK_STRUCTURE_TYPE_MEMORY_PRIORITY_ALLOCATE_INFO_EXT:								return "VK_STRUCTURE_TYPE_MEMORY_PRIORITY_ALLOCATE_INFO_EXT";
 		case VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR:								return "VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR";
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEDICATED_ALLOCATION_IMAGE_ALIASING_FEATURES_NV:	return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEDICATED_ALLOCATION_IMAGE_ALIASING_FEATURES_NV";
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR:		return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR";
+		case VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR:							return "VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR";
+		case VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR:						return "VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR";
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT:				return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT";
-		case VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT:									return "VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT";
 		case VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_CREATE_INFO_EXT:							return "VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_CREATE_INFO_EXT";
 		case VK_STRUCTURE_TYPE_IMAGE_STENCIL_USAGE_CREATE_INFO_EXT:								return "VK_STRUCTURE_TYPE_IMAGE_STENCIL_USAGE_CREATE_INFO_EXT";
 		case VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT:											return "VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT";
@@ -489,6 +498,11 @@ const char* getStructureTypeName (VkStructureType value)
 		case VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_FULL_SCREEN_EXCLUSIVE_EXT:					return "VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_FULL_SCREEN_EXCLUSIVE_EXT";
 		case VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT:					return "VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT";
 		case VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT:								return "VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT";
+		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR:				return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR";
+		case VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR:									return "VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR";
+		case VK_STRUCTURE_TYPE_BUFFER_OPAQUE_CAPTURE_ADDRESS_CREATE_INFO_KHR:					return "VK_STRUCTURE_TYPE_BUFFER_OPAQUE_CAPTURE_ADDRESS_CREATE_INFO_KHR";
+		case VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO_KHR:					return "VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO_KHR";
+		case VK_STRUCTURE_TYPE_DEVICE_MEMORY_OPAQUE_CAPTURE_ADDRESS_INFO_KHR:					return "VK_STRUCTURE_TYPE_DEVICE_MEMORY_OPAQUE_CAPTURE_ADDRESS_INFO_KHR";
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT:					return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT";
 		case VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT:				return "VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT";
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_PROPERTIES_EXT:				return "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_PROPERTIES_EXT";
@@ -828,6 +842,7 @@ const char* getQueryTypeName (VkQueryType value)
 		case VK_QUERY_TYPE_PIPELINE_STATISTICS:							return "VK_QUERY_TYPE_PIPELINE_STATISTICS";
 		case VK_QUERY_TYPE_TIMESTAMP:									return "VK_QUERY_TYPE_TIMESTAMP";
 		case VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT:				return "VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT";
+		case VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR:						return "VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR";
 		case VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_NV:	return "VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_NV";
 		case VK_QUERY_TYPE_PERFORMANCE_QUERY_INTEL:						return "VK_QUERY_TYPE_PERFORMANCE_QUERY_INTEL";
 		case VK_QUERY_TYPE_MAX_ENUM:									return "VK_QUERY_TYPE_MAX_ENUM";
@@ -865,6 +880,10 @@ const char* getImageLayoutName (VkImageLayout value)
 		case VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR:							return "VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR";
 		case VK_IMAGE_LAYOUT_SHADING_RATE_OPTIMAL_NV:						return "VK_IMAGE_LAYOUT_SHADING_RATE_OPTIMAL_NV";
 		case VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT:				return "VK_IMAGE_LAYOUT_FRAGMENT_DENSITY_MAP_OPTIMAL_EXT";
+		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR:					return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR";
+		case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR:					return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR";
+		case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR:				return "VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR";
+		case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR:					return "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR";
 		case VK_IMAGE_LAYOUT_MAX_ENUM:										return "VK_IMAGE_LAYOUT_MAX_ENUM";
 		default:															return DE_NULL;
 	}
@@ -1438,6 +1457,53 @@ const char* getPresentModeKHRName (VkPresentModeKHR value)
 		case VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR:		return "VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR";
 		case VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR:	return "VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR";
 		case VK_PRESENT_MODE_MAX_ENUM_KHR:					return "VK_PRESENT_MODE_MAX_ENUM_KHR";
+		default:											return DE_NULL;
+	}
+}
+
+const char* getPerformanceCounterUnitKHRName (VkPerformanceCounterUnitKHR value)
+{
+	switch (value)
+	{
+		case VK_PERFORMANCE_COUNTER_UNIT_GENERIC_KHR:			return "VK_PERFORMANCE_COUNTER_UNIT_GENERIC_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_PERCENTAGE_KHR:		return "VK_PERFORMANCE_COUNTER_UNIT_PERCENTAGE_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_NANOSECONDS_KHR:		return "VK_PERFORMANCE_COUNTER_UNIT_NANOSECONDS_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_BYTES_KHR:				return "VK_PERFORMANCE_COUNTER_UNIT_BYTES_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_BYTES_PER_SECOND_KHR:	return "VK_PERFORMANCE_COUNTER_UNIT_BYTES_PER_SECOND_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_KELVIN_KHR:			return "VK_PERFORMANCE_COUNTER_UNIT_KELVIN_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_WATTS_KHR:				return "VK_PERFORMANCE_COUNTER_UNIT_WATTS_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_VOLTS_KHR:				return "VK_PERFORMANCE_COUNTER_UNIT_VOLTS_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_AMPS_KHR:				return "VK_PERFORMANCE_COUNTER_UNIT_AMPS_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_HERTZ_KHR:				return "VK_PERFORMANCE_COUNTER_UNIT_HERTZ_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_CYCLES_KHR:			return "VK_PERFORMANCE_COUNTER_UNIT_CYCLES_KHR";
+		case VK_PERFORMANCE_COUNTER_UNIT_MAX_ENUM_KHR:			return "VK_PERFORMANCE_COUNTER_UNIT_MAX_ENUM_KHR";
+		default:												return DE_NULL;
+	}
+}
+
+const char* getPerformanceCounterScopeKHRName (VkPerformanceCounterScopeKHR value)
+{
+	switch (value)
+	{
+		case VK_QUERY_SCOPE_COMMAND_BUFFER_KHR:			return "VK_QUERY_SCOPE_COMMAND_BUFFER_KHR";
+		case VK_QUERY_SCOPE_RENDER_PASS_KHR:			return "VK_QUERY_SCOPE_RENDER_PASS_KHR";
+		case VK_QUERY_SCOPE_COMMAND_KHR:				return "VK_QUERY_SCOPE_COMMAND_KHR";
+		case VK_PERFORMANCE_COUNTER_SCOPE_MAX_ENUM_KHR:	return "VK_PERFORMANCE_COUNTER_SCOPE_MAX_ENUM_KHR";
+		default:										return DE_NULL;
+	}
+}
+
+const char* getPerformanceCounterStorageKHRName (VkPerformanceCounterStorageKHR value)
+{
+	switch (value)
+	{
+		case VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR:		return "VK_PERFORMANCE_COUNTER_STORAGE_INT32_KHR";
+		case VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR:		return "VK_PERFORMANCE_COUNTER_STORAGE_INT64_KHR";
+		case VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR:		return "VK_PERFORMANCE_COUNTER_STORAGE_UINT32_KHR";
+		case VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR:		return "VK_PERFORMANCE_COUNTER_STORAGE_UINT64_KHR";
+		case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR:	return "VK_PERFORMANCE_COUNTER_STORAGE_FLOAT32_KHR";
+		case VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR:	return "VK_PERFORMANCE_COUNTER_STORAGE_FLOAT64_KHR";
+		case VK_PERFORMANCE_COUNTER_STORAGE_MAX_ENUM_KHR:	return "VK_PERFORMANCE_COUNTER_STORAGE_MAX_ENUM_KHR";
 		default:											return DE_NULL;
 	}
 }
@@ -2305,6 +2371,7 @@ tcu::Format::Bitfield<32> getBufferCreateFlagsStr (VkBufferCreateFlags value)
 		tcu::Format::BitDesc(VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT,						"VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT"),
 		tcu::Format::BitDesc(VK_BUFFER_CREATE_SPARSE_ALIASED_BIT,						"VK_BUFFER_CREATE_SPARSE_ALIASED_BIT"),
 		tcu::Format::BitDesc(VK_BUFFER_CREATE_PROTECTED_BIT,							"VK_BUFFER_CREATE_PROTECTED_BIT"),
+		tcu::Format::BitDesc(VK_BUFFER_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR,	"VK_BUFFER_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR"),
 		tcu::Format::BitDesc(VK_BUFFER_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_EXT,	"VK_BUFFER_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_EXT"),
 		tcu::Format::BitDesc(VK_BUFFER_CREATE_FLAG_BITS_MAX_ENUM,						"VK_BUFFER_CREATE_FLAG_BITS_MAX_ENUM"),
 	};
@@ -2328,6 +2395,7 @@ tcu::Format::Bitfield<32> getBufferUsageFlagsStr (VkBufferUsageFlags value)
 		tcu::Format::BitDesc(VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT,	"VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT"),
 		tcu::Format::BitDesc(VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT,				"VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT"),
 		tcu::Format::BitDesc(VK_BUFFER_USAGE_RAY_TRACING_BIT_NV,						"VK_BUFFER_USAGE_RAY_TRACING_BIT_NV"),
+		tcu::Format::BitDesc(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR,				"VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR"),
 		tcu::Format::BitDesc(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_EXT,				"VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_EXT"),
 		tcu::Format::BitDesc(VK_BUFFER_USAGE_FLAG_BITS_MAX_ENUM,						"VK_BUFFER_USAGE_FLAG_BITS_MAX_ENUM"),
 	};
@@ -2361,10 +2429,11 @@ tcu::Format::Bitfield<32> getPipelineCreateFlagsStr (VkPipelineCreateFlags value
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,						"VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_DERIVATIVE_BIT,								"VK_PIPELINE_CREATE_DERIVATIVE_BIT"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_VIEW_INDEX_FROM_DEVICE_INDEX_BIT,			"VK_PIPELINE_CREATE_VIEW_INDEX_FROM_DEVICE_INDEX_BIT"),
-		tcu::Format::BitDesc(VK_PIPELINE_CREATE_DISPATCH_BASE,								"VK_PIPELINE_CREATE_DISPATCH_BASE"),
+		tcu::Format::BitDesc(VK_PIPELINE_CREATE_DISPATCH_BASE_BIT,							"VK_PIPELINE_CREATE_DISPATCH_BASE_BIT"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_DEFER_COMPILE_BIT_NV,						"VK_PIPELINE_CREATE_DEFER_COMPILE_BIT_NV"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR,					"VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_CAPTURE_INTERNAL_REPRESENTATIONS_BIT_KHR,	"VK_PIPELINE_CREATE_CAPTURE_INTERNAL_REPRESENTATIONS_BIT_KHR"),
+		tcu::Format::BitDesc(VK_PIPELINE_CREATE_DISPATCH_BASE,								"VK_PIPELINE_CREATE_DISPATCH_BASE"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_VIEW_INDEX_FROM_DEVICE_INDEX_BIT_KHR,		"VK_PIPELINE_CREATE_VIEW_INDEX_FROM_DEVICE_INDEX_BIT_KHR"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_DISPATCH_BASE_KHR,							"VK_PIPELINE_CREATE_DISPATCH_BASE_KHR"),
 		tcu::Format::BitDesc(VK_PIPELINE_CREATE_FLAG_BITS_MAX_ENUM,							"VK_PIPELINE_CREATE_FLAG_BITS_MAX_ENUM"),
@@ -2664,9 +2733,11 @@ tcu::Format::Bitfield<32> getMemoryAllocateFlagsStr (VkMemoryAllocateFlags value
 {
 	static const tcu::Format::BitDesc s_desc[] =
 	{
-		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT,		"VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT"),
-		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT_KHR,	"VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT_KHR"),
-		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_FLAG_BITS_MAX_ENUM,		"VK_MEMORY_ALLOCATE_FLAG_BITS_MAX_ENUM"),
+		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT,						"VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT"),
+		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR,					"VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR"),
+		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR,	"VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_KHR"),
+		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT_KHR,					"VK_MEMORY_ALLOCATE_DEVICE_MASK_BIT_KHR"),
+		tcu::Format::BitDesc(VK_MEMORY_ALLOCATE_FLAG_BITS_MAX_ENUM,						"VK_MEMORY_ALLOCATE_FLAG_BITS_MAX_ENUM"),
 	};
 	return tcu::Format::Bitfield<32>(value, DE_ARRAY_BEGIN(s_desc), DE_ARRAY_END(s_desc));
 }
@@ -2862,6 +2933,26 @@ tcu::Format::Bitfield<32> getDisplayPlaneAlphaFlagsKHRStr (VkDisplayPlaneAlphaFl
 		tcu::Format::BitDesc(VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR,					"VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR"),
 		tcu::Format::BitDesc(VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_PREMULTIPLIED_BIT_KHR,	"VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_PREMULTIPLIED_BIT_KHR"),
 		tcu::Format::BitDesc(VK_DISPLAY_PLANE_ALPHA_FLAG_BITS_MAX_ENUM_KHR,				"VK_DISPLAY_PLANE_ALPHA_FLAG_BITS_MAX_ENUM_KHR"),
+	};
+	return tcu::Format::Bitfield<32>(value, DE_ARRAY_BEGIN(s_desc), DE_ARRAY_END(s_desc));
+}
+
+tcu::Format::Bitfield<32> getPerformanceCounterDescriptionFlagsKHRStr (VkPerformanceCounterDescriptionFlagsKHR value)
+{
+	static const tcu::Format::BitDesc s_desc[] =
+	{
+		tcu::Format::BitDesc(VK_PERFORMANCE_COUNTER_DESCRIPTION_PERFORMANCE_IMPACTING_KHR,	"VK_PERFORMANCE_COUNTER_DESCRIPTION_PERFORMANCE_IMPACTING_KHR"),
+		tcu::Format::BitDesc(VK_PERFORMANCE_COUNTER_DESCRIPTION_CONCURRENTLY_IMPACTED_KHR,	"VK_PERFORMANCE_COUNTER_DESCRIPTION_CONCURRENTLY_IMPACTED_KHR"),
+		tcu::Format::BitDesc(VK_PERFORMANCE_COUNTER_DESCRIPTION_FLAG_BITS_MAX_ENUM_KHR,		"VK_PERFORMANCE_COUNTER_DESCRIPTION_FLAG_BITS_MAX_ENUM_KHR"),
+	};
+	return tcu::Format::Bitfield<32>(value, DE_ARRAY_BEGIN(s_desc), DE_ARRAY_END(s_desc));
+}
+
+tcu::Format::Bitfield<32> getAcquireProfilingLockFlagsKHRStr (VkAcquireProfilingLockFlagsKHR value)
+{
+	static const tcu::Format::BitDesc s_desc[] =
+	{
+		tcu::Format::BitDesc(VK_ACQUIRE_PROFILING_LOCK_FLAG_BITS_MAX_ENUM_KHR,	"VK_ACQUIRE_PROFILING_LOCK_FLAG_BITS_MAX_ENUM_KHR"),
 	};
 	return tcu::Format::Bitfield<32>(value, DE_ARRAY_BEGIN(s_desc), DE_ARRAY_END(s_desc));
 }
@@ -6110,6 +6201,99 @@ std::ostream& operator<< (std::ostream& s, const VkFenceGetFdInfoKHR& value)
 	return s;
 }
 
+std::ostream& operator<< (std::ostream& s, const VkPhysicalDevicePerformanceQueryFeaturesKHR& value)
+{
+	s << "VkPhysicalDevicePerformanceQueryFeaturesKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tperformanceCounterQueryPools = " << value.performanceCounterQueryPools << '\n';
+	s << "\tperformanceCounterMultipleQueryPools = " << value.performanceCounterMultipleQueryPools << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkPhysicalDevicePerformanceQueryPropertiesKHR& value)
+{
+	s << "VkPhysicalDevicePerformanceQueryPropertiesKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tallowCommandBufferQueryCopies = " << value.allowCommandBufferQueryCopies << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkPerformanceCounterKHR& value)
+{
+	s << "VkPerformanceCounterKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tunit = " << value.unit << '\n';
+	s << "\tscope = " << value.scope << '\n';
+	s << "\tstorage = " << value.storage << '\n';
+	s << "\tuuid = " << '\n' << tcu::formatArray(tcu::Format::HexIterator<deUint8>(DE_ARRAY_BEGIN(value.uuid)), tcu::Format::HexIterator<deUint8>(DE_ARRAY_END(value.uuid))) << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkPerformanceCounterDescriptionKHR& value)
+{
+	s << "VkPerformanceCounterDescriptionKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tflags = " << getPerformanceCounterDescriptionFlagsKHRStr(value.flags) << '\n';
+	s << "\tname = " << '\n' << tcu::formatArray(tcu::Format::HexIterator<char>(DE_ARRAY_BEGIN(value.name)), tcu::Format::HexIterator<char>(DE_ARRAY_END(value.name))) << '\n';
+	s << "\tcategory = " << '\n' << tcu::formatArray(tcu::Format::HexIterator<char>(DE_ARRAY_BEGIN(value.category)), tcu::Format::HexIterator<char>(DE_ARRAY_END(value.category))) << '\n';
+	s << "\tdescription = " << (const char*)value.description << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkQueryPoolPerformanceCreateInfoKHR& value)
+{
+	s << "VkQueryPoolPerformanceCreateInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tqueueFamilyIndex = " << value.queueFamilyIndex << '\n';
+	s << "\tcounterIndexCount = " << value.counterIndexCount << '\n';
+	s << "\tpCounterIndices = " << value.pCounterIndices << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkPerformanceCounterResultKHR& value)
+{
+	s << "VkPerformanceCounterResultKHR = {\n";
+	s << "\tint32 = " << value.int32 << '\n';
+	s << "\tint64 = " << value.int64 << '\n';
+	s << "\tuint32 = " << value.uint32 << '\n';
+	s << "\tuint64 = " << value.uint64 << '\n';
+	s << "\tfloat32 = " << value.float32 << '\n';
+	s << "\tfloat64 = " << value.float64 << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkAcquireProfilingLockInfoKHR& value)
+{
+	s << "VkAcquireProfilingLockInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tflags = " << getAcquireProfilingLockFlagsKHRStr(value.flags) << '\n';
+	s << "\ttimeout = " << value.timeout << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkPerformanceQuerySubmitInfoKHR& value)
+{
+	s << "VkPerformanceQuerySubmitInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tcounterPassIndex = " << value.counterPassIndex << '\n';
+	s << '}';
+	return s;
+}
+
 std::ostream& operator<< (std::ostream& s, const VkPhysicalDeviceSurfaceInfo2KHR& value)
 {
 	s << "VkPhysicalDeviceSurfaceInfo2KHR = {\n";
@@ -6411,12 +6595,95 @@ std::ostream& operator<< (std::ostream& s, const VkSurfaceProtectedCapabilitiesK
 	return s;
 }
 
+std::ostream& operator<< (std::ostream& s, const VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR& value)
+{
+	s << "VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tseparateDepthStencilLayouts = " << value.separateDepthStencilLayouts << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkAttachmentReferenceStencilLayoutKHR& value)
+{
+	s << "VkAttachmentReferenceStencilLayoutKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tstencilLayout = " << value.stencilLayout << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkAttachmentDescriptionStencilLayoutKHR& value)
+{
+	s << "VkAttachmentDescriptionStencilLayoutKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tstencilInitialLayout = " << value.stencilInitialLayout << '\n';
+	s << "\tstencilFinalLayout = " << value.stencilFinalLayout << '\n';
+	s << '}';
+	return s;
+}
+
 std::ostream& operator<< (std::ostream& s, const VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR& value)
 {
 	s << "VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR = {\n";
 	s << "\tsType = " << value.sType << '\n';
 	s << "\tpNext = " << value.pNext << '\n';
 	s << "\tuniformBufferStandardLayout = " << value.uniformBufferStandardLayout << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkPhysicalDeviceBufferDeviceAddressFeaturesKHR& value)
+{
+	s << "VkPhysicalDeviceBufferDeviceAddressFeaturesKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tbufferDeviceAddress = " << value.bufferDeviceAddress << '\n';
+	s << "\tbufferDeviceAddressCaptureReplay = " << value.bufferDeviceAddressCaptureReplay << '\n';
+	s << "\tbufferDeviceAddressMultiDevice = " << value.bufferDeviceAddressMultiDevice << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkBufferDeviceAddressInfoKHR& value)
+{
+	s << "VkBufferDeviceAddressInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tbuffer = " << value.buffer << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkBufferOpaqueCaptureAddressCreateInfoKHR& value)
+{
+	s << "VkBufferOpaqueCaptureAddressCreateInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\topaqueCaptureAddress = " << value.opaqueCaptureAddress << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkMemoryOpaqueCaptureAddressAllocateInfoKHR& value)
+{
+	s << "VkMemoryOpaqueCaptureAddressAllocateInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\topaqueCaptureAddress = " << value.opaqueCaptureAddress << '\n';
+	s << '}';
+	return s;
+}
+
+std::ostream& operator<< (std::ostream& s, const VkDeviceMemoryOpaqueCaptureAddressInfoKHR& value)
+{
+	s << "VkDeviceMemoryOpaqueCaptureAddressInfoKHR = {\n";
+	s << "\tsType = " << value.sType << '\n';
+	s << "\tpNext = " << value.pNext << '\n';
+	s << "\tmemory = " << value.memory << '\n';
 	s << '}';
 	return s;
 }
@@ -8538,16 +8805,6 @@ std::ostream& operator<< (std::ostream& s, const VkPhysicalDeviceBufferDeviceAdd
 	s << "\tbufferDeviceAddress = " << value.bufferDeviceAddress << '\n';
 	s << "\tbufferDeviceAddressCaptureReplay = " << value.bufferDeviceAddressCaptureReplay << '\n';
 	s << "\tbufferDeviceAddressMultiDevice = " << value.bufferDeviceAddressMultiDevice << '\n';
-	s << '}';
-	return s;
-}
-
-std::ostream& operator<< (std::ostream& s, const VkBufferDeviceAddressInfoEXT& value)
-{
-	s << "VkBufferDeviceAddressInfoEXT = {\n";
-	s << "\tsType = " << value.sType << '\n';
-	s << "\tpNext = " << value.pNext << '\n';
-	s << "\tbuffer = " << value.buffer << '\n';
 	s << '}';
 	return s;
 }

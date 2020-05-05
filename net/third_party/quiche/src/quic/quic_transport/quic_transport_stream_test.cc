@@ -14,11 +14,13 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_transport_test_tools.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
 namespace {
 
+using testing::_;
 using testing::Return;
 
 ParsedQuicVersionVector GetVersions() {
@@ -48,7 +50,8 @@ class QuicTransportStreamTest : public QuicTest {
     stream_->set_visitor(std::move(visitor));
   }
 
-  void ReceiveStreamData(QuicStringPiece data, QuicStreamOffset offset) {
+  void ReceiveStreamData(quiche::QuicheStringPiece data,
+                         QuicStreamOffset offset) {
     QuicStreamFrame frame(0, false, offset, data);
     stream_->OnStreamFrame(frame);
   }
@@ -116,6 +119,32 @@ TEST_F(QuicTransportStreamTest, FinReadWithDataPending) {
   EXPECT_CALL(*visitor_, OnFinRead()).Times(1);
   std::string buffer;
   ASSERT_EQ(stream_->Read(&buffer), 4u);
+}
+
+TEST_F(QuicTransportStreamTest, WritingTooMuchData) {
+  EXPECT_CALL(interface_, IsSessionReady()).WillRepeatedly(Return(true));
+  ASSERT_TRUE(stream_->CanWrite());
+
+  std::string a_little_bit_of_data(128, 'A');
+  std::string a_lot_of_data(GetQuicFlag(FLAGS_quic_buffered_data_threshold) * 2,
+                            'a');
+
+  EXPECT_TRUE(stream_->Write(a_little_bit_of_data));
+  EXPECT_TRUE(stream_->Write(a_little_bit_of_data));
+  EXPECT_TRUE(stream_->Write(a_little_bit_of_data));
+
+  EXPECT_TRUE(stream_->Write(a_lot_of_data));
+  EXPECT_FALSE(stream_->Write(a_lot_of_data));
+}
+
+TEST_F(QuicTransportStreamTest, CannotSendFinTwice) {
+  EXPECT_CALL(interface_, IsSessionReady()).WillRepeatedly(Return(true));
+  ASSERT_TRUE(stream_->CanWrite());
+
+  EXPECT_CALL(session_, WritevData(stream_, stream_->id(), _, _, _))
+      .WillOnce(Return(QuicConsumedData(0, /*fin_consumed=*/true)));
+  EXPECT_TRUE(stream_->SendFin());
+  EXPECT_FALSE(stream_->CanWrite());
 }
 
 }  // namespace

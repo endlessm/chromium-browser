@@ -297,20 +297,24 @@ FPDFDOC_InitFormFillEnvironment(FPDF_DOCUMENT document,
   if (!pDocument)
     return nullptr;
 
-#ifdef PDF_ENABLE_XFA
-  // If the CPDFXFA_Context has a FormFillEnvironment already then we've done
-  // this and can just return the old Env. Otherwise, we'll end up setting a new
-  // environment into the XFADocument and, that could get weird.
-  auto* pContext = static_cast<CPDFXFA_Context*>(pDocument->GetExtension());
-  if (pContext && pContext->GetFormFillEnv()) {
-    return FPDFFormHandleFromCPDFSDKFormFillEnvironment(
-        pContext->GetFormFillEnv());
-  }
-#endif
-
   std::unique_ptr<IPDFSDK_AnnotHandler> pXFAHandler;
 #ifdef PDF_ENABLE_XFA
-  pXFAHandler = pdfium::MakeUnique<CPDFXFA_WidgetHandler>();
+  CPDFXFA_Context* pContext = nullptr;
+  if (!formInfo->xfa_disabled) {
+    if (!pDocument->GetExtension()) {
+      pDocument->SetExtension(pdfium::MakeUnique<CPDFXFA_Context>(pDocument));
+    }
+
+    // If the CPDFXFA_Context has a FormFillEnvironment already then we've done
+    // this and can just return the old Env. Otherwise, we'll end up setting a
+    // new environment into the XFADocument and, that could get weird.
+    pContext = static_cast<CPDFXFA_Context*>(pDocument->GetExtension());
+    if (pContext->GetFormFillEnv()) {
+      return FPDFFormHandleFromCPDFSDKFormFillEnvironment(
+          pContext->GetFormFillEnv());
+    }
+    pXFAHandler = pdfium::MakeUnique<CPDFXFA_WidgetHandler>();
+  }
 #endif  // PDF_ENABLE_XFA
 
   auto pFormFillEnv = pdfium::MakeUnique<CPDFSDK_FormFillEnvironment>(
@@ -324,16 +328,21 @@ FPDFDOC_InitFormFillEnvironment(FPDF_DOCUMENT document,
     pContext->SetFormFillEnv(pFormFillEnv.get());
 #endif  // PDF_ENABLE_XFA
 
+  ReportUnsupportedXFA(pDocument);
+
   return FPDFFormHandleFromCPDFSDKFormFillEnvironment(
       pFormFillEnv.release());  // Caller takes ownership.
 }
 
 FPDF_EXPORT void FPDF_CALLCONV
 FPDFDOC_ExitFormFillEnvironment(FPDF_FORMHANDLE hHandle) {
-  CPDFSDK_FormFillEnvironment* pFormFillEnv =
-      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle);
-  if (!pFormFillEnv)
+  if (!hHandle)
     return;
+
+  // Take back ownership of the form fill environment. This is the inverse of
+  // FPDFDOC_InitFormFillEnvironment() above.
+  std::unique_ptr<CPDFSDK_FormFillEnvironment> pFormFillEnv(
+      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle));
 
 #ifdef PDF_ENABLE_XFA
   // Reset the focused annotations and remove the SDK document from the
@@ -346,7 +355,6 @@ FPDFDOC_ExitFormFillEnvironment(FPDF_FORMHANDLE hHandle) {
   if (pContext)
     pContext->SetFormFillEnv(nullptr);
 #endif  // PDF_ENABLE_XFA
-  delete pFormFillEnv;
 }
 
 FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FORM_OnMouseMove(FPDF_FORMHANDLE hHandle,
@@ -590,7 +598,8 @@ FPDF_SetFormFieldHighlightColor(FPDF_FORMHANDLE hHandle,
   if (!pForm)
     return;
 
-  Optional<FormFieldType> cast_input = IntToFormFieldType(fieldType);
+  Optional<FormFieldType> cast_input =
+      CPDF_FormField::IntToFormFieldType(fieldType);
   if (!cast_input)
     return;
 
@@ -642,7 +651,7 @@ FORM_DoDocumentJSAction(FPDF_FORMHANDLE hHandle) {
   CPDFSDK_FormFillEnvironment* pFormFillEnv =
       CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle);
   if (pFormFillEnv && pFormFillEnv->IsJSPlatformPresent())
-    pFormFillEnv->ProcJavascriptFun();
+    pFormFillEnv->ProcJavascriptAction();
 }
 
 FPDF_EXPORT void FPDF_CALLCONV

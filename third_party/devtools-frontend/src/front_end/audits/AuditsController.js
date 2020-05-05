@@ -6,19 +6,19 @@
  * @implements {SDK.SDKModelObserver<!SDK.ServiceWorkerManager>}
  * @unrestricted
  */
-class AuditController extends Common.Object {
+export class AuditController extends Common.Object {
   constructor(protocolService) {
     super();
 
     protocolService.registerStatusCallback(
-        message => this.dispatchEventToListeners(Audits.Events.AuditProgressChanged, {message}));
+        message => this.dispatchEventToListeners(Events.AuditProgressChanged, {message}));
 
-    for (const preset of Audits.Presets) {
+    for (const preset of Presets) {
       preset.setting.addChangeListener(this.recomputePageAuditability.bind(this));
     }
 
-    SDK.targetManager.observeModels(SDK.ServiceWorkerManager, this);
-    SDK.targetManager.addEventListener(
+    self.SDK.targetManager.observeModels(SDK.ServiceWorkerManager, this);
+    self.SDK.targetManager.addEventListener(
         SDK.TargetManager.Events.InspectedURLChanged, this.recomputePageAuditability, this);
   }
 
@@ -69,7 +69,7 @@ class AuditController extends Common.Object {
       return false;
     }
 
-    const inspectedURL = mainTarget.inspectedURL().asParsedURL();
+    const inspectedURL = Common.ParsedURL.fromString(mainTarget.inspectedURL());
     const inspectedOrigin = inspectedURL && inspectedURL.securityOrigin();
     for (const registration of this._manager.registrations().values()) {
       if (registration.securityOrigin !== inspectedOrigin) {
@@ -90,7 +90,7 @@ class AuditController extends Common.Object {
    * @return {boolean}
    */
   _hasAtLeastOneCategory() {
-    return Audits.Presets.some(preset => preset.setting.get());
+    return Presets.some(preset => preset.setting.get());
   }
 
   /**
@@ -155,7 +155,7 @@ class AuditController extends Common.Object {
       // DevTools handles all the emulation. This tells Lighthouse to not bother with emulation.
       internalDisableDeviceScreenEmulation: true
     };
-    for (const runtimeSetting of Audits.RuntimeSettings) {
+    for (const runtimeSetting of RuntimeSettings) {
       runtimeSetting.setFlags(flags, runtimeSetting.setting.get());
     }
     return flags;
@@ -166,7 +166,7 @@ class AuditController extends Common.Object {
    */
   getCategoryIDs() {
     const categoryIDs = [];
-    for (const preset of Audits.Presets) {
+    for (const preset of Presets) {
       if (preset.setting.get()) {
         categoryIDs.push(preset.configID);
       }
@@ -200,7 +200,7 @@ class AuditController extends Common.Object {
       helpText = unauditablePageMessage;
     }
 
-    this.dispatchEventToListeners(Audits.Events.PageAuditabilityChanged, {helpText});
+    this.dispatchEventToListeners(Events.PageAuditabilityChanged, {helpText});
   }
 }
 
@@ -208,37 +208,37 @@ class AuditController extends Common.Object {
 export const Presets = [
   // configID maps to Lighthouse's Object.keys(config.categories)[0] value
   {
-    setting: Common.settings.createSetting('audits.cat_perf', true),
+    setting: self.Common.settings.createSetting('audits.cat_perf', true),
     configID: 'performance',
     title: ls`Performance`,
     description: ls`How long does this app take to show content and become usable`
   },
   {
-    setting: Common.settings.createSetting('audits.cat_pwa', true),
+    setting: self.Common.settings.createSetting('audits.cat_pwa', true),
     configID: 'pwa',
     title: ls`Progressive Web App`,
     description: ls`Does this page meet the standard of a Progressive Web App`
   },
   {
-    setting: Common.settings.createSetting('audits.cat_best_practices', true),
+    setting: self.Common.settings.createSetting('audits.cat_best_practices', true),
     configID: 'best-practices',
     title: ls`Best practices`,
     description: ls`Does this page follow best practices for modern web development`
   },
   {
-    setting: Common.settings.createSetting('audits.cat_a11y', true),
+    setting: self.Common.settings.createSetting('audits.cat_a11y', true),
     configID: 'accessibility',
     title: ls`Accessibility`,
     description: ls`Is this page usable by people with disabilities or impairments`
   },
   {
-    setting: Common.settings.createSetting('audits.cat_seo', true),
+    setting: self.Common.settings.createSetting('audits.cat_seo', true),
     configID: 'seo',
     title: ls`SEO`,
     description: ls`Is this page optimized for search engine results ranking`
   },
   {
-    setting: Common.settings.createSetting('audits.cat_pubads', false),
+    setting: self.Common.settings.createSetting('audits.cat_pubads', false),
     plugin: true,
     configID: 'lighthouse-plugin-publisher-ads',
     title: ls`Publisher Ads`,
@@ -249,7 +249,7 @@ export const Presets = [
 /** @type {!Array.<!Audits.RuntimeSetting>} */
 export const RuntimeSettings = [
   {
-    setting: Common.settings.createSetting('audits.device_type', 'mobile'),
+    setting: self.Common.settings.createSetting('audits.device_type', 'mobile'),
     description: ls`Apply mobile emulation during auditing`,
     setFlags: (flags, value) => {
       // See Audits.AuditsPanel._setupEmulationAndProtocolConnection()
@@ -262,7 +262,7 @@ export const RuntimeSettings = [
   },
   {
     // This setting is disabled, but we keep it around to show in the UI.
-    setting: Common.settings.createSetting('audits.throttling', true),
+    setting: self.Common.settings.createSetting('audits.throttling', true),
     title: ls`Simulated throttling`,
     // We will disable this when we have a Lantern trace viewer within DevTools.
     learnMore:
@@ -272,7 +272,7 @@ export const RuntimeSettings = [
     },
   },
   {
-    setting: Common.settings.createSetting('audits.clear_storage', true),
+    setting: self.Common.settings.createSetting('audits.clear_storage', true),
     title: ls`Clear storage`,
     description: ls`Reset storage (localStorage, IndexedDB, etc) before auditing. (Good for performance & PWA testing)`,
     setFlags: (flags, value) => {
@@ -287,28 +287,3 @@ export const Events = {
   RequestAuditStart: Symbol('RequestAuditStart'),
   RequestAuditCancel: Symbol('RequestAuditCancel'),
 };
-
-/* Legacy exported object */
-self.Audits = self.Audits || {};
-
-/* Legacy exported object */
-Audits = Audits || {};
-
-/**
- * @constructor
- */
-Audits.AuditController = AuditController;
-
-/** @typedef {{setting: !Common.Setting, configID: string, title: string, description: string}} */
-Audits.Preset;
-
-Audits.Events = Events;
-
-/** @typedef {{setting: !Common.Setting, description: string, setFlags: function(!Object, string), options: (!Array|undefined), title: (string|undefined)}} */
-Audits.RuntimeSetting;
-
-/** @type {!Array.<!Audits.RuntimeSetting>} */
-Audits.RuntimeSettings = RuntimeSettings;
-
-/** @type {!Array.<!Audits.Preset>} */
-Audits.Presets = Presets;

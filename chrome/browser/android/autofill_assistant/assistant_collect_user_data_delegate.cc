@@ -11,6 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/android/features/autofill_assistant/jni_headers/AssistantCollectUserDataNativeDelegate_jni.h"
 #include "chrome/browser/android/autofill_assistant/ui_controller_android.h"
+#include "chrome/browser/android/autofill_assistant/ui_controller_android_utils.h"
 #include "chrome/browser/autofill/android/personal_data_manager_android.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -127,11 +128,11 @@ void AssistantCollectUserDataDelegate::OnTermsAndConditionsChanged(
       static_cast<TermsAndConditionsState>(state));
 }
 
-void AssistantCollectUserDataDelegate::OnTermsAndConditionsLinkClicked(
+void AssistantCollectUserDataDelegate::OnTextLinkClicked(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller,
     jint link) {
-  ui_controller_->OnTermsAndConditionsLinkClicked(link);
+  ui_controller_->OnTextLinkClicked(link);
 }
 
 void AssistantCollectUserDataDelegate::OnLoginChoiceChanged(
@@ -142,39 +143,76 @@ void AssistantCollectUserDataDelegate::OnLoginChoiceChanged(
   ui_controller_->OnLoginChoiceChanged(identifier);
 }
 
-void AssistantCollectUserDataDelegate::OnDateTimeRangeStartChanged(
+void AssistantCollectUserDataDelegate::OnDateTimeRangeStartDateChanged(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller,
     jint year,
     jint month,
-    jint day,
-    jint hour,
-    jint minute,
-    jint second) {
-  ui_controller_->OnDateTimeRangeStartChanged(year, month, day, hour, minute,
-                                              second);
+    jint day) {
+  ui_controller_->OnDateTimeRangeStartDateChanged(year, month, day);
 }
 
-void AssistantCollectUserDataDelegate::OnDateTimeRangeEndChanged(
+void AssistantCollectUserDataDelegate::OnDateTimeRangeStartDateCleared(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller) {
+  ui_controller_->OnDateTimeRangeStartDateCleared();
+}
+
+void AssistantCollectUserDataDelegate::OnDateTimeRangeStartTimeSlotChanged(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller,
+    jint index) {
+  ui_controller_->OnDateTimeRangeStartTimeSlotChanged(index);
+}
+
+void AssistantCollectUserDataDelegate::OnDateTimeRangeStartTimeSlotCleared(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller) {
+  ui_controller_->OnDateTimeRangeStartTimeSlotCleared();
+}
+
+void AssistantCollectUserDataDelegate::OnDateTimeRangeEndDateChanged(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller,
     jint year,
     jint month,
-    jint day,
-    jint hour,
-    jint minute,
-    jint second) {
-  ui_controller_->OnDateTimeRangeEndChanged(year, month, day, hour, minute,
-                                            second);
+    jint day) {
+  ui_controller_->OnDateTimeRangeEndDateChanged(year, month, day);
+}
+
+void AssistantCollectUserDataDelegate::OnDateTimeRangeEndDateCleared(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller) {
+  ui_controller_->OnDateTimeRangeEndDateCleared();
+}
+
+void AssistantCollectUserDataDelegate::OnDateTimeRangeEndTimeSlotChanged(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller,
+    jint index) {
+  ui_controller_->OnDateTimeRangeEndTimeSlotChanged(index);
+}
+
+void AssistantCollectUserDataDelegate::OnDateTimeRangeEndTimeSlotCleared(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller) {
+  ui_controller_->OnDateTimeRangeEndTimeSlotCleared();
 }
 
 void AssistantCollectUserDataDelegate::OnKeyValueChanged(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& jcaller,
     const base::android::JavaParamRef<jstring>& jkey,
-    const base::android::JavaParamRef<jstring>& jvalue) {
-  ui_controller_->OnKeyValueChanged(SafeConvertJavaStringToNative(env, jkey),
-                                    SafeConvertJavaStringToNative(env, jvalue));
+    const base::android::JavaParamRef<jobject>& jvalue) {
+  ui_controller_->OnKeyValueChanged(
+      SafeConvertJavaStringToNative(env, jkey),
+      ui_controller_android_utils::ToNativeValue(env, jvalue));
+}
+
+void AssistantCollectUserDataDelegate::OnTextFocusLost(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& jcaller) {
+  ui_controller_->OnTextFocusLost();
 }
 
 base::android::ScopedJavaGlobalRef<jobject>

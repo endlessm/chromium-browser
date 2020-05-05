@@ -20,7 +20,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='chromiumos',
   syntax='proto3',
   serialized_options=_b('Z4go.chromium.org/chromiumos/infra/proto/go/chromiumos'),
-  serialized_pb=_b('\n\x17\x63hromiumos/common.proto\x12\nchromiumos\"\x1b\n\x0b\x42uildTarget\x12\x0c\n\x04name\x18\x01 \x01(\t\"\xea\x01\n\x06\x43hroot\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x11\n\tcache_dir\x18\x02 \x01(\t\x12)\n\x03\x65nv\x18\x03 \x01(\x0b\x32\x1c.chromiumos.Chroot.ChrootEnv\x12\x12\n\nchrome_dir\x18\x04 \x01(\t\x12$\n\x04goma\x18\x05 \x01(\x0b\x32\x16.chromiumos.GomaConfig\x1aZ\n\tChrootEnv\x12&\n\tuse_flags\x18\x01 \x03(\x0b\x32\x13.chromiumos.UseFlag\x12%\n\x08\x66\x65\x61tures\x18\x02 \x03(\x0b\x32\x13.chromiumos.Feature\"\x1a\n\x07\x46\x65\x61ture\x12\x0f\n\x07\x66\x65\x61ture\x18\x01 \x01(\t\"\xea\x01\n\nGomaConfig\x12\x10\n\x08goma_dir\x18\x01 \x01(\t\x12\x18\n\x10goma_client_json\x18\x02 \x01(\t\x12\x19\n\x11\x63hromeos_goma_dir\x18\x03 \x01(\t\x12:\n\rgoma_approach\x18\x04 \x01(\x0e\x32#.chromiumos.GomaConfig.GomaApproach\"Y\n\x0cGomaApproach\x12\x1d\n\x19GOMA_APPROACH_UNSPECIFIED\x10\x00\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x01\x12\x0c\n\x08RBE_PROD\x10\x02\x12\x0f\n\x0bRBE_STAGING\x10\x03\"F\n\x0bPackageInfo\x12\x14\n\x0cpackage_name\x18\x01 \x01(\t\x12\x10\n\x08\x63\x61tegory\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t\"w\n\x04Path\x12\x0c\n\x04path\x18\x01 \x01(\t\x12+\n\x08location\x18\x02 \x01(\x0e\x32\x19.chromiumos.Path.Location\"4\n\x08Location\x12\x0f\n\x0bNO_LOCATION\x10\x00\x12\n\n\x06INSIDE\x10\x01\x12\x0b\n\x07OUTSIDE\x10\x02\",\n\nResultPath\x12\x1e\n\x04path\x18\x01 \x01(\x0b\x32\x10.chromiumos.Path\"O\n\x0cGerritChange\x12\x0c\n\x04host\x18\x01 \x01(\t\x12\x0f\n\x07project\x18\x02 \x01(\t\x12\x0e\n\x06\x63hange\x18\x03 \x01(\x03\x12\x10\n\x08patchset\x18\x04 \x01(\x03\"Y\n\rGitilesCommit\x12\x0c\n\x04host\x18\x01 \x01(\t\x12\x0f\n\x07project\x18\x02 \x01(\t\x12\n\n\x02id\x18\x03 \x01(\t\x12\x0b\n\x03ref\x18\x04 \x01(\t\x12\x10\n\x08position\x18\x05 \x01(\r\"\x17\n\x07UseFlag\x12\x0c\n\x04\x66lag\x18\x01 \x01(\t\"&\n\nProtoBytes\x12\x18\n\x10serialized_proto\x18\x01 \x01(\x0c*\xbe\x01\n\tImageType\x12\x18\n\x14IMAGE_TYPE_UNDEFINED\x10\x00\x12\x08\n\x04\x42\x41SE\x10\x01\x12\x07\n\x03\x44\x45V\x10\x02\x12\x08\n\x04TEST\x10\x03\x12\x0b\n\x07\x42\x41SE_VM\x10\x04\x12\x0b\n\x07TEST_VM\x10\x05\x12\x0c\n\x08RECOVERY\x10\x06\x12\x0b\n\x07\x46\x41\x43TORY\x10\x07\x12\x0c\n\x08\x46IRMWARE\x10\x08\x12\x11\n\rCR50_FIRMWARE\x10\t\x12\x11\n\rBASE_GUEST_VM\x10\n\x12\x11\n\rTEST_GUEST_VM\x10\x0b*m\n\x07\x43hannel\x12\x17\n\x13\x43HANNEL_UNSPECIFIED\x10\x00\x12\x12\n\x0e\x43HANNEL_STABLE\x10\x01\x12\x10\n\x0c\x43HANNEL_BETA\x10\x02\x12\x0f\n\x0b\x43HANNEL_DEV\x10\x03\x12\x12\n\x0e\x43HANNEL_CANARY\x10\x04*f\n\x10\x41\x46\x44OArtifactType\x12\r\n\tNONE_TYPE\x10\x00\x12\r\n\tORDERFILE\x10\x01\x12\x12\n\x0e\x42\x45NCHMARK_AFDO\x10\x02\x12\x0f\n\x0bKERNEL_AFDO\x10\x03\x12\x0f\n\x0b\x43HROME_AFDO\x10\x04\x42\x36Z4go.chromium.org/chromiumos/infra/proto/go/chromiumosb\x06proto3')
+  serialized_pb=_b('\n\x17\x63hromiumos/common.proto\x12\nchromiumos\"\x1b\n\x0b\x42uildTarget\x12\x0c\n\x04name\x18\x01 \x01(\t\"\xca\x01\n\x06\x43hroot\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x11\n\tcache_dir\x18\x02 \x01(\t\x12)\n\x03\x65nv\x18\x03 \x01(\x0b\x32\x1c.chromiumos.Chroot.ChrootEnv\x12\x12\n\nchrome_dir\x18\x04 \x01(\t\x1aZ\n\tChrootEnv\x12&\n\tuse_flags\x18\x01 \x03(\x0b\x32\x13.chromiumos.UseFlag\x12%\n\x08\x66\x65\x61tures\x18\x02 \x03(\x0b\x32\x13.chromiumos.FeatureJ\x04\x08\x05\x10\x06\"\x1a\n\x07\x46\x65\x61ture\x12\x0f\n\x07\x66\x65\x61ture\x18\x01 \x01(\t\"\xbd\x02\n\nGomaConfig\x12\x10\n\x08goma_dir\x18\x01 \x01(\t\x12\x18\n\x10goma_client_json\x18\x02 \x01(\t\x12\x19\n\x11\x63hromeos_goma_dir\x18\x03 \x01(\t\x12:\n\rgoma_approach\x18\x04 \x01(\x0e\x32#.chromiumos.GomaConfig.GomaApproach\x12&\n\x07log_dir\x18\x05 \x01(\x0b\x32\x15.chromiumos.SyncedDir\x12\x12\n\nstats_file\x18\x06 \x01(\t\x12\x15\n\rcounterz_file\x18\x07 \x01(\t\"Y\n\x0cGomaApproach\x12\x1d\n\x19GOMA_APPROACH_UNSPECIFIED\x10\x00\x12\x0b\n\x07\x44\x45\x46\x41ULT\x10\x01\x12\x0c\n\x08RBE_PROD\x10\x02\x12\x0f\n\x0bRBE_STAGING\x10\x03\"M\n\rGomaArtifacts\x12\x12\n\nstats_file\x18\x01 \x01(\t\x12\x15\n\rcounterz_file\x18\x02 \x01(\t\x12\x11\n\tlog_files\x18\x03 \x03(\t\"F\n\x0bPackageInfo\x12\x14\n\x0cpackage_name\x18\x01 \x01(\t\x12\x10\n\x08\x63\x61tegory\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\t\"w\n\x04Path\x12\x0c\n\x04path\x18\x01 \x01(\t\x12+\n\x08location\x18\x02 \x01(\x0e\x32\x19.chromiumos.Path.Location\"4\n\x08Location\x12\x0f\n\x0bNO_LOCATION\x10\x00\x12\n\n\x06INSIDE\x10\x01\x12\x0b\n\x07OUTSIDE\x10\x02\",\n\nResultPath\x12\x1e\n\x04path\x18\x01 \x01(\x0b\x32\x10.chromiumos.Path\"\x18\n\tSyncedDir\x12\x0b\n\x03\x64ir\x18\x01 \x01(\t\"O\n\x0cGerritChange\x12\x0c\n\x04host\x18\x01 \x01(\t\x12\x0f\n\x07project\x18\x02 \x01(\t\x12\x0e\n\x06\x63hange\x18\x03 \x01(\x03\x12\x10\n\x08patchset\x18\x04 \x01(\x03\"Y\n\rGitilesCommit\x12\x0c\n\x04host\x18\x01 \x01(\t\x12\x0f\n\x07project\x18\x02 \x01(\t\x12\n\n\x02id\x18\x03 \x01(\t\x12\x0b\n\x03ref\x18\x04 \x01(\t\x12\x10\n\x08position\x18\x05 \x01(\r\"\x17\n\x07UseFlag\x12\x0c\n\x04\x66lag\x18\x01 \x01(\t\"&\n\nProtoBytes\x12\x18\n\x10serialized_proto\x18\x01 \x01(\x0c\"\xb1\x01\n\x17PrepareForBuildResponse\x12K\n\x0f\x62uild_relevance\x18\x01 \x01(\x0e\x32\x32.chromiumos.PrepareForBuildResponse.BuildRelevance\"I\n\x0e\x42uildRelevance\x12\x0f\n\x0bUNSPECIFIED\x10\x00\x12\n\n\x06NEEDED\x10\x01\x12\x0b\n\x07UNKNOWN\x10\x02\x12\r\n\tPOINTLESS\x10\x03*\xbe\x01\n\tImageType\x12\x18\n\x14IMAGE_TYPE_UNDEFINED\x10\x00\x12\x08\n\x04\x42\x41SE\x10\x01\x12\x07\n\x03\x44\x45V\x10\x02\x12\x08\n\x04TEST\x10\x03\x12\x0b\n\x07\x42\x41SE_VM\x10\x04\x12\x0b\n\x07TEST_VM\x10\x05\x12\x0c\n\x08RECOVERY\x10\x06\x12\x0b\n\x07\x46\x41\x43TORY\x10\x07\x12\x0c\n\x08\x46IRMWARE\x10\x08\x12\x11\n\rCR50_FIRMWARE\x10\t\x12\x11\n\rBASE_GUEST_VM\x10\n\x12\x11\n\rTEST_GUEST_VM\x10\x0b*m\n\x07\x43hannel\x12\x17\n\x13\x43HANNEL_UNSPECIFIED\x10\x00\x12\x12\n\x0e\x43HANNEL_STABLE\x10\x01\x12\x10\n\x0c\x43HANNEL_BETA\x10\x02\x12\x0f\n\x0b\x43HANNEL_DEV\x10\x03\x12\x12\n\x0e\x43HANNEL_CANARY\x10\x04*f\n\x10\x41\x46\x44OArtifactType\x12\r\n\tNONE_TYPE\x10\x00\x12\r\n\tORDERFILE\x10\x01\x12\x12\n\x0e\x42\x45NCHMARK_AFDO\x10\x02\x12\x0f\n\x0bKERNEL_AFDO\x10\x03\x12\x0f\n\x0b\x43HROME_AFDO\x10\x04\x42\x36Z4go.chromium.org/chromiumos/infra/proto/go/chromiumosb\x06proto3')
 )
 
 _IMAGETYPE = _descriptor.EnumDescriptor(
@@ -80,8 +80,8 @@ _IMAGETYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1047,
-  serialized_end=1237,
+  serialized_start=1383,
+  serialized_end=1573,
 )
 _sym_db.RegisterEnumDescriptor(_IMAGETYPE)
 
@@ -115,8 +115,8 @@ _CHANNEL = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1239,
-  serialized_end=1348,
+  serialized_start=1575,
+  serialized_end=1684,
 )
 _sym_db.RegisterEnumDescriptor(_CHANNEL)
 
@@ -150,8 +150,8 @@ _AFDOARTIFACTTYPE = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=1350,
-  serialized_end=1452,
+  serialized_start=1686,
+  serialized_end=1788,
 )
 _sym_db.RegisterEnumDescriptor(_AFDOARTIFACTTYPE)
 
@@ -205,8 +205,8 @@ _GOMACONFIG_GOMAAPPROACH = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=479,
-  serialized_end=568,
+  serialized_start=530,
+  serialized_end=619,
 )
 _sym_db.RegisterEnumDescriptor(_GOMACONFIG_GOMAAPPROACH)
 
@@ -231,10 +231,40 @@ _PATH_LOCATION = _descriptor.EnumDescriptor(
   ],
   containing_type=None,
   serialized_options=None,
-  serialized_start=709,
-  serialized_end=761,
+  serialized_start=839,
+  serialized_end=891,
 )
 _sym_db.RegisterEnumDescriptor(_PATH_LOCATION)
+
+_PREPAREFORBUILDRESPONSE_BUILDRELEVANCE = _descriptor.EnumDescriptor(
+  name='BuildRelevance',
+  full_name='chromiumos.PrepareForBuildResponse.BuildRelevance',
+  filename=None,
+  file=DESCRIPTOR,
+  values=[
+    _descriptor.EnumValueDescriptor(
+      name='UNSPECIFIED', index=0, number=0,
+      serialized_options=None,
+      type=None),
+    _descriptor.EnumValueDescriptor(
+      name='NEEDED', index=1, number=1,
+      serialized_options=None,
+      type=None),
+    _descriptor.EnumValueDescriptor(
+      name='UNKNOWN', index=2, number=2,
+      serialized_options=None,
+      type=None),
+    _descriptor.EnumValueDescriptor(
+      name='POINTLESS', index=3, number=3,
+      serialized_options=None,
+      type=None),
+  ],
+  containing_type=None,
+  serialized_options=None,
+  serialized_start=1307,
+  serialized_end=1380,
+)
+_sym_db.RegisterEnumDescriptor(_PREPAREFORBUILDRESPONSE_BUILDRELEVANCE)
 
 
 _BUILDTARGET = _descriptor.Descriptor(
@@ -301,8 +331,8 @@ _CHROOT_CHROOTENV = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=213,
-  serialized_end=303,
+  serialized_start=175,
+  serialized_end=265,
 )
 
 _CHROOT = _descriptor.Descriptor(
@@ -340,13 +370,6 @@ _CHROOT = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
-    _descriptor.FieldDescriptor(
-      name='goma', full_name='chromiumos.Chroot.goma', index=4,
-      number=5, type=11, cpp_type=10, label=1,
-      has_default_value=False, default_value=None,
-      message_type=None, enum_type=None, containing_type=None,
-      is_extension=False, extension_scope=None,
-      serialized_options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -360,7 +383,7 @@ _CHROOT = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=69,
-  serialized_end=303,
+  serialized_end=271,
 )
 
 
@@ -390,8 +413,8 @@ _FEATURE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=305,
-  serialized_end=331,
+  serialized_start=273,
+  serialized_end=299,
 )
 
 
@@ -430,6 +453,27 @@ _GOMACONFIG = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='log_dir', full_name='chromiumos.GomaConfig.log_dir', index=4,
+      number=5, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='stats_file', full_name='chromiumos.GomaConfig.stats_file', index=5,
+      number=6, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='counterz_file', full_name='chromiumos.GomaConfig.counterz_file', index=6,
+      number=7, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
   ],
   extensions=[
   ],
@@ -443,8 +487,53 @@ _GOMACONFIG = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=334,
-  serialized_end=568,
+  serialized_start=302,
+  serialized_end=619,
+)
+
+
+_GOMAARTIFACTS = _descriptor.Descriptor(
+  name='GomaArtifacts',
+  full_name='chromiumos.GomaArtifacts',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='stats_file', full_name='chromiumos.GomaArtifacts.stats_file', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='counterz_file', full_name='chromiumos.GomaArtifacts.counterz_file', index=1,
+      number=2, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+    _descriptor.FieldDescriptor(
+      name='log_files', full_name='chromiumos.GomaArtifacts.log_files', index=2,
+      number=3, type=9, cpp_type=9, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=621,
+  serialized_end=698,
 )
 
 
@@ -488,8 +577,8 @@ _PACKAGEINFO = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=570,
-  serialized_end=640,
+  serialized_start=700,
+  serialized_end=770,
 )
 
 
@@ -527,8 +616,8 @@ _PATH = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=642,
-  serialized_end=761,
+  serialized_start=772,
+  serialized_end=891,
 )
 
 
@@ -558,8 +647,39 @@ _RESULTPATH = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=763,
-  serialized_end=807,
+  serialized_start=893,
+  serialized_end=937,
+)
+
+
+_SYNCEDDIR = _descriptor.Descriptor(
+  name='SyncedDir',
+  full_name='chromiumos.SyncedDir',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='dir', full_name='chromiumos.SyncedDir.dir', index=0,
+      number=1, type=9, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b("").decode('utf-8'),
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=939,
+  serialized_end=963,
 )
 
 
@@ -610,8 +730,8 @@ _GERRITCHANGE = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=809,
-  serialized_end=888,
+  serialized_start=965,
+  serialized_end=1044,
 )
 
 
@@ -669,8 +789,8 @@ _GITILESCOMMIT = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=890,
-  serialized_end=979,
+  serialized_start=1046,
+  serialized_end=1135,
 )
 
 
@@ -700,8 +820,8 @@ _USEFLAG = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=981,
-  serialized_end=1004,
+  serialized_start=1137,
+  serialized_end=1160,
 )
 
 
@@ -731,31 +851,68 @@ _PROTOBYTES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=1006,
-  serialized_end=1044,
+  serialized_start=1162,
+  serialized_end=1200,
+)
+
+
+_PREPAREFORBUILDRESPONSE = _descriptor.Descriptor(
+  name='PrepareForBuildResponse',
+  full_name='chromiumos.PrepareForBuildResponse',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='build_relevance', full_name='chromiumos.PrepareForBuildResponse.build_relevance', index=0,
+      number=1, type=14, cpp_type=8, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      serialized_options=None, file=DESCRIPTOR),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+    _PREPAREFORBUILDRESPONSE_BUILDRELEVANCE,
+  ],
+  serialized_options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=1203,
+  serialized_end=1380,
 )
 
 _CHROOT_CHROOTENV.fields_by_name['use_flags'].message_type = _USEFLAG
 _CHROOT_CHROOTENV.fields_by_name['features'].message_type = _FEATURE
 _CHROOT_CHROOTENV.containing_type = _CHROOT
 _CHROOT.fields_by_name['env'].message_type = _CHROOT_CHROOTENV
-_CHROOT.fields_by_name['goma'].message_type = _GOMACONFIG
 _GOMACONFIG.fields_by_name['goma_approach'].enum_type = _GOMACONFIG_GOMAAPPROACH
+_GOMACONFIG.fields_by_name['log_dir'].message_type = _SYNCEDDIR
 _GOMACONFIG_GOMAAPPROACH.containing_type = _GOMACONFIG
 _PATH.fields_by_name['location'].enum_type = _PATH_LOCATION
 _PATH_LOCATION.containing_type = _PATH
 _RESULTPATH.fields_by_name['path'].message_type = _PATH
+_PREPAREFORBUILDRESPONSE.fields_by_name['build_relevance'].enum_type = _PREPAREFORBUILDRESPONSE_BUILDRELEVANCE
+_PREPAREFORBUILDRESPONSE_BUILDRELEVANCE.containing_type = _PREPAREFORBUILDRESPONSE
 DESCRIPTOR.message_types_by_name['BuildTarget'] = _BUILDTARGET
 DESCRIPTOR.message_types_by_name['Chroot'] = _CHROOT
 DESCRIPTOR.message_types_by_name['Feature'] = _FEATURE
 DESCRIPTOR.message_types_by_name['GomaConfig'] = _GOMACONFIG
+DESCRIPTOR.message_types_by_name['GomaArtifacts'] = _GOMAARTIFACTS
 DESCRIPTOR.message_types_by_name['PackageInfo'] = _PACKAGEINFO
 DESCRIPTOR.message_types_by_name['Path'] = _PATH
 DESCRIPTOR.message_types_by_name['ResultPath'] = _RESULTPATH
+DESCRIPTOR.message_types_by_name['SyncedDir'] = _SYNCEDDIR
 DESCRIPTOR.message_types_by_name['GerritChange'] = _GERRITCHANGE
 DESCRIPTOR.message_types_by_name['GitilesCommit'] = _GITILESCOMMIT
 DESCRIPTOR.message_types_by_name['UseFlag'] = _USEFLAG
 DESCRIPTOR.message_types_by_name['ProtoBytes'] = _PROTOBYTES
+DESCRIPTOR.message_types_by_name['PrepareForBuildResponse'] = _PREPAREFORBUILDRESPONSE
 DESCRIPTOR.enum_types_by_name['ImageType'] = _IMAGETYPE
 DESCRIPTOR.enum_types_by_name['Channel'] = _CHANNEL
 DESCRIPTOR.enum_types_by_name['AFDOArtifactType'] = _AFDOARTIFACTTYPE
@@ -797,6 +954,13 @@ GomaConfig = _reflection.GeneratedProtocolMessageType('GomaConfig', (_message.Me
   ))
 _sym_db.RegisterMessage(GomaConfig)
 
+GomaArtifacts = _reflection.GeneratedProtocolMessageType('GomaArtifacts', (_message.Message,), dict(
+  DESCRIPTOR = _GOMAARTIFACTS,
+  __module__ = 'chromiumos.common_pb2'
+  # @@protoc_insertion_point(class_scope:chromiumos.GomaArtifacts)
+  ))
+_sym_db.RegisterMessage(GomaArtifacts)
+
 PackageInfo = _reflection.GeneratedProtocolMessageType('PackageInfo', (_message.Message,), dict(
   DESCRIPTOR = _PACKAGEINFO,
   __module__ = 'chromiumos.common_pb2'
@@ -817,6 +981,13 @@ ResultPath = _reflection.GeneratedProtocolMessageType('ResultPath', (_message.Me
   # @@protoc_insertion_point(class_scope:chromiumos.ResultPath)
   ))
 _sym_db.RegisterMessage(ResultPath)
+
+SyncedDir = _reflection.GeneratedProtocolMessageType('SyncedDir', (_message.Message,), dict(
+  DESCRIPTOR = _SYNCEDDIR,
+  __module__ = 'chromiumos.common_pb2'
+  # @@protoc_insertion_point(class_scope:chromiumos.SyncedDir)
+  ))
+_sym_db.RegisterMessage(SyncedDir)
 
 GerritChange = _reflection.GeneratedProtocolMessageType('GerritChange', (_message.Message,), dict(
   DESCRIPTOR = _GERRITCHANGE,
@@ -845,6 +1016,13 @@ ProtoBytes = _reflection.GeneratedProtocolMessageType('ProtoBytes', (_message.Me
   # @@protoc_insertion_point(class_scope:chromiumos.ProtoBytes)
   ))
 _sym_db.RegisterMessage(ProtoBytes)
+
+PrepareForBuildResponse = _reflection.GeneratedProtocolMessageType('PrepareForBuildResponse', (_message.Message,), dict(
+  DESCRIPTOR = _PREPAREFORBUILDRESPONSE,
+  __module__ = 'chromiumos.common_pb2'
+  # @@protoc_insertion_point(class_scope:chromiumos.PrepareForBuildResponse)
+  ))
+_sym_db.RegisterMessage(PrepareForBuildResponse)
 
 
 DESCRIPTOR._options = None

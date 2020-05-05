@@ -91,7 +91,7 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
   // bytes read.  Any buffered data no longer in use will be released.
   // TODO(rch): remove this method and instead implement it as a helper method
   // based on GetReadableRegions and MarkConsumed.
-  int Readv(const struct iovec* iov, size_t iov_len);
+  size_t Readv(const struct iovec* iov, size_t iov_len);
 
   // Consumes |num_bytes| data.  Used in conjunction with |GetReadableRegions|
   // to do zero-copy reads.
@@ -206,16 +206,6 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
   // If false, only call OnDataAvailable() when it becomes newly unblocked.
   // Otherwise, call OnDataAvailable() when number of readable bytes changes.
   bool level_triggered_;
-
-  // Latched value of quic_stop_reading_when_level_triggered flag.  When true,
-  // the sequencer will discard incoming data (but not FIN bits) after
-  // StopReading is called, even in level_triggered_ mode.
-  const bool stop_reading_when_level_triggered_;
-
-  // Latched value of quic_close_connection_and_discard_data_on_wrong_offset.
-  // When true, the sequencer will inform the stream to close connection when
-  // wrong offset is received. And the stream frame's data will be discarded.
-  const bool close_connection_and_discard_data_on_wrong_offset_;
 };
 
 }  // namespace quic

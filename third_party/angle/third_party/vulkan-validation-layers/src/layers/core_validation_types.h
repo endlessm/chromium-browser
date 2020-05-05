@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (C) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (C) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -439,7 +439,7 @@ struct MemRange {
 struct DEVICE_MEMORY_STATE : public BASE_NODE {
     void *object;  // Dispatchable object used to create this memory (device of swapchain)
     VkDeviceMemory mem;
-    VkMemoryAllocateInfo alloc_info;
+    safe_VkMemoryAllocateInfo alloc_info;
     bool is_dedicated;
     VkBuffer dedicated_buffer;
     VkImage dedicated_image;
@@ -462,7 +462,7 @@ struct DEVICE_MEMORY_STATE : public BASE_NODE {
     DEVICE_MEMORY_STATE(void *disp_object, const VkDeviceMemory in_mem, const VkMemoryAllocateInfo *p_alloc_info)
         : object(disp_object),
           mem(in_mem),
-          alloc_info(*p_alloc_info),
+          alloc_info(p_alloc_info),
           is_dedicated(false),
           dedicated_buffer(VK_NULL_HANDLE),
           dedicated_image(VK_NULL_HANDLE),
@@ -1012,7 +1012,7 @@ struct DAGNode {
 
 struct RENDER_PASS_STATE : public BASE_NODE {
     VkRenderPass renderPass;
-    safe_VkRenderPassCreateInfo2KHR createInfo;
+    safe_VkRenderPassCreateInfo2 createInfo;
     std::vector<std::vector<uint32_t>> self_dependencies;
     std::vector<DAGNode> subpassToNode;
     std::unordered_map<uint32_t, bool> attachment_first_read;
@@ -1670,33 +1670,26 @@ struct DeviceExtensions;
 
 struct DeviceFeatures {
     VkPhysicalDeviceFeatures core;
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing;
-    VkPhysicalDevice8BitStorageFeaturesKHR eight_bit_storage;
+    VkPhysicalDeviceVulkan11Features core11;
+    VkPhysicalDeviceVulkan12Features core12;
+
     VkPhysicalDeviceExclusiveScissorFeaturesNV exclusive_scissor;
     VkPhysicalDeviceShadingRateImageFeaturesNV shading_rate_image;
     VkPhysicalDeviceMeshShaderFeaturesNV mesh_shader;
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT inline_uniform_block;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT transform_feedback_features;
-    VkPhysicalDeviceFloat16Int8FeaturesKHR float16_int8;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vtx_attrib_divisor_features;
-    VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR uniform_buffer_standard_layout;
-    VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalar_block_layout_features;
-    VkPhysicalDeviceBufferAddressFeaturesEXT buffer_address;
     VkPhysicalDeviceCooperativeMatrixFeaturesNV cooperative_matrix_features;
-    VkPhysicalDeviceHostQueryResetFeaturesEXT host_query_reset_features;
     VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_shader_derivatives_features;
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesNV fragment_shader_barycentric_features;
     VkPhysicalDeviceShaderImageFootprintFeaturesNV shader_image_footprint_features;
     VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT fragment_shader_interlock_features;
     VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote_to_helper_invocation_features;
     VkPhysicalDeviceTexelBufferAlignmentFeaturesEXT texel_buffer_alignment_features;
-    VkPhysicalDeviceImagelessFramebufferFeaturesKHR imageless_framebuffer_features;
     VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_exe_props_features;
     VkPhysicalDeviceDedicatedAllocationImageAliasingFeaturesNV dedicated_allocation_image_aliasing_features;
-    VkPhysicalDeviceShaderSubgroupExtendedTypesFeaturesKHR subgroup_extended_types_features;
-    VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR separate_depth_stencil_layouts_features;
     VkPhysicalDevicePerformanceQueryFeaturesKHR performance_query_features;
-    VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline_semaphore_features;
+    VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features;
 };
 
 enum RenderPassCreateVersion { RENDER_PASS_VERSION_1 = 0, RENDER_PASS_VERSION_2 = 1 };

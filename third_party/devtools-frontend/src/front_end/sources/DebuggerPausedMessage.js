@@ -1,10 +1,11 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 /**
  * @unrestricted
  */
-Sources.DebuggerPausedMessage = class {
+export class DebuggerPausedMessage {
   constructor() {
     this._element = createElementWithClass('div', 'paused-message flex-none');
     const root = UI.createShadowRootWithCoreStyles(this._element, 'sources/debuggerPausedMessage.css');
@@ -45,7 +46,7 @@ Sources.DebuggerPausedMessage = class {
 
     const mainElement = messageWrapper.createChild('div', 'status-main');
     mainElement.appendChild(UI.Icon.create('smallicon-info', 'status-icon'));
-    const breakpointType = Sources.DebuggerPausedMessage.BreakpointTypeNouns.get(data.type);
+    const breakpointType = BreakpointTypeNouns.get(data.type);
     mainElement.appendChild(createTextNode(ls`Paused on ${breakpointType}`));
 
     const subElement = messageWrapper.createChild('div', 'status-sub monospace');
@@ -90,23 +91,23 @@ Sources.DebuggerPausedMessage = class {
         details.reason === SDK.DebuggerModel.BreakReason.Assert || details.reason === SDK.DebuggerModel.BreakReason.OOM;
     let messageWrapper;
     if (details.reason === SDK.DebuggerModel.BreakReason.DOM) {
-      messageWrapper = await Sources.DebuggerPausedMessage._createDOMBreakpointHitMessage(details);
+      messageWrapper = await DebuggerPausedMessage._createDOMBreakpointHitMessage(details);
     } else if (details.reason === SDK.DebuggerModel.BreakReason.EventListener) {
       let eventNameForUI = '';
       if (details.auxData) {
         eventNameForUI =
-            SDK.domDebuggerManager.resolveEventListenerBreakpointTitle(/** @type {!Object} */ (details.auxData));
+            self.SDK.domDebuggerManager.resolveEventListenerBreakpointTitle(/** @type {!Object} */ (details.auxData));
       }
       messageWrapper = buildWrapper(Common.UIString('Paused on event listener'), eventNameForUI);
     } else if (details.reason === SDK.DebuggerModel.BreakReason.XHR) {
       messageWrapper = buildWrapper(Common.UIString('Paused on XHR or fetch'), details.auxData['url'] || '');
     } else if (details.reason === SDK.DebuggerModel.BreakReason.Exception) {
       const description = details.auxData['description'] || details.auxData['value'] || '';
-      const descriptionWithoutStack = Sources.DebuggerPausedMessage._descriptionWithoutStack(description);
+      const descriptionWithoutStack = DebuggerPausedMessage._descriptionWithoutStack(description);
       messageWrapper = buildWrapper(Common.UIString('Paused on exception'), descriptionWithoutStack, description);
     } else if (details.reason === SDK.DebuggerModel.BreakReason.PromiseRejection) {
       const description = details.auxData['description'] || details.auxData['value'] || '';
-      const descriptionWithoutStack = Sources.DebuggerPausedMessage._descriptionWithoutStack(description);
+      const descriptionWithoutStack = DebuggerPausedMessage._descriptionWithoutStack(description);
       messageWrapper =
           buildWrapper(Common.UIString('Paused on promise rejection'), descriptionWithoutStack, description);
     } else if (details.reason === SDK.DebuggerModel.BreakReason.Assert) {
@@ -150,9 +151,9 @@ Sources.DebuggerPausedMessage = class {
       return messageWrapper;
     }
   }
-};
+}
 
-Sources.DebuggerPausedMessage.BreakpointTypeNouns = new Map([
+export const BreakpointTypeNouns = new Map([
   [SDK.DOMDebuggerModel.DOMBreakpoint.Type.SubtreeModified, Common.UIString('subtree modifications')],
   [SDK.DOMDebuggerModel.DOMBreakpoint.Type.AttributeModified, Common.UIString('attribute modifications')],
   [SDK.DOMDebuggerModel.DOMBreakpoint.Type.NodeRemoved, Common.UIString('node removal')],

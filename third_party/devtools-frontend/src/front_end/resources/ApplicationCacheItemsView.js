@@ -23,10 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import {CHECKING, DOWNLOADING, IDLE, OBSOLETE, UNCACHED, UPDATEREADY} from './ApplicationCacheModel.js';
+
 /**
  * @unrestricted
  */
-Resources.ApplicationCacheItemsView = class extends UI.SimpleView {
+export class ApplicationCacheItemsView extends UI.SimpleView {
   constructor(model, frameId) {
     super(Common.UIString('AppCache'));
 
@@ -61,9 +63,9 @@ Resources.ApplicationCacheItemsView = class extends UI.SimpleView {
 
   /**
    * @override
-   * @return {!Array.<!UI.ToolbarItem>}
+   * @return {!Promise<!Array.<!UI.ToolbarItem>>}
    */
-  syncToolbarItems() {
+  async toolbarItems() {
     return [
       this._deleteButton, new UI.ToolbarItem(this._connectivityIcon), new UI.ToolbarSeparator(),
       new UI.ToolbarItem(this._statusIcon)
@@ -106,26 +108,19 @@ Resources.ApplicationCacheItemsView = class extends UI.SimpleView {
 
     const statusInformation = {};
     // We should never have UNCACHED status, since we remove frames with UNCACHED application cache status from the tree.
-    statusInformation[Resources.ApplicationCacheModel.UNCACHED] = {type: 'smallicon-red-ball', text: 'UNCACHED'};
-    statusInformation[Resources.ApplicationCacheModel.IDLE] = {type: 'smallicon-green-ball', text: 'IDLE'};
-    statusInformation[Resources.ApplicationCacheModel.CHECKING] = {type: 'smallicon-orange-ball', text: 'CHECKING'};
-    statusInformation[Resources.ApplicationCacheModel.DOWNLOADING] = {
-      type: 'smallicon-orange-ball',
-      text: 'DOWNLOADING'
-    };
-    statusInformation[Resources.ApplicationCacheModel.UPDATEREADY] = {
-      type: 'smallicon-green-ball',
-      text: 'UPDATEREADY'
-    };
-    statusInformation[Resources.ApplicationCacheModel.OBSOLETE] = {type: 'smallicon-red-ball', text: 'OBSOLETE'};
+    statusInformation[UNCACHED] = {type: 'smallicon-red-ball', text: 'UNCACHED'};
+    statusInformation[IDLE] = {type: 'smallicon-green-ball', text: 'IDLE'};
+    statusInformation[CHECKING] = {type: 'smallicon-orange-ball', text: 'CHECKING'};
+    statusInformation[DOWNLOADING] = {type: 'smallicon-orange-ball', text: 'DOWNLOADING'};
+    statusInformation[UPDATEREADY] = {type: 'smallicon-green-ball', text: 'UPDATEREADY'};
+    statusInformation[OBSOLETE] = {type: 'smallicon-red-ball', text: 'OBSOLETE'};
 
-    const info = statusInformation[status] || statusInformation[Resources.ApplicationCacheModel.UNCACHED];
+    const info = statusInformation[status] || statusInformation[UNCACHED];
 
     this._statusIcon.type = info.type;
     this._statusIcon.textContent = info.text;
 
-    if (this.isShowing() && this._status === Resources.ApplicationCacheModel.IDLE &&
-        (oldStatus === Resources.ApplicationCacheModel.UPDATEREADY || !this._resources)) {
+    if (this.isShowing() && this._status === IDLE && (oldStatus === UPDATEREADY || !this._resources)) {
       this._markDirty();
     }
     this._maybeUpdate();
@@ -184,12 +179,12 @@ Resources.ApplicationCacheItemsView = class extends UI.SimpleView {
   }
 
   _createDataGrid() {
-    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([
+    const columns = /** @type {!Array<!DataGrid.ColumnDescriptor>} */ ([
       {id: 'resource', title: Common.UIString('Resource'), sort: DataGrid.DataGrid.Order.Ascending, sortable: true},
       {id: 'type', title: Common.UIString('Type'), sortable: true},
       {id: 'size', title: Common.UIString('Size'), align: DataGrid.DataGrid.Align.Right, sortable: true}
     ]);
-    this._dataGrid = new DataGrid.DataGrid(columns);
+    this._dataGrid = new DataGrid.DataGrid({displayName: ls`Application Cache`, columns});
     this._dataGrid.setStriped(true);
     this._dataGrid.asWidget().show(this.element);
     this._dataGrid.addEventListener(DataGrid.DataGrid.Events.SortingChanged, this._populateDataGrid, this);
@@ -263,4 +258,4 @@ Resources.ApplicationCacheItemsView = class extends UI.SimpleView {
     // Protocol.inspectorBackend.deleteCachedResource(...)
     // this._update();
   }
-};
+}

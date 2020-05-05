@@ -324,6 +324,10 @@ void TrayDetailedView::CreateScrollableList() {
   box_layout_->SetFlexForView(scroller_, 1);
 }
 
+void TrayDetailedView::AddScrollListChild(std::unique_ptr<views::View> child) {
+  scroll_content_->AddChildView(std::move(child));
+}
+
 HoverHighlightView* TrayDetailedView::AddScrollListItem(
     const gfx::VectorIcon& icon,
     const base::string16& text) {
@@ -399,8 +403,9 @@ TriView* TrayDetailedView::AddScrollListSubHeader(const gfx::VectorIcon& icon,
 
   views::ImageView* image_view = TrayPopupUtils::CreateMainImageView();
   image_view->SetImage(gfx::CreateVectorIcon(
-      icon, GetNativeTheme()->GetSystemColor(
-                ui::NativeTheme::kColorId_ProminentButtonColor)));
+      icon, AshColorProvider::Get()->GetContentLayerColor(
+                AshColorProvider::ContentLayerType::kIconPrimary,
+                AshColorProvider::AshColorMode::kDark)));
   header->AddView(TriView::Container::START, image_view);
 
   scroll_content_->AddChildView(header);
@@ -428,6 +433,10 @@ void TrayDetailedView::ShowProgress(double value, bool visible) {
         l10n_util::GetStringUTF16(
             IDS_ASH_STATUS_TRAY_NETWORK_PROGRESS_ACCESSIBLE_NAME));
     progress_bar_->SetVisible(false);
+    progress_bar_->SetForegroundColor(
+        AshColorProvider::Get()->GetContentLayerColor(
+            AshColorProvider::ContentLayerType::kProminentIconButton,
+            AshColorProvider::AshColorMode::kDark));
     AddChildViewAt(progress_bar_, kTitleRowSeparatorIndex + 1);
   }
 

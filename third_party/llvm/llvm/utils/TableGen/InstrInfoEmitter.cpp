@@ -164,6 +164,11 @@ InstrInfoEmitter::GetOperandInfo(const CodeGenInstruction &Inst) {
       if (Op.Rec->isSubClassOf("OptionalDefOperand"))
         Res += "|(1<<MCOI::OptionalDef)";
 
+      // Branch target operands.  Check to see if the original unexpanded
+      // operand was of type BranchTargetOperand.
+      if (Op.Rec->isSubClassOf("BranchTargetOperand"))
+        Res += "|(1<<MCOI::BranchTarget)";
+
       // Fill in operand type.
       Res += ", ";
       assert(!Op.OperandType.empty() && "Invalid operand type.");
@@ -564,9 +569,8 @@ void InstrInfoEmitter::run(raw_ostream &OS) {
 
   // Emit the array of instruction names.
   InstrNames.layout();
-  OS << "extern const char " << TargetName << "InstrNameData[] = {\n";
-  InstrNames.emit(OS, printChar);
-  OS << "};\n\n";
+  InstrNames.emitStringLiteralDef(OS, Twine("extern const char ") + TargetName +
+                                          "InstrNameData[]");
 
   OS << "extern const unsigned " << TargetName <<"InstrNameIndices[] = {";
   Num = 0;
@@ -703,6 +707,7 @@ void InstrInfoEmitter::emitRecord(const CodeGenInstruction &Inst, unsigned Num,
   if (Inst.isInsertSubreg) OS << "|(1ULL<<MCID::InsertSubreg)";
   if (Inst.isConvergent) OS << "|(1ULL<<MCID::Convergent)";
   if (Inst.variadicOpsAreDefs) OS << "|(1ULL<<MCID::VariadicOpsAreDefs)";
+  if (Inst.isAuthenticated) OS << "|(1ULL<<MCID::Authenticated)";
 
   // Emit all of the target-specific flags...
   BitsInit *TSF = Inst.TheDef->getValueAsBitsInit("TSFlags");

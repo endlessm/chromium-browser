@@ -5,19 +5,21 @@
  * modification, are permitted provided that the following conditions are
  * met:
  *
- * 1. Redistributions of source code must retain the above copyright
+ *     * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above
+ *     * Redistributions in binary form must reproduce the above
  * copyright notice, this list of conditions and the following disclaimer
  * in the documentation and/or other materials provided with the
  * distribution.
+ *     * Neither the name of Google Inc. nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY GOOGLE INC. AND ITS CONTRIBUTORS
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL GOOGLE INC.
- * OR ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
@@ -86,6 +88,18 @@ export class ParsedURL {
     } else {
       this.lastPathComponent = this.path;
     }
+  }
+
+  /**
+   * @param {string} string
+   * @return {?ParsedURL}
+   */
+  static fromString(string) {
+    const parsedURL = new ParsedURL(string.toString());
+    if (parsedURL.isValid) {
+      return parsedURL;
+    }
+    return null;
   }
 
   /**
@@ -164,7 +178,7 @@ export class ParsedURL {
    * @return {string}
    */
   static extractPath(url) {
-    const parsedURL = url.asParsedURL();
+    const parsedURL = this.fromString(url);
     return parsedURL ? parsedURL.path : '';
   }
 
@@ -173,7 +187,7 @@ export class ParsedURL {
    * @return {string}
    */
   static extractOrigin(url) {
-    const parsedURL = url.asParsedURL();
+    const parsedURL = this.fromString(url);
     return parsedURL ? parsedURL.securityOrigin() : '';
   }
 
@@ -228,12 +242,12 @@ export class ParsedURL {
     }
 
     // Return absolute URLs as-is.
-    const parsedHref = trimmedHref.asParsedURL();
+    const parsedHref = this.fromString(trimmedHref);
     if (parsedHref && parsedHref.scheme) {
       return trimmedHref;
     }
 
-    const parsedURL = baseURL.asParsedURL();
+    const parsedURL = this.fromString(baseURL);
     if (!parsedURL) {
       return null;
     }
@@ -415,23 +429,3 @@ export class ParsedURL {
     return this.url;
   }
 }
-
-/**
- * @return {?ParsedURL}
- */
-String.prototype.asParsedURL = function() {
-  const parsedURL = new ParsedURL(this.toString());
-  if (parsedURL.isValid) {
-    return parsedURL;
-  }
-  return null;
-};
-
-/* Legacy exported object */
-self.Common = self.Common || {};
-Common = Common || {};
-
-/**
- * @constructor
- */
-Common.ParsedURL = ParsedURL;

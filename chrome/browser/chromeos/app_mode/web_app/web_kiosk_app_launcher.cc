@@ -8,6 +8,7 @@
 #include "ash/public/cpp/window_pin_type.h"
 #include "ash/public/cpp/window_properties.h"
 #include "base/bind.h"
+#include "base/logging.h"
 #include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_data.h"
 #include "chrome/browser/chromeos/app_mode/web_app/web_kiosk_app_manager.h"
 #include "chrome/browser/extensions/api/tabs/tabs_util.h"
@@ -20,6 +21,7 @@
 #include "components/account_id/account_id.h"
 #include "ui/aura/window.h"
 #include "ui/base/page_transition_types.h"
+#include "url/origin.h"
 
 namespace chromeos {
 
@@ -49,7 +51,9 @@ void WebKioskAppLauncher::ContinueWithNetworkReady() {
   delegate_->OnAppStartedInstalling();
   DCHECK(!is_installed_);
   install_task_.reset(new web_app::WebAppInstallTask(
-      profile_, /*shortcut_manager=*/nullptr, /*install_finalizer=*/nullptr,
+      profile_, /*registrar=*/nullptr, /*shortcut_manager=*/nullptr,
+      /*file_handler_manager=*/nullptr,
+      /*install_finalizer=*/nullptr,
       std::make_unique<web_app::WebAppDataRetriever>()));
   install_task_->LoadAndRetrieveWebApplicationInfoWithIcons(
       WebKioskAppManager::Get()->GetAppByAccountId(account_id_)->install_url(),
@@ -58,22 +62,38 @@ void WebKioskAppLauncher::ContinueWithNetworkReady() {
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
+const WebKioskAppData* WebKioskAppLauncher::GetCurrentApp() const {
+  const WebKioskAppData* app =
+      WebKioskAppManager::Get()->GetAppByAccountId(account_id_);
+  DCHECK(app);
+  return app;
+}
+
 void WebKioskAppLauncher::OnAppDataObtained(
     std::unique_ptr<WebApplicationInfo> app_info) {
-  if (app_info) {
-    WebKioskAppManager::Get()->UpdateAppByAccountId(account_id_,
-                                                    std::move(app_info));
+  if (!app_info) {
+    // Notify about failed installation, let the controller decide what to do.
+    delegate_->OnAppInstallFailed();
+    return;
   }
-  // If we could not update the app data, we should still launch the app(we may
-  // be under captive portal, there can be redirect, etc).
+
+  // When received |app_info->app_url| origin does not match the origin of
+  // |install_url|, fail.
+  if (url::Origin::Create(GetCurrentApp()->install_url()) !=
+      url::Origin::Create(app_info->app_url)) {
+    VLOG(1) << "Origin of the app does not match the origin of install url";
+    delegate_->OnAppLaunchFailed();
+    return;
+  }
+
+  WebKioskAppManager::Get()->UpdateAppByAccountId(account_id_,
+                                                  std::move(app_info));
   delegate_->OnAppPrepared();
 }
 
 void WebKioskAppLauncher::LaunchApp() {
   DCHECK(!browser_);
-  const WebKioskAppData* app =
-      WebKioskAppManager::Get()->GetAppByAccountId(account_id_);
-  DCHECK(app);
+  const WebKioskAppData* app = GetCurrentApp();
 
   GURL url = app->status() == WebKioskAppData::STATUS_INSTALLED
                  ? app->launch_url()
@@ -91,6 +111,8 @@ void WebKioskAppLauncher::LaunchApp() {
   browser_->window()->GetNativeWindow()->SetProperty(
       ash::kWindowPinTypeKey, ash::WindowPinType::kTrustedPinned);
   browser_->window()->Show();
+
+  WebKioskAppManager::Get()->InitSession(browser_);
   delegate_->OnAppLaunched();
 }
 

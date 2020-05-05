@@ -79,8 +79,7 @@ static void dumpLocation(raw_ostream &OS, DWARFFormValue &FormValue,
     ArrayRef<uint8_t> Expr = *FormValue.getAsBlock();
     DataExtractor Data(StringRef((const char *)Expr.data(), Expr.size()),
                        Ctx.isLittleEndian(), 0);
-    DWARFExpression(Data, U->getVersion(), U->getAddressByteSize())
-        .print(OS, MRI, U);
+    DWARFExpression(Data, U->getAddressByteSize()).print(OS, MRI, U);
     return;
   }
 
@@ -91,12 +90,13 @@ static void dumpLocation(raw_ostream &OS, DWARFFormValue &FormValue,
       FormValue.dump(OS, DumpOpts);
 
       if (auto LoclistOffset = U->getLoclistOffset(Offset))
-        Offset = *LoclistOffset + U->getLocSectionBase();
+        Offset = *LoclistOffset;
       else
         return;
     }
     U->getLocationTable().dumpLocationList(&Offset, OS, U->getBaseAddress(),
-                                           MRI, U, DumpOpts, Indent);
+                                           MRI, Ctx.getDWARFObj(), U, DumpOpts,
+                                           Indent);
     return;
   }
 
@@ -278,7 +278,8 @@ static void dumpAttribute(raw_ostream &OS, const DWARFDie &Die,
       else
         FormValue.dump(OS, DumpOpts);
     }
-  } else if (DWARFAttribute::mayHaveLocationDescription(Attr))
+  } else if (Form == dwarf::Form::DW_FORM_exprloc ||
+             DWARFAttribute::mayHaveLocationDescription(Attr))
     dumpLocation(OS, FormValue, U, sizeof(BaseIndent) + Indent + 4, DumpOpts);
   else
     FormValue.dump(OS, DumpOpts);
@@ -494,8 +495,18 @@ DWARFDie::getLocations(dwarf::Attribute Attr) const {
     return createStringError(inconvertibleErrorCode(), "No %s",
                              dwarf::AttributeString(Attr).data());
 
-  if (Optional<uint64_t> Off = Location->getAsSectionOffset())
-    return U->findLoclistFromOffset(*Off);
+  if (Optional<uint64_t> Off = Location->getAsSectionOffset()) {
+    uint64_t Offset = *Off;
+
+    if (Location->getForm() == DW_FORM_loclistx) {
+      if (auto LoclistOffset = U->getLoclistOffset(Offset))
+        Offset = *LoclistOffset;
+      else
+        return createStringError(inconvertibleErrorCode(),
+                                 "Loclist table not found");
+    }
+    return U->findLoclistFromOffset(Offset);
+  }
 
   if (Optional<ArrayRef<uint8_t>> Expr = Location->getAsBlock()) {
     return DWARFLocationExpressionsVector{

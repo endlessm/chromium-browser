@@ -1,7 +1,10 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-Sources.JavaScriptCompilerPlugin = class extends Sources.UISourceCodeFrame.Plugin {
+
+import {Plugin} from './Plugin.js';
+
+export class JavaScriptCompilerPlugin extends Plugin {
   /**
    * @param {!SourceFrame.SourcesTextEditor} textEditor
    * @param {!Workspace.UISourceCode} uiSourceCode
@@ -36,8 +39,8 @@ Sources.JavaScriptCompilerPlugin = class extends Sources.UISourceCodeFrame.Plugi
     if (Snippets.isSnippetsUISourceCode(uiSourceCode)) {
       return true;
     }
-    for (const debuggerModel of SDK.targetManager.models(SDK.DebuggerModel)) {
-      if (Bindings.debuggerWorkspaceBinding.scriptFile(uiSourceCode, debuggerModel)) {
+    for (const debuggerModel of self.SDK.targetManager.models(SDK.DebuggerModel)) {
+      if (self.Bindings.debuggerWorkspaceBinding.scriptFile(uiSourceCode, debuggerModel)) {
         return true;
       }
     }
@@ -52,21 +55,21 @@ Sources.JavaScriptCompilerPlugin = class extends Sources.UISourceCodeFrame.Plugi
     if (this._timeout) {
       clearTimeout(this._timeout);
     }
-    this._timeout = setTimeout(this._compile.bind(this), Sources.JavaScriptCompilerPlugin.CompileDelay);
+    this._timeout = setTimeout(this._compile.bind(this), CompileDelay);
   }
 
   /**
    * @return {?SDK.RuntimeModel}
    */
   _findRuntimeModel() {
-    const debuggerModels = SDK.targetManager.models(SDK.DebuggerModel);
+    const debuggerModels = self.SDK.targetManager.models(SDK.DebuggerModel);
     for (let i = 0; i < debuggerModels.length; ++i) {
-      const scriptFile = Bindings.debuggerWorkspaceBinding.scriptFile(this._uiSourceCode, debuggerModels[i]);
+      const scriptFile = self.Bindings.debuggerWorkspaceBinding.scriptFile(this._uiSourceCode, debuggerModels[i]);
       if (scriptFile) {
         return debuggerModels[i].runtimeModel();
       }
     }
-    return SDK.targetManager.mainTarget() ? SDK.targetManager.mainTarget().model(SDK.RuntimeModel) : null;
+    return self.SDK.targetManager.mainTarget() ? self.SDK.targetManager.mainTarget().model(SDK.RuntimeModel) : null;
   }
 
   async _compile() {
@@ -74,7 +77,7 @@ Sources.JavaScriptCompilerPlugin = class extends Sources.UISourceCodeFrame.Plugi
     if (!runtimeModel) {
       return;
     }
-    const currentExecutionContext = UI.context.flavor(SDK.ExecutionContext);
+    const currentExecutionContext = self.UI.context.flavor(SDK.ExecutionContext);
     if (!currentExecutionContext) {
       return;
     }
@@ -123,6 +126,6 @@ Sources.JavaScriptCompilerPlugin = class extends Sources.UISourceCodeFrame.Plugi
       clearTimeout(this._timeout);
     }
   }
-};
+}
 
-Sources.JavaScriptCompilerPlugin.CompileDelay = 1000;
+export const CompileDelay = 1000;

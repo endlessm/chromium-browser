@@ -24,7 +24,7 @@ QuerierImpl::QuerierImpl(MdnsService* mdns_querier)
 
 QuerierImpl::~QuerierImpl() = default;
 
-void QuerierImpl::StartQuery(absl::string_view service, Callback* callback) {
+void QuerierImpl::StartQuery(const std::string& service, Callback* callback) {
   OSP_DCHECK(callback);
 
   ServiceKey key(service, kLocalDomain);
@@ -49,11 +49,11 @@ void QuerierImpl::StartQuery(absl::string_view service, Callback* callback) {
   callback_map_[key].push_back(callback);
 }
 
-bool QuerierImpl::IsQueryRunning(absl::string_view service) const {
+bool QuerierImpl::IsQueryRunning(const std::string& service) const {
   return IsQueryRunning(ServiceKey(service, kLocalDomain));
 }
 
-void QuerierImpl::StopQuery(absl::string_view service, Callback* callback) {
+void QuerierImpl::StopQuery(const std::string& service, Callback* callback) {
   OSP_DCHECK(callback);
 
   ServiceKey key(service, kLocalDomain);
@@ -71,6 +71,24 @@ void QuerierImpl::StopQuery(absl::string_view service, Callback* callback) {
       EraseInstancesOf(key);
       callback_map_.erase(callback_it);
       StopDnsQuery(query);
+    }
+  }
+}
+
+void QuerierImpl::ReinitializeQueries(const std::string& service) {
+  const ServiceKey key(service, kLocalDomain);
+
+  mdns_querier_->ReinitializeQueries(GetPtrQueryInfo(key).name);
+
+  // Restart instance-specific queries and erase all instance data received so
+  // far.
+  for (auto it = received_records_.begin(); it != received_records_.end();) {
+    if (it->first == key) {
+      const DomainName query_id = GetInstanceQueryInfo(it->first).name;
+      it = received_records_.erase(it);
+      mdns_querier_->ReinitializeQueries(query_id);
+    } else {
+      it++;
     }
   }
 }
@@ -199,7 +217,7 @@ std::vector<InstanceKey> QuerierImpl::GetMatchingInstances(
   std::vector<InstanceKey> keys;
   for (auto it = received_records_.begin(); it != received_records_.end();
        it++) {
-    if (it->first.IsInstanceOf(key)) {
+    if (it->first == key) {
       keys.push_back(it->first);
     }
   }

@@ -114,7 +114,7 @@ GLOzone* SurfaceFactoryCast::GetGLOzone(gl::GLImplementation implementation) {
 
 std::unique_ptr<SurfaceOzoneCanvas> SurfaceFactoryCast::CreateCanvasForWidget(
     gfx::AcceleratedWidget widget,
-    base::TaskRunner* task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   // Software canvas support only in headless mode
   if (egl_implementation_)
     return nullptr;
@@ -126,7 +126,9 @@ scoped_refptr<gfx::NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
     VkDevice vk_device,
     gfx::Size size,
     gfx::BufferFormat format,
-    gfx::BufferUsage usage) {
+    gfx::BufferUsage usage,
+    base::Optional<gfx::Size> framebuffer_size) {
+  DCHECK(!framebuffer_size || framebuffer_size == size);
   return base::MakeRefCounted<CastPixmap>();
 }
 

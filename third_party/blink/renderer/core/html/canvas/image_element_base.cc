@@ -79,33 +79,21 @@ bool ImageElementBase::WouldTaintOrigin() const {
 }
 
 FloatSize ImageElementBase::ElementSize(
-    const FloatSize& default_object_size) const {
+    const FloatSize& default_object_size,
+    const RespectImageOrientationEnum respect_orientation) const {
   ImageResourceContent* image_content = CachedImage();
-  if (!image_content)
+  if (!image_content || !image_content->HasImage())
     return FloatSize();
-
   Image* image = image_content->GetImage();
   if (image->IsSVGImage())
     return ToSVGImage(image)->ConcreteObjectSize(default_object_size);
-
-  return FloatSize(
-      image_content->IntrinsicSize(LayoutObject::ShouldRespectImageOrientation(
-          GetElement().GetLayoutObject())));
+  return FloatSize(image->Size(respect_orientation));
 }
 
 FloatSize ImageElementBase::DefaultDestinationSize(
-    const FloatSize& default_object_size) const {
-  ImageResourceContent* image_content = CachedImage();
-  if (!image_content)
-    return FloatSize();
-
-  Image* image = image_content->GetImage();
-  if (image->IsSVGImage())
-    return ToSVGImage(image)->ConcreteObjectSize(default_object_size);
-
-  return FloatSize(
-      image_content->IntrinsicSize(LayoutObject::ShouldRespectImageOrientation(
-          GetElement().GetLayoutObject())));
+    const FloatSize& default_object_size,
+    const RespectImageOrientationEnum respect_orientation) const {
+  return ElementSize(default_object_size, respect_orientation);
 }
 
 bool ImageElementBase::IsAccelerated() const {
@@ -128,46 +116,49 @@ IntSize ImageElementBase::BitmapSourceSize() const {
   ImageResourceContent* image = CachedImage();
   if (!image)
     return IntSize();
-  return image->IntrinsicSize(LayoutObject::ShouldRespectImageOrientation(
-      GetElement().GetLayoutObject()));
+  // This method is called by ImageBitmap when creating and cropping the image.
+  // Return un-oriented size because the cropping must happen before
+  // orienting.
+  return image->IntrinsicSize(kDoNotRespectImageOrientation);
 }
 
 ScriptPromise ImageElementBase::CreateImageBitmap(
     ScriptState* script_state,
     EventTarget& event_target,
     base::Optional<IntRect> crop_rect,
-    const ImageBitmapOptions* options) {
+    const ImageBitmapOptions* options,
+    ExceptionState& exception_state) {
   DCHECK(event_target.ToLocalDOMWindow());
 
   ImageResourceContent* image_content = CachedImage();
   if (!image_content) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state,
-        MakeGarbageCollected<DOMException>(
-            DOMExceptionCode::kInvalidStateError,
-            "No image can be retrieved from the provided element."));
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "No image can be retrieved from the provided element.");
+    return ScriptPromise();
   }
   Image* image = image_content->GetImage();
   if (image->IsSVGImage()) {
     if (!ToSVGImage(image)->HasIntrinsicDimensions() &&
         (!crop_rect &&
          (!options->hasResizeWidth() || !options->hasResizeHeight()))) {
-      return ScriptPromise::RejectWithDOMException(
-          script_state,
-          MakeGarbageCollected<DOMException>(
-              DOMExceptionCode::kInvalidStateError,
-              "The image element contains an SVG image without intrinsic "
-              "dimensions, and no resize options or crop region are "
-              "specified."));
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kInvalidStateError,
+          "The image element contains an SVG image without intrinsic "
+          "dimensions, and no resize options or crop region are "
+          "specified.");
+      return ScriptPromise();
     }
     return ImageBitmap::CreateAsync(this, crop_rect,
                                     event_target.ToLocalDOMWindow()->document(),
                                     script_state, options);
   }
   return ImageBitmapSource::FulfillImageBitmap(
-      script_state, ImageBitmap::Create(
-                        this, crop_rect,
-                        event_target.ToLocalDOMWindow()->document(), options));
+      script_state,
+      MakeGarbageCollected<ImageBitmap>(
+          this, crop_rect, event_target.ToLocalDOMWindow()->document(),
+          options),
+      exception_state);
 }
 
 Image::ImageDecodingMode ImageElementBase::GetDecodingModeForPainting(
@@ -186,6 +177,11 @@ Image::ImageDecodingMode ImageElementBase::GetDecodingModeForPainting(
       decoding_mode_ == Image::ImageDecodingMode::kUnspecifiedDecode)
     return Image::ImageDecodingMode::kSyncDecode;
   return decoding_mode_;
+}
+
+RespectImageOrientationEnum ImageElementBase::RespectImageOrientation() const {
+  return LayoutObject::ShouldRespectImageOrientation(
+      GetElement().GetLayoutObject());
 }
 
 }  // namespace blink

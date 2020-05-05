@@ -27,11 +27,20 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import * as Common from '../common/common.js';
+
+import {Attributes, Cookie} from './Cookie.js';  // eslint-disable-line no-unused-vars
+import {CookieParser} from './CookieParser.js';
+import {NetworkManager} from './NetworkManager.js';
+import {Type} from './SDKModel.js';
+import {ServerTiming} from './ServerTiming.js';
+
 /**
- * @implements {Common.ContentProvider}
+ * @implements {Common.ContentProvider.ContentProvider}
  * @unrestricted
  */
-export default class NetworkRequest extends Common.Object {
+export class NetworkRequest extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * @param {!Protocol.Network.RequestId} requestId
    * @param {string} url
@@ -78,8 +87,8 @@ export default class NetworkRequest extends Common.Object {
     /** @type {?Protocol.Network.SignedExchangeInfo} */
     this._signedExchangeInfo = null;
 
-    /** @type {!Common.ResourceType} */
-    this._resourceType = Common.resourceTypes.Other;
+    /** @type {!Common.ResourceType.ResourceType} */
+    this._resourceType = Common.ResourceType.resourceTypes.Other;
     /** @type {?Promise<!SDK.NetworkRequest.ContentData>} */
     this._contentData = null;
     /** @type {!Array.<!SDK.NetworkRequest.WebSocketFrame>} */
@@ -178,7 +187,7 @@ export default class NetworkRequest extends Common.Object {
     }
 
     this._url = x;
-    this._parsedURL = new Common.ParsedURL(x);
+    this._parsedURL = new Common.ParsedURL.ParsedURL(x);
     delete this._queryString;
     delete this._parsedQueryParameters;
     delete this._name;
@@ -519,11 +528,11 @@ export default class NetworkRequest extends Common.Object {
    * @return {boolean}
    */
   initiatedByServiceWorker() {
-    const networkManager = SDK.NetworkManager.forRequest(this);
+    const networkManager = NetworkManager.forRequest(this);
     if (!networkManager) {
       return false;
     }
-    return networkManager.target().type() === SDK.Target.Type.ServiceWorker;
+    return networkManager.target().type() === Type.ServiceWorker;
   }
 
   /**
@@ -611,8 +620,9 @@ export default class NetworkRequest extends Common.Object {
     } else {
       this._path = this._parsedURL.host + this._parsedURL.folderPathComponents;
 
-      const networkManager = SDK.NetworkManager.forRequest(this);
-      const inspectedURL = networkManager ? networkManager.target().inspectedURL().asParsedURL() : null;
+      const networkManager = NetworkManager.forRequest(this);
+      const inspectedURL =
+          networkManager ? Common.ParsedURL.ParsedURL.fromString(networkManager.target().inspectedURL()) : null;
       this._path = this._path.trimURL(inspectedURL ? inspectedURL.host : '');
       if (this._parsedURL.lastPathComponent || this._parsedURL.queryParams) {
         this._name =
@@ -650,14 +660,14 @@ export default class NetworkRequest extends Common.Object {
   }
 
   /**
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   resourceType() {
     return this._resourceType;
   }
 
   /**
-   * @param {!Common.ResourceType} resourceType
+   * @param {!Common.ResourceType.ResourceType} resourceType
    */
   setResourceType(resourceType) {
     this._resourceType = resourceType;
@@ -751,11 +761,11 @@ export default class NetworkRequest extends Common.Object {
   }
 
   /**
-   * @return {?Array.<!SDK.Cookie>}
+   * @return {!Array.<!Cookie>}
    */
   get requestCookies() {
     if (!this._requestCookies) {
-      this._requestCookies = SDK.CookieParser.parseCookie(this.requestHeaderValue('Cookie'));
+      this._requestCookies = CookieParser.parseCookie(this.requestHeaderValue('Cookie')) || [];
     }
     return this._requestCookies;
   }
@@ -765,7 +775,7 @@ export default class NetworkRequest extends Common.Object {
    */
   requestFormData() {
     if (!this._requestFormDataPromise) {
-      this._requestFormDataPromise = SDK.NetworkManager.requestPostData(this);
+      this._requestFormDataPromise = NetworkManager.requestPostData(this);
     }
     return this._requestFormDataPromise;
   }
@@ -871,11 +881,11 @@ export default class NetworkRequest extends Common.Object {
   }
 
   /**
-   * @return {!Array.<!SDK.Cookie>}
+   * @return {!Array.<!Cookie>}
    */
   get responseCookies() {
     if (!this._responseCookies) {
-      this._responseCookies = SDK.CookieParser.parseSetCookie(this.responseHeaderValue('Set-Cookie'));
+      this._responseCookies = CookieParser.parseSetCookie(this.responseHeaderValue('Set-Cookie'), this.domain) || [];
     }
     return this._responseCookies;
   }
@@ -888,11 +898,23 @@ export default class NetworkRequest extends Common.Object {
   }
 
   /**
-   * @return {?Array.<!SDK.ServerTiming>}
+   * @return {!Array.<!Cookie>}
+   */
+  allCookiesIncludingBlockedOnes() {
+    return [
+      ...this.requestCookies, ...this.responseCookies,
+      ...this.blockedRequestCookies().map(blockedRequestCookie => blockedRequestCookie.cookie),
+      ...this.blockedResponseCookies().map(blockedResponseCookie => blockedResponseCookie.cookie),
+      // blockedRequestCookie or blockedResponseCookie might not contain a cookie in case of SyntaxErrors:
+    ].filter(v => !!v);
+  }
+
+  /**
+   * @return {?Array.<!ServerTiming>}
    */
   get serverTimings() {
     if (typeof this._serverTimings === 'undefined') {
-      this._serverTimings = SDK.ServerTiming.parseHeaders(this.responseHeaders);
+      this._serverTimings = ServerTiming.parseHeaders(this.responseHeaders);
     }
     return this._serverTimings;
   }
@@ -1104,7 +1126,7 @@ export default class NetworkRequest extends Common.Object {
     if (this._contentDataProvider) {
       this._contentData = this._contentDataProvider();
     } else {
-      this._contentData = SDK.NetworkManager.requestContentData(this);
+      this._contentData = NetworkManager.requestContentData(this);
     }
     return this._contentData;
   }
@@ -1127,7 +1149,7 @@ export default class NetworkRequest extends Common.Object {
 
   /**
    * @override
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   contentType() {
     return this._resourceType;
@@ -1163,7 +1185,7 @@ export default class NetworkRequest extends Common.Object {
    */
   async searchInContent(query, caseSensitive, isRegex) {
     if (!this._contentDataProvider) {
-      return SDK.NetworkManager.searchInRequest(this, query, caseSensitive, isRegex);
+      return NetworkManager.searchInRequest(this, query, caseSensitive, isRegex);
     }
 
     const contentData = await this.contentData();
@@ -1529,21 +1551,21 @@ export const setCookieBlockedReasonToUiString = function(blockedReason) {
 
 /**
  * @param {!Protocol.Network.CookieBlockedReason} blockedReason
- * @return {?SDK.Cookie.Attributes}
+ * @return {?Attributes}
  */
 export const cookieBlockedReasonToAttribute = function(blockedReason) {
   switch (blockedReason) {
     case Protocol.Network.CookieBlockedReason.SecureOnly:
-      return SDK.Cookie.Attributes.Secure;
+      return Attributes.Secure;
     case Protocol.Network.CookieBlockedReason.NotOnPath:
-      return SDK.Cookie.Attributes.Path;
+      return Attributes.Path;
     case Protocol.Network.CookieBlockedReason.DomainMismatch:
-      return SDK.Cookie.Attributes.Domain;
+      return Attributes.Domain;
     case Protocol.Network.CookieBlockedReason.SameSiteStrict:
     case Protocol.Network.CookieBlockedReason.SameSiteLax:
     case Protocol.Network.CookieBlockedReason.SameSiteUnspecifiedTreatedAsLax:
     case Protocol.Network.CookieBlockedReason.SameSiteNoneInsecure:
-      return SDK.Cookie.Attributes.SameSite;
+      return Attributes.SameSite;
     case Protocol.Network.CookieBlockedReason.UserPreferences:
     case Protocol.Network.CookieBlockedReason.UnknownError:
       return null;
@@ -1553,22 +1575,22 @@ export const cookieBlockedReasonToAttribute = function(blockedReason) {
 
 /**
  * @param {!Protocol.Network.SetCookieBlockedReason} blockedReason
- * @return {?SDK.Cookie.Attributes}
+ * @return {?Attributes}
  */
 export const setCookieBlockedReasonToAttribute = function(blockedReason) {
   switch (blockedReason) {
     case Protocol.Network.SetCookieBlockedReason.SecureOnly:
     case Protocol.Network.SetCookieBlockedReason.OverwriteSecure:
-      return SDK.Cookie.Attributes.Secure;
+      return Attributes.Secure;
     case Protocol.Network.SetCookieBlockedReason.SameSiteStrict:
     case Protocol.Network.SetCookieBlockedReason.SameSiteLax:
     case Protocol.Network.SetCookieBlockedReason.SameSiteUnspecifiedTreatedAsLax:
     case Protocol.Network.SetCookieBlockedReason.SameSiteNoneInsecure:
-      return SDK.Cookie.Attributes.SameSite;
+      return Attributes.SameSite;
     case Protocol.Network.SetCookieBlockedReason.InvalidDomain:
-      return SDK.Cookie.Attributes.Domain;
+      return Attributes.Domain;
     case Protocol.Network.SetCookieBlockedReason.InvalidPrefix:
-      return SDK.Cookie.Attributes.Name;
+      return Attributes.Name;
     case Protocol.Network.SetCookieBlockedReason.UserPreferences:
     case Protocol.Network.SetCookieBlockedReason.SyntaxError:
     case Protocol.Network.SetCookieBlockedReason.SchemeNotSupported:
@@ -1577,72 +1599,3 @@ export const setCookieBlockedReasonToAttribute = function(blockedReason) {
   }
   return null;
 };
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.NetworkRequest = NetworkRequest;
-
-/** @enum {symbol} */
-SDK.NetworkRequest.Events = Events;
-
-/** @enum {string} */
-SDK.NetworkRequest.InitiatorType = InitiatorType;
-
-/** @enum {string} */
-SDK.NetworkRequest.WebSocketFrameType = WebSocketFrameType;
-
-SDK.NetworkRequest.cookieBlockedReasonToUiString = cookieBlockedReasonToUiString;
-SDK.NetworkRequest.setCookieBlockedReasonToUiString = setCookieBlockedReasonToUiString;
-SDK.NetworkRequest.cookieBlockedReasonToAttribute = cookieBlockedReasonToAttribute;
-SDK.NetworkRequest.setCookieBlockedReasonToAttribute = setCookieBlockedReasonToAttribute;
-
-/** @typedef {!{name: string, value: string}} */
-SDK.NetworkRequest.NameValue;
-
-/** @typedef {!{type: WebSocketFrameType, time: number, text: string, opCode: number, mask: boolean}} */
-SDK.NetworkRequest.WebSocketFrame;
-
-/** @typedef {!{time: number, eventName: string, eventId: string, data: string}} */
-SDK.NetworkRequest.EventSourceMessage;
-
-/** @typedef {!{error: ?string, content: ?string, encoded: boolean}} */
-SDK.NetworkRequest.ContentData;
-
-/**
- * @typedef {!{
-  *   blockedReasons: !Array<!Protocol.Network.CookieBlockedReason>,
-  *   cookie: !SDK.Cookie
-  * }}
-  */
-SDK.NetworkRequest.BlockedCookieWithReason;
-
-/**
-  * @typedef {!{
-  *   blockedRequestCookies: !Array<!SDK.NetworkRequest.BlockedCookieWithReason>,
-  *   requestHeaders: !Array<!SDK.NetworkRequest.NameValue>
-  * }}
-  */
-SDK.NetworkRequest.ExtraRequestInfo;
-
-/**
-  * @typedef {!{
-  *   blockedReasons: !Array<!Protocol.Network.SetCookieBlockedReason>,
-  *   cookieLine: string,
-  *   cookie: ?SDK.Cookie
-  * }}
-  */
-SDK.NetworkRequest.BlockedSetCookieWithReason;
-
-/**
-  * @typedef {!{
-  *   blockedResponseCookies: !Array<!SDK.NetworkRequest.BlockedSetCookieWithReason>,
-  *   responseHeaders: !Array<!SDK.NetworkRequest.NameValue>,
-  *   responseHeadersText: (string|undefined)
-  * }}
-  */
-SDK.NetworkRequest.ExtraResponseInfo;

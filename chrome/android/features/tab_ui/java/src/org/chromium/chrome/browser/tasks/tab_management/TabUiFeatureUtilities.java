@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 
 /**
  * A class to handle the state of flags for tab_management.

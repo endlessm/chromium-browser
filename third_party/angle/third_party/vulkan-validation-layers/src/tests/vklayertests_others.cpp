@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -3065,7 +3065,7 @@ TEST_F(VkLayerTest, HostQueryResetNotEnabled) {
     query_pool_create_info.queryCount = 1;
     vk::CreateQueryPool(m_device->device(), &query_pool_create_info, nullptr, &query_pool);
 
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPoolEXT-None-02665");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPool-None-02665");
     fpvkResetQueryPoolEXT(m_device->device(), query_pool, 0, 1);
     m_errorMonitor->VerifyFound();
 
@@ -3082,6 +3082,7 @@ TEST_F(VkLayerTest, HostQueryResetBadFirstQuery) {
     }
 
     m_instance_extension_names.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    SetTargetApiVersion(VK_API_VERSION_1_2);
     ASSERT_NO_FATAL_FAILURE(InitFramework(myDbgFunc, m_errorMonitor));
 
     if (!DeviceExtensionSupported(gpu(), nullptr, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME)) {
@@ -3110,9 +3111,16 @@ TEST_F(VkLayerTest, HostQueryResetBadFirstQuery) {
     query_pool_create_info.queryCount = 1;
     vk::CreateQueryPool(m_device->device(), &query_pool_create_info, nullptr, &query_pool);
 
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPoolEXT-firstQuery-02666");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPool-firstQuery-02666");
     fpvkResetQueryPoolEXT(m_device->device(), query_pool, 1, 0);
     m_errorMonitor->VerifyFound();
+
+    if (m_device->props.apiVersion >= VK_API_VERSION_1_2) {
+        auto fpvkResetQueryPool = (PFN_vkResetQueryPool)vk::GetDeviceProcAddr(m_device->device(), "vkResetQueryPool");
+        m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPool-firstQuery-02666");
+        fpvkResetQueryPool(m_device->device(), query_pool, 1, 0);
+        m_errorMonitor->VerifyFound();
+    }
 
     vk::DestroyQueryPool(m_device->device(), query_pool, nullptr);
 }
@@ -3155,7 +3163,7 @@ TEST_F(VkLayerTest, HostQueryResetBadRange) {
     query_pool_create_info.queryCount = 1;
     vk::CreateQueryPool(m_device->device(), &query_pool_create_info, nullptr, &query_pool);
 
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPoolEXT-firstQuery-02667");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPool-firstQuery-02667");
     fpvkResetQueryPoolEXT(m_device->device(), query_pool, 0, 2);
     m_errorMonitor->VerifyFound();
 
@@ -3203,7 +3211,7 @@ TEST_F(VkLayerTest, HostQueryResetInvalidQueryPool) {
     vk::DestroyQueryPool(m_device->device(), query_pool, nullptr);
 
     // Attempt to reuse the query pool handle.
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPoolEXT-queryPool-parameter");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPool-queryPool-parameter");
     fpvkResetQueryPoolEXT(m_device->device(), query_pool, 0, 1);
     m_errorMonitor->VerifyFound();
 }
@@ -3262,7 +3270,7 @@ TEST_F(VkLayerTest, HostQueryResetWrongDevice) {
     VkDevice second_device;
     ASSERT_VK_SUCCESS(vk::CreateDevice(gpu(), &device_create_info, nullptr, &second_device));
 
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPoolEXT-queryPool-parent");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkResetQueryPool-queryPool-parent");
     // Run vk::ResetQueryPoolExt on the wrong device.
     fpvkResetQueryPoolEXT(second_device, query_pool, 0, 1);
     m_errorMonitor->VerifyFound();
@@ -4656,7 +4664,7 @@ TEST_F(VkLayerTest, ValidateStride) {
     vk::QueueWaitIdle(m_device->m_queue);
 
     char data_space;
-    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkGetQueryPoolResults-flags-00814");
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-vkGetQueryPoolResults-flags-02827");
     vk::GetQueryPoolResults(m_device->handle(), query_pool, 0, 1, sizeof(data_space), &data_space, 1, VK_QUERY_RESULT_WAIT_BIT);
     m_errorMonitor->VerifyFound();
 

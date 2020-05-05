@@ -242,6 +242,12 @@ static const qpKeyStringMap s_qpShaderTypeMap[] =
 	{ QP_SHADER_TYPE_TESS_CONTROL,		"TessControlShader"		},
 	{ QP_SHADER_TYPE_TESS_EVALUATION,	"TessEvaluationShader"	},
 	{ QP_SHADER_TYPE_COMPUTE,			"ComputeShader"			},
+	{ QP_SHADER_TYPE_RAYGEN,			"RaygenShader"			},
+	{ QP_SHADER_TYPE_ANY_HIT,			"AnyHitShader"			},
+	{ QP_SHADER_TYPE_CLOSEST_HIT,		"ClosestHitShader"		},
+	{ QP_SHADER_TYPE_MISS,				"MissShader"			},
+	{ QP_SHADER_TYPE_INTERSECTION,		"IntersectionShader"	},
+	{ QP_SHADER_TYPE_CALLABLE,			"CallableShader"		},
 
 	{ QP_SHADER_TYPE_LAST,				DE_NULL					}
 };
@@ -263,7 +269,8 @@ static void qpTestLog_flushFile (qpTestLog* log)
 static const char* qpLookupString (const qpKeyStringMap* keyMap, int keyMapSize, int key)
 {
 	DE_ASSERT(keyMap);
-	DE_ASSERT(deInBounds32(key, 0, keyMapSize));
+	DE_ASSERT(deInBounds32(key, 0, keyMapSize - 1)); /* Last element in map is assumed to be terminator */
+	DE_ASSERT(keyMap[keyMapSize - 1].string == DE_NULL); /* Ensure map is properly completed, *_LAST element is not missing */
 	DE_ASSERT(keyMap[key].key == key);
 	DE_UNREF(keyMapSize); /* for asserting only */
 	return keyMap[key].string;

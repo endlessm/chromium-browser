@@ -2,12 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {EventsTimelineTreeView} from './EventsTimelineTreeView.js';
+import {Events, PerformanceModel} from './PerformanceModel.js';  // eslint-disable-line no-unused-vars
+import {TimelineLayersView} from './TimelineLayersView.js';
+import {TimelinePaintProfilerView} from './TimelinePaintProfilerView.js';
+import {TimelineModeViewDelegate, TimelineSelection} from './TimelinePanel.js';  // eslint-disable-line no-unused-vars
+import {BottomUpTimelineTreeView, CallTreeTimelineTreeView, TimelineTreeView} from './TimelineTreeView.js';  // eslint-disable-line no-unused-vars
+import {TimelineDetailsContentHelper, TimelineUIUtils} from './TimelineUIUtils.js';
+
 /**
  * @unrestricted
  */
-Timeline.TimelineDetailsView = class extends UI.VBox {
+export class TimelineDetailsView extends UI.VBox {
   /**
-   * @param {!Timeline.TimelineModeViewDelegate} delegate
+   * @param {!TimelineModeViewDelegate} delegate
    */
   constructor(delegate) {
     super();
@@ -18,28 +26,27 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
     this._tabbedPane = new UI.TabbedPane();
     this._tabbedPane.show(this.element);
 
-    const tabIds = Timeline.TimelineDetailsView.Tab;
+    const tabIds = Tab;
 
     this._defaultDetailsWidget = new UI.VBox();
     this._defaultDetailsWidget.element.classList.add('timeline-details-view');
     this._defaultDetailsContentElement =
         this._defaultDetailsWidget.element.createChild('div', 'timeline-details-view-body vbox');
-    this._defaultDetailsContentElement.tabIndex = 0;
     this._appendTab(tabIds.Details, Common.UIString('Summary'), this._defaultDetailsWidget);
     this.setPreferredTab(tabIds.Details);
 
-    /** @type Map<string, Timeline.TimelineTreeView> */
+    /** @type Map<string, TimelineTreeView> */
     this._rangeDetailViews = new Map();
 
-    const bottomUpView = new Timeline.BottomUpTimelineTreeView();
+    const bottomUpView = new BottomUpTimelineTreeView();
     this._appendTab(tabIds.BottomUp, Common.UIString('Bottom-Up'), bottomUpView);
     this._rangeDetailViews.set(tabIds.BottomUp, bottomUpView);
 
-    const callTreeView = new Timeline.CallTreeTimelineTreeView();
+    const callTreeView = new CallTreeTimelineTreeView();
     this._appendTab(tabIds.CallTree, Common.UIString('Call Tree'), callTreeView);
     this._rangeDetailViews.set(tabIds.CallTree, callTreeView);
 
-    const eventsView = new Timeline.EventsTimelineTreeView(delegate);
+    const eventsView = new EventsTimelineTreeView(delegate);
     this._appendTab(tabIds.EventLog, Common.UIString('Event Log'), eventsView);
     this._rangeDetailViews.set(tabIds.EventLog, eventsView);
 
@@ -47,22 +54,21 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
   }
 
   /**
-   * @param {?Timeline.PerformanceModel} model
+   * @param {?PerformanceModel} model
    * @param {?TimelineModel.TimelineModel.Track} track
    */
   setModel(model, track) {
     if (this._model !== model) {
       if (this._model) {
-        this._model.removeEventListener(Timeline.PerformanceModel.Events.WindowChanged, this._onWindowChanged, this);
+        this._model.removeEventListener(Events.WindowChanged, this._onWindowChanged, this);
       }
       this._model = model;
       if (this._model) {
-        this._model.addEventListener(Timeline.PerformanceModel.Events.WindowChanged, this._onWindowChanged, this);
+        this._model.addEventListener(Events.WindowChanged, this._onWindowChanged, this);
       }
     }
     this._track = track;
-    this._tabbedPane.closeTabs(
-        [Timeline.TimelineDetailsView.Tab.PaintProfiler, Timeline.TimelineDetailsView.Tab.LayerViewer], false);
+    this._tabbedPane.closeTabs([Tab.PaintProfiler, Tab.LayerViewer], false);
     for (const view of this._rangeDetailViews.values()) {
       view.setModel(model, track);
     }
@@ -75,7 +81,7 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
    * @param {!Node} node
    */
   _setContent(node) {
-    const allTabs = this._tabbedPane.otherTabs(Timeline.TimelineDetailsView.Tab.Details);
+    const allTabs = this._tabbedPane.otherTabs(Tab.Details);
     for (let i = 0; i < allTabs.length; ++i) {
       if (!this._rangeDetailViews.has(allTabs[i])) {
         this._tabbedPane.closeTab(allTabs[i]);
@@ -89,7 +95,7 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
     const view = this._rangeDetailViews.get(this._tabbedPane.selectedTabId || '');
     if (view) {
       const window = this._model.window();
-      view.updateContents(this._selection || Timeline.TimelineSelection.fromRange(window.left, window.right));
+      view.updateContents(this._selection || TimelineSelection.fromRange(window.left, window.right));
     }
   }
 
@@ -140,7 +146,7 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
   }
 
   /**
-   * @param {?Timeline.TimelineSelection} selection
+   * @param {?TimelineSelection} selection
    */
   setSelection(selection) {
     this._detailsLinkifier.reset();
@@ -150,31 +156,29 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
       return;
     }
     switch (this._selection.type()) {
-      case Timeline.TimelineSelection.Type.TraceEvent:
+      case TimelineSelection.Type.TraceEvent:
         const event = /** @type {!SDK.TracingModel.Event} */ (this._selection.object());
-        Timeline.TimelineUIUtils
-            .buildTraceEventDetails(event, this._model.timelineModel(), this._detailsLinkifier, true)
+        TimelineUIUtils.buildTraceEventDetails(event, this._model.timelineModel(), this._detailsLinkifier, true)
             .then(fragment => this._appendDetailsTabsForTraceEventAndShowDetails(event, fragment));
         break;
-      case Timeline.TimelineSelection.Type.Frame:
+      case TimelineSelection.Type.Frame:
         const frame = /** @type {!TimelineModel.TimelineFrame} */ (this._selection.object());
         const filmStripFrame = this._model.filmStripModelFrame(frame);
-        this._setContent(Timeline.TimelineUIUtils.generateDetailsContentForFrame(frame, filmStripFrame));
+        this._setContent(TimelineUIUtils.generateDetailsContentForFrame(frame, filmStripFrame));
         if (frame.layerTree) {
           const layersView = this._layersView();
           layersView.showLayerTree(frame.layerTree);
-          if (!this._tabbedPane.hasTab(Timeline.TimelineDetailsView.Tab.LayerViewer)) {
-            this._appendTab(Timeline.TimelineDetailsView.Tab.LayerViewer, Common.UIString('Layers'), layersView);
+          if (!this._tabbedPane.hasTab(Tab.LayerViewer)) {
+            this._appendTab(Tab.LayerViewer, Common.UIString('Layers'), layersView);
           }
         }
         break;
-      case Timeline.TimelineSelection.Type.NetworkRequest:
+      case TimelineSelection.Type.NetworkRequest:
         const request = /** @type {!TimelineModel.TimelineModel.NetworkRequest} */ (this._selection.object());
-        Timeline.TimelineUIUtils
-            .buildNetworkRequestDetails(request, this._model.timelineModel(), this._detailsLinkifier)
+        TimelineUIUtils.buildNetworkRequestDetails(request, this._model.timelineModel(), this._detailsLinkifier)
             .then(this._setContent.bind(this));
         break;
-      case Timeline.TimelineSelection.Type.Range:
+      case TimelineSelection.Type.Range:
         this._updateSelectedRangeStats(this._selection.startTime(), this._selection.endTime());
         break;
     }
@@ -201,18 +205,18 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
       return this._lazyLayersView;
     }
     this._lazyLayersView =
-        new Timeline.TimelineLayersView(this._model.timelineModel(), this._showSnapshotInPaintProfiler.bind(this));
+        new TimelineLayersView(this._model.timelineModel(), this._showSnapshotInPaintProfiler.bind(this));
     return this._lazyLayersView;
   }
 
   /**
-   * @return {!Timeline.TimelinePaintProfilerView}
+   * @return {!TimelinePaintProfilerView}
    */
   _paintProfilerView() {
     if (this._lazyPaintProfilerView) {
       return this._lazyPaintProfilerView;
     }
-    this._lazyPaintProfilerView = new Timeline.TimelinePaintProfilerView(this._model.frameModel());
+    this._lazyPaintProfilerView = new TimelinePaintProfilerView(this._model.frameModel());
     return this._lazyPaintProfilerView;
   }
 
@@ -222,11 +226,10 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
   _showSnapshotInPaintProfiler(snapshot) {
     const paintProfilerView = this._paintProfilerView();
     paintProfilerView.setSnapshot(snapshot);
-    if (!this._tabbedPane.hasTab(Timeline.TimelineDetailsView.Tab.PaintProfiler)) {
-      this._appendTab(
-          Timeline.TimelineDetailsView.Tab.PaintProfiler, Common.UIString('Paint Profiler'), paintProfilerView, true);
+    if (!this._tabbedPane.hasTab(Tab.PaintProfiler)) {
+      this._appendTab(Tab.PaintProfiler, Common.UIString('Paint Profiler'), paintProfilerView, true);
     }
-    this._tabbedPane.selectTab(Timeline.TimelineDetailsView.Tab.PaintProfiler, true);
+    this._tabbedPane.selectTab(Tab.PaintProfiler, true);
   }
 
   /**
@@ -245,7 +248,7 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
    * @param {!SDK.TracingModel.Event} event
    */
   _showEventInPaintProfiler(event) {
-    const paintProfilerModel = SDK.targetManager.models(SDK.PaintProfilerModel)[0];
+    const paintProfilerModel = self.SDK.targetManager.models(SDK.PaintProfilerModel)[0];
     if (!paintProfilerModel) {
       return;
     }
@@ -254,11 +257,10 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
     if (!hasProfileData) {
       return;
     }
-    if (this._tabbedPane.hasTab(Timeline.TimelineDetailsView.Tab.PaintProfiler)) {
+    if (this._tabbedPane.hasTab(Tab.PaintProfiler)) {
       return;
     }
-    this._appendTab(
-        Timeline.TimelineDetailsView.Tab.PaintProfiler, Common.UIString('Paint Profiler'), paintProfilerView);
+    this._appendTab(Tab.PaintProfiler, Common.UIString('Paint Profiler'), paintProfilerView);
   }
 
   /**
@@ -269,23 +271,23 @@ Timeline.TimelineDetailsView = class extends UI.VBox {
     if (!this._model || !this._track) {
       return;
     }
-    const aggregatedStats = Timeline.TimelineUIUtils.statsForTimeRange(this._track.syncEvents(), startTime, endTime);
+    const aggregatedStats = TimelineUIUtils.statsForTimeRange(this._track.syncEvents(), startTime, endTime);
     const startOffset = startTime - this._model.timelineModel().minimumRecordTime();
     const endOffset = endTime - this._model.timelineModel().minimumRecordTime();
 
-    const contentHelper = new Timeline.TimelineDetailsContentHelper(null, null);
+    const contentHelper = new TimelineDetailsContentHelper(null, null);
     contentHelper.addSection(
         ls`Range:  ${Number.millisToString(startOffset)} \u2013 ${Number.millisToString(endOffset)}`);
-    const pieChart = Timeline.TimelineUIUtils.generatePieChart(aggregatedStats);
+    const pieChart = TimelineUIUtils.generatePieChart(aggregatedStats);
     contentHelper.appendElementRow('', pieChart);
     this._setContent(contentHelper.fragment);
   }
-};
+}
 
 /**
  * @enum {string}
  */
-Timeline.TimelineDetailsView.Tab = {
+export const Tab = {
   Details: 'Details',
   EventLog: 'EventLog',
   CallTree: 'CallTree',

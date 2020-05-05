@@ -41,7 +41,8 @@ namespace {
 
 using internal::MatcherDescriptor;
 
-using ConstructorMap = llvm::StringMap<std::unique_ptr<const MatcherDescriptor>>;
+using ConstructorMap =
+    llvm::StringMap<std::unique_ptr<const MatcherDescriptor>>;
 
 class RegistryMaps {
 public:
@@ -104,6 +105,7 @@ RegistryMaps::RegistryMaps() {
   // equalsNode
 
   REGISTER_OVERLOADED_2(callee);
+  REGISTER_OVERLOADED_2(hasAnyCapture);
   REGISTER_OVERLOADED_2(hasPrefix);
   REGISTER_OVERLOADED_2(hasType);
   REGISTER_OVERLOADED_2(ignoringParens);
@@ -181,6 +183,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(cxxMemberCallExpr);
   REGISTER_MATCHER(cxxMethodDecl);
   REGISTER_MATCHER(cxxNewExpr);
+  REGISTER_MATCHER(cxxNoexceptExpr);
   REGISTER_MATCHER(cxxNullPtrLiteralExpr);
   REGISTER_MATCHER(cxxOperatorCallExpr);
   REGISTER_MATCHER(cxxRecordDecl);
@@ -279,6 +282,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasIndex);
   REGISTER_MATCHER(hasInit);
   REGISTER_MATCHER(hasInitializer);
+  REGISTER_MATCHER(hasInitStatement);
   REGISTER_MATCHER(hasKeywordSelector);
   REGISTER_MATCHER(hasLHS);
   REGISTER_MATCHER(hasLocalQualifiers);
@@ -454,6 +458,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(on);
   REGISTER_MATCHER(onImplicitObjectArgument);
   REGISTER_MATCHER(opaqueValueExpr);
+  REGISTER_MATCHER(optionally);
   REGISTER_MATCHER(parameterCountIs);
   REGISTER_MATCHER(parenExpr);
   REGISTER_MATCHER(parenListExpr);

@@ -71,12 +71,17 @@ private:
                                      int mipLevelCount,
                                      uint32_t levelClearMask) override;
 
-    sk_sp<GrTexture> onCreateCompressedTexture(int width, int height, const GrBackendFormat&,
-                                               SkImage::CompressionType, SkBudgeted,
-                                               const void* data) override;
+    sk_sp<GrTexture> onCreateCompressedTexture(SkISize dimensions,
+                                               const GrBackendFormat&,
+                                               SkBudgeted,
+                                               GrMipMapped,
+                                               GrProtected,
+                                               const void* data, size_t dataSize) override;
 
     sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&, GrColorType, GrWrapOwnership,
                                           GrWrapCacheable, GrIOType) override;
+    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&, GrWrapOwnership,
+                                                    GrWrapCacheable) override;
 
     sk_sp<GrTexture> onWrapRenderableBackendTexture(const GrBackendTexture&,
                                                     int sampleCnt,
@@ -136,12 +141,17 @@ private:
 
     GrStencilAttachment* createStencilAttachmentForRenderTarget(
             const GrRenderTarget*, int width, int height, int numStencilSamples) override;
-    GrBackendTexture onCreateBackendTexture(SkISize,
+    GrBackendTexture onCreateBackendTexture(SkISize dimensions,
                                             const GrBackendFormat&,
                                             GrRenderable,
-                                            const BackendTextureData* data,
-                                            int numMipLevels,
-                                            GrProtected) override;
+                                            GrMipMapped,
+                                            GrProtected,
+                                            const BackendTextureData*) override;
+    GrBackendTexture onCreateCompressedBackendTexture(SkISize dimensions,
+                                                      const GrBackendFormat&,
+                                                      GrMipMapped,
+                                                      GrProtected,
+                                                      const BackendTextureData*) override;
     void deleteBackendTexture(const GrBackendTexture&) override;
 
 #if GR_TEST_UTILS

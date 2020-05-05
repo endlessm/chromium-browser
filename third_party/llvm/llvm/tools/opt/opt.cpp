@@ -54,6 +54,7 @@
 #include "llvm/Transforms/Coroutines.h"
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/IPO/WholeProgramDevirt.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Debugify.h"
 #include <algorithm>
@@ -486,11 +487,6 @@ static TargetMachine* GetTargetMachine(Triple TheTriple, StringRef CPUStr,
 void initializeExampleIRTransforms(llvm::PassRegistry &Registry);
 #endif
 
-#ifdef LINK_POLLY_INTO_TOOLS
-namespace polly {
-void initializePollyPasses(llvm::PassRegistry &Registry);
-}
-#endif
 
 void exportDebugifyStats(llvm::StringRef Path, const DebugifyStatsMap &Map) {
   std::error_code EC;
@@ -566,13 +562,10 @@ int main(int argc, char **argv) {
   initializeWasmEHPreparePass(Registry);
   initializeWriteBitcodePassPass(Registry);
   initializeHardwareLoopsPass(Registry);
+  initializeTypePromotionPass(Registry);
 
 #ifdef BUILD_EXAMPLES
   initializeExampleIRTransforms(Registry);
-#endif
-
-#ifdef LINK_POLLY_INTO_TOOLS
-  polly::initializePollyPasses(Registry);
 #endif
 
   cl::ParseCommandLineOptions(argc, argv,
@@ -632,6 +625,13 @@ int main(int argc, char **argv) {
            << ": error: input module is broken!\n";
     return 1;
   }
+
+  // Enable testing of whole program devirtualization on this module by invoking
+  // the facility for updating public visibility to linkage unit visibility when
+  // specified by an internal option. This is normally done during LTO which is
+  // not performed via opt.
+  updateVCallVisibilityInModule(*M,
+                                /* WholeProgramVisibilityEnabledInLTO */ false);
 
   // Figure out what stream we are supposed to write to...
   std::unique_ptr<ToolOutputFile> Out;
@@ -908,8 +908,10 @@ int main(int argc, char **argv) {
   std::unique_ptr<raw_svector_ostream> BOS;
   raw_ostream *OS = nullptr;
 
+  const bool ShouldEmitOutput = !NoOutput && !AnalyzeOnly;
+
   // Write bitcode or assembly to the output as the last step...
-  if (!NoOutput && !AnalyzeOnly) {
+  if (ShouldEmitOutput || RunTwice) {
     assert(Out);
     OS = &Out->os();
     if (RunTwice) {
@@ -957,13 +959,16 @@ int main(int argc, char **argv) {
              "Writing the result of the second run to the specified output.\n"
              "To generate the one-run comparison binary, just run without\n"
              "the compile-twice option\n";
-      Out->os() << BOS->str();
-      Out->keep();
+      if (ShouldEmitOutput) {
+        Out->os() << BOS->str();
+        Out->keep();
+      }
       if (RemarksFile)
         RemarksFile->keep();
       return 1;
     }
-    Out->os() << BOS->str();
+    if (ShouldEmitOutput)
+      Out->os() << BOS->str();
   }
 
   if (DebugifyEach && !DebugifyExport.empty())

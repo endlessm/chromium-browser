@@ -1640,8 +1640,9 @@ private:
 
   /// Determine whether ')' is ending a cast.
   bool rParenEndsCast(const FormatToken &Tok) {
-    // C-style casts are only used in C++ and Java.
-    if (!Style.isCpp() && Style.Language != FormatStyle::LK_Java)
+    // C-style casts are only used in C++, C# and Java.
+    if (!Style.isCSharp() && !Style.isCpp() &&
+        Style.Language != FormatStyle::LK_Java)
       return false;
 
     // Empty parens aren't casts and there are no casts at the end of the line.
@@ -1800,14 +1801,16 @@ private:
       return TT_BinaryOperator;
 
     // "&&(" is quite unlikely to be two successive unary "&".
-    if (Tok.is(tok::ampamp) && NextToken && NextToken->is(tok::l_paren))
+    if (Tok.is(tok::ampamp) && NextToken->is(tok::l_paren))
       return TT_BinaryOperator;
 
     // This catches some cases where evaluation order is used as control flow:
     //   aaa && aaa->f();
-    const FormatToken *NextNextToken = NextToken->getNextNonComment();
-    if (NextNextToken && NextNextToken->is(tok::arrow))
-      return TT_BinaryOperator;
+    if (NextToken->Tok.isAnyIdentifier()) {
+      const FormatToken *NextNextToken = NextToken->getNextNonComment();
+      if (NextNextToken && NextNextToken->is(tok::arrow))
+        return TT_BinaryOperator;
+    }
 
     // It is very unlikely that we are going to find a pointer or reference type
     // definition on the RHS of an assignment.
@@ -1829,7 +1832,8 @@ private:
     // Use heuristics to recognize unary operators.
     if (PrevToken->isOneOf(tok::equal, tok::l_paren, tok::comma, tok::l_square,
                            tok::question, tok::colon, tok::kw_return,
-                           tok::kw_case, tok::at, tok::l_brace, tok::kw_throw))
+                           tok::kw_case, tok::at, tok::l_brace, tok::kw_throw,
+                           tok::kw_co_return, tok::kw_co_yield))
       return TT_UnaryOperator;
 
     // There can't be two consecutive binary operators.
@@ -2591,6 +2595,13 @@ bool TokenAnnotator::spaceRequiredBeforeParens(const FormatToken &Right) const {
           Right.ParameterCount > 0);
 }
 
+/// Returns \c true if the token is followed by a boolean condition, \c false
+/// otherwise.
+static bool isKeywordWithCondition(const FormatToken &Tok) {
+  return Tok.isOneOf(tok::kw_if, tok::kw_for, tok::kw_while, tok::kw_switch,
+                     tok::kw_constexpr, tok::kw_catch);
+}
+
 bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
                                           const FormatToken &Left,
                                           const FormatToken &Right) {
@@ -2609,6 +2620,15 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
       (Left.is(tok::l_brace) && Left.BlockKind != BK_Block &&
        Right.is(tok::r_brace) && Right.BlockKind != BK_Block))
     return Style.SpaceInEmptyParentheses;
+  if (Style.SpacesInConditionalStatement) {
+    if (Left.is(tok::l_paren) && Left.Previous &&
+        isKeywordWithCondition(*Left.Previous))
+      return true;
+    if (Right.is(tok::r_paren) && Right.MatchingParen &&
+        Right.MatchingParen->Previous &&
+        isKeywordWithCondition(*Right.MatchingParen->Previous))
+      return true;
+  }
   if (Left.is(tok::l_paren) || Right.is(tok::r_paren))
     return (Right.is(TT_CastRParen) ||
             (Left.MatchingParen && Left.MatchingParen->is(TT_CastRParen)))
@@ -2690,10 +2710,17 @@ bool TokenAnnotator::spaceRequiredBetween(const AnnotatedLine &Line,
     return false;
   if (Right.isOneOf(tok::star, tok::amp, tok::ampamp) &&
       (Left.is(tok::identifier) || Left.isSimpleTypeSpecifier()) &&
-      Left.Previous && Left.Previous->is(tok::kw_operator))
-    // Space between the type and the *
-    // operator void*(), operator char*(), operator Foo*() dependant
-    // on PointerAlignment style.
+      // Space between the type and the * in:
+      //   operator void*()
+      //   operator char*()
+      //   operator /*comment*/ const char*()
+      //   operator volatile /*comment*/ char*()
+      //   operator Foo*()
+      // dependent on PointerAlignment style.
+      Left.Previous &&
+      (Left.Previous->endsSequence(tok::kw_operator) ||
+       Left.Previous->endsSequence(tok::kw_const, tok::kw_operator) ||
+       Left.Previous->endsSequence(tok::kw_volatile, tok::kw_operator)))
     return (Style.PointerAlignment != FormatStyle::PAS_Left);
   const auto SpaceRequiredForArrayInitializerLSquare =
       [](const FormatToken &LSquareTok, const FormatStyle &Style) {
@@ -2844,7 +2871,8 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
     // space between keywords and paren e.g. "using ("
     if (Right.is(tok::l_paren))
       if (Left.is(tok::kw_using))
-        return spaceRequiredBeforeParens(Left);
+        return Style.SpaceBeforeParens == FormatStyle::SBPO_ControlStatements ||
+               spaceRequiredBeforeParens(Right);
   } else if (Style.Language == FormatStyle::LK_JavaScript) {
     if (Left.is(TT_JsFatArrow))
       return true;
@@ -3043,7 +3071,8 @@ bool TokenAnnotator::spaceRequiredBefore(const AnnotatedLine &Line,
     // The identifier might actually be a macro name such as ALWAYS_INLINE. If
     // this turns out to be too lenient, add analysis of the identifier itself.
     return Right.WhitespaceRange.getBegin() != Right.WhitespaceRange.getEnd();
-  if (Right.is(tok::coloncolon) && !Left.isOneOf(tok::l_brace, tok::comment))
+  if (Right.is(tok::coloncolon) &&
+      !Left.isOneOf(tok::l_brace, tok::comment, tok::l_paren))
     return (Left.is(TT_TemplateOpener) &&
             Style.Standard < FormatStyle::LS_Cpp11) ||
            !(Left.isOneOf(tok::l_paren, tok::r_paren, tok::l_square,
@@ -3115,6 +3144,24 @@ bool TokenAnnotator::mustBreakBefore(const AnnotatedLine &Line,
       // JavaScript top-level enum key/value pairs are put on separate lines
       // instead of bin-packing.
       return true;
+    if (Right.is(tok::r_brace) && Left.is(tok::l_brace) && Left.Previous &&
+        Left.Previous->is(TT_JsFatArrow)) {
+      // JS arrow function (=> {...}).
+      switch (Style.AllowShortLambdasOnASingleLine) {
+      case FormatStyle::SLS_All:
+        return false;
+      case FormatStyle::SLS_None:
+        return true;
+      case FormatStyle::SLS_Empty:
+        return !Left.Children.empty();
+      case FormatStyle::SLS_Inline:
+        // allow one-lining inline (e.g. in function call args) and empty arrow
+        // functions.
+        return (Left.NestingLevel == 0 && Line.Level == 0) &&
+               !Left.Children.empty();
+      }
+    }
+
     if (Right.is(tok::r_brace) && Left.is(tok::l_brace) &&
         !Left.Children.empty())
       // Support AllowShortFunctionsOnASingleLine for JavaScript.

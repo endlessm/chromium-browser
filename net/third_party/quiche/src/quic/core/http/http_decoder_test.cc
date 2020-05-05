@@ -11,11 +11,12 @@
 #include "net/third_party/quiche/src/quic/core/http/http_frames.h"
 #include "net/third_party/quiche/src/quic/core/quic_data_writer.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 using ::testing::_;
 using ::testing::Eq;
@@ -40,8 +41,6 @@ class MockVisitor : public HttpDecoder::Visitor {
   // Called if an error is detected.
   MOCK_METHOD1(OnError, void(HttpDecoder* decoder));
 
-  MOCK_METHOD1(OnPriorityFrameStart, bool(QuicByteCount header_length));
-  MOCK_METHOD1(OnPriorityFrame, bool(const PriorityFrame& frame));
   MOCK_METHOD1(OnCancelPushFrame, bool(const CancelPushFrame& frame));
   MOCK_METHOD1(OnMaxPushIdFrame, bool(const MaxPushIdFrame& frame));
   MOCK_METHOD1(OnGoAwayFrame, bool(const GoAwayFrame& frame));
@@ -50,29 +49,31 @@ class MockVisitor : public HttpDecoder::Visitor {
   MOCK_METHOD1(OnDuplicatePushFrame, bool(const DuplicatePushFrame& frame));
 
   MOCK_METHOD1(OnDataFrameStart, bool(QuicByteCount header_length));
-  MOCK_METHOD1(OnDataFramePayload, bool(QuicStringPiece payload));
+  MOCK_METHOD1(OnDataFramePayload, bool(quiche::QuicheStringPiece payload));
   MOCK_METHOD0(OnDataFrameEnd, bool());
 
   MOCK_METHOD1(OnHeadersFrameStart, bool(QuicByteCount header_length));
-  MOCK_METHOD1(OnHeadersFramePayload, bool(QuicStringPiece payload));
+  MOCK_METHOD1(OnHeadersFramePayload, bool(quiche::QuicheStringPiece payload));
   MOCK_METHOD0(OnHeadersFrameEnd, bool());
 
   MOCK_METHOD1(OnPushPromiseFrameStart, bool(QuicByteCount header_length));
   MOCK_METHOD2(OnPushPromiseFramePushId,
                bool(PushId push_id, QuicByteCount push_id_length));
-  MOCK_METHOD1(OnPushPromiseFramePayload, bool(QuicStringPiece payload));
+  MOCK_METHOD1(OnPushPromiseFramePayload,
+               bool(quiche::QuicheStringPiece payload));
   MOCK_METHOD0(OnPushPromiseFrameEnd, bool());
 
+  MOCK_METHOD1(OnPriorityUpdateFrameStart, bool(QuicByteCount header_length));
+  MOCK_METHOD1(OnPriorityUpdateFrame, bool(const PriorityUpdateFrame& frame));
+
   MOCK_METHOD2(OnUnknownFrameStart, bool(uint64_t, QuicByteCount));
-  MOCK_METHOD1(OnUnknownFramePayload, bool(QuicStringPiece));
+  MOCK_METHOD1(OnUnknownFramePayload, bool(quiche::QuicheStringPiece));
   MOCK_METHOD0(OnUnknownFrameEnd, bool());
 };
 
 class HttpDecoderTest : public QuicTest {
  public:
   HttpDecoderTest() : decoder_(&visitor_) {
-    ON_CALL(visitor_, OnPriorityFrameStart(_)).WillByDefault(Return(true));
-    ON_CALL(visitor_, OnPriorityFrame(_)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnCancelPushFrame(_)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnMaxPushIdFrame(_)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnGoAwayFrame(_)).WillByDefault(Return(true));
@@ -90,6 +91,9 @@ class HttpDecoderTest : public QuicTest {
         .WillByDefault(Return(true));
     ON_CALL(visitor_, OnPushPromiseFramePayload(_)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnPushPromiseFrameEnd()).WillByDefault(Return(true));
+    ON_CALL(visitor_, OnPriorityUpdateFrameStart(_))
+        .WillByDefault(Return(true));
+    ON_CALL(visitor_, OnPriorityUpdateFrame(_)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnUnknownFrameStart(_, _)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnUnknownFramePayload(_)).WillByDefault(Return(true));
     ON_CALL(visitor_, OnUnknownFrameEnd()).WillByDefault(Return(true));
@@ -101,13 +105,13 @@ class HttpDecoderTest : public QuicTest {
   }
 
   // Process |input| in a single call to HttpDecoder::ProcessInput().
-  QuicByteCount ProcessInput(QuicStringPiece input) {
+  QuicByteCount ProcessInput(quiche::QuicheStringPiece input) {
     return decoder_.ProcessInput(input.data(), input.size());
   }
 
   // Feed |input| to |decoder_| one character at a time,
   // verifying that each character gets processed.
-  void ProcessInputCharByChar(QuicStringPiece input) {
+  void ProcessInputCharByChar(quiche::QuicheStringPiece input) {
     for (char c : input) {
       EXPECT_EQ(1u, decoder_.ProcessInput(&c, 1));
     }
@@ -115,8 +119,10 @@ class HttpDecoderTest : public QuicTest {
 
   // Append garbage to |input|, then process it in a single call to
   // HttpDecoder::ProcessInput().  Verify that garbage is not read.
-  QuicByteCount ProcessInputWithGarbageAppended(QuicStringPiece input) {
-    std::string input_with_garbage_appended = QuicStrCat(input, "blahblah");
+  QuicByteCount ProcessInputWithGarbageAppended(
+      quiche::QuicheStringPiece input) {
+    std::string input_with_garbage_appended =
+        quiche::QuicheStrCat(input, "blahblah");
     QuicByteCount processed_bytes = ProcessInput(input_with_garbage_appended);
 
     // Guaranteed by HttpDecoder::ProcessInput() contract.
@@ -144,7 +150,7 @@ TEST_F(HttpDecoderTest, UnknownFrame) {
   const QuicByteCount payload_lengths[] = {0, 14, 100};
   const uint64_t frame_types[] = {
       0x21, 0x40, 0x5f, 0x7e, 0x9d,  // some reserved frame types
-      0x06, 0x0f, 0x14               // some unknown, not reserved frame types
+      0x06, 0x6f, 0x14               // some unknown, not reserved frame types
   };
 
   for (auto payload_length : payload_lengths) {
@@ -181,7 +187,7 @@ TEST_F(HttpDecoderTest, UnknownFrame) {
 
 TEST_F(HttpDecoderTest, CancelPush) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "03"    // type (CANCEL_PUSH)
       "01"    // length
       "01");  // Push Id
@@ -208,17 +214,17 @@ TEST_F(HttpDecoderTest, CancelPush) {
 
 TEST_F(HttpDecoderTest, PushPromiseFrame) {
   InSequence s;
-  std::string input =
-      QuicStrCat(QuicTextUtils::HexDecode("05"  // type (PUSH PROMISE)
-                                          "0f"  // length
-                                          "C000000000000101"),  // push id 257
-                 "Headers");                                    // headers
+  std::string input = quiche::QuicheStrCat(
+      quiche::QuicheTextUtils::HexDecode("05"  // type (PUSH PROMISE)
+                                         "0f"  // length
+                                         "C000000000000101"),  // push id 257
+      "Headers");                                              // headers
 
   // Visitor pauses processing.
   EXPECT_CALL(visitor_, OnPushPromiseFrameStart(2)).WillOnce(Return(false));
   EXPECT_CALL(visitor_, OnPushPromiseFramePushId(257, 8))
       .WillOnce(Return(false));
-  QuicStringPiece remaining_input(input);
+  quiche::QuicheStringPiece remaining_input(input);
   QuicByteCount processed_bytes =
       ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(2u, processed_bytes);
@@ -227,7 +233,8 @@ TEST_F(HttpDecoderTest, PushPromiseFrame) {
   EXPECT_EQ(8u, processed_bytes);
   remaining_input = remaining_input.substr(processed_bytes);
 
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("Headers")))
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("Headers")))
       .WillOnce(Return(false));
   processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(remaining_input.size(), processed_bytes);
@@ -240,7 +247,8 @@ TEST_F(HttpDecoderTest, PushPromiseFrame) {
   // Process the full frame.
   EXPECT_CALL(visitor_, OnPushPromiseFrameStart(2));
   EXPECT_CALL(visitor_, OnPushPromiseFramePushId(257, 8));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("Headers")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("Headers")));
   EXPECT_CALL(visitor_, OnPushPromiseFrameEnd());
   EXPECT_EQ(input.size(), ProcessInput(input));
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -249,13 +257,20 @@ TEST_F(HttpDecoderTest, PushPromiseFrame) {
   // Process the frame incrementally.
   EXPECT_CALL(visitor_, OnPushPromiseFrameStart(2));
   EXPECT_CALL(visitor_, OnPushPromiseFramePushId(257, 8));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("H")));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("e")));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("a")));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("d")));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("e")));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("r")));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("s")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("H")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("e")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("a")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("d")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("e")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("r")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("s")));
   EXPECT_CALL(visitor_, OnPushPromiseFrameEnd());
   ProcessInputCharByChar(input);
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -264,7 +279,8 @@ TEST_F(HttpDecoderTest, PushPromiseFrame) {
   // Process push id incrementally and append headers with last byte of push id.
   EXPECT_CALL(visitor_, OnPushPromiseFrameStart(2));
   EXPECT_CALL(visitor_, OnPushPromiseFramePushId(257, 8));
-  EXPECT_CALL(visitor_, OnPushPromiseFramePayload(QuicStringPiece("Headers")));
+  EXPECT_CALL(visitor_,
+              OnPushPromiseFramePayload(quiche::QuicheStringPiece("Headers")));
   EXPECT_CALL(visitor_, OnPushPromiseFrameEnd());
   ProcessInputCharByChar(input.substr(0, 9));
   EXPECT_EQ(8u, ProcessInput(input.substr(9)));
@@ -275,7 +291,7 @@ TEST_F(HttpDecoderTest, PushPromiseFrame) {
 TEST_F(HttpDecoderTest, CorruptPushPromiseFrame) {
   InSequence s;
 
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "05"    // type (PUSH_PROMISE)
       "01"    // length
       "40");  // first byte of two-byte varint push id
@@ -287,8 +303,8 @@ TEST_F(HttpDecoderTest, CorruptPushPromiseFrame) {
 
     decoder.ProcessInput(input.data(), input.size());
 
-    EXPECT_THAT(decoder.error(), IsError(QUIC_INVALID_FRAME_DATA));
-    EXPECT_EQ("PUSH_PROMISE frame malformed.", decoder.error_detail());
+    EXPECT_THAT(decoder.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+    EXPECT_EQ("Unable to read PUSH_PROMISE push_id.", decoder.error_detail());
   }
   {
     HttpDecoder decoder(&visitor_);
@@ -299,14 +315,14 @@ TEST_F(HttpDecoderTest, CorruptPushPromiseFrame) {
       decoder.ProcessInput(&c, 1);
     }
 
-    EXPECT_THAT(decoder.error(), IsError(QUIC_INVALID_FRAME_DATA));
-    EXPECT_EQ("PUSH_PROMISE frame malformed.", decoder.error_detail());
+    EXPECT_THAT(decoder.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+    EXPECT_EQ("Unable to read PUSH_PROMISE push_id.", decoder.error_detail());
   }
 }
 
 TEST_F(HttpDecoderTest, MaxPushId) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "0D"    // type (MAX_PUSH_ID)
       "01"    // length
       "01");  // Push Id
@@ -333,7 +349,7 @@ TEST_F(HttpDecoderTest, MaxPushId) {
 
 TEST_F(HttpDecoderTest, DuplicatePush) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "0E"    // type (DUPLICATE_PUSH)
       "01"    // length
       "01");  // Push Id
@@ -358,119 +374,9 @@ TEST_F(HttpDecoderTest, DuplicatePush) {
   EXPECT_EQ("", decoder_.error_detail());
 }
 
-TEST_F(HttpDecoderTest, PriorityFrame) {
-  InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
-      "02"    // type (PRIORITY)
-      "04"    // length
-      "08"    // request stream, request stream, exclusive
-      "03"    // prioritized_element_id
-      "04"    // element_dependency_id
-      "FF");  // weight
-
-  PriorityFrame frame;
-  frame.prioritized_type = REQUEST_STREAM;
-  frame.dependency_type = REQUEST_STREAM;
-  frame.exclusive = true;
-  frame.prioritized_element_id = 0x03;
-  frame.element_dependency_id = 0x04;
-  frame.weight = 0xFF;
-
-  // Visitor pauses processing.
-  EXPECT_CALL(visitor_, OnPriorityFrameStart(2)).WillOnce(Return(false));
-  QuicStringPiece remaining_input(input);
-  QuicByteCount processed_bytes =
-      ProcessInputWithGarbageAppended(remaining_input);
-  EXPECT_EQ(2u, processed_bytes);
-  remaining_input = remaining_input.substr(processed_bytes);
-
-  EXPECT_CALL(visitor_, OnPriorityFrame(frame)).WillOnce(Return(false));
-  processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
-  EXPECT_EQ(remaining_input.size(), processed_bytes);
-  EXPECT_THAT(decoder_.error(), IsQuicNoError());
-  EXPECT_EQ("", decoder_.error_detail());
-
-  // Process the full frame.
-  EXPECT_CALL(visitor_, OnPriorityFrameStart(2));
-  EXPECT_CALL(visitor_, OnPriorityFrame(frame));
-  EXPECT_EQ(input.size(), ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsQuicNoError());
-  EXPECT_EQ("", decoder_.error_detail());
-
-  // Process the frame incrementally.
-  EXPECT_CALL(visitor_, OnPriorityFrameStart(2));
-  EXPECT_CALL(visitor_, OnPriorityFrame(frame));
-  ProcessInputCharByChar(input);
-  EXPECT_THAT(decoder_.error(), IsQuicNoError());
-  EXPECT_EQ("", decoder_.error_detail());
-
-  std::string input2 = QuicTextUtils::HexDecode(
-      "02"    // type (PRIORITY)
-      "02"    // length
-      "f8"    // root of tree, root of tree, exclusive
-      "FF");  // weight
-  PriorityFrame frame2;
-  frame2.prioritized_type = ROOT_OF_TREE;
-  frame2.dependency_type = ROOT_OF_TREE;
-  frame2.exclusive = true;
-  frame2.weight = 0xFF;
-
-  EXPECT_CALL(visitor_, OnPriorityFrameStart(2));
-  EXPECT_CALL(visitor_, OnPriorityFrame(frame2));
-  EXPECT_EQ(input2.size(), ProcessInput(input2));
-  EXPECT_THAT(decoder_.error(), IsQuicNoError());
-  EXPECT_EQ("", decoder_.error_detail());
-}
-
-// Regression test for https://crbug.com/981291 and https://crbug.com/981646.
-TEST_F(HttpDecoderTest, CorruptPriorityFrame) {
-  const char* const payload1 =
-      "\x01"   // request stream, request stream, exclusive
-      "\x03"   // prioritized_element_id
-      "\x04"   // element_dependency_id
-      "\xFF"   // weight
-      "\xFF";  // superfluous data
-  const char* const payload2 =
-      "\xf1"   // root of tree, root of tree, exclusive
-      "\xFF"   // weight
-      "\xFF";  // superfluous data
-  struct {
-    const char* const payload;
-    size_t payload_length;
-    const char* const error_message;
-  } kTestData[] = {
-      {payload1, 0, "Unable to read PRIORITY frame flags."},
-      {payload1, 1, "Unable to read prioritized_element_id."},
-      {payload1, 2, "Unable to read element_dependency_id."},
-      {payload1, 3, "Unable to read PRIORITY frame weight."},
-      {payload1, 5, "Superfluous data in PRIORITY frame."},
-      {payload2, 0, "Unable to read PRIORITY frame flags."},
-      {payload2, 1, "Unable to read PRIORITY frame weight."},
-      {payload2, 3, "Superfluous data in PRIORITY frame."},
-  };
-
-  for (const auto& test_data : kTestData) {
-    std::string input;
-    input.push_back(2u);  // type PRIORITY
-    input.push_back(test_data.payload_length);
-    size_t header_length = input.size();
-    input.append(test_data.payload, test_data.payload_length);
-
-    HttpDecoder decoder(&visitor_);
-    EXPECT_CALL(visitor_, OnPriorityFrameStart(header_length));
-    EXPECT_CALL(visitor_, OnError(&decoder));
-
-    QuicByteCount processed_bytes =
-        decoder.ProcessInput(input.data(), input.size());
-    EXPECT_EQ(input.size(), processed_bytes);
-    EXPECT_THAT(decoder.error(), IsError(QUIC_INVALID_FRAME_DATA));
-    EXPECT_EQ(test_data.error_message, decoder.error_detail());
-  }
-}
-
 TEST_F(HttpDecoderTest, SettingsFrame) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "04"    // type (SETTINGS)
       "07"    // length
       "01"    // identifier (SETTINGS_QPACK_MAX_TABLE_CAPACITY)
@@ -486,7 +392,7 @@ TEST_F(HttpDecoderTest, SettingsFrame) {
   frame.values[256] = 4;
 
   // Visitor pauses processing.
-  QuicStringPiece remaining_input(input);
+  quiche::QuicheStringPiece remaining_input(input);
   EXPECT_CALL(visitor_, OnSettingsFrameStart(2)).WillOnce(Return(false));
   QuicByteCount processed_bytes =
       ProcessInputWithGarbageAppended(remaining_input);
@@ -524,10 +430,10 @@ TEST_F(HttpDecoderTest, CorruptSettingsFrame) {
     size_t payload_length;
     const char* const error_message;
   } kTestData[] = {
-      {1, "Unable to read settings frame identifier"},
-      {5, "Unable to read settings frame content"},
-      {7, "Unable to read settings frame identifier"},
-      {12, "Unable to read settings frame content"},
+      {1, "Unable to read setting identifier."},
+      {5, "Unable to read setting value."},
+      {7, "Unable to read setting identifier."},
+      {12, "Unable to read setting value."},
   };
 
   for (const auto& test_data : kTestData) {
@@ -544,13 +450,13 @@ TEST_F(HttpDecoderTest, CorruptSettingsFrame) {
     QuicByteCount processed_bytes =
         decoder.ProcessInput(input.data(), input.size());
     EXPECT_EQ(input.size(), processed_bytes);
-    EXPECT_THAT(decoder.error(), IsError(QUIC_INVALID_FRAME_DATA));
+    EXPECT_THAT(decoder.error(), IsError(QUIC_HTTP_FRAME_ERROR));
     EXPECT_EQ(test_data.error_message, decoder.error_detail());
   }
 }
 
 TEST_F(HttpDecoderTest, DuplicateSettingsIdentifier) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "04"    // type (SETTINGS)
       "04"    // length
       "01"    // identifier
@@ -563,25 +469,26 @@ TEST_F(HttpDecoderTest, DuplicateSettingsIdentifier) {
 
   EXPECT_EQ(input.size(), ProcessInput(input));
 
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Duplicate SETTINGS identifier.", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+  EXPECT_EQ("Duplicate setting identifier.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, DataFrame) {
   InSequence s;
-  std::string input = QuicStrCat(QuicTextUtils::HexDecode("00"    // type (DATA)
-                                                          "05"),  // length
-                                 "Data!");                        // data
+  std::string input = quiche::QuicheStrCat(
+      quiche::QuicheTextUtils::HexDecode("00"    // type (DATA)
+                                         "05"),  // length
+      "Data!");                                  // data
 
   // Visitor pauses processing.
   EXPECT_CALL(visitor_, OnDataFrameStart(2)).WillOnce(Return(false));
-  QuicStringPiece remaining_input(input);
+  quiche::QuicheStringPiece remaining_input(input);
   QuicByteCount processed_bytes =
       ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(2u, processed_bytes);
   remaining_input = remaining_input.substr(processed_bytes);
 
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("Data!")))
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("Data!")))
       .WillOnce(Return(false));
   processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(remaining_input.size(), processed_bytes);
@@ -593,7 +500,7 @@ TEST_F(HttpDecoderTest, DataFrame) {
 
   // Process the full frame.
   EXPECT_CALL(visitor_, OnDataFrameStart(2));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("Data!")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("Data!")));
   EXPECT_CALL(visitor_, OnDataFrameEnd());
   EXPECT_EQ(input.size(), ProcessInput(input));
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -601,11 +508,11 @@ TEST_F(HttpDecoderTest, DataFrame) {
 
   // Process the frame incrementally.
   EXPECT_CALL(visitor_, OnDataFrameStart(2));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("D")));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("a")));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("t")));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("a")));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("!")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("D")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("a")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("t")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("a")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("!")));
   EXPECT_CALL(visitor_, OnDataFrameEnd());
   ProcessInputCharByChar(input);
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -633,7 +540,7 @@ TEST_F(HttpDecoderTest, FrameHeaderPartialDelivery) {
   EXPECT_EQ("", decoder_.error_detail());
 
   // Send data.
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece(input)));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece(input)));
   EXPECT_CALL(visitor_, OnDataFrameEnd());
   EXPECT_EQ(2048u, decoder_.ProcessInput(input.data(), 2048));
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -669,7 +576,7 @@ TEST_F(HttpDecoderTest, PartialDeliveryOfLargeFrameType) {
 
 TEST_F(HttpDecoderTest, GoAway) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "07"    // type (GOAWAY)
       "01"    // length
       "01");  // StreamId
@@ -696,20 +603,21 @@ TEST_F(HttpDecoderTest, GoAway) {
 
 TEST_F(HttpDecoderTest, HeadersFrame) {
   InSequence s;
-  std::string input =
-      QuicStrCat(QuicTextUtils::HexDecode("01"    // type (HEADERS)
-                                          "07"),  // length
-                 "Headers");                      // headers
+  std::string input = quiche::QuicheStrCat(
+      quiche::QuicheTextUtils::HexDecode("01"    // type (HEADERS)
+                                         "07"),  // length
+      "Headers");                                // headers
 
   // Visitor pauses processing.
   EXPECT_CALL(visitor_, OnHeadersFrameStart(2)).WillOnce(Return(false));
-  QuicStringPiece remaining_input(input);
+  quiche::QuicheStringPiece remaining_input(input);
   QuicByteCount processed_bytes =
       ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(2u, processed_bytes);
   remaining_input = remaining_input.substr(processed_bytes);
 
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("Headers")))
+  EXPECT_CALL(visitor_,
+              OnHeadersFramePayload(quiche::QuicheStringPiece("Headers")))
       .WillOnce(Return(false));
   processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(remaining_input.size(), processed_bytes);
@@ -721,7 +629,8 @@ TEST_F(HttpDecoderTest, HeadersFrame) {
 
   // Process the full frame.
   EXPECT_CALL(visitor_, OnHeadersFrameStart(2));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("Headers")));
+  EXPECT_CALL(visitor_,
+              OnHeadersFramePayload(quiche::QuicheStringPiece("Headers")));
   EXPECT_CALL(visitor_, OnHeadersFrameEnd());
   EXPECT_EQ(input.size(), ProcessInput(input));
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -729,13 +638,13 @@ TEST_F(HttpDecoderTest, HeadersFrame) {
 
   // Process the frame incrementally.
   EXPECT_CALL(visitor_, OnHeadersFrameStart(2));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("H")));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("e")));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("a")));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("d")));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("e")));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("r")));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("s")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("H")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("e")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("a")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("d")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("e")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("r")));
+  EXPECT_CALL(visitor_, OnHeadersFramePayload(quiche::QuicheStringPiece("s")));
   EXPECT_CALL(visitor_, OnHeadersFrameEnd());
   ProcessInputCharByChar(input);
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
@@ -744,7 +653,7 @@ TEST_F(HttpDecoderTest, HeadersFrame) {
 
 TEST_F(HttpDecoderTest, EmptyDataFrame) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "00"    // type (DATA)
       "00");  // length
 
@@ -774,7 +683,7 @@ TEST_F(HttpDecoderTest, EmptyDataFrame) {
 
 TEST_F(HttpDecoderTest, EmptyHeadersFrame) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "01"    // type (HEADERS)
       "00");  // length
 
@@ -804,7 +713,7 @@ TEST_F(HttpDecoderTest, EmptyHeadersFrame) {
 
 TEST_F(HttpDecoderTest, PushPromiseFrameNoHeaders) {
   InSequence s;
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "05"    // type (PUSH_PROMISE)
       "01"    // length
       "01");  // Push Id
@@ -837,15 +746,15 @@ TEST_F(HttpDecoderTest, PushPromiseFrameNoHeaders) {
 }
 
 TEST_F(HttpDecoderTest, MalformedFrameWithOverlyLargePayload) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "03"    // type (CANCEL_PUSH)
       "10"    // length
       "15");  // malformed payload
   // Process the full frame.
   EXPECT_CALL(visitor_, OnError(&decoder_));
   EXPECT_EQ(2u, ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Frame is too large", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_TOO_LARGE));
+  EXPECT_EQ("Frame is too large.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, MalformedSettingsFrame) {
@@ -858,26 +767,27 @@ TEST_F(HttpDecoderTest, MalformedSettingsFrame) {
 
   writer.WriteStringPiece("Malformed payload");
   EXPECT_CALL(visitor_, OnError(&decoder_));
-  EXPECT_EQ(5u, decoder_.ProcessInput(input, QUIC_ARRAYSIZE(input)));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Frame is too large", decoder_.error_detail());
+  EXPECT_EQ(5u, decoder_.ProcessInput(input, QUICHE_ARRAYSIZE(input)));
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_TOO_LARGE));
+  EXPECT_EQ("Frame is too large.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, HeadersPausedThenData) {
   InSequence s;
-  std::string input =
-      QuicStrCat(QuicTextUtils::HexDecode("01"    // type (HEADERS)
-                                          "07"),  // length
-                 "Headers",                       // headers
-                 QuicTextUtils::HexDecode("00"    // type (DATA)
-                                          "05"),  // length
-                 "Data!");                        // data
+  std::string input = quiche::QuicheStrCat(
+      quiche::QuicheTextUtils::HexDecode("01"    // type (HEADERS)
+                                         "07"),  // length
+      "Headers",                                 // headers
+      quiche::QuicheTextUtils::HexDecode("00"    // type (DATA)
+                                         "05"),  // length
+      "Data!");                                  // data
 
   // Visitor pauses processing, maybe because header decompression is blocked.
   EXPECT_CALL(visitor_, OnHeadersFrameStart(2));
-  EXPECT_CALL(visitor_, OnHeadersFramePayload(QuicStringPiece("Headers")));
+  EXPECT_CALL(visitor_,
+              OnHeadersFramePayload(quiche::QuicheStringPiece("Headers")));
   EXPECT_CALL(visitor_, OnHeadersFrameEnd()).WillOnce(Return(false));
-  QuicStringPiece remaining_input(input);
+  quiche::QuicheStringPiece remaining_input(input);
   QuicByteCount processed_bytes =
       ProcessInputWithGarbageAppended(remaining_input);
   EXPECT_EQ(9u, processed_bytes);
@@ -885,7 +795,7 @@ TEST_F(HttpDecoderTest, HeadersPausedThenData) {
 
   // Process DATA frame.
   EXPECT_CALL(visitor_, OnDataFrameStart(2));
-  EXPECT_CALL(visitor_, OnDataFramePayload(QuicStringPiece("Data!")));
+  EXPECT_CALL(visitor_, OnDataFramePayload(quiche::QuicheStringPiece("Data!")));
   EXPECT_CALL(visitor_, OnDataFrameEnd());
 
   processed_bytes = ProcessInput(remaining_input);
@@ -904,7 +814,7 @@ TEST_F(HttpDecoderTest, CorruptFrame) {
   } kTestData[] = {{"\x03"   // type (CANCEL_PUSH)
                     "\x01"   // length
                     "\x40",  // first byte of two-byte varint push id
-                    "Unable to read push_id"},
+                    "Unable to read CANCEL_PUSH push_id."},
                    {"\x03"  // type (CANCEL_PUSH)
                     "\x04"  // length
                     "\x05"  // valid push id
@@ -913,7 +823,7 @@ TEST_F(HttpDecoderTest, CorruptFrame) {
                    {"\x0D"   // type (MAX_PUSH_ID)
                     "\x01"   // length
                     "\x40",  // first byte of two-byte varint push id
-                    "Unable to read push_id"},
+                    "Unable to read MAX_PUSH_ID push_id."},
                    {"\x0D"  // type (MAX_PUSH_ID)
                     "\x04"  // length
                     "\x05"  // valid push id
@@ -922,7 +832,7 @@ TEST_F(HttpDecoderTest, CorruptFrame) {
                    {"\x0E"   // type (DUPLICATE_PUSH)
                     "\x01"   // length
                     "\x40",  // first byte of two-byte varint push id
-                    "Unable to read push_id"},
+                    "Unable to read DUPLICATE_PUSH push_id."},
                    {"\x0E"  // type (DUPLICATE_PUSH)
                     "\x04"  // length
                     "\x05"  // valid push id
@@ -931,7 +841,7 @@ TEST_F(HttpDecoderTest, CorruptFrame) {
                    {"\x07"   // type (GOAWAY)
                     "\x01"   // length
                     "\x40",  // first byte of two-byte varint stream id
-                    "Unable to read GOAWAY stream_id"},
+                    "Unable to read GOAWAY stream_id."},
                    {"\x07"  // type (GOAWAY)
                     "\x04"  // length
                     "\x05"  // valid stream id
@@ -943,38 +853,38 @@ TEST_F(HttpDecoderTest, CorruptFrame) {
       HttpDecoder decoder(&visitor_);
       EXPECT_CALL(visitor_, OnError(&decoder));
 
-      QuicStringPiece input(test_data.input);
+      quiche::QuicheStringPiece input(test_data.input);
       decoder.ProcessInput(input.data(), input.size());
-      EXPECT_THAT(decoder.error(), IsError(QUIC_INVALID_FRAME_DATA));
+      EXPECT_THAT(decoder.error(), IsError(QUIC_HTTP_FRAME_ERROR));
       EXPECT_EQ(test_data.error_message, decoder.error_detail());
     }
     {
       HttpDecoder decoder(&visitor_);
       EXPECT_CALL(visitor_, OnError(&decoder));
 
-      QuicStringPiece input(test_data.input);
+      quiche::QuicheStringPiece input(test_data.input);
       for (auto c : input) {
         decoder.ProcessInput(&c, 1);
       }
-      EXPECT_THAT(decoder.error(), IsError(QUIC_INVALID_FRAME_DATA));
+      EXPECT_THAT(decoder.error(), IsError(QUIC_HTTP_FRAME_ERROR));
       EXPECT_EQ(test_data.error_message, decoder.error_detail());
     }
   }
 }
 
 TEST_F(HttpDecoderTest, EmptyCancelPushFrame) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "03"    // type (CANCEL_PUSH)
       "00");  // frame length
 
   EXPECT_CALL(visitor_, OnError(&decoder_));
   EXPECT_EQ(input.size(), ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Unable to read push_id", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+  EXPECT_EQ("Unable to read CANCEL_PUSH push_id.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, EmptySettingsFrame) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "04"    // type (SETTINGS)
       "00");  // frame length
 
@@ -990,47 +900,47 @@ TEST_F(HttpDecoderTest, EmptySettingsFrame) {
 
 // Regression test for https://crbug.com/1001823.
 TEST_F(HttpDecoderTest, EmptyPushPromiseFrame) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "05"    // type (PUSH_PROMISE)
       "00");  // frame length
 
   EXPECT_CALL(visitor_, OnError(&decoder_));
   EXPECT_EQ(input.size(), ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Corrupt PUSH_PROMISE frame.", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+  EXPECT_EQ("PUSH_PROMISE frame with empty payload.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, EmptyGoAwayFrame) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "07"    // type (GOAWAY)
       "00");  // frame length
 
   EXPECT_CALL(visitor_, OnError(&decoder_));
   EXPECT_EQ(input.size(), ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Unable to read GOAWAY stream_id", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+  EXPECT_EQ("Unable to read GOAWAY stream_id.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, EmptyMaxPushIdFrame) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "0d"    // type (MAX_PUSH_ID)
       "00");  // frame length
 
   EXPECT_CALL(visitor_, OnError(&decoder_));
   EXPECT_EQ(input.size(), ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Unable to read push_id", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+  EXPECT_EQ("Unable to read MAX_PUSH_ID push_id.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, EmptyDuplicatePushFrame) {
-  std::string input = QuicTextUtils::HexDecode(
+  std::string input = quiche::QuicheTextUtils::HexDecode(
       "0e"    // type (DUPLICATE_PUSH)
       "00");  // frame length
 
   EXPECT_CALL(visitor_, OnError(&decoder_));
   EXPECT_EQ(input.size(), ProcessInput(input));
-  EXPECT_THAT(decoder_.error(), IsError(QUIC_INVALID_FRAME_DATA));
-  EXPECT_EQ("Unable to read push_id", decoder_.error_detail());
+  EXPECT_THAT(decoder_.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+  EXPECT_EQ("Unable to read DUPLICATE_PUSH push_id.", decoder_.error_detail());
 }
 
 TEST_F(HttpDecoderTest, LargeStreamIdInGoAway) {
@@ -1043,6 +953,124 @@ TEST_F(HttpDecoderTest, LargeStreamIdInGoAway) {
   EXPECT_EQ(length, decoder_.ProcessInput(buffer.get(), length));
   EXPECT_THAT(decoder_.error(), IsQuicNoError());
   EXPECT_EQ("", decoder_.error_detail());
+}
+
+TEST_F(HttpDecoderTest, PriorityUpdateFrame) {
+  InSequence s;
+  std::string input1 = quiche::QuicheTextUtils::HexDecode(
+      "0f"    // type (PRIORITY_UPDATE)
+      "02"    // length
+      "00"    // prioritized element type: REQUEST_STREAM
+      "03");  // prioritized element id
+
+  PriorityUpdateFrame priority_update1;
+  priority_update1.prioritized_element_type = REQUEST_STREAM;
+  priority_update1.prioritized_element_id = 0x03;
+
+  // Visitor pauses processing.
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(2)).WillOnce(Return(false));
+  quiche::QuicheStringPiece remaining_input(input1);
+  QuicByteCount processed_bytes =
+      ProcessInputWithGarbageAppended(remaining_input);
+  EXPECT_EQ(2u, processed_bytes);
+  remaining_input = remaining_input.substr(processed_bytes);
+
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrame(priority_update1))
+      .WillOnce(Return(false));
+  processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
+  EXPECT_EQ(remaining_input.size(), processed_bytes);
+  EXPECT_THAT(decoder_.error(), IsQuicNoError());
+  EXPECT_EQ("", decoder_.error_detail());
+
+  // Process the full frame.
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(2));
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrame(priority_update1));
+  EXPECT_EQ(input1.size(), ProcessInput(input1));
+  EXPECT_THAT(decoder_.error(), IsQuicNoError());
+  EXPECT_EQ("", decoder_.error_detail());
+
+  // Process the frame incrementally.
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(2));
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrame(priority_update1));
+  ProcessInputCharByChar(input1);
+  EXPECT_THAT(decoder_.error(), IsQuicNoError());
+  EXPECT_EQ("", decoder_.error_detail());
+
+  std::string input2 = quiche::QuicheTextUtils::HexDecode(
+      "0f"        // type (PRIORIRTY)
+      "05"        // length
+      "80"        // prioritized element type: PUSH_STREAM
+      "05"        // prioritized element id
+      "666f6f");  // priority field value: "foo"
+
+  PriorityUpdateFrame priority_update2;
+  priority_update2.prioritized_element_type = PUSH_STREAM;
+  priority_update2.prioritized_element_id = 0x05;
+  priority_update2.priority_field_value = "foo";
+
+  // Visitor pauses processing.
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(2)).WillOnce(Return(false));
+  remaining_input = input2;
+  processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
+  EXPECT_EQ(2u, processed_bytes);
+  remaining_input = remaining_input.substr(processed_bytes);
+
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrame(priority_update2))
+      .WillOnce(Return(false));
+  processed_bytes = ProcessInputWithGarbageAppended(remaining_input);
+  EXPECT_EQ(remaining_input.size(), processed_bytes);
+  EXPECT_THAT(decoder_.error(), IsQuicNoError());
+  EXPECT_EQ("", decoder_.error_detail());
+
+  // Process the full frame.
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(2));
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrame(priority_update2));
+  EXPECT_EQ(input2.size(), ProcessInput(input2));
+  EXPECT_THAT(decoder_.error(), IsQuicNoError());
+  EXPECT_EQ("", decoder_.error_detail());
+
+  // Process the frame incrementally.
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(2));
+  EXPECT_CALL(visitor_, OnPriorityUpdateFrame(priority_update2));
+  ProcessInputCharByChar(input2);
+  EXPECT_THAT(decoder_.error(), IsQuicNoError());
+  EXPECT_EQ("", decoder_.error_detail());
+}
+
+TEST_F(HttpDecoderTest, CorruptPriorityUpdateFrame) {
+  std::string payload1 = quiche::QuicheTextUtils::HexDecode(
+      "80"      // prioritized element type: PUSH_STREAM
+      "4005");  // prioritized element id
+  std::string payload2 = quiche::QuicheTextUtils::HexDecode(
+      "42");  // invalid prioritized element type
+  struct {
+    const char* const payload;
+    size_t payload_length;
+    const char* const error_message;
+  } kTestData[] = {
+      {payload1.data(), 0, "Unable to read prioritized element type."},
+      {payload1.data(), 1, "Unable to read prioritized element id."},
+      {payload1.data(), 2, "Unable to read prioritized element id."},
+      {payload2.data(), 1, "Invalid prioritized element type."},
+  };
+
+  for (const auto& test_data : kTestData) {
+    std::string input;
+    input.push_back(15u);  // type PRIORITY_UPDATE
+    input.push_back(test_data.payload_length);
+    size_t header_length = input.size();
+    input.append(test_data.payload, test_data.payload_length);
+
+    HttpDecoder decoder(&visitor_);
+    EXPECT_CALL(visitor_, OnPriorityUpdateFrameStart(header_length));
+    EXPECT_CALL(visitor_, OnError(&decoder));
+
+    QuicByteCount processed_bytes =
+        decoder.ProcessInput(input.data(), input.size());
+    EXPECT_EQ(input.size(), processed_bytes);
+    EXPECT_THAT(decoder.error(), IsError(QUIC_HTTP_FRAME_ERROR));
+    EXPECT_EQ(test_data.error_message, decoder.error_detail());
+  }
 }
 
 }  // namespace test

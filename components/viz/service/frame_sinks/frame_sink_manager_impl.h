@@ -72,6 +72,7 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
     OutputSurfaceProvider* output_surface_provider = nullptr;
     uint32_t restart_id = BeginFrameSource::kNotRestartableId;
     bool run_all_compositor_stages_before_draw = false;
+    bool log_capture_pipeline_in_webrtc = false;
   };
   explicit FrameSinkManagerImpl(const InitParams& params);
   // TODO(kylechar): Cleanup tests and remove this constructor.
@@ -225,6 +226,13 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
   base::TimeDelta GetPreferredFrameIntervalForFrameSinkId(
       const FrameSinkId& id) const;
 
+  // This cancels pending output requests owned by the frame sinks associated
+  // with the specified BeginFrameSource.
+  // The requets callback will be fired as part of request destruction.
+  // This may be used in case we know a frame can't be produced any time soon,
+  // so there's no point for caller to wait for the copy of output.
+  void DiscardPendingCopyOfOutputRequests(const BeginFrameSource* source);
+
  private:
   friend class FrameSinkManagerTest;
 
@@ -300,6 +308,9 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
 
   // Whether display scheduler should wait for all pipeline stages before draw.
   const bool run_all_compositor_stages_before_draw_;
+
+  // Whether capture pipeline should emit log messages to webrtc log.
+  const bool log_capture_pipeline_in_webrtc_;
 
   // Contains registered frame sink ids, debug labels and synchronization
   // labels. Map entries will be created when frame sink is registered and

@@ -6,6 +6,11 @@ import("//build_overrides/build.gni")
 
 source_set("mdns") {
   sources = [
+    "mdns/mdns_domain_confirmed_provider.h",
+    "mdns/mdns_probe.cc",
+    "mdns/mdns_probe.h",
+    "mdns/mdns_probe_manager.cc",
+    "mdns/mdns_probe_manager.h",
     "mdns/mdns_publisher.cc",
     "mdns/mdns_publisher.h",
     "mdns/mdns_querier.cc",
@@ -42,8 +47,6 @@ source_set("mdns") {
 }
 
 source_set("dnssd") {
-  defines = []
-
   sources = [
     "dnssd/impl/conversion_layer.cc",
     "dnssd/impl/conversion_layer.h",
@@ -70,6 +73,17 @@ source_set("dnssd") {
 
   public_deps = [
     ":mdns",
+  ]
+}
+
+source_set("public") {
+  sources = [
+    "public/dns_sd_service_watcher.h",
+    "public/temp.cc",
+  ]
+
+  public_deps = [
+    ":dnssd",
   ]
 }
 
@@ -101,14 +115,19 @@ source_set("unittests") {
     "dnssd/impl/service_key_unittest.cc",
     "dnssd/public/dns_sd_instance_record_unittest.cc",
     "dnssd/public/dns_sd_txt_record_unittest.cc",
+    "mdns/mdns_probe_manager_unittest.cc",
+    "mdns/mdns_probe_unittest.cc",
+    "mdns/mdns_publisher_unittest.cc",
     "mdns/mdns_querier_unittest.cc",
     "mdns/mdns_random_unittest.cc",
     "mdns/mdns_reader_unittest.cc",
     "mdns/mdns_receiver_unittest.cc",
     "mdns/mdns_records_unittest.cc",
+    "mdns/mdns_responder_unittest.cc",
     "mdns/mdns_sender_unittest.cc",
     "mdns/mdns_trackers_unittest.cc",
     "mdns/mdns_writer_unittest.cc",
+    "public/dns_sd_service_watcher_unittest.cc",
   ]
 
   deps = [

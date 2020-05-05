@@ -2145,6 +2145,75 @@ struct VkFenceGetFdInfoKHR
 	VkExternalFenceHandleTypeFlagBits	handleType;
 };
 
+struct VkPhysicalDevicePerformanceQueryFeaturesKHR
+{
+	VkStructureType	sType;
+	void*			pNext;
+	VkBool32		performanceCounterQueryPools;
+	VkBool32		performanceCounterMultipleQueryPools;
+};
+
+struct VkPhysicalDevicePerformanceQueryPropertiesKHR
+{
+	VkStructureType	sType;
+	void*			pNext;
+	VkBool32		allowCommandBufferQueryCopies;
+};
+
+struct VkPerformanceCounterKHR
+{
+	VkStructureType					sType;
+	const void*						pNext;
+	VkPerformanceCounterUnitKHR		unit;
+	VkPerformanceCounterScopeKHR	scope;
+	VkPerformanceCounterStorageKHR	storage;
+	deUint8							uuid[VK_UUID_SIZE];
+};
+
+struct VkPerformanceCounterDescriptionKHR
+{
+	VkStructureType							sType;
+	const void*								pNext;
+	VkPerformanceCounterDescriptionFlagsKHR	flags;
+	char									name[VK_MAX_DESCRIPTION_SIZE];
+	char									category[VK_MAX_DESCRIPTION_SIZE];
+	char									description[VK_MAX_DESCRIPTION_SIZE];
+};
+
+struct VkQueryPoolPerformanceCreateInfoKHR
+{
+	VkStructureType	sType;
+	const void*		pNext;
+	deUint32		queueFamilyIndex;
+	deUint32		counterIndexCount;
+	const deUint32*	pCounterIndices;
+};
+
+union VkPerformanceCounterResultKHR
+{
+	deInt32		int32;
+	deInt64		int64;
+	deUint32	uint32;
+	deUint64	uint64;
+	float		float32;
+	double		float64;
+};
+
+struct VkAcquireProfilingLockInfoKHR
+{
+	VkStructureType					sType;
+	const void*						pNext;
+	VkAcquireProfilingLockFlagsKHR	flags;
+	deUint64						timeout;
+};
+
+struct VkPerformanceQuerySubmitInfoKHR
+{
+	VkStructureType	sType;
+	const void*		pNext;
+	deUint32		counterPassIndex;
+};
+
 struct VkPhysicalDeviceSurfaceInfo2KHR
 {
 	VkStructureType	sType;
@@ -2368,11 +2437,70 @@ struct VkSurfaceProtectedCapabilitiesKHR
 	VkBool32		supportsProtected;
 };
 
+struct VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR
+{
+	VkStructureType	sType;
+	void*			pNext;
+	VkBool32		separateDepthStencilLayouts;
+};
+
+struct VkAttachmentReferenceStencilLayoutKHR
+{
+	VkStructureType	sType;
+	void*			pNext;
+	VkImageLayout	stencilLayout;
+};
+
+struct VkAttachmentDescriptionStencilLayoutKHR
+{
+	VkStructureType	sType;
+	void*			pNext;
+	VkImageLayout	stencilInitialLayout;
+	VkImageLayout	stencilFinalLayout;
+};
+
 struct VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR
 {
 	VkStructureType	sType;
 	void*			pNext;
 	VkBool32		uniformBufferStandardLayout;
+};
+
+struct VkPhysicalDeviceBufferDeviceAddressFeaturesKHR
+{
+	VkStructureType	sType;
+	void*			pNext;
+	VkBool32		bufferDeviceAddress;
+	VkBool32		bufferDeviceAddressCaptureReplay;
+	VkBool32		bufferDeviceAddressMultiDevice;
+};
+
+struct VkBufferDeviceAddressInfoKHR
+{
+	VkStructureType	sType;
+	const void*		pNext;
+	VkBuffer		buffer;
+};
+
+struct VkBufferOpaqueCaptureAddressCreateInfoKHR
+{
+	VkStructureType	sType;
+	const void*		pNext;
+	deUint64		opaqueCaptureAddress;
+};
+
+struct VkMemoryOpaqueCaptureAddressAllocateInfoKHR
+{
+	VkStructureType	sType;
+	const void*		pNext;
+	deUint64		opaqueCaptureAddress;
+};
+
+struct VkDeviceMemoryOpaqueCaptureAddressInfoKHR
+{
+	VkStructureType	sType;
+	const void*		pNext;
+	VkDeviceMemory	memory;
 };
 
 struct VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR
@@ -2610,7 +2738,7 @@ struct VkValidationFlagsEXT
 struct VkPhysicalDeviceTextureCompressionASTCHDRFeaturesEXT
 {
 	VkStructureType	sType;
-	const void*		pNext;
+	void*			pNext;
 	VkBool32		textureCompressionASTC_HDR;
 };
 
@@ -3953,13 +4081,6 @@ struct VkPhysicalDeviceBufferDeviceAddressFeaturesEXT
 	VkBool32		bufferDeviceAddressMultiDevice;
 };
 
-struct VkBufferDeviceAddressInfoEXT
-{
-	VkStructureType	sType;
-	const void*		pNext;
-	VkBuffer		buffer;
-};
-
 struct VkBufferDeviceAddressCreateInfoEXT
 {
 	VkStructureType	sType;
@@ -4564,6 +4685,8 @@ typedef VkDescriptorSetLayoutSupport VkDescriptorSetLayoutSupportKHR;
 typedef VkPhysicalDeviceShaderDrawParametersFeatures VkPhysicalDeviceShaderDrawParameterFeatures;
 
 typedef VkPhysicalDeviceShaderFloat16Int8FeaturesKHR VkPhysicalDeviceFloat16Int8FeaturesKHR;
+
+typedef VkBufferDeviceAddressInfoKHR VkBufferDeviceAddressInfoEXT;
 
 typedef VkPhysicalDeviceBufferDeviceAddressFeaturesEXT VkPhysicalDeviceBufferAddressFeaturesEXT;
 

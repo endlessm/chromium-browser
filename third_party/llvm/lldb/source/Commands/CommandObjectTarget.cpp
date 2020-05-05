@@ -1,4 +1,4 @@
-//===-- CommandObjectTarget.cpp ---------------------------------*- C++ -*-===//
+//===-- CommandObjectTarget.cpp -------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -24,7 +24,6 @@
 #include "lldb/Interpreter/OptionGroupBoolean.h"
 #include "lldb/Interpreter/OptionGroupFile.h"
 #include "lldb/Interpreter/OptionGroupFormat.h"
-#include "lldb/Interpreter/OptionGroupPlatform.h"
 #include "lldb/Interpreter/OptionGroupString.h"
 #include "lldb/Interpreter/OptionGroupUInt64.h"
 #include "lldb/Interpreter/OptionGroupUUID.h"
@@ -53,7 +52,6 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatAdapters.h"
 
-#include <cerrno>
 
 using namespace lldb;
 using namespace lldb_private;
@@ -78,7 +76,7 @@ static void DumpTargetInfo(uint32_t target_idx, Target *target,
   uint32_t properties = 0;
   if (target_arch.IsValid()) {
     strm.Printf("%sarch=", properties++ > 0 ? ", " : " ( ");
-    target_arch.DumpTriple(strm);
+    target_arch.DumpTriple(strm.AsRawOstream());
     properties++;
   }
   PlatformSP platform_sp(target->GetPlatform());
@@ -1291,7 +1289,7 @@ static void DumpModuleArchitecture(Stream &strm, Module *module,
     StreamString arch_strm;
 
     if (full_triple)
-      module->GetArchitecture().DumpTriple(arch_strm);
+      module->GetArchitecture().DumpTriple(arch_strm.AsRawOstream());
     else
       arch_strm.PutCString(module->GetArchitecture().GetArchitectureName());
     std::string arch_str = arch_strm.GetString();
@@ -1349,7 +1347,7 @@ static void DumpFullpath(Stream &strm, const FileSpec *file_spec_ptr,
       strm.Printf("%-*s", width, fullpath.c_str());
       return;
     } else {
-      file_spec_ptr->Dump(&strm);
+      file_spec_ptr->Dump(strm.AsRawOstream());
       return;
     }
   }
@@ -4688,12 +4686,8 @@ protected:
                                      new_hook_sp->GetID());
     } else {
       m_stop_hook_sp = new_hook_sp;
-      m_interpreter.GetLLDBCommandsFromIOHandler(
-          "> ",     // Prompt
-          *this,    // IOHandlerDelegate
-          true,     // Run IOHandler in async mode
-          nullptr); // Baton for the "io_handler" that will be passed back
-                    // into our IOHandlerDelegate functions
+      m_interpreter.GetLLDBCommandsFromIOHandler("> ",   // Prompt
+                                                 *this); // IOHandlerDelegate
     }
     result.SetStatus(eReturnStatusSuccessFinishNoResult);
 

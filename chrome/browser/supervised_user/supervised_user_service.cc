@@ -24,10 +24,10 @@
 #include "chrome/browser/component_updater/supervised_user_whitelist_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
-#include "chrome/browser/supervised_user/experimental/supervised_user_filtering_switches.h"
 #include "chrome/browser/supervised_user/permission_request_creator.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
 #include "chrome/browser/supervised_user/supervised_user_features.h"
+#include "chrome/browser/supervised_user/supervised_user_filtering_switches.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_service_observer.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service.h"
@@ -261,11 +261,6 @@ bool SupervisedUserService::IsSupervisedUserIframeFilterEnabled() const {
   return base::FeatureList::IsEnabled(
       supervised_users::kSupervisedUserIframeFilter);
 }
-
-#if !defined(OS_ANDROID)
-void SupervisedUserService::InitSync(const std::string& refresh_token) {
-}
-#endif  // !defined(OS_ANDROID)
 
 void SupervisedUserService::AddObserver(
     SupervisedUserServiceObserver* observer) {
@@ -740,8 +735,13 @@ SupervisedUserService::ExtensionState SupervisedUserService::GetExtensionState(
     extensions::ExtensionManagement* management =
         extensions::ExtensionManagementFactory::GetForBrowserContext(profile_);
     if (management && management->BlacklistedByDefault()) {
-      // We want to make sure that the ExtensionInstallBlacklist user policy is
-      // active before allowing all extensions here.
+      // The emergency extensions release allows us to control allowed
+      // extensions with two policies: ExtensionInstallWhitelist and
+      // ExtensionInstallBlacklist. We want to make sure that the
+      // ExtensionInstallBlacklist is active before allowing all extensions
+      // here. Otherwise, supervised users would have access to all extensions,
+      // an undesirable outcome. If any extension installs go through at this
+      // point, we know it must have gone through the ExtensionInstallWhitelist.
       return ExtensionState::ALLOWED;
     }
   }
@@ -794,18 +794,6 @@ bool SupervisedUserService::UserMayLoad(const Extension* extension,
   if (!may_load && error)
     *error = GetExtensionsLockedMessage();
   return may_load;
-}
-
-bool SupervisedUserService::UserMayModifySettings(const Extension* extension,
-                                                  base::string16* error) const {
-  DCHECK(ProfileIsSupervised());
-  ExtensionState result = GetExtensionState(*extension);
-  // Only allow the supervised user to modify the settings and enable or disable
-  // the extension if the supervised user has full control.
-  bool may_modify = result == ExtensionState::ALLOWED;
-  if (!may_modify && error)
-    *error = GetExtensionsLockedMessage();
-  return may_modify;
 }
 
 bool SupervisedUserService::MustRemainDisabled(
@@ -932,14 +920,6 @@ void SupervisedUserService::SetExtensionsActive() {
   }
 }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
-
-syncer::UserSelectableTypeSet SupervisedUserService::GetForcedTypes() const {
-  if (!ProfileIsSupervised())
-    return syncer::UserSelectableTypeSet();
-
-  return {syncer::UserSelectableType::kExtensions,
-          syncer::UserSelectableType::kApps};
-}
 
 bool SupervisedUserService::IsEncryptEverythingAllowed() const {
   return !active_;

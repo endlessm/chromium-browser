@@ -11,7 +11,7 @@ import androidx.annotation.Nullable;
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.FeatureUtilities;
 import org.chromium.chrome.browser.tasks.TasksSurface;
 import org.chromium.chrome.browser.tasks.TasksSurfaceProperties;

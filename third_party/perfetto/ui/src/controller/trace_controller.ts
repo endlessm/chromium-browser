@@ -49,6 +49,7 @@ import {
 import {PROCESS_SUMMARY_TRACK} from '../tracks/process_summary/common';
 import {THREAD_STATE_TRACK_KIND} from '../tracks/thread_state/common';
 
+import {AggregationController} from './aggregation_controller';
 import {Child, Children, Controller} from './controller';
 import {globals} from './globals';
 import {
@@ -153,7 +154,8 @@ export class TraceController extends Controller<States> {
         const heapProfileArgs: HeapProfileControllerArgs = {engine};
         childControllers.push(
             Child('heapProfile', HeapProfileController, heapProfileArgs));
-
+        childControllers.push(
+            Child('aggregation', AggregationController, {engine}));
         childControllers.push(Child('search', SearchController, {
           engine,
           app: globals,
@@ -307,10 +309,10 @@ export class TraceController extends Controller<States> {
     //  }));
     //}
     const maxCpuFreq = await engine.query(`
-     select max(value)
-     from counter c
-     inner join cpu_counter_track t on c.track_id = t.id
-     where name = 'cpufreq';
+      select max(value)
+      from counter c
+      inner join cpu_counter_track t on c.track_id = t.id
+      where name = 'cpufreq';
     `);
 
     const cpus = await engine.getCpus();
@@ -372,10 +374,14 @@ export class TraceController extends Controller<States> {
 
     const upidToProcessTracks = new Map();
     const rawProcessTracks = await engine.query(`
-      select id, upid, process_track.name, max(depth) as maxDepth
+      select
+        process_track.id as track_id,
+        process_track.upid,
+        process_track.name,
+        max(slice.depth) as max_depth
       from process_track
-      inner join slice on slice.track_id = process_track.id
-      group by track_id
+      join slice on slice.track_id = process_track.id
+      group by process_track.id
     `);
     for (let i = 0; i < rawProcessTracks.numRecords; i++) {
       const trackId = rawProcessTracks.columns[0].longValues![i];
@@ -401,7 +407,9 @@ export class TraceController extends Controller<States> {
     }
 
     const heapProfiles = await engine.query(`
-      select distinct(upid) from heap_profile_allocation`);
+      select distinct(upid) from heap_profile_allocation
+      union
+      select distinct(upid) from heap_graph_object`);
 
     const heapUpids: Set<number> = new Set();
     for (let i = 0; i < heapProfiles.numRecords; i++) {
@@ -410,18 +418,19 @@ export class TraceController extends Controller<States> {
     }
 
     const maxGpuFreq = await engine.query(`
-     select max(value)
-     from counters
-     where name = 'gpufreq';
+      select max(value)
+      from counter c
+      inner join gpu_counter_track t on c.track_id = t.id
+      where name = 'gpufreq';
     `);
 
     for (let gpu = 0; gpu < numGpus; gpu++) {
       // Only add a gpu freq track if we have
       // gpu freq data.
       const freqExists = await engine.query(`
-        select value
-        from counters
-        where name = 'gpufreq' and ref = ${gpu}
+        select id
+        from gpu_counter_track
+        where name = 'gpufreq' and gpu_id = ${gpu}
         limit 1;
       `);
       if (freqExists.numRecords > 0) {
@@ -432,6 +441,7 @@ export class TraceController extends Controller<States> {
           trackGroup: SCROLLING_TRACK_GROUP,
           config: {
             gpu,
+            trackId: +freqExists.columns[0].longValues![0],
             maximumValue: +maxGpuFreq.columns[0].doubleValues![0],
           }
         });
@@ -460,6 +470,32 @@ export class TraceController extends Controller<States> {
           name,
           trackId,
         }
+      });
+    }
+
+    // Add global slice tracks.
+    const globalSliceTracks = await engine.query(`
+      select
+        track.name as track_name,
+        track.id as track_id,
+        max(depth) as max_depth
+      from track
+      join slice on track.id = slice.track_id
+      where track.type = 'track'
+      group by track_id
+    `);
+
+    for (let i = 0; i < globalSliceTracks.numRecords; i++) {
+      const name = globalSliceTracks.columns[0].stringValues![i];
+      const trackId = +globalSliceTracks.columns[1].longValues![i];
+      const maxDepth = +globalSliceTracks.columns[2].longValues![i];
+
+      tracksToAdd.push({
+        engineId: this.engineId,
+        kind: SLICE_TRACK_KIND,
+        name: `${name}`,
+        trackGroup: SCROLLING_TRACK_GROUP,
+        config: {maxDepth, trackId},
       });
     }
 
@@ -683,8 +719,6 @@ export class TraceController extends Controller<States> {
           name: `${threadName} [${tid}]`,
           trackGroup: pUuid,
           config: {
-            upid,
-            utid,
             maxDepth: threadTrack.maxDepth,
             trackId: threadTrack.trackId
           },
@@ -835,9 +869,9 @@ export class TraceController extends Controller<States> {
       select first_thread.ts as ts,
       coalesce(min(runnable.ts), (select end_ts from trace_bounds)) -
       first_thread.ts as dur,
-      runnable.utid as utid
-      from runnable
-      JOIN first_thread using(utid) group by utid`);
+      first_thread.utid as utid
+      from first_thread
+      LEFT JOIN runnable using(utid) group by utid`);
 
     await engine.query(`create view full_runnable as
         select * from runnable UNION

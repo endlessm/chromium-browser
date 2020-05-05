@@ -19,6 +19,7 @@
 #include "CodeGenModule.h"
 #include "CodeGenTypes.h"
 #include "TargetInfo.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -1343,6 +1344,13 @@ void MicrosoftCXXABI::EmitCXXDestructors(const CXXDestructorDecl *D) {
   // The TU defining a dtor is only guaranteed to emit a base destructor.  All
   // other destructor variants are delegating thunks.
   CGM.EmitGlobal(GlobalDecl(D, Dtor_Base));
+
+  // If the class is dllexported, emit the complete (vbase) destructor wherever
+  // the base dtor is emitted.
+  // FIXME: To match MSVC, this should only be done when the class is exported
+  // with -fdllexport-inlines enabled.
+  if (D->getParent()->getNumVBases() > 0 && D->hasAttr<DLLExportAttr>())
+    CGM.EmitGlobal(GlobalDecl(D, Dtor_Complete));
 }
 
 CharUnits
@@ -1612,6 +1620,15 @@ void MicrosoftCXXABI::emitVTableTypeMetadata(const VPtrInfo &Info,
                                              llvm::GlobalVariable *VTable) {
   if (!CGM.getCodeGenOpts().LTOUnit)
     return;
+
+  // TODO: Should VirtualFunctionElimination also be supported here?
+  // See similar handling in CodeGenModule::EmitVTableTypeMetadata.
+  if (CGM.getCodeGenOpts().WholeProgramVTables) {
+    llvm::GlobalObject::VCallVisibility TypeVis =
+        CGM.GetVCallVisibilityLevel(RD);
+    if (TypeVis != llvm::GlobalObject::VCallVisibilityPublic)
+      VTable->setVCallVisibilityMetadata(TypeVis);
+  }
 
   // The location of the first virtual function pointer in the virtual table,
   // aka the "address point" on Itanium. This is at offset 0 if RTTI is

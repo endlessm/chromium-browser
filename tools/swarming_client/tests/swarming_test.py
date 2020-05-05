@@ -1,8 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 # Copyright 2013 The LUCI Authors. All rights reserved.
 # Use of this source code is governed under the Apache License, Version 2.0
 # that can be found in the LICENSE file.
 
+from __future__ import print_function
 import datetime
 import json
 import logging
@@ -13,6 +14,8 @@ import tempfile
 import threading
 import time
 import traceback
+
+import six
 
 # Mutates sys.path.
 import test_env
@@ -228,6 +231,10 @@ class Common(object):
 
 
 class NetTestCase(net_utils.TestCase, Common):
+  # These test fail when running in parallel
+  # Need to run in test_seq.py as an executable
+  no_run = 1
+
   """Base class that defines the url_open mock."""
   def setUp(self):
     net_utils.TestCase.setUp(self)
@@ -238,6 +245,10 @@ class NetTestCase(net_utils.TestCase, Common):
 
 
 class TestIsolated(auto_stub.TestCase, Common):
+  # These test fail when running in parallel
+  # Need to run in test_seq.py as an executable
+  no_run = 1
+
   """Test functions with isolated_ prefix."""
   def setUp(self):
     auto_stub.TestCase.setUp(self)
@@ -284,14 +295,14 @@ class TestIsolated(auto_stub.TestCase, Common):
       main_hash = self._isolate.add_content_compressed(
           'default-gzip', 'not executed')
       isolated = {
-        'files': {
-          'main.py': {
-            'h': main_hash,
-            's': 12,
-            'm': 0700,
+          'files': {
+              'main.py': {
+                  'h': main_hash,
+                  's': 12,
+                  'm': 0o700,
+              },
           },
-        },
-        'command': ['python', 'main.py'],
+          'command': ['python', 'main.py'],
       }
       isolated_hash = self._isolate.add_content_compressed(
           'default-gzip', json.dumps(isolated))
@@ -695,7 +706,7 @@ class TestSwarmingCollection(NetTestCase):
         ])
     actual = get_results(['10100'])
     self.assertEqual([], actual)
-    self.assertTrue(all(not v for v in now.itervalues()), now)
+    self.assertTrue(all(not v for v in now.values()), now)
 
   def test_many_shards(self):
     self.expected_requests(
@@ -882,7 +893,7 @@ class TestSwarmingCollection(NetTestCase):
 
     collector = swarming.TaskOutputCollector(
         self.tempdir, ['json', 'console'], 2, '.*')
-    for index in xrange(2):
+    for index in range(2):
       collector.process_shard_result(
           index,
           gen_result_response(
@@ -934,18 +945,18 @@ class TestSwarmingCollection(NetTestCase):
         isolateserver, 'fetch_isolated',
         lambda *args: actual_calls.append(args))
     data = [
-      gen_result_response(
-        outputs_ref={
-          'isolatedserver': 'https://server1',
-          'namespace': 'namespace',
-          'isolated':'hash1',
-        }),
-      gen_result_response(
-        outputs_ref={
-          'isolatedserver': 'https://server2',
-          'namespace': 'namespace',
-          'isolated':'hash1',
-        }),
+        gen_result_response(
+            outputs_ref={
+                'isolatedserver': 'https://server1',
+                'namespace': 'namespace',
+                'isolated': 'hash1',
+            }),
+        gen_result_response(
+            outputs_ref={
+                'isolatedserver': 'https://server2',
+                'namespace': 'namespace',
+                'isolated': 'hash1',
+            }),
     ]
 
     # Feed them to collector.
@@ -2033,7 +2044,8 @@ class TestCommandBot(NetTestCase):
   def setUp(self):
     super(TestCommandBot, self).setUp()
     # Sample data retrieved from actual server.
-    self.now = unicode(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+    self.now = six.text_type(
+        datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
     self.bot_1 = {
       u'bot_id': u'swarm1',
       u'created_ts': self.now,
@@ -2123,11 +2135,11 @@ class TestCommandBot(NetTestCase):
     """Returns fake /_ah/api/swarming/v1/bots/list data."""
     # Sample data retrieved from actual server.
     return {
-      u'items': bots,
-      u'cursor': cursor,
-      u'death_timeout': 1800.0,
-      u'limit': 4,
-      u'now': unicode(self.now),
+        u'items': bots,
+        u'cursor': cursor,
+        u'death_timeout': 1800.0,
+        u'limit': 4,
+        u'now': six.text_type(self.now),
     }
 
   def test_bots(self):

@@ -66,7 +66,7 @@ void InsertWidthArray(HDC hDC, int start, int end, CPDF_Array* pWidthArray) {
   InsertWidthArrayImpl(std::move(widths), pWidthArray);
 }
 
-ByteString FPDF_GetPSNameFromTT(HDC hDC) {
+ByteString GetPSNameFromTT(HDC hDC) {
   ByteString result;
   DWORD size = ::GetFontData(hDC, 'eman', 0, nullptr, 0);
   if (size != GDI_ERROR) {
@@ -444,12 +444,12 @@ std::unique_ptr<CPDF_Font::FormIface> CPDF_DocPageData::CreateForm(
 }
 
 RetainPtr<CPDF_Font> CPDF_DocPageData::AddStandardFont(
-    const char* font,
+    const ByteString& fontName,
     const CPDF_FontEncoding* pEncoding) {
-  ByteString name(font);
-  if (!CFX_FontMapper::GetStandardFontName(&name))
+  ByteString mutable_name(fontName);
+  if (!CFX_FontMapper::GetStandardFontName(&mutable_name))
     return nullptr;
-  return GetStandardFont(name, pEncoding);
+  return GetStandardFont(mutable_name, pEncoding);
 }
 
 RetainPtr<CPDF_Font> CPDF_DocPageData::AddFont(std::unique_ptr<CFX_Font> pFont,
@@ -562,7 +562,7 @@ RetainPtr<CPDF_Font> CPDF_DocPageData::AddWindowsFont(LOGFONTA* pLogFont) {
   const bool bCJK = FX_CharSetIsCJK(pLogFont->lfCharSet);
   ByteString basefont;
   if (bCJK)
-    basefont = FPDF_GetPSNameFromTT(hDC);
+    basefont = GetPSNameFromTT(hDC);
 
   if (basefont.IsEmpty())
     basefont = pLogFont->lfFaceName;

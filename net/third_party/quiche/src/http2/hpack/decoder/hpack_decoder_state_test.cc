@@ -15,8 +15,8 @@
 #include "net/third_party/quiche/src/http2/hpack/http2_hpack_constants.h"
 #include "net/third_party/quiche/src/http2/http2_constants.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_piece.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
@@ -39,12 +39,11 @@ namespace {
 class MockHpackDecoderListener : public HpackDecoderListener {
  public:
   MOCK_METHOD0(OnHeaderListStart, void());
-  MOCK_METHOD3(OnHeader,
-               void(HpackEntryType entry_type,
-                    const HpackString& name,
-                    const HpackString& value));
+  MOCK_METHOD2(OnHeader,
+               void(const HpackString& name, const HpackString& value));
   MOCK_METHOD0(OnHeaderListEnd, void());
-  MOCK_METHOD1(OnHeaderErrorDetected, void(Http2StringPiece error_message));
+  MOCK_METHOD1(OnHeaderErrorDetected,
+               void(quiche::QuicheStringPiece error_message));
 };
 
 enum StringBacking { STATIC, UNBUFFERED, BUFFERED };
@@ -113,8 +112,7 @@ class HpackDecoderStateTest : public ::testing::Test {
                                   HpackEntryType expected_type,
                                   const char* expected_name,
                                   const char* expected_value) {
-    EXPECT_CALL(listener_,
-                OnHeader(expected_type, Eq(expected_name), Eq(expected_value)));
+    EXPECT_CALL(listener_, OnHeader(Eq(expected_name), Eq(expected_value)));
     decoder_state_.OnIndexedHeader(index);
     Mock::VerifyAndClearExpectations(&listener_);
   }
@@ -125,7 +123,7 @@ class HpackDecoderStateTest : public ::testing::Test {
                                   const char* value,
                                   StringBacking value_backing) {
     SetValue(value, value_backing);
-    EXPECT_CALL(listener_, OnHeader(entry_type, Eq(name), Eq(value)));
+    EXPECT_CALL(listener_, OnHeader(Eq(name), Eq(value)));
     decoder_state_.OnNameIndexAndLiteralValue(entry_type, name_index,
                                               &value_buffer_);
     Mock::VerifyAndClearExpectations(&listener_);
@@ -138,7 +136,7 @@ class HpackDecoderStateTest : public ::testing::Test {
                                          StringBacking value_backing) {
     SetName(name, name_backing);
     SetValue(value, value_backing);
-    EXPECT_CALL(listener_, OnHeader(entry_type, Eq(name), Eq(value)));
+    EXPECT_CALL(listener_, OnHeader(Eq(name), Eq(value)));
     decoder_state_.OnLiteralNameAndValue(entry_type, &name_buffer_,
                                          &value_buffer_);
     Mock::VerifyAndClearExpectations(&listener_);
@@ -517,8 +515,8 @@ TEST_F(HpackDecoderStateTest, InvalidNameIndex) {
 
 TEST_F(HpackDecoderStateTest, ErrorsSuppressCallbacks) {
   SendStartAndVerifyCallback();
-  EXPECT_CALL(listener_,
-              OnHeaderErrorDetected(Http2StringPiece("Huffman decode error.")));
+  EXPECT_CALL(listener_, OnHeaderErrorDetected(quiche::QuicheStringPiece(
+                             "Huffman decode error.")));
   decoder_state_.OnHpackDecodeError("Huffman decode error.");
 
   // Further decoded entries are ignored.

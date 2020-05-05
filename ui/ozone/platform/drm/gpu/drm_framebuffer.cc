@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "ui/ozone/common/linux/drm_util_linux.h"
-#include "ui/ozone/common/linux/gbm_buffer.h"
+#include "ui/gfx/linux/drm_util_linux.h"
+#include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/drm_device.h"
 
@@ -60,13 +60,14 @@ scoped_refptr<DrmFramebuffer> DrmFramebuffer::AddFramebuffer(
 scoped_refptr<DrmFramebuffer> DrmFramebuffer::AddFramebuffer(
     scoped_refptr<DrmDevice> drm,
     const GbmBuffer* buffer,
+    const gfx::Size& framebuffer_size,
     std::vector<uint64_t> preferred_modifiers) {
-  gfx::Size size = buffer->GetSize();
+  DCHECK(gfx::Rect(buffer->GetSize()).Contains(gfx::Rect(framebuffer_size)));
   AddFramebufferParams params;
   params.format = buffer->GetFormat();
   params.modifier = buffer->GetFormatModifier();
-  params.width = size.width();
-  params.height = size.height();
+  params.width = framebuffer_size.width();
+  params.height = framebuffer_size.height();
   params.num_planes = buffer->GetNumPlanes();
   params.preferred_modifiers = preferred_modifiers;
   for (size_t i = 0; i < params.num_planes; ++i) {

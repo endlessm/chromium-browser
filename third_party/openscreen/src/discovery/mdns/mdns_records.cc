@@ -10,6 +10,7 @@
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_join.h"
+#include "discovery/mdns/mdns_writer.h"
 
 namespace openscreen {
 namespace discovery {
@@ -31,6 +32,54 @@ inline int CompareIgnoreCase(const std::string& x, const std::string& y) {
     }
   }
   return i == y.size() ? 0 : -1;
+}
+
+template <typename RDataType>
+bool IsGreaterThan(const Rdata& lhs, const Rdata& rhs) {
+  const RDataType& lhs_cast = absl::get<RDataType>(lhs);
+  const RDataType& rhs_cast = absl::get<RDataType>(rhs);
+
+  size_t lhs_size = lhs_cast.MaxWireSize();
+  size_t rhs_size = rhs_cast.MaxWireSize();
+  size_t min_size = std::min(lhs_size, rhs_size);
+
+  uint8_t lhs_bytes[lhs_size];
+  uint8_t rhs_bytes[rhs_size];
+  MdnsWriter lhs_writer(lhs_bytes, lhs_size);
+  MdnsWriter rhs_writer(rhs_bytes, rhs_size);
+
+  lhs_writer.Write(lhs_cast);
+  rhs_writer.Write(rhs_cast);
+  for (size_t i = 0; i < min_size; i++) {
+    if (lhs_bytes[i] != rhs_bytes[i]) {
+      return lhs_bytes[i] > rhs_bytes[i];
+    }
+  }
+
+  if (lhs_size == rhs_size) {
+    return false;
+  }
+
+  return lhs_size > rhs_size;
+}
+
+bool IsGreaterThan(DnsType type, const Rdata& lhs, const Rdata& rhs) {
+  switch (type) {
+    case DnsType::kA:
+      return IsGreaterThan<ARecordRdata>(lhs, rhs);
+    case DnsType::kPTR:
+      return IsGreaterThan<PtrRecordRdata>(lhs, rhs);
+    case DnsType::kTXT:
+      return IsGreaterThan<TxtRecordRdata>(lhs, rhs);
+    case DnsType::kAAAA:
+      return IsGreaterThan<AAAARecordRdata>(lhs, rhs);
+    case DnsType::kSRV:
+      return IsGreaterThan<SrvRecordRdata>(lhs, rhs);
+    case DnsType::kNSEC:
+      return IsGreaterThan<NsecRecordRdata>(lhs, rhs);
+    default:
+      return IsGreaterThan<RawRecordRdata>(lhs, rhs);
+  }
 }
 
 }  // namespace
@@ -298,6 +347,76 @@ size_t TxtRecordRdata::MaxWireSize() const {
   return max_wire_size_;
 }
 
+NsecRecordRdata::NsecRecordRdata() = default;
+
+NsecRecordRdata::NsecRecordRdata(DomainName next_domain_name,
+                                 std::vector<DnsType> types)
+    : types_(std::move(types)), next_domain_name_(std::move(next_domain_name)) {
+  // Sort the types_ array for easier comparison later.
+  std::sort(types_.begin(), types_.end());
+
+  // Calculate the bitmaps as described in RFC 4034 Section 4.1.2.
+  std::vector<uint8_t> block_contents;
+  uint8_t current_block = 0;
+  for (auto type : types_) {
+    const uint16_t type_int = static_cast<uint16_t>(type);
+    const uint8_t block = static_cast<uint8_t>(type_int >> 8);
+    const uint8_t block_position = static_cast<uint8_t>(type_int & 0xFF);
+    const uint8_t byte_bit_is_at = block_position >> 3;         // First 5 bits.
+    const uint8_t byte_mask = 0x80 >> (block_position & 0x07);  // Last 3 bits.
+
+    // If the block has changed, write the previous block's info and all of its
+    // contents to the |encoded_types_| vector.
+    if (block > current_block) {
+      if (!block_contents.empty()) {
+        encoded_types_.push_back(current_block);
+        encoded_types_.push_back(static_cast<uint8_t>(block_contents.size()));
+        encoded_types_.insert(encoded_types_.end(), block_contents.begin(),
+                              block_contents.end());
+      }
+      block_contents = std::vector<uint8_t>();
+      current_block = block;
+    }
+
+    // Make sure |block_contents| is large enough to hold the bit representing
+    // the new type , then set it.
+    if (block_contents.size() <= byte_bit_is_at) {
+      block_contents.insert(block_contents.end(),
+                            byte_bit_is_at - block_contents.size() + 1, 0x00);
+    }
+
+    block_contents[byte_bit_is_at] |= byte_mask;
+  }
+
+  if (!block_contents.empty()) {
+    encoded_types_.push_back(current_block);
+    encoded_types_.push_back(static_cast<uint8_t>(block_contents.size()));
+    encoded_types_.insert(encoded_types_.end(), block_contents.begin(),
+                          block_contents.end());
+  }
+}
+
+NsecRecordRdata::NsecRecordRdata(const NsecRecordRdata& other) = default;
+
+NsecRecordRdata::NsecRecordRdata(NsecRecordRdata&& other) = default;
+
+NsecRecordRdata& NsecRecordRdata::operator=(const NsecRecordRdata& rhs) =
+    default;
+
+NsecRecordRdata& NsecRecordRdata::operator=(NsecRecordRdata&& rhs) = default;
+
+bool NsecRecordRdata::operator==(const NsecRecordRdata& rhs) const {
+  return types_ == rhs.types_ && next_domain_name_ == rhs.next_domain_name_;
+}
+
+bool NsecRecordRdata::operator!=(const NsecRecordRdata& rhs) const {
+  return !(*this == rhs);
+}
+
+size_t NsecRecordRdata::MaxWireSize() const {
+  return next_domain_name_.MaxWireSize() + encoded_types_.size();
+}
+
 MdnsRecord::MdnsRecord() = default;
 
 MdnsRecord::MdnsRecord(DomainName name,
@@ -324,6 +443,8 @@ MdnsRecord::MdnsRecord(DomainName name,
               absl::holds_alternative<PtrRecordRdata>(rdata_)) ||
              (dns_type == DnsType::kTXT &&
               absl::holds_alternative<TxtRecordRdata>(rdata_)) ||
+             (dns_type == DnsType::kNSEC &&
+              absl::holds_alternative<NsecRecordRdata>(rdata_)) ||
              absl::holds_alternative<RawRecordRdata>(rdata_));
 }
 
@@ -345,10 +466,58 @@ bool MdnsRecord::operator!=(const MdnsRecord& rhs) const {
   return !(*this == rhs);
 }
 
+bool MdnsRecord::operator>(const MdnsRecord& rhs) const {
+  // Returns the record which is lexicographically later. The determination of
+  // "lexicographically later" is performed by first comparing the record class,
+  // then the record type, then raw comparison of the binary content of the
+  // rdata without regard for meaning or structure.
+  if (dns_class() != rhs.dns_class()) {
+    return dns_class() > rhs.dns_class();
+  }
+
+  uint16_t this_type = static_cast<uint16_t>(dns_type()) & kClassMask;
+  uint16_t other_type = static_cast<uint16_t>(rhs.dns_type()) & kClassMask;
+  if (this_type != other_type) {
+    return this_type > other_type;
+  }
+
+  return IsGreaterThan(dns_type(), rdata(), rhs.rdata());
+}
+
+bool MdnsRecord::operator<(const MdnsRecord& rhs) const {
+  return rhs > *this;
+}
+
+bool MdnsRecord::operator<=(const MdnsRecord& rhs) const {
+  return !(*this > rhs);
+}
+
+bool MdnsRecord::operator>=(const MdnsRecord& rhs) const {
+  return !(*this < rhs);
+}
+
 size_t MdnsRecord::MaxWireSize() const {
   auto wire_size_visitor = [](auto&& arg) { return arg.MaxWireSize(); };
   // NAME size, 2-byte TYPE, 2-byte CLASS, 4-byte TTL, RDATA size
   return name_.MaxWireSize() + absl::visit(wire_size_visitor, rdata_) + 8;
+}
+
+MdnsRecord CreateAddressRecord(DomainName name, const IPAddress& address) {
+  Rdata rdata;
+  DnsType type;
+  std::chrono::seconds ttl;
+  if (address.IsV4()) {
+    type = DnsType::kA;
+    rdata = ARecordRdata(address);
+    ttl = kARecordTtl;
+  } else {
+    type = DnsType::kAAAA;
+    rdata = AAAARecordRdata(address);
+    ttl = kAAAARecordTtl;
+  }
+
+  return MdnsRecord(std::move(name), type, DnsClass::kIN, RecordType::kUnique,
+                    ttl, std::move(rdata));
 }
 
 MdnsQuestion::MdnsQuestion(DomainName name,
@@ -421,6 +590,28 @@ bool MdnsMessage::operator!=(const MdnsMessage& rhs) const {
   return !(*this == rhs);
 }
 
+bool MdnsMessage::IsProbeQuery() const {
+  // A message is a probe query if it contains records in the authority section
+  // which answer the question being asked.
+  if (questions().empty() || authority_records().empty()) {
+    return false;
+  }
+
+  for (const MdnsQuestion& question : questions_) {
+    for (const MdnsRecord& record : authority_records_) {
+      if (question.name() == record.name() &&
+          ((question.dns_type() == record.dns_type()) ||
+           (question.dns_type() == DnsType::kANY)) &&
+          ((question.dns_class() == record.dns_class()) ||
+           (question.dns_class() == DnsClass::kANY))) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 size_t MdnsMessage::MaxWireSize() const {
   return max_wire_size_;
 }
@@ -447,6 +638,10 @@ void MdnsMessage::AddAdditionalRecord(MdnsRecord record) {
   OSP_DCHECK(additional_records_.size() < std::numeric_limits<uint16_t>::max());
   max_wire_size_ += record.MaxWireSize();
   additional_records_.emplace_back(std::move(record));
+}
+
+bool MdnsMessage::CanAddRecord(const MdnsRecord& record) {
+  return (max_wire_size_ + record.MaxWireSize()) < kMaxMulticastMessageSize;
 }
 
 uint16_t CreateMessageId() {

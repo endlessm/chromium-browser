@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Timeline.PerformanceModel = class extends Common.Object {
+import {TimelineUIUtils} from './TimelineUIUtils.js';
+
+export class PerformanceModel extends Common.Object {
   constructor() {
     super();
     /** @type {?SDK.Target} */
@@ -13,8 +15,7 @@ Timeline.PerformanceModel = class extends Common.Object {
     this._filters = [];
 
     this._timelineModel = new TimelineModel.TimelineModel();
-    this._frameModel =
-        new TimelineModel.TimelineFrameModel(event => Timeline.TimelineUIUtils.eventStyle(event).category.name);
+    this._frameModel = new TimelineModel.TimelineFrameModel(event => TimelineUIUtils.eventStyle(event).category.name);
     /** @type {?SDK.FilmStripModel} */
     this._filmStripModel = null;
     /** @type {?TimelineModel.TimelineIRModel} */
@@ -127,7 +128,7 @@ Timeline.PerformanceModel = class extends Common.Object {
       return;
     }
     model.adjustTime(this._tracingModel.minimumRecordTime() + (timeOffset / 1000) - this._recordStartTime);
-    this.dispatchEventToListeners(Timeline.PerformanceModel.Events.ExtensionDataAdded);
+    this.dispatchEventToListeners(Events.ExtensionDataAdded);
   }
 
   /**
@@ -224,7 +225,7 @@ Timeline.PerformanceModel = class extends Common.Object {
    */
   setWindow(window, animate) {
     this._window = window;
-    this.dispatchEventToListeners(Timeline.PerformanceModel.Events.WindowChanged, {window, animate});
+    this.dispatchEventToListeners(Events.WindowChanged, {window, animate});
   }
 
   /**
@@ -287,15 +288,12 @@ Timeline.PerformanceModel = class extends Common.Object {
     }
     this.setWindow({left: leftTime, right: rightTime});
   }
-};
+}
 
 /**
  * @enum {symbol}
  */
-Timeline.PerformanceModel.Events = {
+export const Events = {
   ExtensionDataAdded: Symbol('ExtensionDataAdded'),
   WindowChanged: Symbol('WindowChanged')
 };
-
-/** @typedef {!{left: number, right: number}} */
-Timeline.PerformanceModel.Window;

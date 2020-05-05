@@ -48,7 +48,6 @@
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/VCSRevision.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/FunctionImport.h"
@@ -969,6 +968,12 @@ void ThinLTOCodeGenerator::run() {
 
   // Synthesize entry counts for functions in the combined index.
   computeSyntheticCounts(*Index);
+
+  // Currently there is no support for enabling whole program visibility via a
+  // linker option in the old LTO API, but this call allows it to be specified
+  // via the internal option. Must be done before WPD below.
+  updateVCallVisibilityInIndex(*Index,
+                               /* WholeProgramVisibilityEnabledInLTO */ false);
 
   // Perform index-based WPD. This will return immediately if there are
   // no index entries in the typeIdMetadata map (e.g. if we are instead

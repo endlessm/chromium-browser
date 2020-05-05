@@ -121,11 +121,35 @@ ConstrainedFPIntrinsic::getExceptionBehavior() const {
   return StrToExceptionBehavior(cast<MDString>(MD)->getString());
 }
 
+FCmpInst::Predicate
+ConstrainedFPCmpIntrinsic::getPredicate() const {
+  Metadata *MD =
+      cast<MetadataAsValue>(getArgOperand(2))->getMetadata();
+  if (!MD || !isa<MDString>(MD))
+    return FCmpInst::BAD_FCMP_PREDICATE;
+  return StringSwitch<FCmpInst::Predicate>(cast<MDString>(MD)->getString())
+           .Case("oeq", FCmpInst::FCMP_OEQ)
+           .Case("ogt", FCmpInst::FCMP_OGT)
+           .Case("oge", FCmpInst::FCMP_OGE)
+           .Case("olt", FCmpInst::FCMP_OLT)
+           .Case("ole", FCmpInst::FCMP_OLE)
+           .Case("one", FCmpInst::FCMP_ONE)
+           .Case("ord", FCmpInst::FCMP_ORD)
+           .Case("uno", FCmpInst::FCMP_UNO)
+           .Case("ueq", FCmpInst::FCMP_UEQ)
+           .Case("ugt", FCmpInst::FCMP_UGT)
+           .Case("uge", FCmpInst::FCMP_UGE)
+           .Case("ult", FCmpInst::FCMP_ULT)
+           .Case("ule", FCmpInst::FCMP_ULE)
+           .Case("une", FCmpInst::FCMP_UNE)
+           .Default(FCmpInst::BAD_FCMP_PREDICATE);
+}
+
 bool ConstrainedFPIntrinsic::isUnaryOp() const {
   switch (getIntrinsicID()) {
     default:
       return false;
-#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
+#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC)                         \
     case Intrinsic::INTRINSIC:                                                 \
       return NARG == 1;
 #include "llvm/IR/ConstrainedOps.def"
@@ -136,7 +160,7 @@ bool ConstrainedFPIntrinsic::isTernaryOp() const {
   switch (getIntrinsicID()) {
     default:
       return false;
-#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
+#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC)                         \
     case Intrinsic::INTRINSIC:                                                 \
       return NARG == 3;
 #include "llvm/IR/ConstrainedOps.def"
@@ -145,7 +169,7 @@ bool ConstrainedFPIntrinsic::isTernaryOp() const {
 
 bool ConstrainedFPIntrinsic::classof(const IntrinsicInst *I) {
   switch (I->getIntrinsicID()) {
-#define INSTRUCTION(NAME, NARGS, ROUND_MODE, INTRINSIC, DAGN)                  \
+#define INSTRUCTION(NAME, NARGS, ROUND_MODE, INTRINSIC)                        \
   case Intrinsic::INTRINSIC:
 #include "llvm/IR/ConstrainedOps.def"
     return true;

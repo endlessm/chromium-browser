@@ -18,7 +18,6 @@
 #include "net/third_party/quiche/src/quic/core/tls_client_handshaker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
 
 namespace quic {
 
@@ -74,8 +73,8 @@ bool QuicCryptoClientStream::encryption_established() const {
   return handshaker_->encryption_established();
 }
 
-bool QuicCryptoClientStream::handshake_confirmed() const {
-  return handshaker_->handshake_confirmed();
+bool QuicCryptoClientStream::one_rtt_keys_available() const {
+  return handshaker_->one_rtt_keys_available();
 }
 
 const QuicCryptoNegotiatedParameters&
@@ -87,6 +86,10 @@ CryptoMessageParser* QuicCryptoClientStream::crypto_message_parser() {
   return handshaker_->crypto_message_parser();
 }
 
+HandshakeState QuicCryptoClientStream::GetHandshakeState() const {
+  return handshaker_->GetHandshakeState();
+}
+
 size_t QuicCryptoClientStream::BufferSizeLimitForLevel(
     EncryptionLevel level) const {
   return handshaker_->BufferSizeLimitForLevel(level);
@@ -94,6 +97,14 @@ size_t QuicCryptoClientStream::BufferSizeLimitForLevel(
 
 std::string QuicCryptoClientStream::chlo_hash() const {
   return handshaker_->chlo_hash();
+}
+
+void QuicCryptoClientStream::OnOneRttPacketAcknowledged() {
+  handshaker_->OnOneRttPacketAcknowledged();
+}
+
+void QuicCryptoClientStream::OnHandshakeDoneReceived() {
+  handshaker_->OnHandshakeDoneReceived();
 }
 
 }  // namespace quic

@@ -107,25 +107,6 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     PTO_MODE,
   };
 
-  // Handshake state of this connection.
-  enum HandshakeState {
-    // Initial state.
-    HANDSHAKE_START,
-    // Only used in IETF QUIC with TLS handshake. State proceeds to
-    // HANDSHAKE_PROCESSED after a packet of HANDSHAKE packet number space
-    // gets successfully processed, and the initial key can be dropped.
-    HANDSHAKE_PROCESSED,
-    // In QUIC crypto, state proceeds to HANDSHAKE_COMPLETE if client receives
-    // SHLO or server successfully processes an ENCRYPTION_FORWARD_SECURE
-    // packet, such that the handshake packets can be neutered. In IETF QUIC
-    // with TLS handshake, state proceeds to HANDSHAKE_COMPLETE once the
-    // endpoint has both 1-RTT send and receive keys.
-    HANDSHAKE_COMPLETE,
-    // Only used in IETF QUIC with TLS handshake. State proceeds to
-    // HANDSHAKE_CONFIRMED if a 1-RTT packet gets acknowledged.
-    HANDSHAKE_CONFIRMED,
-  };
-
   QuicSentPacketManager(Perspective perspective,
                         const QuicClock* clock,
                         QuicRandom* random,
@@ -180,7 +161,6 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
 
   // Removes the retransmittable frames from all unencrypted packets to ensure
   // they don't get retransmitted.
-  // TODO(fayang): Consider replace this function with NeuterHandshakePackets.
   void NeuterUnencryptedPackets();
 
   // Returns true if there's outstanding crypto data.
@@ -323,9 +303,6 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return unacked_packets_.largest_sent_packet();
   }
 
-  QuicPacketNumber GetLargestSentPacket(
-      EncryptionLevel decrypted_packet_level) const;
-
   QuicPacketNumber GetLargestPacketPeerKnowsIsAcked(
       EncryptionLevel decrypted_packet_level) const;
 
@@ -364,7 +341,9 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return largest_packet_peer_knows_is_acked_;
   }
 
-  HandshakeState handshake_state() const { return handshake_state_; }
+  // TODO(fayang): Stop exposing this when deprecating
+  // quic_use_get_handshake_state.
+  bool handshake_finished() const { return handshake_finished_; }
 
   size_t pending_timer_transmission_count() const {
     return pending_timer_transmission_count_;
@@ -418,6 +397,8 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   bool skip_packet_number_for_pto() const {
     return skip_packet_number_for_pto_;
   }
+
+  bool one_rtt_packet_acked() const { return one_rtt_packet_acked_; }
 
  private:
   friend class test::QuicConnectionPeer;
@@ -524,13 +505,16 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // Called when handshake is confirmed to remove the retransmittable frames
   // from all packets of HANDSHAKE_DATA packet number space to ensure they don't
   // get retransmitted and will eventually be removed from unacked packets map.
-  // Please note, this only applies to QUIC Crypto and needs to be changed when
-  // switches to IETF QUIC with QUIC TLS.
   void NeuterHandshakePackets();
 
   // Indicates whether including peer_max_ack_delay_ when calculating PTO
   // timeout.
   bool ShouldAddMaxAckDelay() const;
+
+  // Gets the earliest in flight packet sent time to calculate PTO. Also
+  // updates |packet_number_space| if a PTO timer should be armed.
+  QuicTime GetEarliestPacketSentTimeForPto(
+      PacketNumberSpace* packet_number_space) const;
 
   // Newly serialized retransmittable packets are added to this map, which
   // contains owning pointers to any contained frames.  If a packet is
@@ -595,8 +579,9 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // Calls into |send_algorithm_| for the underlying congestion control.
   PacingSender pacing_sender_;
 
-  // Indicates current handshake state.
-  HandshakeState handshake_state_;
+  // Indicates whether handshake is finished. This is purely used to determine
+  // retransmission mode. DONOT use this to infer handshake state.
+  bool handshake_finished_;
 
   // Records bandwidth from server to client in normal operation, over periods
   // of time with no loss events.
@@ -652,8 +637,14 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // The multiplier of rttvar when calculating PTO timeout.
   int pto_rttvar_multiplier_;
 
-  // Latched value of quic_neuter_handshake_packets_once2.
-  const bool neuter_handshake_packets_once_;
+  // Number of PTOs similar to TLPs.
+  size_t num_tlp_timeout_ptos_;
+
+  // True if any 1-RTT packet gets acknowledged.
+  bool one_rtt_packet_acked_;
+
+  // Latched value of quic_sanitize_ack_delay.
+  const bool sanitize_ack_delay_;
 };
 
 }  // namespace quic

@@ -61,7 +61,7 @@ sk_sp<GrTexture> GrResourceProvider::createTexture(const GrSurfaceDesc& desc,
     }
 
     GrMipMapped mipMapped = mipLevelCount > 1 ? GrMipMapped::kYes : GrMipMapped::kNo;
-    if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, desc.fConfig, renderable,
+    if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, renderable,
                                       renderTargetSampleCnt, mipMapped)) {
         return nullptr;
     }
@@ -126,8 +126,8 @@ sk_sp<GrTexture> GrResourceProvider::createTexture(const GrSurfaceDesc& desc,
         if (this->isAbandoned()) {
             return nullptr;
         }
-        if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, desc.fConfig,
-                                          renderable, renderTargetSampleCnt, GrMipMapped::kNo)) {
+        if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, renderable,
+                                          renderTargetSampleCnt, GrMipMapped::kNo)) {
             return nullptr;
         }
 
@@ -144,16 +144,18 @@ sk_sp<GrTexture> GrResourceProvider::createTexture(const GrSurfaceDesc& desc,
     }
 }
 
-sk_sp<GrTexture> GrResourceProvider::createCompressedTexture(int width, int height,
+sk_sp<GrTexture> GrResourceProvider::createCompressedTexture(SkISize dimensions,
                                                              const GrBackendFormat& format,
-                                                             SkImage::CompressionType compression,
-                                                             SkBudgeted budgeted, SkData* data) {
+                                                             SkBudgeted budgeted,
+                                                             GrMipMapped mipMapped,
+                                                             GrProtected isProtected,
+                                                             SkData* data) {
     ASSERT_SINGLE_OWNER
     if (this->isAbandoned()) {
         return nullptr;
     }
-    return fGpu->createCompressedTexture(width, height, format, compression, budgeted, data->data(),
-                                         data->size());
+    return fGpu->createCompressedTexture(dimensions, format, budgeted, mipMapped,
+                                         isProtected, data->data(), data->size());
 }
 
 sk_sp<GrTexture> GrResourceProvider::createTexture(const GrSurfaceDesc& desc,
@@ -168,7 +170,7 @@ sk_sp<GrTexture> GrResourceProvider::createTexture(const GrSurfaceDesc& desc,
         return nullptr;
     }
 
-    if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, desc.fConfig, renderable,
+    if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, renderable,
                                       renderTargetSampleCnt, mipMapped)) {
         return nullptr;
     }
@@ -232,7 +234,7 @@ sk_sp<GrTexture> GrResourceProvider::createApproxTexture(const GrSurfaceDesc& de
     // textures should be created through the createCompressedTexture function.
     SkASSERT(!this->caps()->isFormatCompressed(format));
 
-    if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, desc.fConfig, renderable,
+    if (!fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, renderable,
                                       renderTargetSampleCnt, GrMipMapped::kNo)) {
         return nullptr;
     }
@@ -261,15 +263,16 @@ sk_sp<GrTexture> GrResourceProvider::refScratchTexture(const GrSurfaceDesc& desc
     ASSERT_SINGLE_OWNER
     SkASSERT(!this->isAbandoned());
     SkASSERT(!this->caps()->isFormatCompressed(format));
-    SkASSERT(fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, desc.fConfig,
-                                          renderable, renderTargetSampleCnt, GrMipMapped::kNo));
+    SkASSERT(fCaps->validateSurfaceParams({desc.fWidth, desc.fHeight}, format, renderable,
+                                          renderTargetSampleCnt, GrMipMapped::kNo));
 
     // We could make initial clears work with scratch textures but it is a rare case so we just opt
     // to fall back to making a new texture.
     if (fGpu->caps()->reuseScratchTextures() || renderable == GrRenderable::kYes) {
         GrScratchKey key;
-        GrTexturePriv::ComputeScratchKey(desc.fConfig, {desc.fWidth, desc.fHeight}, renderable,
-                                         renderTargetSampleCnt, mipMapped, isProtected, &key);
+        GrTexturePriv::ComputeScratchKey(*this->caps(), format, {desc.fWidth, desc.fHeight},
+                                         renderable, renderTargetSampleCnt, mipMapped, isProtected,
+                                         &key);
         GrGpuResource* resource = fCache->findAndRefScratchResource(key);
         if (resource) {
             fGpu->stats()->incNumScratchTexturesReused();
@@ -292,6 +295,18 @@ sk_sp<GrTexture> GrResourceProvider::wrapBackendTexture(const GrBackendTexture& 
     }
     return fGpu->wrapBackendTexture(tex, colorType, ownership, cacheable, ioType);
 }
+
+sk_sp<GrTexture> GrResourceProvider::wrapCompressedBackendTexture(const GrBackendTexture& tex,
+                                                                  GrWrapOwnership ownership,
+                                                                  GrWrapCacheable cacheable) {
+    ASSERT_SINGLE_OWNER
+    if (this->isAbandoned()) {
+        return nullptr;
+    }
+
+    return fGpu->wrapCompressedBackendTexture(tex, ownership, cacheable);
+}
+
 
 sk_sp<GrTexture> GrResourceProvider::wrapRenderableBackendTexture(const GrBackendTexture& tex,
                                                                   int sampleCnt,
@@ -397,13 +412,13 @@ static const int kVertsPerNonAAQuad = 4;
 static const int kIndicesPerNonAAQuad = 6;
 
 sk_sp<const GrGpuBuffer> GrResourceProvider::createNonAAQuadIndexBuffer() {
-    GR_STATIC_ASSERT(kVertsPerNonAAQuad * kMaxNumNonAAQuads <= 65535); // indices fit in a uint16_t
+    static_assert(kVertsPerNonAAQuad * kMaxNumNonAAQuads <= 65535);  // indices fit in a uint16_t
 
     static const uint16_t kNonAAQuadIndexPattern[] = {
         0, 1, 2, 2, 1, 3
     };
 
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(kNonAAQuadIndexPattern) == kIndicesPerNonAAQuad);
+    static_assert(SK_ARRAY_COUNT(kNonAAQuadIndexPattern) == kIndicesPerNonAAQuad);
 
     return this->createPatternedIndexBuffer(kNonAAQuadIndexPattern, kIndicesPerNonAAQuad,
                                             kMaxNumNonAAQuads, kVertsPerNonAAQuad, nullptr);
@@ -419,7 +434,7 @@ static const int kVertsPerAAQuad = 8;
 static const int kIndicesPerAAQuad = 30;
 
 sk_sp<const GrGpuBuffer> GrResourceProvider::createAAQuadIndexBuffer() {
-    GR_STATIC_ASSERT(kVertsPerAAQuad * kMaxNumAAQuads <= 65535); // indices fit in a uint16_t
+    static_assert(kVertsPerAAQuad * kMaxNumAAQuads <= 65535);  // indices fit in a uint16_t
 
     // clang-format off
     static const uint16_t kAAQuadIndexPattern[] = {
@@ -431,7 +446,7 @@ sk_sp<const GrGpuBuffer> GrResourceProvider::createAAQuadIndexBuffer() {
     };
     // clang-format on
 
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(kAAQuadIndexPattern) == kIndicesPerAAQuad);
+    static_assert(SK_ARRAY_COUNT(kAAQuadIndexPattern) == kIndicesPerAAQuad);
 
     return this->createPatternedIndexBuffer(kAAQuadIndexPattern, kIndicesPerAAQuad,
                                             kMaxNumAAQuads, kVertsPerAAQuad, nullptr);

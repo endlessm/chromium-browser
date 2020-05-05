@@ -15,7 +15,6 @@
  */
 
 syntax = "proto2";
-option optimize_for = LITE_RUNTIME;
 
 package perfetto.protos;
 
@@ -29,7 +28,9 @@ import "protos/perfetto/metrics/android/lmk_reason_metric.proto";
 import "protos/perfetto/metrics/android/powrails_metric.proto";
 import "protos/perfetto/metrics/android/startup_metric.proto";
 import "protos/perfetto/metrics/android/heap_profile_callsites.proto";
+import "protos/perfetto/metrics/android/hwui_metric.proto";
 import "protos/perfetto/metrics/android/package_list.proto";
+import "protos/perfetto/metrics/android/unmapped_java_symbols.proto";
 import "protos/perfetto/metrics/android/unsymbolized_frames.proto";
 import "protos/perfetto/metrics/android/java_heap_stats.proto";
 
@@ -46,11 +47,12 @@ message TraceMetadata {
   optional string trace_uuid = 3;
   optional string android_build_fingerprint = 4;
   optional int64 statsd_triggering_subscription_id = 5;
+  optional int64 trace_size_bytes = 6;
 }
 
 // Root message for all Perfetto-based metrics.
 //
-// Next id: 19
+// Next id: 21
 message TraceMetrics {
   reserved 4, 10, 13, 14;
 
@@ -98,6 +100,11 @@ message TraceMetrics {
 
   // Metrics used to find potential culprits of low-memory kills.
   optional AndroidLmkReasonMetric android_lmk_reason = 18;
+
+  // Java type names that have no deobfuscation mappings.
+  optional UnmappedJavaSymbols unmapped_java_symbols = 19;
+
+  optional AndroidHwuiMetric android_hwui_metric = 20;
 
   // Demo extensions.
   extensions 450 to 499;

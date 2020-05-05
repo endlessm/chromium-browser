@@ -35,13 +35,21 @@ BufferedSlice& BufferedSlice::operator=(BufferedSlice&& other) = default;
 
 BufferedSlice::~BufferedSlice() {}
 
+QuicInterval<std::size_t> BufferedSlice::interval() const {
+  const std::size_t length = slice.length();
+  return QuicInterval<std::size_t>(offset, offset + length);
+}
+
 bool StreamPendingRetransmission::operator==(
     const StreamPendingRetransmission& other) const {
   return offset == other.offset && length == other.length;
 }
 
 QuicStreamSendBuffer::QuicStreamSendBuffer(QuicBufferAllocator* allocator)
-    : stream_offset_(0),
+    // TODO(b/144690240): Remove this variable once quic_seeker is deprecated.
+    : interval_deque_active_(GetQuicReloadableFlag(quic_interval_deque)),
+      current_end_offset_(0),
+      stream_offset_(0),
       allocator_(allocator),
       stream_bytes_written_(0),
       stream_bytes_outstanding_(0),
@@ -59,10 +67,10 @@ void QuicStreamSendBuffer::SaveStreamData(const struct iovec* iov,
       GetQuicFlag(FLAGS_quic_send_buffer_max_data_slice_size);
   while (data_length > 0) {
     size_t slice_len = std::min(data_length, max_data_slice_size);
-    QuicMemSlice slice(allocator_, slice_len);
+    QuicUniqueBufferPtr buffer = MakeUniqueBuffer(allocator_, slice_len);
     QuicUtils::CopyToBuffer(iov, iov_count, iov_offset, slice_len,
-                            const_cast<char*>(slice.data()));
-    SaveMemSlice(std::move(slice));
+                            buffer.get());
+    SaveMemSlice(QuicMemSlice(std::move(buffer), slice_len));
     data_length -= slice_len;
     iov_offset += slice_len;
   }
@@ -76,9 +84,20 @@ void QuicStreamSendBuffer::SaveMemSlice(QuicMemSlice slice) {
     return;
   }
   size_t length = slice.length();
-  buffered_slices_.emplace_back(std::move(slice), stream_offset_);
-  if (write_index_ == -1) {
-    write_index_ = buffered_slices_.size() - 1;
+  if (interval_deque_active_) {
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_interval_deque, 1, 5);
+    // Need to start the offsets at the right interval.
+    if (interval_deque_.Empty()) {
+      const QuicStreamOffset end = stream_offset_ + length;
+      current_end_offset_ = std::max(current_end_offset_, end);
+    }
+    BufferedSlice bs = BufferedSlice(std::move(slice), stream_offset_);
+    interval_deque_.PushBack(std::move(bs));
+  } else {
+    buffered_slices_.emplace_back(std::move(slice), stream_offset_);
+    if (write_index_ == -1) {
+      write_index_ = buffered_slices_.size() - 1;
+    }
   }
   stream_offset_ += length;
 }
@@ -96,9 +115,39 @@ void QuicStreamSendBuffer::OnStreamDataConsumed(size_t bytes_consumed) {
 bool QuicStreamSendBuffer::WriteStreamData(QuicStreamOffset offset,
                                            QuicByteCount data_length,
                                            QuicDataWriter* writer) {
-  // TODO(renjietang): Remove this variable once quic_coalesce_stream_frames_2
-  // is deprecated.
-  bool write_index_hit = false;
+  if (interval_deque_active_) {
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_interval_deque, 2, 5);
+    QUIC_BUG_IF(current_end_offset_ < offset)
+        << "Tried to write data out of sequence. last_offset_end:"
+        << current_end_offset_ << ", offset:" << offset;
+    // The iterator returned from |interval_deque_| will automatically advance
+    // the internal write index for the QuicIntervalDeque. The incrementing is
+    // done in operator++.
+    for (auto slice_it = interval_deque_.DataAt(offset);
+         slice_it != interval_deque_.DataEnd(); ++slice_it) {
+      if (data_length == 0 || offset < slice_it->offset) {
+        break;
+      }
+
+      QuicByteCount slice_offset = offset - slice_it->offset;
+      QuicByteCount available_bytes_in_slice =
+          slice_it->slice.length() - slice_offset;
+      QuicByteCount copy_length =
+          std::min(data_length, available_bytes_in_slice);
+      if (!writer->WriteBytes(slice_it->slice.data() + slice_offset,
+                              copy_length)) {
+        QUIC_BUG << "Writer fails to write.";
+        return false;
+      }
+      offset += copy_length;
+      data_length -= copy_length;
+      const QuicStreamOffset new_end =
+          slice_it->offset + slice_it->slice.length();
+      current_end_offset_ = std::max(current_end_offset_, new_end);
+    }
+    return data_length == 0;
+  }
+
   QuicDeque<BufferedSlice>::iterator slice_it =
       write_index_ == -1
           ? buffered_slices_.begin()
@@ -110,9 +159,7 @@ bool QuicStreamSendBuffer::WriteStreamData(QuicStreamOffset offset,
       return false;
     }
     // Determine if write actually happens at indexed slice.
-    if (offset >= slice_it->offset) {
-      write_index_hit = true;
-    } else {
+    if (offset < slice_it->offset) {
       // Write index missed, move iterator to the beginning.
       slice_it = buffered_slices_.begin();
     }
@@ -137,35 +184,20 @@ bool QuicStreamSendBuffer::WriteStreamData(QuicStreamOffset offset,
     offset += copy_length;
     data_length -= copy_length;
 
-    if (GetQuicRestartFlag(quic_coalesce_stream_frames_2)) {
-      QUIC_RESTART_FLAG_COUNT_N(quic_coalesce_stream_frames_2, 2, 3);
-      if (write_index_ != -1) {
-        QuicDeque<BufferedSlice>::const_iterator index_slice =
-            buffered_slices_.begin() + write_index_;
-        if (index_slice->offset == slice_it->offset &&
-            copy_length == available_bytes_in_slice) {
-          // The slice pointed by write_index has been fully written, advance
-          // write index.
-          ++write_index_;
-        }
+    if (write_index_ != -1) {
+      QuicDeque<BufferedSlice>::const_iterator index_slice =
+          buffered_slices_.begin() + write_index_;
+      if (index_slice->offset == slice_it->offset &&
+          copy_length == available_bytes_in_slice) {
+        // The slice pointed by write_index has been fully written, advance
+        // write index.
+        ++write_index_;
       }
-    } else if (write_index_hit && copy_length == available_bytes_in_slice) {
-      // Finished writing all data in current slice, advance write index for
-      // next write.
-      ++write_index_;
     }
   }
 
-  if (GetQuicRestartFlag(quic_coalesce_stream_frames_2)) {
-    QUIC_RESTART_FLAG_COUNT_N(quic_coalesce_stream_frames_2, 3, 3);
-    if (write_index_ != -1 &&
-        static_cast<size_t>(write_index_) == buffered_slices_.size()) {
-      write_index_ = -1;
-    }
-  } else if (write_index_hit &&
-             static_cast<size_t>(write_index_) == buffered_slices_.size()) {
-    // Already write to the end off buffer.
-    QUIC_DVLOG(2) << "Finish writing out all buffered data.";
+  if (write_index_ != -1 &&
+      static_cast<size_t>(write_index_) == buffered_slices_.size()) {
     write_index_ = -1;
   }
 
@@ -264,6 +296,39 @@ StreamPendingRetransmission QuicStreamSendBuffer::NextPendingRetransmission()
 
 bool QuicStreamSendBuffer::FreeMemSlices(QuicStreamOffset start,
                                          QuicStreamOffset end) {
+  if (interval_deque_active_) {
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_interval_deque, 3, 5);
+    auto it = interval_deque_.DataBegin();
+    if (it == interval_deque_.DataEnd() || it->slice.empty()) {
+      QUIC_BUG << "Trying to ack stream data [" << start << ", " << end << "), "
+               << (it == interval_deque_.DataEnd()
+                       ? "and there is no outstanding data."
+                       : "and the first slice is empty.");
+      return false;
+    }
+    if (!it->interval().Contains(start)) {
+      // Slow path that not the earliest outstanding data gets acked.
+      it = std::lower_bound(interval_deque_.DataBegin(),
+                            interval_deque_.DataEnd(), start, CompareOffset());
+    }
+    if (it == interval_deque_.DataEnd() || it->slice.empty()) {
+      QUIC_BUG << "Offset " << start << " with iterator offset: " << it->offset
+               << (it == interval_deque_.DataEnd()
+                       ? " does not exist."
+                       : " has already been acked.");
+      return false;
+    }
+    for (; it != interval_deque_.DataEnd(); ++it) {
+      if (it->offset >= end) {
+        break;
+      }
+      if (!it->slice.empty() &&
+          bytes_acked_.Contains(it->offset, it->offset + it->slice.length())) {
+        it->slice.Reset();
+      }
+    }
+    return true;
+  }
   auto it = buffered_slices_.begin();
   // Find it, such that buffered_slices_[it - 1].end < start <=
   // buffered_slices_[it].end.
@@ -297,6 +362,19 @@ bool QuicStreamSendBuffer::FreeMemSlices(QuicStreamOffset start,
 }
 
 void QuicStreamSendBuffer::CleanUpBufferedSlices() {
+  if (interval_deque_active_) {
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_interval_deque, 4, 5);
+    while (!interval_deque_.Empty() &&
+           interval_deque_.DataBegin()->slice.empty()) {
+      QUIC_BUG_IF(interval_deque_.DataBegin()->offset > current_end_offset_)
+          << "Fail to pop front from interval_deque_. Front element contained "
+             "a slice whose data has not all be written. Front offset "
+          << interval_deque_.DataBegin()->offset << " length "
+          << interval_deque_.DataBegin()->slice.length();
+      interval_deque_.PopFront();
+    }
+    return;
+  }
   while (!buffered_slices_.empty() && buffered_slices_.front().slice.empty()) {
     // Remove data which stops waiting for acks. Please note, mem slices can
     // be released out of order, but send buffer is cleaned up in order.
@@ -323,7 +401,12 @@ bool QuicStreamSendBuffer::IsStreamDataOutstanding(
 }
 
 size_t QuicStreamSendBuffer::size() const {
-  return buffered_slices_.size();
+  if (interval_deque_active_) {
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_interval_deque, 5, 5);
+    return interval_deque_.Size();
+  } else {
+    return buffered_slices_.size();
+  }
 }
 
 }  // namespace quic

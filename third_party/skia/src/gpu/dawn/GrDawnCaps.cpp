@@ -38,53 +38,14 @@ bool GrDawnCaps::isFormatSRGB(const GrBackendFormat& format) const {
     return false;
 }
 
-bool GrDawnCaps::isFormatCompressed(const GrBackendFormat& format,
-                                    SkImage::CompressionType* compressionType) const {
-    return false;
+SkImage::CompressionType GrDawnCaps::compressionType(const GrBackendFormat& format) const {
+    return SkImage::CompressionType::kNone;
 }
 
 bool GrDawnCaps::isFormatTexturable(const GrBackendFormat& format) const {
     // Currently, all the formats in GrDawnFormatToPixelConfig are texturable.
     wgpu::TextureFormat dawnFormat;
     return format.asDawnFormat(&dawnFormat);
-}
-
-GrPixelConfig GrDawnCaps::onGetConfigFromBackendFormat(const GrBackendFormat& format,
-                                                       GrColorType colorType) const {
-    wgpu::TextureFormat dawnFormat;
-    if (!format.asDawnFormat(&dawnFormat)) {
-        return kUnknown_GrPixelConfig;
-    }
-    switch (colorType) {
-        case GrColorType::kUnknown:
-            return kUnknown_GrPixelConfig;
-        case GrColorType::kAlpha_8:
-            if (wgpu::TextureFormat::R8Unorm == dawnFormat) {
-                return kAlpha_8_as_Red_GrPixelConfig;
-            }
-            break;
-        case GrColorType::kRGBA_8888:
-            if (wgpu::TextureFormat::RGBA8Unorm == dawnFormat) {
-                return kRGBA_8888_GrPixelConfig;
-            } else if (wgpu::TextureFormat::BGRA8Unorm == dawnFormat) {
-                // FIXME: This shouldn't be necessary, but on some platforms (Mac)
-                // Skia byte order is RGBA, while preferred swap format is BGRA.
-                return kBGRA_8888_GrPixelConfig;
-            }
-            break;
-        case GrColorType::kRGB_888x:
-            break;
-        case GrColorType::kBGRA_8888:
-            if (wgpu::TextureFormat::BGRA8Unorm == dawnFormat) {
-                return kBGRA_8888_GrPixelConfig;
-            } else if (wgpu::TextureFormat::RGBA8Unorm == dawnFormat) {
-                return kRGBA_8888_GrPixelConfig;
-            }
-            break;
-        default:
-            break;
-    }
-    return kUnknown_GrPixelConfig;
 }
 
 static GrSwizzle get_swizzle(const GrBackendFormat& format, GrColorType colorType,
@@ -169,12 +130,8 @@ int GrDawnCaps::maxRenderTargetSampleCount(const GrBackendFormat& format) const 
 
 GrBackendFormat GrDawnCaps::onGetDefaultBackendFormat(GrColorType ct,
                                                       GrRenderable renderable) const {
-    GrPixelConfig config = GrColorTypeToPixelConfig(ct);
-    if (config == kUnknown_GrPixelConfig) {
-        return GrBackendFormat();
-    }
     wgpu::TextureFormat format;
-    if (!GrPixelConfigToDawnFormat(config, &format)) {
+    if (!GrColorTypeToDawnFormat(ct, &format)) {
         return GrBackendFormat();
     }
     return GrBackendFormat::MakeDawn(format);
@@ -185,7 +142,7 @@ GrBackendFormat GrDawnCaps::getBackendFormatFromCompressionType(SkImage::Compres
     return GrBackendFormat();
 }
 
-GrSwizzle GrDawnCaps::getTextureSwizzle(const GrBackendFormat& format, GrColorType colorType) const
+GrSwizzle GrDawnCaps::getReadSwizzle(const GrBackendFormat& format, GrColorType colorType) const
 {
     return get_swizzle(format, colorType, false);
 }
@@ -193,6 +150,17 @@ GrSwizzle GrDawnCaps::getTextureSwizzle(const GrBackendFormat& format, GrColorTy
 GrSwizzle GrDawnCaps::getOutputSwizzle(const GrBackendFormat& format, GrColorType colorType) const
 {
     return get_swizzle(format, colorType, true);
+}
+
+uint64_t GrDawnCaps::computeFormatKey(const GrBackendFormat& format) const {
+    wgpu::TextureFormat dawnFormat;
+    SkAssertResult(format.asDawnFormat(&dawnFormat));
+
+    // Dawn max enum value should always fit in 32 bits.
+
+    // disabled: no member named 'WGPUTextureFormat_Force32' in namespace 'wgpu'
+    //SkASSERT(dawnFormat <= wgpu::WGPUTextureFormat_Force32);
+    return (uint64_t)dawnFormat;
 }
 
 bool GrDawnCaps::onAreColorTypeAndFormatCompatible(GrColorType ct,
@@ -221,8 +189,8 @@ static uint32_t get_blend_info_key(const GrPipeline& pipeline) {
 
     static const uint32_t kBlendWriteShift = 1;
     static const uint32_t kBlendCoeffShift = 5;
-    GR_STATIC_ASSERT(kLast_GrBlendCoeff < (1 << kBlendCoeffShift));
-    GR_STATIC_ASSERT(kFirstAdvancedGrBlendEquation - 1 < 4);
+    static_assert(kLast_GrBlendCoeff < (1 << kBlendCoeffShift));
+    static_assert(kFirstAdvancedGrBlendEquation - 1 < 4);
 
     uint32_t key = blendInfo.fWriteColor;
     key |= (blendInfo.fSrcBlend << kBlendWriteShift);
@@ -258,7 +226,7 @@ GrProgramDesc GrDawnCaps::makeDesc(const GrRenderTarget* rt,
     b.add32(static_cast<uint32_t>(format));
     b.add32(static_cast<int32_t>(hasDepthStencil));
     b.add32(get_blend_info_key(programInfo.pipeline()));
-    b.add32(static_cast<uint32_t>(programInfo.primitiveType()));
+    b.add32(programInfo.primitiveTypeKey());
     return desc;
 }
 

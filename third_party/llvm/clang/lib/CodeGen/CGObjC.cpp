@@ -17,6 +17,7 @@
 #include "ConstantEmitter.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/Basic/Diagnostic.h"
@@ -460,38 +461,39 @@ tryEmitSpecializedAllocInit(CodeGenFunction &CGF, const ObjCMessageExpr *OME) {
       Sel.getNameForSlot(0) != "init")
     return None;
 
-  // Okay, this is '[receiver init]', check if 'receiver' is '[cls alloc]' or
-  // we are in an ObjC class method and 'receiver' is '[self alloc]'.
+  // Okay, this is '[receiver init]', check if 'receiver' is '[cls alloc]'
+  // with 'cls' a Class.
   auto *SubOME =
       dyn_cast<ObjCMessageExpr>(OME->getInstanceReceiver()->IgnoreParenCasts());
   if (!SubOME)
     return None;
   Selector SubSel = SubOME->getSelector();
 
-  // Check if we are in an ObjC class method and the receiver expression is
-  // 'self'.
-  const Expr *SelfInClassMethod = nullptr;
-  if (const auto *CurMD = dyn_cast_or_null<ObjCMethodDecl>(CGF.CurFuncDecl))
-    if (CurMD->isClassMethod())
-      if ((SelfInClassMethod = SubOME->getInstanceReceiver()))
-        if (!SelfInClassMethod->isObjCSelfExpr())
-          SelfInClassMethod = nullptr;
-
-  if ((SubOME->getReceiverKind() != ObjCMessageExpr::Class &&
-       !SelfInClassMethod) || !SubOME->getType()->isObjCObjectPointerType() ||
+  if (!SubOME->getType()->isObjCObjectPointerType() ||
       !SubSel.isUnarySelector() || SubSel.getNameForSlot(0) != "alloc")
     return None;
 
-  llvm::Value *Receiver;
-  if (SelfInClassMethod) {
-    Receiver = CGF.EmitScalarExpr(SelfInClassMethod);
-  } else {
+  llvm::Value *Receiver = nullptr;
+  switch (SubOME->getReceiverKind()) {
+  case ObjCMessageExpr::Instance:
+    if (!SubOME->getInstanceReceiver()->getType()->isObjCClassType())
+      return None;
+    Receiver = CGF.EmitScalarExpr(SubOME->getInstanceReceiver());
+    break;
+
+  case ObjCMessageExpr::Class: {
     QualType ReceiverType = SubOME->getClassReceiver();
-    const ObjCObjectType *ObjTy = ReceiverType->getAs<ObjCObjectType>();
+    const ObjCObjectType *ObjTy = ReceiverType->castAs<ObjCObjectType>();
     const ObjCInterfaceDecl *ID = ObjTy->getInterface();
     assert(ID && "null interface should be impossible here");
     Receiver = CGF.CGM.getObjCRuntime().GetClass(CGF, ID);
+    break;
   }
+  case ObjCMessageExpr::SuperInstance:
+  case ObjCMessageExpr::SuperClass:
+    return None;
+  }
+
   return CGF.EmitObjCAllocInit(Receiver, CGF.ConvertType(OME->getType()));
 }
 
@@ -511,7 +513,7 @@ RValue CodeGenFunction::EmitObjCMessageExpr(const ObjCMessageExpr *E,
       method->getMethodFamily() == OMF_retain) {
     if (auto lvalueExpr = findWeakLValue(E->getInstanceReceiver())) {
       LValue lvalue = EmitLValue(lvalueExpr);
-      llvm::Value *result = EmitARCLoadWeakRetained(lvalue.getAddress());
+      llvm::Value *result = EmitARCLoadWeakRetained(lvalue.getAddress(*this));
       return AdjustObjCObjectType(*this, E->getType(), RValue::get(result));
     }
   }
@@ -539,10 +541,7 @@ RValue CodeGenFunction::EmitObjCMessageExpr(const ObjCMessageExpr *E,
   switch (E->getReceiverKind()) {
   case ObjCMessageExpr::Instance:
     ReceiverType = E->getInstanceReceiver()->getType();
-    if (auto *OMD = dyn_cast_or_null<ObjCMethodDecl>(CurFuncDecl))
-      if (OMD->isClassMethod())
-        if (E->getInstanceReceiver()->isObjCSelfExpr())
-          isClassMessage = true;
+    isClassMessage = ReceiverType->isObjCClassType();
     if (retainSelf) {
       TryEmitResult ter = tryEmitARCRetainScalarExpr(*this,
                                                    E->getInstanceReceiver());
@@ -554,9 +553,7 @@ RValue CodeGenFunction::EmitObjCMessageExpr(const ObjCMessageExpr *E,
 
   case ObjCMessageExpr::Class: {
     ReceiverType = E->getClassReceiver();
-    const ObjCObjectType *ObjTy = ReceiverType->getAs<ObjCObjectType>();
-    assert(ObjTy && "Invalid Objective-C class message send");
-    OID = ObjTy->getInterface();
+    OID = ReceiverType->castAs<ObjCObjectType>()->getInterface();
     assert(OID && "Invalid Objective-C class message send");
     Receiver = Runtime.GetClass(*this, OID);
     isClassMessage = true;
@@ -749,8 +746,8 @@ static void emitStructGetterCall(CodeGenFunction &CGF, ObjCIvarDecl *ivar,
   ASTContext &Context = CGF.getContext();
 
   Address src =
-    CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(), CGF.LoadObjCSelf(), ivar, 0)
-       .getAddress();
+      CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(), CGF.LoadObjCSelf(), ivar, 0)
+          .getAddress(CGF);
 
   // objc_copyStruct (ReturnValue, &structIvar,
   //                  sizeof (Type of Ivar), isAtomic, false);
@@ -981,7 +978,7 @@ void CodeGenFunction::GenerateObjCGetter(ObjCImplementationDecl *IMP,
 
   generateObjCGetterBody(IMP, PID, OMD, AtomicHelperFn);
 
-  FinishFunction();
+  FinishFunction(OMD->getEndLoc());
 }
 
 static bool hasTrivialGetExpr(const ObjCPropertyImplDecl *propImpl) {
@@ -1022,8 +1019,8 @@ static void emitCPPObjectAtomicGetterCall(CodeGenFunction &CGF,
 
   // The 2nd argument is the address of the ivar.
   llvm::Value *ivarAddr =
-    CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(),
-                          CGF.LoadObjCSelf(), ivar, 0).getPointer();
+      CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(), CGF.LoadObjCSelf(), ivar, 0)
+          .getPointer(CGF);
   ivarAddr = CGF.Builder.CreateBitCast(ivarAddr, CGF.Int8PtrTy);
   args.add(RValue::get(ivarAddr), CGF.getContext().VoidPtrTy);
 
@@ -1082,7 +1079,7 @@ CodeGenFunction::generateObjCGetterBody(const ObjCImplementationDecl *classImpl,
     bitcastType = bitcastType->getPointerTo(); // addrspace 0 okay
 
     // Perform an atomic load.  This does not impose ordering constraints.
-    Address ivarAddr = LV.getAddress();
+    Address ivarAddr = LV.getAddress(*this);
     ivarAddr = Builder.CreateBitCast(ivarAddr, bitcastType);
     llvm::LoadInst *load = Builder.CreateLoad(ivarAddr, "load");
     load->setAtomic(llvm::AtomicOrdering::Unordered);
@@ -1183,14 +1180,14 @@ CodeGenFunction::generateObjCGetterBody(const ObjCImplementationDecl *classImpl,
     case TEK_Scalar: {
       llvm::Value *value;
       if (propType->isReferenceType()) {
-        value = LV.getAddress().getPointer();
+        value = LV.getAddress(*this).getPointer();
       } else {
         // We want to load and autoreleaseReturnValue ARC __weak ivars.
         if (LV.getQuals().getObjCLifetime() == Qualifiers::OCL_Weak) {
           if (getLangOpts().ObjCAutoRefCount) {
             value = emitARCRetainLoadOfScalar(*this, LV, ivarType);
           } else {
-            value = EmitARCLoadWeak(LV.getAddress());
+            value = EmitARCLoadWeak(LV.getAddress(*this));
           }
 
         // Otherwise we want to do a simple load, suppressing the
@@ -1224,9 +1221,9 @@ static void emitStructSetterCall(CodeGenFunction &CGF, ObjCMethodDecl *OMD,
   CallArgList args;
 
   // The first argument is the address of the ivar.
-  llvm::Value *ivarAddr = CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(),
-                                                CGF.LoadObjCSelf(), ivar, 0)
-    .getPointer();
+  llvm::Value *ivarAddr =
+      CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(), CGF.LoadObjCSelf(), ivar, 0)
+          .getPointer(CGF);
   ivarAddr = CGF.Builder.CreateBitCast(ivarAddr, CGF.Int8PtrTy);
   args.add(RValue::get(ivarAddr), CGF.getContext().VoidPtrTy);
 
@@ -1235,7 +1232,7 @@ static void emitStructSetterCall(CodeGenFunction &CGF, ObjCMethodDecl *OMD,
   DeclRefExpr argRef(CGF.getContext(), argVar, false,
                      argVar->getType().getNonReferenceType(), VK_LValue,
                      SourceLocation());
-  llvm::Value *argAddr = CGF.EmitLValue(&argRef).getPointer();
+  llvm::Value *argAddr = CGF.EmitLValue(&argRef).getPointer(CGF);
   argAddr = CGF.Builder.CreateBitCast(argAddr, CGF.Int8PtrTy);
   args.add(RValue::get(argAddr), CGF.getContext().VoidPtrTy);
 
@@ -1271,8 +1268,8 @@ static void emitCPPObjectAtomicSetterCall(CodeGenFunction &CGF,
 
   // The first argument is the address of the ivar.
   llvm::Value *ivarAddr =
-    CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(),
-                          CGF.LoadObjCSelf(), ivar, 0).getPointer();
+      CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(), CGF.LoadObjCSelf(), ivar, 0)
+          .getPointer(CGF);
   ivarAddr = CGF.Builder.CreateBitCast(ivarAddr, CGF.Int8PtrTy);
   args.add(RValue::get(ivarAddr), CGF.getContext().VoidPtrTy);
 
@@ -1281,7 +1278,7 @@ static void emitCPPObjectAtomicSetterCall(CodeGenFunction &CGF,
   DeclRefExpr argRef(CGF.getContext(), argVar, false,
                      argVar->getType().getNonReferenceType(), VK_LValue,
                      SourceLocation());
-  llvm::Value *argAddr = CGF.EmitLValue(&argRef).getPointer();
+  llvm::Value *argAddr = CGF.EmitLValue(&argRef).getPointer(CGF);
   argAddr = CGF.Builder.CreateBitCast(argAddr, CGF.Int8PtrTy);
   args.add(RValue::get(argAddr), CGF.getContext().VoidPtrTy);
 
@@ -1358,7 +1355,7 @@ CodeGenFunction::generateObjCSetterBody(const ObjCImplementationDecl *classImpl,
 
     LValue ivarLValue =
       EmitLValueForIvar(TypeOfSelfObject(), LoadObjCSelf(), ivar, /*quals*/ 0);
-    Address ivarAddr = ivarLValue.getAddress();
+    Address ivarAddr = ivarLValue.getAddress(*this);
 
     // Currently, all atomic accesses have to be through integer
     // types, so there's no point in trying to pick a prettier type.
@@ -1515,7 +1512,7 @@ void CodeGenFunction::GenerateObjCSetter(ObjCImplementationDecl *IMP,
 
   generateObjCSetterBody(IMP, PID, AtomicHelperFn);
 
-  FinishFunction();
+  FinishFunction(OMD->getEndLoc());
 }
 
 namespace {
@@ -1535,7 +1532,7 @@ namespace {
     void Emit(CodeGenFunction &CGF, Flags flags) override {
       LValue lvalue
         = CGF.EmitLValueForIvar(CGF.TypeOfSelfObject(), addr, ivar, /*CVR*/ 0);
-      CGF.emitDestroy(lvalue.getAddress(), ivar->getType(), destroyer,
+      CGF.emitDestroy(lvalue.getAddress(CGF), ivar->getType(), destroyer,
                       flags.isForNormalCleanup() && useEHCleanupForArray);
     }
   };
@@ -1602,7 +1599,7 @@ void CodeGenFunction::GenerateObjCCtorDtorMethod(ObjCImplementationDecl *IMP,
       LValue LV = EmitLValueForIvar(TypeOfSelfObject(),
                                     LoadObjCSelf(), Ivar, 0);
       EmitAggExpr(IvarInit->getInit(),
-                  AggValueSlot::forLValue(LV, AggValueSlot::IsDestructed,
+                  AggValueSlot::forLValue(LV, *this, AggValueSlot::IsDestructed,
                                           AggValueSlot::DoesNotNeedGCBarriers,
                                           AggValueSlot::IsNotAliased,
                                           AggValueSlot::DoesNotOverlap));
@@ -2327,7 +2324,7 @@ llvm::Value *CodeGenFunction::EmitARCStoreStrong(LValue dst,
       !isBlock &&
       (dst.getAlignment().isZero() ||
        dst.getAlignment() >= CharUnits::fromQuantity(PointerAlignInBytes))) {
-    return EmitARCStoreStrongCall(dst.getAddress(), newValue, ignored);
+    return EmitARCStoreStrongCall(dst.getAddress(*this), newValue, ignored);
   }
 
   // Otherwise, split it out.
@@ -2726,7 +2723,7 @@ static TryEmitResult tryEmitARCRetainLoadOfScalar(CodeGenFunction &CGF,
     result = CGF.EmitLoadOfLValue(lvalue, SourceLocation()).getScalarVal();
   } else {
     assert(type.getObjCLifetime() == Qualifiers::OCL_Weak);
-    result = CGF.EmitARCLoadWeakRetained(lvalue.getAddress());
+    result = CGF.EmitARCLoadWeakRetained(lvalue.getAddress(CGF));
   }
   return TryEmitResult(result, !shouldRetain);
 }
@@ -2750,7 +2747,7 @@ static TryEmitResult tryEmitARCRetainLoadOfScalar(CodeGenFunction &CGF,
                                                SourceLocation()).getScalarVal();
 
     // Set the source pointer to NULL.
-    CGF.EmitStoreOfScalar(getNullForVariable(lv.getAddress()), lv);
+    CGF.EmitStoreOfScalar(getNullForVariable(lv.getAddress(CGF)), lv);
 
     return TryEmitResult(result, true);
   }

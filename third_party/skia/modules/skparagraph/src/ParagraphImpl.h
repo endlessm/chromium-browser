@@ -49,6 +49,13 @@ struct ResolvedFontDescriptor {
     TextIndex fTextStart;
 };
 
+struct BidiRegion {
+    BidiRegion(size_t start, size_t end, uint8_t dir)
+        : text(start, end), direction(dir) { }
+    TextRange text;
+    uint8_t direction;
+};
+
 class TextBreaker {
 public:
     TextBreaker() : fInitialized(false), fPos(-1) {}
@@ -119,7 +126,7 @@ public:
     size_t lineNumber() override { return fLines.size(); }
 
     TextLine& addLine(SkVector offset, SkVector advance, TextRange text, TextRange textWithSpaces,
-                      ClusterRange clusters, ClusterRange clustersWithGhosts, SkScalar AddLineToParagraph,
+                      ClusterRange clusters, ClusterRange clustersWithGhosts, SkScalar widthWithSpaces,
                       InternalLineMetrics sizes);
 
     SkSpan<const char> text() const { return SkSpan<const char>(fText.c_str(), fText.size()); }
@@ -196,8 +203,10 @@ public:
     void updateForegroundPaint(size_t from, size_t to, SkPaint paint) override;
     void updateBackgroundPaint(size_t from, size_t to, SkPaint paint) override;
 
-    InternalLineMetrics computeEmptyMetrics();
+    InternalLineMetrics getEmptyMetrics() const { return fEmptyMetrics; }
     InternalLineMetrics getStrutMetrics() const { return fStrutMetrics; }
+
+    BlockRange findAllBlocks(TextRange textRange);
 
 private:
     friend class ParagraphBuilder;
@@ -208,12 +217,15 @@ private:
     friend class TextWrapper;
     friend class OneLineShaper;
 
-    void calculateBoundaries(ClusterRange clusters, SkVector offset, SkVector advance);
-    BlockRange findAllBlocks(TextRange textRange);
+    void calculateBoundaries();
     void extractStyles();
 
     void markGraphemes16();
     void markGraphemes();
+
+    void computeEmptyMetrics();
+
+    bool calculateBidiRegions(SkTArray<BidiRegion>* regions);
 
     // Input
     SkTArray<StyleBlock<SkScalar>> fLetterSpaceStyles;
@@ -241,6 +253,7 @@ private:
 
     SkTArray<ResolvedFontDescriptor> fFontSwitches;
 
+    InternalLineMetrics fEmptyMetrics;
     InternalLineMetrics fStrutMetrics;
 
     SkScalar fOldWidth;

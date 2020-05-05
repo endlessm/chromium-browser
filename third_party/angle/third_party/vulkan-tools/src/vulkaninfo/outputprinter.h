@@ -33,24 +33,23 @@
 std::string insert_quotes(std::string s) { return "\"" + s + "\""; }
 
 std::string to_string_16(uint8_t uid[16]) {
-    std::stringstream stream;
-    stream << std::setw(2) << std::hex;
-    stream << (int)uid[0] << (int)uid[1] << (int)uid[2] << (int)uid[3] << "-";
-    stream << (int)uid[4] << (int)uid[5] << "-";
-    stream << (int)uid[6] << (int)uid[7] << "-";
-    stream << (int)uid[8] << (int)uid[9] << "-";
-    stream << (int)uid[10] << (int)uid[11] << (int)uid[12] << (int)uid[13] << (int)uid[14] << (int)uid[15];
-
-    return stream.str();
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (int i = 0; i < 16; ++i) {
+        if (i == 4 || i == 6 || i == 8 || i == 10) ss << '-';
+        ss << std::setw(2) << static_cast<unsigned>(uid[i]);
+    }
+    return ss.str();
 }
 
 std::string to_string_8(uint8_t uid[8]) {
-    std::stringstream stream;
-    stream << std::setw(2) << std::hex;
-    stream << (int)uid[0] << (int)uid[1] << (int)uid[2] << (int)uid[3] << "-";
-    stream << (int)uid[4] << (int)uid[5] << (int)uid[6] << (int)uid[7];
-
-    return stream.str();
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (int i = 0; i < 8; ++i) {
+        if (i == 4) ss << '-';
+        ss << std::setw(2) << static_cast<unsigned>(uid[i]);
+    }
+    return ss.str();
 }
 
 std::string VkVersionString(uint32_t version) {
@@ -208,6 +207,9 @@ class Printer {
         assert(indents == 0 && "indents must be zero at program end");
     };
 
+    Printer(const Printer &) = delete;
+    const Printer &operator=(const Printer &) = delete;
+
     OutputType Type() { return output_type; }
 
     // Custom Formatting
@@ -247,12 +249,12 @@ class Printer {
     void ObjectStart(std::string object_name) {
         switch (output_type) {
             case (OutputType::text): {
-                out << std::string(indents, '\t') << object_name;
+                out << std::string(static_cast<size_t>(indents), '\t') << object_name;
                 if (element_index != -1) {
                     out << "[" << element_index << "]";
                 }
                 out << ":\n";
-                int headersize = object_name.size() + 1;
+                size_t headersize = object_name.size() + 1;
                 if (element_index != -1) {
                     headersize += 1 + std::to_string(element_index).size();
                     element_index = -1;
@@ -261,7 +263,7 @@ class Printer {
                 break;
             }
             case (OutputType::html):
-                out << std::string(indents, '\t');
+                out << std::string(static_cast<size_t>(indents), '\t');
                 if (set_details_open) {
                     out << "<details open>";
                     set_details_open = false;
@@ -287,7 +289,7 @@ class Printer {
                 } else {
                     is_first_item.top() = false;
                 }
-                out << std::string(indents, '\t');
+                out << std::string(static_cast<size_t>(indents), '\t');
                 // Objects with no name are elements in an array of objects
                 if (object_name == "" || element_index != -1) {
                     out << "{\n";
@@ -311,25 +313,25 @@ class Printer {
 
                 break;
             case (OutputType::html):
-                out << std::string(indents, '\t') << "</details>\n";
+                out << std::string(static_cast<size_t>(indents), '\t') << "</details>\n";
                 break;
             case (OutputType::json):
-                out << "\n" << std::string(indents, '\t') << "}";
+                out << "\n" << std::string(static_cast<size_t>(indents), '\t') << "}";
                 is_first_item.pop();
                 break;
             default:
                 break;
         }
     }
-    void ArrayStart(std::string array_name, int element_count = 0) {
+    void ArrayStart(std::string array_name, size_t element_count = 0) {
         switch (output_type) {
             case (OutputType::text):
-                out << std::string(indents, '\t') << array_name << ": "
+                out << std::string(static_cast<size_t>(indents), '\t') << array_name << ": "
                     << "count = " << element_count << "\n";
                 PrintHeaderUnderlines(array_name.size() + 1);
                 break;
             case (OutputType::html):
-                out << std::string(indents, '\t');
+                out << std::string(static_cast<size_t>(indents), '\t');
                 if (set_details_open) {
                     out << "<details open>";
                     set_details_open = false;
@@ -344,7 +346,7 @@ class Printer {
                 } else {
                     is_first_item.top() = false;
                 }
-                out << std::string(indents, '\t') << "\"" << array_name << "\": "
+                out << std::string(static_cast<size_t>(indents), '\t') << "\"" << array_name << "\": "
                     << "[\n";
                 is_first_item.push(true);
                 break;
@@ -361,10 +363,10 @@ class Printer {
 
                 break;
             case (OutputType::html):
-                out << std::string(indents, '\t') << "</details>\n";
+                out << std::string(static_cast<size_t>(indents), '\t') << "</details>\n";
                 break;
             case (OutputType::json):
-                out << "\n" << std::string(indents, '\t') << "]";
+                out << "\n" << std::string(static_cast<size_t>(indents), '\t') << "]";
                 is_first_item.pop();
                 break;
             default:
@@ -380,9 +382,9 @@ class Printer {
         switch (output_type) {
             case (OutputType::text):
                 if (min_key_width > key.size()) {
-                    out << std::string(indents, '\t') << key << std::string(min_key_width - key.size(), ' ');
+                    out << std::string(static_cast<size_t>(indents), '\t') << key << std::string(min_key_width - key.size(), ' ');
                 } else {
-                    out << std::string(indents, '\t') << key;
+                    out << std::string(static_cast<size_t>(indents), '\t') << key;
                 }
                 out << " = " << value;
                 if (value_description != "") {
@@ -391,7 +393,7 @@ class Printer {
                 out << "\n";
                 break;
             case (OutputType::html):
-                out << std::string(indents, '\t') << "<details><summary>" << key;
+                out << std::string(static_cast<size_t>(indents), '\t') << "<details><summary>" << key;
                 if (min_key_width > key.size()) {
                     out << std::string(min_key_width - key.size(), ' ');
                 }
@@ -412,7 +414,7 @@ class Printer {
                 } else {
                     is_first_item.top() = false;
                 }
-                out << std::string(indents, '\t') << "\"" << key << "\": " << value;
+                out << std::string(static_cast<size_t>(indents), '\t') << "\"" << key << "\": " << value;
             default:
                 break;
         }
@@ -453,14 +455,14 @@ class Printer {
     void PrintElement(T element, std::string value_description = "") {
         switch (output_type) {
             case (OutputType::text):
-                out << std::string(indents, '\t') << element;
+                out << std::string(static_cast<size_t>(indents), '\t') << element;
                 if (value_description != "") {
                     out << " (" << value_description << ")";
                 }
                 out << "\n";
                 break;
             case (OutputType::html):
-                out << std::string(indents, '\t') << "<details><summary>";
+                out << std::string(static_cast<size_t>(indents), '\t') << "<details><summary>";
                 if (set_as_type) {
                     set_as_type = false;
                     out << "<span class='type'>" << element << "</span>";
@@ -478,22 +480,22 @@ class Printer {
                 } else {
                     is_first_item.top() = false;
                 }
-                out << std::string(indents, '\t') << element;
+                out << std::string(static_cast<size_t>(indents), '\t') << element;
                 break;
             default:
                 break;
         }
     }
-    void PrintExtension(std::string ext_name, int revision, size_t min_width = 0) {
+    void PrintExtension(std::string ext_name, uint32_t revision, int min_width = 0) {
         switch (output_type) {
             case (OutputType::text):
-                out << std::string(indents, '\t') << ext_name << std::string(min_width - ext_name.size(), ' ')
+                out << std::string(static_cast<size_t>(indents), '\t') << ext_name << std::string(min_width - ext_name.size(), ' ')
                     << " : extension revision " << revision << "\n";
                 break;
             case (OutputType::html):
-                out << std::string(indents, '\t') << "<details><summary><span class='type'>" << ext_name << "</span>"
-                    << std::string(min_width - ext_name.size(), ' ') << " : extension revision <span class='val'>" << revision
-                    << "</span></summary></details>\n";
+                out << std::string(static_cast<size_t>(indents), '\t') << "<details><summary><span class='type'>" << ext_name
+                    << "</span>" << std::string(min_width - ext_name.size(), ' ') << " : extension revision <span class='val'>"
+                    << revision << "</span></summary></details>\n";
                 break;
             case (OutputType::json):
 
@@ -503,31 +505,19 @@ class Printer {
         }
     }
     void AddNewline() {
-        switch (output_type) {
-            case (OutputType::text):
-                out << "\n";
-                break;
-            default:
-                break;
+        if (output_type == OutputType::text) {
+            out << "\n";
         }
     }
     void IndentIncrease() {
-        switch (output_type) {
-            case (OutputType::text):
-                indents++;
-                break;
-            default:
-                break;
+        if (output_type == OutputType::text) {
+            indents++;
         }
     }
     void IndentDecrease() {
-        switch (output_type) {
-            case (OutputType::text):
-                indents--;
-                assert(indents >= 0 && "indents cannot go below zero");
-                break;
-            default:
-                break;
+        if (output_type == OutputType::text) {
+            indents--;
+            assert(indents >= 0 && "indents cannot go below zero");
         }
     }
 
@@ -556,14 +546,14 @@ class Printer {
     std::stack<bool> is_first_item;
 
     // utility
-    void PrintHeaderUnderlines(int length) {
+    void PrintHeaderUnderlines(size_t length) {
         assert(indents >= 0 && "indents must not be negative");
-        assert(length >= 0 && "length must not be negative");
+        assert(length <= 10000 && "length shouldn't be unreasonably large");
         if (set_next_header) {
-            out << std::string(indents, '\t') << std::string(length, '=') << "\n";
+            out << std::string(static_cast<size_t>(indents), '\t') << std::string(length, '=') << "\n";
             set_next_header = false;
         } else if (set_next_subheader) {
-            out << std::string(indents, '\t') << std::string(length, '-') << "\n";
+            out << std::string(static_cast<size_t>(indents), '\t') << std::string(length, '-') << "\n";
             set_next_subheader = false;
         }
     }

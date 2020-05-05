@@ -112,6 +112,9 @@ const char* const kHighlightElementScript =
 const char* const kGetValueAttributeScript =
     "function () { return this.value; }";
 
+// Javascript code to select the current value.
+const char* const kSelectFieldValue = "function() { this.select(); }";
+
 // Javascript code to set the 'value' attribute of a node and then fire a
 // "change" event to trigger any listeners.
 const char* const kSetValueAttributeScript =
@@ -137,6 +140,8 @@ const char* const kSetAttributeScript =
 // better solution than injecting Javascript code.
 const char* const kGetOuterHtmlScript =
     "function () { return this.outerHTML; }";
+
+const char* const kGetElementTagScript = "function () { return this.tagName; }";
 
 // Javascript code to query whether the document is ready for interact.
 const char* const kIsDocumentReadyForInteract =
@@ -421,7 +426,7 @@ void WebController::TapOrClickOnCoordinates(
             .SetX(x)
             .SetY(y)
             .SetClickCount(1)
-            .SetButton(input::DispatchMouseEventButton::LEFT)
+            .SetButton(input::MouseButton::LEFT)
             .SetType(input::DispatchMouseEventType::MOUSE_PRESSED)
             .Build(),
         node_frame_id,
@@ -466,7 +471,7 @@ void WebController::OnDispatchPressMouseEvent(
           .SetX(x)
           .SetY(y)
           .SetClickCount(1)
-          .SetButton(input::DispatchMouseEventButton::LEFT)
+          .SetButton(input::MouseButton::LEFT)
           .SetType(input::DispatchMouseEventType::MOUSE_RELEASED)
           .Build(),
       node_frame_id,
@@ -822,6 +827,68 @@ void WebController::OnGetFormAndFieldDataForFillingForm(
   std::move(callback).Run(OkClientStatus());
 }
 
+void WebController::RetrieveElementFormAndFieldData(
+    const Selector& selector,
+    base::OnceCallback<void(const ClientStatus&,
+                            const autofill::FormData& form_data,
+                            const autofill::FormFieldData& field_data)>
+        callback) {
+  DVLOG(3) << __func__ << " " << selector;
+  FindElement(
+      selector, /* strict_mode= */ true,
+      base::BindOnce(&WebController::OnFindElementToRetrieveFormAndFieldData,
+                     weak_ptr_factory_.GetWeakPtr(), selector,
+                     std::move(callback)));
+}
+
+void WebController::OnFindElementToRetrieveFormAndFieldData(
+    const Selector& selector,
+    base::OnceCallback<void(const ClientStatus&,
+                            const autofill::FormData& form_data,
+                            const autofill::FormFieldData& field_data)>
+        callback,
+    const ClientStatus& status,
+    std::unique_ptr<ElementFinder::Result> element_result) {
+  if (!status.ok()) {
+    DVLOG(1) << __func__
+             << " Failed to find the element to retrieve form and field data.";
+    std::move(callback).Run(status, autofill::FormData(),
+                            autofill::FormFieldData());
+    return;
+  }
+  ContentAutofillDriver* driver = ContentAutofillDriver::GetForRenderFrameHost(
+      element_result->container_frame_host);
+  if (driver == nullptr) {
+    DVLOG(1) << __func__ << " Failed to get the autofill driver.";
+    std::move(callback).Run(
+        FillAutofillErrorStatus(UnexpectedErrorStatus(__FILE__, __LINE__)),
+        autofill::FormData(), autofill::FormFieldData());
+    return;
+  }
+  DCHECK(!selector.empty());
+  driver->GetAutofillAgent()->GetElementFormAndFieldData(
+      std::vector<std::string>(1, selector.selectors.back()),
+      base::BindOnce(&WebController::OnGetFormAndFieldDataForRetrieving,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void WebController::OnGetFormAndFieldDataForRetrieving(
+    base::OnceCallback<void(const ClientStatus&,
+                            const autofill::FormData& form_data,
+                            const autofill::FormFieldData& field_data)>
+        callback,
+    const autofill::FormData& form_data,
+    const autofill::FormFieldData& field_data) {
+  if (form_data.fields.empty()) {
+    DVLOG(1) << __func__
+             << " Failed to get form and field data for retrieving.";
+    std::move(callback).Run(UnexpectedErrorStatus(__FILE__, __LINE__),
+                            autofill::FormData(), autofill::FormFieldData());
+    return;
+  }
+  std::move(callback).Run(OkClientStatus(), form_data, field_data);
+}
+
 void WebController::SelectOption(
     const Selector& selector,
     const std::string& selected_option,
@@ -997,35 +1064,39 @@ void WebController::OnGetValueAttribute(
 void WebController::SetFieldValue(
     const Selector& selector,
     const std::string& value,
-    bool simulate_key_presses,
+    KeyboardValueFillStrategy fill_strategy,
     int key_press_delay_in_millisecond,
     base::OnceCallback<void(const ClientStatus&)> callback) {
   DVLOG(3) << __func__ << " " << selector << ", value=" << value
-           << ", simulate_key_presses=" << simulate_key_presses;
-  if (simulate_key_presses) {
-    // We first clear the field value, and then simulate the key presses.
+           << ", strategy=" << fill_strategy;
+  if ((fill_strategy == SIMULATE_KEY_PRESSES ||
+       fill_strategy == SIMULATE_KEY_PRESSES_SELECT_VALUE) &&
+      !value.empty()) {
+    // We first select the field value, and then simulate the key presses. This
+    // will clear / overwrite the previous value.
     // TODO(crbug.com/806868): Disable keyboard during this action and then
     // reset to previous state.
-    InternalSetFieldValue(
-        selector, "",
-        base::BindOnce(&WebController::OnClearFieldForSendKeyboardInput,
-                       weak_ptr_factory_.GetWeakPtr(), selector,
-                       UTF8ToUnicode(value), key_press_delay_in_millisecond,
-                       std::move(callback)));
+    if (fill_strategy == SIMULATE_KEY_PRESSES_SELECT_VALUE) {
+      // TODO(b/149004036): In case of empty, send a backspace (i.e. code 8),
+      // instead of falling back to InternalSetFieldValue(""). This currently
+      // fails in WebControllerBrowserTest.GetAndSetFieldValue. Fixing this
+      // might fix b/148001624 as well.
+      SelectFieldValueForReplace(
+          selector,
+          base::BindOnce(&WebController::OnFieldValueSelectedForDispatchKeys,
+                         weak_ptr_factory_.GetWeakPtr(), UTF8ToUnicode(value),
+                         key_press_delay_in_millisecond, std::move(callback)));
+    } else {
+      InternalSetFieldValue(
+          selector, "",
+          base::BindOnce(&WebController::OnClearFieldForSendKeyboardInput,
+                         weak_ptr_factory_.GetWeakPtr(), selector,
+                         UTF8ToUnicode(value), key_press_delay_in_millisecond,
+                         std::move(callback)));
+    }
     return;
   }
   InternalSetFieldValue(selector, value, std::move(callback));
-}
-
-void WebController::InternalSetFieldValue(
-    const Selector& selector,
-    const std::string& value,
-    base::OnceCallback<void(const ClientStatus&)> callback) {
-  FindElement(selector,
-              /* strict_mode= */ true,
-              base::BindOnce(&WebController::OnFindElementForSetFieldValue,
-                             weak_ptr_factory_.GetWeakPtr(), value,
-                             std::move(callback)));
 }
 
 void WebController::OnClearFieldForSendKeyboardInput(
@@ -1042,19 +1113,62 @@ void WebController::OnClearFieldForSendKeyboardInput(
                     std::move(callback));
 }
 
-void WebController::OnClickElementForSendKeyboardInput(
-    const std::string& node_frame_id,
-    const std::vector<UChar32>& codepoints,
-    int delay_in_millisecond,
-    base::OnceCallback<void(const ClientStatus&)> callback,
-    const ClientStatus& click_status) {
-  if (!click_status.ok()) {
-    std::move(callback).Run(click_status);
+void WebController::SelectFieldValueForReplace(
+    const Selector& selector,
+    base::OnceCallback<void(std::unique_ptr<ElementFinder::Result>,
+                            const ClientStatus&)> callback) {
+  VLOG(2) << __func__ << " " << selector;
+  FindElement(
+      selector, /* strict_mode= */ true,
+      base::BindOnce(&WebController::OnFindElementForSelectValue,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void WebController::OnFindElementForSelectValue(
+    base::OnceCallback<void(std::unique_ptr<ElementFinder::Result>,
+                            const ClientStatus&)> callback,
+    const ClientStatus& element_status,
+    std::unique_ptr<ElementFinder::Result> element_result) {
+  if (!element_status.ok()) {
+    std::move(callback).Run(std::move(element_result), element_status);
     return;
   }
-  DispatchKeyboardTextDownEvent(node_frame_id, codepoints, 0,
-                                /* delay= */ false, delay_in_millisecond,
-                                std::move(callback));
+
+  devtools_client_->GetRuntime()->CallFunctionOn(
+      runtime::CallFunctionOnParams::Builder()
+          .SetObjectId(element_result->object_id)
+          .SetFunctionDeclaration(std::string(kSelectFieldValue))
+          .Build(),
+      element_result->node_frame_id,
+      base::BindOnce(&WebController::OnSelectFieldValueForDispatchKeys,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(element_result),
+                     std::move(callback)));
+}
+
+void WebController::OnSelectFieldValueForDispatchKeys(
+    std::unique_ptr<ElementFinder::Result> element_result,
+    base::OnceCallback<void(std::unique_ptr<ElementFinder::Result>,
+                            const ClientStatus&)> callback,
+    const DevtoolsClient::ReplyStatus& reply_status,
+    std::unique_ptr<runtime::CallFunctionOnResult> result) {
+  std::move(callback).Run(
+      std::move(element_result),
+      CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__));
+}
+
+void WebController::OnFieldValueSelectedForDispatchKeys(
+    const std::vector<UChar32>& codepoints,
+    int key_press_delay_in_millisecond,
+    base::OnceCallback<void(const ClientStatus&)> callback,
+    std::unique_ptr<ElementFinder::Result> element_result,
+    const ClientStatus& select_status) {
+  if (!select_status.ok()) {
+    std::move(callback).Run(select_status);
+    return;
+  }
+  DispatchKeyboardTextDownEvent(
+      element_result->node_frame_id, codepoints, 0,
+      /* delay= */ false, key_press_delay_in_millisecond, std::move(callback));
 }
 
 void WebController::DispatchKeyboardTextDownEvent(
@@ -1130,6 +1244,17 @@ auto WebController::CreateKeyEventParamsForCharacter(
   }
 
   return params;
+}
+
+void WebController::InternalSetFieldValue(
+    const Selector& selector,
+    const std::string& value,
+    base::OnceCallback<void(const ClientStatus&)> callback) {
+  FindElement(selector,
+              /* strict_mode= */ true,
+              base::BindOnce(&WebController::OnFindElementForSetFieldValue,
+                             weak_ptr_factory_.GetWeakPtr(), value,
+                             std::move(callback)));
 }
 
 void WebController::OnFindElementForSetFieldValue(
@@ -1267,16 +1392,19 @@ void WebController::OnFindElementForSendKeyboardInput(
                      delay_in_millisecond, std::move(callback)));
 }
 
-void WebController::GetOuterHtml(
-    const Selector& selector,
-    base::OnceCallback<void(const ClientStatus&, const std::string&)>
-        callback) {
-  DVLOG(3) << __func__ << " " << selector;
-  FindElement(
-      selector,
-      /* strict_mode= */ true,
-      base::BindOnce(&WebController::OnFindElementForGetOuterHtml,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+void WebController::OnClickElementForSendKeyboardInput(
+    const std::string& node_frame_id,
+    const std::vector<UChar32>& codepoints,
+    int delay_in_millisecond,
+    base::OnceCallback<void(const ClientStatus&)> callback,
+    const ClientStatus& click_status) {
+  if (!click_status.ok()) {
+    std::move(callback).Run(click_status);
+    return;
+  }
+  DispatchKeyboardTextDownEvent(node_frame_id, codepoints, 0,
+                                /* delay= */ false, delay_in_millisecond,
+                                std::move(callback));
 }
 
 void WebController::GetVisualViewport(
@@ -1384,6 +1512,18 @@ void WebController::OnGetElementPositionResult(
   std::move(callback).Run(true, rect);
 }
 
+void WebController::GetOuterHtml(
+    const Selector& selector,
+    base::OnceCallback<void(const ClientStatus&, const std::string&)>
+        callback) {
+  DVLOG(3) << __func__ << " " << selector;
+  FindElement(
+      selector,
+      /* strict_mode= */ true,
+      base::BindOnce(&WebController::OnFindElementForGetOuterHtml,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
 void WebController::OnFindElementForGetOuterHtml(
     base::OnceCallback<void(const ClientStatus&, const std::string&)> callback,
     const ClientStatus& status,
@@ -1413,6 +1553,55 @@ void WebController::OnGetOuterHtml(
       CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__);
   if (!status.ok()) {
     DVLOG(2) << __func__ << " Failed to get HTML content for GetOuterHtml";
+    std::move(callback).Run(status, "");
+    return;
+  }
+  std::string value;
+  SafeGetStringValue(result->GetResult(), &value);
+  std::move(callback).Run(OkClientStatus(), value);
+}
+
+void WebController::GetElementTag(
+    const Selector& selector,
+    base::OnceCallback<void(const ClientStatus&, const std::string&)>
+        callback) {
+  DVLOG(3) << __func__ << " " << selector;
+  FindElement(
+      selector,
+      /* strict_mode= */ true,
+      base::BindOnce(&WebController::OnFindElementForGetElementTag,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void WebController::OnFindElementForGetElementTag(
+    base::OnceCallback<void(const ClientStatus&, const std::string&)> callback,
+    const ClientStatus& status,
+    std::unique_ptr<ElementFinder::Result> element_result) {
+  if (!status.ok()) {
+    DVLOG(2) << __func__ << " Failed to find element for GetElementTag";
+    std::move(callback).Run(status, "");
+    return;
+  }
+
+  devtools_client_->GetRuntime()->CallFunctionOn(
+      runtime::CallFunctionOnParams::Builder()
+          .SetObjectId(element_result->object_id)
+          .SetFunctionDeclaration(std::string(kGetElementTagScript))
+          .SetReturnByValue(true)
+          .Build(),
+      element_result->node_frame_id,
+      base::BindOnce(&WebController::OnGetElementTag,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void WebController::OnGetElementTag(
+    base::OnceCallback<void(const ClientStatus&, const std::string&)> callback,
+    const DevtoolsClient::ReplyStatus& reply_status,
+    std::unique_ptr<runtime::CallFunctionOnResult> result) {
+  ClientStatus status =
+      CheckJavaScriptResult(reply_status, result.get(), __FILE__, __LINE__);
+  if (!status.ok()) {
+    DVLOG(2) << __func__ << " Failed to get element tag for GetElementTag";
     std::move(callback).Run(status, "");
     return;
   }

@@ -16,14 +16,8 @@
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 
-using openscreen::Error;
-using openscreen::ErrorOr;
-using openscreen::platform::Clock;
-using openscreen::platform::ClockNowFunctionPtr;
-using openscreen::platform::TaskRunner;
-
+namespace openscreen {
 namespace cast {
-namespace streaming {
 
 SDLPlayerBase::SDLPlayerBase(ClockNowFunctionPtr now_function,
                              TaskRunner* task_runner,
@@ -159,12 +153,12 @@ void SDLPlayerBase::RenderAndSchedulePresentation() {
       // The interval here, is "lengthy" from the program's perspective, but
       // reasonably "snappy" from the user's perspective.
       constexpr auto kIdlePresentInterval = milliseconds(250);
-      presentation_alarm_.Schedule(
+      presentation_alarm_.ScheduleFromNow(
           [this] {
             Present();
             ResumeRendering();
           },
-          now_() + kIdlePresentInterval);
+          kIdlePresentInterval);
     }
     return;
   }
@@ -250,5 +244,5 @@ SDLPlayerBase::PendingFrame::PendingFrame(PendingFrame&&) noexcept = default;
 SDLPlayerBase::PendingFrame& SDLPlayerBase::PendingFrame::operator=(
     PendingFrame&&) noexcept = default;
 
-}  // namespace streaming
 }  // namespace cast
+}  // namespace openscreen

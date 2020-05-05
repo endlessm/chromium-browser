@@ -31,6 +31,12 @@
 #include "hb-ot-cff-common.hh"
 #include "hb-subset-cff1.hh"
 
+#define HB_STRING_ARRAY_NAME cff1_std_strings
+#define HB_STRING_ARRAY_LIST "hb-ot-cff1-std-str.hh"
+#include "hb-string-array.hh"
+#undef HB_STRING_ARRAY_LIST
+#undef HB_STRING_ARRAY_NAME
+
 namespace CFF {
 
 /*
@@ -414,7 +420,7 @@ struct Charset1_2 {
     for (unsigned int i = 0;; i++)
     {
       if (glyph >= num_glyphs)
-      	return 0;
+	return 0;
       if ((ranges[i].first <= sid) && (sid <= ranges[i].first + ranges[i].nLeft))
 	return glyph + (sid - ranges[i].first);
       glyph += (ranges[i].nLeft + 1);
@@ -494,7 +500,7 @@ struct Charset
       if (unlikely (fmt1 == nullptr)) return_trace (false);
       for (unsigned int i = 0; i < sid_ranges.length; i++)
       {
-      	if (unlikely (!(sid_ranges[i].glyph <= 0xFF)))
+	if (unlikely (!(sid_ranges[i].glyph <= 0xFF)))
 	  return_trace (false);
 	fmt1->ranges[i].first = sid_ranges[i].code;
 	fmt1->ranges[i].nLeft = sid_ranges[i].glyph;
@@ -508,7 +514,7 @@ struct Charset
       if (unlikely (fmt2 == nullptr)) return_trace (false);
       for (unsigned int i = 0; i < sid_ranges.length; i++)
       {
-      	if (unlikely (!(sid_ranges[i].glyph <= 0xFFFF)))
+	if (unlikely (!(sid_ranges[i].glyph <= 0xFFFF)))
 	  return_trace (false);
 	fmt2->ranges[i].first = sid_ranges[i].code;
 	fmt2->ranges[i].nLeft = sid_ranges[i].glyph;
@@ -544,8 +550,9 @@ struct Charset
     }
   }
 
-  hb_codepoint_t get_sid (hb_codepoint_t glyph) const
+  hb_codepoint_t get_sid (hb_codepoint_t glyph, unsigned int num_glyphs) const
   {
+    if (unlikely (glyph >= num_glyphs)) return 0;
     switch (format)
     {
     case 0: return u.format0.get_sid (glyph);
@@ -612,7 +619,7 @@ struct CFF1StringIndex : CFF1Index
     for (unsigned int i = 0; i < strings.count; i++)
     {
       hb_codepoint_t  j = sidmap[i];
-      if (j != CFF_UNDEF_CODE)
+      if (j != HB_MAP_VALUE_INVALID)
 	bytesArray[j] = strings[i];
     }
 
@@ -630,7 +637,7 @@ struct CFF1StringIndex : CFF1Index
 
     unsigned int dataSize = 0;
     for (unsigned int i = 0; i < count; i++)
-      if (sidmap[i] != CFF_UNDEF_CODE)
+      if (sidmap[i] != HB_MAP_VALUE_INVALID)
 	dataSize += length_at (i);
 
     offSize_ = calcOffSize(dataSize);
@@ -1076,6 +1083,20 @@ struct cff1
 	fdSelect = &Null(CFF1FDSelect);
       }
 
+      encoding = &Null(Encoding);
+      if (is_CID ())
+      {
+	if (unlikely (charset == &Null(Charset))) { fini (); return; }
+      }
+      else
+      {
+	if (!is_predef_encoding ())
+	{
+	  encoding = &StructAtOffsetOrNull<Encoding> (cff, topDict.EncodingOffset);
+	  if (unlikely ((encoding == &Null (Encoding)) || !encoding->sanitize (&sc))) { fini (); return; }
+	}
+      }
+
       stringIndex = &StructAtOffset<CFF1StringIndex> (topDictIndex, topDictIndex->get_size ());
       if ((stringIndex == &Null (CFF1StringIndex)) || !stringIndex->sanitize (&sc))
       { fini (); return; }
@@ -1172,57 +1193,6 @@ struct cff1
       return 0;
     }
 
-    protected:
-    hb_blob_t	       *blob;
-    hb_sanitize_context_t   sc;
-
-    public:
-    const Charset	   *charset;
-    const CFF1NameIndex     *nameIndex;
-    const CFF1TopDictIndex  *topDictIndex;
-    const CFF1StringIndex   *stringIndex;
-    const CFF1Subrs	 *globalSubrs;
-    const CFF1CharStrings   *charStrings;
-    const CFF1FDArray       *fdArray;
-    const CFF1FDSelect      *fdSelect;
-    unsigned int	    fdCount;
-
-    cff1_top_dict_values_t       topDict;
-    hb_vector_t<cff1_font_dict_values_t>   fontDicts;
-    hb_vector_t<PRIVDICTVAL>	  privateDicts;
-
-    unsigned int	    num_glyphs;
-  };
-
-  struct accelerator_t : accelerator_templ_t<cff1_private_dict_opset_t, cff1_private_dict_values_t>
-  {
-    HB_INTERNAL bool get_extents (hb_font_t *font, hb_codepoint_t glyph, hb_glyph_extents_t *extents) const;
-    HB_INTERNAL bool get_seac_components (hb_codepoint_t glyph, hb_codepoint_t *base, hb_codepoint_t *accent) const;
-  };
-
-  struct accelerator_subset_t : accelerator_templ_t<cff1_private_dict_opset_subset, cff1_private_dict_values_subset_t>
-  {
-    void init (hb_face_t *face)
-    {
-      SUPER::init (face);
-      if (blob == nullptr) return;
-
-      const OT::cff1 *cff = this->blob->as<OT::cff1> ();
-      encoding = &Null(Encoding);
-      if (is_CID ())
-      {
-	if (unlikely (charset == &Null(Charset))) { fini (); return; }
-      }
-      else
-      {
-	if (!is_predef_encoding ())
-	{
-	  encoding = &StructAtOffsetOrNull<Encoding> (cff, topDict.EncodingOffset);
-	  if (unlikely ((encoding == &Null (Encoding)) || !encoding->sanitize (&sc))) { fini (); return; }
-	}
-      }
-    }
-
     bool is_predef_encoding () const { return topDict.EncodingOffset <= ExpertEncoding; }
 
     hb_codepoint_t glyph_to_code (hb_codepoint_t glyph) const
@@ -1252,7 +1222,7 @@ struct cff1
     hb_codepoint_t glyph_to_sid (hb_codepoint_t glyph) const
     {
       if (charset != &Null(Charset))
-	return charset->get_sid (glyph);
+	return charset->get_sid (glyph, num_glyphs);
       else
       {
 	hb_codepoint_t sid = 0;
@@ -1274,11 +1244,137 @@ struct cff1
       }
     }
 
-    const Encoding	  *encoding;
+    protected:
+    hb_blob_t	       *blob;
+    hb_sanitize_context_t   sc;
+
+    public:
+    const Encoding	    *encoding;
+    const Charset	    *charset;
+    const CFF1NameIndex     *nameIndex;
+    const CFF1TopDictIndex  *topDictIndex;
+    const CFF1StringIndex   *stringIndex;
+    const CFF1Subrs	    *globalSubrs;
+    const CFF1CharStrings   *charStrings;
+    const CFF1FDArray       *fdArray;
+    const CFF1FDSelect      *fdSelect;
+    unsigned int	    fdCount;
+
+    cff1_top_dict_values_t       topDict;
+    hb_vector_t<cff1_font_dict_values_t>   fontDicts;
+    hb_vector_t<PRIVDICTVAL>	  privateDicts;
+
+    unsigned int	    num_glyphs;
+  };
+
+  struct accelerator_t : accelerator_templ_t<cff1_private_dict_opset_t, cff1_private_dict_values_t>
+  {
+    void init (hb_face_t *face)
+    {
+      SUPER::init (face);
+
+      if (!is_valid ()) return;
+      if (is_CID ()) return;
+
+      /* fill glyph_names */
+      for (hb_codepoint_t gid = 0; gid < num_glyphs; gid++)
+      {
+	hb_codepoint_t	sid = glyph_to_sid (gid);
+	gname_t	gname;
+	gname.sid = sid;
+	if (sid < cff1_std_strings_length)
+	  gname.name = cff1_std_strings (sid);
+	else
+	{
+	  byte_str_t	ustr = (*stringIndex)[sid - cff1_std_strings_length];
+	  gname.name = hb_bytes_t ((const char*)ustr.arrayZ, ustr.length);
+	}
+	if (unlikely (gname.name.arrayZ == nullptr)) { fini (); return; }
+	glyph_names.push (gname);
+      }
+      glyph_names.qsort ();
+    }
+
+    void fini ()
+    {
+      glyph_names.fini ();
+
+      SUPER::fini ();
+    }
+
+    bool get_glyph_name (hb_codepoint_t glyph,
+			      char *buf, unsigned int buf_len) const
+    {
+      if (!buf) return true;
+      if (unlikely (!is_valid ())) return false;
+      if (is_CID()) return false;
+      hb_codepoint_t sid = glyph_to_sid (glyph);
+      const char *str;
+      size_t str_len;
+      if (sid < cff1_std_strings_length)
+      {
+	hb_bytes_t byte_str = cff1_std_strings (sid);
+	str = byte_str.arrayZ;
+	str_len = byte_str.length;
+      }
+      else
+      {
+	byte_str_t ubyte_str = (*stringIndex)[sid - cff1_std_strings_length];
+	str = (const char *)ubyte_str.arrayZ;
+	str_len = ubyte_str.length;
+      }
+      if (!str_len) return false;
+      unsigned int len = hb_min (buf_len - 1, str_len);
+      strncpy (buf, (const char*)str, len);
+      buf[len] = '\0';
+      return true;
+    }
+
+    bool get_glyph_from_name (const char *name, int len,
+			      hb_codepoint_t *glyph) const
+    {
+      if (len < 0) len = strlen (name);
+      if (unlikely (!len)) return false;
+
+      gname_t	key = { hb_bytes_t (name, len), 0 };
+      const gname_t *gname = glyph_names.bsearch (key);
+      if (gname == nullptr) return false;
+      hb_codepoint_t gid = charset->get_glyph (gname->sid, num_glyphs);
+      if (!gid && gname->sid) return false;
+      *glyph = gid;
+      return true;
+    }
+
+    HB_INTERNAL bool get_extents (hb_font_t *font, hb_codepoint_t glyph, hb_glyph_extents_t *extents) const;
+    HB_INTERNAL bool get_seac_components (hb_codepoint_t glyph, hb_codepoint_t *base, hb_codepoint_t *accent) const;
+    HB_INTERNAL bool get_path (hb_font_t *font, hb_codepoint_t glyph,
+			       const hb_ot_glyph_decompose_funcs_t *funcs, void *user_data) const;
 
     private:
-    typedef accelerator_templ_t<cff1_private_dict_opset_subset, cff1_private_dict_values_subset_t> SUPER;
+    struct gname_t
+    {
+      hb_bytes_t	name;
+      uint16_t		sid;
+
+      static int cmp (const void *a_, const void *b_)
+      {
+	const gname_t *a = (const gname_t *)a_;
+	const gname_t *b = (const gname_t *)b_;
+	int minlen = hb_min (a->name.length, b->name.length);
+	int ret = strncmp (a->name.arrayZ, b->name.arrayZ, minlen);
+	if (ret) return ret;
+	return a->name.length - b->name.length;
+      }
+
+      int cmp (const gname_t &a) const { return cmp (&a, this); }
+    };
+
+    hb_sorted_vector_t<gname_t>	glyph_names;
+
+    typedef accelerator_templ_t<cff1_private_dict_opset_t, cff1_private_dict_values_t> SUPER;
   };
+
+  struct accelerator_subset_t : accelerator_templ_t<cff1_private_dict_opset_subset, cff1_private_dict_values_subset_t> {};
 
   bool subset (hb_subset_plan_t *plan) const
   {

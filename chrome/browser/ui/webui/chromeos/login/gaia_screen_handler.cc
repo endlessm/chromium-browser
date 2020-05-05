@@ -25,6 +25,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/timer/timer.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -120,6 +121,8 @@ enum class ChromeOSSamlApiUsed {
   kSamlApiNotUsed = 2,
   kMaxValue = kSamlApiNotUsed,
 };
+
+constexpr base::TimeDelta kCookieDelay = base::TimeDelta::FromSeconds(20);
 
 void RecordAPILogin(bool is_third_party_idp, bool is_api_used) {
   ChromeOSSamlApiUsed login_type;
@@ -772,6 +775,11 @@ void GaiaScreenHandler::HandleAuthExtensionLoaded() {
 }
 
 void GaiaScreenHandler::HandleWebviewLoadAborted(int error_code) {
+  if (error_code == net::ERR_INVALID_AUTH_CREDENTIALS) {
+    // Silently ignore this error - it is used as an intermediate state for
+    // committed interstitials (see https://crbug.com/1049349 for details).
+    return;
+  }
   if (error_code == net::ERR_ABORTED) {
     LOG(WARNING) << "Ignoring Gaia webview error: "
                  << net::ErrorToShortString(error_code);
@@ -930,6 +938,11 @@ void GaiaScreenHandler::ContinueAuthenticationWhenCookiesAvailable() {
     cookie_manager->AddCookieChangeListener(
         GaiaUrls::GetInstance()->gaia_url(), kOAUTHCodeCookie,
         oauth_code_listener_.BindNewPipeAndPassRemote());
+    cookie_waiting_timer_ = std::make_unique<base::OneShotTimer>();
+    cookie_waiting_timer_->Start(
+        FROM_HERE, kCookieDelay,
+        base::BindOnce(&GaiaScreenHandler::OnCookieWaitTimeout,
+                       weak_factory_.GetWeakPtr()));
   }
 
   const net::CookieOptions cookie_options =
@@ -961,12 +974,24 @@ void GaiaScreenHandler::OnGetCookiesForCompleteAuthentication(
   UserContext user_context = *pending_user_context_;
   pending_user_context_.reset();
   oauth_code_listener_.reset();
+  cookie_waiting_timer_.reset();
 
   user_context.SetAuthCode(auth_code);
   if (!gaps_cookie.empty())
     user_context.SetGAPSCookie(gaps_cookie);
 
   LoginDisplayHost::default_host()->CompleteLogin(user_context);
+}
+
+void GaiaScreenHandler::OnCookieWaitTimeout() {
+  DCHECK(pending_user_context_);
+  pending_user_context_.reset();
+  oauth_code_listener_.reset();
+  cookie_waiting_timer_.reset();
+  LoadAuthExtension(true /* force */, false /* offline */);
+  core_oobe_view_->ShowSignInError(
+      0, l10n_util::GetStringUTF8(IDS_LOGIN_FATAL_ERROR_NO_AUTH_TOKEN),
+      std::string(), HelpAppLauncher::HELP_CANT_ACCESS_ACCOUNT);
 }
 
 void GaiaScreenHandler::HandleCompleteLogin(const std::string& gaia_id,

@@ -23,11 +23,14 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import {resolveScopeInObject, resolveThisObject} from './SourceMapNamesResolver.js';
+
 /**
  * @implements {UI.ContextFlavorListener}
  * @unrestricted
  */
-Sources.ScopeChainSidebarPane = class extends UI.VBox {
+export class ScopeChainSidebarPaneBase extends UI.VBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('sources/scopeChainSidebarPane.css');
@@ -59,16 +62,20 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
       return;
     }
 
-    if (UI.context.flavor(SDK.DebuggerPausedDetails)) {
+    if (self.UI.context.flavor(SDK.DebuggerPausedDetails)) {
       this._treeOutline.forceSelect();
     }
   }
 
+  _getScopeChain(callFrame) {
+    return [];
+  }
+
   _update() {
-    const callFrame = UI.context.flavor(SDK.DebuggerModel.CallFrame);
-    const details = UI.context.flavor(SDK.DebuggerPausedDetails);
+    const callFrame = self.UI.context.flavor(SDK.DebuggerModel.CallFrame);
+    const details = self.UI.context.flavor(SDK.DebuggerPausedDetails);
     this._linkifier.reset();
-    Sources.SourceMapNamesResolver.resolveThisObject(callFrame).then(this._innerUpdate.bind(this, details, callFrame));
+    resolveThisObject(callFrame).then(this._innerUpdate.bind(this, details, callFrame));
   }
 
   /**
@@ -87,25 +94,27 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
     this.contentElement.appendChild(this._treeOutline.element);
     let foundLocalScope = false;
-    const scopeChain = callFrame.scopeChain();
-    for (let i = 0; i < scopeChain.length; ++i) {
-      const scope = scopeChain[i];
-      const extraProperties = this._extraPropertiesForScope(scope, details, callFrame, thisObject, i === 0);
+    const scopeChain = this._getScopeChain(callFrame);
+    if (scopeChain) {
+      for (let i = 0; i < scopeChain.length; ++i) {
+        const scope = scopeChain[i];
+        const extraProperties = this._extraPropertiesForScope(scope, details, callFrame, thisObject, i === 0);
 
-      if (scope.type() === Protocol.Debugger.ScopeType.Local) {
-        foundLocalScope = true;
-      }
+        if (scope.type() === Protocol.Debugger.ScopeType.Local) {
+          foundLocalScope = true;
+        }
 
-      const section = this._createScopeSectionTreeElement(scope, extraProperties);
-      if (scope.type() === Protocol.Debugger.ScopeType.Global) {
-        section.collapse();
-      } else if (!foundLocalScope || scope.type() === Protocol.Debugger.ScopeType.Local) {
-        section.expand();
-      }
+        const section = this._createScopeSectionTreeElement(scope, extraProperties);
+        if (scope.type() === Protocol.Debugger.ScopeType.Global) {
+          section.collapse();
+        } else if (!foundLocalScope || scope.type() === Protocol.Debugger.ScopeType.Local) {
+          section.expand();
+        }
 
-      this._treeOutline.appendChild(section);
-      if (i === 0) {
-        section.select(/* omitFocus */ true);
+        this._treeOutline.appendChild(section);
+        if (i === 0) {
+          section.select(/* omitFocus */ true);
+        }
       }
     }
     this._sidebarPaneUpdatedForTest();
@@ -141,7 +150,7 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
     titleElement.createChild('div', 'scope-chain-sidebar-pane-section-title').textContent = title;
 
     const section = new ObjectUI.ObjectPropertiesSection.RootElement(
-        Sources.SourceMapNamesResolver.resolveScopeInObject(scope), this._linkifier, emptyPlaceholder,
+        resolveScopeInObject(scope), this._linkifier, emptyPlaceholder,
         /* ignoreHasOwnProperty */ true, extraProperties);
     section.title = titleElement;
     section.listItemElement.classList.add('scope-chain-sidebar-pane-section');
@@ -187,6 +196,34 @@ Sources.ScopeChainSidebarPane = class extends UI.VBox {
 
   _sidebarPaneUpdatedForTest() {
   }
-};
+}
 
-Sources.ScopeChainSidebarPane._pathSymbol = Symbol('path');
+/**
+ * @unrestricted
+ */
+export class SourceScopeChainSidebarPane extends ScopeChainSidebarPaneBase {
+  constructor() {
+    super();
+  }
+  /**
+   * @override
+   */
+  _getScopeChain(callFrame) {
+    return callFrame.sourceScopeChain;
+  }
+}
+
+/**
+ * @unrestricted
+ */
+export class ScopeChainSidebarPane extends ScopeChainSidebarPaneBase {
+  /**
+   * @override
+   */
+  _getScopeChain(callFrame) {
+    return callFrame.scopeChain();
+  }
+}
+
+
+export const pathSymbol = Symbol('path');

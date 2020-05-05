@@ -101,24 +101,24 @@ HPEN CreateExtPen(const CFX_GraphStateData* pGraphState,
     PenStyle |= PS_SOLID;
 
   switch (pGraphState->m_LineCap) {
-    case 0:
+    case CFX_GraphStateData::LineCapButt:
       PenStyle |= PS_ENDCAP_FLAT;
       break;
-    case 1:
+    case CFX_GraphStateData::LineCapRound:
       PenStyle |= PS_ENDCAP_ROUND;
       break;
-    case 2:
+    case CFX_GraphStateData::LineCapSquare:
       PenStyle |= PS_ENDCAP_SQUARE;
       break;
   }
   switch (pGraphState->m_LineJoin) {
-    case 0:
+    case CFX_GraphStateData::LineJoinMiter:
       PenStyle |= PS_JOIN_MITER;
       break;
-    case 1:
+    case CFX_GraphStateData::LineJoinRound:
       PenStyle |= PS_JOIN_ROUND;
       break;
-    case 2:
+    case CFX_GraphStateData::LineJoinBevel:
       PenStyle |= PS_JOIN_BEVEL;
       break;
   }
@@ -339,10 +339,11 @@ class CFX_Win32FontInfo final : public SystemFontInfoIface {
   void GetJapanesePreference(ByteString& face, int weight, int picth_family);
   ByteString FindFont(const ByteString& name);
 
-  HDC m_hDC;
+  const HDC m_hDC;
   UnownedPtr<CFX_FontMapper> m_pMapper;
   ByteString m_LastFamily;
-  ByteString m_KaiTi, m_FangSong;
+  ByteString m_KaiTi;
+  ByteString m_FangSong;
 };
 
 int CALLBACK FontEnumProc(const LOGFONTA* plf,
@@ -430,7 +431,7 @@ bool CFX_Win32FontInfo::EnumFontList(CFX_FontMapper* pMapper) {
   lf.lfCharSet = FX_CHARSET_Default;
   lf.lfFaceName[0] = 0;
   lf.lfPitchAndFamily = 0;
-  EnumFontFamiliesExA(m_hDC, &lf, (FONTENUMPROCA)FontEnumProc, (uintptr_t) this,
+  EnumFontFamiliesExA(m_hDC, &lf, (FONTENUMPROCA)FontEnumProc, (uintptr_t)this,
                       0);
   return true;
 }
@@ -441,12 +442,12 @@ ByteString CFX_Win32FontInfo::FindFont(const ByteString& name) {
 
   for (size_t i = 0; i < m_pMapper->m_InstalledTTFonts.size(); ++i) {
     ByteString thisname = m_pMapper->m_InstalledTTFonts[i];
-    if (thisname.Left(name.GetLength()) == name)
+    if (thisname.First(name.GetLength()) == name)
       return m_pMapper->m_InstalledTTFonts[i];
   }
   for (size_t i = 0; i < m_pMapper->m_LocalizedTTFonts.size(); ++i) {
     ByteString thisname = m_pMapper->m_LocalizedTTFonts[i].first;
-    if (thisname.Left(name.GetLength()) == name)
+    if (thisname.First(name.GetLength()) == name)
       return m_pMapper->m_LocalizedTTFonts[i].second;
   }
   return ByteString();
@@ -707,7 +708,7 @@ CGdiDeviceDriver::CGdiDeviceDriver(HDC hDC, DeviceType device_type)
     : m_hDC(hDC), m_DeviceType(device_type) {
   auto* pPlatform =
       static_cast<CWin32Platform*>(CFX_GEModule::Get()->GetPlatform());
-  SetStretchBltMode(hDC, pPlatform->m_bHalfTone ? HALFTONE : COLORONCOLOR);
+  SetStretchBltMode(m_hDC, pPlatform->m_bHalfTone ? HALFTONE : COLORONCOLOR);
   DWORD obj_type = GetObjectType(m_hDC);
   m_bMetafileDCType = obj_type == OBJ_ENHMETADC || obj_type == OBJ_ENHMETAFILE;
   if (obj_type == OBJ_MEMDC) {

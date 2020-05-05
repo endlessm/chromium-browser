@@ -11,6 +11,7 @@ import errno
 import numbers
 import os
 import signal
+import subprocess
 import time
 
 from chromite.lib import cros_build_lib
@@ -468,7 +469,7 @@ class Cgroup(object):
 
     result = cros_build_lib.sudo_run(
         ['find', path, '-depth', '-type', 'd', '-exec', 'rmdir', '{}', '+'],
-        redirect_stderr=True, error_code_ok=not strict,
+        stderr=True, check=strict,
         print_cmd=False, strict=sudo_strict)
     if result.returncode == 0:
       return True
@@ -546,8 +547,8 @@ class Cgroup(object):
     def _SignalPids(pids, signum):
       cros_build_lib.sudo_run(
           ['kill', '-%i' % signum] + sorted(pids),
-          print_cmd=False, error_code_ok=True, redirect_stdout=True,
-          combine_stdout_stderr=True)
+          print_cmd=False, check=False, stdout=True,
+          stderr=subprocess.STDOUT)
 
     # First sigterm what we can, exiting after 2 runs w/out seeing pids.
     # Let this phase run for a max of 10 seconds; afterwards, switch to

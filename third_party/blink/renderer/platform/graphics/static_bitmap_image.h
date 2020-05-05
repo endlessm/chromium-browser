@@ -6,8 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_STATIC_BITMAP_IMAGE_H_
 
 #include "base/memory/weak_ptr.h"
-#include "gpu/command_buffer/common/mailbox.h"
-#include "gpu/command_buffer/common/sync_token.h"
+#include "gpu/command_buffer/common/mailbox_holder.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
@@ -22,23 +21,29 @@ class GLES2Interface;
 
 namespace blink {
 
-class WebGraphicsContext3DProviderWrapper;
-
 class PLATFORM_EXPORT StaticBitmapImage : public Image {
  public:
-  static scoped_refptr<StaticBitmapImage> Create(PaintImage);
-  static scoped_refptr<StaticBitmapImage> Create(sk_sp<SkData> data,
-                                                 const SkImageInfo&);
+  // The ImageOrientation should be derived from the source of the image data.
+  static scoped_refptr<StaticBitmapImage> Create(
+      PaintImage,
+      ImageOrientation = kDefaultImageOrientation);
+  static scoped_refptr<StaticBitmapImage> Create(
+      sk_sp<SkData> data,
+      const SkImageInfo&,
+      ImageOrientation = kDefaultImageOrientation);
+
+  StaticBitmapImage(ImageOrientation orientation) : orientation_(orientation) {}
 
   bool IsStaticBitmapImage() const override { return true; }
 
   // Methods overridden by all sub-classes
   ~StaticBitmapImage() override = default;
-  // Creates a gpu copy of the image using the given ContextProvider. Should
-  // not be called if IsTextureBacked() is already true. May return null if the
-  // conversion failed (for instance if the context had an error).
-  virtual scoped_refptr<StaticBitmapImage> MakeAccelerated(
-      base::WeakPtr<WebGraphicsContext3DProviderWrapper> context_wrapper) = 0;
+
+  IntSize SizeRespectingOrientation() const override;
+
+  virtual scoped_refptr<StaticBitmapImage> ConvertToColorSpace(
+      sk_sp<SkColorSpace>,
+      SkColorType = kN32_SkColorType) = 0;
 
   // Methods have common implementation for all sub-classes
   bool CurrentFrameIsComplete() override { return true; }
@@ -46,9 +51,9 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
 
   // Methods that have a default implementation, and overridden by only one
   // sub-class
-  virtual bool HasMailbox() const { return false; }
   virtual bool IsValid() const { return true; }
   virtual void Transfer() {}
+  virtual bool IsOriginTopLeft() const { return true; }
 
   // Creates a non-gpu copy of the image, or returns this if image is already
   // non-gpu.
@@ -85,20 +90,26 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   // Case 3: Passing to a gpu context on the same stream.
   //   Use kOrderingBarrier
   virtual void EnsureMailbox(MailboxSyncMode, GLenum filter) { NOTREACHED(); }
-  virtual const gpu::Mailbox& GetMailbox() const {
+  virtual gpu::MailboxHolder GetMailboxHolder() const {
     NOTREACHED();
-    static const gpu::Mailbox mailbox;
-    return mailbox;
+    return gpu::MailboxHolder();
   }
-  virtual const gpu::SyncToken& GetSyncToken() const;
+  virtual void UpdateSyncToken(const gpu::SyncToken&) {}
   virtual bool IsPremultiplied() const { return true; }
 
   // Methods have exactly the same implementation for all sub-classes
   bool OriginClean() const { return is_origin_clean_; }
   void SetOriginClean(bool flag) { is_origin_clean_ = flag; }
-  scoped_refptr<StaticBitmapImage> ConvertToColorSpace(
-      sk_sp<SkColorSpace>,
-      SkColorType = kN32_SkColorType);
+
+  // StaticBitmapImage needs to store the orientation of the image itself,
+  // because the underlying representations do not. If the bitmap represents
+  // a non-default orientation it must be explicitly given in the constructor.
+  ImageOrientation CurrentFrameOrientation() const override {
+    return orientation_;
+  }
+  bool HasDefaultOrientation() const override {
+    return orientation_ == kDefaultImageOrientation;
+  }
 
   static base::CheckedNumeric<size_t> GetSizeInBytes(
       const IntRect& rect,
@@ -119,7 +130,14 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
                   const FloatRect&,
                   const FloatRect&,
                   ImageClampingMode,
+                  RespectImageOrientationEnum,
                   const PaintImage&);
+
+  // The image orientation is stored here because it is only available when the
+  // static image is created and the underlying representations do not store
+  // the information. The property is set at construction based on the source of
+  // the image data.
+  ImageOrientation orientation_ = kDefaultImageOrientation;
 
   // The following property is here because the SkImage API doesn't expose the
   // info. It is applied to both UnacceleratedStaticBitmapImage and

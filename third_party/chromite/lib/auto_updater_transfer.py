@@ -39,9 +39,8 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
-import glob
 import os
-import shutil
+import re
 
 import six
 from six.moves import urllib
@@ -190,6 +189,14 @@ class Transfer(six.with_metaclass(abc.ABCMeta, object)):
   def GetPayloadPropsFile(self):
     """Get the payload properties file path."""
 
+  @abc.abstractmethod
+  def GetPayloadProps(self):
+    """Gets properties necessary to fix the payload properties file.
+
+    Returns:
+      Dict in the format: {'image_version': 12345.0.0, 'size': 123456789}.
+    """
+
 
 class LocalTransfer(Transfer):
   """Abstracts logic that handles transferring local files to the DUT."""
@@ -198,7 +205,6 @@ class LocalTransfer(Transfer):
   LOCAL_STATEFUL_UPDATE_FILENAME = _STATEFUL_UPDATE_FILENAME
   LOCAL_CHROOT_STATEFUL_UPDATE_PATH = '/usr/bin/stateful_update'
   REMOTE_STATEFUL_UPDATE_PATH = '/usr/local/bin/stateful_update'
-
 
   def __init__(self, *args, **kwargs):
     """Initialize LocalTransfer to handle transferring files from local to DUT.
@@ -231,14 +237,12 @@ class LocalTransfer(Transfer):
 
   def _TransferUpdateUtilsPackage(self):
     """Transfer update-utils package to work directory of the remote device."""
-    files_to_copy = (nebraska_wrapper.NEBRASKA_SOURCE_FILE,)
-    logging.info('Copying these files to device: %s', files_to_copy)
+    logging.info('Copying nebraska to device.')
     source_dir = os.path.join(self._tempdir, 'src')
     osutils.SafeMakedirs(source_dir)
-    for f in files_to_copy:
-      shutil.copy2(f, source_dir)
+    nebraska_wrapper.RemoteNebraskaWrapper.GetNebraskaSrcFile(source_dir)
 
-    # Make sure the device.work_dir exist after any installation and reboot.
+    # Make sure the device.work_dir exists after any installation and reboot.
     self._EnsureDeviceDirectory(self._device.work_dir)
     # Python packages are plain text files so we chose rsync --compress.
     self._device.CopyToWorkDir(source_dir, mode='rsync', log_output=True,
@@ -330,11 +334,39 @@ class LocalTransfer(Transfer):
 
   def GetPayloadPropsFile(self):
     """Finds the local payload properties file."""
-    # Payload properties file is available locally so just catch the first
-    # json file and assume it is a payload property file.
-    prop_file = glob.glob(os.path.join(self._payload_dir, '*.json'))[0]
-    self._local_payload_props_path = os.path.join(self._payload_dir, prop_file)
+    # Payload properties file is available locally so just catch it next to the
+    # payload file.
+    if self._local_payload_props_path is None:
+      self._local_payload_props_path = os.path.join(
+          self._payload_dir, GetPayloadPropertiesFileName(self._payload_name))
     return self._local_payload_props_path
+
+  def GetPayloadProps(self):
+    """Gets image_version from the payload_name and size of the payload.
+
+    The payload_dir must be in the format <board>/Rxx-12345.0.0 for a complete
+    match; else a ValueError will be raised. In case the payload filename is
+    update.gz, then image_version cannot be extracted from its name; therefore,
+    image_version is set to a dummy 99999.0.0.
+
+    Returns:
+      Dict - See parent class's function for full details.
+    """
+    payload_filepath = os.path.join(self._payload_dir, self._payload_name)
+    values = {
+        'image_version': '99999.0.0',
+        'size': os.path.getsize(payload_filepath)
+    }
+    if self._payload_name != ROOTFS_FILENAME:
+      payload_format = self._payload_name
+      full_exp = r'payloads/chromeos_(?P<image_version>[^_]+)_.*'
+      m = re.match(full_exp, payload_format)
+      if not m:
+        raise ValueError('Regular expression %r did not match the expected '
+                         'payload format %s' % (full_exp, payload_format))
+      values.update(m.groupdict())
+    return values
+
 
 class LabTransfer(Transfer):
   """Abstracts logic that transfers files from staging server to the DUT."""
@@ -353,10 +385,19 @@ class LabTransfer(Transfer):
     super(LabTransfer, self).__init__(*args, **kwargs)
 
   def _CheckPayloads(self, payload_name):
+    """Runs the curl command that checks if payloads have been staged."""
     payload_url = self._GetStagedUrl(staged_filename=payload_name,
                                      build_id=self._payload_dir)
     try:
-      retry_util.RunCurl(['-I', payload_url, '--fail'])
+      # TODO(crbug.com/1033187): Remove log_output parameter passed to
+      # retry_util.RunCurl after the bug is fixed. The log_output=True option
+      # has been added to correct what seems to be a timing issue in
+      # retry_util.RunCurl. The error ((23) Failed writing body) is usually
+      # observed when a piped program closes the read pipe before the curl
+      # command has finished writing. log_output forces the read pipe to stay
+      # open, thus avoiding the failure.
+      retry_util.RunCurl(curl_args=['-I', payload_url, '--fail'],
+                         log_output=True)
     except retry_util.DownloadError as e:
       raise ChromiumOSTransferError('Payload %s does not exist at %s: %s' %
                                     (payload_name, payload_url, e))
@@ -421,15 +462,13 @@ class LabTransfer(Transfer):
     The update-utils package will be transferred to the device from the
     staging server via curl.
     """
-    files_to_copy = (os.path.basename(nebraska_wrapper.NEBRASKA_SOURCE_FILE),)
-    logging.info('Copying these files to device: %s', files_to_copy)
-
+    logging.info('Copying nebraska to device.')
     source_dir = os.path.join(self._device.work_dir, 'src')
     self._EnsureDeviceDirectory(source_dir)
 
-    for f in files_to_copy:
-      self._device.RunCommand(self._GetCurlCmdForPayloadDownload(
-          payload_dir=source_dir, payload_filename=f))
+    self._device.RunCommand(self._GetCurlCmdForPayloadDownload(
+        payload_dir=source_dir,
+        payload_filename=nebraska_wrapper.NEBRASKA_FILENAME))
 
     # Make sure the device.work_dir exists after any installation and reboot.
     self._EnsureDeviceDirectory(self._device.work_dir)
@@ -514,3 +553,43 @@ class LabTransfer(Transfer):
         self._local_payload_props_path = os.path.join(self._tempdir,
                                                       payload_props_filename)
     return self._local_payload_props_path
+
+  def _GetPayloadSize(self):
+    """Returns the size of the payload by running a curl -I command.
+
+    Returns:
+      Payload size in bytes.
+    """
+    payload_url = self._GetStagedUrl(staged_filename=self._payload_name,
+                                     build_id=self._payload_dir)
+    try:
+      proc = retry_util.RunCurl(curl_args=['-I', payload_url, '--fail'],
+                                log_output=True)
+    except cros_build_lib.RunCommandError as e:
+      raise ChromiumOSTransferError('Unable to get payload size: %s' % e)
+    else:
+      pattern = re.compile(r'Content-Length: [0-9]+', re.I)
+      match = pattern.findall(proc.output)
+      if not match:
+        raise ChromiumOSTransferError('Could not get payload size from output: '
+                                      '%s ' % proc.output)
+      return int(match[0].split()[1].strip())
+
+  def GetPayloadProps(self):
+    """Gets image_version from the payload_dir name and gets payload size.
+
+    The payload_dir must be in the format <board>/Rxx-12345.0.0 for a complete
+    match; else a ValueError will be raised.
+
+    Returns:
+      Dict - See parent class's function for full details.
+    """
+    values = {'size': self._GetPayloadSize()}
+    payload_format = self._payload_dir
+    full_exp = r'.*/(R[0-9]+-)(?P<image_version>.+)'
+    m = re.match(full_exp, payload_format)
+    if not m:
+      raise ValueError('Regular expression %r did not match the expected '
+                       'payload format %s' % (full_exp, payload_format))
+    values.update(m.groupdict())
+    return values

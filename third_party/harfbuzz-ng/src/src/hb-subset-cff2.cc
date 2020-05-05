@@ -116,8 +116,8 @@ struct cff2_cs_opset_flatten_t : cff2_cs_opset_t<cff2_cs_opset_flatten_t, flatte
       const blend_arg_t &arg = env.argStack[i];
       if (arg.blending ())
       {
-      	if (unlikely (!((arg.numValues > 0) && (env.argStack.get_count () >= arg.numValues))))
-      	{
+	if (unlikely (!((arg.numValues > 0) && (env.argStack.get_count () >= arg.numValues))))
+	{
 	  env.set_error ();
 	  return;
 	}
@@ -144,8 +144,8 @@ struct cff2_cs_opset_flatten_t : cff2_cs_opset_t<cff2_cs_opset_flatten_t, flatte
       if (unlikely (!((arg1.blending () && (arg.numValues == arg1.numValues) && (arg1.valueIndex == j) &&
 	      (arg1.deltas.length == env.get_region_count ())))))
       {
-      	env.set_error ();
-      	return;
+	env.set_error ();
+	return;
       }
       encoder.encode_num (arg1);
     }
@@ -232,7 +232,7 @@ struct cff2_subr_subsetter_t : subr_subsetter_t<cff2_subr_subsetter_t, CFF2Subrs
   cff2_subr_subsetter_t (const OT::cff2::accelerator_subset_t &acc_, const hb_subset_plan_t *plan_)
     : subr_subsetter_t (acc_, plan_) {}
 
-  static void finalize_parsed_str (cff2_cs_interp_env_t &env, subr_subset_param_t& param, parsed_cs_str_t &charstring)
+  static void complete_parsed_str (cff2_cs_interp_env_t &env, subr_subset_param_t& param, parsed_cs_str_t &charstring)
   {
     /* vsindex is inserted at the beginning of the charstring as necessary */
     if (env.seen_vsindex ())

@@ -1,6 +1,7 @@
 set noparent
 
 agable@chromium.org
+apolito@google.com
 dpranke@chromium.org
 ehmaldonado@chromium.org
 ehmaldonado@google.com
@@ -25,5 +26,8 @@ per-file chrome_set_ver=file://CROS_OWNERS
 per-file cros=file://CROS_OWNERS
 per-file cros_sdk=file://CROS_OWNERS
 per-file repo=file://CROS_OWNERS
+
+# for goma client update
+per-file cipd_manifest.*=ukai@google.com
 
 # COMPONENT: Infra>SDK

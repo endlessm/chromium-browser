@@ -16,41 +16,37 @@ import("../swiftshader.gni")
 
 swiftshader_source_set("Device_headers") {
   sources = [
+    "BC_Decoder.hpp",
     "Blitter.hpp",
     "Clipper.hpp",
     "Color.hpp",
     "Config.hpp",
     "Context.hpp",
     "ETC_Decoder.hpp",
-    "Matrix.hpp",
     "Memset.hpp",
     "PixelProcessor.hpp",
     "Plane.hpp",
-    "Point.hpp",
     "QuadRasterizer.hpp",
     "Renderer.hpp",
     "SetupProcessor.hpp",
-    "Vector.hpp",
     "VertexProcessor.hpp",
   ]
 }
 
 swiftshader_source_set("Device") {
   sources = [
+    "BC_Decoder.cpp",
     "Blitter.cpp",
     "Clipper.cpp",
     "Color.cpp",
     "Config.cpp",
     "Context.cpp",
     "ETC_Decoder.cpp",
-    "Matrix.cpp",
     "PixelProcessor.cpp",
     "Plane.cpp",
-    "Point.cpp",
     "QuadRasterizer.cpp",
     "Renderer.cpp",
     "SetupProcessor.cpp",
-    "Vector.cpp",
     "VertexProcessor.cpp",
   ]
 

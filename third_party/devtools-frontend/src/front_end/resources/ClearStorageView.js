@@ -2,10 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {ApplicationCacheModel} from './ApplicationCacheModel.js';
+import {DatabaseModel} from './DatabaseModel.js';
+import {DOMStorageModel} from './DOMStorageModel.js';
+import {IndexedDBModel} from './IndexedDBModel.js';
+
 /**
  * @implements {SDK.TargetManager.Observer}
  */
-Resources.ClearStorageView = class extends UI.ThrottledWidget {
+export class ClearStorageView extends UI.ThrottledWidget {
   constructor() {
     super(true, 1000);
     const types = Protocol.Storage.StorageType;
@@ -29,8 +34,8 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     this._securityOrigin = null;
 
     this._settings = new Map();
-    for (const type of Resources.ClearStorageView.AllStorageTypes) {
-      this._settings.set(type, Common.settings.createSetting('clear-storage-' + type, true));
+    for (const type of AllStorageTypes) {
+      this._settings.set(type, self.Common.settings.createSetting('clear-storage-' + type, true));
     }
 
     const quota = this._reportView.appendSection(Common.UIString('Usage'));
@@ -67,7 +72,7 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     this._appendItem(caches, Common.UIString('Application cache'), 'appcache');
     caches.markFieldListAsGroup();
 
-    SDK.targetManager.observeTargets(this);
+    self.SDK.targetManager.observeTargets(this);
   }
 
   /**
@@ -146,7 +151,7 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     }
 
     if (this._target) {
-      Resources.ClearStorageView.clear(this._target, this._securityOrigin, selectedStorageTypes);
+      ClearStorageView.clear(this._target, this._securityOrigin, selectedStorageTypes);
     }
 
     this._clearButton.disabled = true;
@@ -176,8 +181,8 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     }
 
     if (set.has(Protocol.Storage.StorageType.Indexeddb) || hasAll) {
-      for (const target of SDK.targetManager.targets()) {
-        const indexedDBModel = target.model(Resources.IndexedDBModel);
+      for (const target of self.SDK.targetManager.targets()) {
+        const indexedDBModel = target.model(IndexedDBModel);
         if (indexedDBModel) {
           indexedDBModel.clearForOrigin(securityOrigin);
         }
@@ -185,14 +190,14 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     }
 
     if (set.has(Protocol.Storage.StorageType.Local_storage) || hasAll) {
-      const storageModel = target.model(Resources.DOMStorageModel);
+      const storageModel = target.model(DOMStorageModel);
       if (storageModel) {
         storageModel.clearForOrigin(securityOrigin);
       }
     }
 
     if (set.has(Protocol.Storage.StorageType.Websql) || hasAll) {
-      const databaseModel = target.model(Resources.DatabaseModel);
+      const databaseModel = target.model(DatabaseModel);
       if (databaseModel) {
         databaseModel.disable();
         databaseModel.enable();
@@ -200,7 +205,7 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     }
 
     if (set.has(Protocol.Storage.StorageType.Cache_storage) || hasAll) {
-      const target = SDK.targetManager.mainTarget();
+      const target = self.SDK.targetManager.mainTarget();
       const model = target && target.model(SDK.ServiceWorkerCacheModel);
       if (model) {
         model.clearForOrigin(securityOrigin);
@@ -208,7 +213,7 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
     }
 
     if (set.has(Protocol.Storage.StorageType.Appcache) || hasAll) {
-      const appcacheModel = target.model(Resources.ApplicationCacheModel);
+      const appcacheModel = target.model(ApplicationCacheModel);
       if (appcacheModel) {
         appcacheModel.reset();
       }
@@ -294,9 +299,9 @@ Resources.ClearStorageView = class extends UI.ThrottledWidget {
    */
   _usageUpdatedForTest(usage, quota, usageBreakdown) {
   }
-};
+}
 
-Resources.ClearStorageView.AllStorageTypes = [
+export const AllStorageTypes = [
   Protocol.Storage.StorageType.Appcache, Protocol.Storage.StorageType.Cache_storage,
   Protocol.Storage.StorageType.Cookies, Protocol.Storage.StorageType.Indexeddb,
   Protocol.Storage.StorageType.Local_storage, Protocol.Storage.StorageType.Service_workers,
@@ -306,7 +311,7 @@ Resources.ClearStorageView.AllStorageTypes = [
 /**
  * @implements {UI.ActionDelegate}
  */
-Resources.ClearStorageView.ActionDelegate = class {
+export class ActionDelegate {
   /**
    * @override
    * @param {!UI.Context} context
@@ -325,7 +330,7 @@ Resources.ClearStorageView.ActionDelegate = class {
    * @return {boolean}
    */
   _handleClear() {
-    const target = SDK.targetManager.mainTarget();
+    const target = self.SDK.targetManager.mainTarget();
     if (!target) {
       return false;
     }
@@ -338,7 +343,7 @@ Resources.ClearStorageView.ActionDelegate = class {
       return false;
     }
 
-    Resources.ClearStorageView.clear(target, securityOrigin, Resources.ClearStorageView.AllStorageTypes);
+    ClearStorageView.clear(target, securityOrigin, AllStorageTypes);
     return true;
   }
-};
+}

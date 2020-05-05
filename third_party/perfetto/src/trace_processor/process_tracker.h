@@ -48,7 +48,7 @@ class ProcessTracker {
 
   // Called when a task_newtask is observed. This force the tracker to start
   // a new UTID for the thread, which is needed for TID-recycling resolution.
-  UniqueTid StartNewThread(int64_t timestamp,
+  UniqueTid StartNewThread(base::Optional<int64_t> timestamp,
                            uint32_t tid,
                            StringId thread_name_id);
 
@@ -67,8 +67,8 @@ class ProcessTracker {
   // the thread_name_id.
   virtual UniqueTid UpdateThreadName(uint32_t tid, StringId thread_name_id);
 
-  // Assigns the given name to the thread identified |utid| if it does not have
-  // a name yet.
+  // Assigns the given name to the thread identified |utid| if it does not
+  // have a name yet.
   virtual void SetThreadNameIfUnset(UniqueTid utid, StringId thread_name_id);
 
   // Called when a thread is seen the process tree. Retrieves the matching utid
@@ -78,8 +78,8 @@ class ProcessTracker {
 
   // Called when a task_newtask without the CLONE_THREAD flag is observed.
   // This force the tracker to start both a new UTID and a new UPID.
-  UniquePid StartNewProcess(int64_t timestamp,
-                            uint32_t parent_tid,
+  UniquePid StartNewProcess(base::Optional<int64_t> timestamp,
+                            base::Optional<uint32_t> parent_tid,
                             uint32_t pid,
                             StringId main_thread_name);
 
@@ -95,7 +95,7 @@ class ProcessTracker {
 
   // Assigns the given name to the process identified by |upid| if it does not
   // have a name yet.
-  void SetProcessNameIfUnset(UniquePid upid, StringId process_name_id);
+  virtual void SetProcessNameIfUnset(UniquePid upid, StringId process_name_id);
 
   // Called on a task rename event to set the process name if the tid provided
   // is the main thread of the process.
@@ -126,13 +126,19 @@ class ProcessTracker {
   void AssociateThreads(UniqueTid, UniqueTid);
 
  private:
+  // Returns the utid of a thread having |tid| and |pid| as the parent process.
+  // pid == base::nullopt matches all processes.
+  // Returns base::nullopt if such a thread doesn't exist.
+  base::Optional<uint32_t> GetThreadOrNull(uint32_t tid,
+                                           base::Optional<uint32_t> pid);
+
+  // Returns whether a thread is considered alive by the process tracker.
+  bool IsThreadAlive(UniqueTid utid);
+
   // Called whenever we discover that the passed thread belongs to the passed
   // process. The |pending_assocs_| vector is scanned to see if there are any
   // other threads associated to the passed thread.
   void ResolvePendingAssociations(UniqueTid, UniquePid);
-
-  std::pair<UniquePid, TraceStorage::Process*> GetOrCreateProcessPtr(
-      uint32_t pid);
 
   TraceProcessorContext* const context_;
 

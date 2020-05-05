@@ -10,7 +10,6 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_management.h"
-#include "chrome/common/buildflags.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest.h"
@@ -19,6 +18,7 @@
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 #include "base/feature_list.h"
+#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/supervised_user/supervised_user_features.h"
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
@@ -139,16 +139,21 @@ bool StandardManagementPolicyProvider::UserMayLoad(
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
     if (base::FeatureList::IsEnabled(
             supervised_users::kSupervisedUserAllowlistExtensionInstall) &&
-        settings_->IsChild() && settings_->BlacklistedByDefault() &&
+        settings_->is_child() && settings_->BlacklistedByDefault() &&
         extension->is_theme()) {
       // Themes should always be allowed, to maintain current functionality that
       // supervised users already possess.
       return true;
     }
+    RecordAllowlistExtensionUmaMetrics(
+        UmaExtensionStateAllowlist::kAllowlistMiss, extension);
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
     return ReturnLoadError(extension, error);
   }
-
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+  RecordAllowlistExtensionUmaMetrics(UmaExtensionStateAllowlist::kAllowlistHit,
+                                     extension);
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
   return true;
 }
 
@@ -249,5 +254,24 @@ bool StandardManagementPolicyProvider::ReturnLoadError(
   }
   return false;
 }
+
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+void StandardManagementPolicyProvider::RecordAllowlistExtensionUmaMetrics(
+    UmaExtensionStateAllowlist state,
+    const Extension* extension) const {
+  if (base::FeatureList::IsEnabled(
+          supervised_users::kSupervisedUserAllowlistExtensionInstall) &&
+      settings_->is_child() && settings_->BlacklistedByDefault()) {
+    // If extensions are blacklisted by default, then all extension installs
+    // must go through the ExtensionInstallWhitelist. Record the whitelist hit
+    // rate here.
+    base::UmaHistogramEnumeration("SupervisedUsers.ExtensionsAllowlist", state);
+    if (state == UmaExtensionStateAllowlist::kAllowlistMiss) {
+      LOG(WARNING) << "Allowlist miss: extension_id=" << extension->id()
+                   << " extension_name='" << extension->name() << "'";
+    }
+  }
+}
+#endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 }  // namespace extensions

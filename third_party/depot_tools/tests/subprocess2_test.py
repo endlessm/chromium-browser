@@ -9,13 +9,16 @@ import os
 import sys
 import unittest
 
+if sys.version_info.major == 2:
+  import mock
+else:
+  from unittest import mock
+
 DEPOT_TOOLS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, DEPOT_TOOLS)
 
 import subprocess
 import subprocess2
-
-from third_party import mock
 
 
 TEST_COMMAND = [
@@ -77,6 +80,14 @@ class DefaultsTest(unittest.TestCase):
     self.assertEqual('stdout', subprocess2.check_output(['foo'], a=True))
     mockCommunicate.assert_called_with(
         ['foo'], a=True, stdin=subprocess2.VOID_INPUT, stdout=subprocess2.PIPE)
+
+  @mock.patch('subprocess.Popen.__init__')
+  def test_env_type(self, mockPopen):
+    if sys.version_info.major != 2:
+      subprocess2.Popen(['foo'], env={b'key': b'value'})
+      mockPopen.assert_called_with(['foo'],
+                                   env={'key': 'value'},
+                                   shell=mock.ANY)
 
 
 def _run_test(with_subprocess=True):

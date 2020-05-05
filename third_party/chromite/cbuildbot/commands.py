@@ -17,6 +17,7 @@ import multiprocessing
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -238,7 +239,7 @@ def ListChrootSnapshots(buildroot):
   cmd = ['cros_sdk', '--snapshot-list']
 
   cmd_snapshots = RunBuildScript(
-      buildroot, cmd, chromite_cmd=True, redirect_stdout=True)
+      buildroot, cmd, chromite_cmd=True, stdout=True)
   return cmd_snapshots.output.splitlines()
 
 
@@ -246,7 +247,7 @@ def RevertChrootToSnapshot(buildroot, snapshot_name):
   """Wrapper around cros_sdk --snapshot-restore."""
   cmd = ['cros_sdk', '--snapshot-restore', snapshot_name]
 
-  result = RunBuildScript(buildroot, cmd, chromite_cmd=True, error_code_ok=True)
+  result = RunBuildScript(buildroot, cmd, chromite_cmd=True, check=False)
   return result.returncode == 0
 
 
@@ -254,7 +255,7 @@ def CreateChrootSnapshot(buildroot, snapshot_name):
   """Wrapper around cros_sdk --snapshot-create."""
   cmd = ['cros_sdk', '--snapshot-create', snapshot_name]
 
-  result = RunBuildScript(buildroot, cmd, chromite_cmd=True, error_code_ok=True)
+  result = RunBuildScript(buildroot, cmd, chromite_cmd=True, check=False)
   return result.returncode == 0
 
 
@@ -262,7 +263,7 @@ def DeleteChrootSnapshot(buildroot, snapshot_name):
   """Wrapper around cros_sdk --snapshot-delete."""
   cmd = ['cros_sdk', '--snapshot-delete', snapshot_name]
 
-  result = RunBuildScript(buildroot, cmd, chromite_cmd=True, error_code_ok=True)
+  result = RunBuildScript(buildroot, cmd, chromite_cmd=True, check=False)
   return result.returncode == 0
 
 
@@ -548,16 +549,6 @@ def RunLocalTryjob(buildroot, build_config, args=None, target_buildroot=None):
     RunBuildScript(buildroot, cmd, chromite_cmd=True)
 
 
-def UpdateBinhostJson(buildroot):
-  """Test prebuilts for all boards, making sure everybody gets Chrome prebuilts.
-
-  Args:
-    buildroot: The buildroot of the current build.
-  """
-  cmd = ['../cbuildbot/update_binhost_json']
-  RunBuildScript(buildroot, cmd, chromite_cmd=True, enter_chroot=True)
-
-
 def Build(buildroot,
           board,
           build_autotest,
@@ -783,7 +774,7 @@ def RunCrosConfigHost(buildroot, board, args, log_output=True):
       encoding='utf-8',
       log_output=log_output,
       cwd=buildroot,
-      error_code_ok=True)
+      check=False)
   if result.returncode:
     # Show the output for debugging purposes.
     if 'No such file or directory' not in result.error:
@@ -1318,7 +1309,7 @@ def RunSkylabHWTest(build,
                                timeout_mins, tags, keyvals, test_args)
   try:
     result = cros_build_lib.run(
-        [skylab_path, 'create-test'] + args, redirect_stdout=True)
+        [skylab_path, 'create-test'] + args, stdout=True)
     return HWTestSuiteResult(None, None)
   except cros_build_lib.RunCommandError as e:
     result = e.result
@@ -1401,7 +1392,7 @@ def RunSkylabHWTestSuite(
       quota_account=quota_account)
 
   try:
-    output = cros_build_lib.run(cmd, redirect_stdout=True)
+    output = cros_build_lib.run(cmd, stdout=True)
     report = json.loads(output.output)
     task_id = report['task_id']
     task_url = report['task_url']
@@ -1413,7 +1404,7 @@ def RunSkylabHWTestSuite(
 
     wait_cmd = [skylab_tool, 'wait-task'] + _GetSkylabWaitTaskArgs(
         task_id, timeout_mins=timeout_mins)
-    output = cros_build_lib.run(wait_cmd, redirect_stdout=True)
+    output = cros_build_lib.run(wait_cmd, stdout=True)
     try:
       report = json.loads(output.output)
     except:
@@ -1504,7 +1495,7 @@ def RunSkylabHWTestPlan(test_plan=None,
   try:
     result = cros_build_lib.run(
         [skylab_path, 'create-testplan'] + args,
-        redirect_stdout=True,
+        stdout=True,
         input=test_plan)
 
     task_url = ''
@@ -1720,7 +1711,7 @@ def _HWTestCreate(cmd, debug=False, **kwargs):
         cmd=start_cmd,
         capture_output=True,
         encoding='utf-8',
-        combine_stdout_stderr=True,
+        stderr=subprocess.STDOUT,
         **kwargs)
     # If the command succeeds, result.task_summary_json
     # should have the right content.
@@ -1759,7 +1750,7 @@ def _HWTestWait(cmd, job_id, **kwargs):
         cmd=wait_cmd,
         capture_output=True,
         encoding='utf-8',
-        combine_stdout_stderr=True,
+        stderr=subprocess.STDOUT,
         **kwargs)
     pass_hwtest = True
   except cros_build_lib.RunCommandError as e:
@@ -1816,7 +1807,7 @@ def _HWTestDumpJson(cmd, job_id, **kwargs):
       cmd=dump_json_cmd,
       capture_output=True,
       encoding='utf-8',
-      combine_stdout_stderr=True,
+      stderr=subprocess.STDOUT,
       **kwargs)
   for output in result.GetValue('outputs', ''):
     sys.stdout.write(output)
@@ -1940,10 +1931,10 @@ def GenerateStackTraces(buildroot, board, test_results_dir, archive_dir,
         cros_build_lib.run(['minidump_stackwalk', minidump, symbol_dir],
                            cwd=cwd,
                            enter_chroot=True,
-                           error_code_ok=True,
-                           redirect_stderr=True,
+                           check=False,
+                           stderr=True,
                            debug_level=logging.DEBUG,
-                           log_stdout_to_file=processed_file_path)
+                           stdout=processed_file_path)
       # Process asan log.
       else:
         # Prepend '/chrome/$board' path to the stack trace in log.
@@ -1970,8 +1961,8 @@ def GenerateStackTraces(buildroot, board, test_results_dir, archive_dir,
                            input=raw.output,
                            debug_level=logging.DEBUG,
                            cwd=buildroot,
-                           redirect_stderr=True,
-                           log_stdout_to_file=processed_file_path)
+                           stderr=True,
+                           stdout=processed_file_path)
         # Break the bot if asan_log found. This is because some asan
         # crashes may not fail any test so the bot stays green.
         # Ex: crbug.com/167497
@@ -2111,7 +2102,7 @@ def MarkChromeAsStable(buildroot,
   portage_atom_string = cros_build_lib.run(
       command + [chrome_rev],
       cwd=cwd,
-      redirect_stdout=True,
+      stdout=True,
       enter_chroot=True,
       chroot_args=chroot_args,
       extra_env=extra_env).output.rstrip()
@@ -3065,7 +3056,7 @@ def BuildAutotestServerPackageTarball(buildroot, cwd, tarball_dir):
       tarball,
       cwd=cwd,
       extra_args=transforms,
-      error_code_ok=True)
+      check=False)
   return tarball
 
 
@@ -3193,7 +3184,7 @@ def BuildFullAutotestTarball(buildroot, board, tarball_dir):
       os.path.join(buildroot, 'chroot', 'build', board,
                    constants.AUTOTEST_BUILD_PATH, '..'))
   result = BuildTarball(
-      buildroot, ['autotest'], tarball, cwd=cwd, error_code_ok=True)
+      buildroot, ['autotest'], tarball, cwd=cwd, check=False)
 
   # Emerging the autotest package to the factory test image while this is
   # running modifies the timestamp on /build/autotest/server by
@@ -3223,7 +3214,7 @@ def BuildUnitTestTarball(buildroot, board, tarball_dir):
       tarball_path,
       cwd=cwd,
       compressed=False,
-      error_code_ok=True)
+      check=False)
   return tarball
 
 
@@ -3488,7 +3479,7 @@ def CallBuildApiWithInputProto(buildroot, build_api_command, input_proto):
     cmd += [
         '--input-json', input_proto_file, '--output-json', output_proto_file
     ]
-    RunBuildScript(buildroot, cmd, chromite_cmd=True, redirect_stdout=True)
+    RunBuildScript(buildroot, cmd, chromite_cmd=True, stdout=True)
     return json.loads(osutils.ReadFile(output_proto_file))
 
 
@@ -3904,7 +3895,7 @@ def GetTargetChromiteApiVersion(buildroot, validate_version=True):
         [constants.PATH_TO_CBUILDBOT, '--reexec-api-version'],
         cwd=buildroot, check=False, encoding='utf-8', capture_output=True)
   except cros_build_lib.RunCommandError:
-    # Although error_code_ok=True was used, this exception will still be raised
+    # Although check=False was used, this exception will still be raised
     # if the executible did not exist.
     full_cbuildbot_path = os.path.join(buildroot, constants.PATH_TO_CBUILDBOT)
     if not os.path.exists(full_cbuildbot_path):

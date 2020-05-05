@@ -1,7 +1,8 @@
 // Copyright 2019 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-Network.RequestInitiatorView = class extends UI.VBox {
+
+export class RequestInitiatorView extends UI.VBox {
   /**
    * @param {!SDK.NetworkRequest} request
    */
@@ -31,13 +32,8 @@ Network.RequestInitiatorView = class extends UI.VBox {
     }
     const networkManager = SDK.NetworkManager.forRequest(request);
     const target = networkManager ? networkManager.target() : null;
-    const stackTrace =
-        Components.JSPresentationUtils.buildStackTracePreviewContents(target, linkifier, initiator.stack, callback);
-    if (focusableLink) {
-      for (const link of stackTrace.links) {
-        link.tabIndex = 0;
-      }
-    }
+    const stackTrace = Components.JSPresentationUtils.buildStackTracePreviewContents(
+        target, linkifier, {stackTrace: initiator.stack, contentUpdated: callback, tabStops: focusableLink});
     return stackTrace;
   }
 
@@ -126,14 +122,13 @@ Network.RequestInitiatorView = class extends UI.VBox {
       return;
     }
     let initiatorDataPresent = false;
-    const stackTracePreview =
-        Network.RequestInitiatorView.createStackTracePreview(this._request, this._linkifier, true);
+    const stackTracePreview = RequestInitiatorView.createStackTracePreview(this._request, this._linkifier, true);
     if (stackTracePreview) {
       initiatorDataPresent = true;
       this._appendExpandableSection(stackTracePreview.element, ls`Request call stack`, true);
     }
 
-    const initiatorGraph = SDK.networkLog.initiatorGraphForRequest(this._request);
+    const initiatorGraph = self.SDK.networkLog.initiatorGraphForRequest(this._request);
     if (initiatorGraph.initiators.size > 1 || initiatorGraph.initiated.size > 1) {
       initiatorDataPresent = true;
       this._appendExpandableSection(
@@ -144,4 +139,4 @@ Network.RequestInitiatorView = class extends UI.VBox {
     }
     this._hasShown = true;
   }
-};
+}

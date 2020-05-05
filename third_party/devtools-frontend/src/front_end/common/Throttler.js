@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+/** @typedef {function(!Error=)} */
+export let FinishCallback;
+
 /**
  * @unrestricted
  */
@@ -114,12 +117,3 @@ export class Throttler {
     return window.performance.now();
   }
 }
-
-/* Legacy exported object */
-self.Common = self.Common || {};
-Common = Common || {};
-
-Common.Throttler = Throttler;
-
-/** @typedef {function(!Error=)} */
-Common.Throttler.FinishCallback;

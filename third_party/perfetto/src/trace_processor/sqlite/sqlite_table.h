@@ -55,7 +55,9 @@ class SqliteTable : public sqlite3_vtab {
     size_t index() const { return index_; }
     const std::string& name() const { return name_; }
     SqlValue::Type type() const { return type_; }
+
     bool hidden() const { return hidden_; }
+    void set_hidden(bool hidden) { hidden_ = hidden; }
 
    private:
     size_t index_ = 0;
@@ -137,6 +139,8 @@ class SqliteTable : public sqlite3_vtab {
     std::string ToCreateTableStmt() const;
 
     const std::vector<Column>& columns() const { return columns_; }
+    std::vector<Column>* mutable_columns() { return &columns_; }
+
     const std::vector<size_t> primary_keys() { return primary_keys_; }
 
    private:
@@ -169,9 +173,8 @@ class SqliteTable : public sqlite3_vtab {
     // Stores the estimated cost of this query.
     double estimated_cost = 0;
 
-    // Estimated row count. The default is set to 25 to match the SQLite
-    // default.
-    uint32_t estimated_rows = 25;
+    // Estimated row count.
+    int64_t estimated_rows = 0;
   };
 
   template <typename Context>

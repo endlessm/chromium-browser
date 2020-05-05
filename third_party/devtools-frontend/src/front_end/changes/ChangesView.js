@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class ChangesView extends UI.VBox {
+import {ChangesSidebar, Events} from './ChangesSidebar.js';
+import {ChangesTextEditor} from './ChangesTextEditor.js';
+
+export class ChangesView extends UI.VBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('changes/changesView.css');
@@ -15,9 +18,8 @@ export default class ChangesView extends UI.VBox {
     this._emptyWidget.show(mainWidget.element);
 
     this._workspaceDiff = WorkspaceDiff.workspaceDiff();
-    this._changesSidebar = new Changes.ChangesSidebar(this._workspaceDiff);
-    this._changesSidebar.addEventListener(
-        Changes.ChangesSidebar.Events.SelectedUISourceCodeChanged, this._selectedUISourceCodeChanged, this);
+    this._changesSidebar = new ChangesSidebar(this._workspaceDiff);
+    this._changesSidebar.addEventListener(Events.SelectedUISourceCodeChanged, this._selectedUISourceCodeChanged, this);
     splitWidget.setSidebarWidget(this._changesSidebar);
 
     /** @type {?Workspace.UISourceCode} */
@@ -28,19 +30,22 @@ export default class ChangesView extends UI.VBox {
 
     this._maxLineDigits = 1;
 
-    this._editor = new TextEditor.CodeMirrorTextEditor({
+    this._editor = new ChangesTextEditor({
+      devtoolsAccessibleName: ls`Changes diff viewer`,
       lineNumbers: true,
       lineWrapping: false,
       maxHighlightLength: Infinity  // This is to avoid CodeMirror bailing out of highlighting big diffs.
     });
     this._editor.setReadOnly(true);
-    this._editor.show(mainWidget.element.createChild('div', 'editor-container'));
+    const editorContainer = mainWidget.element.createChild('div', 'editor-container');
+    UI.ARIAUtils.markAsTabpanel(editorContainer);
+    this._editor.show(editorContainer);
     this._editor.hideWidget();
 
-    this._editor.element.addEventListener('click', this._click.bind(this), false);
+    self.onInvokeElement(this._editor.element, this._click.bind(this));
 
     this._toolbar = new UI.Toolbar('changes-toolbar', mainWidget.element);
-    const revertButton = new UI.ToolbarButton(Common.UIString('Revert all changes'), 'largeicon-undo');
+    const revertButton = new UI.ToolbarButton(ls`Revert all changes to current file`, 'largeicon-undo');
     revertButton.addEventListener(UI.ToolbarButton.Events.Click, this._revert.bind(this));
     this._toolbar.appendToolbarItem(revertButton);
     this._diffStats = new UI.ToolbarText('');
@@ -159,25 +164,25 @@ export default class ChangesView extends UI.VBox {
       const token = diff[i];
       switch (token[0]) {
         case Diff.Diff.Operation.Equal:
-          this._diffRows.pushAll(createEqualRows(token[1], i === 0, i === diff.length - 1));
-          originalLines.pushAll(token[1]);
-          currentLines.pushAll(token[1]);
+          this._diffRows.push(...createEqualRows(token[1], i === 0, i === diff.length - 1));
+          originalLines.push(...token[1]);
+          currentLines.push(...token[1]);
           break;
         case Diff.Diff.Operation.Insert:
           for (const line of token[1]) {
             this._diffRows.push(createRow(line, RowType.Addition));
           }
           insertions += token[1].length;
-          currentLines.pushAll(token[1]);
+          currentLines.push(...token[1]);
           break;
         case Diff.Diff.Operation.Delete:
           deletions += token[1].length;
-          originalLines.pushAll(token[1]);
+          originalLines.push(...token[1]);
           if (diff[i + 1] && diff[i + 1][0] === Diff.Diff.Operation.Insert) {
             i++;
-            this._diffRows.pushAll(createModifyRows(token[1].join('\n'), diff[i][1].join('\n')));
+            this._diffRows.push(...createModifyRows(token[1].join('\n'), diff[i][1].join('\n')));
             insertions += diff[i][1].length;
-            currentLines.pushAll(diff[i][1]);
+            currentLines.push(...diff[i][1]);
           } else {
             for (const line of token[1]) {
               this._diffRows.push(createRow(line, RowType.Deletion));
@@ -218,6 +223,7 @@ export default class ChangesView extends UI.VBox {
       });
       this._editor.setText(this._diffRows.map(row => row.tokens.map(t => t.text).join('')).join('\n'));
       this._editor.setLineNumberFormatter(this._lineFormatter.bind(this));
+      this._editor.updateDiffGutter(this._diffRows);
     });
 
     /**
@@ -294,7 +300,7 @@ export default class ChangesView extends UI.VBox {
 
     /**
      * @param {string} text
-     * @param {!Changes.ChangesView.RowType} type
+     * @param {!RowType} type
      * @return {!Changes.ChangesView.Row}
      */
     function createRow(text, type) {
@@ -355,38 +361,9 @@ export class DiffUILocationRevealer {
     if (!(diffUILocation instanceof WorkspaceDiff.DiffUILocation)) {
       throw new Error('Internal error: not a diff ui location');
     }
-    /** @type {!Changes.ChangesView} */
-    const changesView = self.runtime.sharedInstance(Changes.ChangesView);
-    await UI.viewManager.showView('changes.changes');
+    /** @type {!ChangesView} */
+    const changesView = self.runtime.sharedInstance(ChangesView);
+    await self.UI.viewManager.showView('changes.changes');
     changesView._changesSidebar.selectUISourceCode(diffUILocation.uiSourceCode, omitFocus);
   }
 }
-
-/* Legacy exported object */
-self.Changes = self.Changes || {};
-
-/* Legacy exported object */
-Changes = Changes || {};
-
-/**
- * @constructor
- */
-Changes.ChangesView = ChangesView;
-
-/** @enum {string} */
-Changes.ChangesView.RowType = RowType;
-
-/**
- * @typedef {!{
-  *  baselineLineNumber: number,
-  *  currentLineNumber: number,
-  *  tokens: !Array<!{text: string, className: string}>,
-  *  type: !Changes.ChangesView.RowType
-  * }}
-  */
-Changes.ChangesView.Row;
-
-/**
- * @implements {Common.Revealer}
- */
-Changes.ChangesView.DiffUILocationRevealer = DiffUILocationRevealer;

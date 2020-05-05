@@ -23,17 +23,16 @@ executable("traced_perf") {
     ":traced_perf_main",
     "../../../gn:default_deps",
   ]
-  sources = [
-    "main.cc",
-  ]
+  sources = [ "main.cc" ]
 }
 
 source_set("traced_perf_main") {
   deps = [
+    ":proc_descriptors",
     ":producer",
     "../../../gn:default_deps",
     "../../../src/base",
-    "../../../src/tracing:ipc",
+    "../../../src/tracing/ipc/producer",
   ]
   sources = [
     "traced_perf.cc",
@@ -42,17 +41,19 @@ source_set("traced_perf_main") {
 }
 
 source_set("producer") {
+  public_deps = [
+    ":regs_parsing",
+    "../../../include/perfetto/tracing/core",
+  ]
   deps = [
+    ":proc_descriptors",
     "../../../gn:default_deps",
     "../../../protos/perfetto/config:cpp",
     "../../../protos/perfetto/config/profiling:zero",
     "../../../protos/perfetto/trace:zero",
     "../../../src/base",
     "../../../src/base:unix_socket",
-    "../../../src/tracing:ipc",
-  ]
-  public_deps = [
-    "../../../include/perfetto/tracing/core",
+    "../../../src/tracing/ipc/producer",
   ]
   sources = [
     "event_config.h",
@@ -60,6 +61,30 @@ source_set("producer") {
     "event_reader.h",
     "perf_producer.cc",
     "perf_producer.h",
+  ]
+}
+
+source_set("regs_parsing") {
+  public_deps = [ "../../../gn:libunwindstack" ]
+  deps = [
+    "../../../gn:bionic_kernel_uapi_headers",
+    "../../../gn:default_deps",
+    "../../../src/base",
+  ]
+  sources = [
+    "regs_parsing.cc",
+    "regs_parsing.h",
+  ]
+}
+
+source_set("proc_descriptors") {
+  deps = [
+    "../../../gn:default_deps",
+    "../../../src/base",
+  ]
+  sources = [
+    "proc_descriptors.cc",
+    "proc_descriptors.h",
   ]
 }
 
@@ -76,7 +101,5 @@ source_set("producer_unittests") {
     "../../../src/protozero",
     "../../base",
   ]
-  sources = [
-    "event_config_unittest.cc",
-  ]
+  sources = [ "event_config_unittest.cc" ]
 }

@@ -258,11 +258,9 @@ class WebStateImpl : public WebState,
   void RecordPageStateInNavigationItem() override;
   void OnGoToIndexSameDocumentNavigation(NavigationInitiationType type,
                                          bool has_user_gesture) override;
-  void WillChangeUserAgentType() override;
   void LoadCurrentItem(NavigationInitiationType type) override;
   void LoadIfNecessary() override;
   void Reload() override;
-  void OnNavigationItemsPruned(size_t pruned_item_count) override;
   void OnNavigationItemCommitted(NavigationItem* item) override;
 
   WebState* GetWebState() override;
@@ -284,11 +282,17 @@ class WebStateImpl : public WebState,
   friend SessionStorageBuilder;
 
   // Called when a dialog presented by the JavaScriptDialogPresenter is
-  // dismissed.  |original_callback| is the callback provided to
-  // RunJavaScriptDialog(), and is executed with |success| and |user_input|.
-  void JavaScriptDialogClosed(DialogClosedCallback callback,
-                              bool success,
-                              NSString* user_input);
+  // dismissed.  |callback| is the callback provided to RunJavaScriptDialog(),
+  // and is executed with |success| and |user_input|.
+  //
+  // This is defined as a static function taking WeakPtr to WebStateImpl instead
+  // of an instance method of WebStateImpl. This is to guarantee that |callback|
+  // is called even when JavaScriptDialogClosed() is called after WebStateImpl
+  // is destructed. Otherwise WKWebView raises NSInternalInconsistencyException.
+  static void JavaScriptDialogClosed(base::WeakPtr<WebStateImpl> weak_web_state,
+                                     DialogClosedCallback callback,
+                                     bool success,
+                                     NSString* user_input);
 
   // Creates a WebUIIOS object for |url| that is owned by the caller. Returns
   // nullptr if |url| does not correspond to a WebUI page.

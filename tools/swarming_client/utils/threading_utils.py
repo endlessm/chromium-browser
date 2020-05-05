@@ -419,7 +419,7 @@ class IOAutoRetryThreadPool(AutoRetryThreadPool):
   """
   # Initial and maximum number of worker threads.
   INITIAL_WORKERS = 2
-  MAX_WORKERS = 64 if sys.maxsize > 2**32 else 32
+  MAX_WORKERS = 16 if sys.maxsize > 2**32 else 8
   RETRIES = 5
 
   def __init__(self):
@@ -470,8 +470,8 @@ class Progress(object):
     """
     assert isinstance(name, basestring), repr(name)
     assert isinstance(raw, bool), repr(raw)
-    assert all(isinstance(v, int) for v in kwargs.itervalues()), repr(kwargs)
-    args = [(self._columns_lookup[k], v) for k, v in kwargs.iteritems() if v]
+    assert all(isinstance(v, int) for v in kwargs.values()), repr(kwargs)
+    args = [(self._columns_lookup[k], v) for k, v in kwargs.items() if v]
     self._queued_updates.put((name, raw, args))
 
   def print_update(self):
@@ -688,7 +688,7 @@ class DeadlockDetector(object):
     tracebacks = {}
 
     # pylint: disable=W0212
-    for thread_id, frame in sys._current_frames().iteritems():
+    for thread_id, frame in sys._current_frames().items():
       # Don't dump deadlock detector's own thread, it's boring.
       if thread_id == current_thread_id and skip_current_thread:
         continue

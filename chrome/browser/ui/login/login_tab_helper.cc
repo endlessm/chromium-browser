@@ -145,6 +145,13 @@ LoginTabHelper::WillProcessMainFrameUnauthorizedResponse(
     return content::NavigationThrottle::PROCEED;
   }
 
+  // Do not cancel the navigation if there is no auth challenge. We only want to
+  // cancel the navigation below to show a blank page if there is an auth
+  // challenge for which to show a login prompt.
+  if (!navigation_handle->GetAuthChallengeInfo()) {
+    return content::NavigationThrottle::PROCEED;
+  }
+
   // Otherwise, rewrite the response to a blank page. DidFinishNavigation will
   // show a login prompt on top of this blank page.
   return {content::NavigationThrottle::CANCEL,
@@ -160,16 +167,17 @@ void LoginTabHelper::HandleCredentials(
   url_for_delegate_ = GURL();
 
   if (credentials.has_value()) {
+    content::StoragePartition* storage_partition =
+        content::BrowserContext::GetStoragePartition(
+            web_contents()->GetBrowserContext(),
+            web_contents()->GetSiteInstance());
     // Pass a weak pointer for the callback, as the WebContents (and thus this
     // LoginTabHelper) could be destroyed while the network service is
     // processing the new cache entry.
-    content::BrowserContext::GetDefaultStoragePartition(
-        web_contents()->GetBrowserContext())
-        ->GetNetworkContext()
-        ->AddAuthCacheEntry(challenge_, network_isolation_key_,
-                            credentials.value(),
-                            base::BindOnce(&LoginTabHelper::Reload,
-                                           weak_ptr_factory_.GetWeakPtr()));
+    storage_partition->GetNetworkContext()->AddAuthCacheEntry(
+        challenge_, network_isolation_key_, credentials.value(),
+        base::BindOnce(&LoginTabHelper::Reload,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
   // Once credentials have been provided, in the case of proxy auth where the

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All
+// Copyright 2017 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,13 @@ AuditsTestRunner.getResultsElement = function() {
  */
 AuditsTestRunner.getDialogElement = function() {
   return AuditsTestRunner._panel()._statusView._dialog.contentElement.shadowRoot.querySelector('.audits-view');
+};
+
+/**
+ * @return {?Element}
+ */
+AuditsTestRunner.getSettingsElement = function() {
+  return AuditsTestRunner._panel()._settingsPane.element;
 };
 
 /**
@@ -109,6 +116,13 @@ AuditsTestRunner.dumpStartAuditState = function() {
 
   const containerElement = AuditsTestRunner.getContainerElement();
   const checkboxes = [...containerElement.querySelectorAll('.checkbox')];
+
+  const toolbarShadowRoot =
+    AuditsTestRunner.getSettingsElement().querySelector('.audits-settings-pane > div').shadowRoot;
+  for (const checkbox of toolbarShadowRoot.querySelectorAll('.checkbox')) {
+    checkboxes.push(checkbox);
+  }
+
   checkboxes.forEach(element => {
     TestRunner.addResult(AuditsTestRunner._checkboxStateLabel(element));
   });

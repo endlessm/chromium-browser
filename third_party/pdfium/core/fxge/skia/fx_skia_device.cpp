@@ -300,14 +300,14 @@ bool IsAlternateFillMode(int fill_mode) {
   return GetAlternateOrWindingFillMode(fill_mode) == FXFILL_ALTERNATE;
 }
 
-SkPath::FillType GetAlternateOrWindingFillType(int fill_mode) {
-  return IsAlternateFillMode(fill_mode) ? SkPath::kEvenOdd_FillType
-                                        : SkPath::kWinding_FillType;
+SkPathFillType GetAlternateOrWindingFillType(int fill_mode) {
+  return IsAlternateFillMode(fill_mode) ? SkPathFillType::kEvenOdd
+                                        : SkPathFillType::kWinding;
 }
 
-bool IsEvenOddFillType(SkPath::FillType fill) {
-  return fill == SkPath::kEvenOdd_FillType ||
-         fill == SkPath::kInverseEvenOdd_FillType;
+bool IsEvenOddFillType(SkPathFillType fill) {
+  return fill == SkPathFillType::kEvenOdd ||
+         fill == SkPathFillType::kInverseEvenOdd;
 }
 
 SkPath BuildPath(const CFX_PathData* pPathData) {
@@ -787,14 +787,20 @@ class SkiaState {
     SkCanvas* skCanvas = m_pDriver->SkiaCanvas();
     SkAutoCanvasRestore scoped_save_restore(skCanvas, /*doSave=*/true);
     skCanvas->concat(skMatrix);
+    bool do_stroke = true;
     if (m_fillPath) {
       SkPath strokePath;
       const SkPath* fillPath = &m_skPath;
       if (stroke_alpha) {
         if (m_groupKnockout) {
           skPaint.getFillPath(m_skPath, &strokePath);
-          if (Op(m_skPath, strokePath, SkPathOp::kDifference_SkPathOp,
+          if (m_strokeColor == m_fillColor &&
+              Op(m_skPath, strokePath, SkPathOp::kUnion_SkPathOp,
                  &strokePath)) {
+            fillPath = &strokePath;
+            do_stroke = false;
+          } else if (Op(m_skPath, strokePath, SkPathOp::kDifference_SkPathOp,
+                        &strokePath)) {
             fillPath = &strokePath;
           }
         }
@@ -807,7 +813,7 @@ class SkiaState {
       DebugShowSkiaDrawPath(m_pDriver.Get(), skCanvas, skPaint, *fillPath);
       skCanvas->drawPath(*fillPath, skPaint);
     }
-    if (stroke_alpha) {
+    if (stroke_alpha && do_stroke) {
       skPaint.setStyle(SkPaint::kStroke_Style);
       skPaint.setColor(m_strokeColor);
 #ifdef _SKIA_SUPPORT_PATHS_
@@ -1173,11 +1179,7 @@ class SkiaState {
   }
 
   bool MatrixChanged(const CFX_Matrix* pMatrix) const {
-    CFX_Matrix identityMatrix;
-    if (!pMatrix)
-      pMatrix = &identityMatrix;
-    return pMatrix->a != m_drawMatrix.a || pMatrix->b != m_drawMatrix.b ||
-           pMatrix->c != m_drawMatrix.c || pMatrix->d != m_drawMatrix.d;
+    return pMatrix ? *pMatrix != m_drawMatrix : m_drawMatrix.IsIdentity();
   }
 
   bool StateChanged(const CFX_GraphStateData* pState,
@@ -2050,6 +2052,7 @@ bool CFX_SkiaDeviceDriver::DrawPath(
   SkPath skPath = BuildPath(pPathData);
   SkAutoCanvasRestore scoped_save_restore(m_pCanvas, /*doSave=*/true);
   m_pCanvas->concat(skMatrix);
+  bool do_stroke = true;
   if (GetAlternateOrWindingFillMode(fill_mode) && fill_color) {
     skPath.setFillType(GetAlternateOrWindingFillType(fill_mode));
     SkPath strokePath;
@@ -2057,8 +2060,12 @@ bool CFX_SkiaDeviceDriver::DrawPath(
     if (is_paint_stroke) {
       if (m_bGroupKnockout) {
         skPaint.getFillPath(skPath, &strokePath);
-        if (Op(skPath, strokePath, SkPathOp::kDifference_SkPathOp,
-               &strokePath)) {
+        if (stroke_color == fill_color &&
+            Op(skPath, strokePath, SkPathOp::kUnion_SkPathOp, &strokePath)) {
+          fillPath = &strokePath;
+          do_stroke = false;
+        } else if (Op(skPath, strokePath, SkPathOp::kDifference_SkPathOp,
+                      &strokePath)) {
           fillPath = &strokePath;
         }
       }
@@ -2071,7 +2078,7 @@ bool CFX_SkiaDeviceDriver::DrawPath(
     DebugShowSkiaDrawPath(this, m_pCanvas, skPaint, *fillPath);
     m_pCanvas->drawPath(*fillPath, skPaint);
   }
-  if (is_paint_stroke) {
+  if (is_paint_stroke && do_stroke) {
     skPaint.setStyle(SkPaint::kStroke_Style);
     skPaint.setColor(stroke_color);
 #ifdef _SKIA_SUPPORT_PATHS_
@@ -2223,9 +2230,9 @@ bool CFX_SkiaDeviceDriver::DrawShading(const CPDF_ShadingPattern* pPattern,
       if (clipStart && start_r)
         skClip.addCircle(pts[0].fX, pts[0].fY, start_r);
       if (clipEnd)
-        skClip.addCircle(pts[1].fX, pts[1].fY, end_r, SkPath::kCCW_Direction);
+        skClip.addCircle(pts[1].fX, pts[1].fY, end_r, SkPathDirection::kCCW);
       else
-        skClip.setFillType(SkPath::kInverseWinding_FillType);
+        skClip.setFillType(SkPathFillType::kInverseWinding);
       skClip.transform(skMatrix);
     }
     SkMatrix inverse;

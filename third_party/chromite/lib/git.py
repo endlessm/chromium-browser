@@ -15,6 +15,7 @@ import hashlib
 import os
 import re
 import string
+import subprocess
 from xml import sax
 
 import six
@@ -75,8 +76,8 @@ def IsSubmoduleCheckoutRoot(path, remote, url):
   if os.path.isdir(path):
     remote_url = cros_build_lib.run(
         ['git', '--git-dir', path, 'config', 'remote.%s.url' % remote],
-        redirect_stdout=True, debug_level=logging.DEBUG,
-        error_code_ok=True, encoding='utf-8').output.strip()
+        stdout=True, debug_level=logging.DEBUG,
+        check=False, encoding='utf-8').output.strip()
     if remote_url == url:
       return True
   return False
@@ -601,7 +602,7 @@ class ManifestCheckout(Manifest):
     """
     manifests_git_repo = os.path.join(checkout_root, '.repo', 'manifests.git')
     cmd = ['config', '--local', '--get', 'manifest.groups']
-    result = RunGit(manifests_git_repo, cmd, error_code_ok=True)
+    result = RunGit(manifests_git_repo, cmd, check=False)
 
     if result.output.strip():
       # Full layouts don't define groups.
@@ -853,10 +854,10 @@ def ShallowFetch(git_repo, git_url, sparse_checkout=None):
   start = utcnow()
   # Only fetch TOT git metadata without revision history.
   RunGit(git_repo, ['fetch', '--depth=1'],
-         print_cmd=True, redirect_stderr=True, capture_output=False)
+         print_cmd=True, stderr=True, capture_output=False)
   # Pull the files in sparse_checkout.
   RunGit(git_repo, ['pull', 'origin', 'master'],
-         print_cmd=True, redirect_stderr=True, capture_output=False)
+         print_cmd=True, stderr=True, capture_output=False)
   logging.info('ShallowFetch completed in %s.', utcnow() - start)
 
 
@@ -1302,7 +1303,7 @@ def UploadCL(git_repo, remote, branch, local_branch='HEAD', draft=False,
     ref = ref + '%'+ ','.join(reviewer_list)
   remote_ref = RemoteRef(remote, ref)
   kwargs.setdefault('capture_output', False)
-  kwargs.setdefault('combine_stdout_stderr', True)
+  kwargs.setdefault('stderr', subprocess.STDOUT)
   return GitPush(git_repo, local_branch, remote_ref, **kwargs)
 
 
@@ -1386,7 +1387,7 @@ def SyncPushBranch(git_repo, remote, target, use_merge=False, **kwargs):
   except cros_build_lib.RunCommandError:
     # Looks like our change conflicts with upstream. Cleanup our failed
     # rebase.
-    RunGit(git_repo, [subcommand, '--abort'], error_code_ok=True, **kwargs)
+    RunGit(git_repo, [subcommand, '--abort'], check=False, **kwargs)
     raise
 
 
@@ -1454,8 +1455,8 @@ def CleanAndDetachHead(git_repo):
   Args:
     git_repo: Directory of git repository.
   """
-  RunGit(git_repo, ['am', '--abort'], error_code_ok=True)
-  RunGit(git_repo, ['rebase', '--abort'], error_code_ok=True)
+  RunGit(git_repo, ['am', '--abort'], check=False)
+  RunGit(git_repo, ['rebase', '--abort'], check=False)
   RunGit(git_repo, ['clean', '-dfx'])
   RunGit(git_repo, ['checkout', '--detach', '-f', 'HEAD'])
 

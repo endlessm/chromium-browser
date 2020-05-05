@@ -56,7 +56,7 @@ private:
     bool hasColors() const { return fHasColors; }
     int quadCount() const { return fQuadCount; }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps&) override;
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*, const GrCaps&) override;
 
     struct Geometry {
         SkPMColor4f fColor;
@@ -214,10 +214,15 @@ void DrawAtlasOp::onPrepareDraws(Target* target) {
 }
 
 void DrawAtlasOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
-    fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+    auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                             fHelper.detachProcessorSet(),
+                                                             fHelper.pipelineFlags());
+
+    flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
 }
 
-GrOp::CombineResult DrawAtlasOp::onCombineIfPossible(GrOp* t, const GrCaps& caps) {
+GrOp::CombineResult DrawAtlasOp::onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                                     const GrCaps& caps) {
     DrawAtlasOp* that = t->cast<DrawAtlasOp>();
 
     if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
@@ -225,7 +230,7 @@ GrOp::CombineResult DrawAtlasOp::onCombineIfPossible(GrOp* t, const GrCaps& caps
     }
 
     // We currently use a uniform viewmatrix for this op.
-    if (!this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
+    if (!SkMatrixPriv::CheapEqual(this->viewMatrix(), that->viewMatrix())) {
         return CombineResult::kCannotCombine;
     }
 

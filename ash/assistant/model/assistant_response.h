@@ -9,12 +9,11 @@
 #include <memory>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/component_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "chromeos/services/assistant/public/mojom/assistant.mojom-forward.h"
-#include "mojo/public/cpp/bindings/remote.h"
-#include "services/content/public/cpp/navigable_contents.h"
 
 namespace ash {
 
@@ -68,52 +67,27 @@ class COMPONENT_EXPORT(ASSISTANT_MODEL) AssistantResponse
   bool has_tts() const { return has_tts_; }
   void set_has_tts(bool has_tts) { has_tts_ = has_tts; }
 
-  // Invoke to begin processing the response. Upon completion, |callback| will
-  // be run to indicate success or failure.
-  void Process(
-      mojo::Remote<content::mojom::NavigableContentsFactory> contents_factory,
-      ProcessingCallback callback);
+  // Invoke to begin processing the response. The specified |callback| will be
+  // run to indicate whether or not the processor has completed processing of
+  // all UI elements in the response.
+  void Process(ProcessingCallback callback);
 
  private:
+  class Processor;
+
   friend class base::RefCounted<AssistantResponse>;
   ~AssistantResponse();
 
-  // Handles processing for an AssistantResponse.
-  class Processor {
-   public:
-    Processor(
-        AssistantResponse& response,
-        mojo::Remote<content::mojom::NavigableContentsFactory> contents_factory,
-        ProcessingCallback callback);
-    ~Processor();
-
-    // Invoke to begin processing.
-    void Process();
-
-   private:
-    // Event fired upon completion of a UI element's asynchronous processing.
-    // Once all asynchronous processing of UI elements has completed, the
-    // response itself has finished processing.
-    void OnFinishedProcessing(bool success);
-
-    // Attempts to successfully complete response processing. This will no-op
-    // if we have already finished or if elements are still processing.
-    void TryFinishing();
-
-    AssistantResponse& response_;
-    mojo::Remote<content::mojom::NavigableContentsFactory> contents_factory_;
-    ProcessingCallback callback_;
-
-    int processing_count_ = 0;
-
-    DISALLOW_COPY_AND_ASSIGN(Processor);
-  };
-
-  std::vector<std::unique_ptr<AssistantUiElement>> ui_elements_;
   std::vector<AssistantSuggestionPtr> suggestions_;
   ProcessingState processing_state_ = ProcessingState::kUnprocessed;
   bool has_tts_ = false;
 
+  // We specify the declaration order below as intended because we want
+  // |processor_| to be destroyed before |ui_elements_| (we also forced this
+  // order in the destructor), so that when the response processing got
+  // interrupted, the |ProcessingCallback| can have a chance to return false
+  // during the destruction to indicate the failure of completion.
+  std::vector<std::unique_ptr<AssistantUiElement>> ui_elements_;
   std::unique_ptr<Processor> processor_;
 
   DISALLOW_COPY_AND_ASSIGN(AssistantResponse);

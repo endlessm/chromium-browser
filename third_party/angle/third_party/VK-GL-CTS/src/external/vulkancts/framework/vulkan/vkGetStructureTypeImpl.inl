@@ -726,6 +726,41 @@ template<> VkStructureType getStructureType<VkFenceGetFdInfoKHR> (void)
 	return VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR;
 }
 
+template<> VkStructureType getStructureType<VkPhysicalDevicePerformanceQueryFeaturesKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_FEATURES_KHR;
+}
+
+template<> VkStructureType getStructureType<VkPhysicalDevicePerformanceQueryPropertiesKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PERFORMANCE_QUERY_PROPERTIES_KHR;
+}
+
+template<> VkStructureType getStructureType<VkPerformanceCounterKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR;
+}
+
+template<> VkStructureType getStructureType<VkPerformanceCounterDescriptionKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR;
+}
+
+template<> VkStructureType getStructureType<VkQueryPoolPerformanceCreateInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_QUERY_POOL_PERFORMANCE_CREATE_INFO_KHR;
+}
+
+template<> VkStructureType getStructureType<VkAcquireProfilingLockInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_ACQUIRE_PROFILING_LOCK_INFO_KHR;
+}
+
+template<> VkStructureType getStructureType<VkPerformanceQuerySubmitInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PERFORMANCE_QUERY_SUBMIT_INFO_KHR;
+}
+
 template<> VkStructureType getStructureType<VkPhysicalDeviceSurfaceInfo2KHR> (void)
 {
 	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
@@ -851,9 +886,49 @@ template<> VkStructureType getStructureType<VkSurfaceProtectedCapabilitiesKHR> (
 	return VK_STRUCTURE_TYPE_SURFACE_PROTECTED_CAPABILITIES_KHR;
 }
 
+template<> VkStructureType getStructureType<VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR;
+}
+
+template<> VkStructureType getStructureType<VkAttachmentReferenceStencilLayoutKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_STENCIL_LAYOUT_KHR;
+}
+
+template<> VkStructureType getStructureType<VkAttachmentDescriptionStencilLayoutKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT_KHR;
+}
+
 template<> VkStructureType getStructureType<VkPhysicalDeviceUniformBufferStandardLayoutFeaturesKHR> (void)
 {
 	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES_KHR;
+}
+
+template<> VkStructureType getStructureType<VkPhysicalDeviceBufferDeviceAddressFeaturesKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+}
+
+template<> VkStructureType getStructureType<VkBufferDeviceAddressInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR;
+}
+
+template<> VkStructureType getStructureType<VkBufferOpaqueCaptureAddressCreateInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_BUFFER_OPAQUE_CAPTURE_ADDRESS_CREATE_INFO_KHR;
+}
+
+template<> VkStructureType getStructureType<VkMemoryOpaqueCaptureAddressAllocateInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO_KHR;
+}
+
+template<> VkStructureType getStructureType<VkDeviceMemoryOpaqueCaptureAddressInfoKHR> (void)
+{
+	return VK_STRUCTURE_TYPE_DEVICE_MEMORY_OPAQUE_CAPTURE_ADDRESS_INFO_KHR;
 }
 
 template<> VkStructureType getStructureType<VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR> (void)
@@ -1604,11 +1679,6 @@ template<> VkStructureType getStructureType<VkPhysicalDeviceDedicatedAllocationI
 template<> VkStructureType getStructureType<VkPhysicalDeviceBufferDeviceAddressFeaturesEXT> (void)
 {
 	return VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT;
-}
-
-template<> VkStructureType getStructureType<VkBufferDeviceAddressInfoEXT> (void)
-{
-	return VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT;
 }
 
 template<> VkStructureType getStructureType<VkBufferDeviceAddressCreateInfoEXT> (void)

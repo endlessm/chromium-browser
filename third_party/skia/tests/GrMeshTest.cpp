@@ -12,7 +12,6 @@
 #include "include/core/SkBitmap.h"
 #include "include/gpu/GrContext.h"
 #include "include/private/GrResourceKey.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGeometryProcessor.h"
@@ -28,6 +27,7 @@
 #include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
 #include "src/gpu/glsl/GrGLSLVarying.h"
 #include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
+#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 
 GR_DECLARE_STATIC_UNIQUE_KEY(gIndexBufferKey);
 
@@ -90,8 +90,9 @@ static void run_test(GrContext* context, const char* testName, skiatest::Reporte
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo) {
     GrContext* context = ctxInfo.grContext();
 
-    auto rtc = context->priv().makeDeferredRenderTargetContext(
-            SkBackingFit::kExact, kImageWidth, kImageHeight, GrColorType::kRGBA_8888, nullptr);
+    auto rtc = GrRenderTargetContext::Make(
+            context, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
+            {kImageWidth, kImageHeight});
     if (!rtc) {
         ERRORF(reporter, "could not create render target context.");
         return;
@@ -179,7 +180,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo) {
                 // Start at various repetitions within the patterned index buffer to exercise base
                 // index.
                 while (i < kBoxCount) {
-                    GR_STATIC_ASSERT(kIndexPatternRepeatCount >= 3);
+                    static_assert(kIndexPatternRepeatCount >= 3);
                     int repetitionCount = SkTMin(3 - baseRepetition, kBoxCount - i);
 
                     GrMesh mesh(GrPrimitiveType::kTriangles);
@@ -417,16 +418,31 @@ sk_sp<const GrBuffer> DrawMeshHelper::getIndexBuffer() {
 }
 
 void DrawMeshHelper::drawMesh(const GrMesh& mesh, GrPrimitiveType primitiveType) {
-    GrPipeline pipeline(GrScissorTest::kDisabled, SkBlendMode::kSrc, GrSwizzle::RGBA());
+    GrProcessorSet processorSet(SkBlendMode::kSrc);
 
-    GrGeometryProcessor* mtp = GrMeshTestProcessor::Make(fState->allocator(),
-                                                         mesh.isInstanced(), mesh.hasVertexData());
+    // TODO: add a GrProcessorSet testing helper to make this easier
+    SkPMColor4f overrideColor;
+    processorSet.finalize(GrProcessorAnalysisColor(),
+                          GrProcessorAnalysisCoverage::kNone,
+                          fState->appliedClip(),
+                          nullptr,
+                          false,
+                          fState->caps(),
+                          GrClampType::kAuto,
+                          &overrideColor);
+
+    auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(fState,
+                                                             std::move(processorSet),
+                                                             GrPipeline::InputFlags::kNone);
+
+    GrGeometryProcessor* mtp = GrMeshTestProcessor::Make(
+            fState->allocator(), mesh.isInstanced(), SkToBool(mesh.vertexBuffer()));
 
     GrProgramInfo programInfo(fState->proxy()->numSamples(),
                               fState->proxy()->numStencilSamples(),
                               fState->proxy()->backendFormat(),
                               fState->view()->origin(),
-                              &pipeline,
+                              pipeline,
                               mtp,
                               nullptr, nullptr, 0, primitiveType);
 

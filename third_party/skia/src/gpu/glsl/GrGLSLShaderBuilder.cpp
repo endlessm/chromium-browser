@@ -10,6 +10,7 @@
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/GrShaderVar.h"
 #include "src/gpu/GrSwizzle.h"
+#include "src/gpu/glsl/GrGLSLBlend.h"
 #include "src/gpu/glsl/GrGLSLColorSpaceXformHelper.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
 
@@ -68,8 +69,7 @@ static inline void append_texture_swizzle(SkString* out, GrSwizzle swizzle) {
 
 void GrGLSLShaderBuilder::appendTextureLookup(SkString* out,
                                               SamplerHandle samplerHandle,
-                                              const char* coordName,
-                                              GrSLType varyingType) const {
+                                              const char* coordName) const {
     const char* sampler = fProgramBuilder->samplerVariable(samplerHandle);
     out->appendf("sample(%s, %s)", sampler, coordName);
     append_texture_swizzle(out, fProgramBuilder->samplerSwizzle(samplerHandle));
@@ -77,24 +77,35 @@ void GrGLSLShaderBuilder::appendTextureLookup(SkString* out,
 
 void GrGLSLShaderBuilder::appendTextureLookup(SamplerHandle samplerHandle,
                                               const char* coordName,
-                                              GrSLType varyingType,
                                               GrGLSLColorSpaceXformHelper* colorXformHelper) {
     SkString lookup;
-    this->appendTextureLookup(&lookup, samplerHandle, coordName, varyingType);
+    this->appendTextureLookup(&lookup, samplerHandle, coordName);
     this->appendColorGamutXform(lookup.c_str(), colorXformHelper);
 }
 
-void GrGLSLShaderBuilder::appendTextureLookupAndModulate(
-                                                    const char* modulation,
-                                                    SamplerHandle samplerHandle,
-                                                    const char* coordName,
-                                                    GrSLType varyingType,
-                                                    GrGLSLColorSpaceXformHelper* colorXformHelper) {
+void GrGLSLShaderBuilder::appendTextureLookupAndBlend(
+        const char* dst,
+        SkBlendMode mode,
+        SamplerHandle samplerHandle,
+        const char* coordName,
+        GrGLSLColorSpaceXformHelper* colorXformHelper) {
+    if (!dst) {
+        dst = "half4(1)";
+    }
     SkString lookup;
-    this->appendTextureLookup(&lookup, samplerHandle, coordName, varyingType);
-    this->appendColorGamutXform(lookup.c_str(), colorXformHelper);
-    if (modulation) {
-        this->codeAppendf(" * %s", modulation);
+    // This works around an issue in SwiftShader where the texture lookup is messed up
+    // if we use blend_modulate instead of simply operator * on dst and the sampled result.
+    // At this time it's unknown if the same problem exists for other modes.
+    if (mode == SkBlendMode::kModulate) {
+        this->codeAppend("(");
+        this->appendTextureLookup(&lookup, samplerHandle, coordName);
+        this->appendColorGamutXform(lookup.c_str(), colorXformHelper);
+        this->codeAppendf(" * %s)", dst);
+    } else {
+        this->codeAppendf("%s(", GrGLSLBlend::BlendFuncName(mode));
+        this->appendTextureLookup(&lookup, samplerHandle, coordName);
+        this->appendColorGamutXform(lookup.c_str(), colorXformHelper);
+        this->codeAppendf(", %s)", dst);
     }
 }
 
@@ -254,9 +265,9 @@ void GrGLSLShaderBuilder::compileAndAppendLayoutQualifiers() {
         this->layoutQualifiers().appendf(") %s;\n", interfaceQualifierNames[interface]);
     }
 
-    GR_STATIC_ASSERT(0 == GrGLSLShaderBuilder::kIn_InterfaceQualifier);
-    GR_STATIC_ASSERT(1 == GrGLSLShaderBuilder::kOut_InterfaceQualifier);
-    GR_STATIC_ASSERT(SK_ARRAY_COUNT(interfaceQualifierNames) == kLastInterfaceQualifier + 1);
+    static_assert(0 == GrGLSLShaderBuilder::kIn_InterfaceQualifier);
+    static_assert(1 == GrGLSLShaderBuilder::kOut_InterfaceQualifier);
+    static_assert(SK_ARRAY_COUNT(interfaceQualifierNames) == kLastInterfaceQualifier + 1);
 }
 
 void GrGLSLShaderBuilder::finalize(uint32_t visibility) {

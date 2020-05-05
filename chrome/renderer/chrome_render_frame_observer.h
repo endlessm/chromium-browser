@@ -25,7 +25,7 @@ class PhishingClassifierDelegate;
 }
 
 namespace translate {
-class TranslateHelper;
+class TranslateAgent;
 }
 
 namespace web_cache {
@@ -45,6 +45,12 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
   blink::AssociatedInterfaceRegistry* associated_interfaces() {
     return &associated_interfaces_;
   }
+
+#if defined(OS_ANDROID)
+  // This is called on the main thread for subresources or worker threads for
+  // dedicated workers.
+  static std::string GetCCTClientHeader(int render_frame_id);
+#endif
 
  private:
   enum TextCaptureType { PRELIMINARY_CAPTURE, FINAL_CAPTURE };
@@ -74,7 +80,6 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
       int thumbnail_min_area_pixels,
       const gfx::Size& thumbnail_max_size_pixels,
       int callback_id);
-  void OnPrintNodeUnderContextMenu();
   void OnSetClientSidePhishingDetection(bool enable_phishing_detection);
 
   // chrome::mojom::ChromeRenderFrame:
@@ -89,6 +94,9 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
   void RequestReloadImageForContextNode() override;
   void SetClientSidePhishingDetection(bool enable_phishing_detection) override;
   void GetWebApplicationInfo(GetWebApplicationInfoCallback callback) override;
+#if defined(OS_ANDROID)
+  void SetCCTClientHeader(const std::string& header) override;
+#endif
 
   void OnRenderFrameObserverRequest(
       mojo::PendingAssociatedReceiver<chrome::mojom::ChromeRenderFrame>
@@ -105,7 +113,7 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
                             base::TimeDelta delay);
 
   // Have the same lifetime as us.
-  translate::TranslateHelper* translate_helper_;
+  translate::TranslateAgent* translate_agent_;
   safe_browsing::PhishingClassifierDelegate* phishing_classifier_;
 
   // Owned by ChromeContentRendererClient and outlive us.

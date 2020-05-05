@@ -627,20 +627,8 @@ static enum ssl_hs_wait_t do_send_server_hello(SSL_HANDSHAKE *hs) {
         !CBB_add_u16_length_prefixed(&cert_request_extensions,
                                      &sigalg_contents) ||
         !CBB_add_u16_length_prefixed(&sigalg_contents, &sigalgs_cbb) ||
-        !tls12_add_verify_sigalgs(ssl, &sigalgs_cbb,
-                                  false /* online signature */)) {
+        !tls12_add_verify_sigalgs(ssl, &sigalgs_cbb)) {
       return ssl_hs_error;
-    }
-
-    if (tls12_has_different_verify_sigalgs_for_certs(ssl)) {
-      if (!CBB_add_u16(&cert_request_extensions,
-                       TLSEXT_TYPE_signature_algorithms_cert) ||
-          !CBB_add_u16_length_prefixed(&cert_request_extensions,
-                                       &sigalg_contents) ||
-          !CBB_add_u16_length_prefixed(&sigalg_contents, &sigalgs_cbb) ||
-          !tls12_add_verify_sigalgs(ssl, &sigalgs_cbb, true /* certs */)) {
-        return ssl_hs_error;
-      }
     }
 
     if (ssl_has_client_CAs(hs->config)) {
@@ -821,6 +809,9 @@ static enum ssl_hs_wait_t do_process_end_of_early_data(SSL_HANDSHAKE *hs) {
   if (!tls13_set_traffic_key(ssl, ssl_encryption_handshake, evp_aead_open,
                              hs->client_handshake_secret())) {
     return ssl_hs_error;
+  }
+  if (hs->handback) {
+    return ssl_hs_handback;
   }
   hs->tls13_state = state13_read_client_certificate;
   return ssl_hs_ok;

@@ -52,6 +52,11 @@ void getInstanceExtensionFunctions (deUint32 apiVersion, ::std::string extName, 
 	{
 		functions.push_back("vkGetPhysicalDeviceExternalFencePropertiesKHR");
 	}
+	else if (extName == "VK_KHR_performance_query")
+	{
+		functions.push_back("vkEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR");
+		functions.push_back("vkGetPhysicalDeviceQueueFamilyPerformanceQueryPassesKHR");
+	}
 	else if (extName == "VK_KHR_get_surface_capabilities2")
 	{
 		functions.push_back("vkGetPhysicalDeviceSurfaceCapabilities2KHR");
@@ -240,6 +245,11 @@ void getDeviceExtensionFunctions (deUint32 apiVersion, ::std::string extName, ::
 		functions.push_back("vkImportFenceFdKHR");
 		functions.push_back("vkGetFenceFdKHR");
 	}
+	else if (extName == "VK_KHR_performance_query")
+	{
+		functions.push_back("vkAcquireProfilingLockKHR");
+		functions.push_back("vkReleaseProfilingLockKHR");
+	}
 	else if (extName == "VK_KHR_get_memory_requirements2")
 	{
 		functions.push_back("vkGetImageMemoryRequirements2KHR");
@@ -270,6 +280,12 @@ void getDeviceExtensionFunctions (deUint32 apiVersion, ::std::string extName, ::
 		functions.push_back("vkGetSemaphoreCounterValueKHR");
 		functions.push_back("vkWaitSemaphoresKHR");
 		functions.push_back("vkSignalSemaphoreKHR");
+	}
+	else if (extName == "VK_KHR_buffer_device_address")
+	{
+		functions.push_back("vkGetBufferDeviceAddressKHR");
+		functions.push_back("vkGetBufferOpaqueCaptureAddressKHR");
+		functions.push_back("vkGetDeviceMemoryOpaqueCaptureAddressKHR");
 	}
 	else if (extName == "VK_KHR_pipeline_executable_properties")
 	{
@@ -492,6 +508,7 @@ void getDeviceExtensionFunctions (deUint32 apiVersion, ::std::string extName, ::
 	"VK_KHR_external_memory_capabilities",
 	"VK_KHR_external_semaphore_capabilities",
 	"VK_KHR_external_fence_capabilities",
+	"VK_KHR_performance_query",
 	"VK_KHR_get_surface_capabilities2",
 	"VK_KHR_get_display_properties2",
 	"VK_EXT_debug_report",
@@ -536,6 +553,7 @@ void getDeviceExtensionFunctions (deUint32 apiVersion, ::std::string extName, ::
 	"VK_KHR_maintenance3",
 	"VK_KHR_draw_indirect_count",
 	"VK_KHR_timeline_semaphore",
+	"VK_KHR_buffer_device_address",
 	"VK_KHR_pipeline_executable_properties",
 	"VK_EXT_debug_marker",
 	"VK_EXT_transform_feedback",

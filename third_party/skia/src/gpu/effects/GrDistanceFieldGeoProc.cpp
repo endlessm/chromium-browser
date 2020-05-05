@@ -209,9 +209,9 @@ private:
 ///////////////////////////////////////////////////////////////////////////////
 
 GrDistanceFieldA8TextGeoProc::GrDistanceFieldA8TextGeoProc(const GrShaderCaps& caps,
-                                                           const sk_sp<GrTextureProxy>* proxies,
-                                                           int numProxies,
-                                                           const GrSamplerState& params,
+                                                           const GrSurfaceProxyView* views,
+                                                           int numViews,
+                                                           GrSamplerState params,
 #ifdef SK_GAMMA_APPLY_TO_A8
                                                            float distanceAdjust,
 #endif
@@ -224,7 +224,7 @@ GrDistanceFieldA8TextGeoProc::GrDistanceFieldA8TextGeoProc(const GrShaderCaps& c
         , fDistanceAdjust(distanceAdjust)
 #endif
 {
-    SkASSERT(numProxies <= kMaxTextures);
+    SkASSERT(numViews <= kMaxTextures);
     SkASSERT(!(flags & ~kNonLCD_DistanceFieldEffectMask));
 
     if (flags & kPerspective_DistanceFieldEffectFlag) {
@@ -237,38 +237,38 @@ GrDistanceFieldA8TextGeoProc::GrDistanceFieldA8TextGeoProc(const GrShaderCaps& c
                         caps.integerSupport() ? kUShort2_GrSLType : kFloat2_GrSLType};
     this->setVertexAttributes(&fInPosition, 3);
 
-    if (numProxies) {
-        fAtlasDimensions = proxies[0]->dimensions();
+    if (numViews) {
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
-    for (int i = 0; i < numProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
-        fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                  proxies[i]->textureSwizzle());
+    for (int i = 0; i < numViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
+        fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
     }
-    this->setTextureSamplerCnt(numProxies);
+    this->setTextureSamplerCnt(numViews);
 }
 
-void GrDistanceFieldA8TextGeoProc::addNewProxies(const sk_sp<GrTextureProxy>* proxies,
-                                                 int numProxies,
-                                                 const GrSamplerState& params) {
-    SkASSERT(numProxies <= kMaxTextures);
+void GrDistanceFieldA8TextGeoProc::addNewViews(const GrSurfaceProxyView* views,
+                                               int numViews,
+                                               GrSamplerState params) {
+    SkASSERT(numViews <= kMaxTextures);
     // Just to make sure we don't try to add too many proxies
-    numProxies = SkTMin(numProxies, kMaxTextures);
+    numViews = SkTMin(numViews, kMaxTextures);
 
     if (!fTextureSamplers[0].isInitialized()) {
-        fAtlasDimensions = proxies[0]->dimensions();
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
 
-    for (int i = 0; i < numProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
+    for (int i = 0; i < numViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
         if (!fTextureSamplers[i].isInitialized()) {
-            fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                      proxies[i]->textureSwizzle());
+            fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
         }
     }
-    this->setTextureSamplerCnt(numProxies);
+    this->setTextureSamplerCnt(numViews);
 }
 
 void GrDistanceFieldA8TextGeoProc::getGLSLProcessorKey(const GrShaderCaps& caps,
@@ -287,14 +287,7 @@ GR_DEFINE_GEOMETRY_PROCESSOR_TEST(GrDistanceFieldA8TextGeoProc);
 
 #if GR_TEST_UTILS
 GrGeometryProcessor* GrDistanceFieldA8TextGeoProc::TestCreate(GrProcessorTestData* d) {
-    int texIdx = d->fRandom->nextBool() ? GrProcessorUnitTest::kSkiaPMTextureIdx
-                                        : GrProcessorUnitTest::kAlphaTextureIdx;
-    sk_sp<GrTextureProxy> proxies[kMaxTextures] = {
-        d->textureProxy(texIdx),
-        nullptr,
-        nullptr,
-        nullptr
-    };
+    auto [proxy, ct, at] = d->randomAlphaOnlyProxy();
 
     GrSamplerState::WrapMode wrapModes[2];
     GrTest::TestWrapModes(d->fRandom, wrapModes);
@@ -311,8 +304,12 @@ GrGeometryProcessor* GrDistanceFieldA8TextGeoProc::TestCreate(GrProcessorTestDat
 #ifdef SK_GAMMA_APPLY_TO_A8
     float lum = d->fRandom->nextF();
 #endif
+    GrSurfaceOrigin origin = proxy->origin();
+    const GrSwizzle& swizzle = proxy->textureSwizzle();
+    GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
+
     return GrDistanceFieldA8TextGeoProc::Make(d->allocator(), *d->caps()->shaderCaps(),
-                                              proxies, 1,
+                                              &view, 1,
                                               samplerState,
 #ifdef SK_GAMMA_APPLY_TO_A8
                                               lum,
@@ -466,7 +463,7 @@ public:
                  const CoordTransformRange& transformRange) override {
         const GrDistanceFieldPathGeoProc& dfpgp = proc.cast<GrDistanceFieldPathGeoProc>();
 
-        if (dfpgp.matrix().hasPerspective() && !fMatrix.cheapEqualTo(dfpgp.matrix())) {
+        if (dfpgp.matrix().hasPerspective() && !SkMatrixPriv::CheapEqual(fMatrix, dfpgp.matrix())) {
             fMatrix = dfpgp.matrix();
             float matrix[3 * 3];
             GrGLSLGetMatrix<3>(matrix, fMatrix);
@@ -516,14 +513,14 @@ private:
 GrDistanceFieldPathGeoProc::GrDistanceFieldPathGeoProc(const GrShaderCaps& caps,
                                                        const SkMatrix& matrix,
                                                        bool wideColor,
-                                                       const sk_sp<GrTextureProxy>* proxies,
-                                                       int numProxies,
-                                                       const GrSamplerState& params,
+                                                       const GrSurfaceProxyView* views,
+                                                       int numViews,
+                                                       GrSamplerState params,
                                                        uint32_t flags)
         : INHERITED(kGrDistanceFieldPathGeoProc_ClassID)
         , fMatrix(matrix)
         , fFlags(flags & kNonLCD_DistanceFieldEffectMask) {
-    SkASSERT(numProxies <= kMaxTextures);
+    SkASSERT(numViews <= kMaxTextures);
     SkASSERT(!(flags & ~kNonLCD_DistanceFieldEffectMask));
 
     fInPosition = {"inPosition", kFloat2_GrVertexAttribType, kFloat2_GrSLType};
@@ -532,40 +529,39 @@ GrDistanceFieldPathGeoProc::GrDistanceFieldPathGeoProc(const GrShaderCaps& caps,
                         caps.integerSupport() ? kUShort2_GrSLType : kFloat2_GrSLType};
     this->setVertexAttributes(&fInPosition, 3);
 
-    if (numProxies) {
-        fAtlasDimensions = proxies[0]->dimensions();
+    if (numViews) {
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
 
-    for (int i = 0; i < numProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
-        fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                  proxies[i]->textureSwizzle());
+    for (int i = 0; i < numViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
+        fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
     }
-    this->setTextureSamplerCnt(numProxies);
+    this->setTextureSamplerCnt(numViews);
 }
 
-void GrDistanceFieldPathGeoProc::addNewProxies(const sk_sp<GrTextureProxy>* proxies,
-                                               int numProxies,
-                                               const GrSamplerState& params) {
-    SkASSERT(numProxies <= kMaxTextures);
+void GrDistanceFieldPathGeoProc::addNewViews(const GrSurfaceProxyView* views,
+                                             int numViews,
+                                             GrSamplerState params) {
+    SkASSERT(numViews <= kMaxTextures);
     // Just to make sure we don't try to add too many proxies
-    numProxies = SkTMin(numProxies, kMaxTextures);
+    numViews = SkTMin(numViews, kMaxTextures);
 
     if (!fTextureSamplers[0].isInitialized()) {
-        fAtlasDimensions = proxies[0]->dimensions();
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
 
-    for (int i = 0; i < numProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
-
+    for (int i = 0; i < numViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
         if (!fTextureSamplers[i].isInitialized()) {
-            fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                      proxies[i]->textureSwizzle());
+            fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
         }
     }
-    this->setTextureSamplerCnt(numProxies);
+    this->setTextureSamplerCnt(numViews);
 }
 
 void GrDistanceFieldPathGeoProc::getGLSLProcessorKey(const GrShaderCaps& caps,
@@ -584,14 +580,7 @@ GR_DEFINE_GEOMETRY_PROCESSOR_TEST(GrDistanceFieldPathGeoProc);
 
 #if GR_TEST_UTILS
 GrGeometryProcessor* GrDistanceFieldPathGeoProc::TestCreate(GrProcessorTestData* d) {
-    int texIdx = d->fRandom->nextBool() ? GrProcessorUnitTest::kSkiaPMTextureIdx
-                                        : GrProcessorUnitTest::kAlphaTextureIdx;
-    sk_sp<GrTextureProxy> proxies[kMaxTextures] = {
-        d->textureProxy(texIdx),
-        nullptr,
-        nullptr,
-        nullptr
-    };
+    auto [proxy, ct, at] = d->randomAlphaOnlyProxy();
 
     GrSamplerState::WrapMode wrapModes[2];
     GrTest::TestWrapModes(d->fRandom, wrapModes);
@@ -604,11 +593,14 @@ GrGeometryProcessor* GrDistanceFieldPathGeoProc::TestCreate(GrProcessorTestData*
     if (flags & kSimilarity_DistanceFieldEffectFlag) {
         flags |= d->fRandom->nextBool() ? kScaleOnly_DistanceFieldEffectFlag : 0;
     }
+    GrSurfaceOrigin origin = proxy->origin();
+    const GrSwizzle& swizzle = proxy->textureSwizzle();
+    GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
 
     return GrDistanceFieldPathGeoProc::Make(d->allocator(), *d->caps()->shaderCaps(),
                                             GrTest::TestMatrix(d->fRandom),
                                             d->fRandom->nextBool(),
-                                            proxies, 1,
+                                            &view, 1,
                                             samplerState,
                                             flags);
 }
@@ -837,9 +829,9 @@ private:
 ///////////////////////////////////////////////////////////////////////////////
 
 GrDistanceFieldLCDTextGeoProc::GrDistanceFieldLCDTextGeoProc(const GrShaderCaps& caps,
-                                                             const sk_sp<GrTextureProxy>* proxies,
-                                                             int numProxies,
-                                                             const GrSamplerState& params,
+                                                             const GrSurfaceProxyView* views,
+                                                             int numViews,
+                                                             GrSamplerState params,
                                                              DistanceAdjust distanceAdjust,
                                                              uint32_t flags,
                                                              const SkMatrix& localMatrix)
@@ -847,7 +839,7 @@ GrDistanceFieldLCDTextGeoProc::GrDistanceFieldLCDTextGeoProc(const GrShaderCaps&
         , fLocalMatrix(localMatrix)
         , fDistanceAdjust(distanceAdjust)
         , fFlags(flags & kLCD_DistanceFieldEffectMask) {
-    SkASSERT(numProxies <= kMaxTextures);
+    SkASSERT(numViews <= kMaxTextures);
     SkASSERT(!(flags & ~kLCD_DistanceFieldEffectMask) && (flags & kUseLCD_DistanceFieldEffectFlag));
 
     if (fFlags & kPerspective_DistanceFieldEffectFlag) {
@@ -860,40 +852,39 @@ GrDistanceFieldLCDTextGeoProc::GrDistanceFieldLCDTextGeoProc(const GrShaderCaps&
                         caps.integerSupport() ? kUShort2_GrSLType : kFloat2_GrSLType};
     this->setVertexAttributes(&fInPosition, 3);
 
-    if (numProxies) {
-        fAtlasDimensions = proxies[0]->dimensions();
+    if (numViews) {
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
 
-    for (int i = 0; i < numProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
-        fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                  proxies[i]->textureSwizzle());
+    for (int i = 0; i < numViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
+        fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
     }
-    this->setTextureSamplerCnt(numProxies);
+    this->setTextureSamplerCnt(numViews);
 }
 
-void GrDistanceFieldLCDTextGeoProc::addNewProxies(const sk_sp<GrTextureProxy>* proxies,
-                                                  int numProxies,
-                                                  const GrSamplerState& params) {
-    SkASSERT(numProxies <= kMaxTextures);
+void GrDistanceFieldLCDTextGeoProc::addNewViews(const GrSurfaceProxyView* views,
+                                                int numViews,
+                                                GrSamplerState params) {
+    SkASSERT(numViews <= kMaxTextures);
     // Just to make sure we don't try to add too many proxies
-    numProxies = SkTMin(numProxies, kMaxTextures);
+    numViews = SkTMin(numViews, kMaxTextures);
 
     if (!fTextureSamplers[0].isInitialized()) {
-        fAtlasDimensions = proxies[0]->dimensions();
+        fAtlasDimensions = views[0].proxy()->dimensions();
     }
 
-    for (int i = 0; i < numProxies; ++i) {
-        SkASSERT(proxies[i]);
-        SkASSERT(proxies[i]->dimensions() == fAtlasDimensions);
-
+    for (int i = 0; i < numViews; ++i) {
+        const GrSurfaceProxy* proxy = views[i].proxy();
+        SkASSERT(proxy);
+        SkASSERT(proxy->dimensions() == fAtlasDimensions);
         if (!fTextureSamplers[i].isInitialized()) {
-            fTextureSamplers[i].reset(params, proxies[i]->backendFormat(),
-                                      proxies[i]->textureSwizzle());
+            fTextureSamplers[i].reset(params, proxy->backendFormat(), views[i].swizzle());
         }
     }
-    this->setTextureSamplerCnt(numProxies);
+    this->setTextureSamplerCnt(numViews);
 }
 
 void GrDistanceFieldLCDTextGeoProc::getGLSLProcessorKey(const GrShaderCaps& caps,
@@ -911,14 +902,7 @@ GR_DEFINE_GEOMETRY_PROCESSOR_TEST(GrDistanceFieldLCDTextGeoProc);
 
 #if GR_TEST_UTILS
 GrGeometryProcessor* GrDistanceFieldLCDTextGeoProc::TestCreate(GrProcessorTestData* d) {
-    int texIdx = d->fRandom->nextBool() ? GrProcessorUnitTest::kSkiaPMTextureIdx :
-                                          GrProcessorUnitTest::kAlphaTextureIdx;
-    sk_sp<GrTextureProxy> proxies[kMaxTextures] = {
-        d->textureProxy(texIdx),
-        nullptr,
-        nullptr,
-        nullptr
-    };
+    auto [proxy, ct, at] = d->randomProxy();
 
     GrSamplerState::WrapMode wrapModes[2];
     GrTest::TestWrapModes(d->fRandom, wrapModes);
@@ -933,7 +917,12 @@ GrGeometryProcessor* GrDistanceFieldLCDTextGeoProc::TestCreate(GrProcessorTestDa
     }
     flags |= d->fRandom->nextBool() ? kBGR_DistanceFieldEffectFlag : 0;
     SkMatrix localMatrix = GrTest::TestMatrix(d->fRandom);
-    return GrDistanceFieldLCDTextGeoProc::Make(d->allocator(), *d->caps()->shaderCaps(), proxies,
+
+    GrSurfaceOrigin origin = proxy->origin();
+    const GrSwizzle& swizzle = proxy->textureSwizzle();
+    GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
+
+    return GrDistanceFieldLCDTextGeoProc::Make(d->allocator(), *d->caps()->shaderCaps(), &view,
                                                1, samplerState, wa, flags, localMatrix);
 }
 #endif

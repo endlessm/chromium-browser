@@ -44,7 +44,7 @@ public:
                                          unsigned &FrameReg, bool PreferFP,
                                          bool ForSimm) const;
   StackOffset resolveFrameOffsetReference(const MachineFunction &MF,
-                                          int ObjectOffset, bool isFixed,
+                                          int64_t ObjectOffset, bool isFixed,
                                           bool isSVE, unsigned &FrameReg,
                                           bool PreferFP, bool ForSimm) const;
   bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
@@ -77,6 +77,10 @@ public:
   void processFunctionBeforeFrameFinalized(MachineFunction &MF,
                                              RegScavenger *RS) const override;
 
+  void
+  processFunctionBeforeFrameIndicesReplaced(MachineFunction &MF,
+                                            RegScavenger *RS) const override;
+
   unsigned getWinEHParentFrameOffset(const MachineFunction &MF) const override;
 
   unsigned getWinEHFuncletFrameSize(const MachineFunction &MF) const;
@@ -101,12 +105,14 @@ public:
 
 private:
   bool shouldCombineCSRLocalStackBump(MachineFunction &MF,
-                                      unsigned StackBumpBytes) const;
+                                      uint64_t StackBumpBytes) const;
 
   int64_t estimateSVEStackObjectOffsets(MachineFrameInfo &MF) const;
   int64_t assignSVEStackObjectOffsets(MachineFrameInfo &MF,
                                       int &MinCSFrameIndex,
                                       int &MaxCSFrameIndex) const;
+  bool shouldCombineCSRLocalStackBumpInEpilogue(MachineBasicBlock &MBB,
+                                                unsigned StackBumpBytes) const;
 };
 
 } // End llvm namespace

@@ -2,19 +2,14 @@
 
 cd git/SwiftShader
 
-# Validate commit message
-git log -1 --pretty=%B | grep -E '^Bug:|^Issue:|^Fixes:|^Regres:'
+set -e # Fail on any error.
+set -x # Display commands being run.
 
-if [ $? -ne 0 ]
-then
-  echo "error: Git commit message must have a Bug: line."
-  exit 1
-fi
-
-# Fail on any error.
-set -e
-# Display commands being run.
-set -x
+# Specify we want to build with GCC 7
+sudo apt-get update
+sudo apt-get install -y gcc-7 g++-7
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 100 --slave /usr/bin/g++ g++ /usr/bin/g++-7
+sudo update-alternatives --set gcc "/usr/bin/gcc-7"
 
 # Download all submodules
 git submodule update --init
@@ -25,7 +20,10 @@ if [[ -z "${REACTOR_BACKEND}" ]]; then
   REACTOR_BACKEND="LLVM"
 fi
 
-cmake .. "-DREACTOR_BACKEND=${REACTOR_BACKEND}" "-DREACTOR_VERIFY_LLVM_IR=1"
+# Lower the amount of debug info, to reduce Kokoro build times.
+LESS_DEBUG_INFO=1
+
+cmake .. "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}" "-DREACTOR_BACKEND=${REACTOR_BACKEND}" "-DREACTOR_VERIFY_LLVM_IR=1" "-DLESS_DEBUG_INFO=${LESS_DEBUG_INFO}"
 make --jobs=$(nproc)
 
 # Run unit tests
@@ -34,7 +32,4 @@ cd .. # Some tests must be run from project root
 
 build/ReactorUnitTests
 build/gles-unittests
-
-if [ "${REACTOR_BACKEND}" != "Subzero" ]; then
-  build/vk-unittests # Currently vulkan does not work with Subzero.
-fi
+build/vk-unittests

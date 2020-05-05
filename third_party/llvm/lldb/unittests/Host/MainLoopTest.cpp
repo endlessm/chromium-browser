@@ -1,4 +1,4 @@
-//===-- MainLoopTest.cpp ----------------------------------------*- C++ -*-===//
+//===-- MainLoopTest.cpp --------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Host/MainLoop.h"
+#include "TestingSupport/SubsystemRAII.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/PseudoTerminal.h"
 #include "lldb/Host/common/TCPSocket.h"
@@ -19,11 +20,7 @@ using namespace lldb_private;
 namespace {
 class MainLoopTest : public testing::Test {
 public:
-  static void SetUpTestCase() {
-    ASSERT_THAT_ERROR(Socket::Initialize(), llvm::Succeeded());
-  }
-
-  static void TearDownTestCase() { Socket::Terminate(); }
+  SubsystemRAII<Socket> subsystems;
 
   void SetUp() override {
     bool child_processes_inherit = false;

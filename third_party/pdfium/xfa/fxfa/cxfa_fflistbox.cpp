@@ -45,7 +45,7 @@ bool CXFA_FFListBox::LoadWidget() {
   pListBox->ModifyStyles(FWL_WGTSTYLE_VScroll | FWL_WGTSTYLE_NoBackground,
                          0xFFFFFFFF);
   SetNormalWidget(std::move(pNew));
-  pListBox->SetFFWidget(this);
+  pListBox->SetAdapterIface(this);
 
   CFWL_NoteDriver* pNoteDriver = pListBox->GetOwnerApp()->GetNoteDriver();
   pNoteDriver->RegisterEventTarget(pListBox, pListBox);
@@ -71,10 +71,13 @@ bool CXFA_FFListBox::LoadWidget() {
 }
 
 bool CXFA_FFListBox::OnKillFocus(CXFA_FFWidget* pNewFocus) {
+  ObservedPtr<CXFA_FFListBox> pWatched(this);
+  ObservedPtr<CXFA_FFWidget> pNewWatched(pNewFocus);
   if (!ProcessCommittedData())
     UpdateFWLData();
 
-  return CXFA_FFField::OnKillFocus(pNewFocus);
+  return pWatched && pNewWatched &&
+         CXFA_FFField::OnKillFocus(pNewWatched.Get());
 }
 
 bool CXFA_FFListBox::CommitData() {

@@ -119,6 +119,10 @@ struct QUIC_EXPORT_PRIVATE Bbr2Params {
       QuicTime::Delta::FromMilliseconds(
           GetQuicFlag(FLAGS_quic_bbr2_default_probe_bw_max_rand_duration_ms));
 
+  // The minimum number of loss marking events to exit the PROBE_UP phase.
+  int64_t probe_bw_full_loss_count =
+      GetQuicFlag(FLAGS_quic_bbr2_default_probe_bw_full_loss_count);
+
   // Multiplier to get target inflight (as multiple of BDP) for PROBE_UP phase.
   float probe_bw_probe_inflight_gain = 1.25;
 
@@ -142,7 +146,8 @@ struct QUIC_EXPORT_PRIVATE Bbr2Params {
    */
 
   // The initial value of the max ack height filter's window length.
-  QuicRoundTripCount initial_max_ack_height_filter_window = 10;
+  QuicRoundTripCount initial_max_ack_height_filter_window =
+      GetQuicFlag(FLAGS_quic_bbr2_default_initial_ack_height_filter_window);
 
   // Fraction of unutilized headroom to try to leave in path upon high loss.
   float inflight_hi_headroom =
@@ -150,6 +155,10 @@ struct QUIC_EXPORT_PRIVATE Bbr2Params {
 
   // Estimate startup/bw probing has gone too far if loss rate exceeds this.
   float loss_threshold = GetQuicFlag(FLAGS_quic_bbr2_default_loss_threshold);
+
+  // A common factor for multiplicative decreases. Used for adjusting
+  // bandwidth_lo, inflight_lo and inflight_hi upon losses.
+  float beta = 0.3;
 
   Limits<QuicByteCount> cwnd_limits;
 };
@@ -228,6 +237,9 @@ struct QUIC_EXPORT_PRIVATE Bbr2CongestionEvent {
   // The congestion window prior to the processing of the ack/loss events.
   QuicByteCount prior_cwnd;
 
+  // Total bytes inflight before the processing of the ack/loss events.
+  QuicByteCount prior_bytes_in_flight = 0;
+
   // Total bytes inflight after the processing of the ack/loss events.
   QuicByteCount bytes_in_flight = 0;
 
@@ -240,6 +252,8 @@ struct QUIC_EXPORT_PRIVATE Bbr2CongestionEvent {
   // Whether acked_packets indicates the end of a round trip.
   bool end_of_round_trip = false;
 
+  // TODO(wub): After deprecating --quic_one_bw_sample_per_ack_event, use
+  // last_packet_send_state.is_app_limited instead of this field.
   // Whether the last bandwidth sample from acked_packets is app limited.
   // false if acked_packets is empty.
   bool last_sample_is_app_limited = false;
@@ -254,6 +268,13 @@ struct QUIC_EXPORT_PRIVATE Bbr2CongestionEvent {
   // Maximum bandwidth of all bandwidth samples from acked_packets.
   QuicBandwidth sample_max_bandwidth = QuicBandwidth::Zero();
 
+  // The send state of the largest packet in acked_packets, unless it is empty.
+  // If acked_packets is empty, it's the send state of the largest packet in
+  // lost_packets.
+  SendTimeState last_packet_send_state;
+
+  // TODO(wub): Remove |last_acked_sample| and |last_lost_sample| when
+  // deprecating --quic_one_bw_sample_per_ack_event.
   // Send time state of the largest-numbered packet in this event.
   // SendTimeState send_time_state;
   struct {
@@ -269,6 +290,7 @@ struct QUIC_EXPORT_PRIVATE Bbr2CongestionEvent {
   } last_lost_sample;
 };
 
+// TODO(wub): Remove this when deprecating --quic_one_bw_sample_per_ack_event.
 QUIC_EXPORT_PRIVATE const SendTimeState& SendStateOfLargestPacket(
     const Bbr2CongestionEvent& congestion_event);
 
@@ -293,6 +315,12 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
                               const AckedPacketVector& acked_packets,
                               const LostPacketVector& lost_packets,
                               Bbr2CongestionEvent* congestion_event);
+  // The new version of OnCongestionEventStart.
+  // Called only when --quic_one_bw_sample_per_ack_event=true.
+  void OnCongestionEventStartNew(QuicTime event_time,
+                                 const AckedPacketVector& acked_packets,
+                                 const LostPacketVector& lost_packets,
+                                 Bbr2CongestionEvent* congestion_event);
 
   void OnCongestionEventFinish(QuicPacketNumber least_unacked_packet,
                                const Bbr2CongestionEvent& congestion_event);
@@ -348,6 +376,8 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
   bool IsCongestionWindowLimited(
       const Bbr2CongestionEvent& congestion_event) const;
 
+  // TODO(wub): Replace this by a new version which takes two thresholds, one
+  // is the number of loss events, the other is the percentage of bytes lost.
   bool IsInflightTooHigh(const Bbr2CongestionEvent& congestion_event) const;
 
   QuicPacketNumber last_sent_packet() const {
@@ -367,8 +397,13 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
   }
 
   QuicByteCount bytes_in_flight() const {
+    DCHECK(!bandwidth_sampler_.remove_packets_once_per_congestion_event());
     return total_bytes_sent() - total_bytes_acked() - total_bytes_lost();
   }
+
+  int64_t loss_events_in_round() const { return loss_events_in_round_; }
+
+  bool always_count_loss_events() const { return always_count_loss_events_; }
 
   QuicPacketNumber end_of_app_limited_phase() const {
     return bandwidth_sampler_.end_of_app_limited_phase();
@@ -408,6 +443,10 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
   float pacing_gain() const { return pacing_gain_; }
   void set_pacing_gain(float pacing_gain) { pacing_gain_ = pacing_gain; }
 
+  bool one_bw_sample_per_ack_event() const {
+    return bandwidth_sampler_.one_bw_sample_per_ack_event();
+  }
+
  private:
   const Bbr2Params& Params() const { return *params_; }
   const Bbr2Params* const params_;
@@ -423,6 +462,11 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
 
   // Bytes lost in the current round. Updated once per congestion event.
   QuicByteCount bytes_lost_in_round_ = 0;
+  // Number of loss marking events in the current round.
+  int64_t loss_events_in_round_ = 0;
+  // Latched value of --quic_bbr2_always_count_loss_events.
+  const bool always_count_loss_events_ =
+      GetQuicReloadableFlag(quic_bbr2_always_count_loss_events);
 
   // Max bandwidth in the current round. Updated once per congestion event.
   QuicBandwidth bandwidth_latest_ = QuicBandwidth::Zero();
@@ -500,6 +544,9 @@ class QUIC_EXPORT_PRIVATE Bbr2ModeBase {
 QUIC_EXPORT_PRIVATE inline QuicByteCount BytesInFlight(
     const SendTimeState& send_state) {
   DCHECK(send_state.is_valid);
+  if (send_state.bytes_in_flight != 0) {
+    return send_state.bytes_in_flight;
+  }
   return send_state.total_bytes_sent - send_state.total_bytes_acked -
          send_state.total_bytes_lost;
 }

@@ -80,6 +80,13 @@ public:
                                                               const GrSwizzle&);
 
     /**
+     *  Returns a fragment processor that calls the passed in fragment processor, and then ensures
+     *  the output is a valid premul color by clamping RGB to [0, A].
+     */
+    static std::unique_ptr<GrFragmentProcessor> ClampPremulOutput(
+            std::unique_ptr<GrFragmentProcessor>);
+
+    /**
      * Returns a fragment processor that runs the passed in array of fragment processors in a
      * series. The original input is passed to the first, the first's output is passed to the
      * second, etc. The output of the returned processor is the output of the last processor of the
@@ -475,39 +482,41 @@ public:
     /**
      * This copy constructor is used by GrFragmentProcessor::clone() implementations.
      */
-    explicit TextureSampler(const TextureSampler& that)
-            : fProxy(that.fProxy)
-            , fSamplerState(that.fSamplerState) {}
+    explicit TextureSampler(const TextureSampler&) = default;
 
-    TextureSampler(sk_sp<GrSurfaceProxy>, const GrSamplerState& = GrSamplerState::ClampNearest());
+    TextureSampler(GrSurfaceProxyView, GrSamplerState = {});
+    // TODO: Remove this ctor once all uses have been updated to pass in a GrSurfaceProxyView
+    TextureSampler(sk_sp<GrSurfaceProxy>, GrSamplerState = {});
 
     TextureSampler& operator=(const TextureSampler&) = delete;
 
-    void reset(sk_sp<GrSurfaceProxy>, const GrSamplerState&);
-
     bool operator==(const TextureSampler& that) const {
-        return this->proxy()->underlyingUniqueID() == that.proxy()->underlyingUniqueID() &&
-               fSamplerState == that.fSamplerState;
+        return fView == that.fView && fSamplerState == that.fSamplerState;
     }
 
     bool operator!=(const TextureSampler& other) const { return !(*this == other); }
 
-    SkDEBUGCODE(bool isInstantiated() const { return fProxy->isInstantiated(); })
+    SkDEBUGCODE(bool isInstantiated() const { return this->proxy()->isInstantiated(); })
 
     // 'peekTexture' should only ever be called after a successful 'instantiate' call
     GrTexture* peekTexture() const {
-        SkASSERT(fProxy->isInstantiated());
-        return fProxy->peekTexture();
+        SkASSERT(this->proxy()->isInstantiated());
+        return this->proxy()->peekTexture();
     }
 
-    GrSurfaceProxy* proxy() const { return fProxy.get(); }
-    const GrSamplerState& samplerState() const { return fSamplerState; }
-    const GrSwizzle& swizzle() const { return this->proxy()->textureSwizzle(); }
+    const GrSurfaceProxyView& view() const { return fView; }
+    GrSamplerState samplerState() const { return fSamplerState; }
 
-    bool isInitialized() const { return SkToBool(fProxy.get()); }
+    bool isInitialized() const { return SkToBool(this->proxy()); }
+
+    GrSurfaceProxy* proxy() const { return fView.proxy(); }
+
+#if GR_TEST_UTILS
+    void set(GrSurfaceProxyView, GrSamplerState);
+#endif
 
 private:
-    sk_sp<GrSurfaceProxy> fProxy;
+    GrSurfaceProxyView    fView;
     GrSamplerState        fSamplerState;
 };
 
@@ -530,8 +539,10 @@ public:
     operator bool() const { return !fFPStack.empty(); }
     bool operator!=(const EndIter&) { return (bool)*this; }
 
+    // Hopefully this does not actually get called because of RVO.
+    IterBase(const IterBase&) = default;
+
     // Because each iterator carries a stack we want to avoid copies.
-    IterBase(const IterBase&) = delete;
     IterBase& operator=(const IterBase&) = delete;
 
 protected:

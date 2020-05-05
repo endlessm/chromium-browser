@@ -6,10 +6,11 @@
 
 #include <utility>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace test {
@@ -43,7 +44,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& tp) {
-  return QuicStrCat(
+  return quiche::QuicheStrCat(
       ParsedQuicVersionToString(tp.version), "_",
       (tp.perspective == Perspective::IS_CLIENT ? "client" : "server"));
 }
@@ -82,8 +83,7 @@ class QuicSendControlStreamTest : public QuicTestWithParam<TestParams> {
         session_.config(), kMinimumFlowControlSendWindow);
     QuicConfigPeer::SetReceivedInitialMaxStreamDataBytesUnidirectional(
         session_.config(), kMinimumFlowControlSendWindow);
-    QuicConfigPeer::SetReceivedMaxIncomingUnidirectionalStreams(
-        session_.config(), 3);
+    QuicConfigPeer::SetReceivedMaxUnidirectionalStreams(session_.config(), 3);
     session_.OnConfigNegotiated();
   }
 
@@ -109,7 +109,7 @@ TEST_P(QuicSendControlStreamTest, WriteSettings) {
   Initialize();
   testing::InSequence s;
 
-  std::string expected_write_data = QuicTextUtils::HexDecode(
+  std::string expected_write_data = quiche::QuicheTextUtils::HexDecode(
       "00"    // stream type: control stream
       "04"    // frame type: SETTINGS frame
       "08"    // frame length
@@ -141,7 +141,7 @@ TEST_P(QuicSendControlStreamTest, WriteSettings) {
 
   send_control_stream_->MaybeSendSettingsFrame();
   EXPECT_EQ(expected_write_data,
-            QuicStringPiece(writer.data(), writer.length()));
+            quiche::QuicheStringPiece(writer.data(), writer.length()));
 }
 
 TEST_P(QuicSendControlStreamTest, WriteSettingsOnlyOnce) {
@@ -152,23 +152,24 @@ TEST_P(QuicSendControlStreamTest, WriteSettingsOnlyOnce) {
   EXPECT_CALL(session_, WritevData(send_control_stream_, _, _, _, _));
   send_control_stream_->MaybeSendSettingsFrame();
 
-  // No data should be written the sencond time MaybeSendSettingsFrame() is
+  // No data should be written the second time MaybeSendSettingsFrame() is
   // called.
   send_control_stream_->MaybeSendSettingsFrame();
 }
 
+// Send stream type and SETTINGS frame if WritePriorityUpdate() is called first.
 TEST_P(QuicSendControlStreamTest, WritePriorityBeforeSettings) {
   Initialize();
   testing::InSequence s;
 
   // The first write will trigger the control stream to write stream type and a
-  // Settings frame before the Priority frame.
+  // SETTINGS frame before the PRIORITY_UPDATE frame.
   EXPECT_CALL(session_, WritevData(send_control_stream_, _, _, _, _)).Times(3);
-  PriorityFrame frame;
-  send_control_stream_->WritePriority(frame);
+  PriorityUpdateFrame frame;
+  send_control_stream_->WritePriorityUpdate(frame);
 
   EXPECT_CALL(session_, WritevData(send_control_stream_, _, _, _, _));
-  send_control_stream_->WritePriority(frame);
+  send_control_stream_->WritePriorityUpdate(frame);
 }
 
 TEST_P(QuicSendControlStreamTest, ResetControlStream) {

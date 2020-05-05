@@ -40,6 +40,8 @@ class DawnPerfTestEnvironment : public DawnTestEnvironment {
     // not be written to a json file.
     const char* GetTraceFile() const;
 
+    DawnPerfTestPlatform* GetPlatform() const;
+
   private:
     // Only run calibration which allows the perf test runner to save time.
     bool mIsCalibrating = false;
@@ -88,6 +90,11 @@ class DawnPerfTestBase {
   private:
     void DoRunLoop(double maxRunTime);
     void OutputResults();
+
+    void PrintResultImpl(const std::string& trace,
+                         const std::string& value,
+                         const std::string& units,
+                         bool important) const;
 
     virtual void Step() = 0;
 

@@ -7,7 +7,7 @@ window.addEventListener('load', function() {
     document.documentElement.setAttribute(
         'hascustombackground', themeData.hasCustomBackground);
     $('incognitothemecss').href =
-        'chrome://theme/css/incognito_new_tab_theme.css?' + Date.now();
+        'chrome://theme/css/incognito_tab_theme.css?' + Date.now();
   });
   chrome.send('observeThemeChanges');
 
@@ -20,6 +20,12 @@ window.addEventListener('load', function() {
   $('cookie-controls-toggle').addEventListener('change', event => {
     chrome.send('cookieControlsToggleChanged', [event.detail]);
   });
+  // Make cookie-controls-tooltip-icon respond to the enter key.
+  $('cookie-controls-tooltip-icon').addEventListener('keyup', event => {
+    if (event.key === 'Enter') {
+      $('cookie-controls-tooltip-icon').click();
+    }
+  });
   $('cookie-controls-tooltip-icon').onclick = () => {
     window.location.href = 'chrome://settings/content/cookies';
   };
@@ -30,7 +36,7 @@ window.addEventListener('load', function() {
 // from the C++ side.
 const ntp = {
   /** @param {string} attached */
-  setBookmarkBarAttached: function(attached) {
+  setBookmarkBarAttached(attached) {
     document.documentElement.setAttribute('bookmarkbarattached', attached);
   },
 };

@@ -1,10 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 # Copyright 2012 The LUCI Authors. All rights reserved.
 # Use of this source code is governed under the Apache License, Version 2.0
 # that can be found in the LICENSE file.
 
-import cStringIO
 import hashlib
+import io
 import json
 import logging
 import os
@@ -14,6 +14,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+import six
 
 # Mutates sys.path.
 import test_env
@@ -436,7 +438,7 @@ def list_files_tree(directory):
 
 
 def _isolate_dict_to_string(values):
-  buf = cStringIO.StringIO()
+  buf = io.StringIO()
   isolate.isolate_format.pretty_print(values, buf)
   return buf.getvalue()
 
@@ -458,10 +460,10 @@ def _wrap_in_condition(variables):
 
 def _fix_file_mode(filename, read_only):
   """4 modes are supported, 0700 (rwx), 0600 (rw), 0500 (rx), 0400 (r)."""
-  min_mode = 0400
+  min_mode = 0o400
   if not read_only:
-    min_mode |= 0200
-  return (min_mode | 0100) if filename.endswith('.py') else min_mode
+    min_mode |= 0o200
+  return (min_mode | 0o100) if filename.endswith('.py') else min_mode
 
 
 class Isolate(unittest.TestCase):
@@ -498,7 +500,7 @@ class IsolateTempdirBase(unittest.TestCase):
   def setUp(self):
     super(IsolateTempdirBase, self).setUp()
     self.tempdir = file_path.get_native_path_case(
-        unicode(tempfile.mkdtemp(prefix=u'isolate_smoke_')))
+        six.text_type(tempfile.mkdtemp(prefix=u'isolate_smoke_')))
     self.isolated = os.path.join(self.tempdir, 'isolate_smoke_test.isolated')
     self.isolate_dir = os.path.join(self.tempdir, 'isolate')
 
@@ -528,7 +530,7 @@ class IsolateTempdirBase(unittest.TestCase):
       root_dir = os.path.join(root_dir, 'tests', 'isolate')
 
     files = {unicode(f): {} for f in DEPENDENCIES[self.case()][1]}
-    for relfile, v in files.iteritems():
+    for relfile, v in files.items():
       filepath = os.path.join(root_dir, relfile)
       filestats = os.lstat(filepath)
       is_link = stat.S_ISLNK(filestats.st_mode)
@@ -542,54 +544,61 @@ class IsolateTempdirBase(unittest.TestCase):
         # Upgrade the value to unicode so diffing the structure in case of
         # test failure is easier, since the basestring type must match,
         # str!=unicode.
-        v[u'h'] = unicode(isolated_format.hash_file(filepath, ALGO))
+        v[u'h'] = six.text_type(isolated_format.hash_file(filepath, ALGO))
 
     if empty_file:
       item = files[empty_file]
-      item['h'] = unicode(HASH_NULL)
+      item['h'] = six.text_type(HASH_NULL)
       if sys.platform != 'win32':
-        item['m'] = 0400
+        item['m'] = 0o400
       item['s'] = 0
     return files
 
   def _expected_isolated(self, args, read_only, empty_file):
     """Verifies self.isolated contains the expected data."""
     expected = {
-      u'algo': u'sha-1',
-      u'files': self._gen_files(read_only, empty_file),
-      u'read_only': 1,
-      u'version': unicode(isolated_format.ISOLATED_FILE_VERSION),
+        u'algo': u'sha-1',
+        u'files': self._gen_files(read_only, empty_file),
+        u'read_only': 1,
+        u'version': six.text_type(isolated_format.ISOLATED_FILE_VERSION),
     }
     if read_only is not None:
       expected[u'read_only'] = read_only
     if args:
       expected[u'command'] = [u'python'] + [unicode(x) for x in args]
-      expected[u'relative_cwd'] = unicode(RELATIVE_CWD[self.case()])
+      expected[u'relative_cwd'] = six.text_type(RELATIVE_CWD[self.case()])
     with open(self.isolated, 'r') as f:
       self.assertEqual(expected, json.load(f))
 
   def _expected_saved_state(
       self, args, read_only, empty_file, extra_vars, root_dir):
     expected = {
-      u'OS': unicode(sys.platform),
-      u'algo': u'sha-1',
-      u'child_isolated_files': [],
-      u'command': [],
-      u'config_variables': {
-        u'OS': u'mac',
-        u'chromeos': 0,
-      },
-      u'extra_variables': {
-        u'EXECUTABLE_SUFFIX': u'.exe' if sys.platform == 'win32' else u'',
-      },
-      u'files': self._gen_files(read_only, empty_file),
-      u'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(unicode(self.filename())),
-          unicode(os.path.dirname(self.isolated))),
-      u'path_variables': {},
-      u'relative_cwd': unicode(RELATIVE_CWD[self.case()]),
-      u'root_dir': unicode(root_dir or os.path.dirname(self.filename())),
-      u'version': unicode(isolate.SavedState.EXPECTED_VERSION),
+        u'OS':
+            six.text_type(sys.platform),
+        u'algo':
+            u'sha-1',
+        u'child_isolated_files': [],
+        u'command': [],
+        u'config_variables': {
+            u'OS': u'mac',
+            u'chromeos': 0,
+        },
+        u'extra_variables': {
+            u'EXECUTABLE_SUFFIX': u'.exe' if sys.platform == 'win32' else u'',
+        },
+        u'files':
+            self._gen_files(read_only, empty_file),
+        u'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(unicode(self.filename())),
+                six.text_type(os.path.dirname(self.isolated))),
+        u'path_variables': {},
+        u'relative_cwd':
+            six.text_type(RELATIVE_CWD[self.case()]),
+        u'root_dir':
+            six.text_type(root_dir or os.path.dirname(self.filename())),
+        u'version':
+            six.text_type(isolate.SavedState.EXPECTED_VERSION),
     }
     if args:
       expected[u'command'] = [u'python'] + [unicode(x) for x in args]
@@ -705,7 +714,7 @@ class IsolateOutdir(IsolateTempdirBase):
   def setUp(self):
     super(IsolateOutdir, self).setUp()
     # The tests assume the current directory is the file's directory.
-    os.mkdir(self.isolate_dir, 0700)
+    os.mkdir(self.isolate_dir, 0o700)
     self.old_cwd = os.getcwd()
     os.chdir(self.isolate_dir)
     self.outdir = os.path.join(self.tempdir, 'isolated')

@@ -133,10 +133,16 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags(),
+                                                                 fHelper.stencilSettings());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         RegionOp* that = t->cast<RegionOp>();
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
             return CombineResult::kCannotCombine;
@@ -198,7 +204,7 @@ GR_DRAW_OP_TEST_DEFINE(RegionOp) {
             op = SkRegion::kReplace_Op;
         } else {
             // Pick an other than replace.
-            GR_STATIC_ASSERT(SkRegion::kLastOp == SkRegion::kReplace_Op);
+            static_assert(SkRegion::kLastOp == SkRegion::kReplace_Op);
             op = (SkRegion::Op)random->nextULessThan(SkRegion::kLastOp);
         }
         region.op(rect, op);

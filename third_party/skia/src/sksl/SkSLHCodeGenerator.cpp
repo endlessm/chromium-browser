@@ -64,7 +64,7 @@ Layout::CType HCodeGenerator::ParameterCType(const Context& context, const Type&
     } else if (type == *context.fFloat3x3_Type || type == *context.fHalf3x3_Type) {
         return Layout::CType::kSkMatrix;
     } else if (type == *context.fFloat4x4_Type || type == *context.fHalf4x4_Type) {
-        return Layout::CType::kSkMatrix44;
+        return Layout::CType::kSkM44;
     } else if (type.kind() == Type::kSampler_Kind) {
         return Layout::CType::kGrSurfaceProxy;
     } else if (type == *context.fFragmentProcessor_Type) {
@@ -347,6 +347,7 @@ bool HCodeGenerator::generateCode() {
                  fFullName.c_str(),
                  fFullName.c_str());
     this->writef("#include \"include/core/SkTypes.h\"\n");
+    this->writef("#include \"include/private/SkM44.h\"\n");
     this->writeSection(HEADER_SECTION);
     this->writef("\n"
                  "#include \"src/gpu/GrCoordTransform.h\"\n"
@@ -356,7 +357,7 @@ bool HCodeGenerator::generateCode() {
                  fFullName.c_str());
     for (const auto& p : fProgram) {
         if (ProgramElement::kEnum_Kind == p.fKind && !((Enum&) p).fBuiltin) {
-            this->writef("%s\n", p.description().c_str());
+            this->writef("%s\n", ((Enum&) p).code().c_str());
         }
     }
     this->writeSection(CLASS_SECTION);

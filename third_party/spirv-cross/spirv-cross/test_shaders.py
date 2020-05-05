@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 
+ # Copyright 2015-2019 Arm Limited
+ #
+ # Licensed under the Apache License, Version 2.0 (the "License");
+ # you may not use this file except in compliance with the License.
+ # You may obtain a copy of the License at
+ #
+ #     http://www.apache.org/licenses/LICENSE-2.0
+ #
+ # Unless required by applicable law or agreed to in writing, software
+ # distributed under the License is distributed on an "AS IS" BASIS,
+ # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+
 import sys
 import os
 import os.path
@@ -164,7 +178,9 @@ def cross_compile_msl(shader, spirv, opt, iterations, paths):
     spirv_path = create_temporary()
     msl_path = create_temporary(os.path.basename(shader))
 
-    spirv_cmd = [paths.spirv_as, '--target-env', 'vulkan1.1', '-o', spirv_path, shader]
+    spirv_env = 'vulkan1.1spv1.4' if ('.spv14.' in shader) else 'vulkan1.1'
+
+    spirv_cmd = [paths.spirv_as, '--target-env', spirv_env, '-o', spirv_path, shader]
     if '.preserve.' in shader:
         spirv_cmd.append('--preserve-numeric-ids')
 
@@ -173,7 +189,7 @@ def cross_compile_msl(shader, spirv, opt, iterations, paths):
     else:
         subprocess.check_call([paths.glslang, '--amb' ,'--target-env', 'vulkan1.1', '-V', '-o', spirv_path, shader])
 
-    if opt:
+    if opt and (not shader_is_invalid_spirv(shader)):
         if '.graphics-robust-access.' in shader:
             subprocess.check_call([paths.spirv_opt, '--skip-validation', '-O', '--graphics-robust-access', '-o', spirv_path, spirv_path])
         else:
@@ -235,7 +251,7 @@ def cross_compile_msl(shader, spirv, opt, iterations, paths):
     subprocess.check_call(msl_args)
 
     if not shader_is_invalid_spirv(msl_path):
-        subprocess.check_call([paths.spirv_val, '--scalar-block-layout', '--target-env', 'vulkan1.1', spirv_path])
+        subprocess.check_call([paths.spirv_val, '--scalar-block-layout', '--target-env', spirv_env, spirv_path])
 
     return (spirv_path, msl_path)
 
@@ -323,7 +339,7 @@ def cross_compile_hlsl(shader, spirv, opt, force_no_external_validation, iterati
     else:
         subprocess.check_call([paths.glslang, '--amb', '--target-env', 'vulkan1.1', '-V', '-o', spirv_path, shader])
 
-    if opt:
+    if opt and (not shader_is_invalid_spirv(hlsl_path)):
         subprocess.check_call([paths.spirv_opt, '--skip-validation', '-O', '-o', spirv_path, spirv_path])
 
     spirv_cross_path = paths.spirv_cross
@@ -339,7 +355,7 @@ def cross_compile_hlsl(shader, spirv, opt, force_no_external_validation, iterati
         subprocess.check_call([paths.spirv_val, '--scalar-block-layout', '--target-env', 'vulkan1.1', spirv_path])
 
     validate_shader_hlsl(hlsl_path, force_no_external_validation, paths)
-    
+
     return (spirv_path, hlsl_path)
 
 def cross_compile_reflect(shader, spirv, opt, iterations, paths):
@@ -355,7 +371,7 @@ def cross_compile_reflect(shader, spirv, opt, iterations, paths):
     else:
         subprocess.check_call([paths.glslang, '--amb', '--target-env', 'vulkan1.1', '-V', '-o', spirv_path, shader])
 
-    if opt:
+    if opt and (not shader_is_invalid_spirv(reflect_path)):
         subprocess.check_call([paths.spirv_opt, '--skip-validation', '-O', '-o', spirv_path, spirv_path])
 
     spirv_cross_path = paths.spirv_cross
@@ -374,10 +390,12 @@ def cross_compile(shader, vulkan, spirv, invalid_spirv, eliminate, is_legacy, fl
     spirv_path = create_temporary()
     glsl_path = create_temporary(os.path.basename(shader))
 
+    spirv_env = 'vulkan1.1spv1.4' if ('.spv14.' in shader) else 'vulkan1.1'
+
     if vulkan or spirv:
         vulkan_glsl_path = create_temporary('vk' + os.path.basename(shader))
 
-    spirv_cmd = [paths.spirv_as, '--target-env', 'vulkan1.1', '-o', spirv_path, shader]
+    spirv_cmd = [paths.spirv_as, '--target-env', spirv_env, '-o', spirv_path, shader]
     if '.preserve.' in shader:
         spirv_cmd.append('--preserve-numeric-ids')
 
@@ -390,7 +408,7 @@ def cross_compile(shader, vulkan, spirv, invalid_spirv, eliminate, is_legacy, fl
         subprocess.check_call([paths.spirv_opt, '--skip-validation', '-O', '-o', spirv_path, spirv_path])
 
     if not invalid_spirv:
-        subprocess.check_call([paths.spirv_val, '--scalar-block-layout', '--target-env', 'vulkan1.1', spirv_path])
+        subprocess.check_call([paths.spirv_val, '--scalar-block-layout', '--target-env', spirv_env, spirv_path])
 
     extra_args = ['--iterations', str(iterations)]
     if eliminate:
@@ -488,7 +506,7 @@ def regression_check_reflect(shader, json_file, args):
         print('Found new shader {}. Placing generated source code in {}'.format(joined_path, reference))
         make_reference_dir(reference)
         shutil.move(json_file, reference)
-    
+
 def regression_check(shader, glsl, args):
     reference = reference_path(shader[0], shader[1], args.opt)
     joined_path = os.path.join(shader[0], shader[1])
@@ -664,7 +682,7 @@ def test_shaders_helper(stats, backend, args):
             relpath = os.path.relpath(path, args.folder)
             all_files.append(relpath)
 
-    # The child processes in parallel execution mode don't have the proper state for the global args variable, so 
+    # The child processes in parallel execution mode don't have the proper state for the global args variable, so
     # at this point we need to switch to explicit arguments
     if args.parallel:
         pool = multiprocessing.Pool(multiprocessing.cpu_count())
@@ -749,7 +767,7 @@ def main():
             default = 1,
             type = int,
             help = 'Number of iterations to run SPIRV-Cross (benchmarking)')
-    
+
     args = parser.parse_args()
     if not args.folder:
         sys.stderr.write('Need shader folder.\n')
@@ -758,16 +776,16 @@ def main():
     if (args.parallel and (args.malisc or args.force_no_external_validation or args.update)):
         sys.stderr.write('Parallel execution is disabled when using the flags --update, --malisc or --force-no-external-validation\n')
         args.parallel = False
-        
+
     args.msl22 = False
     if args.msl:
         print_msl_compiler_version()
         args.msl22 = msl_compiler_supports_22()
 
     backend = 'glsl'
-    if (args.msl or args.metal): 
+    if (args.msl or args.metal):
         backend = 'msl'
-    elif args.hlsl: 
+    elif args.hlsl:
         backend = 'hlsl'
     elif args.reflect:
         backend = 'reflect'

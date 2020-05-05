@@ -14,6 +14,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/util/type_safety/strong_alias.h"
 #include "build/build_config.h"
 #include "components/autofill/content/common/mojom/autofill_agent.mojom.h"
 #include "components/autofill/content/common/mojom/autofill_driver.mojom.h"
@@ -110,6 +111,7 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
                               public FormTracker::Observer,
                               public mojom::PasswordAutofillAgent {
  public:
+  using UseFallbackData = util::StrongAlias<class UseFallbackDataTag, bool>;
   PasswordAutofillAgent(content::RenderFrame* render_frame,
                         blink::AssociatedInterfaceRegistry* registry);
   ~PasswordAutofillAgent() override;
@@ -221,6 +223,9 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
   std::unique_ptr<PasswordForm> GetSimplifiedPasswordFormFromWebForm(
       const blink::WebFormElement& web_form);
 
+  std::unique_ptr<FormData> GetFormDataFromWebForm(
+      const blink::WebFormElement& web_form);
+
   // Creates a |PasswordForm| of fields that are not enclosed in any <form> tag.
   std::unique_ptr<PasswordForm> GetPasswordFormFromUnownedInputElements();
 
@@ -228,6 +233,8 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
   // flags, for fields that are not enclosed in any <form> tag.
   std::unique_ptr<PasswordForm>
   GetSimplifiedPasswordFormFromUnownedInputElements();
+
+  std::unique_ptr<FormData> GetFormDataFromUnownedInputElements();
 
   bool logging_state_active() const { return logging_state_active_; }
 
@@ -278,7 +285,7 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
 
   // Stores information about form field structure.
   struct FormFieldInfo {
-    uint32_t unique_renderer_id = FormFieldData::kNotSetFormControlRendererId;
+    uint32_t unique_renderer_id = FormData::kNotSetRendererId;
     std::string form_control_type;
     std::string autocomplete_attribute;
     bool is_focusable = false;
@@ -293,7 +300,7 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
 
     FormStructureInfo& operator=(FormStructureInfo&& other);
 
-    uint32_t unique_renderer_id = FormData::kNotSetFormRendererId;
+    uint32_t unique_renderer_id = FormData::kNotSetRendererId;
     std::vector<FormFieldInfo> fields;
   };
 
@@ -366,8 +373,11 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
   // corresponding username, password elements and PasswordInfo into
   // |username_element|, |password_element| and |pasword_info|, respectively.
   // Note, that |username_element->IsNull()| can be true if |element| is a
-  // password.
+  // password. Callers have the chance to restrict the usage of fallback data
+  // by setting |use_fallback_data| to false. In that case data provided via
+  // MaybeStoreFallbackData will be ignored and the function returns early.
   bool FindPasswordInfoForElement(const blink::WebInputElement& element,
+                                  UseFallbackData use_fallback_data,
                                   blink::WebInputElement* username_element,
                                   blink::WebInputElement* password_element,
                                   PasswordInfo** password_info);
@@ -548,9 +558,9 @@ class PasswordAutofillAgent : public content::RenderFrameObserver,
   bool recorded_first_filling_result_ = false;
 
   // Contains renderer id of last updated input element.
-  uint32_t last_updated_field_renderer_id_ = FormData::kNotSetFormRendererId;
+  uint32_t last_updated_field_renderer_id_ = FormData::kNotSetRendererId;
   // Contains renderer id of the form of the last updated input element.
-  uint32_t last_updated_form_renderer_id_ = FormData::kNotSetFormRendererId;
+  uint32_t last_updated_form_renderer_id_ = FormData::kNotSetRendererId;
 
   // Current state of Touch To Fill. This is reset during
   // CleanupOnDocumentShutdown.

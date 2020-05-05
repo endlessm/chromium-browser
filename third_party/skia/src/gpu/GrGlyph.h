@@ -80,24 +80,15 @@ struct GrGlyph {
 
     int width() const { return fBounds.width(); }
     int height() const { return fBounds.height(); }
-    uint32_t pageIndex() const { return GrDrawOpAtlas::GetPageIndexFromID(fID); }
+    uint32_t pageIndex() const { return GrDrawOpAtlas::GetPageIndexFromID(fPlotLocator); }
     MaskStyle maskStyle() const { return fMaskStyle; }
 
-    // GetKey and Hash for the the hash table.
-    static const SkPackedGlyphID& GetKey(const GrGlyph& glyph) {
-        return glyph.fPackedID;
-    }
-
-    static uint32_t Hash(SkPackedGlyphID key) {
-        return SkChecksum::Mix(key.hash());
-    }
-
-    const SkPackedGlyphID  fPackedID;
-    const GrMaskFormat     fMaskFormat;
-    const MaskStyle        fMaskStyle;
-    const GrIRect16        fBounds;
-    SkIPoint16             fAtlasLocation{0, 0};
-    GrDrawOpAtlas::AtlasID fID{GrDrawOpAtlas::kInvalidAtlasID};
+    const SkPackedGlyphID      fPackedID;
+    const GrMaskFormat         fMaskFormat;
+    const MaskStyle            fMaskStyle;
+    const GrIRect16            fBounds;
+    SkIPoint16                 fAtlasLocation{0, 0};
+    GrDrawOpAtlas::PlotLocator fPlotLocator{GrDrawOpAtlas::kInvalidPlotLocator};
 };
 
 #endif

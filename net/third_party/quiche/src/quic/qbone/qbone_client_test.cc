@@ -26,6 +26,7 @@
 #include "net/third_party/quiche/src/quic/test_tools/server_thread.h"
 #include "net/third_party/quiche/src/quic/tools/quic_memory_cache_backend.h"
 #include "net/third_party/quiche/src/quic/tools/quic_server.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -105,10 +106,10 @@ class QuicQboneDispatcher : public QuicDispatcher {
                        kQuicDefaultConnectionIdLength),
         writer_(writer) {}
 
-  QuicSession* CreateQuicSession(
+  std::unique_ptr<QuicSession> CreateQuicSession(
       QuicConnectionId id,
       const QuicSocketAddress& client,
-      QuicStringPiece alpn,
+      quiche::QuicheStringPiece alpn,
       const quic::ParsedQuicVersion& version) override {
     CHECK_EQ(alpn, "qbone");
     QuicConnection* connection =
@@ -116,7 +117,7 @@ class QuicQboneDispatcher : public QuicDispatcher {
                            /* owns_writer= */ false, Perspective::IS_SERVER,
                            ParsedQuicVersionVector{version});
     // The connection owning wrapper owns the connection created.
-    QboneServerSession* session = new ConnectionOwningQboneServerSession(
+    auto session = std::make_unique<ConnectionOwningQboneServerSession>(
         GetSupportedVersions(), connection, this, config(), crypto_config(),
         compressed_certs_cache(), writer_);
     session->Initialize();

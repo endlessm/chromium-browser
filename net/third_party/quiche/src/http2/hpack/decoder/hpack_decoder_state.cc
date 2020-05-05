@@ -90,8 +90,7 @@ void HpackDecoderState::OnIndexedHeader(size_t index) {
   allow_dynamic_table_size_update_ = false;
   const HpackStringPair* entry = decoder_tables_.Lookup(index);
   if (entry != nullptr) {
-    listener_->OnHeader(HpackEntryType::kIndexedHeader, entry->name,
-                        entry->value);
+    listener_->OnHeader(entry->name, entry->value);
   } else {
     ReportError("Invalid index.");
   }
@@ -115,7 +114,7 @@ void HpackDecoderState::OnNameIndexAndLiteralValue(
   const HpackStringPair* entry = decoder_tables_.Lookup(name_index);
   if (entry != nullptr) {
     HpackString value(ExtractHpackString(value_buffer));
-    listener_->OnHeader(entry_type, entry->name, value);
+    listener_->OnHeader(entry->name, value);
     if (entry_type == HpackEntryType::kIndexedLiteralHeader) {
       decoder_tables_.Insert(entry->name, value);
     }
@@ -140,7 +139,7 @@ void HpackDecoderState::OnLiteralNameAndValue(
   allow_dynamic_table_size_update_ = false;
   HpackString name(ExtractHpackString(name_buffer));
   HpackString value(ExtractHpackString(value_buffer));
-  listener_->OnHeader(entry_type, name, value);
+  listener_->OnHeader(name, value);
   if (entry_type == HpackEntryType::kIndexedLiteralHeader) {
     decoder_tables_.Insert(name, value);
   }
@@ -185,7 +184,8 @@ void HpackDecoderState::OnDynamicTableSizeUpdate(size_t size_limit) {
   lowest_header_table_size_ = final_header_table_size_;
 }
 
-void HpackDecoderState::OnHpackDecodeError(Http2StringPiece error_message) {
+void HpackDecoderState::OnHpackDecodeError(
+    quiche::QuicheStringPiece error_message) {
   HTTP2_DVLOG(2) << "HpackDecoderState::OnHpackDecodeError " << error_message;
   if (!error_detected_) {
     ReportError(error_message);
@@ -206,7 +206,7 @@ void HpackDecoderState::OnHeaderBlockEnd() {
   }
 }
 
-void HpackDecoderState::ReportError(Http2StringPiece error_message) {
+void HpackDecoderState::ReportError(quiche::QuicheStringPiece error_message) {
   HTTP2_DVLOG(2) << "HpackDecoderState::ReportError is new="
                  << (!error_detected_ ? "true" : "false")
                  << ", error_message: " << error_message;

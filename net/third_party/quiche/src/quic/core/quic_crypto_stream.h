@@ -5,6 +5,7 @@
 #ifndef QUICHE_QUIC_CORE_QUIC_CRYPTO_STREAM_H_
 #define QUICHE_QUIC_CORE_QUIC_CRYPTO_STREAM_H_
 
+#include <array>
 #include <cstddef>
 #include <string>
 
@@ -14,7 +15,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_stream.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -59,19 +60,20 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // dependent on |label|, |context|, and the stream's negotiated subkey secret.
   // Returns false if the handshake has not been confirmed or the parameters are
   // invalid (e.g. |label| contains null bytes); returns true on success.
-  bool ExportKeyingMaterial(QuicStringPiece label,
-                            QuicStringPiece context,
+  bool ExportKeyingMaterial(quiche::QuicheStringPiece label,
+                            quiche::QuicheStringPiece context,
                             size_t result_len,
                             std::string* result) const;
 
   // Writes |data| to the QuicStream at level |level|.
-  virtual void WriteCryptoData(EncryptionLevel level, QuicStringPiece data);
+  virtual void WriteCryptoData(EncryptionLevel level,
+                               quiche::QuicheStringPiece data);
 
   // Returns true once an encrypter has been set for the connection.
   virtual bool encryption_established() const = 0;
 
   // Returns true once the crypto handshake has completed.
-  virtual bool handshake_confirmed() const = 0;
+  virtual bool one_rtt_keys_available() const = 0;
 
   // Returns the parameters negotiated in the crypto handshake.
   virtual const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
@@ -82,6 +84,15 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
 
   // Called when a packet of encryption |level| has been successfully decrypted.
   virtual void OnPacketDecrypted(EncryptionLevel level) = 0;
+
+  // Called when a 1RTT packet has been acknowledged.
+  virtual void OnOneRttPacketAcknowledged() = 0;
+
+  // Called when a handshake done frame has been received.
+  virtual void OnHandshakeDoneReceived() = 0;
+
+  // Returns current handshake state.
+  virtual HandshakeState GetHandshakeState() const = 0;
 
   // Returns the maximum number of bytes that can be buffered at a particular
   // encryption level |level|.
@@ -178,7 +189,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
 
   // Keeps state for data sent/received in CRYPTO frames at each encryption
   // level.
-  CryptoSubstream substreams_[NUM_ENCRYPTION_LEVELS];
+  std::array<CryptoSubstream, NUM_ENCRYPTION_LEVELS> substreams_;
 };
 
 }  // namespace quic

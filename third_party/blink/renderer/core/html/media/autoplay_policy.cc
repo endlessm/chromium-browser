@@ -88,12 +88,12 @@ bool AutoplayPolicy::IsDocumentAllowedToPlay(const Document& document) {
     return false;
 
   bool feature_policy_enabled =
-      document.IsFeatureEnabled(mojom::FeaturePolicyFeature::kAutoplay);
+      document.IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kAutoplay);
 
   for (Frame* frame = document.GetFrame(); frame;
        frame = frame->Tree().Parent()) {
-    if (frame->HasBeenActivated() ||
-        frame->HasReceivedUserGestureBeforeNavigation()) {
+    if (frame->HasStickyUserActivation() ||
+        frame->HadStickyUserActivationBeforeNavigation()) {
       return true;
     }
 
@@ -361,12 +361,12 @@ void AutoplayPolicy::MaybeSetAutoplayInitiated() {
 
   const Document& document = element_->GetDocument();
   bool feature_policy_enabled =
-      document.IsFeatureEnabled(mojom::FeaturePolicyFeature::kAutoplay);
+      document.IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kAutoplay);
 
   for (Frame* frame = document.GetFrame(); frame;
        frame = frame->Tree().Parent()) {
-    if (frame->HasBeenActivated() ||
-        frame->HasReceivedUserGestureBeforeNavigation()) {
+    if (frame->HasStickyUserActivation() ||
+        frame->HadStickyUserActivationBeforeNavigation()) {
       autoplay_initiated_ = false;
       break;
     }

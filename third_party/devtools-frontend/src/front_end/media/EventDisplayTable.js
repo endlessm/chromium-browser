@@ -16,11 +16,19 @@ Media.EventDisplayColumnConfig;
 /**
  * @typedef {{
  *     name: string,
- *     value: string,
- *     timestamp: (number|string|undefined)
+ *     value: *,
+ *     timestamp: (number|string|undefined),
+ *     displayTimestamp: string
  * }}
  */
 Media.Event;
+
+/** @enum {string} */
+Media.MediaEventColumnKeys = {
+  Timestamp: 'displayTimestamp',
+  Event: 'event',
+  Value: 'value'
+};
 
 /**
  * @unrestricted
@@ -41,7 +49,14 @@ Media.EventNode = class extends DataGrid.SortableDataGridNode {
   createCell(columnId) {
     const cell = this.createTD(columnId);
     const cellData = /** @type string */ (this.data[columnId]);
-    cell.createTextChild(cellData);
+    if (columnId === Media.MediaEventColumnKeys.Value) {
+      const area = new SourceFrame.JSONView(new SourceFrame.ParsedJSON(cellData, '', ''), true);
+      area.markAsRoot();
+      area.show(cell);
+    } else {
+      cell.classList.add('event-display-table-basic-text-table-entry');
+      cell.createTextChild(cellData);
+    }
     return cell;
   }
 
@@ -57,23 +72,30 @@ Media.EventNode = class extends DataGrid.SortableDataGridNode {
 /**
  * @unrestricted
  */
-Media.EventDisplayTable = class extends UI.VBox {
-  /**
-   * @param {!Array.<!Media.EventDisplayColumnConfig>} headerDescriptors
-   * @param {?string=} uniqueColumn
-   * @param {?string=} defaultSortingColumnId
-   */
-  constructor(headerDescriptors, uniqueColumn, defaultSortingColumnId) {
+Media.PlayerEventsView = class extends UI.VBox {
+  constructor() {
     super();
 
     // Set up element styles.
     this.registerRequiredCSS('media/eventDisplayTable.css');
     this.contentElement.classList.add('event-display-table-contents-table-container');
 
-    this._uniqueColumnEntryKey = uniqueColumn;
-    this._uniqueColumnMap = new Map();
+    this._dataGrid = this._createDataGrid(
+        [
+          {
+            id: Media.MediaEventColumnKeys.Timestamp,
+            title: ls`Timestamp`,
+            weight: 1,
+            sortable: true,
+            sortingFunction:
+                DataGrid.SortableDataGrid.NumericComparator.bind(null, Media.MediaEventColumnKeys.Timestamp)
+          },
+          {id: Media.MediaEventColumnKeys.Event, title: ls`Event Name`, weight: 2, sortable: false},
+          {id: Media.MediaEventColumnKeys.Value, title: ls`Value`, weight: 7, sortable: false}
+        ],
+        Media.MediaEventColumnKeys.Timestamp);
 
-    this._dataGrid = this._createDataGrid(headerDescriptors, defaultSortingColumnId);
+    this._firstEventTime = 0;
     this._dataGrid.setStriped(true);
     this._dataGrid.asWidget().show(this.contentElement);
   }
@@ -87,7 +109,7 @@ Media.EventDisplayTable = class extends UI.VBox {
     const gridColumnDescs = [];
     const sortFunctionMap = new Map();
     for (const headerDesc of headers) {
-      gridColumnDescs.push(Media.EventDisplayTable._convertToGridDescriptor(headerDesc));
+      gridColumnDescs.push(Media.PlayerEventsView._convertToGridDescriptor(headerDesc));
       if (headerDesc.sortable) {
         sortFunctionMap.set(headerDesc.id, headerDesc.sortingFunction);
         if (!default_sort) {
@@ -96,7 +118,7 @@ Media.EventDisplayTable = class extends UI.VBox {
       }
     }
 
-    const datagrid = new DataGrid.SortableDataGrid(gridColumnDescs);
+    const datagrid = new DataGrid.SortableDataGrid({displayName: ls`Event Display`, columns: gridColumnDescs});
     if (default_sort) {
       datagrid.sortNodes(sortFunctionMap.get(default_sort), !datagrid.isSortOrderAscending());
 
@@ -112,11 +134,17 @@ Media.EventDisplayTable = class extends UI.VBox {
   }
 
   /**
-   * @param {!Array.<!Media.Event>} events
+   * @param {string} playerID
+   * @param {!Array.<!Media.Event>} changes
+   * @param {!Media.MediaModel.MediaChangeTypeKeys} change_type
    */
-  addEvents(events) {
-    for (const event of events) {
-      this.addEvent(event);
+  renderChanges(playerID, changes, change_type) {
+    if (this._firstEventTime === 0 && changes.length > 0) {
+      this._firstEventTime = changes[0].timestamp;
+    }
+
+    for (const event of changes) {
+      this.addEvent(this._subtractFirstEventTime(event));
     }
   }
 
@@ -124,26 +152,42 @@ Media.EventDisplayTable = class extends UI.VBox {
    * @param {!Media.Event} event
    */
   addEvent(event) {
-    if (this._uniqueColumnEntryKey) {
-      const eventValue = event[this._uniqueColumnEntryKey];
-      if (this._uniqueColumnMap.has(eventValue)) {
-        this._uniqueColumnMap.get(eventValue).data = event;
-        return;
-      }
+    if (event.type === 'triggeredEvent') {
+      // New-style events have 'triggeredEvent' as their type, where older ones
+      // use 'systemEvent'.
+      const stringified = /** @type {string} */ (event.value);
+      const json = JSON.parse(stringified);
+      event.event = json.event;
+      delete json['event'];
+      event.value = json;
+      const node = new Media.EventNode(event);
+      this._dataGrid.rootNode().insertChildOrdered(node);
     }
-    const node = new Media.EventNode(event);
-    this._dataGrid.rootNode().insertChildOrdered(node);
-    if (this._uniqueColumnEntryKey) {
-      this._uniqueColumnMap.set(event[this._uniqueColumnEntryKey], node);
+
+    if (event.type === 'systemEvent') {
+      // TODO(tmathmeyer) delete this block when
+      // https://chromium-review.googlesource.com/c/chromium/src/+/2006249
+      // is merged.
+      event.event = event.name;
+      const node = new Media.EventNode(event);
+      this._dataGrid.rootNode().insertChildOrdered(node);
     }
   }
 
   /**
+   * @param {!Media.Event} event
+   */
+  _subtractFirstEventTime(event) {
+    event.displayTimestamp = (event.timestamp - this._firstEventTime).toFixed(3);
+    return event;
+  }
+
+  /**
    * @param {!Media.EventDisplayColumnConfig} columnConfig
-   * @return {!DataGrid.DataGrid.ColumnDescriptor}
+   * @return {!DataGrid.ColumnDescriptor}
    */
   static _convertToGridDescriptor(columnConfig) {
-    return /** @type {!DataGrid.DataGrid.ColumnDescriptor} */ ({
+    return /** @type {!DataGrid.ColumnDescriptor} */ ({
       id: columnConfig.id,
       title: columnConfig.title,
       sortable: columnConfig.sortable,

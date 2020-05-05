@@ -173,26 +173,37 @@ private:
 
     void destroyResources();
 
-    GrBackendTexture onCreateBackendTexture(SkISize,
+    GrBackendTexture onCreateBackendTexture(SkISize dimensions,
                                             const GrBackendFormat&,
                                             GrRenderable,
-                                            const BackendTextureData*,
-                                            int numMipLevels,
-                                            GrProtected) override;
+                                            GrMipMapped,
+                                            GrProtected,
+                                            const BackendTextureData*) override;
+    GrBackendTexture onCreateCompressedBackendTexture(SkISize dimensions,
+                                                      const GrBackendFormat&,
+                                                      GrMipMapped,
+                                                      GrProtected,
+                                                      const BackendTextureData*) override;
+
     sk_sp<GrTexture> onCreateTexture(const GrSurfaceDesc&,
-                                     const GrBackendFormat& format,
+                                     const GrBackendFormat&,
                                      GrRenderable,
                                      int renderTargetSampleCnt,
                                      SkBudgeted,
                                      GrProtected,
                                      int mipLevelCount,
                                      uint32_t levelClearMask) override;
-    sk_sp<GrTexture> onCreateCompressedTexture(int width, int height, const GrBackendFormat&,
-                                               SkImage::CompressionType, SkBudgeted,
-                                               const void* data) override;
+    sk_sp<GrTexture> onCreateCompressedTexture(SkISize dimensions,
+                                               const GrBackendFormat&,
+                                               SkBudgeted,
+                                               GrMipMapped,
+                                               GrProtected,
+                                               const void* data, size_t dataSize) override;
 
     sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&, GrColorType, GrWrapOwnership,
                                           GrWrapCacheable, GrIOType) override;
+    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&, GrWrapOwnership,
+                                                    GrWrapCacheable) override;
     sk_sp<GrTexture> onWrapRenderableBackendTexture(const GrBackendTexture&,
                                                     int sampleCnt,
                                                     GrColorType colorType,
@@ -256,26 +267,25 @@ private:
                              GrColorType colorType, const void* data, size_t rowBytes);
     bool uploadTexDataOptimal(GrVkTexture* tex, int left, int top, int width, int height,
                               GrColorType colorType, const GrMipLevel texels[], int mipLevelCount);
-    bool uploadTexDataCompressed(GrVkTexture* tex, int left, int top, int width, int height,
-                                 SkImage::CompressionType, const void* data);
+    bool uploadTexDataCompressed(GrVkTexture* tex, VkFormat vkFormat, SkISize dimensions,
+                                 GrMipMapped mipMapped, const void* data, size_t dataSize);
     void resolveImage(GrSurface* dst, GrVkRenderTarget* src, const SkIRect& srcRect,
                       const SkIPoint& dstPoint);
 
     bool createVkImageForBackendSurface(VkFormat,
-                                        SkISize,
-                                        bool texturable,
-                                        bool renderable,
-                                        const BackendTextureData*,
-                                        int numMipLevels,
+                                        SkISize dimensions,
+                                        GrTexturable,
+                                        GrRenderable,
+                                        GrMipMapped,
                                         GrVkImageInfo*,
-                                        GrProtected);
+                                        GrProtected,
+                                        const BackendTextureData*);
 
     sk_sp<const GrVkInterface>                            fInterface;
     sk_sp<GrVkMemoryAllocator>                            fMemoryAllocator;
     sk_sp<GrVkCaps>                                       fVkCaps;
     bool                                                  fDeviceIsLost = false;
 
-    VkInstance                                            fInstance;
     VkPhysicalDevice                                      fPhysicalDevice;
     VkDevice                                              fDevice;
     VkQueue                                               fQueue;    // Must be Graphics queue

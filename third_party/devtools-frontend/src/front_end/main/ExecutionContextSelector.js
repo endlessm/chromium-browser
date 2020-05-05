@@ -1,11 +1,12 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 /**
  * @implements {SDK.SDKModelObserver<!SDK.RuntimeModel>}
  * @unrestricted
  */
-Main.ExecutionContextSelector = class {
+export class ExecutionContextSelector {
   /**
    * @param {!SDK.TargetManager} targetManager
    * @param {!UI.Context} context
@@ -36,7 +37,7 @@ Main.ExecutionContextSelector = class {
     setImmediate(deferred.bind(this));
 
     /**
-     * @this {Main.ExecutionContextSelector}
+     * @this {ExecutionContextSelector}
      */
     function deferred() {
       // We always want the second context for the service worker targets.
@@ -218,4 +219,4 @@ Main.ExecutionContextSelector = class {
     this._context.setFlavor(SDK.ExecutionContext, newContext);
     this._ignoreContextChanged = false;
   }
-};
+}

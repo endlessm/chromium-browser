@@ -74,6 +74,7 @@ void GetRenderTargetLayerCountAndIndex(vk::ImageHelper *image,
     switch (index.getType())
     {
         case gl::TextureType::_2D:
+        case gl::TextureType::_2DMultisample:
             *layerIndex = 0;
             *layerCount = 1;
             return;
@@ -89,6 +90,7 @@ void GetRenderTargetLayerCountAndIndex(vk::ImageHelper *image,
             return;
 
         case gl::TextureType::_2DArray:
+        case gl::TextureType::_2DMultisampleArray:
             *layerIndex = index.hasLayer() ? index.getLayerIndex() : 0;
             *layerCount = image->getLayerCount();
             return;
@@ -445,7 +447,7 @@ angle::Result TextureVk::copySubImageImpl(const gl::Context *context,
 
         const vk::ImageView *readImageView = nullptr;
         ANGLE_TRY(colorReadRT->getImageView(contextVk, &readImageView));
-        colorReadRT->onImageViewGraphAccess(contextVk);
+        colorReadRT->onImageViewAccess(contextVk);
 
         return copySubImageImplWithDraw(contextVk, offsetImageIndex, modifiedDestOffset, destFormat,
                                         0, clippedSourceArea, isViewportFlipY, false, false, false,
@@ -754,6 +756,16 @@ angle::Result TextureVk::setStorage(const gl::Context *context,
                                     GLenum internalFormat,
                                     const gl::Extents &size)
 {
+    return setStorageMultisample(context, type, 1, internalFormat, size, true);
+}
+
+angle::Result TextureVk::setStorageMultisample(const gl::Context *context,
+                                               gl::TextureType type,
+                                               GLsizei samples,
+                                               GLint internalformat,
+                                               const gl::Extents &size,
+                                               bool fixedSampleLocations)
+{
     ContextVk *contextVk = GetAs<ContextVk>(context->getImplementation());
     RendererVk *renderer = contextVk->getRenderer();
 
@@ -762,7 +774,7 @@ angle::Result TextureVk::setStorage(const gl::Context *context,
         releaseAndDeleteImage(contextVk);
     }
 
-    const vk::Format &format = renderer->getFormat(internalFormat);
+    const vk::Format &format = renderer->getFormat(internalformat);
     ANGLE_TRY(ensureImageAllocated(contextVk, format));
 
     if (mImage->valid())
@@ -796,18 +808,6 @@ angle::Result TextureVk::setStorageExternalMemory(const gl::Context *context,
     gl::Format glFormat(internalFormat);
     ANGLE_TRY(initImageViews(contextVk, format, glFormat.info->sized, static_cast<uint32_t>(levels),
                              mImage->getLayerCount()));
-
-    // TODO(spang): This needs to be reworked when semaphores are added.
-    // http://anglebug.com/3289
-    uint32_t rendererQueueFamilyIndex = renderer->getQueueFamilyIndex();
-    if (mImage->isQueueChangeNeccesary(rendererQueueFamilyIndex))
-    {
-        vk::CommandBuffer *commandBuffer = nullptr;
-        ANGLE_TRY(mImage->recordCommands(contextVk, &commandBuffer));
-        mImage->changeLayoutAndQueue(VK_IMAGE_ASPECT_COLOR_BIT,
-                                     vk::ImageLayout::AllGraphicsShadersReadOnly,
-                                     rendererQueueFamilyIndex, commandBuffer);
-    }
 
     return angle::Result::Continue;
 }
@@ -1176,7 +1176,7 @@ angle::Result TextureVk::generateMipmap(const gl::Context *context)
         // Release the origin image and recreate it with new mipmap counts.
         releaseImage(contextVk);
 
-        mImage->onResourceRecreated(contextVk->getCommandGraph());
+        mImage->onResourceRecreated(&contextVk->getResourceUseList());
 
         ANGLE_TRY(ensureImageInitialized(contextVk, ImageMipLevels::FullMipChain));
     }
@@ -1345,7 +1345,7 @@ angle::Result TextureVk::changeLevels(ContextVk *contextVk,
     // recreated with the correct number of mip levels, base level, and max level.
     releaseImage(contextVk);
 
-    mImage->onResourceRecreated(contextVk->getCommandGraph());
+    mImage->onResourceRecreated(&contextVk->getResourceUseList());
 
     return angle::Result::Continue;
 }
@@ -1429,7 +1429,14 @@ angle::Result TextureVk::ensureImageInitializedImpl(ContextVk *contextVk,
     }
 
     vk::CommandBuffer *commandBuffer = nullptr;
-    ANGLE_TRY(mImage->recordCommands(contextVk, &commandBuffer));
+    if (contextVk->commandGraphEnabled())
+    {
+        ANGLE_TRY(mImage->recordCommands(contextVk, &commandBuffer));
+    }
+    else
+    {
+        ANGLE_TRY(contextVk->getOutsideRenderPassCommandBuffer(&commandBuffer));
+    }
     return mImage->flushStagedUpdates(contextVk, getNativeImageLevel(0), mImage->getLevelCount(),
                                       getNativeImageLayer(0), mImage->getLayerCount(),
                                       commandBuffer);
@@ -1571,17 +1578,6 @@ angle::Result TextureVk::syncState(const gl::Context *context,
     return angle::Result::Continue;
 }
 
-angle::Result TextureVk::setStorageMultisample(const gl::Context *context,
-                                               gl::TextureType type,
-                                               GLsizei samples,
-                                               GLint internalformat,
-                                               const gl::Extents &size,
-                                               bool fixedSampleLocations)
-{
-    ANGLE_VK_UNREACHABLE(vk::GetImpl(context));
-    return angle::Result::Stop;
-}
-
 angle::Result TextureVk::initializeContents(const gl::Context *context,
                                             const gl::ImageIndex &imageIndex)
 {
@@ -1608,7 +1604,7 @@ const vk::ImageView &TextureVk::getReadImageViewAndRecordUse(ContextVk *contextV
 {
     ASSERT(mImage->valid());
 
-    mImageViews.onGraphAccess(contextVk->getCommandGraph());
+    mImageViews.onResourceAccess(&contextVk->getResourceUseList());
 
     if (mState.isStencilMode() && mImageViews.hasStencilReadImageView())
     {
@@ -1622,7 +1618,7 @@ const vk::ImageView &TextureVk::getFetchImageViewAndRecordUse(ContextVk *context
 {
     ASSERT(mImage->valid());
 
-    mImageViews.onGraphAccess(contextVk->getCommandGraph());
+    mImageViews.onResourceAccess(&contextVk->getResourceUseList());
 
     // We don't currently support fetch for depth/stencil cube map textures.
     ASSERT(!mImageViews.hasStencilReadImageView() || !mImageViews.hasFetchImageView());
@@ -1672,8 +1668,9 @@ angle::Result TextureVk::initImage(ContextVk *contextVk,
     VkExtent3D vkExtent;
     uint32_t layerCount;
     gl_vk::GetExtentsAndLayerCount(mState.getType(), extents, &vkExtent, &layerCount);
+    GLint samples = mState.getBaseLevelDesc().samples ? mState.getBaseLevelDesc().samples : 1;
 
-    ANGLE_TRY(mImage->init(contextVk, mState.getType(), vkExtent, format, 1, mImageUsageFlags,
+    ANGLE_TRY(mImage->init(contextVk, mState.getType(), vkExtent, format, samples, mImageUsageFlags,
                            mState.getEffectiveBaseLevel(), mState.getEffectiveMaxLevel(),
                            levelCount, layerCount));
 

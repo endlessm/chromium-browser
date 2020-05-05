@@ -126,27 +126,38 @@ private:
 
     void xferBarrier(GrRenderTarget*, GrXferBarrierType) override {}
 
-    GrBackendTexture onCreateBackendTexture(SkISize,
+    GrBackendTexture onCreateBackendTexture(SkISize dimensions,
                                             const GrBackendFormat&,
                                             GrRenderable,
-                                            const BackendTextureData*,
-                                            int numMipLevels,
-                                            GrProtected) override;
+                                            GrMipMapped,
+                                            GrProtected,
+                                            const BackendTextureData*) override;
 
-    sk_sp<GrTexture> onCreateTexture(const GrSurfaceDesc& desc,
-                                     const GrBackendFormat& format,
+    GrBackendTexture onCreateCompressedBackendTexture(SkISize dimensions,
+                                                      const GrBackendFormat&,
+                                                      GrMipMapped,
+                                                      GrProtected,
+                                                      const BackendTextureData*) override;
+
+    sk_sp<GrTexture> onCreateTexture(const GrSurfaceDesc&,
+                                     const GrBackendFormat&,
                                      GrRenderable,
                                      int renderTargetSampleCnt,
-                                     SkBudgeted budgeted,
+                                     SkBudgeted,
                                      GrProtected,
                                      int mipLevelCount,
                                      uint32_t levelClearMask) override;
-    sk_sp<GrTexture> onCreateCompressedTexture(int width, int height, const GrBackendFormat&,
-                                               SkImage::CompressionType, SkBudgeted,
-                                               const void* data) override;
+    sk_sp<GrTexture> onCreateCompressedTexture(SkISize dimensions,
+                                               const GrBackendFormat&,
+                                               SkBudgeted,
+                                               GrMipMapped,
+                                               GrProtected,
+                                               const void* data, size_t dataSize) override;
 
     sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&, GrColorType,
                                           GrWrapOwnership, GrWrapCacheable, GrIOType) override;
+    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&, GrWrapOwnership,
+                                                    GrWrapCacheable) override;
 
     sk_sp<GrTexture> onWrapRenderableBackendTexture(const GrBackendTexture&, int sampleCnt,
                                                     GrColorType, GrWrapOwnership,
@@ -192,7 +203,7 @@ private:
     bool uploadToTexture(GrMtlTexture* tex, int left, int top, int width, int height,
                          GrColorType dataColorType, const GrMipLevel texels[], int mipLevels);
     // Function that fills texture levels with transparent black based on levelMask.
-    bool clearTexture(GrMtlTexture*, GrColorType, uint32_t levelMask);
+    bool clearTexture(GrMtlTexture*, size_t bbp, uint32_t levelMask);
     bool readOrTransferPixels(GrSurface* surface, int left, int top, int width, int height,
                               GrColorType dstColorType, id<MTLBuffer> transferBuffer, size_t offset,
                               size_t imageBytes, size_t rowBytes);
@@ -201,12 +212,12 @@ private:
             const GrRenderTarget*, int width, int height, int numStencilSamples) override;
 
     bool createMtlTextureForBackendSurface(MTLPixelFormat,
-                                           SkISize,
-                                           bool texturable,
-                                           bool renderable,
-                                           const BackendTextureData*,
-                                           int numMipLevels,
-                                           GrMtlTextureInfo*);
+                                           SkISize dimensions,
+                                           GrTexturable,
+                                           GrRenderable,
+                                           GrMipMapped,
+                                           GrMtlTextureInfo*,
+                                           const BackendTextureData*);
 
 #if GR_TEST_UTILS
     void testingOnly_startCapture() override;

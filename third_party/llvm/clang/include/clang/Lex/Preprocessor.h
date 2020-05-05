@@ -416,6 +416,14 @@ class Preprocessor {
   /// of phase 4 of translation or for some other situation.
   unsigned LexLevel = 0;
 
+  /// The number of (LexLevel 0) preprocessor tokens.
+  unsigned TokenCount = 0;
+
+  /// The maximum number of (LexLevel 0) tokens before issuing a -Wmax-tokens
+  /// warning, or zero for unlimited.
+  unsigned MaxTokens = 0;
+  SourceLocation MaxTokensOverrideLoc;
+
 public:
   struct PreambleSkipInfo {
     SourceLocation HashTokenLoc;
@@ -932,6 +940,12 @@ public:
     return TheModuleLoader.HadFatalFailure;
   }
 
+  /// Retrieve the number of Directives that have been processed by the
+  /// Preprocessor.
+  unsigned getNumDirectives() const {
+    return NumDirectives;
+  }
+
   /// True if we are currently preprocessing a #if or #elif directive
   bool isParsingIfOrElifDirective() const {
     return ParsingIfOrElifDirective;
@@ -1003,6 +1017,19 @@ public:
     Callbacks = std::move(C);
   }
   /// \}
+
+  /// Get the number of tokens processed so far.
+  unsigned getTokenCount() const { return TokenCount; }
+
+  /// Get the max number of tokens before issuing a -Wmax-tokens warning.
+  unsigned getMaxTokens() const { return MaxTokens; }
+
+  void overrideMaxTokens(unsigned Value, SourceLocation Loc) {
+    MaxTokens = Value;
+    MaxTokensOverrideLoc = Loc;
+  };
+
+  SourceLocation getMaxTokensOverrideLoc() const { return MaxTokensOverrideLoc; }
 
   /// Register a function that would be called on each token in the final
   /// expanded token stream.
@@ -2197,12 +2224,14 @@ private:
       ModuleBegin,
       ModuleImport,
       SkippedModuleImport,
+      Failure,
     } Kind;
     Module *ModuleForHeader = nullptr;
 
     ImportAction(ActionKind AK, Module *Mod = nullptr)
         : Kind(AK), ModuleForHeader(Mod) {
-      assert((AK == None || Mod) && "no module for module action");
+      assert((AK == None || Mod || AK == Failure) &&
+             "no module for module action");
     }
   };
 

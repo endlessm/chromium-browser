@@ -1,4 +1,4 @@
-//===-- CompileUnit.cpp -----------------------------------------*- C++ -*-===//
+//===-- CompileUnit.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -207,30 +207,28 @@ VariableListSP CompileUnit::GetVariableList(bool can_create) {
   return m_variables;
 }
 
+std::vector<uint32_t> FindFileIndexes(const FileSpecList &files, const FileSpec &file) {
+  std::vector<uint32_t> result;
+  uint32_t idx = -1;
+  while ((idx = files.FindFileIndex(idx + 1, file, /*full=*/true)) !=
+         UINT32_MAX)
+    result.push_back(idx);
+  return result;
+}
+
 uint32_t CompileUnit::FindLineEntry(uint32_t start_idx, uint32_t line,
                                     const FileSpec *file_spec_ptr, bool exact,
                                     LineEntry *line_entry_ptr) {
-  uint32_t file_idx = 0;
+  if (!file_spec_ptr)
+    file_spec_ptr = &GetPrimaryFile();
+  std::vector<uint32_t> file_indexes = FindFileIndexes(GetSupportFiles(), *file_spec_ptr);
+  if (file_indexes.empty())
+    return UINT32_MAX;
 
-  if (file_spec_ptr) {
-    file_idx = GetSupportFiles().FindFileIndex(1, *file_spec_ptr, true);
-    if (file_idx == UINT32_MAX)
-      return UINT32_MAX;
-  } else {
-    // All the line table entries actually point to the version of the Compile
-    // Unit that is in the support files (the one at 0 was artificially added.)
-    // So prefer the one further on in the support files if it exists...
-    const FileSpecList &support_files = GetSupportFiles();
-    const bool full = true;
-    file_idx = support_files.FindFileIndex(
-        1, support_files.GetFileSpecAtIndex(0), full);
-    if (file_idx == UINT32_MAX)
-      file_idx = 0;
-  }
   LineTable *line_table = GetLineTable();
   if (line_table)
-    return line_table->FindLineEntryIndexByFileIndex(start_idx, file_idx, line,
-                                                     exact, line_entry_ptr);
+    return line_table->FindLineEntryIndexByFileIndex(
+        start_idx, file_indexes, line, exact, line_entry_ptr);
   return UINT32_MAX;
 }
 
@@ -243,9 +241,8 @@ void CompileUnit::ResolveSymbolContext(const FileSpec &file_spec,
   // "file_spec" has an empty directory, then only compare the basenames when
   // finding file indexes
   std::vector<uint32_t> file_indexes;
-  const bool full_match = (bool)file_spec.GetDirectory();
   bool file_spec_matches_cu_file_spec =
-      FileSpec::Equal(file_spec, this->GetPrimaryFile(), full_match);
+      FileSpec::Match(file_spec, this->GetPrimaryFile());
 
   // If we are not looking for inlined functions and our file spec doesn't
   // match then we are done...
@@ -253,7 +250,7 @@ void CompileUnit::ResolveSymbolContext(const FileSpec &file_spec,
     return;
 
   uint32_t file_idx =
-      GetSupportFiles().FindFileIndex(1, file_spec, true);
+      GetSupportFiles().FindFileIndex(0, file_spec, true);
   while (file_idx != UINT32_MAX) {
     file_indexes.push_back(file_idx);
     file_idx = GetSupportFiles().FindFileIndex(file_idx + 1, file_spec, true);

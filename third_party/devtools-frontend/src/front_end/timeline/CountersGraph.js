@@ -28,19 +28,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import {Events, PerformanceModel} from './PerformanceModel.js';  // eslint-disable-line no-unused-vars
+import {TimelineModeViewDelegate} from './TimelinePanel.js';     // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-Timeline.CountersGraph = class extends UI.VBox {
+export class CountersGraph extends UI.VBox {
   /**
-   * @param {!Timeline.TimelineModeViewDelegate} delegate
+   * @param {!TimelineModeViewDelegate} delegate
    */
   constructor(delegate) {
     super();
     this.element.id = 'memory-graphs-container';
 
     this._delegate = delegate;
-    this._calculator = new Timeline.CountersGraph.Calculator();
+    this._calculator = new Calculator();
 
     // Create selectors
     this._header = new UI.HBox();
@@ -86,17 +89,17 @@ Timeline.CountersGraph = class extends UI.VBox {
   }
 
   /**
-   * @param {?Timeline.PerformanceModel} model
+   * @param {?PerformanceModel} model
    * @param {?TimelineModel.TimelineModel.Track} track
    */
   setModel(model, track) {
     if (this._model !== model) {
       if (this._model) {
-        this._model.removeEventListener(Timeline.PerformanceModel.Events.WindowChanged, this._onWindowChanged, this);
+        this._model.removeEventListener(Events.WindowChanged, this._onWindowChanged, this);
       }
       this._model = model;
       if (this._model) {
-        this._model.addEventListener(Timeline.PerformanceModel.Events.WindowChanged, this._onWindowChanged, this);
+        this._model.addEventListener(Events.WindowChanged, this._onWindowChanged, this);
       }
     }
     this._calculator.setZeroTime(model ? model.timelineModel().minimumRecordTime() : 0);
@@ -144,13 +147,12 @@ Timeline.CountersGraph = class extends UI.VBox {
    * @param {string} uiValueTemplate
    * @param {string} color
    * @param {function(number):string=} formatter
-   * @return {!Timeline.CountersGraph.Counter}
+   * @return {!Counter}
    */
   _createCounter(uiName, uiValueTemplate, color, formatter) {
-    const counter = new Timeline.CountersGraph.Counter();
+    const counter = new Counter();
     this._counters.push(counter);
-    this._counterUI.push(
-        new Timeline.CountersGraph.CounterUI(this, uiName, uiValueTemplate, color, counter, formatter));
+    this._counterUI.push(new CounterUI(this, uiName, uiValueTemplate, color, counter, formatter));
     return counter;
   }
 
@@ -259,12 +261,12 @@ Timeline.CountersGraph = class extends UI.VBox {
     const ctx = this._canvas.getContext('2d');
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
-};
+}
 
 /**
  * @unrestricted
  */
-Timeline.CountersGraph.Counter = class {
+export class Counter {
   constructor() {
     this.times = [];
     this.values = [];
@@ -321,7 +323,7 @@ Timeline.CountersGraph.Counter = class {
   }
 
   /**
-   * @param {!Timeline.CountersGraph.Calculator} calculator
+   * @param {!Calculator} calculator
    */
   _calculateVisibleIndexes(calculator) {
     const start = calculator.minimumBoundary();
@@ -353,18 +355,18 @@ Timeline.CountersGraph.Counter = class {
       this.x[i] = xFactor * (this.times[i] - this._minTime);
     }
   }
-};
+}
 
 /**
  * @unrestricted
  */
-Timeline.CountersGraph.CounterUI = class {
+export class CounterUI {
   /**
-   * @param {!Timeline.CountersGraph} countersPane
+   * @param {!CountersGraph} countersPane
    * @param {string} title
    * @param {string} currentValueLabel
    * @param {string} graphColor
-   * @param {!Timeline.CountersGraph.Counter} counter
+   * @param {!Counter} counter
    * @param {(function(number): string)|undefined} formatter
    */
   constructor(countersPane, title, currentValueLabel, graphColor, counter, formatter) {
@@ -372,7 +374,7 @@ Timeline.CountersGraph.CounterUI = class {
     this.counter = counter;
     this._formatter = formatter || Number.withThousandsSeparator;
 
-    this._setting = Common.settings.createSetting('timelineCountersGraph-' + title, true);
+    this._setting = self.Common.settings.createSetting('timelineCountersGraph-' + title, true);
     this._setting.setTitle(title);
     this._filter = new UI.ToolbarSettingCheckbox(this._setting, title);
     this._filter.inputElement.classList.add('-theme-preserve');
@@ -525,13 +527,13 @@ Timeline.CountersGraph.CounterUI = class {
   visible() {
     return this._filter.checked();
   }
-};
+}
 
 /**
  * @implements {PerfUI.TimelineGrid.Calculator}
  * @unrestricted
  */
-Timeline.CountersGraph.Calculator = class {
+export class Calculator {
   /**
    * @param {number} time
    */
@@ -601,4 +603,4 @@ Timeline.CountersGraph.Calculator = class {
   boundarySpan() {
     return this._maximumBoundary - this._minimumBoundary;
   }
-};
+}

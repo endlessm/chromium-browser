@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env vpython
 # Copyright 2012 The LUCI Authors. All rights reserved.
 # Use of this source code is governed under the Apache License, Version 2.0
 # that can be found in the LICENSE file.
@@ -13,6 +13,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+import six
 
 # Mutates sys.path.
 import test_env
@@ -64,8 +66,8 @@ SPLIT_ISOLATE = {
 
 
 TOUCH_ROOT_ISOLATE = {
-  'tests/isolate/touch_root.isolate':
-    """{
+    'tests/isolate/touch_root.isolate':
+        """{
       'conditions': [
         ['(OS=="linux" and chromeos==1) or ((OS=="mac" or OS=="win") and '
          'chromeos==0)', {
@@ -76,22 +78,23 @@ TOUCH_ROOT_ISOLATE = {
         }],
       ],
     }""",
-  'tests/isolate/touch_root.py':
-    "def main():\n"
-    "  import os, sys\n"
-    "  print('child_touch_root: Verify the relative directories')\n"
-    "  root_dir = os.path.dirname(os.path.abspath(__file__))\n"
-    "  parent_dir, base = os.path.split(root_dir)\n"
-    "  parent_dir, base2 = os.path.split(parent_dir)\n"
-    "  if base != 'isolate' or base2 != 'tests':\n"
-    "    print 'Invalid root dir %s' % root_dir\n"
-    "    return 4\n"
-    "  content = open(os.path.join(parent_dir, 'at_root'), 'r').read()\n"
-    "  return int(content != 'foo')\n"
-    "\n"
-    "if __name__ == '__main__':\n"
-    "  sys.exit(main())\n",
-  'at_root': 'foo',
+    'tests/isolate/touch_root.py':
+        "def main():\n"
+        "  import os, sys\n"
+        "  print('child_touch_root: Verify the relative directories')\n"
+        "  root_dir = os.path.dirname(os.path.abspath(__file__))\n"
+        "  parent_dir, base = os.path.split(root_dir)\n"
+        "  parent_dir, base2 = os.path.split(parent_dir)\n"
+        "  if base != 'isolate' or base2 != 'tests':\n"
+        "    print('Invalid root dir %s' % root_dir)\n"
+        "    return 4\n"
+        "  content = open(os.path.join(parent_dir, 'at_root'), 'r').read()\n"
+        "  return int(content != 'foo')\n"
+        "\n"
+        "if __name__ == '__main__':\n"
+        "  sys.exit(main())\n",
+    'at_root':
+        'foo',
 }
 
 
@@ -118,7 +121,7 @@ class IsolateBase(auto_stub.TestCase):
     self.mock(auth, 'ensure_logged_in', lambda _: None)
     self.old_cwd = os.getcwd()
     self.cwd = file_path.get_native_path_case(
-        unicode(tempfile.mkdtemp(prefix=u'isolate_')))
+        six.text_type(tempfile.mkdtemp(prefix=u'isolate_')))
     # Everything should work even from another directory.
     os.chdir(self.cwd)
     self.mock(
@@ -272,8 +275,8 @@ class IsolateTest(IsolateBase):
     complete_state = isolate.CompleteState(
         None, isolate.SavedState('sha-1', self.cwd))
     complete_state.load_isolate(
-        unicode(self.cwd), unicode(isolate_file), {}, {}, {}, None, False,
-        False)
+        six.text_type(self.cwd), six.text_type(isolate_file), {}, {}, {}, None,
+        False, False)
     self.assertEqual(expected, complete_state.saved_state.to_isolated())
 
   if sys.platform == 'darwin':
@@ -303,7 +306,7 @@ class IsolateLoad(IsolateBase):
     self.directory = tempfile.mkdtemp(prefix=u'isolate_')
     self.isolate_dir = os.path.join(self.directory, u'isolate')
     self.isolated_dir = os.path.join(self.directory, u'isolated')
-    os.mkdir(self.isolated_dir, 0700)
+    os.mkdir(self.isolated_dir, 0o700)
 
   def tearDown(self):
     try:
@@ -332,7 +335,7 @@ class IsolateLoad(IsolateBase):
     """Modifies isolated to remove the non-deterministic parts."""
     if sys.platform == 'win32':
       # 'm' are not saved in windows.
-      for values in expected_isolated['files'].itervalues():
+      for values in expected_isolated['files'].values():
         self.assertTrue(values.pop('m'))
 
   def make_tree(self, contents):
@@ -351,21 +354,21 @@ class IsolateLoad(IsolateBase):
     # Data to be loaded in the .isolated file. Do not create a .state file.
     self.make_tree(TOUCH_ROOT_ISOLATE)
     input_data = {
-      'command': ['python'],
-      'files': {
-        'foo': {
-          "m": 0640,
-          "h": "invalid",
-          "s": 538,
-          "t": 1335146921,
+        'command': ['python'],
+        'files': {
+            'foo': {
+                "m": 0o640,
+                "h": "invalid",
+                "s": 538,
+                "t": 1335146921,
+            },
+            os.path.join('tests', 'isolate', 'touch_root.py'): {
+                "m": 0o750,
+                "h": "invalid",
+                "s": 538,
+                "t": 1335146921,
+            },
         },
-        os.path.join('tests', 'isolate', 'touch_root.py'): {
-          "m": 0750,
-          "h": "invalid",
-          "s": 538,
-          "t": 1335146921,
-        },
-      },
     }
     options = self._get_option('tests', 'isolate', 'touch_root.isolate')
     tools.write_json(options.isolated, input_data, False)
@@ -382,23 +385,23 @@ class IsolateLoad(IsolateBase):
     actual_saved_state = complete_state.saved_state.flatten()
 
     expected_isolated = {
-      'algo': 'sha-1',
-      'command': ['python', 'touch_root.py'],
-      'files': {
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'algo': 'sha-1',
+        'command': ['python', 'touch_root.py'],
+        'files': {
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
+            u'at_root': {
+                'm': 0o600,
+                'h': self.hash_file('at_root'),
+                's': self.size('at_root'),
+            },
         },
-        u'at_root': {
-          'm': 0600,
-          'h': self.hash_file('at_root'),
-          's': self.size('at_root'),
-        },
-      },
-      'read_only': 1,
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'version': isolated_format.ISOLATED_FILE_VERSION,
+        'read_only': 1,
+        'relative_cwd': os.path.join(u'tests', 'isolate'),
+        'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     self._cleanup_isolated(expected_isolated)
     self.assertEqual(expected_isolated, actual_isolated)
@@ -406,36 +409,42 @@ class IsolateLoad(IsolateBase):
     isolate_file = os.path.join(
         self.isolate_dir, 'tests', 'isolate', 'touch_root.isolate')
     expected_saved_state = {
-      'OS': sys.platform,
-      'algo': 'sha-1',
-      'child_isolated_files': [],
-      'command': ['python', 'touch_root.py'],
-      'config_variables': {
-        'OS': 'linux',
-        'chromeos': options.config_variables['chromeos'],
-      },
-      'extra_variables': {
-        'foo': 'bar',
-      },
-      'files': {
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'OS':
+            sys.platform,
+        'algo':
+            'sha-1',
+        'child_isolated_files': [],
+        'command': ['python', 'touch_root.py'],
+        'config_variables': {
+            'OS': 'linux',
+            'chromeos': options.config_variables['chromeos'],
         },
-        u'at_root': {
-          'm': 0600,
-          'h': self.hash_file('at_root'),
-          's': self.size('at_root'),
+        'extra_variables': {
+            'foo': 'bar',
         },
-      },
-      'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(isolate_file),
-          os.path.dirname(options.isolated)),
-      'path_variables': {},
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'root_dir': file_path.get_native_path_case(self.isolate_dir),
-      'version': isolate.SavedState.EXPECTED_VERSION,
+        'files': {
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
+            u'at_root': {
+                'm': 0o600,
+                'h': self.hash_file('at_root'),
+                's': self.size('at_root'),
+            },
+        },
+        'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(isolate_file),
+                os.path.dirname(options.isolated)),
+        'path_variables': {},
+        'relative_cwd':
+            os.path.join(u'tests', 'isolate'),
+        'root_dir':
+            file_path.get_native_path_case(self.isolate_dir),
+        'version':
+            isolate.SavedState.EXPECTED_VERSION,
     }
     self._cleanup_isolated(expected_saved_state)
     self.assertEqual(expected_saved_state, actual_saved_state)
@@ -451,18 +460,18 @@ class IsolateLoad(IsolateBase):
     actual_saved_state = complete_state.saved_state.flatten()
 
     expected_isolated = {
-      'algo': 'sha-1',
-      'command': ['python', 'touch_root.py'],
-      'files': {
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'algo': 'sha-1',
+        'command': ['python', 'touch_root.py'],
+        'files': {
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
         },
-      },
-      'read_only': 1,
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'version': isolated_format.ISOLATED_FILE_VERSION,
+        'read_only': 1,
+        'relative_cwd': os.path.join(u'tests', 'isolate'),
+        'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     self._cleanup_isolated(expected_isolated)
     self.assertEqual(expected_isolated, actual_isolated)
@@ -470,31 +479,37 @@ class IsolateLoad(IsolateBase):
     isolate_file = os.path.join(
         self.isolate_dir, 'tests', 'isolate', 'touch_root.isolate')
     expected_saved_state = {
-      'OS': sys.platform,
-      'algo': 'sha-1',
-      'child_isolated_files': [],
-      'command': ['python', 'touch_root.py'],
-      'config_variables': {
-        'OS': 'linux',
-        'chromeos': 1,
-      },
-      'extra_variables': {
-        'foo': 'bar',
-      },
-      'files': {
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'OS':
+            sys.platform,
+        'algo':
+            'sha-1',
+        'child_isolated_files': [],
+        'command': ['python', 'touch_root.py'],
+        'config_variables': {
+            'OS': 'linux',
+            'chromeos': 1,
         },
-      },
-      'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(isolate_file),
-          os.path.dirname(options.isolated)),
-      'path_variables': {},
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'root_dir': file_path.get_native_path_case(self.isolate_dir),
-      'version': isolate.SavedState.EXPECTED_VERSION,
+        'extra_variables': {
+            'foo': 'bar',
+        },
+        'files': {
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
+        },
+        'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(isolate_file),
+                os.path.dirname(options.isolated)),
+        'path_variables': {},
+        'relative_cwd':
+            os.path.join(u'tests', 'isolate'),
+        'root_dir':
+            file_path.get_native_path_case(self.isolate_dir),
+        'version':
+            isolate.SavedState.EXPECTED_VERSION,
     }
     self._cleanup_isolated(expected_saved_state)
     self.assertEqual(expected_saved_state, actual_saved_state)
@@ -515,18 +530,18 @@ class IsolateLoad(IsolateBase):
     actual_saved_state = complete_state.saved_state.flatten()
 
     expected_isolated = {
-      'algo': 'sha-1',
-      'command': ['python', 'touch_root.py'],
-      'files': {
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'algo': 'sha-1',
+        'command': ['python', 'touch_root.py'],
+        'files': {
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
         },
-      },
-      'read_only': 1,
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'version': isolated_format.ISOLATED_FILE_VERSION,
+        'read_only': 1,
+        'relative_cwd': os.path.join(u'tests', 'isolate'),
+        'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     self._cleanup_isolated(expected_isolated)
     self.assertEqual(expected_isolated, actual_isolated)
@@ -539,33 +554,39 @@ class IsolateLoad(IsolateBase):
     isolate_file = os.path.join(
         self.isolate_dir, 'tests', 'isolate', 'touch_root.isolate')
     expected_saved_state = {
-      'OS': sys.platform,
-      'algo': 'sha-1',
-      'child_isolated_files': [],
-      'command': ['python', 'touch_root.py'],
-      'config_variables': {
-        'OS': 'linux',
-        'chromeos': 1,
-      },
-      'extra_variables': {
-        'foo': 'bar',
-      },
-      'files': {
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'OS':
+            sys.platform,
+        'algo':
+            'sha-1',
+        'child_isolated_files': [],
+        'command': ['python', 'touch_root.py'],
+        'config_variables': {
+            'OS': 'linux',
+            'chromeos': 1,
         },
-      },
-      'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(isolate_file),
-          os.path.dirname(options.isolated)),
-      'path_variables': {
-        'TEST_ISOLATE': '.',
-      },
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'root_dir': file_path.get_native_path_case(self.isolate_dir),
-      'version': isolate.SavedState.EXPECTED_VERSION,
+        'extra_variables': {
+            'foo': 'bar',
+        },
+        'files': {
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
+        },
+        'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(isolate_file),
+                os.path.dirname(options.isolated)),
+        'path_variables': {
+            'TEST_ISOLATE': '.',
+        },
+        'relative_cwd':
+            os.path.join(u'tests', 'isolate'),
+        'root_dir':
+            file_path.get_native_path_case(self.isolate_dir),
+        'version':
+            isolate.SavedState.EXPECTED_VERSION,
     }
     self._cleanup_isolated(expected_saved_state)
     self.assertEqual(expected_saved_state, actual_saved_state)
@@ -594,61 +615,67 @@ class IsolateLoad(IsolateBase):
     actual_saved_state = complete_state.saved_state.flatten()
 
     expected_isolated = {
-      'algo': 'sha-1',
-      'command': ['python', 'touch_root.py'],
-      'files': {
-        u'at_root': {
-          'm': 0600,
-          'h': self.hash_file('at_root'),
-          's': self.size('at_root'),
+        'algo': 'sha-1',
+        'command': ['python', 'touch_root.py'],
+        'files': {
+            u'at_root': {
+                'm': 0o600,
+                'h': self.hash_file('at_root'),
+                's': self.size('at_root'),
+            },
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
         },
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
-        },
-      },
-      'read_only': 1,
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'version': isolated_format.ISOLATED_FILE_VERSION,
+        'read_only': 1,
+        'relative_cwd': os.path.join(u'tests', 'isolate'),
+        'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     self._cleanup_isolated(expected_isolated)
     self.assertEqual(expected_isolated, actual_isolated)
     isolate_file = os.path.join(
         self.isolate_dir, 'tests', 'isolate', 'touch_root.isolate')
     expected_saved_state = {
-      'OS': sys.platform,
-      'algo': 'sha-1',
-      'child_isolated_files': [],
-      'command': ['python', 'touch_root.py'],
-      'config_variables': {
-        'OS': 'linux',
-        'chromeos': 1,
-      },
-      'extra_variables': {
-        'foo': 'bar',
-      },
-      'files': {
-        u'at_root': {
-          'm': 0600,
-          'h': self.hash_file('at_root'),
-          's': self.size('at_root'),
+        'OS':
+            sys.platform,
+        'algo':
+            'sha-1',
+        'child_isolated_files': [],
+        'command': ['python', 'touch_root.py'],
+        'config_variables': {
+            'OS': 'linux',
+            'chromeos': 1,
         },
-        os.path.join(u'tests', 'isolate', 'touch_root.py'): {
-          'm': 0700,
-          'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
-          's': self.size('tests', 'isolate', 'touch_root.py'),
+        'extra_variables': {
+            'foo': 'bar',
         },
-      },
-      'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(isolate_file),
-          os.path.dirname(options.isolated)),
-      'path_variables': {
-        'PRODUCT_DIR': '.',
-      },
-      'relative_cwd': os.path.join(u'tests', 'isolate'),
-      'root_dir': file_path.get_native_path_case(self.isolate_dir),
-      'version': isolate.SavedState.EXPECTED_VERSION,
+        'files': {
+            u'at_root': {
+                'm': 0o600,
+                'h': self.hash_file('at_root'),
+                's': self.size('at_root'),
+            },
+            os.path.join(u'tests', 'isolate', 'touch_root.py'): {
+                'm': 0o700,
+                'h': self.hash_file('tests', 'isolate', 'touch_root.py'),
+                's': self.size('tests', 'isolate', 'touch_root.py'),
+            },
+        },
+        'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(isolate_file),
+                os.path.dirname(options.isolated)),
+        'path_variables': {
+            'PRODUCT_DIR': '.',
+        },
+        'relative_cwd':
+            os.path.join(u'tests', 'isolate'),
+        'root_dir':
+            file_path.get_native_path_case(self.isolate_dir),
+        'version':
+            isolate.SavedState.EXPECTED_VERSION,
     }
     self._cleanup_isolated(expected_saved_state)
     self.assertEqual(expected_saved_state, actual_saved_state)
@@ -669,86 +696,116 @@ class IsolateLoad(IsolateBase):
     options = self._get_option('tests', 'isolate', 'no_run.isolate')
     # Any directory outside <self.isolate_dir>/tests/isolate.
     options.path_variables['PRODUCT_DIR'] = 'third_party'
-    os.mkdir(os.path.join(self.isolate_dir, 'third_party'), 0700)
+    os.mkdir(os.path.join(self.isolate_dir, 'third_party'), 0o700)
     complete_state = isolate.load_complete_state(
         options, self.isolate_dir, None, False)
     actual_isolated = complete_state.saved_state.to_isolated()
     actual_saved_state = complete_state.saved_state.flatten()
 
     expected_isolated = {
-      'algo': 'sha-1',
-      'files': {
-        os.path.join(u'tests', 'isolate', 'files1', 'subdir', '42.txt'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'files1', 'subdir', '42.txt'),
-          's': self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+        'algo': 'sha-1',
+        'files': {
+            os.path.join(u'tests', 'isolate', 'files1', 'subdir', '42.txt'): {
+                'm':
+                    0o600,
+                'h':
+                    self.hash_file('tests', 'isolate', 'files1', 'subdir',
+                                   '42.txt'),
+                's':
+                    self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+            },
+            os.path.join(u'tests', 'isolate', 'files1', 'test_file1.txt'): {
+                'm':
+                    0o600,
+                'h':
+                    self.hash_file('tests', 'isolate', 'files1',
+                                   'test_file1.txt'),
+                's':
+                    self.size('tests', 'isolate', 'files1', 'test_file1.txt'),
+            },
+            os.path.join(u'tests', 'isolate', 'files1', 'test_file2.txt'): {
+                'm':
+                    0o600,
+                'h':
+                    self.hash_file('tests', 'isolate', 'files1',
+                                   'test_file2.txt'),
+                's':
+                    self.size('tests', 'isolate', 'files1', 'test_file2.txt'),
+            },
+            os.path.join(u'tests', 'isolate', 'no_run.isolate'): {
+                'm': 0o600,
+                'h': self.hash_file('tests', 'isolate', 'no_run.isolate'),
+                's': self.size('tests', 'isolate', 'no_run.isolate'),
+            },
         },
-        os.path.join(u'tests', 'isolate', 'files1', 'test_file1.txt'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'files1', 'test_file1.txt'),
-          's': self.size('tests', 'isolate', 'files1', 'test_file1.txt'),
-        },
-        os.path.join(u'tests', 'isolate', 'files1', 'test_file2.txt'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'files1', 'test_file2.txt'),
-          's': self.size('tests', 'isolate', 'files1', 'test_file2.txt'),
-        },
-        os.path.join(u'tests', 'isolate', 'no_run.isolate'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'no_run.isolate'),
-          's': self.size('tests', 'isolate', 'no_run.isolate'),
-        },
-      },
-      'read_only': 1,
-      'version': isolated_format.ISOLATED_FILE_VERSION,
+        'read_only': 1,
+        'version': isolated_format.ISOLATED_FILE_VERSION,
     }
     self._cleanup_isolated(expected_isolated)
     self.assertEqual(expected_isolated, actual_isolated)
     isolate_file = os.path.join(
         self.isolate_dir, 'tests', 'isolate', 'no_run.isolate')
     expected_saved_state = {
-      'OS': sys.platform,
-      'algo': 'sha-1',
-      'child_isolated_files': [],
-      'command': [],
-      'config_variables': {
-        'OS': 'linux',
-        'chromeos': 1,
-      },
-      'extra_variables': {
-        'foo': 'bar',
-      },
-      'files': {
-        os.path.join(u'tests', 'isolate', 'files1', 'subdir', '42.txt'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'files1', 'subdir', '42.txt'),
-          's': self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+        'OS':
+            sys.platform,
+        'algo':
+            'sha-1',
+        'child_isolated_files': [],
+        'command': [],
+        'config_variables': {
+            'OS': 'linux',
+            'chromeos': 1,
         },
-        os.path.join(u'tests', 'isolate', 'files1', 'test_file1.txt'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'files1', 'test_file1.txt'),
-          's': self.size('tests', 'isolate', 'files1', 'test_file1.txt'),
+        'extra_variables': {
+            'foo': 'bar',
         },
-        os.path.join(u'tests', 'isolate', 'files1', 'test_file2.txt'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'files1', 'test_file2.txt'),
-          's': self.size('tests', 'isolate', 'files1', 'test_file2.txt'),
+        'files': {
+            os.path.join(u'tests', 'isolate', 'files1', 'subdir', '42.txt'): {
+                'm':
+                    0o600,
+                'h':
+                    self.hash_file('tests', 'isolate', 'files1', 'subdir',
+                                   '42.txt'),
+                's':
+                    self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+            },
+            os.path.join(u'tests', 'isolate', 'files1', 'test_file1.txt'): {
+                'm':
+                    0o600,
+                'h':
+                    self.hash_file('tests', 'isolate', 'files1',
+                                   'test_file1.txt'),
+                's':
+                    self.size('tests', 'isolate', 'files1', 'test_file1.txt'),
+            },
+            os.path.join(u'tests', 'isolate', 'files1', 'test_file2.txt'): {
+                'm':
+                    0o600,
+                'h':
+                    self.hash_file('tests', 'isolate', 'files1',
+                                   'test_file2.txt'),
+                's':
+                    self.size('tests', 'isolate', 'files1', 'test_file2.txt'),
+            },
+            os.path.join(u'tests', 'isolate', 'no_run.isolate'): {
+                'm': 0o600,
+                'h': self.hash_file('tests', 'isolate', 'no_run.isolate'),
+                's': self.size('tests', 'isolate', 'no_run.isolate'),
+            },
         },
-        os.path.join(u'tests', 'isolate', 'no_run.isolate'): {
-          'm': 0600,
-          'h': self.hash_file('tests', 'isolate', 'no_run.isolate'),
-          's': self.size('tests', 'isolate', 'no_run.isolate'),
+        'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(isolate_file),
+                os.path.dirname(options.isolated)),
+        'path_variables': {
+            'PRODUCT_DIR': os.path.join(u'..', '..', 'third_party'),
         },
-      },
-      'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(isolate_file),
-          os.path.dirname(options.isolated)),
-      'path_variables': {
-        'PRODUCT_DIR': os.path.join(u'..', '..', 'third_party'),
-      },
-      'relative_cwd': u'tests/isolate',
-      'root_dir': file_path.get_native_path_case(self.isolate_dir),
-      'version': isolate.SavedState.EXPECTED_VERSION,
+        'relative_cwd':
+            u'tests/isolate',
+        'root_dir':
+            file_path.get_native_path_case(self.isolate_dir),
+        'version':
+            isolate.SavedState.EXPECTED_VERSION,
     }
     self._cleanup_isolated(expected_saved_state)
     self.assertEqual(expected_saved_state, actual_saved_state)
@@ -774,22 +831,30 @@ class IsolateLoad(IsolateBase):
     actual_isolated_master = tools.read_json(
         os.path.join(self.isolated_dir, 'foo.isolated'))
     expected_isolated_master = {
-      u'algo': u'sha-1',
-      u'command': [u'python', u'split.py'],
-      u'files': {
-        u'split.py': {
-          u'm': 0700,
-          u'h': unicode(self.hash_file('tests', 'isolate', 'split.py')),
-          u's': self.size('tests', 'isolate', 'split.py'),
+        u'algo':
+            u'sha-1',
+        u'command': [u'python', u'split.py'],
+        u'files': {
+            u'split.py': {
+                u'm':
+                    0o700,
+                u'h':
+                    six.text_type(
+                        self.hash_file('tests', 'isolate', 'split.py')),
+                u's':
+                    self.size('tests', 'isolate', 'split.py'),
+            },
         },
-      },
-      u'includes': [
-        unicode(self.hash_file(self.isolated_dir, 'foo.0.isolated')),
-        unicode(self.hash_file(self.isolated_dir, 'foo.1.isolated')),
-      ],
-      u'read_only': 1,
-      u'relative_cwd': u'.',
-      u'version': unicode(isolated_format.ISOLATED_FILE_VERSION),
+        u'includes': [
+            six.text_type(self.hash_file(self.isolated_dir, 'foo.0.isolated')),
+            six.text_type(self.hash_file(self.isolated_dir, 'foo.1.isolated')),
+        ],
+        u'read_only':
+            1,
+        u'relative_cwd':
+            u'.',
+        u'version':
+            six.text_type(isolated_format.ISOLATED_FILE_VERSION),
     }
     self._cleanup_isolated(expected_isolated_master)
     self.assertEqual(expected_isolated_master, actual_isolated_master)
@@ -797,16 +862,20 @@ class IsolateLoad(IsolateBase):
     actual_isolated_0 = tools.read_json(
         os.path.join(self.isolated_dir, 'foo.0.isolated'))
     expected_isolated_0 = {
-      u'algo': u'sha-1',
-      u'files': {
-        os.path.join(u'test', 'data', 'foo.txt'): {
-          u'm': 0600,
-          u'h': unicode(
-              self.hash_file('tests', 'isolate', 'test', 'data', 'foo.txt')),
-          u's': self.size('tests', 'isolate', 'test', 'data', 'foo.txt'),
+        u'algo': u'sha-1',
+        u'files': {
+            os.path.join(u'test', 'data', 'foo.txt'): {
+                u'm':
+                    0o600,
+                u'h':
+                    six.text_type(
+                        self.hash_file('tests', 'isolate', 'test', 'data',
+                                       'foo.txt')),
+                u's':
+                    self.size('tests', 'isolate', 'test', 'data', 'foo.txt'),
+            },
         },
-      },
-      u'version': unicode(isolated_format.ISOLATED_FILE_VERSION),
+        u'version': six.text_type(isolated_format.ISOLATED_FILE_VERSION),
     }
     self._cleanup_isolated(expected_isolated_0)
     self.assertEqual(expected_isolated_0, actual_isolated_0)
@@ -814,69 +883,90 @@ class IsolateLoad(IsolateBase):
     actual_isolated_1 = tools.read_json(
         os.path.join(self.isolated_dir, 'foo.1.isolated'))
     expected_isolated_1 = {
-      u'algo': u'sha-1',
-      u'files': {
-        os.path.join(u'files1', 'subdir', '42.txt'): {
-          u'm': 0600,
-          u'h': unicode(
-              self.hash_file('tests', 'isolate', 'files1', 'subdir', '42.txt')),
-          u's': self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+        u'algo': u'sha-1',
+        u'files': {
+            os.path.join(u'files1', 'subdir', '42.txt'): {
+                u'm':
+                    0o600,
+                u'h':
+                    six.text_type(
+                        self.hash_file('tests', 'isolate', 'files1', 'subdir',
+                                       '42.txt')),
+                u's':
+                    self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+            },
         },
-      },
-      u'version': unicode(isolated_format.ISOLATED_FILE_VERSION),
+        u'version': six.text_type(isolated_format.ISOLATED_FILE_VERSION),
     }
     self._cleanup_isolated(expected_isolated_1)
     self.assertEqual(expected_isolated_1, actual_isolated_1)
 
     actual_saved_state = tools.read_json(
         isolate.isolatedfile_to_state(options.isolated))
-    isolated_base = unicode(os.path.basename(options.isolated))
+    isolated_base = six.text_type(os.path.basename(options.isolated))
     isolate_file = os.path.join(
         self.isolate_dir, 'tests', 'isolate', 'split.isolate')
     expected_saved_state = {
-      u'OS': unicode(sys.platform),
-      u'algo': u'sha-1',
-      u'child_isolated_files': [
-        isolated_base[:-len('.isolated')] + '.0.isolated',
-        isolated_base[:-len('.isolated')] + '.1.isolated',
-      ],
-      u'command': [u'python', u'split.py'],
-      u'config_variables': {
-        u'OS': u'linux',
-      },
-      u'extra_variables': {
-        u'foo': u'bar',
-      },
-      u'files': {
-        os.path.join(u'files1', 'subdir', '42.txt'): {
-          u'm': 0600,
-          u'h': unicode(
-              self.hash_file('tests', 'isolate', 'files1', 'subdir', '42.txt')),
-          u's': self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+        u'OS':
+            six.text_type(sys.platform),
+        u'algo':
+            u'sha-1',
+        u'child_isolated_files': [
+            isolated_base[:-len('.isolated')] + '.0.isolated',
+            isolated_base[:-len('.isolated')] + '.1.isolated',
+        ],
+        u'command': [u'python', u'split.py'],
+        u'config_variables': {
+            u'OS': u'linux',
         },
-        u'split.py': {
-          u'm': 0700,
-          u'h': unicode(self.hash_file('tests', 'isolate', 'split.py')),
-          u's': self.size('tests', 'isolate', 'split.py'),
+        u'extra_variables': {
+            u'foo': u'bar',
         },
-        os.path.join(u'test', 'data', 'foo.txt'): {
-          u'm': 0600,
-          u'h': unicode(
-              self.hash_file('tests', 'isolate', 'test', 'data', 'foo.txt')),
-          u's': self.size('tests', 'isolate', 'test', 'data', 'foo.txt'),
+        u'files': {
+            os.path.join(u'files1', 'subdir', '42.txt'): {
+                u'm':
+                    0o600,
+                u'h':
+                    six.text_type(
+                        self.hash_file('tests', 'isolate', 'files1', 'subdir',
+                                       '42.txt')),
+                u's':
+                    self.size('tests', 'isolate', 'files1', 'subdir', '42.txt'),
+            },
+            u'split.py': {
+                u'm':
+                    0o700,
+                u'h':
+                    six.text_type(
+                        self.hash_file('tests', 'isolate', 'split.py')),
+                u's':
+                    self.size('tests', 'isolate', 'split.py'),
+            },
+            os.path.join(u'test', 'data', 'foo.txt'): {
+                u'm':
+                    0o600,
+                u'h':
+                    six.text_type(
+                        self.hash_file('tests', 'isolate', 'test', 'data',
+                                       'foo.txt')),
+                u's':
+                    self.size('tests', 'isolate', 'test', 'data', 'foo.txt'),
+            },
         },
-      },
-      u'isolate_file': file_path.safe_relpath(
-          file_path.get_native_path_case(isolate_file),
-          unicode(os.path.dirname(options.isolated))),
-      u'path_variables': {
-        u'DEPTH': u'.',
-        u'PRODUCT_DIR': u'files1',
-      },
-      u'relative_cwd': u'.',
-      u'root_dir': file_path.get_native_path_case(
-          os.path.dirname(isolate_file)),
-      u'version': unicode(isolate.SavedState.EXPECTED_VERSION),
+        u'isolate_file':
+            file_path.safe_relpath(
+                file_path.get_native_path_case(isolate_file),
+                six.text_type(os.path.dirname(options.isolated))),
+        u'path_variables': {
+            u'DEPTH': u'.',
+            u'PRODUCT_DIR': u'files1',
+        },
+        u'relative_cwd':
+            u'.',
+        u'root_dir':
+            file_path.get_native_path_case(os.path.dirname(isolate_file)),
+        u'version':
+            six.text_type(isolate.SavedState.EXPECTED_VERSION),
     }
     self._cleanup_isolated(expected_saved_state)
     self.assertEqual(expected_saved_state, actual_saved_state)
@@ -990,7 +1080,7 @@ class IsolateLoad(IsolateBase):
 
       # Make all the touched files.
       mapping = {1: isolate_dir_1, 2: isolate_dir_3_2, 3: isolate_dir_3}
-      for k, v in files_to_create.iteritems():
+      for k, v in files_to_create.items():
         f = os.path.join(mapping[k], v)
         base = os.path.dirname(f)
         if not os.path.isdir(base):
@@ -1003,17 +1093,19 @@ class IsolateLoad(IsolateBase):
         'OS': config_os,
       }
       c.load_isolate(
-          unicode(self.cwd), root_isolate, {}, config, {}, None, False, False)
+          six.text_type(self.cwd), root_isolate, {}, config, {}, None, False,
+          False)
       # Note that load_isolate() doesn't retrieve the meta data about each file.
       expected = {
-        'algo': 'sha-1',
-        'command': command,
-        'files': {
-          unicode(f.replace('/', os.path.sep)):{} for f in expected_files
-        },
-        'read_only': 1,
-        'relative_cwd': relative_cwd.replace('/', os.path.sep),
-        'version': isolated_format.ISOLATED_FILE_VERSION,
+          'algo': 'sha-1',
+          'command': command,
+          'files': {
+              six.text_type(f.replace('/', os.path.sep)): {}
+              for f in expected_files
+          },
+          'read_only': 1,
+          'relative_cwd': relative_cwd.replace('/', os.path.sep),
+          'version': isolated_format.ISOLATED_FILE_VERSION,
       }
       self.assertEqual(expected, c.saved_state.to_isolated())
 
@@ -1184,7 +1276,7 @@ class IsolateLoad(IsolateBase):
         base = os.path.dirname(f)
         if not os.path.isdir(base):
           os.makedirs(base)
-        logging.warn(f)
+        logging.warning(f)
         open(f, 'wb').close()
 
       c = isolate.CompleteState(
@@ -1199,18 +1291,19 @@ class IsolateLoad(IsolateBase):
         'EXTRA': 'indeed',
       }
       c.load_isolate(
-          unicode(cwd), root_isolate, paths, config, extra, None, False, False)
+          six.text_type(cwd), root_isolate, paths, config, extra, None, False,
+          False)
       # Note that load_isolate() doesn't retrieve the meta data about each file.
       expected = {
-        'algo': 'sha-1',
-        'command': command,
-        'files': {
-          unicode(os.path.join(cwd_name, config_os, 'path', f)): {}
-          for f in expected_files
-        },
-        'read_only': 1,
-        'relative_cwd': relative_cwd,
-        'version': isolated_format.ISOLATED_FILE_VERSION,
+          'algo': 'sha-1',
+          'command': command,
+          'files': {
+              six.text_type(os.path.join(cwd_name, config_os, 'path', f)): {}
+              for f in expected_files
+          },
+          'read_only': 1,
+          'relative_cwd': relative_cwd,
+          'version': isolated_format.ISOLATED_FILE_VERSION,
       }
       if not command:
         expected.pop('command')

@@ -21,6 +21,7 @@
 #include "perfetto/tracing/internal/track_event_data_source.h"
 #include "perfetto/tracing/internal/track_event_internal.h"
 #include "perfetto/tracing/internal/track_event_macros.h"
+#include "perfetto/tracing/track.h"
 #include "perfetto/tracing/track_event_category_registry.h"
 #include "protos/perfetto/trace/track_event/track_event.pbzero.h"
 
@@ -67,6 +68,14 @@
 //           ctx.event()->set_bar(.5f);
 //         });
 //       }
+//
+//  Note that track events must be nested consistently, i.e., the following is
+//  not allowed:
+//
+//    TRACE_EVENT_BEGIN("a", "bar", ...);
+//    TRACE_EVENT_BEGIN("b", "foo", ...);
+//    TRACE_EVENT_END("a");  // "foo" must be closed before "bar".
+//    TRACE_EVENT_END("b");
 //
 // ====================
 // Implementation notes
@@ -126,38 +135,54 @@
 #define PERFETTO_DEFINE_CATEGORIES(...)                        \
   namespace PERFETTO_TRACK_EVENT_NAMESPACE {                   \
   /* The list of category names */                             \
-  PERFETTO_INTERNAL_DECLARE_CATEGORIES(__VA_ARGS__);           \
+  PERFETTO_INTERNAL_DECLARE_CATEGORIES(__VA_ARGS__)            \
   /* The track event data source for this set of categories */ \
   PERFETTO_INTERNAL_DECLARE_TRACK_EVENT_DATA_SOURCE();         \
-  }  // namespace PERFETTO_TRACK_EVENT_NAMESPACE
+  } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE */             \
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
 // Allocate storage for each category by using this macro once per track event
 // namespace.
-#define PERFETTO_TRACK_EVENT_STATIC_STORAGE() \
-  namespace PERFETTO_TRACK_EVENT_NAMESPACE {  \
-  PERFETTO_INTERNAL_CATEGORY_STORAGE();       \
-  }  // namespace PERFETTO_TRACK_EVENT_NAMESPACE
+#define PERFETTO_TRACK_EVENT_STATIC_STORAGE()      \
+  namespace PERFETTO_TRACK_EVENT_NAMESPACE {       \
+  PERFETTO_INTERNAL_CATEGORY_STORAGE()             \
+  } /* namespace PERFETTO_TRACK_EVENT_NAMESPACE */ \
+  PERFETTO_INTERNAL_SWALLOW_SEMICOLON()
 
-// Begin a thread-scoped slice under |category| with the title |name|. Both
-// strings must be static constants. The track event is only recorded if
-// |category| is enabled for a tracing session.
+// Ignore GCC warning about a missing argument for a variadic macro parameter.
+#pragma GCC system_header
+
+// Begin a slice under |category| with the title |name|. Both strings must be
+// static constants. The track event is only recorded if |category| is enabled
+// for a tracing session.
+//
+// |name| must be a string with static lifetime (i.e., the same
+// address must not be used for a different event name in the future). If you
+// want to use a dynamically allocated name, do this:
+//
+// The slice is thread-scoped (i.e., written to the default track of the current
+// thread) unless overridden with a custom track object (see Track).
+//
+//  TRACE_EVENT("category", nullptr, [&](perfetto::EventContext ctx) {
+//    ctx.event()->set_name(dynamic_name);
+//  });
+//
 #define TRACE_EVENT_BEGIN(category, name, ...) \
   PERFETTO_INTERNAL_TRACK_EVENT(               \
       category, name,                          \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_SLICE_BEGIN, ##__VA_ARGS__)
 
-// End a thread-scoped slice under |category|.
+// End a slice under |category|.
 #define TRACE_EVENT_END(category, ...) \
   PERFETTO_INTERNAL_TRACK_EVENT(       \
       category, nullptr,               \
       ::perfetto::protos::pbzero::TrackEvent::TYPE_SLICE_END, ##__VA_ARGS__)
 
-// Begin a thread-scoped slice which gets automatically closed when going out of
-// scope.
+// Begin a slice which gets automatically closed when going out of scope.
 #define TRACE_EVENT(category, name, ...) \
   PERFETTO_INTERNAL_SCOPED_TRACK_EVENT(category, name, ##__VA_ARGS__)
 
-// Emit a thread-scoped slice which has zero duration.
+// Emit a slice which has zero duration.
 // TODO(skyostil): Add support for process-wide and global instant events.
 #define TRACE_EVENT_INSTANT(category, name, ...)                            \
   PERFETTO_INTERNAL_TRACK_EVENT(                                            \

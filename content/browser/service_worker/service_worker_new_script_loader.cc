@@ -23,7 +23,7 @@
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_status_flags.h"
-#include "services/network/public/cpp/resource_response.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/service_worker/service_worker_utils.h"
 
 namespace content {
@@ -157,7 +157,20 @@ ServiceWorkerNewScriptLoader::ServiceWorkerNewScriptLoader(
   network_loader_state_ = LoaderState::kLoadingHeader;
 }
 
-ServiceWorkerNewScriptLoader::~ServiceWorkerNewScriptLoader() = default;
+ServiceWorkerNewScriptLoader::~ServiceWorkerNewScriptLoader() {
+  // This class is used as a SelfOwnedReceiver and its lifetime is tied to the
+  // corresponding mojo connection. There could be cases where the mojo
+  // connection is disconnected while writing the response to the storage.
+  // Complete this loader with ERR_FAILED in such cases to update the script
+  // cache map.
+  bool writers_completed = header_writer_state_ == WriterState::kCompleted &&
+                           body_writer_state_ == WriterState::kCompleted;
+  if (network_loader_state_ == LoaderState::kCompleted && !writers_completed) {
+    DCHECK(client_);
+    CommitCompleted(network::URLLoaderCompletionStatus(net::ERR_FAILED),
+                    ServiceWorkerConsts::kServiceWorkerInvalidVersionError);
+  }
+}
 
 void ServiceWorkerNewScriptLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
@@ -224,6 +237,9 @@ void ServiceWorkerNewScriptLoader::OnReceiveResponse(
           error_message);
       return;
     }
+
+    version_->set_cross_origin_embedder_policy(
+        response_head->cross_origin_embedder_policy);
 
     if (response_head->network_accessed)
       version_->embedded_worker()->OnNetworkAccessedForScriptLoad();

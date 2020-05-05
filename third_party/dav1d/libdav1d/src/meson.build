@@ -35,6 +35,7 @@ libdav1d_sources = files(
     'dequant_tables.c',
     'getbits.c',
     'intra_edge.c',
+    'itx_1d.c',
     'lf_mask.c',
     'log.c',
     'msac.c',
@@ -278,11 +279,16 @@ libdav1d = library('dav1d',
         stdatomic_dependency,
         thread_dependency,
         thread_compat_dep,
+        libdl_dependency,
         ],
     c_args : [stackalign_flag, api_export_flags],
     version : dav1d_soname_version,
     soversion : dav1d_soversion,
     install : true,
+)
+
+dav1d_dep = declare_dependency(link_with: libdav1d,
+    include_directories : include_directories('../include/dav1d')
 )
 
 #

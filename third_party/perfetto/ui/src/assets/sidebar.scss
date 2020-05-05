@@ -26,7 +26,7 @@
     }
     input[type=file] { display:none; }
     >header {
-        font-family: 'Raleway';
+        font-family: 'Raleway', sans-serif;
         height: var(--topbar-height);
         line-height: var(--topbar-height);
         vertical-align: middle;
@@ -88,7 +88,7 @@
                 cursor: pointer;
                 >h1,
                 >h2 {
-                    font-family: 'Raleway';
+                    font-family: 'Raleway', sans-serif;
                     letter-spacing: 0.25px;
                     overflow: hidden;
                     text-overflow: ellipsis;
@@ -143,7 +143,7 @@
                     line-height: 24px;
                     font-size: 14px;
                     font-weight: 400;
-                    font-family: 'Raleway';
+                    font-family: 'Raleway', sans-serif;
                     letter-spacing: 0.5px;
                     padding: 5px 24px;
                     text-decoration: none;
@@ -184,7 +184,7 @@
         }
       }
 
-      > .num-queued-queries {
+      > .dbg-info-square {
         width: 24px;
         height: 22px;
         line-height: 22px;
@@ -194,11 +194,15 @@
         border-radius: 5px;
         font-size: 12px;
         text-align: center;
-        &.rpc {
+        &.green {
           background: #7aca75;
           color: #12161b;
         }
-        &.failed {
+        &.amber {
+          background: #FFC107;
+          color: #333;
+        }
+        &.red {
           background: #d32f2f;
           color: #fff;
         }

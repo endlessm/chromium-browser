@@ -27,7 +27,6 @@
 #include "chromeos/network/network_util.h"
 #include "chromeos/network/onc/onc_utils.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
-#include "components/arc/arc_features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/arc/session/arc_bridge_service.h"
 #include "components/prefs/pref_service.h"
@@ -237,8 +236,7 @@ arc::mojom::ConnectionStateType TranslateConnectionState(
     const std::string& state) {
   if (state == shill::kStateReady)
     return arc::mojom::ConnectionStateType::CONNECTED;
-  if (state == shill::kStateAssociation ||
-      state == shill::kStateConfiguration)
+  if (state == shill::kStateAssociation || state == shill::kStateConfiguration)
     return arc::mojom::ConnectionStateType::CONNECTING;
   if ((state == shill::kStateIdle) || (state == shill::kStateFailure) ||
       (state == shill::kStateDisconnect) || (state == ""))
@@ -376,7 +374,8 @@ const chromeos::NetworkState* GetShillBackedNetwork(
     return nullptr;
 
   // Non-Tether networks are already backed by Shill.
-  if (!chromeos::NetworkTypePattern::Tether().MatchesType(network->type()))
+  const std::string type = network->type();
+  if (type.empty() || !chromeos::NetworkTypePattern::Tether().MatchesType(type))
     return network;
 
   // Tether networks which are not connected are also not backed by Shill.
@@ -998,12 +997,6 @@ void ArcNetHostImpl::AndroidVpnConnected(
     mojom::AndroidVpnConfigurationPtr cfg) {
   std::unique_ptr<base::DictionaryValue> properties =
       TranslateVpnConfigurationToOnc(*cfg);
-
-  if (!base::FeatureList::IsEnabled(arc::kVpnFeature)) {
-    VLOG(1) << "AndroidVpnConnected: feature is disabled; ignoring";
-    return;
-  }
-
   std::string service_path = LookupArcVpnServicePath();
   if (!service_path.empty()) {
     VLOG(1) << "AndroidVpnConnected: reusing " << service_path;

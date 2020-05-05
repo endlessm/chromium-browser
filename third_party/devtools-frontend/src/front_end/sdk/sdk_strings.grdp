@@ -6,9 +6,6 @@
   <message name="IDS_DEVTOOLS_04608e209233c72a33b9a80e8ff2bd58" desc="Tooltip to explain why a cookie was blocked">
     This cookie had the &quot;SameSite=None&quot; attribute but was not marked &quot;Secure&quot;. Cookies without SameSite restrictions must be marked &quot;Secure&quot; and sent over a secure connection.
   </message>
-  <message name="IDS_DEVTOOLS_0568216cb82d1edfc0a9482db7b99ba1" desc="Error message when failing to load a script source text via the network">
-    Could not load content for <ph name="THIS__SOURCEURL"><ex>https://example.com</ex>$1s</ph> : HTTP status code: <ph name="STATUSCODE"><ex>404</ex>$2s</ph>
-  </message>
   <message name="IDS_DEVTOOLS_07553a11db31a4433684be32cc4716e3" desc="Text in Network Manager">
     Cross-Origin Read Blocking (CORB) blocked cross-origin response <ph name="NETWORKREQUEST_URL__">$1s<ex>https://example.com</ex></ph> with MIME type <ph name="NETWORKREQUEST_MIMETYPE">$2s<ex>application</ex></ph>. See https://www.chromestatus.com/feature/5629709824032768 for more details.
   </message>
@@ -207,6 +204,9 @@
   <message name="IDS_DEVTOOLS_7121afd196f5c52bef488d5a0f4c097b" desc="Text in the Event Listener Breakpoints Panel of the JavaScript Debugger in the Sources Panel">
     Script First Statement
   </message>
+  <message name="IDS_DEVTOOLS_716ddf802d9b9ee6899a47025e38bff7" desc="Error message when failing to fetch a resource referenced in a source map">
+    Could not load content for <ph name="THIS__SOURCEURL">$1s<ex>https://example.com/sourcemap.map</ex></ph> (<ph name="ERRORMESSAGE">$2s<ex>An error occurred</ex></ph>)
+  </message>
   <message name="IDS_DEVTOOLS_73329564760013a7824ff9d5d1af91ff" desc="Service worker version status displayed in the Threads view of the Debugging side pane in the Sources panel">
     installed
   </message>
@@ -333,6 +333,9 @@
   <message name="IDS_DEVTOOLS_c89686a387d2b12b3c729ce35a0bcb5b" desc="Text in DOMDebugger Model">
     Window
   </message>
+  <message name="IDS_DEVTOOLS_ca4fbb6d710463b20755b9a024d841c1" desc="Error message when failing to load a source map text">
+    DevTools failed to load SourceMap: <ph name="ERROR_MESSAGE"><ex>An error occured</ex>$1s</ph>
+  </message>
   <message name="IDS_DEVTOOLS_ccab918ce9f085b521a52ac13f653c0b" desc="Tooltip to explain why a cookie was blocked">
     An unknown error was encountered when trying to send this cookie.
   </message>
@@ -365,6 +368,9 @@
   </message>
   <message name="IDS_DEVTOOLS_e2b60c37530e144372a7943df0f6017d" desc="Text in Resource Tree Model">
     &lt;iframe&gt;
+  </message>
+  <message name="IDS_DEVTOOLS_e3f19fc256ab121cc63e22eb3a891b1a" desc="Error message when failing to load a script source text via the network">
+    Could not parse content for <ph name="SOURCEMAPURL"><ex>https://example.com</ex>$1s</ph>: <ph name="E_MESSAGE"><ex>Unexpected token</ex>$2s</ph>
   </message>
   <message name="IDS_DEVTOOLS_e485c975c1d6c17d9dfd81128b83f63a" desc="Text in the Event Listener Breakpoints Panel of the JavaScript Debugger in the Sources Panel">
     Set innerHTML
@@ -404,6 +410,9 @@
   </message>
   <message name="IDS_DEVTOOLS_f7531e2d0ea27233ce00b5f01c5bf335" desc="A drop-down menu option to emulate css print media type">
     print
+  </message>
+  <message name="IDS_DEVTOOLS_b507642e29a193b6853843992eef8c10" desc="Error message when failing to load a source map text via the network">
+    Could not load content for <ph name="SOURCEMAPURL">$1s<ex>https://example.com/sourcemap.map</ex></ph>: <ph name="ERRORMESSAGE">$2s<ex>A certificate error occured</ex></ph>
   </message>
   <message name="IDS_DEVTOOLS_f9778c8e7464e4bb037ec2463879588f" desc="Text in DOMDebugger Model">
     DOM Mutation

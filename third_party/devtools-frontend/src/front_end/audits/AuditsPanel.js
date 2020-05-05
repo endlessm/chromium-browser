@@ -2,19 +2,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {AuditController, Events} from './AuditsController.js';
+import {ProtocolService} from './AuditsProtocolService.js';
+import {AuditsReportRenderer, AuditsReportUIFeatures} from './AuditsReportRenderer.js';
+import {Item, ReportSelector} from './AuditsReportSelector.js';
+import {StartView} from './AuditsStartView.js';
+import {StatusView} from './AuditsStatusView.js';
+
 /**
  * @unrestricted
  */
-export default class AuditsPanel extends UI.Panel {
+export class AuditsPanel extends UI.Panel {
   constructor() {
     super('audits');
     this.registerRequiredCSS('audits/lighthouse/report.css');
     this.registerRequiredCSS('audits/auditsPanel.css');
 
-    this._protocolService = new Audits.ProtocolService();
-    this._controller = new Audits.AuditController(this._protocolService);
-    this._startView = new Audits.StartView(this._controller);
-    this._statusView = new Audits.StatusView(this._controller);
+    this._protocolService = new ProtocolService();
+    this._controller = new AuditController(this._protocolService);
+    this._startView = new StartView(this._controller);
+    this._statusView = new StatusView(this._controller);
 
     this._unauditableExplanation = null;
     this._cachedRenderedReports = new Map();
@@ -23,10 +30,10 @@ export default class AuditsPanel extends UI.Panel {
         this.contentElement, [UI.DropTarget.Type.File], Common.UIString('Drop audit file here'),
         this._handleDrop.bind(this));
 
-    this._controller.addEventListener(Audits.Events.PageAuditabilityChanged, this._refreshStartAuditUI.bind(this));
-    this._controller.addEventListener(Audits.Events.AuditProgressChanged, this._refreshStatusUI.bind(this));
-    this._controller.addEventListener(Audits.Events.RequestAuditStart, this._startAudit.bind(this));
-    this._controller.addEventListener(Audits.Events.RequestAuditCancel, this._cancelAudit.bind(this));
+    this._controller.addEventListener(Events.PageAuditabilityChanged, this._refreshStartAuditUI.bind(this));
+    this._controller.addEventListener(Events.AuditProgressChanged, this._refreshStatusUI.bind(this));
+    this._controller.addEventListener(Events.RequestAuditStart, this._startAudit.bind(this));
+    this._controller.addEventListener(Events.RequestAuditCancel, this._cancelAudit.bind(this));
 
     this._renderToolbar();
     this._auditResultsElement = this.contentElement.createChild('div', 'audits-results-container');
@@ -77,7 +84,7 @@ export default class AuditsPanel extends UI.Panel {
 
     toolbar.appendSeparator();
 
-    this._reportSelector = new Audits.ReportSelector(() => this._renderStartView());
+    this._reportSelector = new ReportSelector(() => this._renderStartView());
     toolbar.appendToolbarItem(this._reportSelector.comboBox());
 
     this._clearButton = new UI.ToolbarButton(Common.UIString('Clear all'), 'largeicon-clear');
@@ -88,7 +95,7 @@ export default class AuditsPanel extends UI.Panel {
     this._settingsPane.show(this.contentElement);
     this._settingsPane.element.classList.add('audits-settings-pane');
     this._settingsPane.element.appendChild(this._startView.settingsToolbar().element);
-    this._showSettingsPaneSetting = Common.settings.createSetting('auditsShowSettingsToolbar', false);
+    this._showSettingsPaneSetting = self.Common.settings.createSetting('auditsShowSettingsToolbar', false);
 
     this._rightToolbar = new UI.Toolbar('', auditsToolbarContainer);
     this._rightToolbar.appendSeparator();
@@ -175,7 +182,7 @@ export default class AuditsPanel extends UI.Panel {
     const reportContainer = this._auditResultsElement.createChild('div', 'lh-vars lh-root lh-devtools');
 
     const dom = new DOM(/** @type {!Document} */ (this._auditResultsElement.ownerDocument));
-    const renderer = new Audits.ReportRenderer(dom);
+    const renderer = new AuditsReportRenderer(dom);
 
     const templatesHTML = Root.Runtime.cachedResources['audits/lighthouse/templates.html'];
     const templatesDOM = new DOMParser().parseFromString(templatesHTML, 'text/html');
@@ -185,17 +192,17 @@ export default class AuditsPanel extends UI.Panel {
 
     renderer.setTemplateContext(templatesDOM);
     const el = renderer.renderReport(lighthouseResult, reportContainer);
-    Audits.ReportRenderer.addViewTraceButton(el, artifacts);
+    AuditsReportRenderer.addViewTraceButton(el, artifacts);
     // Linkifying requires the target be loaded. Do not block the report
     // from rendering, as this is just an embellishment and the main target
     // could take awhile to load.
     this._waitForMainTargetLoad().then(() => {
-      Audits.ReportRenderer.linkifyNodeDetails(el);
-      Audits.ReportRenderer.linkifySourceLocationDetails(el);
+      AuditsReportRenderer.linkifyNodeDetails(el);
+      AuditsReportRenderer.linkifySourceLocationDetails(el);
     });
-    Audits.ReportRenderer.handleDarkMode(el);
+    AuditsReportRenderer.handleDarkMode(el);
 
-    const features = new Audits.ReportUIFeatures(dom);
+    const features = new AuditsReportUIFeatures(dom);
     features.setBeforePrint(this._beforePrint.bind(this));
     features.setAfterPrint(this._afterPrint.bind(this));
     features.setTemplateContext(templatesDOM);
@@ -205,7 +212,7 @@ export default class AuditsPanel extends UI.Panel {
   }
 
   _waitForMainTargetLoad() {
-    const mainTarget = SDK.targetManager.mainTarget();
+    const mainTarget = self.SDK.targetManager.mainTarget();
     const resourceTreeModel = mainTarget.model(SDK.ResourceTreeModel);
     return resourceTreeModel.once(SDK.ResourceTreeModel.Events.Load);
   }
@@ -219,7 +226,7 @@ export default class AuditsPanel extends UI.Panel {
       return;
     }
 
-    const optionElement = new Audits.ReportSelector.Item(
+    const optionElement = new Item(
         lighthouseResult, () => this._renderReport(lighthouseResult, artifacts), this._renderStartView.bind(this));
     this._reportSelector.prepend(optionElement);
     this._refreshToolbarUI();
@@ -259,7 +266,10 @@ export default class AuditsPanel extends UI.Panel {
     this._buildReportUI(/** @type {!ReportRenderer.ReportJSON} */ (data));
   }
 
-  async _startAudit() {
+  /**
+   * @param {!Common.Event} event
+   */
+  async _startAudit(event) {
     Host.userMetrics.actionTaken(Host.UserMetrics.Action.AuditsStarted);
 
     try {
@@ -287,6 +297,12 @@ export default class AuditsPanel extends UI.Panel {
 
       await this._resetEmulationAndProtocolConnection();
       this._buildReportUI(lighthouseResponse.lhr, lighthouseResponse.artifacts);
+      // Give focus to the new audit button when completed
+      this._newButton.element.focus();
+      const keyboardInitiated = /** @type {boolean} */ (event.data);
+      if (keyboardInitiated) {
+        UI.markAsFocusedByKeyboard(this._newButton.element);
+      }
     } catch (err) {
       await this._resetEmulationAndProtocolConnection();
       if (err instanceof Error) {
@@ -318,7 +334,7 @@ export default class AuditsPanel extends UI.Panel {
         outlineEnabled: emulationModel.deviceOutlineSetting().get(),
         toolbarControlsEnabled: emulationModel.toolbarControlsEnabledSetting().get()
       },
-      network: {conditions: SDK.multitargetNetworkManager.networkConditions()}
+      network: {conditions: self.SDK.multitargetNetworkManager.networkConditions()}
     };
 
     emulationModel.toolbarControlsEnabledSetting().set(false);
@@ -353,26 +369,15 @@ export default class AuditsPanel extends UI.Panel {
       emulationModel.enabledSetting().set(this._stateBefore.emulation.enabled);
       emulationModel.deviceOutlineSetting().set(this._stateBefore.emulation.outlineEnabled);
       emulationModel.toolbarControlsEnabledSetting().set(this._stateBefore.emulation.toolbarControlsEnabled);
-      SDK.multitargetNetworkManager.setNetworkConditions(this._stateBefore.network.conditions);
+      self.SDK.multitargetNetworkManager.setNetworkConditions(this._stateBefore.network.conditions);
       delete this._stateBefore;
     }
 
     Emulation.InspectedPagePlaceholder.instance().update(true);
 
-    const resourceTreeModel = SDK.targetManager.mainTarget().model(SDK.ResourceTreeModel);
+    const resourceTreeModel = self.SDK.targetManager.mainTarget().model(SDK.ResourceTreeModel);
     // reload to reset the page state
     const inspectedURL = await this._controller.getInspectedURL();
     await resourceTreeModel.navigate(inspectedURL);
   }
 }
-
-/* Legacy exported object */
-self.Audits = self.Audits || {};
-
-/* Legacy exported object */
-Audits = Audits || {};
-
-/**
- * @constructor
- */
-Audits.AuditsPanel = AuditsPanel;

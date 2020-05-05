@@ -1,4 +1,4 @@
-//===-- ConstString.cpp -----------------------------------------*- C++ -*-===//
+//===-- ConstString.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -18,7 +18,6 @@
 #include "llvm/Support/RWMutex.h"
 #include "llvm/Support/Threading.h"
 
-#include <algorithm>
 #include <array>
 #include <utility>
 

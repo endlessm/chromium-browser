@@ -480,6 +480,7 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("IncludeIsMainSourceRegex",
                    Style.IncludeStyle.IncludeIsMainSourceRegex);
     IO.mapOptional("IndentCaseLabels", Style.IndentCaseLabels);
+    IO.mapOptional("IndentCaseBlocks", Style.IndentCaseBlocks);
     IO.mapOptional("IndentGotoLabels", Style.IndentGotoLabels);
     IO.mapOptional("IndentPPDirectives", Style.IndentPPDirectives);
     IO.mapOptional("IndentWidth", Style.IndentWidth);
@@ -537,6 +538,8 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("SpacesBeforeTrailingComments",
                    Style.SpacesBeforeTrailingComments);
     IO.mapOptional("SpacesInAngles", Style.SpacesInAngles);
+    IO.mapOptional("SpacesInConditionalStatement",
+                   Style.SpacesInConditionalStatement);
     IO.mapOptional("SpacesInContainerLiterals",
                    Style.SpacesInContainerLiterals);
     IO.mapOptional("SpacesInCStyleCastParentheses",
@@ -780,6 +783,7 @@ FormatStyle getLLVMStyle(FormatStyle::LanguageKind Language) {
   LLVMStyle.IncludeStyle.IncludeIsMainRegex = "(Test)?$";
   LLVMStyle.IncludeStyle.IncludeBlocks = tooling::IncludeStyle::IBS_Preserve;
   LLVMStyle.IndentCaseLabels = false;
+  LLVMStyle.IndentCaseBlocks = false;
   LLVMStyle.IndentGotoLabels = true;
   LLVMStyle.IndentPPDirectives = FormatStyle::PPDIS_None;
   LLVMStyle.IndentWrappedFunctionNames = false;
@@ -817,6 +821,7 @@ FormatStyle getLLVMStyle(FormatStyle::LanguageKind Language) {
   LLVMStyle.SpaceBeforeCpp11BracedList = false;
   LLVMStyle.SpaceBeforeSquareBrackets = false;
   LLVMStyle.SpacesInAngles = false;
+  LLVMStyle.SpacesInConditionalStatement = false;
 
   LLVMStyle.PenaltyBreakAssignment = prec::Assignment;
   LLVMStyle.PenaltyBreakComment = 300;
@@ -934,11 +939,13 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
     GoogleStyle.AlignAfterOpenBracket = FormatStyle::BAS_AlwaysBreak;
     GoogleStyle.AlignOperands = false;
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Empty;
+    // TODO: still under discussion whether to switch to SLS_All.
+    GoogleStyle.AllowShortLambdasOnASingleLine = FormatStyle::SLS_Empty;
     GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
     GoogleStyle.BreakBeforeTernaryOperators = false;
-    // taze:, triple slash directives (`/// <...`), @see, which is commonly
-    // followed by overlong URLs.
-    GoogleStyle.CommentPragmas = "(taze:|^/[ \t]*<|@see)";
+    // taze:, triple slash directives (`/// <...`), tslint:, and @see, which is
+    // commonly followed by overlong URLs.
+    GoogleStyle.CommentPragmas = "(taze:|^/[ \t]*<|tslint:|@see)";
     GoogleStyle.MaxEmptyLinesToKeep = 3;
     GoogleStyle.NamespaceIndentation = FormatStyle::NI_All;
     GoogleStyle.SpacesInContainerLiterals = false;

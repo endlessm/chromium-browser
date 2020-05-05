@@ -31,6 +31,7 @@ import traceback
 
 from chromite.lib import auto_updater
 from chromite.lib import commandline
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import cros_update_logging
@@ -66,6 +67,9 @@ class CrOSUpdateTrigger(object):
 
   This class is used for running all CrOS auto-update trigger logic.
   """
+  # The path to dev directory
+  DEV_DIR = 'src/platform/dev'
+
   def __init__(self, host_name, build_name, static_dir, progress_tracker=None,
                log_file=None, au_tempdir=None, force_update=False,
                full_update=False, original_build=None, payload_filename=None,
@@ -164,19 +168,25 @@ class CrOSUpdateTrigger(object):
       self.progress_tracker = cros_update_progress.AUProgress(self.host_name,
                                                               pgid)
 
-    dut_script = '/tmp/quick-provision'
+    dut_script = '/usr/local/tmp/quick-provision'
     status_url = self._MakeStatusUrl(self.devserver_url, self.host_name, pgid)
-    cmd = ('curl -o %s %s && bash '
-           '%s --status_url %s %s %s') % (
-               dut_script, os.path.join(self.static_url, 'quick-provision'),
-               dut_script, cros_build_lib.ShellQuote(status_url),
-               self.build_name, self.static_url,
-           )
+    cmd = [
+        # /usr/local/tmp may not exist on base images.
+        'mkdir', '-p', os.path.dirname(dut_script), '&&',
+        # Download the script from the devserver.
+        'curl', '-o', dut_script,
+        os.path.join(self.static_url, 'quick-provision'), '&&',
+        # Run the script.
+        'bash', dut_script, '--status_url',
+        cros_build_lib.ShellQuote(status_url),
+        self.build_name, self.static_url,
+    ]
     # Quick provision script issues a reboot and might result in the SSH
     # connection being terminated so set ssh_error_ok so that output can
     # still be captured.
-    results = device.RunCommand(cmd, log_output=True, capture_output=True,
-                                ssh_error_ok=True, shell=True, encoding='utf-8')
+    results = device.RunCommand(
+        ' '.join(cmd), log_output=True, capture_output=True,
+        ssh_error_ok=True, shell=True, encoding='utf-8')
     key_re = re.compile(r'^KEYVAL: ([^\d\W]\w*)=(.*)$')
     matches = [key_re.match(l) for l in results.output.splitlines()]
     keyvals = {m.group(1): m.group(2) for m in matches if m}
@@ -216,7 +226,7 @@ class CrOSUpdateTrigger(object):
 
         chromeos_AU = auto_updater.ChromiumOSUpdater(
             device, self.build_name, payload_dir,
-            dev_dir=os.path.abspath(os.path.dirname(__file__)),
+            dev_dir=os.path.join(constants.SOURCE_ROOT, self.DEV_DIR),
             tempdir=self.au_tempdir,
             log_file=self.log_file,
             original_payload_dir=original_payload_dir,

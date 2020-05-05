@@ -387,7 +387,7 @@ public:
         Exact(false), NoNaNs(false), NoInfs(false),
         NoSignedZeros(false), AllowReciprocal(false), VectorReduction(false),
         AllowContract(false), ApproximateFuncs(false),
-        AllowReassociation(false), NoFPExcept(true) {}
+        AllowReassociation(false), NoFPExcept(false) {}
 
   /// Propagate the fast-math-flags from an IR FPMathOperator.
   void copyFMF(const FPMathOperator &FPMO) {
@@ -450,9 +450,9 @@ public:
     setDefined();
     AllowReassociation = b;
   }
-  void setFPExcept(bool b) {
+  void setNoFPExcept(bool b) {
     setDefined();
-    NoFPExcept = !b;
+    NoFPExcept = b;
   }
 
   // These are accessors for each flag.
@@ -467,7 +467,7 @@ public:
   bool hasAllowContract() const { return AllowContract; }
   bool hasApproximateFuncs() const { return ApproximateFuncs; }
   bool hasAllowReassociation() const { return AllowReassociation; }
-  bool hasFPExcept() const { return !NoFPExcept; }
+  bool hasNoFPExcept() const { return NoFPExcept; }
 
   bool isFast() const {
     return NoSignedZeros && AllowReciprocal && NoNaNs && NoInfs && NoFPExcept &&
@@ -666,6 +666,15 @@ public:
   /// \<target\>ISD namespace).
   bool isTargetOpcode() const { return NodeType >= ISD::BUILTIN_OP_END; }
 
+  /// Test if this node has a target-specific opcode that may raise
+  /// FP exceptions (in the \<target\>ISD namespace and greater than
+  /// FIRST_TARGET_STRICTFP_OPCODE).  Note that all target memory
+  /// opcode are currently automatically considered to possibly raise
+  /// FP exceptions as well.
+  bool isTargetStrictFPOpcode() const {
+    return NodeType >= ISD::FIRST_TARGET_STRICTFP_OPCODE;
+  }
+
   /// Test if this node has a target-specific
   /// memory-referencing opcode (in the \<target\>ISD namespace and
   /// greater than FIRST_TARGET_MEMORY_OPCODE).
@@ -692,7 +701,7 @@ public:
     switch (NodeType) {
       default:
         return false;
-#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
+#define DAG_INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)               \
       case ISD::STRICT_##DAGN:
 #include "llvm/IR/ConstrainedOps.def"
         return true;

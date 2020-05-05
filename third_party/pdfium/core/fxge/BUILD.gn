@@ -63,8 +63,6 @@ source_set("fxge") {
     "dib/cfx_dibbase.h",
     "dib/cfx_dibitmap.cpp",
     "dib/cfx_dibitmap.h",
-    "dib/cfx_filtereddib.cpp",
-    "dib/cfx_filtereddib.h",
     "dib/cfx_imagerenderer.cpp",
     "dib/cfx_imagerenderer.h",
     "dib/cfx_imagestretcher.cpp",
@@ -118,9 +116,7 @@ source_set("fxge") {
     "../../:pdfium_core_config",
   ]
 
-  deps = [
-    "../fxcrt",
-  ]
+  deps = [ "../fxcrt" ]
 
   if (is_component_build || use_system_freetype) {
     # ft_adobe_glyph_list is not exported from the Freetype shared library so we
@@ -200,6 +196,7 @@ source_set("fxge") {
 
 pdfium_unittest_source_set("unittests") {
   sources = [
+    "cfx_fontmapper_unittest.cpp",
     "dib/cfx_cmyk_to_srgb_unittest.cpp",
     "dib/cfx_dibitmap_unittest.cpp",
     "dib/cstretchengine_unittest.cpp",
@@ -214,9 +211,7 @@ pdfium_unittest_source_set("unittests") {
 }
 
 pdfium_embeddertest_source_set("embeddertests") {
-  sources = [
-    "fx_ge_text_embeddertest.cpp",
-  ]
+  sources = [ "fx_ge_text_embeddertest.cpp" ]
   deps = []
   pdfium_root_dir = "../../"
 

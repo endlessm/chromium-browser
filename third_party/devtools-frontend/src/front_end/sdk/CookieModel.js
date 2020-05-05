@@ -2,21 +2,32 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-export default class CookieModel extends SDK.SDKModel {
+import * as Common from '../common/common.js';
+
+import {Cookie} from './Cookie.js';
+import {Resource} from './Resource.js';  // eslint-disable-line no-unused-vars
+import {ResourceTreeModel} from './ResourceTreeModel.js';
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+
+export class CookieModel extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
+
+    /** Array<!Cookie> */
+    this._blockedCookies = new Map();
+    this._cookieToBlockedReasons = new Map();
   }
 
   /**
-   * @param {!SDK.Cookie} cookie
+   * @param {!Cookie} cookie
    * @param {string} resourceURL
    * @return {boolean}
    */
   static cookieMatchesResourceURL(cookie, resourceURL) {
-    const url = resourceURL.asParsedURL();
+    const url = Common.ParsedURL.ParsedURL.fromString(resourceURL);
     if (!url || !CookieModel.cookieDomainMatchesResourceDomain(cookie.domain(), url.host)) {
       return false;
     }
@@ -39,16 +50,40 @@ export default class CookieModel extends SDK.SDKModel {
   }
 
   /**
-   * @param {!Array<string>} urls
-   * @return {!Promise<!Array<!SDK.Cookie>>}
+   * @param {!Cookie} cookie
+   * @param {?Array<!CookieTable.BlockedReason>} blockedReasons
    */
-  getCookies(urls) {
-    return this.target().networkAgent().getCookies(urls).then(
-        cookies => (cookies || []).map(cookie => SDK.Cookie.fromProtocolCookie(cookie)));
+  addBlockedCookie(cookie, blockedReasons) {
+    const key = cookie.key();
+    const previousCookie = this._blockedCookies.get(key);
+    this._blockedCookies.set(key, cookie);
+    this._cookieToBlockedReasons.set(cookie, blockedReasons);
+    if (previousCookie) {
+      this._cookieToBlockedReasons.delete(key);
+    }
+  }
+
+  getBlockedReasonsByCookie(cookie) {
+    return this._cookieToBlockedReasons.get(cookie) || null;
+  }
+
+  getCookieToBlockedReasonsMap() {
+    return this._cookieToBlockedReasons;
   }
 
   /**
-   * @param {!SDK.Cookie} cookie
+   * @param {!Array<string>} urls
+   * @return {!Promise<!Array<!Cookie>>}
+   */
+  async getCookies(urls) {
+    const normalCookies = await this.target().networkAgent().getCookies(urls).then(
+        cookies => (cookies || []).map(cookie => Cookie.fromProtocolCookie(cookie)));
+
+    return normalCookies.concat(Array.from(this._blockedCookies.values()));
+  }
+
+  /**
+   * @param {!Cookie} cookie
    * @param {function()=} callback
    */
   deleteCookie(cookie, callback) {
@@ -64,7 +99,7 @@ export default class CookieModel extends SDK.SDKModel {
   }
 
   /**
-   * @param {!SDK.Cookie} cookie
+   * @param {!Cookie} cookie
    * @return {!Promise<boolean>}
    */
   saveCookie(cookie) {
@@ -79,28 +114,28 @@ export default class CookieModel extends SDK.SDKModel {
     return this.target()
         .networkAgent()
         .setCookie(
-            cookie.name(), cookie.value(), cookie.url(), domain, cookie.path(), cookie.secure(), cookie.httpOnly(),
-            cookie.sameSite(), expires)
+            cookie.name(), cookie.value(), cookie.url() || undefined, domain, cookie.path(), cookie.secure(),
+            cookie.httpOnly(), cookie.sameSite(), expires, cookie.priority())
         .then(success => !!success);
   }
 
   /**
    * Returns cookies needed by current page's frames whose security origins are |domain|.
    * @param {?string} domain
-   * @return {!Promise<!Array<!SDK.Cookie>>}
+   * @return {!Promise<!Array<!Cookie>>}
    */
   getCookiesForDomain(domain) {
     const resourceURLs = [];
     /**
-     * @param {!SDK.Resource} resource
+     * @param {!Resource} resource
      */
     function populateResourceURLs(resource) {
-      const documentURL = resource.documentURL.asParsedURL();
+      const documentURL = Common.ParsedURL.ParsedURL.fromString(resource.documentURL);
       if (documentURL && (!domain || documentURL.securityOrigin() === domain)) {
         resourceURLs.push(resource.url);
       }
     }
-    const resourceTreeModel = this.target().model(SDK.ResourceTreeModel);
+    const resourceTreeModel = this.target().model(ResourceTreeModel);
     if (resourceTreeModel) {
       resourceTreeModel.forAllResources(populateResourceURLs);
     }
@@ -108,11 +143,13 @@ export default class CookieModel extends SDK.SDKModel {
   }
 
   /**
-   * @param {!Array<!SDK.Cookie>} cookies
+   * @param {!Array<!Cookie>} cookies
    * @param {function()=} callback
    */
   _deleteAll(cookies, callback) {
     const networkAgent = this.target().networkAgent();
+    this._blockedCookies.clear();
+    this._cookieToBlockedReasons.clear();
     Promise
         .all(
             cookies.map(cookie => networkAgent.deleteCookies(cookie.name(), undefined, cookie.domain(), cookie.path())))
@@ -120,13 +157,4 @@ export default class CookieModel extends SDK.SDKModel {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.CookieModel = CookieModel;
-
-SDK.SDKModel.register(SDK.CookieModel, SDK.Target.Capability.Network, false);
+SDKModel.register(CookieModel, Capability.Network, false);

@@ -9,6 +9,8 @@
 #include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 
 namespace quic {
 
@@ -147,20 +149,43 @@ void Bbr2ProbeBwMode::UpdateProbeDown(
 
 Bbr2ProbeBwMode::AdaptUpperBoundsResult Bbr2ProbeBwMode::MaybeAdaptUpperBounds(
     const Bbr2CongestionEvent& congestion_event) {
-  const SendTimeState& send_state = SendStateOfLargestPacket(congestion_event);
+  const SendTimeState& send_state =
+      model_->one_bw_sample_per_ack_event()
+          ? congestion_event.last_packet_send_state
+          : SendStateOfLargestPacket(congestion_event);
   if (!send_state.is_valid) {
     QUIC_DVLOG(3) << sender_ << " " << cycle_.phase
                   << ": NOT_ADAPTED_INVALID_SAMPLE";
     return NOT_ADAPTED_INVALID_SAMPLE;
   }
 
-  if (model_->IsInflightTooHigh(congestion_event)) {
+  bool has_enough_loss_events = true;
+  if (model_->always_count_loss_events()) {
+    QUIC_RELOADABLE_FLAG_COUNT_N(quic_bbr2_always_count_loss_events, 2, 2);
+    has_enough_loss_events =
+        model_->loss_events_in_round() >= Params().probe_bw_full_loss_count;
+  }
+
+  if (has_enough_loss_events && model_->IsInflightTooHigh(congestion_event)) {
     if (cycle_.is_sample_from_probing) {
       cycle_.is_sample_from_probing = false;
 
       if (!send_state.is_app_limited) {
         QuicByteCount inflight_at_send = BytesInFlight(send_state);
-        model_->set_inflight_hi(inflight_at_send);
+        if (GetQuicReloadableFlag(quic_bbr2_cut_inflight_hi_gradually)) {
+          QuicByteCount inflight_target =
+              sender_->GetTargetBytesInflight() * (1.0 - Params().beta);
+          if (inflight_at_send >= inflight_target) {
+            // The new code does not change behavior.
+            QUIC_CODE_COUNT(quic_bbr2_cut_inflight_hi_gradually_noop);
+          } else {
+            // The new code actually cuts inflight_hi slower than before.
+            QUIC_CODE_COUNT(quic_bbr2_cut_inflight_hi_gradually_in_effect);
+          }
+          model_->set_inflight_hi(std::max(inflight_at_send, inflight_target));
+        } else {
+          model_->set_inflight_hi(inflight_at_send);
+        }
       }
 
       QUIC_DVLOG(3) << sender_ << " " << cycle_.phase
@@ -192,28 +217,26 @@ Bbr2ProbeBwMode::AdaptUpperBoundsResult Bbr2ProbeBwMode::MaybeAdaptUpperBounds(
 
 bool Bbr2ProbeBwMode::IsTimeToProbeBandwidth(
     const Bbr2CongestionEvent& congestion_event) const {
-  return HasCycleLasted(cycle_.probe_wait_time, congestion_event) ||
-         IsTimeToProbeForRenoCoexistence(1.0, congestion_event);
+  if (HasCycleLasted(cycle_.probe_wait_time, congestion_event)) {
+    return true;
+  }
+
+  if (IsTimeToProbeForRenoCoexistence(1.0, congestion_event)) {
+    ++sender_->connection_stats_->bbr_num_short_cycles_for_reno_coexistence;
+    return true;
+  }
+  return false;
 }
 
 // QUIC only. Used to prevent a Bbr2 flow from staying in PROBE_DOWN for too
 // long, as seen in some multi-sender simulator tests.
 bool Bbr2ProbeBwMode::HasStayedLongEnoughInProbeDown(
     const Bbr2CongestionEvent& congestion_event) const {
-  if (exit_probe_down_after_one_rtt_) {
-    QUIC_RELOADABLE_FLAG_COUNT(quic_bbr2_exit_probe_bw_down_after_one_rtt);
-    // Stay in PROBE_DOWN for at most the time of a min rtt, as it is done in
-    // BBRv1. The intention here is to figure out whether the performance
-    // regression in BBRv2 is because it stays in PROBE_DOWN for too long.
-    // TODO(wub): Consider exit after a full round instead, which typically
-    // indicates most(if not all) packets sent during PROBE_UP have been acked.
-    return HasPhaseLasted(model_->MinRtt(), congestion_event);
-  }
-  // The amount of time to stay in PROBE_DOWN, as a fraction of probe wait time.
-  const double kProbeWaitFraction = 0.2;
-  return HasCycleLasted(cycle_.probe_wait_time * kProbeWaitFraction,
-                        congestion_event) ||
-         IsTimeToProbeForRenoCoexistence(kProbeWaitFraction, congestion_event);
+  // Stay in PROBE_DOWN for at most the time of a min rtt, as it is done in
+  // BBRv1.
+  // TODO(wub): Consider exit after a full round instead, which typically
+  // indicates most(if not all) packets sent during PROBE_UP have been acked.
+  return HasPhaseLasted(model_->MinRtt(), congestion_event);
 }
 
 bool Bbr2ProbeBwMode::HasCycleLasted(
@@ -245,11 +268,9 @@ bool Bbr2ProbeBwMode::IsTimeToProbeForRenoCoexistence(
     const Bbr2CongestionEvent& /*congestion_event*/) const {
   uint64_t rounds = Params().probe_bw_probe_max_rounds;
   if (Params().probe_bw_probe_reno_gain > 0.0) {
-    QuicByteCount bdp = model_->BDP(model_->BandwidthEstimate());
-    QuicByteCount inflight_bytes =
-        std::min(bdp, sender_->GetCongestionWindow());
-    uint64_t reno_rounds =
-        Params().probe_bw_probe_reno_gain * inflight_bytes / kDefaultTCPMSS;
+    QuicByteCount target_bytes_inflight = sender_->GetTargetBytesInflight();
+    uint64_t reno_rounds = Params().probe_bw_probe_reno_gain *
+                           target_bytes_inflight / kDefaultTCPMSS;
     rounds = std::min(rounds, reno_rounds);
   }
   bool result = cycle_.rounds_since_probe >= (rounds * probe_wait_fraction);
@@ -406,6 +427,7 @@ void Bbr2ProbeBwMode::EnterProbeDown(
   cycle_.phase = CyclePhase::PROBE_DOWN;
   cycle_.rounds_in_phase = 0;
   cycle_.phase_start_time = congestion_event.event_time;
+  ++sender_->connection_stats_->bbr_num_cycles;
 
   // Pick probe wait time.
   cycle_.rounds_since_probe =

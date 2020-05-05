@@ -451,7 +451,8 @@ void GpuAssisted::PostCallRecordCreateDevice(VkPhysicalDevice physicalDevice, co
         return;
     }
 
-    if (device_extensions.vk_ext_buffer_device_address && !device_gpu_assisted->enabled_features.core.shaderInt64) {
+    if ((device_extensions.vk_ext_buffer_device_address || device_extensions.vk_khr_buffer_device_address) &&
+        !device_gpu_assisted->enabled_features.core.shaderInt64) {
         log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, HandleToUint64(device),
                 "UNASSIGNED-GPU-Assisted Validation Warning",
                 "shaderInt64 feature is not available.  No buffer device address checking will be attempted");
@@ -546,6 +547,16 @@ void GpuAssisted::PostCallRecordCreateDevice(VkPhysicalDevice physicalDevice, co
 }
 
 void GpuAssisted::PostCallRecordGetBufferDeviceAddressEXT(VkDevice device, const VkBufferDeviceAddressInfoEXT *pInfo,
+                                                          VkDeviceAddress address) {
+    BUFFER_STATE *buffer_state = GetBufferState(pInfo->buffer);
+    // Validate against the size requested when the buffer was created
+    if (buffer_state) {
+        buffer_map[address] = buffer_state->createInfo.size;
+        buffer_state->deviceAddress = address;
+    }
+}
+
+void GpuAssisted::PostCallRecordGetBufferDeviceAddressKHR(VkDevice device, const VkBufferDeviceAddressInfoEXT *pInfo,
                                                           VkDeviceAddress address) {
     BUFFER_STATE *buffer_state = GetBufferState(pInfo->buffer);
     // Validate against the size requested when the buffer was created
@@ -1651,14 +1662,14 @@ bool GpuAssisted::InstrumentShader(const VkShaderModuleCreateInfo *pCreateInfo, 
     // Call the optimizer to instrument the shader.
     // Use the unique_shader_module_id as a shader ID so we can look up its handle later in the shader_map.
     // If descriptor indexing is enabled, enable length checks and updated descriptor checks
-    const bool descriptor_indexing = device_extensions.vk_ext_descriptor_indexing;
+    const bool descriptor_indexing = IsExtEnabled(device_extensions.vk_ext_descriptor_indexing);
     using namespace spvtools;
     spv_target_env target_env = SPV_ENV_VULKAN_1_1;
     Optimizer optimizer(target_env);
     optimizer.RegisterPass(
         CreateInstBindlessCheckPass(desc_set_bind_index, unique_shader_module_id, descriptor_indexing, descriptor_indexing, 2));
     optimizer.RegisterPass(CreateAggressiveDCEPass());
-    if (device_extensions.vk_ext_buffer_device_address && shaderInt64)
+    if ((device_extensions.vk_ext_buffer_device_address || device_extensions.vk_khr_buffer_device_address) && shaderInt64)
         optimizer.RegisterPass(CreateInstBuffAddrCheckPass(desc_set_bind_index, unique_shader_module_id));
     bool pass = optimizer.Run(new_pgm.data(), new_pgm.size(), &new_pgm);
     if (!pass) {
@@ -2509,7 +2520,8 @@ void GpuAssisted::AllocateValidationResources(const VkCommandBuffer cmd_buffer, 
         desc_count = 2;
     }
 
-    if (number_of_sets > 0 && device_extensions.vk_ext_buffer_device_address && buffer_map.size() && shaderInt64) {
+    if (number_of_sets > 0 && (device_extensions.vk_ext_buffer_device_address || device_extensions.vk_khr_buffer_device_address) &&
+        buffer_map.size() && shaderInt64) {
         // Example BDA input buffer assuming 2 buffers using BDA:
         // Word 0 | Index of start of buffer sizes (in this case 5)
         // Word 1 | 0x0000000000000000

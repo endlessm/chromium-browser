@@ -62,9 +62,9 @@
 #include "components/policy/content/policy_blacklist_navigation_throttle.h"
 #include "components/policy/core/browser/browser_policy_connector_base.h"
 #include "components/prefs/pref_service.h"
-#include "components/safe_browsing/browser/browser_url_loader_throttle.h"
-#include "components/safe_browsing/browser/mojo_safe_browsing_impl.h"
-#include "components/safe_browsing/features.h"
+#include "components/safe_browsing/content/browser/browser_url_loader_throttle.h"
+#include "components/safe_browsing/content/browser/mojo_safe_browsing_impl.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -102,7 +102,6 @@
 #include "services/network/public/mojom/cookie_manager.mojom-forward.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
-#include "storage/browser/quota/quota_settings.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/resource/resource_bundle_android.h"
@@ -272,6 +271,28 @@ void CreateMediaDrmStorage(
 }
 #endif  // BUILDFLAG(ENABLE_MOJO_CDM)
 
+// Helper method that checks the RenderProcessHost is still alive before hopping
+// over to the IO thread.
+void MaybeCreateSafeBrowsing(
+    int rph_id,
+    content::ResourceContext* resource_context,
+    base::RepeatingCallback<scoped_refptr<safe_browsing::UrlCheckerDelegate>()>
+        get_checker_delegate,
+    mojo::PendingReceiver<safe_browsing::mojom::SafeBrowsing> receiver) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  content::RenderProcessHost* render_process_host =
+      content::RenderProcessHost::FromID(rph_id);
+  if (!render_process_host)
+    return;
+
+  base::PostTask(
+      FROM_HERE, {BrowserThread::IO},
+      base::BindOnce(&safe_browsing::MojoSafeBrowsingImpl::MaybeCreate, rph_id,
+                     resource_context, std::move(get_checker_delegate),
+                     std::move(receiver)));
+}
+
 }  // anonymous namespace
 
 std::string GetProduct() {
@@ -406,10 +427,6 @@ bool AwContentBrowserClient::IsExplicitNavigation(
   return ui::PageTransitionCoreTypeIs(transition, ui::PAGE_TRANSITION_TYPED);
 }
 
-bool AwContentBrowserClient::ShouldUseMobileFlingCurve() {
-  return true;
-}
-
 bool AwContentBrowserClient::IsHandledURL(const GURL& url) {
   if (!url.is_valid()) {
     // We handle error cases.
@@ -495,15 +512,6 @@ bool AwContentBrowserClient::AllowAppCache(const GURL& manifest_url,
 scoped_refptr<content::QuotaPermissionContext>
 AwContentBrowserClient::CreateQuotaPermissionContext() {
   return new AwQuotaPermissionContext;
-}
-
-void AwContentBrowserClient::GetQuotaSettings(
-    content::BrowserContext* context,
-    content::StoragePartition* partition,
-    storage::OptionalQuotaSettingsCallback callback) {
-  storage::GetNominalDynamicSettings(
-      partition->GetPath(), context->IsOffTheRecord(),
-      storage::GetDefaultDeviceInfoHelper(), std::move(callback));
 }
 
 content::GeneratedCodeCacheSettings
@@ -743,12 +751,12 @@ void AwContentBrowserClient::ExposeInterfacesToRenderer(
       render_process_host->GetBrowserContext()->GetResourceContext();
   registry->AddInterface(
       base::BindRepeating(
-          &safe_browsing::MojoSafeBrowsingImpl::MaybeCreate,
-          render_process_host->GetID(), resource_context,
+          &MaybeCreateSafeBrowsing, render_process_host->GetID(),
+          resource_context,
           base::BindRepeating(
               &AwContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate,
               base::Unretained(this))),
-      base::CreateSingleThreadTaskRunner({BrowserThread::IO}));
+      base::CreateSingleThreadTaskRunner({BrowserThread::UI}));
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
   auto create_spellcheck_host =
@@ -775,11 +783,15 @@ AwContentBrowserClient::CreateURLLoaderThrottles(
 
   result.push_back(safe_browsing::BrowserURLLoaderThrottle::Create(
       base::BindOnce(
-          [](AwContentBrowserClient* client, content::ResourceContext*) {
+          [](AwContentBrowserClient* client) {
             return client->GetSafeBrowsingUrlCheckerDelegate();
           },
           base::Unretained(this)),
-      wc_getter, frame_tree_node_id, browser_context->GetResourceContext()));
+      wc_getter, frame_tree_node_id,
+      // TODO(crbug.com/1033760): cache manager and identity_manager are used to
+      // perform real time url check, which is gated by UKM opted in. Since AW
+      // currently doesn't support UKM, this feature is not enabled.
+      /* cache_manager */ nullptr, /* identity_manager */ nullptr));
 
   if (request.resource_type ==
       static_cast<int>(content::ResourceType::kMainFrame)) {
@@ -976,6 +988,7 @@ bool AwContentBrowserClient::WillCreateURLLoaderFactory(
     mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
         header_client,
     bool* bypass_redirect_checks,
+    bool* disable_secure_dns,
     network::mojom::URLLoaderFactoryOverridePtr* factory_override) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -1036,7 +1049,7 @@ bool AwContentBrowserClient::WillCreateRestrictedCookieManager(
     network::mojom::RestrictedCookieManagerRole role,
     content::BrowserContext* browser_context,
     const url::Origin& origin,
-    const GURL& site_for_cookies,
+    const net::SiteForCookies& site_for_cookies,
     const url::Origin& top_frame_origin,
     bool is_service_worker,
     int process_id,

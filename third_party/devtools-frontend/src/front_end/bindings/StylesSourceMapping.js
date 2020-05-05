@@ -28,21 +28,30 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+import * as Workspace from '../workspace/workspace.js';
+
+import {ContentProviderBasedProject} from './ContentProviderBasedProject.js';
+import {SourceMapping} from './CSSWorkspaceBinding.js';  // eslint-disable-line no-unused-vars
+import {NetworkProject} from './NetworkProject.js';
+import {metadataForURL} from './ResourceUtils.js';
+
 /**
- * @implements {Bindings.CSSWorkspaceBinding.SourceMapping}
+ * @implements {SourceMapping}
  * @unrestricted
  */
-export default class StylesSourceMapping {
+export class StylesSourceMapping {
   /**
-   * @param {!SDK.CSSModel} cssModel
-   * @param {!Workspace.Workspace} workspace
+   * @param {!SDK.CSSModel.CSSModel} cssModel
+   * @param {!Workspace.Workspace.WorkspaceImpl} workspace
    */
   constructor(cssModel, workspace) {
     this._cssModel = cssModel;
     const target = this._cssModel.target();
-    this._project = new Bindings.ContentProviderBasedProject(
-        workspace, 'css:' + target.id(), Workspace.projectTypes.Network, '', false /* isServiceProject */);
-    Bindings.NetworkProject.setTargetForProject(this._project, target);
+    this._project = new ContentProviderBasedProject(
+        workspace, 'css:' + target.id(), Workspace.Workspace.projectTypes.Network, '', false /* isServiceProject */);
+    NetworkProject.setTargetForProject(this._project, target);
 
     /** @type {!Map.<string, !StyleFile>} */
     this._styleFiles = new Map();
@@ -55,8 +64,8 @@ export default class StylesSourceMapping {
 
   /**
    * @override
-   * @param {!SDK.CSSLocation} rawLocation
-   * @return {?Workspace.UILocation}
+   * @param {!SDK.CSSModel.CSSLocation} rawLocation
+   * @return {?Workspace.UISourceCode.UILocation}
    */
   rawLocationToUILocation(rawLocation) {
     const header = rawLocation.header();
@@ -78,8 +87,8 @@ export default class StylesSourceMapping {
 
   /**
    * @override
-   * @param {!Workspace.UILocation} uiLocation
-   * @return {!Array<!SDK.CSSLocation>}
+   * @param {!Workspace.UISourceCode.UILocation} uiLocation
+   * @return {!Array<!SDK.CSSModel.CSSLocation>}
    */
   uiLocationToRawLocations(uiLocation) {
     const styleFile = uiLocation.uiSourceCode[StyleFile._symbol];
@@ -94,13 +103,13 @@ export default class StylesSourceMapping {
         columnNumber = header.columnNumberInSource(lineNumber, columnNumber);
         lineNumber = header.lineNumberInSource(lineNumber);
       }
-      rawLocations.push(new SDK.CSSLocation(header, lineNumber, columnNumber));
+      rawLocations.push(new SDK.CSSModel.CSSLocation(header, lineNumber, columnNumber));
     }
     return rawLocations;
   }
 
   /**
-   * @param {!SDK.CSSStyleSheetHeader} header
+   * @param {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} header
    */
   _acceptsHeader(header) {
     if (header.isInline && !header.hasSourceURL && header.origin !== 'inspector') {
@@ -116,7 +125,7 @@ export default class StylesSourceMapping {
    * @param {!Common.Event} event
    */
   _styleSheetAdded(event) {
-    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data);
+    const header = /** @type {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} */ (event.data);
     if (!this._acceptsHeader(header)) {
       return;
     }
@@ -135,7 +144,7 @@ export default class StylesSourceMapping {
    * @param {!Common.Event} event
    */
   _styleSheetRemoved(event) {
-    const header = /** @type {!SDK.CSSStyleSheetHeader} */ (event.data);
+    const header = /** @type {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} */ (event.data);
     if (!this._acceptsHeader(header)) {
       return;
     }
@@ -166,35 +175,35 @@ export default class StylesSourceMapping {
       styleFile.dispose();
     }
     this._styleFiles.clear();
-    Common.EventTarget.removeEventListeners(this._eventListeners);
+    Common.EventTarget.EventTarget.removeEventListeners(this._eventListeners);
     this._project.removeProject();
   }
 }
 
 /**
- * @implements {Common.ContentProvider}
+ * @implements {Common.ContentProvider.ContentProvider}
  * @unrestricted
  */
 export class StyleFile {
   /**
-   * @param {!SDK.CSSModel} cssModel
-   * @param {!Bindings.ContentProviderBasedProject} project
-   * @param {!SDK.CSSStyleSheetHeader} header
+   * @param {!SDK.CSSModel.CSSModel} cssModel
+   * @param {!ContentProviderBasedProject} project
+   * @param {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} header
    */
   constructor(cssModel, project, header) {
     this._cssModel = cssModel;
     this._project = project;
-    /** @type {!Set<!SDK.CSSStyleSheetHeader>} */
+    /** @type {!Set<!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader>} */
     this._headers = new Set([header]);
 
     const target = cssModel.target();
 
     const url = header.resourceURL();
-    const metadata = Bindings.metadataForURL(target, header.frameId, url);
+    const metadata = metadataForURL(target, header.frameId, url);
 
     this._uiSourceCode = this._project.createUISourceCode(url, header.contentType());
     this._uiSourceCode[StyleFile._symbol] = this;
-    Bindings.NetworkProject.setInitialFrameAttribution(this._uiSourceCode, header.frameId);
+    NetworkProject.setInitialFrameAttribution(this._uiSourceCode, header.frameId);
     this._project.addUISourceCodeWithProvider(this._uiSourceCode, this, metadata, 'text/css');
 
     this._eventListeners = [
@@ -203,28 +212,28 @@ export class StyleFile {
       this._uiSourceCode.addEventListener(
           Workspace.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this)
     ];
-    this._throttler = new Common.Throttler(StyleFile.updateTimeout);
+    this._throttler = new Common.Throttler.Throttler(StyleFile.updateTimeout);
     this._terminated = false;
   }
 
   /**
-   * @param {!SDK.CSSStyleSheetHeader} header
+   * @param {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} header
    */
   addHeader(header) {
     this._headers.add(header);
-    Bindings.NetworkProject.addFrameAttribution(this._uiSourceCode, header.frameId);
+    NetworkProject.addFrameAttribution(this._uiSourceCode, header.frameId);
   }
 
   /**
-   * @param {!SDK.CSSStyleSheetHeader} header
+   * @param {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} header
    */
   removeHeader(header) {
     this._headers.delete(header);
-    Bindings.NetworkProject.removeFrameAttribution(this._uiSourceCode, header.frameId);
+    NetworkProject.removeFrameAttribution(this._uiSourceCode, header.frameId);
   }
 
   /**
-   * @param {!SDK.CSSStyleSheetHeader} header
+   * @param {!SDK.CSSStyleSheetHeader.CSSStyleSheetHeader} header
    */
   _styleSheetChanged(header) {
     console.assert(this._headers.has(header));
@@ -258,7 +267,7 @@ export class StyleFile {
   }
 
   /**
-   * @param {!Common.ContentProvider} fromProvider
+   * @param {!Common.ContentProvider.ContentProvider} fromProvider
    * @param {boolean} majorChange
    * @return {!Promise}
    */
@@ -310,7 +319,7 @@ export class StyleFile {
     }
     this._terminated = true;
     this._project.removeFile(this._uiSourceCode.url());
-    Common.EventTarget.removeEventListeners(this._eventListeners);
+    Common.EventTarget.EventTarget.removeEventListeners(this._eventListeners);
   }
 
   /**
@@ -323,7 +332,7 @@ export class StyleFile {
 
   /**
    * @override
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   contentType() {
     return this._headers.firstValue().originalContentProvider().contentType();
@@ -360,15 +369,3 @@ export class StyleFile {
 StyleFile._symbol = Symbol('Bindings.StyleFile._symbol');
 
 StyleFile.updateTimeout = 200;
-
-/* Legacy exported object */
-self.Bindings = self.Bindings || {};
-
-/* Legacy exported object */
-Bindings = Bindings || {};
-
-/** @constructor */
-Bindings.StylesSourceMapping = StylesSourceMapping;
-
-/** @constructor */
-Bindings.StyleFile = StyleFile;

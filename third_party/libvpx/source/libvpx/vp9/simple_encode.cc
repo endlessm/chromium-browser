@@ -1,4 +1,16 @@
+/*
+ *  Copyright (c) 2019 The WebM project authors. All Rights Reserved.
+ *
+ *  Use of this source code is governed by a BSD-style license
+ *  that can be found in the LICENSE file in the root of the source
+ *  tree. An additional intellectual property rights grant can be found
+ *  in the file PATENTS.  All contributing project authors may
+ *  be found in the AUTHORS file in the root of the source tree.
+ */
+
 #include <vector>
+#include "vp9/common/vp9_entropymode.h"
+#include "vp9/common/vp9_enums.h"
 #include "vp9/common/vp9_onyxc_int.h"
 #include "vp9/vp9_iface_common.h"
 #include "vp9/encoder/vp9_encoder.h"
@@ -89,6 +101,227 @@ get_frame_type_from_update_type(FRAME_UPDATE_TYPE update_type) {
   }
 }
 
+static void update_frame_counts(const FRAME_COUNTS *input_counts,
+                                FrameCounts *output_counts) {
+  // Init array sizes.
+  output_counts->y_mode.resize(BLOCK_SIZE_GROUPS);
+  for (int i = 0; i < BLOCK_SIZE_GROUPS; ++i) {
+    output_counts->y_mode[i].resize(INTRA_MODES);
+  }
+
+  output_counts->uv_mode.resize(INTRA_MODES);
+  for (int i = 0; i < INTRA_MODES; ++i) {
+    output_counts->uv_mode[i].resize(INTRA_MODES);
+  }
+
+  output_counts->partition.resize(PARTITION_CONTEXTS);
+  for (int i = 0; i < PARTITION_CONTEXTS; ++i) {
+    output_counts->partition[i].resize(PARTITION_TYPES);
+  }
+
+  output_counts->coef.resize(TX_SIZES);
+  output_counts->eob_branch.resize(TX_SIZES);
+  for (int i = 0; i < TX_SIZES; ++i) {
+    output_counts->coef[i].resize(PLANE_TYPES);
+    output_counts->eob_branch[i].resize(PLANE_TYPES);
+    for (int j = 0; j < PLANE_TYPES; ++j) {
+      output_counts->coef[i][j].resize(REF_TYPES);
+      output_counts->eob_branch[i][j].resize(REF_TYPES);
+      for (int k = 0; k < REF_TYPES; ++k) {
+        output_counts->coef[i][j][k].resize(COEF_BANDS);
+        output_counts->eob_branch[i][j][k].resize(COEF_BANDS);
+        for (int l = 0; l < COEF_BANDS; ++l) {
+          output_counts->coef[i][j][k][l].resize(COEFF_CONTEXTS);
+          output_counts->eob_branch[i][j][k][l].resize(COEFF_CONTEXTS);
+          for (int m = 0; m < COEFF_CONTEXTS; ++m) {
+            output_counts->coef[i][j][k][l][m].resize(UNCONSTRAINED_NODES + 1);
+          }
+        }
+      }
+    }
+  }
+
+  output_counts->switchable_interp.resize(SWITCHABLE_FILTER_CONTEXTS);
+  for (int i = 0; i < SWITCHABLE_FILTER_CONTEXTS; ++i) {
+    output_counts->switchable_interp[i].resize(SWITCHABLE_FILTERS);
+  }
+
+  output_counts->inter_mode.resize(INTER_MODE_CONTEXTS);
+  for (int i = 0; i < INTER_MODE_CONTEXTS; ++i) {
+    output_counts->inter_mode[i].resize(INTER_MODES);
+  }
+
+  output_counts->intra_inter.resize(INTRA_INTER_CONTEXTS);
+  for (int i = 0; i < INTRA_INTER_CONTEXTS; ++i) {
+    output_counts->intra_inter[i].resize(2);
+  }
+
+  output_counts->comp_inter.resize(COMP_INTER_CONTEXTS);
+  for (int i = 0; i < COMP_INTER_CONTEXTS; ++i) {
+    output_counts->comp_inter[i].resize(2);
+  }
+
+  output_counts->single_ref.resize(REF_CONTEXTS);
+  for (int i = 0; i < REF_CONTEXTS; ++i) {
+    output_counts->single_ref[i].resize(2);
+    for (int j = 0; j < 2; ++j) {
+      output_counts->single_ref[i][j].resize(2);
+    }
+  }
+
+  output_counts->comp_ref.resize(REF_CONTEXTS);
+  for (int i = 0; i < REF_CONTEXTS; ++i) {
+    output_counts->comp_ref[i].resize(2);
+  }
+
+  output_counts->skip.resize(SKIP_CONTEXTS);
+  for (int i = 0; i < SKIP_CONTEXTS; ++i) {
+    output_counts->skip[i].resize(2);
+  }
+
+  output_counts->tx.p32x32.resize(TX_SIZE_CONTEXTS);
+  output_counts->tx.p16x16.resize(TX_SIZE_CONTEXTS);
+  output_counts->tx.p8x8.resize(TX_SIZE_CONTEXTS);
+  for (int i = 0; i < TX_SIZE_CONTEXTS; i++) {
+    output_counts->tx.p32x32[i].resize(TX_SIZES);
+    output_counts->tx.p16x16[i].resize(TX_SIZES - 1);
+    output_counts->tx.p8x8[i].resize(TX_SIZES - 2);
+  }
+  output_counts->tx.tx_totals.resize(TX_SIZES);
+
+  output_counts->mv.joints.resize(MV_JOINTS);
+  output_counts->mv.comps.resize(2);
+  for (int i = 0; i < 2; ++i) {
+    output_counts->mv.comps[i].sign.resize(2);
+    output_counts->mv.comps[i].classes.resize(MV_CLASSES);
+    output_counts->mv.comps[i].class0.resize(CLASS0_SIZE);
+    output_counts->mv.comps[i].bits.resize(MV_OFFSET_BITS);
+    for (int j = 0; j < MV_OFFSET_BITS; ++j) {
+      output_counts->mv.comps[i].bits[j].resize(2);
+    }
+    output_counts->mv.comps[i].class0_fp.resize(CLASS0_SIZE);
+    for (int j = 0; j < CLASS0_SIZE; ++j) {
+      output_counts->mv.comps[i].class0_fp[j].resize(MV_FP_SIZE);
+    }
+    output_counts->mv.comps[i].fp.resize(MV_FP_SIZE);
+    output_counts->mv.comps[i].class0_hp.resize(2);
+    output_counts->mv.comps[i].hp.resize(2);
+  }
+
+  // Populate counts.
+  for (int i = 0; i < BLOCK_SIZE_GROUPS; ++i) {
+    for (int j = 0; j < INTRA_MODES; ++j) {
+      output_counts->y_mode[i][j] = input_counts->y_mode[i][j];
+    }
+  }
+  for (int i = 0; i < INTRA_MODES; ++i) {
+    for (int j = 0; j < INTRA_MODES; ++j) {
+      output_counts->uv_mode[i][j] = input_counts->uv_mode[i][j];
+    }
+  }
+  for (int i = 0; i < PARTITION_CONTEXTS; ++i) {
+    for (int j = 0; j < PARTITION_TYPES; ++j) {
+      output_counts->partition[i][j] = input_counts->partition[i][j];
+    }
+  }
+  for (int i = 0; i < TX_SIZES; ++i) {
+    for (int j = 0; j < PLANE_TYPES; ++j) {
+      for (int k = 0; k < REF_TYPES; ++k) {
+        for (int l = 0; l < COEF_BANDS; ++l) {
+          for (int m = 0; m < COEFF_CONTEXTS; ++m) {
+            output_counts->eob_branch[i][j][k][l][m] =
+                input_counts->eob_branch[i][j][k][l][m];
+            for (int n = 0; n < UNCONSTRAINED_NODES + 1; n++) {
+              output_counts->coef[i][j][k][l][m][n] =
+                  input_counts->coef[i][j][k][l][m][n];
+            }
+          }
+        }
+      }
+    }
+  }
+  for (int i = 0; i < SWITCHABLE_FILTER_CONTEXTS; ++i) {
+    for (int j = 0; j < SWITCHABLE_FILTERS; ++j) {
+      output_counts->switchable_interp[i][j] =
+          input_counts->switchable_interp[i][j];
+    }
+  }
+  for (int i = 0; i < INTER_MODE_CONTEXTS; ++i) {
+    for (int j = 0; j < INTER_MODES; ++j) {
+      output_counts->inter_mode[i][j] = input_counts->inter_mode[i][j];
+    }
+  }
+  for (int i = 0; i < INTRA_INTER_CONTEXTS; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      output_counts->intra_inter[i][j] = input_counts->intra_inter[i][j];
+    }
+  }
+  for (int i = 0; i < COMP_INTER_CONTEXTS; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      output_counts->comp_inter[i][j] = input_counts->comp_inter[i][j];
+    }
+  }
+  for (int i = 0; i < REF_CONTEXTS; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      for (int k = 0; k < 2; ++k) {
+        output_counts->single_ref[i][j][k] = input_counts->single_ref[i][j][k];
+      }
+    }
+  }
+  for (int i = 0; i < REF_CONTEXTS; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      output_counts->comp_ref[i][j] = input_counts->comp_ref[i][j];
+    }
+  }
+  for (int i = 0; i < SKIP_CONTEXTS; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      output_counts->skip[i][j] = input_counts->skip[i][j];
+    }
+  }
+  for (int i = 0; i < TX_SIZE_CONTEXTS; i++) {
+    for (int j = 0; j < TX_SIZES; j++) {
+      output_counts->tx.p32x32[i][j] = input_counts->tx.p32x32[i][j];
+    }
+    for (int j = 0; j < TX_SIZES - 1; j++) {
+      output_counts->tx.p16x16[i][j] = input_counts->tx.p16x16[i][j];
+    }
+    for (int j = 0; j < TX_SIZES - 2; j++) {
+      output_counts->tx.p8x8[i][j] = input_counts->tx.p8x8[i][j];
+    }
+  }
+  for (int i = 0; i < TX_SIZES; i++) {
+    output_counts->tx.tx_totals[i] = input_counts->tx.tx_totals[i];
+  }
+  for (int i = 0; i < MV_JOINTS; i++) {
+    output_counts->mv.joints[i] = input_counts->mv.joints[i];
+  }
+  for (int k = 0; k < 2; k++) {
+    const nmv_component_counts *const comps_t = &input_counts->mv.comps[k];
+    for (int i = 0; i < 2; i++) {
+      output_counts->mv.comps[k].sign[i] = comps_t->sign[i];
+      output_counts->mv.comps[k].class0_hp[i] = comps_t->class0_hp[i];
+      output_counts->mv.comps[k].hp[i] = comps_t->hp[i];
+    }
+    for (int i = 0; i < MV_CLASSES; i++) {
+      output_counts->mv.comps[k].classes[i] = comps_t->classes[i];
+    }
+    for (int i = 0; i < CLASS0_SIZE; i++) {
+      output_counts->mv.comps[k].class0[i] = comps_t->class0[i];
+      for (int j = 0; j < MV_FP_SIZE; j++) {
+        output_counts->mv.comps[k].class0_fp[i][j] = comps_t->class0_fp[i][j];
+      }
+    }
+    for (int i = 0; i < MV_OFFSET_BITS; i++) {
+      for (int j = 0; j < 2; j++) {
+        output_counts->mv.comps[k].bits[i][j] = comps_t->bits[i][j];
+      }
+    }
+    for (int i = 0; i < MV_FP_SIZE; i++) {
+      output_counts->mv.comps[k].fp[i] = comps_t->fp[i];
+    }
+  }
+}
+
 static void update_encode_frame_result(
     EncodeFrameResult *encode_frame_result,
     const ENCODE_FRAME_RESULT *encode_frame_info) {
@@ -100,6 +333,69 @@ static void update_encode_frame_result(
   encode_frame_result->psnr = encode_frame_info->psnr;
   encode_frame_result->sse = encode_frame_info->sse;
   encode_frame_result->quantize_index = encode_frame_info->quantize_index;
+  update_frame_counts(&encode_frame_info->frame_counts,
+                      &encode_frame_result->frame_counts);
+}
+
+static void IncreaseGroupOfPictureIndex(GroupOfPicture *group_of_picture) {
+  ++group_of_picture->next_encode_frame_index;
+}
+
+static int IsGroupOfPictureFinished(const GroupOfPicture &group_of_picture) {
+  return static_cast<size_t>(group_of_picture.next_encode_frame_index) ==
+         group_of_picture.encode_frame_list.size();
+}
+
+static void SetGroupOfPicture(int first_is_key_frame, int use_alt_ref,
+                              int coding_frame_count, int first_show_idx,
+                              GroupOfPicture *group_of_picture) {
+  // Clean up the state of previous group of picture.
+  group_of_picture->encode_frame_list.clear();
+  group_of_picture->next_encode_frame_index = 0;
+  group_of_picture->show_frame_count = coding_frame_count - use_alt_ref;
+  group_of_picture->start_show_index = first_show_idx;
+  {
+    // First frame in the group of pictures. It's either key frame or show inter
+    // frame.
+    EncodeFrameInfo encode_frame_info;
+    if (first_is_key_frame) {
+      encode_frame_info.frame_type = kKeyFrame;
+    } else {
+      encode_frame_info.frame_type = kInterFrame;
+    }
+    encode_frame_info.show_idx = first_show_idx;
+    group_of_picture->encode_frame_list.push_back(encode_frame_info);
+  }
+
+  const int show_frame_count = coding_frame_count - use_alt_ref;
+  if (use_alt_ref) {
+    // If there is alternate reference, it is always coded at the second place.
+    // Its show index (or timestamp) is at the last of this group
+    EncodeFrameInfo encode_frame_info;
+    encode_frame_info.frame_type = kAlternateReference;
+    encode_frame_info.show_idx = first_show_idx + show_frame_count;
+    group_of_picture->encode_frame_list.push_back(encode_frame_info);
+  }
+
+  // Encode the rest show inter frames.
+  for (int i = 1; i < show_frame_count; ++i) {
+    EncodeFrameInfo encode_frame_info;
+    encode_frame_info.frame_type = kInterFrame;
+    encode_frame_info.show_idx = first_show_idx + i;
+    group_of_picture->encode_frame_list.push_back(encode_frame_info);
+  }
+}
+
+static void UpdateGroupOfPicture(const VP9_COMP *cpi,
+                                 GroupOfPicture *group_of_picture) {
+  int first_is_key_frame;
+  int use_alt_ref;
+  int coding_frame_count;
+  int first_show_idx;
+  vp9_get_next_group_of_picture(cpi, &first_is_key_frame, &use_alt_ref,
+                                &coding_frame_count, &first_show_idx);
+  SetGroupOfPicture(first_is_key_frame, use_alt_ref, coding_frame_count,
+                    first_show_idx, group_of_picture);
 }
 
 SimpleEncode::SimpleEncode(int frame_width, int frame_height,
@@ -211,6 +507,7 @@ void SimpleEncode::StartEncode() {
   impl_ptr_->cpi = init_encoder(&oxcf, impl_ptr_->img_fmt);
   vpx_img_alloc(&impl_ptr_->tmp_img, impl_ptr_->img_fmt, frame_width_,
                 frame_height_, 1);
+  UpdateGroupOfPicture(impl_ptr_->cpi, &group_of_picture_);
   rewind(file_);
 }
 
@@ -219,6 +516,22 @@ void SimpleEncode::EndEncode() {
   impl_ptr_->cpi = nullptr;
   vpx_img_free(&impl_ptr_->tmp_img);
   rewind(file_);
+}
+
+int SimpleEncode::GetKeyFrameGroupSize(int key_frame_index) const {
+  const VP9_COMP *cpi = impl_ptr_->cpi;
+  return vp9_get_frames_to_next_key(&cpi->oxcf, &cpi->frame_info,
+                                    &cpi->twopass.first_pass_info,
+                                    key_frame_index, cpi->rc.min_gf_interval);
+}
+
+GroupOfPicture SimpleEncode::ObserveGroupOfPicture() const {
+  return group_of_picture_;
+}
+
+EncodeFrameInfo SimpleEncode::GetNextEncodeFrameInfo() const {
+  return group_of_picture_
+      .encode_frame_list[group_of_picture_.next_encode_frame_index];
 }
 
 void SimpleEncode::EncodeFrame(EncodeFrameResult *encode_frame_result) {
@@ -269,6 +582,10 @@ void SimpleEncode::EncodeFrame(EncodeFrameResult *encode_frame_result) {
          max_coding_data_byte_size);
 
   update_encode_frame_result(encode_frame_result, &encode_frame_info);
+  IncreaseGroupOfPictureIndex(&group_of_picture_);
+  if (IsGroupOfPictureFinished(group_of_picture_)) {
+    UpdateGroupOfPicture(impl_ptr_->cpi, &group_of_picture_);
+  }
 }
 
 void SimpleEncode::EncodeFrameWithQuantizeIndex(
@@ -295,6 +612,22 @@ int SimpleEncode::GetCodingFrameNum() const {
                            num_frames_);
   return vp9_get_coding_frame_num(&oxcf, &frame_info, &first_pass_info,
                                   multi_layer_arf, allow_alt_ref);
+}
+
+uint64_t SimpleEncode::GetFramePixelCount() const {
+  assert(frame_width_ % 2 == 0);
+  assert(frame_height_ % 2 == 0);
+  switch (impl_ptr_->img_fmt) {
+    case VPX_IMG_FMT_I420: return frame_width_ * frame_height_ * 3 / 2;
+    case VPX_IMG_FMT_I422: return frame_width_ * frame_height_ * 2;
+    case VPX_IMG_FMT_I444: return frame_width_ * frame_height_ * 3;
+    case VPX_IMG_FMT_I440: return frame_width_ * frame_height_ * 2;
+    case VPX_IMG_FMT_I42016: return frame_width_ * frame_height_ * 3 / 2;
+    case VPX_IMG_FMT_I42216: return frame_width_ * frame_height_ * 2;
+    case VPX_IMG_FMT_I44416: return frame_width_ * frame_height_ * 3;
+    case VPX_IMG_FMT_I44016: return frame_width_ * frame_height_ * 2;
+    default: return 0;
+  }
 }
 
 SimpleEncode::~SimpleEncode() {

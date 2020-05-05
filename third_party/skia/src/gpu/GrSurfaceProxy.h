@@ -108,8 +108,6 @@ public:
         return result;
     }
 
-    GrPixelConfig config() const { return fConfig; }
-
     SkISize dimensions() const {
         SkASSERT(!this->isFullyLazy());
         return fDimensions;
@@ -123,6 +121,9 @@ public:
      * Helper that gets the width and height of the proxy as a bounding rectangle.
      */
     SkRect getBoundsRect() const { return SkRect::Make(this->dimensions()); }
+
+    /* A perhaps faster check for this->dimensions() == this->backingStoreDimensions(). */
+    bool isFunctionallyExact() const;
 
     /**
      * Helper that gets the dimensions the backing GrSurface will have as a bounding rectangle.
@@ -139,6 +140,8 @@ public:
     const GrSwizzle& textureSwizzle() const { return fTextureSwizzle; }
 
     const GrBackendFormat& backendFormat() const { return fFormat; }
+
+    bool isFormatCompressed(const GrCaps*) const;
 
     class UniqueID {
     public:
@@ -242,6 +245,9 @@ public:
      * assignment in GrResourceAllocator.
      */
     bool readOnly() const { return fSurfaceFlags & GrInternalSurfaceFlags::kReadOnly; }
+    bool framebufferOnly() const {
+        return fSurfaceFlags & GrInternalSurfaceFlags::kFramebufferOnly;
+    }
 
     /**
      * This means surface is a multisampled render target, and internally holds a non-msaa texture
@@ -284,13 +290,15 @@ public:
 
     // Helper function that creates a temporary SurfaceContext to perform the copy
     // The copy is is not a render target and not multisampled.
-    static sk_sp<GrTextureProxy> Copy(GrRecordingContext*, GrSurfaceProxy* src, GrMipMapped,
+    static sk_sp<GrTextureProxy> Copy(GrRecordingContext*, GrSurfaceProxy* src,
+                                      GrColorType srcColorType, GrMipMapped,
                                       SkIRect srcRect, SkBackingFit, SkBudgeted,
                                       RectsMustMatch = RectsMustMatch::kNo);
 
     // Copy the entire 'src'
-    static sk_sp<GrTextureProxy> Copy(GrRecordingContext*, GrSurfaceProxy* src, GrMipMapped,
-                                      SkBackingFit, SkBudgeted);
+    static sk_sp<GrTextureProxy> Copy(GrRecordingContext*, GrSurfaceProxy* src,
+                                      GrColorType srcColorType, GrMipMapped, SkBackingFit,
+                                      SkBudgeted);
 
 #if GR_TEST_UTILS
     int32_t testingOnly_getBackingRefCnt() const;
@@ -303,8 +311,7 @@ public:
     inline GrSurfaceProxyPriv priv();
     inline const GrSurfaceProxyPriv priv() const;
 
-    // Returns true if we are working with protected content.
-    bool isProtected() const { return fIsProtected == GrProtected::kYes; }
+    GrProtected isProtected() const { return fIsProtected; }
 
 protected:
     // Deferred version - takes a new UniqueID from the shared resource/proxy pool.
@@ -347,7 +354,7 @@ protected:
     bool ignoredByResourceAllocator() const { return fIgnoredByResourceAllocator; }
     void setIgnoredByResourceAllocator() { fIgnoredByResourceAllocator = true; }
 
-    void computeScratchKey(GrScratchKey*) const;
+    void computeScratchKey(const GrCaps&, GrScratchKey*) const;
 
     virtual sk_sp<GrSurface> createSurface(GrResourceProvider*) const = 0;
     void assign(sk_sp<GrSurface> surface);
@@ -381,10 +388,9 @@ protected:
     GrInternalSurfaceFlags fSurfaceFlags;
 
 private:
-    // For wrapped resources, 'fFormat', 'fConfig', 'fWidth', 'fHeight', and 'fOrigin; will always
+    // For wrapped resources, 'fFormat', 'fWidth', 'fHeight', and 'fOrigin; will always
     // be filled in from the wrapped resource.
     const GrBackendFormat  fFormat;
-    const GrPixelConfig    fConfig;
     SkISize                fDimensions;
     const GrSurfaceOrigin  fOrigin;
     const GrSwizzle        fTextureSwizzle;

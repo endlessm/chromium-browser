@@ -496,9 +496,8 @@ define void @TestCopySign({ fp128, fp128 }* noalias nocapture sret %agg.result, 
 ; AVX-NEXT:    testl %ebp, %ebp
 ; AVX-NEXT:    jle .LBB10_1
 ; AVX-NEXT:  # %bb.2: # %if.then
-; AVX-NEXT:    vandps {{.*}}(%rip), %xmm0, %xmm1
+; AVX-NEXT:    vandps {{.*}}(%rip), %xmm0, %xmm2
 ; AVX-NEXT:    vmovaps (%rsp), %xmm0 # 16-byte Reload
-; AVX-NEXT:    vmovaps %xmm1, %xmm2
 ; AVX-NEXT:    jmp .LBB10_3
 ; AVX-NEXT:  .LBB10_1:
 ; AVX-NEXT:    vmovaps (%rsp), %xmm2 # 16-byte Reload
@@ -539,6 +538,6 @@ cleanup:                                          ; preds = %entry, %if.then
 }
 
 
-attributes #0 = { nounwind "disable-tail-calls"="false" "less-precise-fpmad"="false" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+ssse3,+sse3,+popcnt,+sse,+sse2,+sse4.1,+sse4.2" "unsafe-fp-math"="false" "use-soft-float"="false" }
-attributes #1 = { "disable-tail-calls"="false" "less-precise-fpmad"="false" "no-frame-pointer-elim"="false" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+ssse3,+sse3,+popcnt,+sse,+sse2,+sse4.1,+sse4.2" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #0 = { nounwind "disable-tail-calls"="false" "less-precise-fpmad"="false" "frame-pointer"="none" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+ssse3,+sse3,+popcnt,+sse,+sse2,+sse4.1,+sse4.2" "unsafe-fp-math"="false" "use-soft-float"="false" }
+attributes #1 = { "disable-tail-calls"="false" "less-precise-fpmad"="false" "frame-pointer"="none" "no-infs-fp-math"="false" "no-nans-fp-math"="false" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+ssse3,+sse3,+popcnt,+sse,+sse2,+sse4.1,+sse4.2" "unsafe-fp-math"="false" "use-soft-float"="false" }
 attributes #2 = { nounwind readnone }

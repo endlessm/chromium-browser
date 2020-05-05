@@ -4,6 +4,8 @@
 
 #include "discovery/mdns/mdns_querier.h"
 
+#include <memory>
+
 #include "discovery/mdns/mdns_random.h"
 #include "discovery/mdns/mdns_receiver.h"
 #include "discovery/mdns/mdns_record_changed_callback.h"
@@ -18,13 +20,6 @@
 namespace openscreen {
 namespace discovery {
 
-using openscreen::platform::Clock;
-using openscreen::platform::FakeClock;
-using openscreen::platform::FakeTaskRunner;
-using openscreen::platform::NetworkInterfaceIndex;
-using openscreen::platform::TaskRunner;
-using openscreen::platform::UdpPacket;
-using openscreen::platform::UdpSocket;
 using testing::_;
 using testing::Args;
 using testing::Invoke;
@@ -115,14 +110,27 @@ class MdnsQuerierTest : public testing::Test {
   }
 
  protected:
-  UdpPacket CreatePacketWithRecord(const MdnsRecord& record) {
+  UdpPacket CreatePacketWithRecords(std::vector<MdnsRecord::ConstRef> records) {
     MdnsMessage message(CreateMessageId(), MessageType::Response);
-    message.AddAnswer(record);
+    for (auto record : records) {
+      message.AddAnswer(record);
+    }
     UdpPacket packet(message.MaxWireSize());
     MdnsWriter writer(packet.data(), packet.size());
     writer.Write(message);
     packet.resize(writer.offset());
     return packet;
+  }
+
+  UdpPacket CreatePacketWithRecord(const MdnsRecord& record) {
+    return CreatePacketWithRecords({MdnsRecord::ConstRef(record)});
+  }
+
+  std::vector<MdnsRecord::ConstRef> GetKnownAnswers(MdnsQuerier* querier,
+                                                    const DomainName& name,
+                                                    DnsType type,
+                                                    DnsClass clazz) {
+    return querier->GetKnownAnswers(name, type, clazz);
   }
 
   FakeClock clock_;
@@ -328,6 +336,75 @@ TEST_F(MdnsQuerierTest, SameCallerDifferentQuestions) {
   EXPECT_CALL(callback, OnRecordChanged(_, _)).Times(2);
   receiver_.OnRead(&socket_, CreatePacketWithRecord(record0_created_));
   receiver_.OnRead(&socket_, CreatePacketWithRecord(record1_created_));
+}
+
+TEST_F(MdnsQuerierTest, ReinitializeQueries) {
+  std::unique_ptr<MdnsQuerier> querier = CreateQuerier();
+  MockRecordChangedCallback callback;
+
+  querier->StartQuery(DomainName{"testing", "local"}, DnsType::kA,
+                      DnsClass::kIN, &callback);
+
+  EXPECT_CALL(callback, OnRecordChanged(_, RecordChangedEvent::kCreated))
+      .WillOnce(WithArgs<0>(PartialCompareRecords(record0_created_)));
+
+  receiver_.OnRead(&socket_, CreatePacketWithRecord(record0_created_));
+  // Receiving the same record should only reset TTL, no callback
+  receiver_.OnRead(&socket_, CreatePacketWithRecord(record0_created_));
+  testing::Mock::VerifyAndClearExpectations(&receiver_);
+
+  // Queries should still be ongoing but all received records should have been
+  // deleted.
+  querier->ReinitializeQueries(DomainName{"testing", "local"});
+  EXPECT_CALL(callback, OnRecordChanged(_, RecordChangedEvent::kCreated))
+      .WillOnce(WithArgs<0>(PartialCompareRecords(record0_created_)));
+  receiver_.OnRead(&socket_, CreatePacketWithRecord(record0_created_));
+  testing::Mock::VerifyAndClearExpectations(&receiver_);
+
+  // Reinitializing a different domain should not affect other queries.
+  querier->ReinitializeQueries(DomainName{"testing2", "local"});
+  receiver_.OnRead(&socket_, CreatePacketWithRecord(record0_created_));
+}
+
+TEST_F(MdnsQuerierTest, MessagesForUnknownQueriesDropped) {
+  std::unique_ptr<MdnsQuerier> querier = CreateQuerier();
+  MockRecordChangedCallback callback;
+
+  // Message for unknown query does not get processed.
+  querier->StartQuery(DomainName{"testing", "local"}, DnsType::kA,
+                      DnsClass::kIN, &callback);
+  receiver_.OnRead(&socket_, CreatePacketWithRecord(record1_created_));
+  querier->StartQuery(DomainName{"poking", "local"}, DnsType::kA, DnsClass::kIN,
+                      &callback);
+  testing::Mock::VerifyAndClearExpectations(&callback);
+
+  querier->StopQuery(DomainName{"poking", "local"}, DnsType::kA, DnsClass::kIN,
+                     &callback);
+
+  // Message is processed when at least one record is known.
+  EXPECT_CALL(callback, OnRecordChanged(_, RecordChangedEvent::kCreated))
+      .Times(2);
+  receiver_.OnRead(
+      &socket_, CreatePacketWithRecords({record0_created_, record1_created_}));
+  querier->StartQuery(DomainName{"poking", "local"}, DnsType::kA, DnsClass::kIN,
+                      &callback);
+}
+
+TEST_F(MdnsQuerierTest, GetKnownAnswersRetrievesOnlyExpectedRecords) {
+  std::unique_ptr<MdnsQuerier> querier = CreateQuerier();
+  MockRecordChangedCallback callback;
+  const DomainName name{"testing", "local"};
+
+  querier->StartQuery(name, DnsType::kA, DnsClass::kIN, &callback);
+  EXPECT_CALL(callback, OnRecordChanged(_, RecordChangedEvent::kCreated))
+      .WillOnce(WithArgs<0>(PartialCompareRecords(record0_created_)));
+  receiver_.OnRead(
+      &socket_, CreatePacketWithRecords({record0_created_, record1_created_}));
+
+  std::vector<MdnsRecord::ConstRef> records =
+      GetKnownAnswers(querier.get(), name, DnsType::kANY, DnsClass::kANY);
+  ASSERT_EQ(records.size(), 1u);
+  EXPECT_EQ(records[0].get(), record0_created_);
 }
 
 }  // namespace discovery

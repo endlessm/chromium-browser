@@ -165,6 +165,7 @@ class CGDebugInfo {
   /// ivars and property accessors.
   llvm::DIType *CreateType(const BuiltinType *Ty);
   llvm::DIType *CreateType(const ComplexType *Ty);
+  llvm::DIType *CreateType(const AutoType *Ty);
   llvm::DIType *CreateQualifiedType(QualType Ty, llvm::DIFile *Fg);
   llvm::DIType *CreateType(const TypedefType *Ty, llvm::DIFile *Fg);
   llvm::DIType *CreateType(const TemplateSpecializationType *Ty,
@@ -214,10 +215,10 @@ class CGDebugInfo {
   /// not updated to include implicit \c this pointer. Use this routine
   /// to get a method type which includes \c this pointer.
   llvm::DISubroutineType *getOrCreateMethodType(const CXXMethodDecl *Method,
-                                                llvm::DIFile *F);
+                                                llvm::DIFile *F, bool decl);
   llvm::DISubroutineType *
   getOrCreateInstanceMethodType(QualType ThisPtr, const FunctionProtoType *Func,
-                                llvm::DIFile *Unit);
+                                llvm::DIFile *Unit, bool decl);
   llvm::DISubroutineType *
   getOrCreateFunctionType(const Decl *D, QualType FnType, llvm::DIFile *F);
   /// \return debug info descriptor for vtable.
@@ -477,6 +478,9 @@ public:
 
   /// Emit a constant global variable's debug info.
   void EmitGlobalVariable(const ValueDecl *VD, const APValue &Init);
+
+  /// Emit information about an external variable.
+  void EmitExternalVariable(llvm::GlobalVariable *GV, const VarDecl *Decl);
 
   /// Emit C++ using directive.
   void EmitUsingDirective(const UsingDirectiveDecl &UD);
@@ -748,6 +752,7 @@ public:
   ApplyDebugLocation(ApplyDebugLocation &&Other) : CGF(Other.CGF) {
     Other.CGF = nullptr;
   }
+  ApplyDebugLocation &operator=(ApplyDebugLocation &&) = default;
 
   ~ApplyDebugLocation();
 

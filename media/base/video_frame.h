@@ -312,6 +312,10 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   static size_t AllocationSize(VideoPixelFormat format,
                                const gfx::Size& coded_size);
 
+  // Returns |dimensions| adjusted to appropriate boundaries based on |format|.
+  static gfx::Size DetermineAlignedSize(VideoPixelFormat format,
+                                        const gfx::Size& dimensions);
+
   // Returns the plane gfx::Size (in bytes) for a plane of the given coded size
   // and format.
   static gfx::Size PlaneSize(VideoPixelFormat format,
@@ -544,7 +548,7 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
   gpu::SyncToken UpdateReleaseSyncToken(SyncTokenClient* client);
 
   // Returns a human-readable string describing |*this|.
-  std::string AsHumanReadableString();
+  std::string AsHumanReadableString() const;
 
   // Unique identifier for this video frame; generated at construction time and
   // guaranteed to be unique within a single process.
@@ -578,10 +582,6 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
                                     const gfx::Size& coded_size,
                                     const gfx::Rect& visible_rect,
                                     const gfx::Size& natural_size);
-
-  // Returns |dimensions| adjusted to appropriate boundaries based on |format|.
-  static gfx::Size DetermineAlignedSize(VideoPixelFormat format,
-                                        const gfx::Size& dimensions);
 
   void set_data(size_t plane, uint8_t* ptr) {
     DCHECK(IsValidPlane(format(), plane));

@@ -1,4 +1,4 @@
-//===-- CommandInterpreter.cpp ----------------------------------*- C++ -*-===//
+//===-- CommandInterpreter.cpp --------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -48,7 +48,8 @@
 #include "lldb/Utility/Stream.h"
 #include "lldb/Utility/Timer.h"
 
-#ifndef LLDB_DISABLE_LIBEDIT
+#include "lldb/Host/Config.h"
+#if LLDB_ENABLE_LIBEDIT
 #include "lldb/Host/Editline.h"
 #endif
 #include "lldb/Host/Host.h"
@@ -362,10 +363,23 @@ void CommandInterpreter::Initialize() {
                   "controlled by the type's author.");
       po->SetHelpLong("");
     }
-    AddAlias("parray", cmd_obj_sp, "--element-count %1 --")->SetHelpLong("");
-    AddAlias("poarray", cmd_obj_sp,
-             "--object-description --element-count %1 --")
-        ->SetHelpLong("");
+    CommandAlias *parray_alias =
+        AddAlias("parray", cmd_obj_sp, "--element-count %1 --");
+    if (parray_alias) {
+        parray_alias->SetHelp
+          ("parray <COUNT> <EXPRESSION> -- lldb will evaluate EXPRESSION "
+           "to get a typed-pointer-to-an-array in memory, and will display "
+           "COUNT elements of that type from the array.");
+        parray_alias->SetHelpLong("");
+    }
+    CommandAlias *poarray_alias = AddAlias("poarray", cmd_obj_sp,
+             "--object-description --element-count %1 --");
+    if (poarray_alias) {
+      poarray_alias->SetHelp("poarray <COUNT> <EXPRESSION> -- lldb will "
+          "evaluate EXPRESSION to get the address of an array of COUNT "
+          "objects in memory, and will call po on them.");
+      poarray_alias->SetHelpLong("");
+    }
   }
 
   cmd_obj_sp = GetCommandSPExact("process kill", false);
@@ -486,7 +500,10 @@ void CommandInterpreter::LoadCommandDictionary() {
   m_command_dict["language"] =
       CommandObjectSP(new CommandObjectLanguage(*this));
 
+  // clang-format off
   const char *break_regexes[][2] = {
+      {"^(.*[^[:space:]])[[:space:]]*:[[:space:]]*([[:digit:]]+)[[:space:]]*:[[:space:]]*([[:digit:]]+)[[:space:]]*$",
+       "breakpoint set --file '%1' --line %2 --column %3"},
       {"^(.*[^[:space:]])[[:space:]]*:[[:space:]]*([[:digit:]]+)[[:space:]]*$",
        "breakpoint set --file '%1' --line %2"},
       {"^/([^/]+)/$", "breakpoint set --source-pattern-regexp '%1'"},
@@ -501,6 +518,7 @@ void CommandInterpreter::LoadCommandDictionary() {
        "breakpoint set --name '%1' --skip-prologue=0"},
       {"^[\"']?(.*[^[:space:]\"'])[\"']?[[:space:]]*$",
        "breakpoint set --name '%1'"}};
+  // clang-format on
 
   size_t num_regexes = llvm::array_lengthof(break_regexes);
 
@@ -509,6 +527,9 @@ void CommandInterpreter::LoadCommandDictionary() {
           *this, "_regexp-break",
           "Set a breakpoint using one of several shorthand formats.",
           "\n"
+          "_regexp-break <filename>:<linenum>:<colnum>\n"
+          "              main.c:12:21          // Break at line 12 and column "
+          "21 of main.c\n\n"
           "_regexp-break <filename>:<linenum>\n"
           "              main.c:12             // Break at line 12 of "
           "main.c\n\n"
@@ -532,7 +553,7 @@ void CommandInterpreter::LoadCommandDictionary() {
           "current file\n"
           "                                    // containing text 'break "
           "here'.\n",
-          2,
+          3,
           CommandCompletions::eSymbolCompletion |
               CommandCompletions::eSourceFileCompletion,
           false));
@@ -559,6 +580,9 @@ void CommandInterpreter::LoadCommandDictionary() {
           *this, "_regexp-tbreak",
           "Set a one-shot breakpoint using one of several shorthand formats.",
           "\n"
+          "_regexp-break <filename>:<linenum>:<colnum>\n"
+          "              main.c:12:21          // Break at line 12 and column "
+          "21 of main.c\n\n"
           "_regexp-break <filename>:<linenum>\n"
           "              main.c:12             // Break at line 12 of "
           "main.c\n\n"
@@ -1840,7 +1864,7 @@ bool CommandInterpreter::Confirm(llvm::StringRef message, bool default_answer) {
   IOHandlerConfirm *confirm =
       new IOHandlerConfirm(m_debugger, message, default_answer);
   IOHandlerSP io_handler_sp(confirm);
-  m_debugger.RunIOHandler(io_handler_sp);
+  m_debugger.RunIOHandlerSync(io_handler_sp);
   return confirm->GetResponse();
 }
 
@@ -2463,7 +2487,7 @@ void CommandInterpreter::HandleCommandsFromFile(
 
   m_command_source_depth++;
 
-  debugger.RunIOHandler(io_handler_sp);
+  debugger.RunIOHandlerSync(io_handler_sp);
   if (!m_command_source_flags.empty())
     m_command_source_flags.pop_back();
   m_command_source_depth--;
@@ -2825,8 +2849,7 @@ bool CommandInterpreter::IOHandlerInterrupt(IOHandler &io_handler) {
 }
 
 void CommandInterpreter::GetLLDBCommandsFromIOHandler(
-    const char *prompt, IOHandlerDelegate &delegate, bool asynchronously,
-    void *baton) {
+    const char *prompt, IOHandlerDelegate &delegate, void *baton) {
   Debugger &debugger = GetDebugger();
   IOHandlerSP io_handler_sp(
       new IOHandlerEditline(debugger, IOHandler::Type::CommandList,
@@ -2841,16 +2864,12 @@ void CommandInterpreter::GetLLDBCommandsFromIOHandler(
 
   if (io_handler_sp) {
     io_handler_sp->SetUserData(baton);
-    if (asynchronously)
-      debugger.PushIOHandler(io_handler_sp);
-    else
-      debugger.RunIOHandler(io_handler_sp);
+    debugger.RunIOHandlerAsync(io_handler_sp);
   }
 }
 
 void CommandInterpreter::GetPythonCommandsFromIOHandler(
-    const char *prompt, IOHandlerDelegate &delegate, bool asynchronously,
-    void *baton) {
+    const char *prompt, IOHandlerDelegate &delegate, void *baton) {
   Debugger &debugger = GetDebugger();
   IOHandlerSP io_handler_sp(
       new IOHandlerEditline(debugger, IOHandler::Type::PythonCode,
@@ -2865,10 +2884,7 @@ void CommandInterpreter::GetPythonCommandsFromIOHandler(
 
   if (io_handler_sp) {
     io_handler_sp->SetUserData(baton);
-    if (asynchronously)
-      debugger.PushIOHandler(io_handler_sp);
-    else
-      debugger.RunIOHandler(io_handler_sp);
+    debugger.RunIOHandlerAsync(io_handler_sp);
   }
 }
 
@@ -2928,7 +2944,7 @@ void CommandInterpreter::RunCommandInterpreter(
   // Always re-create the command interpreter when we run it in case any file
   // handles have changed.
   bool force_create = true;
-  m_debugger.PushIOHandler(GetIOHandler(force_create, &options));
+  m_debugger.RunIOHandlerAsync(GetIOHandler(force_create, &options));
   m_stopped_for_crash = false;
 
   if (auto_handle_events)
@@ -2937,7 +2953,7 @@ void CommandInterpreter::RunCommandInterpreter(
   if (spawn_thread) {
     m_debugger.StartIOHandlerThread();
   } else {
-    m_debugger.ExecuteIOHandlers();
+    m_debugger.RunIOHandlers();
 
     if (auto_handle_events)
       m_debugger.StopEventHandlerThread();

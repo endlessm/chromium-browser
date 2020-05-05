@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
+#include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/scrolling/root_scroller_controller.h"
 #include "third_party/blink/renderer/core/page/scrolling/top_document_root_scroller_controller.h"
@@ -113,7 +114,7 @@ class RootScrollerTest : public testing::Test,
   void ExecuteScript(const WebString& code, WebLocalFrame& frame) {
     frame.ExecuteScript(WebScriptSource(code));
     frame.View()->MainFrameWidget()->UpdateAllLifecyclePhases(
-        WebWidget::LifecycleUpdateReason::kTest);
+        DocumentUpdateReason::kTest);
     RunPendingTasks();
   }
 
@@ -164,7 +165,7 @@ class RootScrollerTest : public testing::Test,
                                               int delta_y) {
     WebGestureEvent event(type, WebInputEvent::kNoModifiers,
                           WebInputEvent::GetStaticTimeStampForTests(), device);
-    event.SetPositionInWidget(WebFloatPoint(100, 100));
+    event.SetPositionInWidget(gfx::PointF(100, 100));
     if (type == WebInputEvent::kGestureScrollUpdate) {
       event.data.scroll_update.delta_x = delta_x;
       event.data.scroll_update.delta_y = delta_y;
@@ -191,8 +192,7 @@ class RootScrollerTest : public testing::Test,
   }
 
   void UpdateAllLifecyclePhases(LocalFrameView* view) {
-    view->UpdateAllLifecyclePhases(
-        DocumentLifecycle::LifecycleUpdateReason::kTest);
+    view->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
   }
 
   String base_url_;
@@ -239,10 +239,10 @@ class OverscrollTestWebWidgetClient
     : public frame_test_helpers::TestWebWidgetClient {
  public:
   MOCK_METHOD4(DidOverscroll,
-               void(const WebFloatSize&,
-                    const WebFloatSize&,
-                    const WebFloatPoint&,
-                    const WebFloatSize&));
+               void(const gfx::Vector2dF&,
+                    const gfx::Vector2dF&,
+                    const gfx::PointF&,
+                    const gfx::Vector2dF&));
 };
 
 // Tests that setting an element as the root scroller causes it to control url
@@ -286,8 +286,9 @@ TEST_F(RootScrollerTest, TestSetRootScroller) {
   {
     // Scroll 50 pixels past the end. Ensure we report the 50 pixels as
     // overscroll.
-    EXPECT_CALL(client, DidOverscroll(WebFloatSize(0, 50), WebFloatSize(0, 50),
-                                      WebFloatPoint(100, 100), WebFloatSize()));
+    EXPECT_CALL(client,
+                DidOverscroll(gfx::Vector2dF(0, 50), gfx::Vector2dF(0, 50),
+                              gfx::PointF(100, 100), gfx::Vector2dF()));
     GetWebView()->MainFrameWidget()->HandleInputEvent(GenerateTouchGestureEvent(
         WebInputEvent::kGestureScrollUpdate, 0, -500));
     EXPECT_FLOAT_EQ(maximum_scroll, container->scrollTop());
@@ -298,8 +299,9 @@ TEST_F(RootScrollerTest, TestSetRootScroller) {
 
   {
     // Continue the gesture overscroll.
-    EXPECT_CALL(client, DidOverscroll(WebFloatSize(0, 20), WebFloatSize(0, 70),
-                                      WebFloatPoint(100, 100), WebFloatSize()));
+    EXPECT_CALL(client,
+                DidOverscroll(gfx::Vector2dF(0, 20), gfx::Vector2dF(0, 70),
+                              gfx::PointF(100, 100), gfx::Vector2dF()));
     GetWebView()->MainFrameWidget()->HandleInputEvent(
         GenerateTouchGestureEvent(WebInputEvent::kGestureScrollUpdate, 0, -20));
     EXPECT_FLOAT_EQ(maximum_scroll, container->scrollTop());
@@ -317,8 +319,9 @@ TEST_F(RootScrollerTest, TestSetRootScroller) {
     GetWebView()->MainFrameWidget()->HandleInputEvent(
         GenerateTouchGestureEvent(WebInputEvent::kGestureScrollBegin));
 
-    EXPECT_CALL(client, DidOverscroll(WebFloatSize(0, 30), WebFloatSize(0, 30),
-                                      WebFloatPoint(100, 100), WebFloatSize()));
+    EXPECT_CALL(client,
+                DidOverscroll(gfx::Vector2dF(0, 30), gfx::Vector2dF(0, 30),
+                              gfx::PointF(100, 100), gfx::Vector2dF()));
     GetWebView()->MainFrameWidget()->HandleInputEvent(
         GenerateTouchGestureEvent(WebInputEvent::kGestureScrollUpdate, 0, -30));
     EXPECT_FLOAT_EQ(maximum_scroll, container->scrollTop());
@@ -2309,6 +2312,74 @@ TEST_F(ImplicitRootScrollerSimTest, NavigateToValidRemainsRootScroller) {
   EXPECT_EQ(GetDocument().getElementById("container"),
             GetDocument().GetRootScrollerController().EffectiveRootScroller())
       << "Once loaded, the iframe should be promoted again.";
+}
+
+// Ensure that scroll restoration logic in the document does not apply
+// to the implicit root scroller, but rather to the document's LayoutViewport.
+TEST_F(ImplicitRootScrollerSimTest, ScrollRestorationIgnoresImplicit) {
+  WebView().MainFrameWidget()->Resize(WebSize(800, 600));
+  SimRequest main_request("https://example.com/test.html", "text/html");
+  SimRequest child_request("https://example.com/child.html", "text/html");
+  LoadURL("https://example.com/test.html");
+  main_request.Complete(R"HTML(
+          <!DOCTYPE html>
+          <style>
+            ::-webkit-scrollbar {
+              width: 0px;
+              height: 0px;
+            }
+            body, html {
+              width: 100%;
+              height: 100%;
+              margin: 0px;
+            }
+            iframe {
+              width: 100%;
+              height: 100%;
+              border: 0;
+            }
+          </style>
+          <iframe id="container" src="child.html">
+          </iframe>
+      )HTML");
+  child_request.Complete(R"HTML(
+        <!DOCTYPE html>
+        <style>
+          body {
+            height: 1000px;
+          }
+        </style>
+  )HTML");
+  Compositor().BeginFrame();
+  ASSERT_EQ(GetDocument().getElementById("container"),
+            GetDocument().GetRootScrollerController().EffectiveRootScroller());
+
+  HistoryItem::ViewState view_state;
+  view_state.scroll_offset_ = ScrollOffset(10, 20);
+
+  GetDocument()
+      .View()
+      ->GetScrollableArea()
+      ->SetPendingHistoryRestoreScrollOffset(view_state, true);
+  GetDocument().View()->LayoutViewport()->SetPendingHistoryRestoreScrollOffset(
+      view_state, true);
+  GetDocument().View()->ScheduleAnimation();
+
+  Compositor().BeginFrame();
+  EXPECT_EQ(ScrollOffset(0, 0),
+            GetDocument().View()->GetScrollableArea()->GetScrollOffset());
+
+  GetDocument().domWindow()->scrollTo(0, 20);
+  GetDocument().View()->ScheduleAnimation();
+  // Check that an implicit scroll offset is not saved.
+  // TODO(chrishtr): probably it should?
+  Compositor().BeginFrame();
+  EXPECT_FALSE(GetDocument()
+                   .GetFrame()
+                   ->Loader()
+                   .GetDocumentLoader()
+                   ->GetHistoryItem()
+                   ->GetViewState());
 }
 
 // Test that a root scroller is considered to fill the viewport at both the URL

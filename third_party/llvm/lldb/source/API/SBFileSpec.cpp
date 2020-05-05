@@ -1,4 +1,4 @@
-//===-- SBFileSpec.cpp ------------------------------------------*- C++ -*-===//
+//===-- SBFileSpec.cpp ----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -143,7 +143,7 @@ void SBFileSpec::SetDirectory(const char *directory) {
 }
 
 uint32_t SBFileSpec::GetPath(char *dst_path, size_t dst_len) const {
-  LLDB_RECORD_METHOD_CONST(uint32_t, SBFileSpec, GetPath, (char *, size_t),
+  LLDB_RECORD_DUMMY(uint32_t, SBFileSpec, GetPath, (char *, size_t),
                            dst_path, dst_len);
 
   uint32_t result = m_opaque_up->GetPath(dst_path, dst_len);

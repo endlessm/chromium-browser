@@ -152,6 +152,8 @@ public:
 
   bool hasBranchDivergence() { return false; }
 
+  bool useGPUDivergenceAnalysis() { return false; }
+
   bool isSourceOfDivergence(const Value *V) { return false; }
 
   bool isAlwaysUniform(const Value *V) { return false; }
@@ -272,9 +274,13 @@ public:
     return Alignment >= DataSize && isPowerOf2_32(DataSize);
   }
 
-  bool isLegalMaskedScatter(Type *DataType) { return false; }
+  bool isLegalMaskedScatter(Type *DataType, MaybeAlign Alignment) {
+    return false;
+  }
 
-  bool isLegalMaskedGather(Type *DataType) { return false; }
+  bool isLegalMaskedGather(Type *DataType, MaybeAlign Alignment) {
+    return false;
+  }
 
   bool isLegalMaskedCompressStore(Type *DataType) { return false; }
 
@@ -355,13 +361,13 @@ public:
 
   unsigned getIntImmCost(const APInt &Imm, Type *Ty) { return TTI::TCC_Basic; }
 
-  unsigned getIntImmCost(unsigned Opcode, unsigned Idx, const APInt &Imm,
-                         Type *Ty) {
+  unsigned getIntImmCostInst(unsigned Opcode, unsigned Idx, const APInt &Imm,
+                             Type *Ty) {
     return TTI::TCC_Free;
   }
 
-  unsigned getIntImmCost(Intrinsic::ID IID, unsigned Idx, const APInt &Imm,
-                         Type *Ty) {
+  unsigned getIntImmCostIntrin(Intrinsic::ID IID, unsigned Idx,
+                               const APInt &Imm, Type *Ty) {
     return TTI::TCC_Free;
   }
 
@@ -430,7 +436,8 @@ public:
                                   TTI::OperandValueKind Opd2Info,
                                   TTI::OperandValueProperties Opd1PropInfo,
                                   TTI::OperandValueProperties Opd2PropInfo,
-                                  ArrayRef<const Value *> Args) {
+                                  ArrayRef<const Value *> Args,
+                                  const Instruction *CxtI = nullptr) {
     return 1;
   }
 

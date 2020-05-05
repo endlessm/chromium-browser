@@ -15,8 +15,9 @@
  */
 
 syntax = "proto2";
-option optimize_for = LITE_RUNTIME;
 
+import "protos/perfetto/trace/track_event/chrome_process_descriptor.proto";
+import "protos/perfetto/trace/track_event/chrome_thread_descriptor.proto";
 import "protos/perfetto/trace/track_event/process_descriptor.proto";
 import "protos/perfetto/trace/track_event/thread_descriptor.proto";
 
@@ -35,7 +36,7 @@ package perfetto.protos;
 // |TrackEvent::track_uuid|. It is possible but not necessary to emit a
 // TrackDescriptor for this implicit track.
 //
-// Next id: 1.
+// Next id: 8.
 message TrackDescriptor {
   // Unique ID that identifies this track. This ID is global to the whole trace.
   // Producers should ensure that it is unlikely to clash with IDs emitted by
@@ -45,14 +46,32 @@ message TrackDescriptor {
   // event id + id_scope, pid, and/or tid to compute this ID.
   optional uint64 uuid = 1;
 
-  // TODO(eseckler): Support track hierarchies.
-  // uint64 parent_uuid = X;
+  // A parent track reference can be used to describe relationships between
+  // tracks. For example, to define an asynchronous track which is scoped to a
+  // specific process, specify the uuid for that process's process track here.
+  optional uint64 parent_uuid = 5;
 
   // Name of the track.
   optional string name = 2;
 
-  // Associate the track with a process or thread - the UI will draw this track
-  // in the context of the process/thread.
+  // Associate the track with a process, making it the process-global track.
+  // There should only be one such track per process (usually for instant
+  // events; trace processor uses this fact to detect pid reuse). If you need
+  // more (e.g. for asynchronous events), create child tracks using parent_uuid.
+  //
+  // Trace processor will merge events on a process track with slice-type events
+  // from other sources (e.g. ftrace) for the same process into a single
+  // timeline view.
   optional ProcessDescriptor process = 3;
+  optional ChromeProcessDescriptor chrome_process = 6;
+
+  // Associate the track with a thread, indicating that the track's events
+  // describe synchronous code execution on the thread. There should only be one
+  // such track per thread (trace processor uses this fact to detect tid reuse).
+  //
+  // Trace processor will merge events on a thread track with slice-type events
+  // from other sources (e.g. ftrace) for the same thread into a single timeline
+  // view.
   optional ThreadDescriptor thread = 4;
+  optional ChromeThreadDescriptor chrome_thread = 7;
 }

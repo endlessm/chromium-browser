@@ -5,6 +5,8 @@
 #include "discovery/dnssd/impl/querier_impl.h"
 
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
@@ -36,9 +38,15 @@ class MockMdnsService : public MdnsService {
       StopQuery,
       void(const DomainName&, DnsType, DnsClass, MdnsRecordChangedCallback*));
 
-  void RegisterRecord(const MdnsRecord& record) override { FAIL(); }
+  MOCK_METHOD1(ReinitializeQueries, void(const DomainName& name));
 
-  void DeregisterRecord(const MdnsRecord& record) override { FAIL(); }
+  // Unused.
+  MOCK_METHOD3(StartProbe,
+               Error(MdnsDomainConfirmedProvider*, DomainName, IPAddress));
+  MOCK_METHOD1(RegisterRecord, Error(const MdnsRecord&));
+  MOCK_METHOD1(UnregisterRecord, Error(const MdnsRecord&));
+  MOCK_METHOD2(UpdateRegisteredRecord,
+               Error(const MdnsRecord&, const MdnsRecord&));
 };
 
 SrvRecordRdata CreateSrvRecord() {
@@ -52,8 +60,8 @@ ARecordRdata CreateARecord() {
 }
 
 AAAARecordRdata CreateAAAARecord() {
-  return AAAARecordRdata(
-      IPAddress{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+  return AAAARecordRdata(IPAddress(0x0102, 0x0304, 0x0506, 0x0708, 0x090a,
+                                   0x0b0c, 0x0d0e, 0x0f10));
 }
 
 MdnsRecord CreatePtrRecord(const std::string& instance,
@@ -94,7 +102,7 @@ using testing::StrictMock;
 
 class DnsDataAccessor {
  public:
-  DnsDataAccessor(DnsData* data) : data_(data) {}
+  explicit DnsDataAccessor(DnsData* data) : data_(data) {}
 
   void set_srv(absl::optional<SrvRecordRdata> record) { data_->srv_ = record; }
   void set_txt(absl::optional<TxtRecordRdata> record) { data_->txt_ = record; }
@@ -319,6 +327,35 @@ TEST_F(DnsSdQuerierImplTest, OnlyOldRecordValid) {
 
   EXPECT_CALL(callback, OnInstanceDeleted(_)).Times(1);
   querier.OnRecordChanged(a_record, RecordChangedEvent::kExpired);
+}
+
+TEST_F(DnsSdQuerierImplTest, HardRefresh) {
+  const std::string service2 = "_service2._udp";
+
+  DnsDataAccessor dns_data = querier.CreateDnsData(instance, service, domain);
+  dns_data.set_srv(CreateSrvRecord());
+  dns_data.set_txt(MakeTxtRecord({}));
+  dns_data.set_a(CreateARecord());
+  dns_data.set_aaaa(CreateAAAARecord());
+  DnsDataAccessor dns_data2 = querier.CreateDnsData(instance, service2, domain);
+  dns_data2.set_srv(CreateSrvRecord());
+
+  EXPECT_CALL(callback, OnInstanceCreated(_)).Times(1);
+  querier.StartQuery(service, &callback);
+  EXPECT_TRUE(querier.IsQueryRunning(service));
+
+  const DomainName ptr_domain{"_service", "_udp", "local"};
+  const DomainName instance_domain{"instance", "_service", "_udp", "local"};
+  EXPECT_CALL(*querier.service(), ReinitializeQueries(ptr_domain));
+  EXPECT_CALL(*querier.service(), ReinitializeQueries(instance_domain));
+  querier.ReinitializeQueries(service);
+
+  absl::optional<DnsDataAccessor> data =
+      querier.GetDnsData(instance, service, domain);
+  EXPECT_EQ(data, absl::nullopt);
+  data = querier.GetDnsData(instance, service2, domain);
+  EXPECT_NE(data, absl::nullopt);
+  EXPECT_TRUE(querier.IsQueryRunning(service));
 }
 
 }  // namespace discovery

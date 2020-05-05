@@ -19,10 +19,14 @@ set(DEQP_VK_RENDER_PASS_SRCS
 	vktRenderPassSparseRenderTargetTests.hpp
 	vktRenderPassSubpassDependencyTests.cpp
 	vktRenderPassSubpassDependencyTests.hpp
+	vktRenderPassUnusedAttachmentSparseFillingTests.hpp
+	vktRenderPassUnusedAttachmentSparseFillingTests.cpp
 	vktRenderPassUnusedAttachmentTests.cpp
 	vktRenderPassUnusedAttachmentTests.hpp
 	vktRenderPassUnusedClearAttachmentTests.cpp
 	vktRenderPassUnusedClearAttachmentTests.hpp
+	vktRenderPassFragmentDensityMapTests.cpp
+	vktRenderPassFragmentDensityMapTests.hpp
 	)
 
 set(DEQP_VK_RENDER_PASS_LIBS

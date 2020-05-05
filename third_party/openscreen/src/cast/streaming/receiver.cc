@@ -13,14 +13,12 @@
 #include "util/logging.h"
 #include "util/std_util.h"
 
-using openscreen::platform::Clock;
-
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
 
+namespace openscreen {
 namespace cast {
-namespace streaming {
 
 // Conveniences for ensuring logging output includes the SSRC of the Receiver,
 // to help distinguish one out of multiple instances in a Cast Streaming
@@ -33,8 +31,7 @@ namespace streaming {
 
 Receiver::Receiver(Environment* environment,
                    ReceiverPacketRouter* packet_router,
-                   const cast::streaming::SessionConfig& config,
-                   std::chrono::milliseconds initial_target_playout_delay)
+                   const SessionConfig& config)
     : now_(environment->now_function()),
       packet_router_(packet_router),
       rtcp_session_(config.sender_ssrc, config.receiver_ssrc, now_()),
@@ -55,9 +52,9 @@ Receiver::Receiver(Environment* environment,
   OSP_CHECK_GT(rtcp_buffer_capacity_, 0);
   OSP_CHECK(rtcp_buffer_);
 
-  rtcp_builder_.SetPlayoutDelay(initial_target_playout_delay);
+  rtcp_builder_.SetPlayoutDelay(config.target_playout_delay);
   playout_delay_changes_.emplace_back(FrameId::first() - 1,
-                                      initial_target_playout_delay);
+                                      config.target_playout_delay);
 
   packet_router_->OnReceiverCreated(rtcp_session_.sender_ssrc(), this);
 }
@@ -389,7 +386,7 @@ void Receiver::RecordNewTargetPlayoutDelay(FrameId as_of_frame,
       [&](const auto& entry) { return entry.first > as_of_frame; });
   playout_delay_changes_.emplace(insert_it, as_of_frame, delay);
 
-  OSP_DCHECK(openscreen::AreElementsSortedAndUnique(playout_delay_changes_));
+  OSP_DCHECK(AreElementsSortedAndUnique(playout_delay_changes_));
 }
 
 milliseconds Receiver::ResolveTargetPlayoutDelay(FrameId frame_id) const {
@@ -481,5 +478,5 @@ constexpr milliseconds Receiver::kDefaultPlayerProcessingTime;
 constexpr int Receiver::kNoFramesReady;
 constexpr milliseconds Receiver::kNackFeedbackInterval;
 
-}  // namespace streaming
 }  // namespace cast
+}  // namespace openscreen

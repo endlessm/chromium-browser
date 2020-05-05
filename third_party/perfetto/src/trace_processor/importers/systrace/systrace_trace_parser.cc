@@ -27,6 +27,7 @@
 #include "src/trace_processor/track_tracker.h"
 
 #include <inttypes.h>
+#include <cctype>
 #include <string>
 #include <unordered_map>
 
@@ -37,9 +38,9 @@ namespace {
 std::string SubstrTrim(const std::string& input) {
   std::string s = input;
   s.erase(s.begin(), std::find_if(s.begin(), s.end(),
-                                  [](int ch) { return !std::isspace(ch); }));
+                                  [](char ch) { return !std::isspace(ch); }));
   s.erase(std::find_if(s.rbegin(), s.rend(),
-                       [](int ch) { return !std::isspace(ch); })
+                       [](char ch) { return !std::isspace(ch); })
               .base(),
           s.end());
   return s;
@@ -195,12 +196,13 @@ util::Status SystraceTraceParser::ParseSingleSystraceEvent(
       return util::Status("Could not parse sched_switch");
     }
 
-    context_->sched_tracker->PushSchedSwitch(
+    SchedEventTracker::GetOrCreate(context_)->PushSchedSwitch(
         cpu, ts, prev_pid.value(), prev_comm, prev_prio.value(), prev_state,
         next_pid.value(), next_comm, next_prio.value());
   } else if (event_name == "tracing_mark_write" || event_name == "0" ||
              event_name == "print") {
-    context_->systrace_parser->ParsePrintEvent(ts, pid, args_str.c_str());
+    SystraceParser::GetOrCreate(context_)->ParsePrintEvent(ts, pid,
+                                                           args_str.c_str());
   } else if (event_name == "sched_wakeup") {
     auto comm = args["comm"];
     base::Optional<uint32_t> wakee_pid = base::StringToUInt32(args["pid"]);
@@ -211,8 +213,7 @@ util::Status SystraceTraceParser::ParseSingleSystraceEvent(
     StringId name_id = context_->storage->InternString(base::StringView(comm));
     auto wakee_utid =
         context_->process_tracker->UpdateThreadName(wakee_pid.value(), name_id);
-    context_->event_tracker->PushInstant(ts, sched_wakeup_name_id_,
-                                         0 /* value */, wakee_utid,
+    context_->event_tracker->PushInstant(ts, sched_wakeup_name_id_, wakee_utid,
                                          RefType::kRefUtid);
   } else if (event_name == "cpu_idle") {
     base::Optional<uint32_t> event_cpu = base::StringToUInt32(args["cpu_id"]);

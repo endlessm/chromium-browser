@@ -480,11 +480,6 @@ def sudo_run(cmd, user='root', preserve_env=False, **kwargs):
   return run(sudo_cmd, **kwargs)
 
 
-def SudoRunCommand(cmd, **kwargs):
-  """Backwards compat API."""
-  return sudo_run(cmd, **kwargs)
-
-
 def _KillChildProcess(proc, int_timeout, kill_timeout, cmd, original_handler,
                       signum, frame):
   """Used as a signal handler by run.
@@ -560,8 +555,8 @@ class _Popen(subprocess.Popen):
         # delivered).  This isn't particularly informative, but we still
         # need that info to decide what to do, thus the check=False.
         ret = sudo_run(['kill', '-%i' % sig, str(self.pid)],
-                       print_cmd=False, redirect_stdout=True,
-                       redirect_stderr=True, check=False)
+                       print_cmd=False, stdout=True,
+                       stderr=True, check=False)
         if ret.returncode == 1:
           # The kill binary doesn't distinguish between permission denied,
           # and the pid is missing.  Denied can only occur under weird
@@ -595,9 +590,12 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
     stdout: Where to send stdout.  This may be many things to control
       redirection:
         * None is the default; the existing stdout is used.
+        * An existing file object (must be opened with mode 'w' or 'wb').
         * A string to a file (will be truncated & opened automatically).
+        * subprocess.PIPE to capture & return the output.
         * A boolean to indicate whether to capture the output.
           True will capture the output via a tempfile (good for large output).
+        * An open file descriptor (as a positive integer).
     stderr: Where to send stderr.  See |stdout| for possible values.  This also
       may be subprocess.STDOUT to indicate stderr & stdout should be combined.
     cwd: the working directory to run this cmd.
@@ -647,26 +645,21 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
   """
   # Handle backwards compatible settings.
   if 'error_code_ok' in kwargs:
-    # TODO(vapier): Enable this warning once chromite & users migrate.
-    # logging.warning('run: error_code_ok= is renamed/inverted to check=')
+    logging.warning('run: error_code_ok= is renamed/inverted to check=')
     check = not kwargs.pop('error_code_ok')
   if 'redirect_stdout' in kwargs:
-    # TODO(vapier): Enable this warning once chromite & users migrate.
-    # logging.warning('run: redirect_stdout=True is now stdout=True')
+    logging.warning('run: redirect_stdout=True is now stdout=True')
     stdout = True if kwargs.pop('redirect_stdout') else None
   if 'redirect_stderr' in kwargs:
-    # TODO(vapier): Enable this warning once chromite & users migrate.
-    # logging.warning('run: redirect_stderr=True is now stderr=True')
+    logging.warning('run: redirect_stderr=True is now stderr=True')
     stderr = True if kwargs.pop('redirect_stderr') else None
   if 'combine_stdout_stderr' in kwargs:
-    # TODO(vapier): Enable this warning once chromite & users migrate.
-    # logging.warning('run: combine_stdout_stderr=True is now '
-    #                 'stderr=subprocess.STDOUT')
+    logging.warning('run: combine_stdout_stderr=True is now '
+                    'stderr=subprocess.STDOUT')
     if kwargs.pop('combine_stdout_stderr'):
       stderr = subprocess.STDOUT
   if 'log_stdout_to_file' in kwargs:
-    # TODO(vapier): Enable this warning once chromite & users migrate.
-    # logging.warning('run: log_stdout_to_file=X is now stdout=X')
+    logging.warning('run: log_stdout_to_file=X is now stdout=X')
     log_stdout_to_file = kwargs.pop('log_stdout_to_file')
     if log_stdout_to_file is not None:
       stdout = log_stdout_to_file
@@ -689,10 +682,10 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
     if stderr is None:
       stderr = True
 
-  stdout_to_pipe = False
   if quiet:
     debug_level = logging.DEBUG
-    stdout_to_pipe = True
+    if stdout is None:
+      stdout = subprocess.PIPE
     if stderr is None:
       stderr = subprocess.STDOUT
 
@@ -707,6 +700,11 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
 
   if mute_output is None:
     mute_output = logging.getLogger().getEffectiveLevel() > debug_level
+  if mute_output or log_output:
+    if stdout is None:
+      stdout = True
+    if stderr is None:
+      stderr = True
 
   # Force the timeout to float; in the process, if it's not convertible,
   # a self-explanatory exception will be thrown.
@@ -732,15 +730,26 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
   if isinstance(stdout, six.string_types):
     popen_stdout = open(stdout, stdout_file_mode)
     log_stdout_to_file = True
-  elif stdout_to_pipe:
-    popen_stdout = subprocess.PIPE
-  elif stdout or mute_output or log_output:
-    popen_stdout = _get_tempfile()
+  elif hasattr(stdout, 'fileno'):
+    popen_stdout = stdout
+    log_stdout_to_file = True
+  elif isinstance(stdout, bool):
+    # This check must come before isinstance(int) because bool subclasses int.
+    if stdout:
+      popen_stdout = _get_tempfile()
+  elif isinstance(stdout, int):
+    popen_stdout = stdout
 
-  if stderr == subprocess.STDOUT:
-    popen_stderr = subprocess.STDOUT
-  elif stderr or mute_output or log_output:
-    popen_stderr = _get_tempfile()
+  log_stderr_to_file = False
+  if hasattr(stderr, 'fileno'):
+    popen_stderr = stderr
+    log_stderr_to_file = True
+  elif isinstance(stderr, bool):
+    # This check must come before isinstance(int) because bool subclasses int.
+    if stderr:
+      popen_stderr = _get_tempfile()
+  elif isinstance(stderr, int):
+    popen_stderr = stderr
 
   # If subprocesses have direct access to stdout or stderr, they can bypass
   # our buffers, so we need to flush to ensure that output is not interleaved.
@@ -852,14 +861,16 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
         signal.signal(signal.SIGINT, old_sigint)
         signal.signal(signal.SIGTERM, old_sigterm)
 
-      if popen_stdout and not log_stdout_to_file and not stdout_to_pipe:
+      if (popen_stdout and not isinstance(popen_stdout, int) and
+          not log_stdout_to_file):
         popen_stdout.seek(0)
         cmd_result.stdout = popen_stdout.read()
         popen_stdout.close()
       elif log_stdout_to_file:
         popen_stdout.close()
 
-      if popen_stderr and popen_stderr != subprocess.STDOUT:
+      if (popen_stderr and not isinstance(popen_stderr, int) and
+          not log_stderr_to_file):
         popen_stderr.seek(0)
         cmd_result.stderr = popen_stderr.read()
         popen_stderr.close()
@@ -906,6 +917,7 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
 
 def RunCommand(cmd, **kwargs):
   """Backwards compat API."""
+  logging.warning('RunCommand() has been renamed to run()')
   return run(cmd, **kwargs)
 
 
@@ -1047,15 +1059,14 @@ def FindCompressor(compression, chroot=None):
   Raises:
     ValueError: If compression is unknown.
   """
-  if compression == COMP_GZIP:
+  if compression == COMP_XZ:
+    return os.path.join(constants.CHROMITE_SCRIPTS_DIR, 'xz_auto')
+  elif compression == COMP_GZIP:
     std = 'gzip'
     para = 'pigz'
   elif compression == COMP_BZIP2:
     std = 'bzip2'
     para = 'pbzip2'
-  elif compression == COMP_XZ:
-    std = 'xz'
-    para = 'pixz'
   elif compression == COMP_NONE:
     return 'cat'
   else:
@@ -1135,7 +1146,7 @@ def CompressFile(infile, outfile):
     run(cmd)
   else:
     cmd = [comp, '-c', infile]
-    run(cmd, log_stdout_to_file=outfile)
+    run(cmd, stdout=outfile)
 
 
 def UncompressFile(infile, outfile):
@@ -1156,7 +1167,7 @@ def UncompressFile(infile, outfile):
     run(cmd)
   else:
     cmd = [comp, '-dc', infile]
-    run(cmd, log_stdout_to_file=outfile)
+    run(cmd, stdout=outfile)
 
 
 class CreateTarballError(RunCommandError):

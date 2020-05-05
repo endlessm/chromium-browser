@@ -11,9 +11,13 @@ import sys
 import tempfile
 import unittest
 
+if sys.version_info.major == 2:
+  import mock
+else:
+  from unittest import mock
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from third_party import mock
 import git_drover
 
 
@@ -70,7 +74,7 @@ class GitDroverTest(unittest.TestCase):
          self._target_repo),
     ]
     self.LAND_COMMAND = [
-        (['git', 'cl', 'land', '--bypass-hooks'], self._target_repo),
+        (['git', 'cl', 'set-commit'], self._target_repo),
     ]
     if os.name == 'nt':
       self.BRANCH_CLEANUP_COMMANDS = [

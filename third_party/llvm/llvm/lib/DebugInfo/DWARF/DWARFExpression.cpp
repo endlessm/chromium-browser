@@ -93,6 +93,8 @@ static DescVector getDescriptions() {
   Descriptions[DW_OP_implicit_value] =
       Desc(Op::Dwarf3, Op::SizeLEB, Op::SizeBlock);
   Descriptions[DW_OP_stack_value] = Desc(Op::Dwarf3);
+  Descriptions[DW_OP_WASM_location] =
+      Desc(Op::Dwarf4, Op::SizeLEB, Op::SignedSizeLEB);
   Descriptions[DW_OP_GNU_push_tls_address] = Desc(Op::Dwarf3);
   Descriptions[DW_OP_addrx] = Desc(Op::Dwarf4, Op::SizeLEB);
   Descriptions[DW_OP_GNU_addr_index] = Desc(Op::Dwarf4, Op::SizeLEB);
@@ -114,11 +116,7 @@ static DWARFExpression::Operation::Description getOpDesc(unsigned OpCode) {
   return Descriptions[OpCode];
 }
 
-static uint8_t getRefAddrSize(uint8_t AddrSize, uint16_t Version) {
-  return (Version == 2) ? AddrSize : 4;
-}
-
-bool DWARFExpression::Operation::extract(DataExtractor Data, uint16_t Version,
+bool DWARFExpression::Operation::extract(DataExtractor Data,
                                          uint8_t AddressSize, uint64_t Offset) {
   Opcode = Data.getU8(&Offset);
 
@@ -155,24 +153,11 @@ bool DWARFExpression::Operation::extract(DataExtractor Data, uint16_t Version,
       Operands[Operand] = Data.getU64(&Offset);
       break;
     case Operation::SizeAddr:
-      if (AddressSize == 8) {
-        Operands[Operand] = Data.getU64(&Offset);
-      } else if (AddressSize == 4) {
-        Operands[Operand] = Data.getU32(&Offset);
-      } else {
-        assert(AddressSize == 2);
-        Operands[Operand] = Data.getU16(&Offset);
-      }
+      Operands[Operand] = Data.getUnsigned(&Offset, AddressSize);
       break;
     case Operation::SizeRefAddr:
-      if (getRefAddrSize(AddressSize, Version) == 8) {
-        Operands[Operand] = Data.getU64(&Offset);
-      } else if (getRefAddrSize(AddressSize, Version) == 4) {
-        Operands[Operand] = Data.getU32(&Offset);
-      } else {
-        assert(getRefAddrSize(AddressSize, Version) == 2);
-        Operands[Operand] = Data.getU16(&Offset);
-      }
+      // TODO: Add support for 64-bit DWARF format.
+      Operands[Operand] = Data.getU32(&Offset);
       break;
     case Operation::SizeLEB:
       if (Signed)

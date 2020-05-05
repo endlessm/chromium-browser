@@ -16,6 +16,7 @@
  *   resetAllowed: (boolean|undefined),
  *   startEnrollmentAllowed: (boolean|undefined),
  *   toggleKioskAllowed: (boolean|undefined),
+ *   changeRequisitonProhibited: (boolean|undefined),
  * }}
  */
 var DisplayManagerScreenAttributes = {};
@@ -63,6 +64,12 @@ DisplayManagerScreenAttributes.startEnrollmentAllowed;
 DisplayManagerScreenAttributes.toggleKioskAllowed;
 
 /**
+ * True if "enroll hangouts meet" accelerator is prohibited.
+ * @type {boolean|undefined}
+ */
+DisplayManagerScreenAttributes.changeRequisitonProhibited;
+
+/**
  * Possible types of UI.
  * @enum {string}
  */
@@ -73,7 +80,6 @@ var DISPLAY_TYPE = {
   LOCK: 'lock',
   USER_ADDING: 'user-adding',
   APP_LAUNCH_SPLASH: 'app-launch-splash',
-  ARC_KIOSK_SPLASH: 'arc-kiosk-splash',
   DESKTOP_USER_MANAGER: 'login-add-user',
   GAIA_SIGNIN: 'gaia-signin'
 };

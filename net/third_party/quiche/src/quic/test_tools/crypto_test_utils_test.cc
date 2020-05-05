@@ -9,8 +9,9 @@
 #include "net/third_party/quiche/src/quic/core/proto/crypto_server_config_proto.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/mock_clock.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 namespace test {
@@ -129,19 +130,29 @@ TEST_F(CryptoTestUtilsTest, TestGenerateFullCHLO) {
   primary_config.set_primary_time(clock.WallNow().ToUNIXSeconds());
   std::unique_ptr<CryptoHandshakeMessage> msg =
       crypto_config.AddConfig(primary_config, clock.WallNow());
-  QuicStringPiece orbit;
+  quiche::QuicheStringPiece orbit;
   ASSERT_TRUE(msg->GetStringPiece(kORBT, &orbit));
   std::string nonce;
   CryptoUtils::GenerateNonce(clock.WallNow(), QuicRandom::GetInstance(), orbit,
                              &nonce);
-  std::string nonce_hex = "#" + QuicTextUtils::HexEncode(nonce);
+  std::string nonce_hex = "#" + quiche::QuicheTextUtils::HexEncode(nonce);
 
   char public_value[32];
   memset(public_value, 42, sizeof(public_value));
-  std::string pub_hex =
-      "#" + QuicTextUtils::HexEncode(public_value, sizeof(public_value));
+  std::string pub_hex = "#" + quiche::QuicheTextUtils::HexEncode(
+                                  public_value, sizeof(public_value));
 
-  QuicTransportVersion version(AllSupportedTransportVersions().front());
+  // The methods below use a PROTOCOL_QUIC_CRYPTO version so we pick the
+  // first one from the list of supported versions.
+  QuicTransportVersion transport_version = QUIC_VERSION_UNSUPPORTED;
+  for (const ParsedQuicVersion& version : AllSupportedVersions()) {
+    if (version.handshake_protocol == PROTOCOL_QUIC_CRYPTO) {
+      transport_version = version.transport_version;
+      break;
+    }
+  }
+  ASSERT_NE(QUIC_VERSION_UNSUPPORTED, transport_version);
+
   CryptoHandshakeMessage inchoate_chlo = crypto_test_utils::CreateCHLO(
       {{"PDMD", "X509"},
        {"AEAD", "AESG"},
@@ -149,18 +160,19 @@ TEST_F(CryptoTestUtilsTest, TestGenerateFullCHLO) {
        {"COPT", "SREJ"},
        {"PUBS", pub_hex},
        {"NONC", nonce_hex},
-       {"VER\0",
-        QuicVersionLabelToString(QuicVersionToQuicVersionLabel(version))}},
+       {"VER\0", QuicVersionLabelToString(
+                     QuicVersionToQuicVersionLabel(transport_version))}},
       kClientHelloMinimumSize);
 
-  crypto_test_utils::GenerateFullCHLO(
-      inchoate_chlo, &crypto_config, server_addr, client_addr, version, &clock,
-      signed_config, &compressed_certs_cache, &full_chlo);
+  crypto_test_utils::GenerateFullCHLO(inchoate_chlo, &crypto_config,
+                                      server_addr, client_addr,
+                                      transport_version, &clock, signed_config,
+                                      &compressed_certs_cache, &full_chlo);
   // Verify that full_chlo can pass crypto_config's verification.
   ShloVerifier shlo_verifier(&crypto_config, server_addr, client_addr, &clock,
                              signed_config, &compressed_certs_cache);
   crypto_config.ValidateClientHello(
-      full_chlo, client_addr.host(), server_addr, version, &clock,
+      full_chlo, client_addr.host(), server_addr, transport_version, &clock,
       signed_config, shlo_verifier.GetValidateClientHelloCallback());
 }
 

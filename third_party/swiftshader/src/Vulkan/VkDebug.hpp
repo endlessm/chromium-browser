@@ -17,46 +17,49 @@
 #ifndef VK_DEBUG_H_
 #define VK_DEBUG_H_
 
-#include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#include <cctype>
 #include <string>
 
 #if !defined(TRACE_OUTPUT_FILE)
-#define TRACE_OUTPUT_FILE "debug.txt"
+#	define TRACE_OUTPUT_FILE "debug.txt"
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
-#define CHECK_PRINTF_ARGS __attribute__((format(printf, 1, 2)))
+#	define CHECK_PRINTF_ARGS __attribute__((format(printf, 1, 2)))
 #else
-#define CHECK_PRINTF_ARGS
+#	define CHECK_PRINTF_ARGS
 #endif
 
-namespace vk
-{
-	// Outputs text to the debugging log
-	void trace(const char *format, ...) CHECK_PRINTF_ARGS;
-	inline void trace() {}
+namespace vk {
 
-	// Outputs text to the debugging log and prints to stderr.
-	void warn(const char *format, ...) CHECK_PRINTF_ARGS;
-	inline void warn() {}
+// Outputs text to the debugging log
+void trace(const char *format, ...) CHECK_PRINTF_ARGS;
+inline void trace() {}
 
-	// Outputs the message to the debugging log and stderr, and calls abort().
-	void abort(const char *format, ...) CHECK_PRINTF_ARGS;
+// Outputs text to the debugging log and prints to stderr.
+void warn(const char *format, ...) CHECK_PRINTF_ARGS;
+inline void warn() {}
 
-	// Outputs text to the debugging log, and asserts once if a debugger is attached.
-	void trace_assert(const char *format, ...) CHECK_PRINTF_ARGS;
-}
+// Outputs the message to the debugging log and stderr, and calls abort().
+void abort(const char *format, ...) CHECK_PRINTF_ARGS;
+
+// Outputs text to the debugging log, and asserts once if a debugger is attached.
+void trace_assert(const char *format, ...) CHECK_PRINTF_ARGS;
+
+}  // namespace vk
 
 // A macro to output a trace of a function call and its arguments to the
 // debugging log. Disabled if SWIFTSHADER_DISABLE_TRACE is defined.
 #if defined(SWIFTSHADER_DISABLE_TRACE)
-#define TRACE(message, ...) (void(0))
-#define TRACE_ASSERT(message, ...) (void(0))
+#	define TRACE(message, ...) (void(0))
+#	define TRACE_ASSERT(message, ...) (void(0))
 #else
-#define TRACE(message, ...) vk::trace("%s:%d TRACE: " message "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-#define TRACE_ASSERT(message, ...) vk::trace_assert("%s:%d %s TRACE_ASSERT: " message "\n", __FILE__, __LINE__, __func__, ##__VA_ARGS__)
+#	define TRACE(message, ...) vk::trace("%s:%d TRACE: " message "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#	define TRACE_ASSERT(message, ...) vk::trace_assert("%s:%d %s TRACE_ASSERT: " message "\n", __FILE__, __LINE__, __func__, ##__VA_ARGS__)
 #endif
 
 // A macro to print a warning message to the debugging log and stderr to denote
@@ -80,32 +83,42 @@ namespace vk
 //   WARN() in release builds (NDEBUG && !DCHECK_ALWAYS_ON)
 #undef DABORT
 #if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
-#define DABORT(message, ...) ABORT(message, ##__VA_ARGS__)
+#	define DABORT(message, ...) ABORT(message, ##__VA_ARGS__)
 #else
-#define DABORT(message, ...) WARN(message, ##__VA_ARGS__)
+#	define DABORT(message, ...) WARN(message, ##__VA_ARGS__)
 #endif
 
 // A macro asserting a condition.
 // If the condition fails, the condition and message is passed to DABORT().
 #undef ASSERT_MSG
-#define ASSERT_MSG(expression, format, ...) do { \
-	if(!(expression)) { \
-		DABORT("ASSERT(%s): " format "\n", #expression, ##__VA_ARGS__); \
-	} } while(0)
+#define ASSERT_MSG(expression, format, ...)                                 \
+	do                                                                      \
+	{                                                                       \
+		if(!(expression))                                                   \
+		{                                                                   \
+			DABORT("ASSERT(%s): " format "\n", #expression, ##__VA_ARGS__); \
+		}                                                                   \
+	} while(0)
 
 // A macro asserting a condition.
 // If the condition fails, the condition is passed to DABORT().
 #undef ASSERT
-#define ASSERT(expression) do { \
-	if(!(expression)) { \
-		DABORT("ASSERT(%s)\n", #expression); \
-	} } while(0)
+#define ASSERT(expression)                       \
+	do                                           \
+	{                                            \
+		if(!(expression))                        \
+		{                                        \
+			DABORT("ASSERT(%s)\n", #expression); \
+		}                                        \
+	} while(0)
 
-// A macro to indicate functionality currently unimplemented for a feature
-// advertised as supported. For unsupported features not advertised as supported
-// use UNSUPPORTED().
+// A macro to indicate functionality currently unimplemented, for a feature advertised
+// as supported. Since this is a bug, a bug ID must be provided, in b/### format.
+// For unimplemented functionality not advertised as supported, use UNSUPPORTED() instead.
 #undef UNIMPLEMENTED
-#define UNIMPLEMENTED(format, ...) DABORT("UNIMPLEMENTED: " format, ##__VA_ARGS__)
+#define UNIMPLEMENTED(format, ...)                   \
+	DABORT("UNIMPLEMENTED: " format, ##__VA_ARGS__); \
+	static_assert(format[0] == 'b' && format[1] == '/' && format[2] >= '0' && format[2] <= '9', "explanation must start with bug reference in b/### format")
 
 // A macro to indicate unsupported functionality.
 // This should be called when a Vulkan / SPIR-V feature is attempted to be used,
@@ -123,12 +136,16 @@ namespace vk
 // A macro asserting a condition and performing a return.
 #undef ASSERT_OR_RETURN
 #if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
-#define ASSERT_OR_RETURN(expression) ASSERT(expression)
+#	define ASSERT_OR_RETURN(expression) ASSERT(expression)
 #else
-#define ASSERT_OR_RETURN(expression) do { \
-	if(!(expression)) { \
-		return; \
-	} } while(0)
+#	define ASSERT_OR_RETURN(expression) \
+		do                               \
+		{                                \
+			if(!(expression))            \
+			{                            \
+				return;                  \
+			}                            \
+		} while(0)
 #endif
 
-#endif   // VK_DEBUG_H_
+#endif  // VK_DEBUG_H_

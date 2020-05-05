@@ -8,8 +8,9 @@
 #include <string>
 
 #include "third_party/boringssl/src/include/openssl/sha.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 
@@ -68,7 +69,8 @@ QuicCryptoServerHandshaker::QuicCryptoServerHandshaker(
       validate_client_hello_cb_(nullptr),
       process_client_hello_cb_(nullptr),
       encryption_established_(false),
-      handshake_confirmed_(false),
+      one_rtt_keys_available_(false),
+      one_rtt_packet_decrypted_(false),
       crypto_negotiated_params_(new QuicCryptoNegotiatedParameters) {}
 
 QuicCryptoServerHandshaker::~QuicCryptoServerHandshaker() {
@@ -98,7 +100,7 @@ void QuicCryptoServerHandshaker::OnHandshakeMessage(
   chlo_packet_size_ = session()->connection()->GetCurrentPacket().length();
 
   // Do not process handshake messages after the handshake is confirmed.
-  if (handshake_confirmed_) {
+  if (one_rtt_keys_available_) {
     stream_->CloseConnectionWithDetails(
         QUIC_CRYPTO_MESSAGE_AFTER_HANDSHAKE_COMPLETE,
         "Unexpected handshake message from client");
@@ -239,7 +241,7 @@ void QuicCryptoServerHandshaker::
         std::move(
             crypto_negotiated_params_->forward_secure_crypters.encrypter));
     encryption_established_ = true;
-    handshake_confirmed_ = true;
+    one_rtt_keys_available_ = true;
     delegate_->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
     delegate_->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
     return;
@@ -263,13 +265,13 @@ void QuicCryptoServerHandshaker::
   }
 
   encryption_established_ = true;
-  handshake_confirmed_ = true;
-  session()->OnCryptoHandshakeEvent(QuicSession::HANDSHAKE_CONFIRMED);
+  one_rtt_keys_available_ = true;
+  session()->OnCryptoHandshakeEvent(QuicSession::EVENT_HANDSHAKE_CONFIRMED);
 }
 
 void QuicCryptoServerHandshaker::SendServerConfigUpdate(
     const CachedNetworkParameters* cached_network_params) {
-  if (!handshake_confirmed_) {
+  if (!one_rtt_keys_available_) {
     return;
   }
 
@@ -325,8 +327,8 @@ void QuicCryptoServerHandshaker::FinishSendServerConfigUpdate(
                 << message.DebugString();
   if (!QuicVersionUsesCryptoFrames(transport_version())) {
     const QuicData& data = message.GetSerialized();
-    stream_->WriteOrBufferData(QuicStringPiece(data.data(), data.length()),
-                               false, nullptr);
+    stream_->WriteOrBufferData(
+        quiche::QuicheStringPiece(data.data(), data.length()), false, nullptr);
   } else {
     SendHandshakeMessage(message);
   }
@@ -364,6 +366,7 @@ void QuicCryptoServerHandshaker::SetPreviousCachedNetworkParams(
 
 void QuicCryptoServerHandshaker::OnPacketDecrypted(EncryptionLevel level) {
   if (level == ENCRYPTION_FORWARD_SECURE) {
+    one_rtt_packet_decrypted_ = true;
     delegate_->NeuterHandshakeData();
   }
 }
@@ -384,7 +387,8 @@ bool QuicCryptoServerHandshaker::GetBase64SHA256ClientChannelID(
   SHA256(reinterpret_cast<const uint8_t*>(channel_id.data()), channel_id.size(),
          digest);
 
-  QuicTextUtils::Base64Encode(digest, QUIC_ARRAYSIZE(digest), output);
+  quiche::QuicheTextUtils::Base64Encode(digest, QUICHE_ARRAYSIZE(digest),
+                                        output);
   return true;
 }
 
@@ -392,8 +396,8 @@ bool QuicCryptoServerHandshaker::encryption_established() const {
   return encryption_established_;
 }
 
-bool QuicCryptoServerHandshaker::handshake_confirmed() const {
-  return handshake_confirmed_;
+bool QuicCryptoServerHandshaker::one_rtt_keys_available() const {
+  return one_rtt_keys_available_;
 }
 
 const QuicCryptoNegotiatedParameters&
@@ -403,6 +407,10 @@ QuicCryptoServerHandshaker::crypto_negotiated_params() const {
 
 CryptoMessageParser* QuicCryptoServerHandshaker::crypto_message_parser() {
   return QuicCryptoHandshaker::crypto_message_parser();
+}
+
+HandshakeState QuicCryptoServerHandshaker::GetHandshakeState() const {
+  return one_rtt_packet_decrypted_ ? HANDSHAKE_COMPLETE : HANDSHAKE_START;
 }
 
 size_t QuicCryptoServerHandshaker::BufferSizeLimitForLevel(
@@ -430,7 +438,7 @@ void QuicCryptoServerHandshaker::ProcessClientHello(
 
   if (num_handshake_messages_ == 1) {
     // Client attempts zero RTT handshake by sending a non-inchoate CHLO.
-    QuicStringPiece public_value;
+    quiche::QuicheStringPiece public_value;
     zero_rtt_attempted_ = message.GetStringPiece(kPUBS, &public_value);
   }
 

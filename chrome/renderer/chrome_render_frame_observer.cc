@@ -15,8 +15,10 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_isolated_world_ids.h"
@@ -29,10 +31,11 @@
 #include "components/crash/core/common/crash_key.h"
 #include "components/offline_pages/buildflags/buildflags.h"
 #include "components/safe_browsing/buildflags.h"
-#include "components/translate/content/renderer/translate_helper.h"
+#include "components/translate/content/renderer/translate_agent.h"
 #include "components/web_cache/renderer/web_cache_impl.h"
 #include "content/public/common/bindings_policy.h"
 #include "content/public/renderer/render_frame.h"
+#include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/window_features_converter.h"
 #include "extensions/common/constants.h"
@@ -67,11 +70,6 @@
 
 #if BUILDFLAG(ENABLE_OFFLINE_PAGES)
 #include "chrome/common/mhtml_page_notifier.mojom.h"
-#endif
-
-#if BUILDFLAG(ENABLE_PRINTING)
-#include "components/printing/common/print_messages.h"
-#include "components/printing/renderer/print_render_frame_helper.h"
 #endif
 
 using blink::WebDocumentLoader;
@@ -136,13 +134,28 @@ SkBitmap Downscale(const SkBitmap& image,
                                        static_cast<int>(scaled_size.height()));
 }
 
+#if defined(OS_ANDROID)
+base::Lock& GetFrameHeaderMapLock() {
+  static base::NoDestructor<base::Lock> s;
+  return *s;
+}
+
+using FrameHeaderMap = std::map<int, std::string>;
+
+FrameHeaderMap& GetFrameHeaderMap() {
+  GetFrameHeaderMapLock().AssertAcquired();
+  static base::NoDestructor<FrameHeaderMap> s;
+  return *s;
+}
+#endif
+
 }  // namespace
 
 ChromeRenderFrameObserver::ChromeRenderFrameObserver(
     content::RenderFrame* render_frame,
     web_cache::WebCacheImpl* web_cache_impl)
     : content::RenderFrameObserver(render_frame),
-      translate_helper_(nullptr),
+      translate_agent_(nullptr),
       phishing_classifier_(nullptr),
       web_cache_impl_(web_cache_impl) {
   render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
@@ -158,12 +171,25 @@ ChromeRenderFrameObserver::ChromeRenderFrameObserver(
   if (!command_line.HasSwitch(switches::kDisableClientSidePhishingDetection))
     SetClientSidePhishingDetection(true);
 #endif
-  translate_helper_ = new translate::TranslateHelper(
+  translate_agent_ = new translate::TranslateAgent(
       render_frame, ISOLATED_WORLD_ID_TRANSLATE, extensions::kExtensionScheme);
 }
 
 ChromeRenderFrameObserver::~ChromeRenderFrameObserver() {
+#if defined(OS_ANDROID)
+  base::AutoLock auto_lock(GetFrameHeaderMapLock());
+  GetFrameHeaderMap().erase(routing_id());
+#endif
 }
+
+#if defined(OS_ANDROID)
+std::string ChromeRenderFrameObserver::GetCCTClientHeader(int render_frame_id) {
+  base::AutoLock auto_lock(GetFrameHeaderMapLock());
+  auto frame_map = GetFrameHeaderMap();
+  auto iter = frame_map.find(render_frame_id);
+  return iter == frame_map.end() ? std::string() : iter->second;
+}
+#endif
 
 void ChromeRenderFrameObserver::OnInterfaceRequestForFrame(
     const std::string& interface_name,
@@ -180,6 +206,8 @@ bool ChromeRenderFrameObserver::OnAssociatedInterfaceRequestForFrame(
 bool ChromeRenderFrameObserver::OnMessageReceived(const IPC::Message& message) {
   // Filter only.
   bool handled = true;
+  // Messages in this message map have multiple handlers. Please do not add more
+  // messages here.
   IPC_BEGIN_MESSAGE_MAP(ChromeRenderFrameObserver, message)
     IPC_MESSAGE_HANDLER(PrerenderMsg_SetIsPrerendering, OnSetIsPrerendering)
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -187,11 +215,10 @@ bool ChromeRenderFrameObserver::OnMessageReceived(const IPC::Message& message) {
   if (handled)
     return false;
 
+  // Normal message handlers. Legacy IPC is deprecated, but leaving this as a
+  // placeholder in case new messages are added before legacy IPC handling is
+  // wholly removed from this class.
   IPC_BEGIN_MESSAGE_MAP(ChromeRenderFrameObserver, message)
-#if BUILDFLAG(ENABLE_PRINTING)
-    IPC_MESSAGE_HANDLER(PrintMsg_PrintNodeUnderContextMenu,
-                        OnPrintNodeUnderContextMenu)
-#endif
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -270,15 +297,6 @@ void ChromeRenderFrameObserver::RequestThumbnailForContextNode(
   std::move(callback).Run(thumbnail_data, original_size);
 }
 
-void ChromeRenderFrameObserver::OnPrintNodeUnderContextMenu() {
-#if BUILDFLAG(ENABLE_PRINTING)
-  printing::PrintRenderFrameHelper* helper =
-      printing::PrintRenderFrameHelper::Get(render_frame());
-  if (helper)
-    helper->PrintNode(render_frame()->GetWebFrame()->ContextMenuNode());
-#endif
-}
-
 void ChromeRenderFrameObserver::GetWebApplicationInfo(
     GetWebApplicationInfoCallback callback) {
   WebLocalFrame* frame = render_frame()->GetWebFrame();
@@ -317,6 +335,13 @@ void ChromeRenderFrameObserver::GetWebApplicationInfo(
 
   std::move(callback).Run(web_app_info);
 }
+
+#if defined(OS_ANDROID)
+void ChromeRenderFrameObserver::SetCCTClientHeader(const std::string& header) {
+  base::AutoLock auto_lock(GetFrameHeaderMapLock());
+  GetFrameHeaderMap()[routing_id()] = header;
+}
+#endif
 
 void ChromeRenderFrameObserver::SetClientSidePhishingDetection(
     bool enable_phishing_detection) {
@@ -388,11 +413,11 @@ void ChromeRenderFrameObserver::ReadyToCommitNavigation(
   if (render_frame()->IsMainFrame() && web_cache_impl_)
     web_cache_impl_->ExecutePendingClearCache();
 
-  // Let translate_helper do any preparatory work for loading a URL.
-  if (!translate_helper_)
+  // Let translate_agent do any preparatory work for loading a URL.
+  if (!translate_agent_)
     return;
 
-  translate_helper_->PrepareForUrl(
+  translate_agent_->PrepareForUrl(
       render_frame()->GetWebFrame()->GetDocument().Url());
 }
 
@@ -466,8 +491,8 @@ void ChromeRenderFrameObserver::CapturePageText(TextCaptureType capture_type) {
 
   // We should run language detection only once. Parsing finishes before
   // the page loads, so let's pick that timing.
-  if (translate_helper_ && capture_type == PRELIMINARY_CAPTURE) {
-    translate_helper_->PageCaptured(contents);
+  if (translate_agent_ && capture_type == PRELIMINARY_CAPTURE) {
+    translate_agent_->PageCaptured(contents);
   }
 
   TRACE_EVENT0("renderer", "ChromeRenderFrameObserver::CapturePageText");

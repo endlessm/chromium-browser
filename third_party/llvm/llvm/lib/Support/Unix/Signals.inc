@@ -345,6 +345,22 @@ static void RemoveFilesToRemove() {
   FileToRemoveList::removeAllFiles(FilesToRemove);
 }
 
+void sys::CleanupOnSignal(uintptr_t Context) {
+  int Sig = (int)Context;
+
+  if (llvm::is_contained(InfoSigs, Sig)) {
+    InfoSignalHandler(Sig);
+    return;
+  }
+
+  RemoveFilesToRemove();
+
+  if (llvm::is_contained(IntSigs, Sig) || Sig == SIGPIPE)
+    return;
+
+  llvm::sys::RunSignalHandlers();
+}
+
 // The signal handler that runs.
 static RETSIGTYPE SignalHandler(int Sig) {
   // Restore the signal behavior to default, so that the program actually
@@ -361,15 +377,15 @@ static RETSIGTYPE SignalHandler(int Sig) {
   {
     RemoveFilesToRemove();
 
+    if (Sig == SIGPIPE)
+      if (auto OldOneShotPipeFunction =
+              OneShotPipeSignalFunction.exchange(nullptr))
+        return OldOneShotPipeFunction();
+
     if (std::find(std::begin(IntSigs), std::end(IntSigs), Sig)
         != std::end(IntSigs)) {
       if (auto OldInterruptFunction = InterruptFunction.exchange(nullptr))
         return OldInterruptFunction();
-
-      if (Sig == SIGPIPE)
-        if (auto OldOneShotPipeFunction =
-                OneShotPipeSignalFunction.exchange(nullptr))
-          return OldOneShotPipeFunction();
 
       raise(Sig);   // Execute the default handler.
       return;

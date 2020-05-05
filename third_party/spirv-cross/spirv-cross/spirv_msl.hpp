@@ -218,11 +218,13 @@ struct MSLConstexprSampler
 
 // Special constant used in a MSLResourceBinding desc_set
 // element to indicate the bindings for the push constants.
-static const uint32_t kPushConstDescSet = ~(0u);
+// Kinda deprecated. Just use ResourceBindingPushConstant{DescriptorSet,Binding} directly.
+static const uint32_t kPushConstDescSet = ResourceBindingPushConstantDescriptorSet;
 
 // Special constant used in a MSLResourceBinding binding
 // element to indicate the bindings for the push constants.
-static const uint32_t kPushConstBinding = 0;
+// Kinda deprecated. Just use ResourceBindingPushConstant{DescriptorSet,Binding} directly.
+static const uint32_t kPushConstBinding = ResourceBindingPushConstantBinding;
 
 // Special constant used in a MSLResourceBinding binding
 // element to indicate the buffer binding for swizzle buffers.
@@ -440,7 +442,7 @@ public:
 	// Constexpr samplers are always assumed to be emitted.
 	// No specific MSLResourceBinding remapping is required for constexpr samplers as long as they are remapped
 	// by remap_constexpr_sampler(_by_binding).
-	bool is_msl_resource_binding_used(spv::ExecutionModel model, uint32_t set, uint32_t binding);
+	bool is_msl_resource_binding_used(spv::ExecutionModel model, uint32_t set, uint32_t binding) const;
 
 	// This must only be called after a successful call to CompilerMSL::compile().
 	// For a variable resource ID obtained through reflection API, report the automatically assigned resource index.
@@ -637,18 +639,29 @@ protected:
 	uint32_t add_interface_block(spv::StorageClass storage, bool patch = false);
 	uint32_t add_interface_block_pointer(uint32_t ib_var_id, spv::StorageClass storage);
 
+	struct InterfaceBlockMeta
+	{
+		struct LocationMeta
+		{
+			uint32_t num_components = 0;
+			uint32_t ib_index = ~0u;
+		};
+		std::unordered_map<uint32_t, LocationMeta> location_meta;
+		bool strip_array = false;
+	};
+
 	void add_variable_to_interface_block(spv::StorageClass storage, const std::string &ib_var_ref, SPIRType &ib_type,
-	                                     SPIRVariable &var, bool strip_array);
+	                                     SPIRVariable &var, InterfaceBlockMeta &meta);
 	void add_composite_variable_to_interface_block(spv::StorageClass storage, const std::string &ib_var_ref,
-	                                               SPIRType &ib_type, SPIRVariable &var, bool strip_array);
+	                                               SPIRType &ib_type, SPIRVariable &var, InterfaceBlockMeta &meta);
 	void add_plain_variable_to_interface_block(spv::StorageClass storage, const std::string &ib_var_ref,
-	                                           SPIRType &ib_type, SPIRVariable &var, bool strip_array);
+	                                           SPIRType &ib_type, SPIRVariable &var, InterfaceBlockMeta &meta);
 	void add_plain_member_variable_to_interface_block(spv::StorageClass storage, const std::string &ib_var_ref,
 	                                                  SPIRType &ib_type, SPIRVariable &var, uint32_t index,
-	                                                  bool strip_array);
+	                                                  InterfaceBlockMeta &meta);
 	void add_composite_member_variable_to_interface_block(spv::StorageClass storage, const std::string &ib_var_ref,
 	                                                      SPIRType &ib_type, SPIRVariable &var, uint32_t index,
-	                                                      bool strip_array);
+	                                                      InterfaceBlockMeta &meta);
 	uint32_t get_accumulated_member_location(const SPIRVariable &var, uint32_t mbr_idx, bool strip_array);
 	void add_tess_level_input_to_interface_block(const std::string &ib_var_ref, SPIRType &ib_type, SPIRVariable &var);
 
@@ -656,7 +669,7 @@ protected:
 
 	void mark_location_as_used_by_shader(uint32_t location, spv::StorageClass storage);
 	uint32_t ensure_correct_builtin_type(uint32_t type_id, spv::BuiltIn builtin);
-	uint32_t ensure_correct_attribute_type(uint32_t type_id, uint32_t location);
+	uint32_t ensure_correct_attribute_type(uint32_t type_id, uint32_t location, uint32_t num_components = 0);
 
 	void emit_custom_templates();
 	void emit_custom_functions();
@@ -774,28 +787,6 @@ protected:
 	std::set<std::string> pragma_lines;
 	std::set<std::string> typedef_lines;
 	SmallVector<uint32_t> vars_needing_early_declaration;
-
-	struct SetBindingPair
-	{
-		uint32_t desc_set;
-		uint32_t binding;
-		bool operator==(const SetBindingPair &other) const;
-		bool operator<(const SetBindingPair &other) const;
-	};
-
-	struct StageSetBinding
-	{
-		spv::ExecutionModel model;
-		uint32_t desc_set;
-		uint32_t binding;
-		bool operator==(const StageSetBinding &other) const;
-	};
-
-	struct InternalHasher
-	{
-		size_t operator()(const SetBindingPair &value) const;
-		size_t operator()(const StageSetBinding &value) const;
-	};
 
 	std::unordered_map<StageSetBinding, std::pair<MSLResourceBinding, bool>, InternalHasher> resource_bindings;
 

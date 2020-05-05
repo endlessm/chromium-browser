@@ -25,9 +25,17 @@ EMCC=`which emcc`
 EMCXX=`which em++`
 EMAR=`which emar`
 
-RELEASE_CONF="-Oz --closure 1 --llvm-lto 3 -DSK_RELEASE --pre-js $BASE_DIR/release.js \
+RELEASE_CONF="-Oz --closure 1 --llvm-lto 1 -DSK_RELEASE --pre-js $BASE_DIR/release.js \
               -DGR_GL_CHECK_ALLOC_WITH_GET_ERROR=0"
 EXTRA_CFLAGS="\"-DSK_RELEASE\", \"-DGR_GL_CHECK_ALLOC_WITH_GET_ERROR=0\","
+
+# Tracing will be disabled in release/profiling unless this flag is seen. Tracing will
+# be on debug builds always.
+if [[ $@ != *force_tracing* ]] ; then
+  RELEASE_CONF+=" -DSK_DISABLE_TRACING"
+  EXTRA_CFLAGS+="\"-DSK_DISABLE_TRACING\","
+fi
+
 if [[ $@ == *debug* ]]; then
   echo "Building a Debug build"
   EXTRA_CFLAGS="\"-DSK_DEBUG\""
@@ -36,14 +44,16 @@ if [[ $@ == *debug* ]]; then
   BUILD_DIR=${BUILD_DIR:="out/canvaskit_wasm_debug"}
 elif [[ $@ == *profiling* ]]; then
   echo "Building a build for profiling"
-  RELEASE_CONF="-O3 --source-map-base /node_modules/canvaskit/bin/ --profiling -g4 -DSK_RELEASE \
-                --pre-js $BASE_DIR/release.js -DGR_GL_CHECK_ALLOC_WITH_GET_ERROR=0"
+  RELEASE_CONF+=" --profiling-funcs --closure 0"
   BUILD_DIR=${BUILD_DIR:="out/canvaskit_wasm_profile"}
 else
   BUILD_DIR=${BUILD_DIR:="out/canvaskit_wasm"}
 fi
 
 mkdir -p $BUILD_DIR
+# sometimes the .a files keep old symbols around - cleaning them out makes sure
+# we get a fresh build.
+rm -f $BUILD_DIR/*.a
 
 GN_GPU="skia_enable_gpu=true skia_gl_standard = \"webgl\""
 GN_GPU_FLAGS="\"-DSK_DISABLE_LEGACY_SHADERCONTEXT\","
@@ -55,6 +65,15 @@ if [[ $@ == *cpu* ]]; then
   GN_GPU="skia_enable_gpu=false"
   GN_GPU_FLAGS=""
   WASM_GPU="-DSK_SUPPORT_GPU=0 --pre-js $BASE_DIR/cpu.js -s USE_WEBGL2=0"
+fi
+
+SKP_JS="--pre-js $BASE_DIR/skp.js"
+GN_SKP_FLAGS=""
+WASM_SKP="-DSK_SERIALIZE_SKP"
+if [[ $@ == *no_skp* ]]; then
+  GN_SKP_FLAGS="\"-DSK_DISABLE_READBUFFER\","
+  WASM_SKP="-DSK_DISABLE_READBUFFER"
+  SKP_JS=""
 fi
 
 SKOTTIE_JS="--pre-js $BASE_DIR/skottie.js"
@@ -72,9 +91,8 @@ fi
 
 MANAGED_SKOTTIE_BINDINGS="\
   -DSK_INCLUDE_MANAGED_SKOTTIE=1 \
-  modules/skottie/utils/SkottieUtils.cpp \
-  modules/skresources/src/SkResources.cpp"
-if [[ $@ == *no_managed_skottie* ]]; then
+  modules/skottie/utils/SkottieUtils.cpp"
+if [[ $@ == *no_managed_skottie* || $@ == *no_skottie* ]]; then
   echo "Omitting managed Skottie"
   MANAGED_SKOTTIE_BINDINGS="-DSK_INCLUDE_MANAGED_SKOTTIE=0"
 fi
@@ -90,6 +108,24 @@ if [[ $@ == *no_particles* ]]; then
   PARTICLES_JS=""
   PARTICLES_BINDINGS=""
   PARTICLES_LIB=""
+fi
+
+if [[ $@ != *no_particles* || $@ != *no_skottie* ]] ; then
+  PARTICLES_BINDINGS+=" modules/skresources/src/SkResources.cpp"
+fi
+
+WASM_PATHOPS="-DSK_INCLUDE_PATHOPS"
+PATHOPS_JS="--pre-js $BASE_DIR/pathops.js"
+if [[ $@ == *no_pathops* ]] ; then
+  WASM_PATHOPS=""
+  PATHOPS_JS=""
+fi
+
+WASM_RT_SHADER="-DSK_INCLUDE_RUNTIME_EFFECT"
+RT_SHADER_JS="--pre-js $BASE_DIR/rt_shader.js"
+if [[ $@ == *no_rt_shader* ]] ; then
+  WASM_RT_SHADER=""
+  RT_SHADER_JS=""
 fi
 
 HTML_CANVAS_API="--pre-js $BASE_DIR/htmlcanvas/preamble.js \
@@ -112,11 +148,13 @@ fi
 GN_FONT="skia_enable_fontmgr_empty=false skia_enable_fontmgr_custom_empty=false"
 FONT_CFLAGS=""
 BUILTIN_FONT="$BASE_DIR/fonts/NotoMono-Regular.ttf.cpp"
+FONT_JS="--pre-js $BASE_DIR/font.js"
 if [[ $@ == *no_font* ]]; then
   echo "Omitting the built-in font(s), font manager and all code dealing with fonts"
   BUILTIN_FONT=""
   FONT_CFLAGS="-DSK_NO_FONTS"
-  GN_FONT="skia_enable_fontmgr_empty=true"
+  FONT_JS=""
+  GN_FONT="skia_enable_fontmgr_empty=true skia_enable_fontmgr_custom_empty=false"
 elif [[ $@ == *no_embedded_font* ]]; then
   echo "Omitting the built-in font(s)"
   BUILTIN_FONT=""
@@ -134,7 +172,7 @@ GN_SHAPER="skia_use_icu=true skia_use_system_icu=false skia_use_harfbuzz=true sk
 SHAPER_LIB="$BUILD_DIR/libharfbuzz.a \
             $BUILD_DIR/libicu.a"
 SHAPER_TARGETS="libharfbuzz.a libicu.a"
-if [[ $@ == *primitive_shaper* ]]; then
+if [[ $@ == *primitive_shaper* ]] || [[ $@ == *no_font* ]]; then
   echo "Using the primitive shaper instead of the harfbuzz/icu one"
   GN_SHAPER="skia_use_icu=false skia_use_harfbuzz=false"
   SHAPER_LIB=""
@@ -146,8 +184,8 @@ PARAGRAPH_LIB="$BUILD_DIR/libskparagraph.a"
 PARAGRAPH_BINDINGS="-DSK_INCLUDE_PARAGRAPH=1 \
   $BASE_DIR/paragraph_bindings.cpp"
 
-if [[ $@ == *no_paragraph* ]] || [[ $@ == *primitive_shaper* ]]; then
-  echo "Omitting paragraph (must also have non-primitive shaper)"
+if [[ $@ == *no_paragraph* ]] || [[ $@ == *primitive_shaper* ]] || [[ $@ == *no_font* ]]; then
+  echo "Omitting paragraph (must have fonts and non-primitive shaper)"
   PARAGRAPH_JS=""
   PARAGRAPH_LIB=""
   PARAGRAPH_BINDINGS=""
@@ -174,10 +212,12 @@ echo "Compiling bitcode"
   cxx=\"${EMCXX}\" \
   ar=\"${EMAR}\" \
   extra_cflags_cc=[\"-frtti\"] \
-  extra_cflags=[\"-s\", \"WARN_UNALIGNED=1\",
-    \"-DSKNX_NO_SIMD\", \"-DSK_DISABLE_AAA\", \"-DSK_DISABLE_READBUFFER\",
+  extra_cflags=[\"-s\", \"WARN_UNALIGNED=1\", \"-s\", \"MAIN_MODULE=1\",
+    \"-DSKNX_NO_SIMD\", \"-DSK_DISABLE_AAA\",
     \"-DSK_DISABLE_EFFECT_DESERIALIZATION\",
+    \"-DSK_FORCE_8_BYTE_ALIGNMENT\",
     ${GN_GPU_FLAGS}
+    ${GN_SKP_FLAGS}
     ${EXTRA_CFLAGS}
   ] \
   is_debug=false \
@@ -185,7 +225,6 @@ echo "Compiling bitcode"
   is_component_build=false \
   werror=true \
   target_cpu=\"wasm\" \
-  use_PIC=false \
   \
   skia_use_angle=false \
   skia_use_dng_sdk=false \
@@ -196,12 +235,13 @@ echo "Compiling bitcode"
   skia_use_libheif=false \
   skia_use_libjpeg_turbo=true \
   skia_use_libpng=true \
-  skia_use_libwebp=false \
+  skia_use_libwebp=true \
   skia_use_lua=false \
   skia_use_piex=false \
-  skia_use_system_libpng=false \
   skia_use_system_freetype2=false \
   skia_use_system_libjpeg_turbo=false \
+  skia_use_system_libpng=false \
+  skia_use_system_libwebp=false \
   skia_use_system_zlib=false\
   skia_use_vulkan=false \
   skia_use_wuffs=true \
@@ -235,11 +275,14 @@ ${EMCXX} \
     -Ithird_party/icu \
     -Ithird_party/skcms \
     -Ithird_party/externals/icu/source/common/ \
-    -DSK_DISABLE_READBUFFER \
     -DSK_DISABLE_AAA \
+    -DSK_FORCE_8_BYTE_ALIGNMENT \
     $WASM_GPU \
+    $WASM_PATHOPS \
+    $WASM_RT_SHADER \
+    $WASM_SKP \
     $FONT_CFLAGS \
-    -std=c++14 \
+    -std=c++17 \
     --bind \
     --pre-js $BASE_DIR/preamble.js \
     --pre-js $BASE_DIR/helper.js \
@@ -247,6 +290,10 @@ ${EMCXX} \
     $PARAGRAPH_JS \
     $SKOTTIE_JS \
     $PARTICLES_JS \
+    $PATHOPS_JS \
+    $FONT_JS \
+    $SKP_JS \
+    $RT_SHADER_JS \
     $HTML_CANVAS_API \
     --pre-js $BASE_DIR/postamble.js \
     --post-js $BASE_DIR/ready.js \
@@ -265,6 +312,7 @@ ${EMCXX} \
     -s ALLOW_MEMORY_GROWTH=1 \
     -s EXPORT_NAME="CanvasKitInit" \
     -s FORCE_FILESYSTEM=0 \
+    -s FILESYSTEM=0 \
     -s MODULARIZE=1 \
     -s NO_EXIT_RUNTIME=1 \
     -s STRICT=1 \

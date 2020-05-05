@@ -3,24 +3,23 @@
 // found in the LICENSE file.
 
 /**
- * @implements {UI.ListDelegate<!Profiler.IsolateSelector.ListItem>}
+ * @implements {UI.ListDelegate<!ListItem>}
  * @implements {SDK.IsolateManager.Observer}
  */
-Profiler.IsolateSelector = class extends UI.VBox {
+export class IsolateSelector extends UI.VBox {
   constructor() {
     super(false);
 
-    /** @type {!UI.ListModel<!Profiler.IsolateSelector.ListItem>} */
+    /** @type {!UI.ListModel<!ListItem>} */
     this._items = new UI.ListModel();
-    /** @type {!UI.ListControl<!Profiler.IsolateSelector.ListItem>} */
+    /** @type {!UI.ListControl<!ListItem>} */
     this._list = new UI.ListControl(this._items, this, UI.ListMode.NonViewport);
-    UI.ARIAUtils.markAsListBox(this._list.element);
     this._list.element.tabIndex = 0;
     this._list.element.classList.add('javascript-vm-instances-list');
     UI.ARIAUtils.setAccessibleName(this._list.element, ls`JavaScript VM instances`);
     this.contentElement.appendChild(this._list.element);
 
-    /** @type {!Map<!SDK.IsolateManager.Isolate, !Profiler.IsolateSelector.ListItem>} */
+    /** @type {!Map<!SDK.IsolateManager.Isolate, !ListItem>} */
     this._itemByIsolate = new Map();
 
     this._totalElement = createElementWithClass('div', 'profile-memory-usage-item hbox');
@@ -31,23 +30,23 @@ Profiler.IsolateSelector = class extends UI.VBox {
     this._totalTrendDiv.title = ls`Total page JS heap size change trend over the last ${trendIntervalMinutes} minutes.`;
     this._totalValueDiv.title = ls`Total page JS heap size across all VM instances.`;
 
-    SDK.isolateManager.observeIsolates(this);
-    SDK.targetManager.addEventListener(SDK.TargetManager.Events.NameChanged, this._targetChanged, this);
-    SDK.targetManager.addEventListener(SDK.TargetManager.Events.InspectedURLChanged, this._targetChanged, this);
+    self.SDK.isolateManager.observeIsolates(this);
+    self.SDK.targetManager.addEventListener(SDK.TargetManager.Events.NameChanged, this._targetChanged, this);
+    self.SDK.targetManager.addEventListener(SDK.TargetManager.Events.InspectedURLChanged, this._targetChanged, this);
   }
 
   /**
    * @override
    */
   wasShown() {
-    SDK.isolateManager.addEventListener(SDK.IsolateManager.Events.MemoryChanged, this._heapStatsChanged, this);
+    self.SDK.isolateManager.addEventListener(SDK.IsolateManager.Events.MemoryChanged, this._heapStatsChanged, this);
   }
 
   /**
    * @override
    */
   willHide() {
-    SDK.isolateManager.removeEventListener(SDK.IsolateManager.Events.MemoryChanged, this._heapStatsChanged, this);
+    self.SDK.isolateManager.removeEventListener(SDK.IsolateManager.Events.MemoryChanged, this._heapStatsChanged, this);
   }
 
   /**
@@ -55,8 +54,8 @@ Profiler.IsolateSelector = class extends UI.VBox {
    * @param {!SDK.IsolateManager.Isolate} isolate
    */
   isolateAdded(isolate) {
-    const item = new Profiler.IsolateSelector.ListItem(isolate);
-    const index = item.model().target() === SDK.targetManager.mainTarget() ? 0 : this._items.length;
+    const item = new ListItem(isolate);
+    const index = item.model().target() === self.SDK.targetManager.mainTarget() ? 0 : this._items.length;
     this._items.insert(index, item);
     this._itemByIsolate.set(isolate, item);
     if (this._items.length === 1) {
@@ -95,7 +94,7 @@ Profiler.IsolateSelector = class extends UI.VBox {
     if (!model) {
       return;
     }
-    const isolate = SDK.isolateManager.isolateByModel(model);
+    const isolate = self.SDK.isolateManager.isolateByModel(model);
     const item = isolate && this._itemByIsolate.get(isolate);
     if (item) {
       item.updateTitle();
@@ -117,12 +116,12 @@ Profiler.IsolateSelector = class extends UI.VBox {
   _updateTotal() {
     let total = 0;
     let trend = 0;
-    for (const isolate of SDK.isolateManager.isolates()) {
+    for (const isolate of self.SDK.isolateManager.isolates()) {
       total += isolate.usedHeapSize();
       trend += isolate.usedHeapSizeGrowRate();
     }
     this._totalValueDiv.textContent = Number.bytesToString(total);
-    Profiler.IsolateSelector._formatTrendElement(trend, this._totalTrendDiv);
+    IsolateSelector._formatTrendElement(trend, this._totalTrendDiv);
   }
 
   /**
@@ -136,9 +135,18 @@ Profiler.IsolateSelector = class extends UI.VBox {
       return;
     }
     const changeRateText = Number.bytesToString(Math.abs(changeRateBytesPerSecond));
-    const changeText = changeRateBytesPerSecond > 0 ? ls`\u2B06${changeRateText}/s` : ls`\u2B07${changeRateText}/s`;
-    element.classList.toggle('increasing', changeRateBytesPerSecond > 0);
+    let changeText, changeLabel;
+    if (changeRateBytesPerSecond > 0) {
+      changeText = ls`\u2B06${changeRateText}/s`;
+      element.classList.toggle('increasing', true);
+      changeLabel = ls`increasing by ${changeRateText} per second`;
+    } else {
+      changeText = ls`\u2B07${changeRateText}/s`;
+      element.classList.toggle('increasing', false);
+      changeLabel = ls`decreasing by ${changeRateText} per second`;
+    }
     element.textContent = changeText;
+    UI.ARIAUtils.setAccessibleName(element, changeLabel);
   }
 
   /**
@@ -150,7 +158,7 @@ Profiler.IsolateSelector = class extends UI.VBox {
 
   /**
    * @override
-   * @param {!Profiler.IsolateSelector.ListItem} item
+   * @param {!ListItem} item
    * @return {!Element}
    */
   createElementForItem(item) {
@@ -159,7 +167,7 @@ Profiler.IsolateSelector = class extends UI.VBox {
 
   /**
    * @override
-   * @param {!Profiler.IsolateSelector.ListItem} item
+   * @param {!ListItem} item
    * @return {number}
    */
   heightForItem(item) {
@@ -167,7 +175,17 @@ Profiler.IsolateSelector = class extends UI.VBox {
 
   /**
    * @override
-   * @param {!Profiler.IsolateSelector.ListItem} item
+   * @param {?Element} fromElement
+   * @param {?Element} toElement
+   * @return {boolean}
+   */
+  updateSelectedItemARIA(fromElement, toElement) {
+    return false;
+  }
+
+  /**
+   * @override
+   * @param {!ListItem} item
    * @return {boolean}
    */
   isItemSelectable(item) {
@@ -176,8 +194,8 @@ Profiler.IsolateSelector = class extends UI.VBox {
 
   /**
    * @override
-   * @param {?Profiler.IsolateSelector.ListItem} from
-   * @param {?Profiler.IsolateSelector.ListItem} to
+   * @param {?ListItem} from
+   * @param {?ListItem} to
    * @param {?Element} fromElement
    * @param {?Element} toElement
    */
@@ -189,17 +207,17 @@ Profiler.IsolateSelector = class extends UI.VBox {
       toElement.classList.add('selected');
     }
     const model = to && to.model();
-    UI.context.setFlavor(SDK.HeapProfilerModel, model && model.heapProfilerModel());
-    UI.context.setFlavor(SDK.CPUProfilerModel, model && model.target().model(SDK.CPUProfilerModel));
+    self.UI.context.setFlavor(SDK.HeapProfilerModel, model && model.heapProfilerModel());
+    self.UI.context.setFlavor(SDK.CPUProfilerModel, model && model.target().model(SDK.CPUProfilerModel));
   }
 
   _update() {
     this._updateTotal();
     this._list.invalidateRange(0, this._items.length);
   }
-};
+}
 
-Profiler.IsolateSelector.ListItem = class {
+export class ListItem {
   /**
    * @param {!SDK.IsolateManager.Isolate} isolate
    */
@@ -225,7 +243,7 @@ Profiler.IsolateSelector.ListItem = class {
 
   updateStats() {
     this._heapDiv.textContent = Number.bytesToString(this._isolate.usedHeapSize());
-    Profiler.IsolateSelector._formatTrendElement(this._isolate.usedHeapSizeGrowRate(), this._trendDiv);
+    IsolateSelector._formatTrendElement(this._isolate.usedHeapSizeGrowRate(), this._trendDiv);
   }
 
   updateTitle() {
@@ -233,7 +251,7 @@ Profiler.IsolateSelector.ListItem = class {
     const modelCountByName = new Map();
     for (const model of this._isolate.models()) {
       const target = model.target();
-      const name = SDK.targetManager.mainTarget() !== target ? target.name() : '';
+      const name = self.SDK.targetManager.mainTarget() !== target ? target.name() : '';
       const parsedURL = new Common.ParsedURL(target.inspectedURL());
       const domain = parsedURL.isValid ? parsedURL.domain() : '';
       const title = target.decorateLabel(domain && name ? `${domain}: ${name}` : name || domain || ls`(empty)`);
@@ -248,6 +266,5 @@ Profiler.IsolateSelector.ListItem = class {
       titleDiv.textContent = title;
       titleDiv.title = title;
     }
-    UI.ARIAUtils.setAccessibleName(this.element, titles.join(' '));
   }
-};
+}

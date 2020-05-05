@@ -17,13 +17,13 @@
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkImagePriv.h"
 #include "src/core/SkMD5.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkOSFile.h"
 #include "src/core/SkScan.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrPersistentCacheUtils.h"
+#include "src/gpu/GrShaderUtils.h"
 #include "src/gpu/ccpr/GrCoverageCountingPathRenderer.h"
 #include "src/utils/SkJSONWriter.h"
 #include "src/utils/SkOSPath.h"
@@ -38,6 +38,7 @@
 #include "tools/viewer/ParticlesSlide.h"
 #include "tools/viewer/SKPSlide.h"
 #include "tools/viewer/SampleSlide.h"
+#include "tools/viewer/SkSLSlide.h"
 #include "tools/viewer/SlideDir.h"
 #include "tools/viewer/SvgSlide.h"
 #include "tools/viewer/Viewer.h"
@@ -95,9 +96,6 @@ static DEFINE_string2(backend, b, "sw", "Backend to use. Allowed values are " BA
 
 static DEFINE_int(msaa, 1, "Number of subpixel samples. 0 for no HW antialiasing.");
 
-static DEFINE_int(internalSamples, 4,
-                  "Number of samples for internal draws that use MSAA or mixed samples.");
-
 static DEFINE_string(bisect, "", "Path to a .skp or .svg file to bisect.");
 
 static DEFINE_string2(file, f, "", "Open a single file for viewing.");
@@ -131,6 +129,7 @@ static DEFINE_int_2(threads, j, -1,
 
 static DEFINE_bool(redraw, false, "Toggle continuous redraw.");
 
+static DEFINE_bool(offscreen, false, "Force rendering to an offscreen surface.");
 
 const char* kBackendTypeStrings[sk_app::Window::kBackendTypeCount] = {
     "OpenGL",
@@ -277,7 +276,8 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
 {
     SkGraphics::Init();
 
-    gPathRendererNames[GpuPathRenderers::kAll] = "All Path Renderers";
+    gPathRendererNames[GpuPathRenderers::kDefault] = "Default Path Renderers";
+    gPathRendererNames[GpuPathRenderers::kGpuTessellation] = "GPU Tessellation";
     gPathRendererNames[GpuPathRenderers::kStencilAndCover] = "NV_path_rendering";
     gPathRendererNames[GpuPathRenderers::kSmall] = "Small paths (cached sdf or alpha masks)";
     gPathRendererNames[GpuPathRenderers::kCoverageCounting] = "CCPR";
@@ -311,7 +311,6 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
             GrContextOptions::ShaderCacheStrategy::kBackendSource;
     displayParams.fGrContextOptions.fShaderErrorHandler = &gShaderErrorHandler;
     displayParams.fGrContextOptions.fSuppressPrints = true;
-    displayParams.fGrContextOptions.fInternalMultisampleCount = FLAGS_internalSamples;
     fWindow->setRequestedDisplayParams(displayParams);
     fRefresh = FLAGS_redraw;
 
@@ -391,6 +390,12 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
                 this->setColorMode(ColorMode::kLegacy);
                 break;
         }
+    });
+    fCommands.addCommand('w', "Modes", "Toggle wireframe", [this]() {
+        DisplayParams params = fWindow->getRequestedDisplayParams();
+        params.fGrContextOptions.fWireframeMode = !params.fGrContextOptions.fWireframeMode;
+        fWindow->setRequestedDisplayParams(params);
+        fWindow->inval();
     });
     fCommands.addCommand(skui::Key::kRight, "Right", "Navigation", "Next slide", [this]() {
         this->setCurrentSlide(fCurrentSlide < fSlides.count() - 1 ? fCurrentSlide + 1 : 0);
@@ -726,6 +731,14 @@ void Viewer::initSlides() {
         }
     }
 
+    // Runtime shader editor
+    {
+        sk_sp<Slide> slide(new SkSLSlide());
+        if (!CommandLineFlags::ShouldSkip(FLAGS_match, slide->getName().c_str())) {
+            fSlides.push_back(std::move(slide));
+        }
+    }
+
     for (const auto& info : gExternalSlidesInfo) {
         for (const auto& flag : info.fFlags) {
             if (SkStrEndsWith(flag.c_str(), info.fExtension)) {
@@ -940,7 +953,7 @@ void Viewer::updateTitle() {
     title.append("]");
 
     GpuPathRenderers pr = fWindow->getRequestedDisplayParams().fGrContextOptions.fGpuPathRenderers;
-    if (GpuPathRenderers::kAll != pr) {
+    if (GpuPathRenderers::kDefault != pr) {
         title.appendf(" [Path renderer: %s]", gPathRendererNames[pr].c_str());
     }
 
@@ -1303,11 +1316,13 @@ void Viewer::drawSlide(SkSurface* surface) {
     // ... in fake perspective or zooming (so we have a snapped copy of the results)
     // ... in any raster mode, because the window surface is actually GL
     // ... in any color managed mode, because we always make the window surface with no color space
+    // ... or if the user explicitly requested offscreen rendering
     sk_sp<SkSurface> offscreenSurface = nullptr;
     if (kPerspective_Fake == fPerspectiveMode ||
         fShowZoomWindow ||
         Window::kRaster_BackendType == fBackendType ||
-        colorSpace != nullptr) {
+        colorSpace != nullptr ||
+        FLAGS_offscreen) {
 
         offscreenSurface = make_surface(fWindow->width(), fWindow->height());
         slideSurface = offscreenSurface.get();
@@ -1693,20 +1708,23 @@ void Viewer::drawImGui() {
 
                     if (!ctx) {
                         ImGui::RadioButton("Software", true);
-                    } else if (fWindow->sampleCount() > 1) {
-                        prButton(GpuPathRenderers::kAll);
-                        if (ctx->priv().caps()->shaderCaps()->pathRenderingSupport()) {
-                            prButton(GpuPathRenderers::kStencilAndCover);
-                        }
-                        prButton(GpuPathRenderers::kTessellating);
-                        prButton(GpuPathRenderers::kNone);
                     } else {
-                        prButton(GpuPathRenderers::kAll);
-                        if (GrCoverageCountingPathRenderer::IsSupported(
-                                    *ctx->priv().caps())) {
-                            prButton(GpuPathRenderers::kCoverageCounting);
+                        const auto* caps = ctx->priv().caps();
+                        prButton(GpuPathRenderers::kDefault);
+                        if (fWindow->sampleCount() > 1 || caps->mixedSamplesSupport()) {
+                            if (caps->shaderCaps()->tessellationSupport()) {
+                                prButton(GpuPathRenderers::kGpuTessellation);
+                            }
+                            if (caps->shaderCaps()->pathRenderingSupport()) {
+                                prButton(GpuPathRenderers::kStencilAndCover);
+                            }
                         }
-                        prButton(GpuPathRenderers::kSmall);
+                        if (1 == fWindow->sampleCount()) {
+                            if (GrCoverageCountingPathRenderer::IsSupported(*caps)) {
+                                prButton(GpuPathRenderers::kCoverageCounting);
+                            }
+                            prButton(GpuPathRenderers::kSmall);
+                        }
                         prButton(GpuPathRenderers::kTessellating);
                         prButton(GpuPathRenderers::kNone);
                     }
@@ -2207,7 +2225,10 @@ void Viewer::drawImGui() {
         ImGui::Begin("Shader Errors");
         for (int i = 0; i < gShaderErrorHandler.fErrors.count(); ++i) {
             ImGui::TextWrapped("%s", gShaderErrorHandler.fErrors[i].c_str());
-            ImGui::TextWrapped("%s", gShaderErrorHandler.fShaders[i].c_str());
+            SkSL::String sksl(gShaderErrorHandler.fShaders[i].c_str());
+            GrShaderUtils::VisitLineByLine(sksl, [](int lineNumber, const char* lineText) {
+                ImGui::TextWrapped("%4i\t%s\n", lineNumber, lineText);
+            });
         }
         ImGui::End();
         gShaderErrorHandler.reset();
@@ -2355,23 +2376,26 @@ void Viewer::updateUIState() {
                 writer.appendString("Software");
             } else {
                 const auto* caps = ctx->priv().caps();
-
-                writer.appendString(gPathRendererNames[GpuPathRenderers::kAll].c_str());
-                if (fWindow->sampleCount() > 1) {
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kDefault].c_str());
+                if (fWindow->sampleCount() > 1 || caps->mixedSamplesSupport()) {
+                    if (caps->shaderCaps()->tessellationSupport()) {
+                        writer.appendString(
+                                gPathRendererNames[GpuPathRenderers::kGpuTessellation].c_str());
+                    }
                     if (caps->shaderCaps()->pathRenderingSupport()) {
                         writer.appendString(
-                            gPathRendererNames[GpuPathRenderers::kStencilAndCover].c_str());
+                                gPathRendererNames[GpuPathRenderers::kStencilAndCover].c_str());
                     }
-                } else {
+                }
+                if (1 == fWindow->sampleCount()) {
                     if(GrCoverageCountingPathRenderer::IsSupported(*caps)) {
                         writer.appendString(
                             gPathRendererNames[GpuPathRenderers::kCoverageCounting].c_str());
                     }
                     writer.appendString(gPathRendererNames[GpuPathRenderers::kSmall].c_str());
                 }
-                    writer.appendString(
-                        gPathRendererNames[GpuPathRenderers::kTessellating].c_str());
-                    writer.appendString(gPathRendererNames[GpuPathRenderers::kNone].c_str());
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kTessellating].c_str());
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kNone].c_str());
             }
         });
 

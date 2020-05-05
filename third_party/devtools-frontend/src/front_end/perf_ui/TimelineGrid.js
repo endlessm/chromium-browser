@@ -31,7 +31,7 @@
 /**
  * @unrestricted
  */
-PerfUI.TimelineGrid = class {
+export class TimelineGrid {
   constructor() {
     this.element = createElement('div');
     UI.appendStyle(this.element, 'perf_ui/timelineGrid.css');
@@ -46,7 +46,7 @@ PerfUI.TimelineGrid = class {
   }
 
   /**
-   * @param {!PerfUI.TimelineGrid.Calculator} calculator
+   * @param {!Calculator} calculator
    * @param {number=} freeZoneAtLeft
    * @return {!PerfUI.TimelineGrid.DividersData}
    */
@@ -105,7 +105,8 @@ PerfUI.TimelineGrid = class {
     context.save();
     context.scale(window.devicePixelRatio, window.devicePixelRatio);
     const height = Math.floor(context.canvas.height / window.devicePixelRatio);
-    context.strokeStyle = UI.themeSupport.patchColorText('rgba(0, 0, 0, 0.1)', UI.ThemeSupport.ColorUsage.Foreground);
+    context.strokeStyle =
+        self.UI.themeSupport.patchColorText('rgba(0, 0, 0, 0.1)', UI.ThemeSupport.ColorUsage.Foreground);
     context.lineWidth = 1;
 
     context.translate(0.5, 0.5);
@@ -133,10 +134,10 @@ PerfUI.TimelineGrid = class {
 
     context.beginPath();
     context.fillStyle =
-        UI.themeSupport.patchColorText('rgba(255, 255, 255, 0.5)', UI.ThemeSupport.ColorUsage.Background);
+        self.UI.themeSupport.patchColorText('rgba(255, 255, 255, 0.5)', UI.ThemeSupport.ColorUsage.Background);
     context.fillRect(0, 0, width, headerHeight);
 
-    context.fillStyle = UI.themeSupport.patchColorText('#333', UI.ThemeSupport.ColorUsage.Foreground);
+    context.fillStyle = self.UI.themeSupport.patchColorText('#333', UI.ThemeSupport.ColorUsage.Foreground);
     context.textBaseline = 'hanging';
     context.font = '11px ' + Host.fontFamily();
 
@@ -166,12 +167,12 @@ PerfUI.TimelineGrid = class {
   }
 
   /**
-   * @param {!PerfUI.TimelineGrid.Calculator} calculator
+   * @param {!Calculator} calculator
    * @param {number=} freeZoneAtLeft
    * @return {boolean}
    */
   updateDividers(calculator, freeZoneAtLeft) {
-    const dividersData = PerfUI.TimelineGrid.calculateGridOffsets(calculator, freeZoneAtLeft);
+    const dividersData = TimelineGrid.calculateGridOffsets(calculator, freeZoneAtLeft);
     const dividerOffsets = dividersData.offsets;
     const precision = dividersData.precision;
 
@@ -267,39 +268,39 @@ PerfUI.TimelineGrid = class {
     this._dividersLabelBarElement.style.top = scrollTop + 'px';
     this._eventDividersElement.style.top = scrollTop + 'px';
   }
-};
-
-/** @typedef {!{offsets: !Array<!{position: number, time: number}>, precision: number}} */
-PerfUI.TimelineGrid.DividersData;
+}
 
 /**
  * @interface
  */
-PerfUI.TimelineGrid.Calculator = function() {};
-
-PerfUI.TimelineGrid.Calculator.prototype = {
+export class Calculator {
   /**
    * @param {number} time
    * @return {number}
    */
-  computePosition(time) {},
+  computePosition(time) {
+  }
 
   /**
    * @param {number} time
    * @param {number=} precision
    * @return {string}
    */
-  formatValue(time, precision) {},
+  formatValue(time, precision) {
+  }
 
   /** @return {number} */
-  minimumBoundary() {},
+  minimumBoundary() {
+  }
 
   /** @return {number} */
-  zeroTime() {},
+  zeroTime() {
+  }
 
   /** @return {number} */
-  maximumBoundary() {},
+  maximumBoundary() {
+  }
 
   /** @return {number} */
   boundarySpan() {}
-};
+}

@@ -211,10 +211,11 @@ enum DescriptionLevel {
 
 /// Script interpreter types.
 enum ScriptLanguage {
-  eScriptLanguageNone,
+  eScriptLanguageNone = 0,
   eScriptLanguagePython,
-  eScriptLanguageDefault = eScriptLanguagePython,
-  eScriptLanguageUnknown
+  eScriptLanguageLua,
+  eScriptLanguageUnknown,
+  eScriptLanguageDefault = eScriptLanguagePython
 };
 
 /// Register numbering types.
@@ -589,6 +590,7 @@ enum CommandArgumentType {
   eArgTypeWatchType,
   eArgRawInput,
   eArgTypeCommand,
+  eArgTypeColumnNum,
   eArgTypeLastArg // Always keep this entry as the last entry in this
                   // enumeration!!
 };
@@ -691,6 +693,8 @@ enum SectionType {
   eSectionTypeDWARFDebugStrOffsetsDwo,
   eSectionTypeDWARFDebugTypesDwo,
   eSectionTypeDWARFDebugRngListsDwo,
+  eSectionTypeDWARFDebugLocDwo,
+  eSectionTypeDWARFDebugLocListsDwo,
 };
 
 FLAGS_ENUM(EmulateInstructionOptions){

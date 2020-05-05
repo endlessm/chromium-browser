@@ -32,17 +32,14 @@
 namespace autofill {
 class AutofillProfile;
 class CreditCard;
+struct FormData;
+struct FormFieldData;
 }  // namespace autofill
 
 namespace content {
 class WebContents;
 class RenderFrameHost;
 }  // namespace content
-
-namespace autofill {
-struct FormData;
-struct FormFieldData;
-}  // namespace autofill
 
 namespace autofill_assistant {
 struct ClientSettings;
@@ -96,6 +93,15 @@ class WebController {
       const Selector& selector,
       base::OnceCallback<void(const ClientStatus&)> callback);
 
+  // Return |FormData| and |FormFieldData| for the element identified with
+  // |selector|. The result is returned asynchronously through |callback|.
+  virtual void RetrieveElementFormAndFieldData(
+      const Selector& selector,
+      base::OnceCallback<void(const ClientStatus&,
+                              const autofill::FormData& form_data,
+                              const autofill::FormFieldData& field_data)>
+          callback);
+
   // Select the option given by |selector| and the value of the option to be
   // picked.
   virtual void SelectOption(
@@ -126,13 +132,12 @@ class WebController {
           callback);
 
   // Set the |value| of field |selector| and return the result through
-  // |callback|. If |simulate_key_presses| is true, the value will be set by
-  // clicking the field and then simulating key presses, otherwise the `value`
-  // attribute will be set directly.
+  // |callback|. The strategy used to fill the value is defined by
+  // |fill_strategy|, see the proto for further explanation.
   virtual void SetFieldValue(
       const Selector& selector,
       const std::string& value,
-      bool simulate_key_presses,
+      KeyboardValueFillStrategy fill_strategy,
       int key_press_delay_in_millisecond,
       base::OnceCallback<void(const ClientStatus&)> callback);
 
@@ -155,6 +160,12 @@ class WebController {
 
   // Return the outerHTML of |selector|.
   virtual void GetOuterHtml(
+      const Selector& selector,
+      base::OnceCallback<void(const ClientStatus&, const std::string&)>
+          callback);
+
+  // Return the tag of |selector|.
+  virtual void GetElementTag(
       const Selector& selector,
       base::OnceCallback<void(const ClientStatus&, const std::string&)>
           callback);
@@ -305,6 +316,21 @@ class WebController {
       content::RenderFrameHost* container_frame_host,
       const autofill::FormData& form_data,
       const autofill::FormFieldData& form_field);
+  void OnFindElementToRetrieveFormAndFieldData(
+      const Selector& selector,
+      base::OnceCallback<void(const ClientStatus&,
+                              const autofill::FormData& form_data,
+                              const autofill::FormFieldData& form_field)>
+          callback,
+      const ClientStatus& status,
+      std::unique_ptr<ElementFinder::Result> element_result);
+  void OnGetFormAndFieldDataForRetrieving(
+      base::OnceCallback<void(const ClientStatus&,
+                              const autofill::FormData& form_data,
+                              const autofill::FormFieldData& form_field)>
+          callback,
+      const autofill::FormData& form_data,
+      const autofill::FormFieldData& form_field);
   void OnFindElementForFocusElement(
       const TopPadding& top_padding,
       base::OnceCallback<void(const ClientStatus&)> callback,
@@ -344,22 +370,33 @@ class WebController {
           callback,
       const DevtoolsClient::ReplyStatus& reply_status,
       std::unique_ptr<runtime::CallFunctionOnResult> result);
-  void InternalSetFieldValue(
-      const Selector& selector,
-      const std::string& value,
-      base::OnceCallback<void(const ClientStatus&)> callback);
   void OnClearFieldForSendKeyboardInput(
       const Selector& selector,
       const std::vector<UChar32>& codepoints,
       int key_press_delay_in_millisecond,
       base::OnceCallback<void(const ClientStatus&)> callback,
-      const ClientStatus& status);
-  void OnClickElementForSendKeyboardInput(
-      const std::string& node_frame_id,
+      const ClientStatus& clear_status);
+  void SelectFieldValueForReplace(
+      const Selector& selector,
+      base::OnceCallback<void(std::unique_ptr<ElementFinder::Result>,
+                              const ClientStatus&)> callback);
+  void OnFindElementForSelectValue(
+      base::OnceCallback<void(std::unique_ptr<ElementFinder::Result>,
+                              const ClientStatus&)> callback,
+      const ClientStatus& element_status,
+      std::unique_ptr<ElementFinder::Result> element_result);
+  void OnSelectFieldValueForDispatchKeys(
+      std::unique_ptr<ElementFinder::Result> element_result,
+      base::OnceCallback<void(std::unique_ptr<ElementFinder::Result>,
+                              const ClientStatus&)> callback,
+      const DevtoolsClient::ReplyStatus& reply_status,
+      std::unique_ptr<runtime::CallFunctionOnResult> result);
+  void OnFieldValueSelectedForDispatchKeys(
       const std::vector<UChar32>& codepoints,
-      int delay_in_milli,
+      int key_press_delay_in_millisecond,
       base::OnceCallback<void(const ClientStatus&)> callback,
-      const ClientStatus& click_status);
+      std::unique_ptr<ElementFinder::Result> element_result,
+      const ClientStatus& select_status);
   void DispatchKeyboardTextDownEvent(
       const std::string& node_frame_id,
       const std::vector<UChar32>& codepoints,
@@ -373,6 +410,19 @@ class WebController {
       size_t index,
       int delay_in_milli,
       base::OnceCallback<void(const ClientStatus&)> callback);
+  void InternalSetFieldValue(
+      const Selector& selector,
+      const std::string& value,
+      base::OnceCallback<void(const ClientStatus&)> callback);
+  void OnFindElementForSetFieldValue(
+      const std::string& value,
+      base::OnceCallback<void(const ClientStatus&)> callback,
+      const ClientStatus& status,
+      std::unique_ptr<ElementFinder::Result> element_result);
+  void OnSetValueAttribute(
+      base::OnceCallback<void(const ClientStatus&)> callback,
+      const DevtoolsClient::ReplyStatus& reply_status,
+      std::unique_ptr<runtime::CallFunctionOnResult> result);
   void OnFindElementForSetAttribute(
       const std::vector<std::string>& attribute,
       const std::string& value,
@@ -389,15 +439,12 @@ class WebController {
       base::OnceCallback<void(const ClientStatus&)> callback,
       const ClientStatus& status,
       std::unique_ptr<ElementFinder::Result> element_result);
-  void OnFindElementForSetFieldValue(
-      const std::string& value,
+  void OnClickElementForSendKeyboardInput(
+      const std::string& node_frame_id,
+      const std::vector<UChar32>& codepoints,
+      int delay_in_milli,
       base::OnceCallback<void(const ClientStatus&)> callback,
-      const ClientStatus& status,
-      std::unique_ptr<ElementFinder::Result> element_result);
-  void OnSetValueAttribute(
-      base::OnceCallback<void(const ClientStatus&)> callback,
-      const DevtoolsClient::ReplyStatus& reply_status,
-      std::unique_ptr<runtime::CallFunctionOnResult> result);
+      const ClientStatus& click_status);
   void OnFindElementForGetOuterHtml(
       base::OnceCallback<void(const ClientStatus&, const std::string&)>
           callback,
@@ -407,6 +454,15 @@ class WebController {
                                               const std::string&)> callback,
                       const DevtoolsClient::ReplyStatus& reply_status,
                       std::unique_ptr<runtime::CallFunctionOnResult> result);
+  void OnFindElementForGetElementTag(
+      base::OnceCallback<void(const ClientStatus&, const std::string&)>
+          callback,
+      const ClientStatus& status,
+      std::unique_ptr<ElementFinder::Result> element_result);
+  void OnGetElementTag(base::OnceCallback<void(const ClientStatus&,
+                                               const std::string&)> callback,
+                       const DevtoolsClient::ReplyStatus& reply_status,
+                       std::unique_ptr<runtime::CallFunctionOnResult> result);
   void OnFindElementForPosition(
       base::OnceCallback<void(bool, const RectF&)> callback,
       const ClientStatus& status,

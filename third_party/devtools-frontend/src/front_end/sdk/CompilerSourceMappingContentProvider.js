@@ -27,14 +27,17 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import * as Common from '../common/common.js';
+
 /**
- * @implements {Common.ContentProvider}
+ * @implements {Common.ContentProvider.ContentProvider}
  * @unrestricted
  */
 export class CompilerSourceMappingContentProvider {
   /**
    * @param {string} sourceURL
-   * @param {!Common.ResourceType} contentType
+   * @param {!Common.ResourceType.ResourceType} contentType
    */
   constructor(sourceURL, contentType) {
     this._sourceURL = sourceURL;
@@ -51,7 +54,7 @@ export class CompilerSourceMappingContentProvider {
 
   /**
    * @override
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   contentType() {
     return this._contentType;
@@ -71,17 +74,10 @@ export class CompilerSourceMappingContentProvider {
    */
   requestContent() {
     return new Promise(resolve => {
-      SDK.multitargetNetworkManager.loadResource(
-          this._sourceURL,
-          /**
-         * @param {number} statusCode
-         * @param {!Object.<string, string>} _headers (unused)
-         * @param {string} content
-         * @this {SDK.CompilerSourceMappingContentProvider}
-         */
-          (statusCode, _headers, content) => {
-            if (statusCode >= 400) {
-              const error = ls`Could not load content for ${this._sourceURL} : HTTP status code: ${statusCode}`;
+      self.SDK.multitargetNetworkManager.loadResource(
+          this._sourceURL, (success, _headers, content, errorDescription) => {
+            if (!success) {
+              const error = ls`Could not load content for ${this._sourceURL} (${errorDescription.message})`;
               console.error(error);
               resolve({error, isEncoded: false});
             } else {
@@ -106,12 +102,3 @@ export class CompilerSourceMappingContentProvider {
     return Common.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex);
   }
 }
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.CompilerSourceMappingContentProvider = CompilerSourceMappingContentProvider;

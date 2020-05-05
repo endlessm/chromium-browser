@@ -2,11 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {BottomUpProfileDataGridTree} from './BottomUpProfileDataGrid.js';
+import {CPUProfileFlameChart, ProfileFlameChartDataProvider} from './CPUProfileFlameChart.js';  // eslint-disable-line no-unused-vars
+import {Formatter, ProfileDataGridNode, ProfileDataGridTree} from './ProfileDataGrid.js';  // eslint-disable-line no-unused-vars
+import {DataDisplayDelegate, Events, ProfileHeader, ProfileType} from './ProfileHeader.js';  // eslint-disable-line no-unused-vars
+import {ProfileSidebarTreeElement} from './ProfileSidebarTreeElement.js';
+import {TopDownProfileDataGridTree} from './TopDownProfileDataGrid.js';
+
 /**
  * @implements {UI.Searchable}
  * @unrestricted
  */
-Profiler.ProfileView = class extends UI.SimpleView {
+export class ProfileView extends UI.SimpleView {
   constructor() {
     super(Common.UIString('Profile'));
 
@@ -16,7 +23,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
     this._searchableView.setPlaceholder(Common.UIString('Find by cost (>50ms), name or file'));
     this._searchableView.show(this.element);
 
-    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([]);
+    const columns = /** @type {!Array<!DataGrid.ColumnDescriptor>} */ ([]);
     columns.push({
       id: 'self',
       title: this.columnHeader('self'),
@@ -28,7 +35,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
     columns.push({id: 'total', title: this.columnHeader('total'), width: '120px', fixedWidth: true, sortable: true});
     columns.push({id: 'function', title: Common.UIString('Function'), disclosure: true, sortable: true});
 
-    this.dataGrid = new DataGrid.DataGrid(columns);
+    this.dataGrid = new DataGrid.DataGrid({displayName: ls`Profiler`, columns});
     this.dataGrid.addEventListener(DataGrid.DataGrid.Events.SortingChanged, this._sortProfile, this);
     this.dataGrid.addEventListener(DataGrid.DataGrid.Events.SelectedNode, this._nodeSelected.bind(this, true));
     this.dataGrid.addEventListener(DataGrid.DataGrid.Events.DeselectedNode, this._nodeSelected.bind(this, false));
@@ -48,7 +55,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
     this.resetButton.setEnabled(false);
     this.resetButton.addEventListener(UI.ToolbarButton.Events.Click, this._resetClicked, this);
 
-    this._linkifier = new Components.Linkifier(Profiler.ProfileView._maxLinkLength);
+    this._linkifier = new Components.Linkifier(maxLinkLength);
   }
 
   /**
@@ -84,23 +91,21 @@ Profiler.ProfileView = class extends UI.SimpleView {
   }
 
   /**
-   * @param {!Profiler.ProfileDataGridNode.Formatter} nodeFormatter
+   * @param {!Formatter} nodeFormatter
    * @param {!Array<string>=} viewTypes
    * @protected
    */
   initialize(nodeFormatter, viewTypes) {
     this._nodeFormatter = nodeFormatter;
 
-    this._viewType = Common.settings.createSetting('profileView', Profiler.ProfileView.ViewTypes.Heavy);
-    viewTypes = viewTypes || [
-      Profiler.ProfileView.ViewTypes.Flame, Profiler.ProfileView.ViewTypes.Heavy, Profiler.ProfileView.ViewTypes.Tree
-    ];
+    this._viewType = self.Common.settings.createSetting('profileView', ViewTypes.Heavy);
+    viewTypes = viewTypes || [ViewTypes.Flame, ViewTypes.Heavy, ViewTypes.Tree];
 
     const optionNames = new Map([
-      [Profiler.ProfileView.ViewTypes.Flame, ls`Chart`],
-      [Profiler.ProfileView.ViewTypes.Heavy, ls`Heavy (Bottom Up)`],
-      [Profiler.ProfileView.ViewTypes.Tree, ls`Tree (Top Down)`],
-      [Profiler.ProfileView.ViewTypes.Text, ls`Text (Top Down)`],
+      [ViewTypes.Flame, ls`Chart`],
+      [ViewTypes.Heavy, ls`Heavy (Bottom Up)`],
+      [ViewTypes.Tree, ls`Tree (Top Down)`],
+      [ViewTypes.Text, ls`Text (Top Down)`],
     ]);
 
     const options =
@@ -147,29 +152,29 @@ Profiler.ProfileView = class extends UI.SimpleView {
 
   /**
    * @override
-   * @return {!Array<!UI.ToolbarItem>}
+   * @return {!Promise<!Array<!UI.ToolbarItem>>}
    */
-  syncToolbarItems() {
+  async toolbarItems() {
     return [this.viewSelectComboBox, this.focusButton, this.excludeButton, this.resetButton];
   }
 
   /**
-   * @return {!Profiler.ProfileDataGridTree}
+   * @return {!ProfileDataGridTree}
    */
   _getBottomUpProfileDataGridTree() {
     if (!this._bottomUpProfileDataGridTree) {
-      this._bottomUpProfileDataGridTree = new Profiler.BottomUpProfileDataGridTree(
+      this._bottomUpProfileDataGridTree = new BottomUpProfileDataGridTree(
           this._nodeFormatter, this._searchableView, this._profile.root, this.adjustedTotal);
     }
     return this._bottomUpProfileDataGridTree;
   }
 
   /**
-   * @return {!Profiler.ProfileDataGridTree}
+   * @return {!ProfileDataGridTree}
    */
   _getTopDownProfileDataGridTree() {
     if (!this._topDownProfileDataGridTree) {
-      this._topDownProfileDataGridTree = new Profiler.TopDownProfileDataGridTree(
+      this._topDownProfileDataGridTree = new TopDownProfileDataGridTree(
           this._nodeFormatter, this._searchableView, this._profile.root, this.adjustedTotal);
     }
     return this._topDownProfileDataGridTree;
@@ -180,7 +185,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
    * @param {!DataGrid.DataGridNode} gridNode
    */
   _populateContextMenu(contextMenu, gridNode) {
-    const node = /** @type {!Profiler.ProfileDataGridNode} */ (gridNode);
+    const node = /** @type {!ProfileDataGridNode} */ (gridNode);
     if (node.linkElement && !contextMenu.containsTarget(node.linkElement)) {
       contextMenu.appendApplicableItems(node.linkElement);
     }
@@ -298,7 +303,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
   }
 
   /**
-   * @return {!PerfUI.FlameChartDataProvider}
+   * @return {!ProfileFlameChartDataProvider}
    */
   createFlameChartDataProvider() {
     throw 'Not implemented';
@@ -309,7 +314,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
       return;
     }
     this._dataProvider = this.createFlameChartDataProvider();
-    this._flameChart = new Profiler.CPUProfileFlameChart(this._searchableView, this._dataProvider);
+    this._flameChart = new CPUProfileFlameChart(this._searchableView, this._dataProvider);
     this._flameChart.addEventListener(PerfUI.FlameChart.Events.EntryInvoked, this._onEntryInvoked.bind(this));
   }
 
@@ -329,7 +334,7 @@ Profiler.ProfileView = class extends UI.SimpleView {
     }
     const location = /** @type {!SDK.DebuggerModel.Location} */ (
         debuggerModel.createRawLocation(script, node.lineNumber, node.columnNumber));
-    Common.Revealer.reveal(Bindings.debuggerWorkspaceBinding.rawLocationToUILocation(location));
+    Common.Revealer.reveal(self.Bindings.debuggerWorkspaceBinding.rawLocationToUILocation(location));
   }
 
   _changeView() {
@@ -345,31 +350,31 @@ Profiler.ProfileView = class extends UI.SimpleView {
 
     this._viewType.set(this.viewSelectComboBox.selectedOption().value);
     switch (this._viewType.get()) {
-      case Profiler.ProfileView.ViewTypes.Flame:
+      case ViewTypes.Flame:
         this._ensureFlameChartCreated();
         this._visibleView = this._flameChart;
         this._searchableElement = this._flameChart;
         break;
-      case Profiler.ProfileView.ViewTypes.Tree:
+      case ViewTypes.Tree:
         this.profileDataGridTree = this._getTopDownProfileDataGridTree();
         this._sortProfile();
         this._visibleView = this.dataGrid.asWidget();
         this._searchableElement = this.profileDataGridTree;
         break;
-      case Profiler.ProfileView.ViewTypes.Heavy:
+      case ViewTypes.Heavy:
         this.profileDataGridTree = this._getBottomUpProfileDataGridTree();
         this._sortProfile();
         this._visibleView = this.dataGrid.asWidget();
         this._searchableElement = this.profileDataGridTree;
         break;
-      case Profiler.ProfileView.ViewTypes.Text:
+      case ViewTypes.Text:
         this._ensureTextViewCreated();
         this._visibleView = this._textView;
         this._searchableElement = this._textView;
         break;
     }
 
-    const isFlame = this._viewType.get() === Profiler.ProfileView.ViewTypes.Flame;
+    const isFlame = this._viewType.get() === ViewTypes.Flame;
     this.focusButton.setVisible(!isFlame);
     this.excludeButton.setVisible(!isFlame);
     this.resetButton.setVisible(!isFlame);
@@ -434,31 +439,30 @@ Profiler.ProfileView = class extends UI.SimpleView {
     const sortAscending = this.dataGrid.isSortOrderAscending();
     const sortColumnId = this.dataGrid.sortColumnId();
     const sortProperty = sortColumnId === 'function' ? 'functionName' : sortColumnId || '';
-    this.profileDataGridTree.sort(Profiler.ProfileDataGridTree.propertyComparator(sortProperty, sortAscending));
+    this.profileDataGridTree.sort(ProfileDataGridTree.propertyComparator(sortProperty, sortAscending));
 
     this.refresh();
   }
-};
+}
 
-Profiler.ProfileView._maxLinkLength = 30;
+export const maxLinkLength = 30;
 
 /** @enum {string} */
-Profiler.ProfileView.ViewTypes = {
+export const ViewTypes = {
   Flame: 'Flame',
   Tree: 'Tree',
   Heavy: 'Heavy',
   Text: 'Text'
 };
 
-
 /**
  * @implements {Common.OutputStream}
  * @unrestricted
  */
-Profiler.WritableProfileHeader = class extends Profiler.ProfileHeader {
+export class WritableProfileHeader extends ProfileHeader {
   /**
    * @param {?SDK.DebuggerModel} debuggerModel
-   * @param {!Profiler.ProfileType} type
+   * @param {!ProfileType} type
    * @param {string=} title
    */
   constructor(debuggerModel, type, title) {
@@ -505,11 +509,11 @@ Profiler.WritableProfileHeader = class extends Profiler.ProfileHeader {
 
   /**
    * @override
-   * @param {!Profiler.ProfileType.DataDisplayDelegate} panel
-   * @return {!Profiler.ProfileSidebarTreeElement}
+   * @param {!DataDisplayDelegate} panel
+   * @return {!ProfileSidebarTreeElement}
    */
   createSidebarTreeElement(panel) {
-    return new Profiler.ProfileSidebarTreeElement(panel, this, 'profile-sidebar-tree-item');
+    return new ProfileSidebarTreeElement(panel, this, 'profile-sidebar-tree-item');
   }
 
   /**
@@ -581,7 +585,7 @@ Profiler.WritableProfileHeader = class extends Profiler.ProfileHeader {
     this._tempFile = new Bindings.TempFile();
     this._tempFile.write([JSON.stringify(profile)]);
     if (this.canSaveToFile()) {
-      this.dispatchEventToListeners(Profiler.ProfileHeader.Events.ProfileReceived);
+      this.dispatchEventToListeners(Events.ProfileReceived);
     }
   }
-};
+}

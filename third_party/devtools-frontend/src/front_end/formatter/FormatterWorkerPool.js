@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+
 const MaxWorkers = 2;
 
 /**
@@ -10,15 +12,15 @@ const MaxWorkers = 2;
 export class FormatterWorkerPool {
   constructor() {
     this._taskQueue = [];
-    /** @type {!Map<!Common.Worker, ?Task>} */
+    /** @type {!Map<!Common.Worker.WorkerWrapper, ?Task>} */
     this._workerTasks = new Map();
   }
 
   /**
-   * @return {!Common.Worker}
+   * @return {!Common.Worker.WorkerWrapper}
    */
   _createWorker() {
-    const worker = new Common.Worker('formatter_worker');
+    const worker = new Common.Worker.WorkerWrapper('formatter_worker_entrypoint');
     worker.onmessage = this._onWorkerMessage.bind(this, worker);
     worker.onerror = this._onWorkerError.bind(this, worker);
     return worker;
@@ -43,7 +45,7 @@ export class FormatterWorkerPool {
   }
 
   /**
-   * @param {!Common.Worker} worker
+   * @param {!Common.Worker.WorkerWrapper} worker
    * @param {!MessageEvent} event
    */
   _onWorkerMessage(worker, event) {
@@ -59,7 +61,7 @@ export class FormatterWorkerPool {
   }
 
   /**
-   * @param {!Common.Worker} worker
+   * @param {!Common.Worker.WorkerWrapper} worker
    * @param {!Event} event
    */
   _onWorkerError(worker, event) {
@@ -153,14 +155,6 @@ export class FormatterWorkerPool {
    */
   evaluatableJavaScriptSubstring(content) {
     return this._runTask('evaluatableJavaScriptSubstring', {content: content}).then(text => text || '');
-  }
-
-  /**
-   * @param {string} content
-   * @return {!Promise<string>}
-   */
-  preprocessTopLevelAwaitExpressions(content) {
-    return this._runTask('preprocessTopLevelAwaitExpressions', {content: content}).then(text => text || '');
   }
 
   /**
@@ -374,38 +368,3 @@ export function formatterWorkerPool() {
   }
   return Formatter._formatterWorkerPool;
 }
-
-/* Legacy exported object */
-self.Formatter = self.Formatter || {};
-
-/* Legacy exported object */
-Formatter = Formatter || {};
-
-/** @constructor */
-Formatter.FormatterWorkerPool = FormatterWorkerPool;
-
-Formatter.formatterWorkerPool = formatterWorkerPool;
-
-/** @constructor */
-Formatter.FormatterWorkerPool.FormatResult = FormatResult;
-
-/** @typedef {{original: !Array<number>, formatted: !Array<number>}} */
-Formatter.FormatterWorkerPool.FormatMapping;
-
-/** @typedef {{line: number, column: number, title: string, subtitle: (string|undefined) }} */
-Formatter.FormatterWorkerPool.OutlineItem;
-
-/**
- * @typedef {{atRule: string, lineNumber: number, columnNumber: number}}
- */
-Formatter.FormatterWorkerPool.CSSAtRule;
-
-/**
- * @typedef {(CSSStyleRule|Formatter.FormatterWorkerPool.CSSAtRule)}
- */
-Formatter.FormatterWorkerPool.CSSRule;
-
-/**
- * @typedef {{startLine: number, startColumn: number, endLine: number, endColumn: number}}
- */
-Formatter.FormatterWorkerPool.TextRange;

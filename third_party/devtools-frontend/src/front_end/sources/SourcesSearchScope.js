@@ -5,19 +5,21 @@
  * modification, are permitted provided that the following conditions are
  * met:
  *
- * 1. Redistributions of source code must retain the above copyright
+ *     * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above
+ *     * Redistributions in binary form must reproduce the above
  * copyright notice, this list of conditions and the following disclaimer
  * in the documentation and/or other materials provided with the
  * distribution.
+ *     * Neither the name of Google Inc. nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY GOOGLE INC. AND ITS CONTRIBUTORS
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL GOOGLE INC.
- * OR ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
@@ -25,10 +27,11 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 /**
  * @implements {Search.SearchScope}
  */
-Sources.SourcesSearchScope = class {
+export class SourcesSearchScope {
   constructor() {
     // FIXME: Add title once it is used by search controller.
     this._searchId = 0;
@@ -55,9 +58,9 @@ Sources.SourcesSearchScope = class {
       return 1;
     }
     const isFileSystem1 = uiSourceCode1.project().type() === Workspace.projectTypes.FileSystem &&
-        !Persistence.persistence.binding(uiSourceCode1);
+        !self.Persistence.persistence.binding(uiSourceCode1);
     const isFileSystem2 = uiSourceCode2.project().type() === Workspace.projectTypes.FileSystem &&
-        !Persistence.persistence.binding(uiSourceCode2);
+        !self.Persistence.persistence.binding(uiSourceCode2);
     if (isFileSystem1 !== isFileSystem2) {
       return isFileSystem1 ? 1 : -1;
     }
@@ -92,9 +95,10 @@ Sources.SourcesSearchScope = class {
    * @return {!Array.<!Workspace.Project>}
    */
   _projects() {
-    const searchInAnonymousAndContentScripts = Common.moduleSetting('searchInAnonymousAndContentScripts').get();
+    const searchInAnonymousAndContentScripts =
+        self.Common.settings.moduleSetting('searchInAnonymousAndContentScripts').get();
 
-    return Workspace.workspace.projects().filter(project => {
+    return self.Workspace.workspace.projects().filter(project => {
       if (project.type() === Workspace.projectTypes.Service) {
         return false;
       }
@@ -156,7 +160,7 @@ Sources.SourcesSearchScope = class {
       if (!uiSourceCode.contentType().isTextType()) {
         continue;
       }
-      const binding = Persistence.persistence.binding(uiSourceCode);
+      const binding = self.Persistence.persistence.binding(uiSourceCode);
       if (binding && binding.network === uiSourceCode) {
         continue;
       }
@@ -201,9 +205,9 @@ Sources.SourcesSearchScope = class {
       }
       uiSourceCodes.push(uiSourceCode);
     }
-    uiSourceCodes.sort(Sources.SourcesSearchScope._filesComparator);
+    uiSourceCodes.sort(SourcesSearchScope._filesComparator);
     this._searchResultCandidates =
-        this._searchResultCandidates.mergeOrdered(uiSourceCodes, Sources.SourcesSearchScope._filesComparator);
+        this._searchResultCandidates.mergeOrdered(uiSourceCodes, SourcesSearchScope._filesComparator);
   }
 
   /**
@@ -236,7 +240,7 @@ Sources.SourcesSearchScope = class {
 
     /**
      * @param {!Workspace.UISourceCode} uiSourceCode
-     * @this {Sources.SourcesSearchScope}
+     * @this {SourcesSearchScope}
      */
     function searchInNextFile(uiSourceCode) {
       if (uiSourceCode.isDirty()) {
@@ -249,7 +253,7 @@ Sources.SourcesSearchScope = class {
     }
 
     /**
-     * @this {Sources.SourcesSearchScope}
+     * @this {SourcesSearchScope}
      */
     function scheduleSearchInNextFileOrFinish() {
       if (fileIndex >= files.length) {
@@ -269,7 +273,7 @@ Sources.SourcesSearchScope = class {
     /**
      * @param {!Workspace.UISourceCode} uiSourceCode
      * @param {string} content
-     * @this {Sources.SourcesSearchScope}
+     * @this {SourcesSearchScope}
      */
     function contentLoaded(uiSourceCode, content) {
       /**
@@ -291,7 +295,7 @@ Sources.SourcesSearchScope = class {
         }
       }
       if (matches) {
-        const searchResult = new Sources.FileBasedSearchResult(uiSourceCode, matches);
+        const searchResult = new FileBasedSearchResult(uiSourceCode, matches);
         this._searchResultCallback(searchResult);
       }
 
@@ -306,13 +310,12 @@ Sources.SourcesSearchScope = class {
   stopSearch() {
     ++this._searchId;
   }
-};
-
+}
 
 /**
  * @implements {Search.SearchResult}
  */
-Sources.FileBasedSearchResult = class {
+export class FileBasedSearchResult {
   /**
    * @param {!Workspace.UISourceCode} uiSourceCode
    * @param {!Array.<!Common.ContentProvider.SearchMatch>} searchMatches
@@ -373,4 +376,4 @@ Sources.FileBasedSearchResult = class {
   matchLabel(index) {
     return this._searchMatches[index].lineNumber + 1;
   }
-};
+}

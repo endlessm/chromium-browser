@@ -20,8 +20,8 @@
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/gfx/presentation_feedback.h"
-#include "ui/ozone/common/linux/gbm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
 #include "ui/ozone/platform/drm/gpu/drm_framebuffer.h"
@@ -182,8 +182,9 @@ TEST_F(DrmWindowTest, CheckDeathOnFailedSwap) {
 
   std::unique_ptr<ui::GbmBuffer> buffer = drm_->gbm_device()->CreateBuffer(
       DRM_FORMAT_XRGB8888, window_size, GBM_BO_USE_SCANOUT);
+  ASSERT_TRUE(buffer);
   scoped_refptr<ui::DrmFramebuffer> framebuffer =
-      ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get());
+      ui::DrmFramebuffer::AddFramebuffer(drm_, buffer.get(), window_size);
   ui::DrmOverlayPlane plane(framebuffer, nullptr);
 
   drm_->set_page_flip_expectation(false);

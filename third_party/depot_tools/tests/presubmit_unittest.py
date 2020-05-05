@@ -18,14 +18,25 @@ import random
 import re
 import sys
 import tempfile
+import threading
 import time
 import unittest
+
+if sys.version_info.major == 2:
+  from cStringIO import StringIO
+  import mock
+  import urllib2 as urllib_request
+  BUILTIN_OPEN = '__builtin__.open'
+else:
+  from io import StringIO
+  from unittest import mock
+  import urllib.request as urllib_request
+  BUILTIN_OPEN = 'builtins.open'
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 
 from testing_support.test_case_utils import TestCaseUtils
-from third_party import mock
 
 import auth
 import gclient_utils
@@ -38,14 +49,6 @@ import presubmit_support as presubmit
 import scm
 import subprocess2 as subprocess
 
-if sys.version_info.major == 2:
-  from cStringIO import StringIO
-  import urllib2 as urllib_request
-  BUILTIN_OPEN = '__builtin__.open'
-else:
-  from io import StringIO
-  import urllib.request as urllib_request
-  BUILTIN_OPEN = 'builtins.open'
 
 # Shortcut.
 presubmit_canned_checks = presubmit.presubmit_canned_checks
@@ -169,12 +172,14 @@ index fe3de7b..54ae6e1 100755
     mock.patch('random.randint').start()
     mock.patch('presubmit_support.warn').start()
     mock.patch('presubmit_support.sigint_handler').start()
+    mock.patch('presubmit_support.time_time', return_value=0).start()
     mock.patch('scm.determine_scm').start()
     mock.patch('scm.GIT.GenerateDiff').start()
     mock.patch('subprocess2.Popen').start()
     mock.patch('sys.stderr', StringIO()).start()
     mock.patch('sys.stdout', StringIO()).start()
     mock.patch('tempfile.NamedTemporaryFile').start()
+    mock.patch('threading.Timer').start()
     mock.patch('multiprocessing.cpu_count', lambda: 2)
     if sys.version_info.major == 2:
       mock.patch('urllib2.urlopen').start()
@@ -892,8 +897,7 @@ def CheckChangeOnCommit(input_api, output_api):
 
     self.assertEqual(
         sys.stderr.getvalue(),
-        'Usage: presubmit_unittest.py [options] <files...>\n'
-        '\n'
+        'usage: presubmit_unittest.py [options] <files...>\n'
         'presubmit_unittest.py: error: For unversioned directory, <files> is '
         'not optional.\n')
 
@@ -1511,6 +1515,13 @@ class CannedChecksUnittest(PresubmitTestsBase):
         'bfoo',
         'cfoo',
         'dfoo']
+    # It falls back to ChangedContents when there is a failure. This is an
+    # optimization since NewContents() is much faster to execute than
+    # ChangedContents().
+    affected_file1.ChangedContents.return_value = [
+        (42, content1),
+        (43, 'hfoo'),
+        (23, 'ifoo')]
 
     change2 = presubmit.Change(
         'foo2', 'foo2\n', self.fake_root_dir, None, 0, 0, None)
@@ -1525,14 +1536,10 @@ class CannedChecksUnittest(PresubmitTestsBase):
         'efoo',
         'ffoo',
         'gfoo']
-    # It falls back to ChangedContents when there is a failure. This is an
-    # optimization since NewContents() is much faster to execute than
-    # ChangedContents().
     affected_file2.ChangedContents.return_value = [
         (42, content2),
         (43, 'hfoo'),
         (23, 'ifoo')]
-    affected_file2.LocalPath.return_value = 'foo.cc'
 
 
     results1 = check(input_api1, presubmit.OutputApi, None)
@@ -1843,6 +1850,12 @@ the current line as well!
                      'foo.js', "// GEN('something');", 'foo.js',
                      presubmit.OutputApi.PresubmitPromptWarning)
 
+  def testCannedCheckJSLongImports(self):
+    check = lambda x, y, _: presubmit_canned_checks.CheckLongLines(x, y, 10)
+    self.ContentTest(check, "import {Name, otherName} from './dir/file.js';",
+                    'foo.js', "// We should import something long, eh?",
+                    'foo.js', presubmit.OutputApi.PresubmitPromptWarning)
+
   def testCannedCheckObjCExceptionLongLines(self):
     check = lambda x, y, _: presubmit_canned_checks.CheckLongLines(x, y, 80)
     self.ContentTest(check, '#import ' + 'A ' * 150, 'foo.mm',
@@ -2092,7 +2105,9 @@ the current line as well!
     self.assertEqual(results, [])
 
   def testCannedRunPylint(self):
-    input_api = self.MockInputApi(None, True)
+    change = mock.Mock()
+    change.RepositoryRoot.return_value = 'CWD'
+    input_api = self.MockInputApi(change, True)
     input_api.environ = mock.MagicMock(os.environ)
     input_api.environ.copy.return_value = {}
     input_api.AffectedSourceFiles.return_value = True
@@ -2564,8 +2579,9 @@ the current line as well!
                            is_committing=False,
                            uncovered_files=set())
 
-  @mock.patch(BUILTIN_OPEN, mock.mock_open(read_data=''))
+  @mock.patch(BUILTIN_OPEN, mock.mock_open())
   def testCannedRunUnitTests(self):
+    open().readline.return_value = ''
     change = presubmit.Change(
         'foo1', 'description1', self.fake_root_dir, None, 0, 0, None)
     input_api = self.MockInputApi(change, False)
@@ -2604,6 +2620,71 @@ the current line as well!
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             stdin=subprocess.PIPE),
     ])
+
+    threading.Timer.assert_not_called()
+
+    self.checkstdout('')
+
+  @mock.patch(BUILTIN_OPEN, mock.mock_open())
+  def testCannedRunUnitTestsWithTimer(self):
+    open().readline.return_value = ''
+    change = presubmit.Change(
+        'foo1', 'description1', self.fake_root_dir, None, 0, 0, None)
+    input_api = self.MockInputApi(change, False)
+    input_api.verbose = True
+    input_api.thread_pool.timeout = 100
+    input_api.PresubmitLocalPath.return_value = self.fake_root_dir
+    presubmit.sigint_handler.wait.return_value = ('', None)
+    subprocess.Popen.return_value = mock.Mock(returncode=0)
+
+    results = presubmit_canned_checks.RunUnitTests(
+        input_api,
+        presubmit.OutputApi,
+        ['bar.py'])
+    self.assertEqual(
+        presubmit.OutputApi.PresubmitNotifyResult, results[0].__class__)
+
+    threading.Timer.assert_called_once_with(
+        input_api.thread_pool.timeout, mock.ANY)
+    threading.Timer().start.assert_called_once_with()
+    threading.Timer().cancel.assert_called_once_with()
+
+    self.checkstdout('')
+
+  @mock.patch(BUILTIN_OPEN, mock.mock_open())
+  def testCannedRunUnitTestsWithTimerTimesOut(self):
+    open().readline.return_value = ''
+    change = presubmit.Change(
+        'foo1', 'description1', self.fake_root_dir, None, 0, 0, None)
+    input_api = self.MockInputApi(change, False)
+    input_api.verbose = True
+    input_api.thread_pool.timeout = 100
+    input_api.PresubmitLocalPath.return_value = self.fake_root_dir
+    presubmit.sigint_handler.wait.return_value = ('', None)
+    subprocess.Popen.return_value = mock.Mock(returncode=1)
+
+    timer_instance = mock.Mock()
+    def mockTimer(_, fn):
+      fn()
+      return timer_instance
+    threading.Timer.side_effect = mockTimer
+
+    results = presubmit_canned_checks.RunUnitTests(
+        input_api,
+        presubmit.OutputApi,
+        ['bar.py'])
+    self.assertEqual(
+        presubmit.OutputApi.PresubmitPromptWarning, results[0].__class__)
+
+    output = StringIO()
+    results[0].handle(output)
+    self.assertIn(
+        'bar.py --verbose (0.00s) failed\nProcess timed out after 100s',
+        output.getvalue())
+
+    threading.Timer.assert_called_once_with(
+        input_api.thread_pool.timeout, mock.ANY)
+    timer_instance.start.assert_called_once_with()
 
     self.checkstdout('')
 

@@ -1,9 +1,9 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2015-2019 The Khronos Group Inc.
-# Copyright (c) 2015-2019 Valve Corporation
-# Copyright (c) 2015-2019 LunarG, Inc.
-# Copyright (c) 2015-2019 Google Inc.
+# Copyright (c) 2015-2020 The Khronos Group Inc.
+# Copyright (c) 2015-2020 Valve Corporation
+# Copyright (c) 2015-2020 LunarG, Inc.
+# Copyright (c) 2015-2020 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -185,6 +185,9 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             'vkCmdSetViewportWScalingNV',
             'vkAcquireNextImageKHR',
             'vkAcquireNextImage2KHR',
+            'vkCmdDrawIndirectByteCountEXT',
+            'vkCreateSamplerYcbcrConversion',
+            'vkCreateSamplerYcbcrConversionKHR',
             ]
 
         # Commands to ignore
@@ -242,9 +245,9 @@ class ParameterValidationOutputGenerator(OutputGenerator):
         copyright  = '/* *** THIS FILE IS GENERATED - DO NOT EDIT! ***\n'
         copyright += ' * See parameter_validation_generator.py for modifications\n'
         copyright += ' *\n'
-        copyright += ' * Copyright (c) 2015-2019 The Khronos Group Inc.\n'
-        copyright += ' * Copyright (c) 2015-2019 LunarG, Inc.\n'
-        copyright += ' * Copyright (C) 2015-2019 Google Inc.\n'
+        copyright += ' * Copyright (c) 2015-2020 The Khronos Group Inc.\n'
+        copyright += ' * Copyright (c) 2015-2020 LunarG, Inc.\n'
+        copyright += ' * Copyright (C) 2015-2020 Google Inc.\n'
         copyright += ' *\n'
         copyright += ' * Licensed under the Apache License, Version 2.0 (the "License");\n'
         copyright += ' * you may not use this file except in compliance with the License.\n'
@@ -396,8 +399,8 @@ class ParameterValidationOutputGenerator(OutputGenerator):
         if self.header_file:
             # Output declarations and record intercepted procedures
             write('\n'.join(self.declarations), file=self.outFile)
-            # Finish processing in superclass
-            OutputGenerator.endFile(self)
+        # Finish processing in superclass
+        OutputGenerator.endFile(self)
     #
     # Processing at beginning of each feature or extension
     def beginFeature(self, interface, emit):

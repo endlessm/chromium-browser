@@ -163,7 +163,7 @@ cases please get in touch with hablich@chromium.org.*
 Step-by-step guide on how to merge:
 1. Request and receive approval to merge
 1. Backmerges are done to the chromium/xxxx (e.g. chromium/3979) branch respectively on the DevTools frontend repo
-  1. Use [Omahaproxy](https://https://omahaproxy.appspot.com/) to find out what
+  1. Use [Omahaproxy](https://omahaproxy.appspot.com/) to find out what
      branch a major Chromium version has (column true_branch).
 Open the to-be-merged commit in Gerrit e.g.
 [Example](https://chromium-review.googlesource.com/c/devtools/devtools-frontend/+/1928912)
@@ -177,10 +177,11 @@ Open the to-be-merged commit in Gerrit e.g.
 
 ### Useful Commands
 
-#### `npm run format-py`
-Formats your Python code using [yapf](https://github.com/google/yapf)
+#### `git cl format --js`
+Formats all code using clang-format.
 
-> Note: Yapf is a command line tool. You will have to install this manually, either from PyPi through `pip install yapf` or if you want to enable multiprocessing in Python 2.7, `pip install futures`
+### `npm run check`
+Runs all static analysis checks on DevTools code.
 
 ### Source mirrors
 DevTools frontend repository is mirrored on [GitHub](https://github.com/ChromeDevTools/devtools-frontend).

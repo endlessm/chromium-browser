@@ -58,48 +58,56 @@ class HWTestList(object):
     Args:
       *kwargs: overrides for the configs
     """
-    installer_kwargs = kwargs.copy()
-    # Force au suite to run first.
-    installer_kwargs['priority'] = constants.HWTEST_CQ_PRIORITY
-    # Context: crbug.com/976834
-    # Because this blocking suite fails a fair bit, it effectively acts as a
-    # rate limiter to the Autotest scheduling system since all of the subsequent
-    # test suites aren't run if this fails.
-    # Making this non-blocking and async will cause Autotest scheduling to fail.
-    installer_kwargs['blocking'] = True
-    installer_kwargs['async'] = False
-
-    async_kwargs = kwargs.copy()
-    async_kwargs['priority'] = constants.HWTEST_POST_BUILD_PRIORITY
-    async_kwargs['async'] = True
-    async_kwargs['suite_min_duts'] = 1
-    async_kwargs['timeout'] = config_lib.HWTestConfig.ASYNC_HW_TEST_TIMEOUT
-
-    if self.is_release_branch:
-      bvt_inline_kwargs = async_kwargs
-    else:
-      bvt_inline_kwargs = kwargs.copy()
-      bvt_inline_kwargs['timeout'] = (
-          config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT)
-
-    # BVT + INSTALLER suite.
     return [
         config_lib.HWTestConfig(constants.HWTEST_BVT_SUITE,
-                                **bvt_inline_kwargs),
+                                **self._bvtInlineHWTestArgs(kwargs)),
         config_lib.HWTestConfig(constants.HWTEST_ARC_COMMIT_SUITE,
-                                **bvt_inline_kwargs),
-        self.TastConfig(constants.HWTEST_TAST_CQ_SUITE, **bvt_inline_kwargs),
+                                **self._bvtInlineHWTestArgs(kwargs)),
+        self.TastConfig(constants.HWTEST_TAST_CQ_SUITE,
+                        **self._bvtInlineHWTestArgs(kwargs)),
         # Start informational Tast tests before the installer suite to let the
         # former run even if the latter fails: https://crbug.com/911921
         self.TastConfig(constants.HWTEST_TAST_INFORMATIONAL_SUITE,
-                        **async_kwargs),
+                        **self._asyncHWTestArgs(kwargs)),
+        # Context: crbug.com/976834
+        # Because this blocking suite fails a fair bit, it effectively acts as a
+        # rate limiter to the Autotest scheduling system since all of the
+        # subsequent test suites aren't run if this fails.
+        # Making this non-blocking and async will cause Autotest scheduling to
+        # fail.
         config_lib.HWTestConfig(constants.HWTEST_INSTALLER_SUITE,
-                                **installer_kwargs),
+                                **self._blockingHWTestArgs(kwargs)),
         config_lib.HWTestConfig(constants.HWTEST_COMMIT_SUITE,
-                                **async_kwargs),
+                                **self._asyncHWTestArgs(kwargs)),
         config_lib.HWTestConfig(constants.HWTEST_CANARY_SUITE,
-                                **async_kwargs),
+                                **self._asyncHWTestArgs(kwargs)),
     ]
+
+  def _asyncHWTestArgs(self, kwargs):
+    """Get updated kwargs for asynchronous hardware tests."""
+    kwargs = kwargs.copy()
+    kwargs['priority'] = constants.HWTEST_POST_BUILD_PRIORITY
+    kwargs['async'] = True
+    kwargs['suite_min_duts'] = 1
+    kwargs['timeout'] = config_lib.HWTestConfig.ASYNC_HW_TEST_TIMEOUT
+    return kwargs
+
+  def _blockingHWTestArgs(self, kwargs):
+    """Get updated kwargs for blockiong hardware tests."""
+    kwargs = kwargs.copy()
+    kwargs['blocking'] = True
+    kwargs['async'] = False
+    kwargs['priority'] = constants.HWTEST_CQ_PRIORITY
+    kwargs['quota_account'] = 'bvt-sync'
+    return kwargs
+
+  def _bvtInlineHWTestArgs(self, kwargs):
+    """Get updated kwargs for bvt-inline hardware tests."""
+    if self.is_release_branch:
+      return self._asyncHWTestArgs(kwargs)
+    kwargs = kwargs.copy()
+    kwargs['timeout'] = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT
+    return kwargs
 
   def DefaultListCanary(self, **kwargs):
     """Returns a default list of config_lib.HWTestConfig's for a canary build.
@@ -216,19 +224,12 @@ class HWTestList(object):
     """Return a list of HWTestConfigs for Canary which uses a shared pool.
 
     The returned suites will run in pool:critical by default, which is
-    shared with CQs. The first suite in the list is a blocking sanity suite
-    that verifies the build will not break dut.
+    shared with CQs.
     """
-    sanity_dict = dict(pool=constants.HWTEST_MACH_POOL, file_bugs=True)
-    sanity_dict.update(kwargs)
-    sanity_dict.update(dict(minimum_duts=1, suite_min_duts=1,
-                            blocking=True, quota_account='bvt-sync'))
     default_dict = dict(pool=constants.HWTEST_MACH_POOL,
                         suite_min_duts=6)
     default_dict.update(kwargs)
-    suite_list = [config_lib.HWTestConfig(constants.HWTEST_SANITY_SUITE,
-                                          **sanity_dict)]
-    suite_list.extend(self.DefaultListCanary(**default_dict))
+    suite_list = self.DefaultListCanary(**default_dict)
     return suite_list
 
   def AFDORecordTest(self, **kwargs):
@@ -654,32 +655,6 @@ def GeneralTemplates(site_config, ge_build_config):
                                   warn_only=True),
           config_lib.HWTestConfig(constants.HWTEST_INSTALLER_SUITE,
                                   warn_only=True)],
-  )
-
-  release_afdo_hw_tests = (
-      hw_test_list.DefaultList(pool=constants.HWTEST_SUITES_POOL) +
-      hw_test_list.AFDOList()
-  )
-
-  site_config.templates.release_afdo.apply(
-      site_config.templates.default_hw_tests_override,
-      hw_tests=release_afdo_hw_tests,
-  )
-
-  site_config.templates.release_afdo_generate.apply(
-      site_config.templates.default_hw_tests_override,
-      hw_tests=[hw_test_list.AFDORecordTest(warn_only=True)],
-      hw_tests_override=[hw_test_list.AFDORecordTest(
-          pool=constants.HWTEST_TRYBOT_POOL,
-          file_bugs=False,
-          warn_only=True,
-          priority=constants.HWTEST_DEFAULT_PRIORITY,
-      )],
-  )
-
-  site_config.templates.release_afdo_use.apply(
-      site_config.templates.default_hw_tests_override,
-      hw_tests=release_afdo_hw_tests,
   )
 
   site_config.templates.payloads.apply(

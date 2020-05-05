@@ -37,8 +37,8 @@ namespace OT {
 typedef hb_pair_t<hb_codepoint_t, hb_codepoint_t> hb_codepoint_pair_t;
 
 template<typename Iterator>
-static inline void SingleSubst_serialize (hb_serialize_context_t *c,
-					  Iterator it);
+static void SingleSubst_serialize (hb_serialize_context_t *c,
+				   Iterator it);
 
 
 struct SingleSubstFormat1
@@ -55,6 +55,8 @@ struct SingleSubstFormat1
     | hb_sink (c->output)
     ;
   }
+
+  void closure_lookups (hb_closure_lookups_context_t *c) const {}
 
   void collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
@@ -153,6 +155,8 @@ struct SingleSubstFormat2
     | hb_sink (c->output)
     ;
   }
+
+  void closure_lookups (hb_closure_lookups_context_t *c) const {}
 
   void collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
@@ -293,7 +297,7 @@ struct SingleSubst
 };
 
 template<typename Iterator>
-static inline void
+static void
 SingleSubst_serialize (hb_serialize_context_t *c,
 		       Iterator it)
 { c->start_embed<SingleSubst> ()->serialize (c, it); }
@@ -394,6 +398,8 @@ struct MultipleSubstFormat1
     | hb_apply ([c] (const Sequence &_) { _.closure (c); })
     ;
   }
+
+  void closure_lookups (hb_closure_lookups_context_t *c) const {}
 
   void collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
@@ -604,6 +610,8 @@ struct AlternateSubstFormat1
     | hb_apply ([c] (const AlternateSet &_) { _.closure (c); })
     ;
   }
+
+  void closure_lookups (hb_closure_lookups_context_t *c) const {}
 
   void collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
@@ -966,6 +974,8 @@ struct LigatureSubstFormat1
     ;
   }
 
+  void closure_lookups (hb_closure_lookups_context_t *c) const {}
+
   void collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
     if (unlikely (!(this+coverage).add_coverage (c->input))) return;
@@ -1114,7 +1124,6 @@ struct ChainContextSubst : ChainContext {};
 struct ExtensionSubst : Extension<ExtensionSubst>
 {
   typedef struct SubstLookupSubTable SubTable;
-
   bool is_reverse () const;
 };
 
@@ -1156,6 +1165,8 @@ struct ReverseChainSingleSubstFormat1
     | hb_sink (c->output)
     ;
   }
+
+  void closure_lookups (hb_closure_lookups_context_t *c) const {}
 
   void collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
@@ -1313,6 +1324,12 @@ struct SubstLookupSubTable
     }
   }
 
+  bool intersects (const hb_set_t *glyphs, unsigned int lookup_type) const
+  {
+    hb_intersects_context_t c (glyphs);
+    return dispatch (&c, lookup_type);
+  }
+
   protected:
   union {
   SingleSubst			single;
@@ -1336,14 +1353,14 @@ struct SubstLookup : Lookup
   const SubTable& get_subtable (unsigned int i) const
   { return Lookup::get_subtable<SubTable> (i); }
 
-  HB_INTERNAL static bool lookup_type_is_reverse (unsigned int lookup_type)
+  static inline bool lookup_type_is_reverse (unsigned int lookup_type)
   { return lookup_type == SubTable::ReverseChainSingle; }
 
   bool is_reverse () const
   {
     unsigned int type = get_type ();
     if (unlikely (type == SubTable::Extension))
-      return CastR<ExtensionSubst> (get_subtable(0)).is_reverse ();
+      return reinterpret_cast<const ExtensionSubst &> (get_subtable(0)).is_reverse ();
     return lookup_type_is_reverse (type);
   }
 
@@ -1373,6 +1390,24 @@ struct SubstLookup : Lookup
     return ret;
   }
 
+  hb_closure_lookups_context_t::return_t closure_lookups (hb_closure_lookups_context_t *c, unsigned this_index) const
+  {
+    if (c->is_lookup_visited (this_index))
+      return hb_closure_lookups_context_t::default_return_value ();
+
+    c->set_lookup_visited (this_index);
+    if (!intersects (c->glyphs))
+    {
+      c->set_lookup_inactive (this_index);
+      return hb_closure_lookups_context_t::default_return_value ();
+    }
+
+    c->set_recurse_func (dispatch_closure_lookups_recurse_func);
+
+    hb_closure_lookups_context_t::return_t ret = dispatch (c);
+    return ret;
+  }
+
   hb_collect_glyphs_context_t::return_t collect_glyphs (hb_collect_glyphs_context_t *c) const
   {
     c->set_recurse_func (dispatch_recurse_func<hb_collect_glyphs_context_t>);
@@ -1394,7 +1429,7 @@ struct SubstLookup : Lookup
       return dispatch (c);
   }
 
-  HB_INTERNAL static bool apply_recurse_func (hb_ot_apply_context_t *c, unsigned int lookup_index);
+  static inline bool apply_recurse_func (hb_ot_apply_context_t *c, unsigned int lookup_index);
 
   SubTable& serialize_subtable (hb_serialize_context_t *c,
 				unsigned int i)
@@ -1461,9 +1496,9 @@ struct SubstLookup : Lookup
   }
 
   template <typename context_t>
-  HB_INTERNAL static typename context_t::return_t dispatch_recurse_func (context_t *c, unsigned int lookup_index);
+  static inline typename context_t::return_t dispatch_recurse_func (context_t *c, unsigned int lookup_index);
 
-  HB_INTERNAL static hb_closure_context_t::return_t dispatch_closure_recurse_func (hb_closure_context_t *c, unsigned int lookup_index)
+  static inline hb_closure_context_t::return_t dispatch_closure_recurse_func (hb_closure_context_t *c, unsigned int lookup_index)
   {
     if (!c->should_visit_lookup (lookup_index))
       return hb_empty_t ();
@@ -1477,6 +1512,8 @@ struct SubstLookup : Lookup
 
     return ret;
   }
+
+  HB_INTERNAL static hb_closure_lookups_context_t::return_t dispatch_closure_lookups_recurse_func (hb_closure_lookups_context_t *c, unsigned lookup_index);
 
   template <typename context_t, typename ...Ts>
   typename context_t::return_t dispatch (context_t *c, Ts&&... ds) const
@@ -1499,10 +1536,13 @@ struct GSUB : GSUBGPOS
   static constexpr hb_tag_t tableTag = HB_OT_TAG_GSUB;
 
   const SubstLookup& get_lookup (unsigned int i) const
-  { return CastR<SubstLookup> (GSUBGPOS::get_lookup (i)); }
+  { return static_cast<const SubstLookup &> (GSUBGPOS::get_lookup (i)); }
 
   bool subset (hb_subset_context_t *c) const
-  { return GSUBGPOS::subset<SubstLookup> (c); }
+  {
+    hb_subset_layout_context_t l (c, tableTag, c->plan->gsub_lookups, c->plan->gsub_features);
+    return GSUBGPOS::subset<SubstLookup> (&l);
+  }
 
   bool sanitize (hb_sanitize_context_t *c) const
   { return GSUBGPOS::sanitize<SubstLookup> (c); }
@@ -1522,18 +1562,22 @@ struct GSUB_accelerator_t : GSUB::accelerator_t {};
 #ifndef HB_NO_OT_LAYOUT
 /*static*/ inline bool ExtensionSubst::is_reverse () const
 {
-  unsigned int type = get_type ();
-  if (unlikely (type == SubTable::Extension))
-    return CastR<ExtensionSubst> (get_subtable<SubTable>()).is_reverse ();
-  return SubstLookup::lookup_type_is_reverse (type);
+  return SubstLookup::lookup_type_is_reverse (get_type ());
 }
 template <typename context_t>
-/*static*/ inline typename context_t::return_t SubstLookup::dispatch_recurse_func (context_t *c, unsigned int lookup_index)
+/*static*/ typename context_t::return_t SubstLookup::dispatch_recurse_func (context_t *c, unsigned int lookup_index)
 {
   const SubstLookup &l = c->face->table.GSUB.get_relaxed ()->table->get_lookup (lookup_index);
   return l.dispatch (c);
 }
-/*static*/ inline bool SubstLookup::apply_recurse_func (hb_ot_apply_context_t *c, unsigned int lookup_index)
+
+/*static*/ inline hb_closure_lookups_context_t::return_t SubstLookup::dispatch_closure_lookups_recurse_func (hb_closure_lookups_context_t *c, unsigned this_index)
+{
+  const SubstLookup &l = c->face->table.GSUB.get_relaxed ()->table->get_lookup (this_index);
+  return l.closure_lookups (c, this_index);
+}
+
+/*static*/ bool SubstLookup::apply_recurse_func (hb_ot_apply_context_t *c, unsigned int lookup_index)
 {
   const SubstLookup &l = c->face->table.GSUB.get_relaxed ()->table->get_lookup (lookup_index);
   unsigned int saved_lookup_props = c->lookup_props;

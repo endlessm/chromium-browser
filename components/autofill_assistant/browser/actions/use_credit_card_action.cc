@@ -15,11 +15,11 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
 #include "components/autofill_assistant/browser/actions/required_fields_fallback_handler.h"
-#include "components/autofill_assistant/browser/client_memory.h"
 #include "components/autofill_assistant/browser/client_status.h"
 
 namespace autofill_assistant {
@@ -43,8 +43,7 @@ UseCreditCardAction::UseCreditCardAction(ActionDelegate* delegate,
     RequiredField& required_field = required_fields.back();
     required_field.fallback_key = (int)required_field_proto.card_field();
     required_field.selector = Selector(required_field_proto.element());
-    required_field.simulate_key_presses =
-        required_field_proto.simulate_key_presses();
+    required_field.fill_strategy = required_field_proto.fill_strategy();
     required_field.delay_in_millisecond =
         required_field_proto.delay_in_millisecond();
     required_field.forced = required_field_proto.forced();
@@ -65,8 +64,8 @@ void UseCreditCardAction::InternalProcessAction(
   process_action_callback_ = std::move(action_callback);
 
   // Ensure data already selected in a previous action.
-  auto* client_memory = delegate_->GetClientMemory();
-  if (!client_memory->has_selected_card()) {
+  auto* user_data = delegate_->GetUserData();
+  if (user_data->selected_card_.get() == nullptr) {
     EndAction(ClientStatus(PRECONDITION_FAILED));
     return;
   }
@@ -162,6 +161,10 @@ std::unique_ptr<FallbackData> UseCreditCardAction::CreateFallbackData(
   fallback_data->field_values.emplace(
       (int)UseCreditCardProto::RequiredField::CREDIT_CARD_NUMBER,
       base::UTF16ToUTF8(card.GetRawInfo(autofill::CREDIT_CARD_NUMBER)));
+  fallback_data->field_values.emplace(
+      (int)UseCreditCardProto::RequiredField::CREDIT_CARD_NETWORK,
+      autofill::data_util::GetPaymentRequestData(card.network())
+          .basic_card_issuer_network);
   return fallback_data;
 }
 }  // namespace autofill_assistant

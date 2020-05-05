@@ -40,7 +40,8 @@ class SetupBoardRunConfig(object):
 
   def __init__(self, set_default=False, force=False, usepkg=True, jobs=None,
                regen_configs=False, quiet=False, update_toolchain=True,
-               upgrade_chroot=True, init_board_pkgs=True, local_build=False):
+               upgrade_chroot=True, init_board_pkgs=True, local_build=False,
+               toolchain_changed=False):
     """Initialize method.
 
     Args:
@@ -54,9 +55,12 @@ class SetupBoardRunConfig(object):
       upgrade_chroot (bool): Upgrade the chroot before building?
       init_board_pkgs (bool): Emerging packages to sysroot?
       local_build (bool): Bootstrap only from local packages?
+      toolchain_changed (bool): Has a toolchain change occurred? Implies
+        'force'.
     """
+
     self.set_default = set_default
-    self.force = force
+    self.force = force or toolchain_changed
     self.usepkg = usepkg
     self.jobs = jobs
     self.regen_configs = regen_configs
@@ -91,7 +95,8 @@ class BuildPackagesRunConfig(object):
   """Value object to hold build packages run configs."""
 
   def __init__(self, event_file=None, usepkg=True, install_debug_symbols=False,
-               packages=None, use_flags=None, use_goma=False):
+               packages=None, use_flags=None, use_goma=False,
+               incremental_build=True):
     """Init method.
 
     Args:
@@ -104,6 +109,10 @@ class BuildPackagesRunConfig(object):
         install all packages for the target.
       use_flags (list[str]|None): A list of use flags to set.
       use_goma (bool): Whether to enable goma.
+      incremental_build (bool): Whether to treat the build as an incremental
+        build or a fresh build. Always treating it as an incremental build is
+        safe, but certain operations can be faster when we know we are doing
+        a fresh build.
     """
     self.event_file = event_file
     self.usepkg = usepkg
@@ -111,6 +120,7 @@ class BuildPackagesRunConfig(object):
     self.packages = packages
     self.use_flags = use_flags
     self.use_goma = use_goma
+    self.is_incremental = incremental_build
 
   def GetBuildPackagesArgs(self):
     """Get the build_packages script arguments."""
@@ -137,6 +147,9 @@ class BuildPackagesRunConfig(object):
 
     if self.use_goma:
       args.append('--run_goma')
+
+    if not self.is_incremental:
+      args.append('--nowithrevdeps')
 
     if self.packages:
       args.extend(self.packages)
@@ -167,6 +180,9 @@ class BuildPackagesRunConfig(object):
     env = {}
     if self.HasUseFlags():
       env['USE'] = self.GetUseFlags()
+
+    if self.use_goma:
+      env['USE_GOMA'] = 'true'
 
     return env
 
@@ -288,8 +304,8 @@ def CreateSimpleChromeSysroot(target, use_flags):
   with osutils.TempDir(delete=False) as tempdir:
     cmd = ['cros_generate_sysroot', '--out-dir', tempdir, '--board',
            target, '--deps-only', '--package', constants.CHROME_CP]
-    cros_build_lib.RunCommand(cmd, cwd=constants.SOURCE_ROOT, enter_chroot=True,
-                              extra_env=extra_env)
+    cros_build_lib.run(cmd, cwd=constants.SOURCE_ROOT, enter_chroot=True,
+                       extra_env=extra_env)
     sysroot_tar_path = os.path.join(tempdir, constants.CHROME_SYSROOT_TAR)
     return sysroot_tar_path
 

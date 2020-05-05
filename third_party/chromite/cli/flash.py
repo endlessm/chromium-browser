@@ -11,6 +11,7 @@ from __future__ import print_function
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 
 from chromite.lib import constants
@@ -216,7 +217,7 @@ class USBImager(object):
     cros_build_lib.sudo_run(cmd,
                             print_cmd=True,
                             debug_level=logging.NOTICE,
-                            combine_stdout_stderr=True,
+                            stderr=subprocess.STDOUT,
                             log_output=True)
 
   def CopyImageToDevice(self, image, device):
@@ -242,7 +243,7 @@ class USBImager(object):
     # Ignore errors because sfdisk (util-linux < v2.32) isn't always happy to
     # fix GPT sanity issues.
     cros_build_lib.sudo_run(['sfdisk', device], input='write\n',
-                            error_code_ok=True,
+                            check=False,
                             debug_level=self.debug_level)
 
     cros_build_lib.sudo_run(['partx', '-u', device],

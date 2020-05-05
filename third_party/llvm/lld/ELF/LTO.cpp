@@ -93,6 +93,9 @@ static lto::Config createConfig() {
   c.MAttrs = getMAttrs();
   c.CGOptLevel = args::getCGOptLevel(config->ltoo);
 
+  c.PTO.LoopVectorization = c.OptLevel > 1;
+  c.PTO.SLPVectorization = c.OptLevel > 1;
+
   // Set up a custom pipeline if we've been asked to.
   c.OptPipeline = config->ltoNewPmPasses;
   c.AAPipeline = config->ltoAAPipeline;
@@ -107,6 +110,8 @@ static lto::Config createConfig() {
   c.UseNewPM = config->ltoNewPassManager;
   c.DebugPassManager = config->ltoDebugPassManager;
   c.DwoDir = config->dwoDir;
+
+  c.HasWholeProgramVisibility = config->ltoWholeProgramVisibility;
 
   c.CSIRProfile = config->ltoCSProfileFile;
   c.RunCSIRInstr = config->ltoCSProfileGenerate;

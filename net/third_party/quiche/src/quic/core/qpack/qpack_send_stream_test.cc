@@ -9,6 +9,8 @@
 #include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -35,7 +37,7 @@ struct TestParams {
 
 // Used by ::testing::PrintToStringParamName().
 std::string PrintToString(const TestParams& tp) {
-  return QuicStrCat(
+  return quiche::QuicheStrCat(
       ParsedQuicVersionToString(tp.version), "_",
       (tp.perspective == Perspective::IS_CLIENT ? "client" : "server"));
 }
@@ -68,8 +70,7 @@ class QpackSendStreamTest : public QuicTestWithParam<TestParams> {
         session_.config(), kMinimumFlowControlSendWindow);
     QuicConfigPeer::SetReceivedInitialMaxStreamDataBytesUnidirectional(
         session_.config(), kMinimumFlowControlSendWindow);
-    QuicConfigPeer::SetReceivedMaxIncomingUnidirectionalStreams(
-        session_.config(), 3);
+    QuicConfigPeer::SetReceivedMaxUnidirectionalStreams(session_.config(), 3);
     session_.OnConfigNegotiated();
 
     qpack_send_stream_ =
@@ -97,10 +98,10 @@ TEST_P(QpackSendStreamTest, WriteStreamTypeOnlyFirstTime) {
   std::string data = "data";
   EXPECT_CALL(session_, WritevData(_, _, 1, _, _));
   EXPECT_CALL(session_, WritevData(_, _, data.length(), _, _));
-  qpack_send_stream_->WriteStreamData(QuicStringPiece(data));
+  qpack_send_stream_->WriteStreamData(quiche::QuicheStringPiece(data));
 
   EXPECT_CALL(session_, WritevData(_, _, data.length(), _, _));
-  qpack_send_stream_->WriteStreamData(QuicStringPiece(data));
+  qpack_send_stream_->WriteStreamData(quiche::QuicheStringPiece(data));
   EXPECT_CALL(session_, WritevData(_, _, _, _, _)).Times(0);
   qpack_send_stream_->MaybeSendStreamType();
 }

@@ -29,7 +29,6 @@ namespace stats {
   F(android_log_num_failed,                   kSingle,  kError,    kTrace),    \
   F(android_log_num_skipped,                  kSingle,  kError,    kTrace),    \
   F(android_log_num_total,                    kSingle,  kInfo,     kTrace),    \
-  F(atrace_tgid_mismatch,                     kSingle,  kError,    kTrace),    \
   F(counter_events_out_of_order,              kSingle,  kError,    kAnalysis), \
   F(ftrace_bundle_tokenizer_errors,           kSingle,  kError,    kAnalysis), \
   F(ftrace_cpu_bytes_read_begin,              kIndexed, kInfo,     kTrace),    \
@@ -53,6 +52,7 @@ namespace stats {
   F(fuchsia_invalid_event,                    kSingle,  kError,    kAnalysis), \
   F(gpu_counters_invalid_spec,                kSingle,  kError,    kAnalysis), \
   F(gpu_counters_missing_spec,                kSingle,  kError,    kAnalysis), \
+  F(gpu_render_stage_parser_errors,           kSingle,  kError,    kAnalysis), \
   F(graphics_frame_event_parser_errors,       kSingle,  kInfo,     kAnalysis), \
   F(guess_trace_type_duration_ns,             kSingle,  kInfo,     kAnalysis), \
   F(interned_data_tokenizer_errors,           kSingle,  kInfo,     kAnalysis), \
@@ -66,6 +66,7 @@ namespace stats {
   F(proc_stat_unknown_counters,               kSingle,  kError,    kAnalysis), \
   F(rss_stat_unknown_keys,                    kSingle,  kError,    kAnalysis), \
   F(rss_stat_negative_size,                   kSingle,  kInfo,     kAnalysis), \
+  F(rss_stat_unknown_thread_for_mm_id,        kSingle,  kInfo,     kAnalysis), \
   F(sched_switch_out_of_order,                kSingle,  kError,    kAnalysis), \
   F(slice_out_of_order,                       kSingle,  kError,    kAnalysis), \
   F(stackprofile_invalid_string_id,           kSingle,  kError,    kTrace),    \
@@ -107,14 +108,17 @@ namespace stats {
   F(vmstat_unknown_keys,                      kSingle,  kError,    kAnalysis), \
   F(vulkan_allocations_invalid_string_id,     kSingle,  kError,    kTrace),    \
   F(clock_sync_failure,                       kSingle,  kError,    kAnalysis), \
+  F(clock_sync_cache_miss,                    kSingle,  kInfo,     kAnalysis), \
   F(process_tracker_errors,                   kSingle,  kError,    kAnalysis), \
   F(json_tokenizer_failure,                   kSingle,  kError,    kTrace),    \
   F(heap_graph_invalid_string_id,             kIndexed, kError,    kTrace),    \
   F(heap_graph_non_finalized_graph,           kSingle,  kError,    kTrace),    \
   F(heap_graph_malformed_packet,              kIndexed, kError,    kTrace),    \
-  F(heap_graph_missing_packet,                kIndexed, kDataLoss, kTrace),    \
+  F(heap_graph_missing_packet,                kIndexed, kError,    kTrace),    \
   F(heapprofd_buffer_corrupted,               kIndexed, kError,    kTrace),    \
   F(heapprofd_buffer_overran,                 kIndexed, kDataLoss, kTrace),    \
+  F(heapprofd_client_disconnected,            kIndexed, kInfo,     kTrace),    \
+  F(heapprofd_malformed_packet,               kIndexed, kError,    kTrace),    \
   F(heapprofd_missing_packet,                 kSingle,  kError,    kTrace),    \
   F(heapprofd_rejected_concurrent,            kIndexed, kError,    kTrace),    \
   F(metatrace_overruns,                       kSingle,  kError,    kTrace),    \
@@ -136,7 +140,9 @@ enum Type {
 enum Severity {
   kInfo,      // Diagnostic counters
   kDataLoss,  // Correct operation that still resulted in data loss
-  kError      // If any kError counter is > 0 the UI will raise an error
+  kError      // If any kError counter is > 0 trace_processor_shell will
+              // raise an error. This is *not* surfaced in the web UI.
+              // TODO(b/148587181): Surface these errors in the UI.
 };
 
 enum Source {
@@ -148,6 +154,9 @@ enum Source {
   // processor.
   kAnalysis
 };
+
+// Ignore GCC warning about a missing argument for a variadic macro parameter.
+#pragma GCC system_header
 
 // Declares an enum of literals (one for each stat). The enum values of each
 // literal corresponds to the string index in the arrays below.

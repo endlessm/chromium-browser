@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (C) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (C) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -349,6 +349,21 @@ class ValidationStateTracker : public ValidationObject {
         return found_it->second;
     };
 
+    // When needing to share ownership, control over constness of access with another object (i.e. adding references while
+    // not modifying the contents of the ValidationStateTracker)
+    template <typename State>
+    typename AccessorTraits<State>::SharedType GetConstCastShared(typename AccessorTraits<State>::HandleType handle) const {
+        using Traits = AccessorTraits<State>;
+        auto map_member = Traits::Map();
+        const typename Traits::MapType& map =
+            (Traits::kInstanceScope && (this->*map_member).size() == 0) ? instance_state->*map_member : this->*map_member;
+
+        const auto found_it = map.find(handle);
+        if (found_it == map.cend()) {
+            return nullptr;
+        }
+        return found_it->second;
+    };
     // Accessors for the VALSTATE... maps
     std::shared_ptr<const cvdescriptorset::DescriptorSetLayout> GetDescriptorSetLayoutShared(VkDescriptorSetLayout dsLayout) const {
         return GetShared<cvdescriptorset::DescriptorSetLayout>(dsLayout);
@@ -702,7 +717,9 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordCreateQueryPool(VkDevice device, const VkQueryPoolCreateInfo* pCreateInfo,
                                        const VkAllocationCallbacks* pAllocator, VkQueryPool* pQueryPool, VkResult result);
     void PreCallRecordDestroyQueryPool(VkDevice device, VkQueryPool queryPool, const VkAllocationCallbacks* pAllocator);
+    void RecordResetQueryPool(VkDevice device, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount);
     void PostCallRecordResetQueryPoolEXT(VkDevice device, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount);
+    void PostCallRecordResetQueryPool(VkDevice device, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount);
     bool PreCallValidateCreateRayTracingPipelinesNV(VkDevice device, VkPipelineCache pipelineCache, uint32_t count,
                                                     const VkRayTracingPipelineCreateInfoNV* pCreateInfos,
                                                     const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines,
@@ -713,8 +730,12 @@ class ValidationStateTracker : public ValidationObject {
                                                    void* pipe_state);
     void PostCallRecordCreateRenderPass(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo,
                                         const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass, VkResult result);
+    void RecordCreateRenderPass2(VkDevice device, const VkRenderPassCreateInfo2KHR* pCreateInfo,
+                                 const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass, VkResult result);
     void PostCallRecordCreateRenderPass2KHR(VkDevice device, const VkRenderPassCreateInfo2KHR* pCreateInfo,
                                             const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass, VkResult result);
+    void PostCallRecordCreateRenderPass2(VkDevice device, const VkRenderPassCreateInfo2KHR* pCreateInfo,
+                                         const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass, VkResult result);
     void PreCallRecordDestroyRenderPass(VkDevice device, VkRenderPass renderPass, const VkAllocationCallbacks* pAllocator);
     void PostCallRecordCreateSampler(VkDevice device, const VkSamplerCreateInfo* pCreateInfo,
                                      const VkAllocationCallbacks* pAllocator, VkSampler* pSampler, VkResult result);
@@ -794,6 +815,8 @@ class ValidationStateTracker : public ValidationObject {
                                                VkQueryControlFlags flags, uint32_t index);
     void PreCallRecordCmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin,
                                          VkSubpassContents contents);
+    void PreCallRecordCmdBeginRenderPass2(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin,
+                                          const VkSubpassBeginInfoKHR* pSubpassBeginInfo);
     void PreCallRecordCmdBeginRenderPass2KHR(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin,
                                              const VkSubpassBeginInfoKHR* pSubpassBeginInfo);
     void PreCallRecordCmdBindDescriptorSets(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint,
@@ -842,12 +865,23 @@ class ValidationStateTracker : public ValidationObject {
                                               uint32_t stride);
     void PostCallRecordCmdDrawIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, uint32_t count,
                                        uint32_t stride);
+    void RecordCmdDrawIndexedIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                           VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
+                                           uint32_t stride);
     void PreCallRecordCmdDrawIndexedIndirectCountKHR(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
                                                      VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
                                                      uint32_t stride);
+    void PreCallRecordCmdDrawIndexedIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                                  VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
+                                                  uint32_t stride);
+    void RecordCmdDrawIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer,
+                                    VkDeviceSize countBufferOffset, uint32_t maxDrawCount, uint32_t stride);
     void PreCallRecordCmdDrawIndirectCountKHR(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
                                               VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
                                               uint32_t stride);
+    void PreCallRecordCmdDrawIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                           VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
+                                           uint32_t stride);
     void PreCallRecordCmdDrawMeshTasksIndirectCountNV(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
                                                       VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
                                                       uint32_t stride);
@@ -859,6 +893,7 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordCmdEndQueryIndexedEXT(VkCommandBuffer commandBuffer, VkQueryPool queryPool, uint32_t query, uint32_t index);
     void PostCallRecordCmdEndRenderPass(VkCommandBuffer commandBuffer);
     void PostCallRecordCmdEndRenderPass2KHR(VkCommandBuffer commandBuffer, const VkSubpassEndInfoKHR* pSubpassEndInfo);
+    void PostCallRecordCmdEndRenderPass2(VkCommandBuffer commandBuffer, const VkSubpassEndInfoKHR* pSubpassEndInfo);
     void PreCallRecordCmdExecuteCommands(VkCommandBuffer commandBuffer, uint32_t commandBuffersCount,
                                          const VkCommandBuffer* pCommandBuffers);
     void PreCallRecordCmdFillBuffer(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize size,
@@ -867,6 +902,8 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordCmdNextSubpass(VkCommandBuffer commandBuffer, VkSubpassContents contents);
     void PostCallRecordCmdNextSubpass2KHR(VkCommandBuffer commandBuffer, const VkSubpassBeginInfoKHR* pSubpassBeginInfo,
                                           const VkSubpassEndInfoKHR* pSubpassEndInfo);
+    void PostCallRecordCmdNextSubpass2(VkCommandBuffer commandBuffer, const VkSubpassBeginInfoKHR* pSubpassBeginInfo,
+                                       const VkSubpassEndInfoKHR* pSubpassEndInfo);
     void PreCallRecordCmdPushDescriptorSetKHR(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint,
                                               VkPipelineLayout layout, uint32_t set, uint32_t descriptorWriteCount,
                                               const VkWriteDescriptorSet* pDescriptorWrites);
@@ -929,6 +966,10 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordCreateMacOSSurfaceMVK(VkInstance instance, const VkMacOSSurfaceCreateInfoMVK* pCreateInfo,
                                              const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface, VkResult result);
 #endif  // VK_USE_PLATFORM_MACOS_MVK
+#ifdef VK_USE_PLATFORM_METAL_EXT
+    void PostCallRecordCreateMetalSurfaceEXT(VkInstance instance, const VkMetalSurfaceCreateInfoEXT* pCreateInfo,
+                                             const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface, VkResult result);
+#endif  // VK_USE_PLATFORM_METAL_EXT
 #ifdef VK_USE_PLATFORM_WIN32_KHR
     void PostCallRecordCreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo,
                                              const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface, VkResult result);
@@ -1061,26 +1102,23 @@ class ValidationStateTracker : public ValidationObject {
     // Device specific data
     VkPhysicalDeviceMemoryProperties phys_dev_mem_props = {};
     VkPhysicalDeviceProperties phys_dev_props = {};
+    VkPhysicalDeviceVulkan11Properties phys_dev_props_core11 = {};
+    VkPhysicalDeviceVulkan12Properties phys_dev_props_core12 = {};
     uint32_t physical_device_count;
 
     // Device extension properties -- storing properties gathered from VkPhysicalDeviceProperties2KHR::pNext chain
     struct DeviceExtensionProperties {
         uint32_t max_push_descriptors;  // from VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors
-        VkPhysicalDeviceDescriptorIndexingPropertiesEXT descriptor_indexing_props;
         VkPhysicalDeviceShadingRateImagePropertiesNV shading_rate_image_props;
         VkPhysicalDeviceMeshShaderPropertiesNV mesh_shader_props;
         VkPhysicalDeviceInlineUniformBlockPropertiesEXT inline_uniform_block_props;
         VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vtx_attrib_divisor_props;
-        VkPhysicalDeviceDepthStencilResolvePropertiesKHR depth_stencil_resolve_props;
         VkPhysicalDeviceCooperativeMatrixPropertiesNV cooperative_matrix_props;
         VkPhysicalDeviceTransformFeedbackPropertiesEXT transform_feedback_props;
-        VkPhysicalDeviceSubgroupProperties subgroup_props;
-        VkPhysicalDeviceFloatControlsPropertiesKHR float_controls_props;
         VkPhysicalDeviceRayTracingPropertiesNV ray_tracing_props;
         VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_props;
         VkPhysicalDeviceFragmentDensityMapPropertiesEXT fragment_density_map_props;
         VkPhysicalDevicePerformanceQueryPropertiesKHR performance_query_props;
-        VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_props;
     };
     DeviceExtensionProperties phys_dev_ext_props = {};
     std::vector<VkCooperativeMatrixPropertiesNV> cooperative_matrix_properties;
@@ -1090,7 +1128,7 @@ class ValidationStateTracker : public ValidationObject {
     bool performance_lock_acquired = false;
 
     template <typename ExtProp>
-    void GetPhysicalDeviceExtProperties(VkPhysicalDevice gpu, bool enabled, ExtProp* ext_prop) {
+    void GetPhysicalDeviceExtProperties(VkPhysicalDevice gpu, ExtEnabled enabled, ExtProp* ext_prop) {
         assert(ext_prop);
         if (enabled) {
             *ext_prop = lvl_init_struct<ExtProp>();

@@ -41,6 +41,7 @@ from __future__ import print_function
 import json
 import os
 import re
+import subprocess
 import tempfile
 import time
 
@@ -226,7 +227,7 @@ class ChromiumOSUpdater(BaseUpdater):
 
     # Update setting
     self._cmd_kwargs = {}
-    self._cmd_kwargs_omit_error = {'error_code_ok': True}
+    self._cmd_kwargs_omit_error = {'check': False}
     self._do_stateful_update = do_stateful_update
     self._do_rootfs_update = do_rootfs_update
     self._disable_verification = disable_verification
@@ -250,9 +251,9 @@ class ChromiumOSUpdater(BaseUpdater):
 
     if log_file:
       log_kwargs = {
-          'log_stdout_to_file': log_file,
+          'stdout': log_file,
           'append_to_file': True,
-          'combine_stdout_stderr': True,
+          'stderr': subprocess.STDOUT,
       }
       self._cmd_kwargs.update(log_kwargs)
       self._cmd_kwargs_omit_error.update(log_kwargs)
@@ -278,10 +279,6 @@ class ChromiumOSUpdater(BaseUpdater):
   @property
   def is_au_endtoendtest(self):
     return self.payload_filename is not None
-
-  def GetPayloadPropertiesFileName(self, payload):
-    """Returns the payload properties file given the path to the payload."""
-    return payload + '.json'
 
   def CheckPayloads(self):
     """DEPRECATED.  Use auto_updater_transfer.Transfer Class instead.
@@ -601,10 +598,10 @@ class ChromiumOSUpdater(BaseUpdater):
   def _FixPayloadPropertiesFile(self):
     """Fix the update payload properties file so nebraska can use it.
 
-    Update the payload properties file for end-to-end tests to make sure
-    nebraska can use it. The reason is that very old payloads are still being
-    used for provisioning the AU tests, but those properties files are not
-    compatible with recent nebraska protocols.
+    Update the payload properties file to make sure that nebraska can use it.
+    The reason is that very old payloads are still being used for provisioning
+    the AU tests, but those properties files are not compatible with recent
+    nebraska protocols.
 
     TODO(ahassani): Once we only test delta or full payload with
     source image of M77 or higher, this function can be deprecated.
@@ -612,18 +609,9 @@ class ChromiumOSUpdater(BaseUpdater):
     TODO(ahassani): Merge this somehow with ResolveAPPIDMismatchIfAny().
     """
     logging.info('Fixing payload properties file.')
-    payload_name = self._GetRootFsPayloadFileName()
-    payload_path = os.path.join(self.payload_dir, payload_name)
-    payload_properties_path = self.GetPayloadPropertiesFileName(payload_path)
+    payload_properties_path = self._transfer_obj.GetPayloadPropsFile()
     props = json.loads(osutils.ReadFile(payload_properties_path))
-
-    full_exp = r'payloads/chromeos_(?P<image_version>[^_]+)_.*'
-    m = re.match(full_exp, payload_name)
-    if not m:
-      raise ValueError(
-          'Regular expression %r did not match the payload file name %s' %
-          (full_exp, payload_name))
-    values = m.groupdict()
+    values = self._transfer_obj.GetPayloadProps()
 
     # TODO(ahassani): Use the keys form nebraska.py once it is moved to
     # chromite.
@@ -632,16 +620,19 @@ class ChromiumOSUpdater(BaseUpdater):
         # Since only old payloads don't have this and they are only used for
         # provisioning, they will be full payloads.
         'is_delta': False,
-        'size': os.path.getsize(payload_path),
+        'size': values['size'],
         'target_version': values['image_version'],
     }
 
+    are_props_modified = False
     for key, value in valid_entries.items():
       if props.get(key) is None:
         props[key] = value
+        are_props_modified = True
 
-    with open(payload_properties_path, 'w') as fp:
-      json.dump(props, fp)
+    if are_props_modified:
+      with open(payload_properties_path, 'w') as fp:
+        json.dump(props, fp)
 
   def RunUpdateRootfs(self):
     """Run all processes needed by updating rootfs.
@@ -659,8 +650,7 @@ class ChromiumOSUpdater(BaseUpdater):
     # removed. For more details on TODOs, refer to self.TransferRootfsUpdate()
     # docstrings.
 
-    if self.is_au_endtoendtest:
-      self._FixPayloadPropertiesFile()
+    self._FixPayloadPropertiesFile()
 
     # Copy payload for rootfs update.
 
@@ -726,23 +716,19 @@ class ChromiumOSUpdater(BaseUpdater):
     will fail. We empty the payload's AppID so nebraska can do partial APP ID
     matching.
     """
-    if not self.device.app_id:
-      logging.warn('Device does not a proper APP ID!')
-      return
-
     content = json.loads(osutils.ReadFile(prop_file))
-    payload_app_id = content.get('appid', '')
-    if not payload_app_id:
-      # Payload's App ID is empty, we don't care, it is already partial match.
+    payload_app_id = content.get('appid')
+
+    if ((self.device.app_id and self.device.app_id == payload_app_id) or
+        payload_app_id == ''):
       return
 
-    if self.device.app_id != payload_app_id:
-      logging.warn('You are installing an image with a different release '
-                   'App ID than the device (%s vs %s), we are forcing the '
-                   'install!', payload_app_id, self.device.app_id)
-      # Override the properties file with the new empty APP ID.
-      content['appid'] = ''
-      osutils.WriteFile(prop_file, json.dumps(content))
+    logging.warn('You are installing an image with a different release '
+                 'App ID than the device (%s vs %s), we are forcing the '
+                 'install!', payload_app_id, self.device.app_id)
+    # Override the properties file with the new empty APP ID.
+    content['appid'] = ''
+    osutils.WriteFile(prop_file, json.dumps(content))
 
   def RunUpdate(self):
     """Update the device with image of specific version."""
@@ -1032,8 +1018,7 @@ class ChromiumOSUpdater(BaseUpdater):
     # TODO(ahassani): This is not the ideal place to do this, but since any
     # changes to this needs to be reflected in cros_update.py too, just do it
     # for now here.
-    if self.is_au_endtoendtest:
-      self._FixPayloadPropertiesFile()
+    self._FixPayloadPropertiesFile()
 
     self._transfer_obj.TransferRootfsUpdate()
 

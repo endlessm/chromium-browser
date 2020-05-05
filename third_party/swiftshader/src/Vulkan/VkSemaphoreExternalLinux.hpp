@@ -85,7 +85,7 @@ public:
 	void wait()
 	{
 		pthread_mutex_lock(&mutex);
-		while (!signaled)
+		while(!signaled)
 		{
 			pthread_cond_wait(&cond, &mutex);
 		}
@@ -104,7 +104,7 @@ public:
 	{
 		pthread_mutex_lock(&mutex);
 		bool result = signaled;
-		if (result)
+		if(result)
 		{
 			signaled = false;
 		}
@@ -127,10 +127,10 @@ private:
 	bool signaled = false;
 };
 
-namespace vk
-{
+namespace vk {
 
-class Semaphore::External {
+class Semaphore::External
+{
 public:
 	// The type of external semaphore handle types supported by this implementation.
 	static const VkExternalSemaphoreHandleTypeFlags kExternalSemaphoreHandleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
@@ -151,7 +151,7 @@ public:
 		static int counter = 0;
 		char name[40];
 		snprintf(name, sizeof(name), "SwiftShader.Semaphore.%d", ++counter);
-		if (!memfd.allocate(name, size))
+		if(!memfd.allocate(name, size))
 		{
 			ABORT("memfd.allocate() returned %s", strerror(errno));
 		}
@@ -170,10 +170,10 @@ public:
 	// Export the current semaphore as a duplicated file descriptor to the same
 	// region. This can be consumed by importFd() running in a different
 	// process.
-	VkResult exportFd(int* pFd) const
+	VkResult exportFd(int *pFd) const
 	{
 		int fd = memfd.exportFd();
-		if (fd < 0)
+		if(fd < 0)
 		{
 			return VK_ERROR_INVALID_EXTERNAL_HANDLE;
 		}
@@ -200,9 +200,9 @@ private:
 	// Unmap the semaphore if needed and close its file descriptor.
 	void close()
 	{
-		if (semaphore)
+		if(semaphore)
 		{
-			if (semaphore->deref())
+			if(semaphore->deref())
 			{
 				semaphore->~SharedSemaphore();
 			}
@@ -216,15 +216,15 @@ private:
 	void mapRegion(size_t size, bool needInitialization)
 	{
 		// Map the region into memory and point the semaphore to it.
-		void* addr = memfd.mapReadWrite(0, size);
-		if (!addr)
+		void *addr = memfd.mapReadWrite(0, size);
+		if(!addr)
 		{
 			ABORT("mmap() failed: %s", strerror(errno));
 		}
 		semaphore = reinterpret_cast<SharedSemaphore *>(addr);
-		if (needInitialization)
+		if(needInitialization)
 		{
-			new (semaphore) SharedSemaphore();
+			new(semaphore) SharedSemaphore();
 		}
 		else
 		{
@@ -233,7 +233,7 @@ private:
 	}
 
 	LinuxMemFd memfd;
-	SharedSemaphore* semaphore = nullptr;
+	SharedSemaphore *semaphore = nullptr;
 };
 
 }  // namespace vk

@@ -9,8 +9,8 @@
 #include "cast/streaming/sender_report_parser.h"
 #include "gtest/gtest.h"
 
+namespace openscreen {
 namespace cast {
-namespace streaming {
 namespace {
 
 constexpr Ssrc kSenderSsrc{1};
@@ -25,8 +25,7 @@ class SenderReportTest : public testing::Test {
   }
 
  private:
-  RtcpSession session_{kSenderSsrc, kReceiverSsrc,
-                       openscreen::platform::Clock::now()};
+  RtcpSession session_{kSenderSsrc, kReceiverSsrc, Clock::now()};
   SenderReportBuilder builder_{&session_};
   SenderReportParser parser_{&session_};
 };
@@ -120,7 +119,7 @@ TEST_F(SenderReportTest, BuildPackets) {
     const bool with_report_block = (i == 1);
 
     RtcpSenderReport original;
-    original.reference_time = openscreen::platform::Clock::now();
+    original.reference_time = Clock::now();
     original.rtp_timestamp = RtpTimeTicks() + RtpTimeDelta::FromTicks(5);
     original.send_packet_count = 55;
     original.send_octet_count = 20044;
@@ -162,5 +161,5 @@ TEST_F(SenderReportTest, BuildPackets) {
 }
 
 }  // namespace
-}  // namespace streaming
 }  // namespace cast
+}  // namespace openscreen

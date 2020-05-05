@@ -614,14 +614,6 @@ void DesktopNativeWidgetAura::FrameTypeChanged() {
   UpdateWindowTransparency();
 }
 
-Widget* DesktopNativeWidgetAura::GetWidget() {
-  return native_widget_delegate_->AsWidget();
-}
-
-const Widget* DesktopNativeWidgetAura::GetWidget() const {
-  return native_widget_delegate_->AsWidget();
-}
-
 gfx::NativeView DesktopNativeWidgetAura::GetNativeView() const {
   return content_window_;
 }
@@ -1034,6 +1026,10 @@ void DesktopNativeWidgetAura::OnSizeConstraintsChanged() {
   desktop_window_tree_host_->SizeConstraintsChanged();
 }
 
+void DesktopNativeWidgetAura::OnNativeViewHierarchyWillChange() {}
+
+void DesktopNativeWidgetAura::OnNativeViewHierarchyChanged() {}
+
 std::string DesktopNativeWidgetAura::GetName() const {
   return name_;
 }
@@ -1276,6 +1272,10 @@ void DesktopNativeWidgetAura::RootWindowDestroyed() {
     native_cursor_manager_ = nullptr;
     cursor_manager_ = nullptr;
   }
+}
+
+const Widget* DesktopNativeWidgetAura::GetWidgetImpl() const {
+  return native_widget_delegate_->AsWidget();
 }
 
 }  // namespace views

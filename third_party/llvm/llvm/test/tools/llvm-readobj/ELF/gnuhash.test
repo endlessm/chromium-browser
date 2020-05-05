@@ -1,0 +1,102 @@
+## Check how the GNU Hash section is dumped with --gnu-hash-table.
+
+# RUN: yaml2obj --docnum=1 %s -o %t.x64
+# RUN: yaml2obj --docnum=2 %s -o %t.x32
+
+# RUN: llvm-readobj --gnu-hash-table %t.x64 | FileCheck %s
+# RUN: llvm-readelf --gnu-hash-table %t.x64 | FileCheck %s
+
+# RUN: llvm-readobj --gnu-hash-table %t.x32 | FileCheck %s
+# RUN: llvm-readelf --gnu-hash-table %t.x32 | FileCheck %s
+
+# CHECK:      GnuHashTable {
+# CHECK-NEXT:   Num Buckets: 3
+# CHECK-NEXT:   First Hashed Symbol Index: 1
+# CHECK-NEXT:   Num Mask Words: 2
+# CHECK-NEXT:   Shift Count: 2
+# CHECK-NEXT:   Bloom Filter: [0x3, 0x4]
+# CHECK-NEXT:   Buckets: [5, 6, 7]
+# CHECK-NEXT:   Values: [0x8, 0x9, 0xA, 0xB]
+# CHECK-NEXT: }
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS64
+  Data:    ELFDATA2LSB
+  Type:    ET_DYN
+  Machine: EM_X86_64
+Sections:
+  - Name:  .gnu.hash
+    Type:  SHT_GNU_HASH
+    Flags: [ SHF_ALLOC ]
+    Header:
+      SymNdx: 0x1
+      Shift2: 0x2
+    BloomFilter: [0x3, 0x4]
+    HashBuckets: [0x5, 0x6, 0x7]
+    HashValues:  [0x8, 0x9, 0xA, 0xB]
+  - Name:  .dynamic
+    Type:  SHT_DYNAMIC
+    Flags: [ SHF_ALLOC ]
+    Link:  .dynstr
+    Entries:
+      - Tag:   DT_GNU_HASH
+        Value: 0x0
+      - Tag:   DT_NULL
+        Value: 0x0
+DynamicSymbols:
+  - Name:    aaa
+    Binding: STB_GLOBAL
+  - Name:    bbb
+    Binding: STB_GLOBAL
+  - Name:    ccc
+    Binding: STB_GLOBAL
+  - Name:    ddd
+    Binding: STB_GLOBAL
+ProgramHeaders:
+  - Type:  PT_LOAD
+    Flags: [ PF_R, PF_X ]
+    Sections:
+      - Section: .gnu.hash
+      - Section: .dynamic
+
+--- !ELF
+FileHeader:
+  Class:   ELFCLASS32
+  Data:    ELFDATA2LSB
+  Type:    ET_DYN
+  Machine: EM_386
+Sections:
+  - Name:  .gnu.hash
+    Type:  SHT_GNU_HASH
+    Flags: [ SHF_ALLOC ]
+    Header:
+      SymNdx: 0x1
+      Shift2: 0x2
+    BloomFilter: [0x3, 0x4]
+    HashBuckets: [0x5, 0x6, 0x7]
+    HashValues:  [0x8, 0x9, 0xA, 0xB]
+  - Name:  .dynamic
+    Type:  SHT_DYNAMIC
+    Flags: [ SHF_ALLOC ]
+    Link:  .dynstr
+    Entries:
+      - Tag:   DT_GNU_HASH
+        Value: 0x0
+      - Tag:   DT_NULL
+        Value: 0x0
+DynamicSymbols:
+  - Name:    aaa
+    Binding: STB_GLOBAL
+  - Name:    bbb
+    Binding: STB_GLOBAL
+  - Name:    ccc
+    Binding: STB_GLOBAL
+  - Name:    ddd
+    Binding: STB_GLOBAL
+ProgramHeaders:
+  - Type:  PT_LOAD
+    Flags: [ PF_R, PF_X ]
+    Sections:
+      - Section: .gnu.hash
+      - Section: .dynamic

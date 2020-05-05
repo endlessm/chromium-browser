@@ -213,6 +213,7 @@ LANGOPT(OpenMPSimd        , 1, 0, "Use SIMD only OpenMP support.")
 LANGOPT(OpenMPUseTLS      , 1, 0, "Use TLS for threadprivates or runtime calls")
 LANGOPT(OpenMPIsDevice    , 1, 0, "Generate code only for OpenMP target device")
 LANGOPT(OpenMPCUDAMode    , 1, 0, "Generate code for OpenMP pragmas in SIMT/SPMD mode")
+LANGOPT(OpenMPIRBuilder   , 1, 0, "Use the experimental OpenMP-IR-Builder codegen path.")
 LANGOPT(OpenMPCUDAForceFullRuntime , 1, 0, "Force to use full runtime in all constructs when offloading to CUDA devices")
 LANGOPT(OpenMPCUDANumSMs  , 32, 0, "Number of SMs for CUDA devices.")
 LANGOPT(OpenMPCUDABlocksPerSM  , 32, 0, "Number of blocks per SM for CUDA devices.")
@@ -226,6 +227,7 @@ LANGOPT(CUDAHostDeviceConstexpr, 1, 1, "treating unattributed constexpr function
 LANGOPT(CUDADeviceApproxTranscendentals, 1, 0, "using approximate transcendental functions")
 LANGOPT(GPURelocatableDeviceCode, 1, 0, "generate relocatable device code")
 LANGOPT(GPUAllowDeviceInit, 1, 0, "allowing device side global init functions for HIP")
+LANGOPT(GPUMaxThreadsPerBlock, 32, 256, "default max threads per block for kernel launch bounds for HIP")
 
 LANGOPT(SYCLIsDevice      , 1, 0, "Generate code for SYCL device")
 
@@ -235,7 +237,7 @@ LANGOPT(SizedDeallocation , 1, 0, "sized deallocation")
 LANGOPT(AlignedAllocation , 1, 0, "aligned allocation")
 LANGOPT(AlignedAllocationUnavailable, 1, 0, "aligned allocation functions are unavailable")
 LANGOPT(NewAlignOverride  , 32, 0, "maximum alignment guaranteed by '::operator new(size_t)'")
-LANGOPT(ConceptsTS , 1, 0, "enable C++ Extensions for Concepts")
+LANGOPT(ConceptSatisfactionCaching , 1, 1, "enable satisfaction caching for C++2a Concepts")
 BENIGN_LANGOPT(ModulesCodegen , 1, 0, "Modules code generation")
 BENIGN_LANGOPT(ModulesDebugInfo , 1, 0, "Modules debug info")
 BENIGN_LANGOPT(ElideConstructors , 1, 1, "C++ copy constructor elision")
@@ -255,6 +257,8 @@ LANGOPT(SinglePrecisionConstants , 1, 0, "treating double-precision floating poi
 LANGOPT(FastRelaxedMath , 1, 0, "OpenCL fast relaxed math")
 /// FP_CONTRACT mode (on/off/fast).
 ENUM_LANGOPT(DefaultFPContractMode, FPContractModeKind, 2, FPC_Off, "FP contraction type")
+ENUM_LANGOPT(FPRoundingMode, FPRoundingModeKind, 3, FPR_ToNearest, "FP Rounding Mode type")
+ENUM_LANGOPT(FPExceptionMode, FPExceptionModeKind, 2, FPE_Ignore, "FP Exception Behavior Mode type")
 LANGOPT(NoBitFieldTypeAlign , 1, 0, "bit-field type alignment")
 LANGOPT(HexagonQdsp6Compat , 1, 0, "hexagon-qdsp6 backward compatibility")
 LANGOPT(ObjCAutoRefCount , 1, 0, "Objective-C automated reference counting")
@@ -339,6 +343,8 @@ LANGOPT(PaddingOnUnsignedFixedPoint, 1, 0,
         "unsigned fixed point types having one extra padding bit")
 
 LANGOPT(RegisterStaticDestructors, 1, 1, "Register C++ static destructors")
+
+COMPATIBLE_VALUE_LANGOPT(MaxTokens, 32, 0, "Max number of tokens per TU or 0")
 
 #undef LANGOPT
 #undef COMPATIBLE_LANGOPT

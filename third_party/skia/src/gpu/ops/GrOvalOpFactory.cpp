@@ -871,7 +871,9 @@ private:
                      const CoordTransformRange& transformRange) override {
             const DIEllipseGeometryProcessor& diegp = gp.cast<DIEllipseGeometryProcessor>();
 
-            if (!diegp.fViewMatrix.isIdentity() && !fViewMatrix.cheapEqualTo(diegp.fViewMatrix)) {
+            if (!diegp.fViewMatrix.isIdentity() &&
+                !SkMatrixPriv::CheapEqual(fViewMatrix, diegp.fViewMatrix))
+            {
                 fViewMatrix = diegp.fViewMatrix;
                 float viewMatrix[3 * 3];
                 GrGLSLGetMatrix<3>(viewMatrix, fViewMatrix);
@@ -1110,10 +1112,13 @@ public:
             startPoint.normalize();
             stopPoint.normalize();
 
-            // If the matrix included scale (on one axis) we need to swap our start and end points
-            if ((viewMatrix.getScaleX() < 0) != (viewMatrix.getScaleY() < 0)) {
-                using std::swap;
-                swap(startPoint, stopPoint);
+            // We know the matrix is a similarity here. Detect mirroring which will affect how we
+            // should orient the clip planes for arcs.
+            SkASSERT(viewMatrix.isSimilarity());
+            auto upperLeftDet = viewMatrix.getScaleX()*viewMatrix.getScaleY() -
+                                viewMatrix.getSkewX() *viewMatrix.getSkewY();
+            if (upperLeftDet < 0) {
+                std::swap(startPoint, stopPoint);
             }
 
             fRoundCaps = style.strokeRec().getWidth() > 0 &&
@@ -1399,10 +1404,15 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         CircleOp* that = t->cast<CircleOp>();
 
         // can only represent 65535 unique vertices with 16-bit indices
@@ -1415,7 +1425,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -1690,10 +1701,15 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         ButtCapDashedCircleOp* that = t->cast<ButtCapDashedCircleOp>();
 
         // can only represent 65535 unique vertices with 16-bit indices
@@ -1706,7 +1722,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -1945,10 +1962,15 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         EllipseOp* that = t->cast<EllipseOp>();
 
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
@@ -1960,7 +1982,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -2182,10 +2205,15 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         DIEllipseOp* that = t->cast<DIEllipseOp>();
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
             return CombineResult::kCannotCombine;
@@ -2196,7 +2224,7 @@ private:
         }
 
         // TODO rewrite to allow positioning on CPU
-        if (!this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
+        if (!SkMatrixPriv::CheapEqual(this->viewMatrix(), that->viewMatrix())) {
             return CombineResult::kCannotCombine;
         }
 
@@ -2613,10 +2641,15 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         CircularRRectOp* that = t->cast<CircularRRectOp>();
 
         // can only represent 65535 unique vertices with 16-bit indices
@@ -2629,7 +2662,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -2895,10 +2929,15 @@ private:
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
+                                                                 fHelper.detachProcessorSet(),
+                                                                 fHelper.pipelineFlags());
+
+        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         EllipticalRRectOp* that = t->cast<EllipticalRRectOp>();
 
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
@@ -2910,7 +2949,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 

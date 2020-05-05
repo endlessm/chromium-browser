@@ -22,6 +22,7 @@
 #include "api/rtc_event_log_output_file.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/task_queue/task_queue_base.h"
+#include "api/test/create_frame_generator.h"
 #include "api/video/builtin_video_bitrate_allocator_factory.h"
 #include "api/video_codecs/video_encoder.h"
 #include "call/fake_network_pipe.h"
@@ -865,6 +866,7 @@ void VideoQualityTest::SetupVideo(Transport* send_transport,
         VideoCodecVP9 vp9_settings = VideoEncoder::GetDefaultVp9Settings();
         vp9_settings.denoisingOn = false;
         vp9_settings.frameDroppingOn = false;
+        vp9_settings.automaticResizeOn = false;
         vp9_settings.numberOfTemporalLayers = static_cast<unsigned char>(
             params_.video[video_idx].num_temporal_layers);
         vp9_settings.numberOfSpatialLayers = static_cast<unsigned char>(
@@ -887,6 +889,7 @@ void VideoQualityTest::SetupVideo(Transport* send_transport,
       vp9_settings.numberOfSpatialLayers =
           static_cast<unsigned char>(params_.ss[video_idx].num_spatial_layers);
       vp9_settings.interLayerPred = params_.ss[video_idx].inter_layer_pred;
+      vp9_settings.automaticResizeOn = false;
       video_encoder_configs_[video_idx].encoder_specific_settings =
           new rtc::RefCountedObject<
               VideoEncoderConfig::Vp9EncoderSpecificSettings>(vp9_settings);
@@ -899,7 +902,9 @@ void VideoQualityTest::SetupVideo(Transport* send_transport,
                 VideoEncoderConfig::Vp8EncoderSpecificSettings>(vp8_settings);
       } else if (params_.video[video_idx].codec == "VP9") {
         VideoCodecVP9 vp9_settings = VideoEncoder::GetDefaultVp9Settings();
-        vp9_settings.automaticResizeOn = true;
+        // Only enable quality scaler for single spatial layer.
+        vp9_settings.automaticResizeOn =
+            params_.ss[video_idx].num_spatial_layers == 1;
         video_encoder_configs_[video_idx].encoder_specific_settings =
             new rtc::RefCountedObject<
                 VideoEncoderConfig::Vp9EncoderSpecificSettings>(vp9_settings);
@@ -1049,24 +1054,23 @@ void VideoQualityTest::SetupThumbnailCapturers(size_t num_thumbnail_streams) {
     auto frame_generator_capturer =
         std::make_unique<test::FrameGeneratorCapturer>(
             clock_,
-            test::FrameGenerator::CreateSquareGenerator(
-                static_cast<int>(thumbnail.width),
-                static_cast<int>(thumbnail.height), absl::nullopt,
-                absl::nullopt),
+            test::CreateSquareFrameGenerator(static_cast<int>(thumbnail.width),
+                                             static_cast<int>(thumbnail.height),
+                                             absl::nullopt, absl::nullopt),
             thumbnail.max_framerate, *task_queue_factory_);
     EXPECT_TRUE(frame_generator_capturer->Init());
     thumbnail_capturers_.push_back(std::move(frame_generator_capturer));
   }
 }
 
-std::unique_ptr<test::FrameGenerator> VideoQualityTest::CreateFrameGenerator(
-    size_t video_idx) {
+std::unique_ptr<test::FrameGeneratorInterface>
+VideoQualityTest::CreateFrameGenerator(size_t video_idx) {
   // Setup frame generator.
   const size_t kWidth = 1850;
   const size_t kHeight = 1110;
-  std::unique_ptr<test::FrameGenerator> frame_generator;
+  std::unique_ptr<test::FrameGeneratorInterface> frame_generator;
   if (params_.screenshare[video_idx].generate_slides) {
-    frame_generator = test::FrameGenerator::CreateSlideGenerator(
+    frame_generator = test::CreateSlideFrameGenerator(
         kWidth, kHeight,
         params_.screenshare[video_idx].slide_change_interval *
             params_.video[video_idx].fps);
@@ -1080,7 +1084,7 @@ std::unique_ptr<test::FrameGenerator> VideoQualityTest::CreateFrameGenerator(
     }
     if (params_.screenshare[video_idx].scroll_duration == 0) {
       // Cycle image every slide_change_interval seconds.
-      frame_generator = test::FrameGenerator::CreateFromYuvFile(
+      frame_generator = test::CreateFromYuvFileFrameGenerator(
           slides, kWidth, kHeight,
           params_.screenshare[video_idx].slide_change_interval *
               params_.video[video_idx].fps);
@@ -1095,7 +1099,7 @@ std::unique_ptr<test::FrameGenerator> VideoQualityTest::CreateFrameGenerator(
       RTC_CHECK_LE(params_.screenshare[video_idx].scroll_duration,
                    params_.screenshare[video_idx].slide_change_interval);
 
-      frame_generator = test::FrameGenerator::CreateScrollingInputFromYuvFiles(
+      frame_generator = test::CreateScrollingInputFromYuvFilesFrameGenerator(
           clock_, slides, kWidth, kHeight, params_.video[video_idx].width,
           params_.video[video_idx].height,
           params_.screenshare[video_idx].scroll_duration * 1000,
@@ -1109,24 +1113,24 @@ void VideoQualityTest::CreateCapturers() {
   RTC_DCHECK(video_sources_.empty());
   video_sources_.resize(num_video_streams_);
   for (size_t video_idx = 0; video_idx < num_video_streams_; ++video_idx) {
-    std::unique_ptr<test::FrameGenerator> frame_generator;
+    std::unique_ptr<test::FrameGeneratorInterface> frame_generator;
     if (params_.screenshare[video_idx].enabled) {
       frame_generator = CreateFrameGenerator(video_idx);
     } else if (params_.video[video_idx].clip_path == "Generator") {
-      frame_generator = test::FrameGenerator::CreateSquareGenerator(
+      frame_generator = test::CreateSquareFrameGenerator(
           static_cast<int>(params_.video[video_idx].width),
           static_cast<int>(params_.video[video_idx].height), absl::nullopt,
           absl::nullopt);
     } else if (params_.video[video_idx].clip_path == "GeneratorI420A") {
-      frame_generator = test::FrameGenerator::CreateSquareGenerator(
+      frame_generator = test::CreateSquareFrameGenerator(
           static_cast<int>(params_.video[video_idx].width),
           static_cast<int>(params_.video[video_idx].height),
-          test::FrameGenerator::OutputType::kI420A, absl::nullopt);
+          test::FrameGeneratorInterface::OutputType::kI420A, absl::nullopt);
     } else if (params_.video[video_idx].clip_path == "GeneratorI010") {
-      frame_generator = test::FrameGenerator::CreateSquareGenerator(
+      frame_generator = test::CreateSquareFrameGenerator(
           static_cast<int>(params_.video[video_idx].width),
           static_cast<int>(params_.video[video_idx].height),
-          test::FrameGenerator::OutputType::kI010, absl::nullopt);
+          test::FrameGeneratorInterface::OutputType::kI010, absl::nullopt);
     } else if (params_.video[video_idx].clip_path.empty()) {
       video_sources_[video_idx] = test::CreateVideoCapturer(
           params_.video[video_idx].width, params_.video[video_idx].height,
@@ -1136,13 +1140,13 @@ void VideoQualityTest::CreateCapturers() {
         continue;
       } else {
         // Failed to get actual camera, use chroma generator as backup.
-        frame_generator = test::FrameGenerator::CreateSquareGenerator(
+        frame_generator = test::CreateSquareFrameGenerator(
             static_cast<int>(params_.video[video_idx].width),
             static_cast<int>(params_.video[video_idx].height), absl::nullopt,
             absl::nullopt);
       }
     } else {
-      frame_generator = test::FrameGenerator::CreateFromYuvFile(
+      frame_generator = test::CreateFromYuvFileFrameGenerator(
           {params_.video[video_idx].clip_path}, params_.video[video_idx].width,
           params_.video[video_idx].height, 1);
       ASSERT_TRUE(frame_generator) << "Could not create capturer for "

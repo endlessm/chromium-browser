@@ -1,4 +1,4 @@
-//===-- Type.cpp ------------------------------------------------*- C++ -*-===//
+//===-- Type.cpp ----------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -213,6 +213,9 @@ void Type::GetDescription(Stream *s, lldb::DescriptionLevel level,
     case eEncodingIsVolatileUID:
       s->PutCString(" (unresolved volatile type)");
       break;
+    case eEncodingIsAtomicUID:
+      s->PutCString(" (unresolved atomic type)");
+      break;
     case eEncodingIsTypedefUID:
       s->PutCString(" (unresolved typedef)");
       break;
@@ -270,6 +273,9 @@ void Type::Dump(Stream *s, bool show_context) {
       break;
     case eEncodingIsVolatileUID:
       s->PutCString(" (unresolved volatile type)");
+      break;
+    case eEncodingIsAtomicUID:
+      s->PutCString(" (unresolved atomic type)");
       break;
     case eEncodingIsTypedefUID:
       s->PutCString(" (unresolved typedef)");
@@ -343,6 +349,7 @@ llvm::Optional<uint64_t> Type::GetByteSize() {
   case eEncodingIsConstUID:
   case eEncodingIsRestrictUID:
   case eEncodingIsVolatileUID:
+  case eEncodingIsAtomicUID:
   case eEncodingIsTypedefUID: {
     Type *encoding_type = GetEncodingType();
     if (encoding_type)
@@ -491,6 +498,11 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
             encoding_type->GetForwardCompilerType().AddVolatileModifier();
         break;
 
+      case eEncodingIsAtomicUID:
+        m_compiler_type =
+            encoding_type->GetForwardCompilerType().GetAtomicType();
+        break;
+
       case eEncodingIsTypedefUID:
         m_compiler_type = encoding_type->GetForwardCompilerType().CreateTypedef(
             m_name.AsCString("__lldb_invalid_typedef_name"),
@@ -524,7 +536,7 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
         LLDB_LOG_ERROR(
             lldb_private::GetLogIfAnyCategoriesSet(LIBLLDB_LOG_SYMBOLS),
             std::move(err),
-            "Unable to construct void type from ClangASTContext");
+            "Unable to construct void type from TypeSystemClang");
       } else {
         CompilerType void_compiler_type =
             type_system_or_err->GetBasicTypeFromAST(eBasicTypeVoid);
@@ -543,6 +555,10 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
 
         case eEncodingIsVolatileUID:
           m_compiler_type = void_compiler_type.AddVolatileModifier();
+          break;
+
+        case eEncodingIsAtomicUID:
+          m_compiler_type = void_compiler_type.GetAtomicType();
           break;
 
         case eEncodingIsTypedefUID:
@@ -638,17 +654,6 @@ CompilerType Type::GetLayoutCompilerType() {
 CompilerType Type::GetForwardCompilerType() {
   ResolveClangType(ResolveState::Forward);
   return m_compiler_type;
-}
-
-int Type::Compare(const Type &a, const Type &b) {
-  // Just compare the UID values for now...
-  lldb::user_id_t a_uid = a.GetID();
-  lldb::user_id_t b_uid = b.GetID();
-  if (a_uid < b_uid)
-    return -1;
-  if (a_uid > b_uid)
-    return 1;
-  return 0;
 }
 
 ConstString Type::GetQualifiedName() {

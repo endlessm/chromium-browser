@@ -17,6 +17,8 @@
 #include "chrome/browser/tab_contents/navigation_metrics_recorder.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/back_forward_menu_model.h"
 #include "chrome/common/chrome_features.h"
@@ -26,6 +28,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/network_session_configurator/common/network_switches.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_service.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "components/url_formatter/url_formatter.h"
@@ -40,6 +43,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/site_isolation_policy.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -50,6 +54,7 @@
 #include "content/public/test/navigation_handle_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/url_loader_interceptor.h"
+#include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/test_extension_dir.h"
 #include "google_apis/gaia/gaia_switches.h"
 #include "net/dns/mock_host_resolver.h"
@@ -364,9 +369,8 @@ class ChromeNavigationPortMappedBrowserTest : public InProcessBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(ChromeNavigationPortMappedBrowserTest);
 };
 
-// Test to verify that a malformed URL set as the virtual URL of a
-// NavigationEntry will result in the navigation being dropped.
-// See https://crbug.com/657720.
+// Test to verify that spoofing a URL via a redirect from a slightly malformed
+// URL doesn't work.  See also https://crbug.com/657720.
 IN_PROC_BROWSER_TEST_F(ChromeNavigationPortMappedBrowserTest,
                        ContextMenuNavigationToInvalidUrl) {
   GURL initial_url = embedded_test_server()->GetURL("/title1.html");
@@ -392,20 +396,16 @@ IN_PROC_BROWSER_TEST_F(ChromeNavigationPortMappedBrowserTest,
   menu.Init();
   menu.ExecuteCommand(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB, 0);
 
-  // Wait for the new tab to be created and for loading to stop. The
-  // navigation should not be allowed, therefore there should not be a last
-  // committed URL in the new tab.
+  // Wait for the new tab to be created and for loading to stop.
   tab_add.Wait();
+  int index_of_new_tab = browser()->tab_strip_model()->count() - 1;
   content::WebContents* new_web_contents =
-      browser()->tab_strip_model()->GetWebContentsAt(
-          browser()->tab_strip_model()->count() - 1);
+      browser()->tab_strip_model()->GetWebContentsAt(index_of_new_tab);
   WaitForLoadStop(new_web_contents);
 
-  // If the test is unsuccessful, the return value from GetLastCommittedURL
-  // will be the virtual URL for the created NavigationEntry.
-  // Note: Before the bug was fixed, the URL was the new_tab_url with a scheme
-  // prepended and one less ":" character after the host.
-  EXPECT_EQ(GURL(), new_web_contents->GetLastCommittedURL());
+  // Verify that the final URL after the redirects gets committed.
+  EXPECT_EQ(GURL("http://bar.com/title2.html"),
+            new_web_contents->GetLastCommittedURL());
 }
 
 // Ensure that a failed navigation in a new tab will not leave an invalid
@@ -676,6 +676,255 @@ IN_PROC_BROWSER_TEST_F(ChromeNavigationBrowserTest,
     EXPECT_EQ(GURL(url::kAboutBlankURL), observer.last_navigation_url());
     EXPECT_NE(GURL(content::kUnreachableWebDataURL),
               web_contents->GetMainFrame()->GetSiteInstance()->GetSiteURL());
+  }
+}
+
+// This test covers a navigation that:
+// 1. is initiated by a cross-site initiator,
+// 2. gets redirected via webRequest API to about:blank.
+// This is a regression test for https://crbug.com/1026738.
+IN_PROC_BROWSER_TEST_F(
+    ChromeNavigationBrowserTest,
+    NavigationInitiatedByCrossSiteSubframeRedirectedToAboutBlank) {
+  const GURL kOpenerUrl(
+      embedded_test_server()->GetURL("opener.com", "/title1.html"));
+  const GURL kInitialPopupUrl(embedded_test_server()->GetURL(
+      "initial-site.com",
+      "/frame_tree/page_with_two_frames_remote_and_local.html"));
+  const GURL kRedirectedUrl("https://redirected.com/no-such-path");
+
+  // 1. Install an extension, which will redirect all navigations to
+  //    redirected.com URLs to about:blank. In general, web servers cannot
+  //    redirect to about:blank, but extensions with declarativeWebRequest API
+  //    permissions can.
+  const char kManifest[] = R"(
+      {
+        "name": "Test for Bug1026738 - about:blank flavour",
+        "version": "0.1",
+        "manifest_version": 2,
+        "background": {
+          "scripts": ["background.js"]
+        },
+        "permissions": ["webRequest", "webRequestBlocking", "<all_urls>"]
+      }
+  )";
+  const char kRulesScript[] = R"(
+      chrome.webRequest.onBeforeRequest.addListener(function(d) {
+          console.log("onBeforeRequest: ", d);
+          return {redirectUrl: "about:blank"};
+        }, {urls: ["*://redirected.com/*"]}, ["blocking"]);
+      chrome.test.sendMessage('ready');
+  )";
+  extensions::TestExtensionDir ext_dir;
+  ext_dir.WriteManifest(kManifest);
+  ext_dir.WriteFile(FILE_PATH_LITERAL("background.js"), kRulesScript);
+  ExtensionTestMessageListener ready_listener("ready", false /* will_reply */);
+  extensions::ChromeTestExtensionLoader extension_loader(browser()->profile());
+  scoped_refptr<const extensions::Extension> extension =
+      extension_loader.LoadExtension(ext_dir.UnpackedPath());
+  ASSERT_TRUE(extension);
+  ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
+  content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+      ->FlushNetworkInterfaceForTesting();
+
+  // 2. Open a popup containing a cross-site subframe.
+  ui_test_utils::NavigateToURL(browser(), kOpenerUrl);
+  content::RenderFrameHost* opener =
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+  EXPECT_EQ(kOpenerUrl, opener->GetLastCommittedURL());
+  EXPECT_EQ(url::Origin::Create(kOpenerUrl), opener->GetLastCommittedOrigin());
+  content::WebContents* popup = nullptr;
+  {
+    content::WebContentsAddedObserver popup_observer;
+    ASSERT_TRUE(content::ExecJs(
+        opener,
+        content::JsReplace("window.open($1, 'my-popup')", kInitialPopupUrl)));
+    popup = popup_observer.GetWebContents();
+    EXPECT_TRUE(WaitForLoadStop(popup));
+  }
+
+  // 3. Find the cross-site subframes in the popup.
+  content::RenderFrameHost* popup_root = popup->GetMainFrame();
+  content::RenderFrameHost* cross_site_subframe =
+      content::ChildFrameAt(popup_root, 0);
+  ASSERT_TRUE(cross_site_subframe);
+  EXPECT_NE(cross_site_subframe->GetLastCommittedOrigin(),
+            popup_root->GetLastCommittedOrigin());
+  EXPECT_NE(cross_site_subframe->GetLastCommittedOrigin(),
+            opener->GetLastCommittedOrigin());
+  if (content::AreAllSitesIsolatedForTesting()) {
+    EXPECT_NE(cross_site_subframe->GetSiteInstance(),
+              popup_root->GetSiteInstance());
+    EXPECT_NE(cross_site_subframe->GetSiteInstance(),
+              opener->GetSiteInstance());
+  }
+  scoped_refptr<content::SiteInstance> old_popup_site_instance =
+      popup_root->GetSiteInstance();
+  scoped_refptr<content::SiteInstance> old_subframe_site_instance =
+      cross_site_subframe->GetSiteInstance();
+
+  // 4. Initiate popup navigation from the cross-site subframe.
+  //    Note that the extension from step 1 above will redirect
+  //    this navigation to an about:blank URL.
+  //
+  // This step would have hit the CHECK from https://crbug.com/1026738.
+  content::TestNavigationObserver nav_observer(popup, 1);
+  ASSERT_TRUE(ExecJs(cross_site_subframe,
+                     content::JsReplace("top.location = $1", kRedirectedUrl)));
+  nav_observer.Wait();
+  EXPECT_EQ(url::kAboutBlankURL, popup->GetLastCommittedURL());
+
+  // 5. Verify that the about:blank URL is hosted in the same process
+  //    as the navigation initiator (and separate from the opener and the old
+  //    popup process).
+  if (content::AreAllSitesIsolatedForTesting()) {
+    EXPECT_NE(opener->GetSiteInstance(), popup->GetSiteInstance());
+    EXPECT_NE(old_popup_site_instance.get(), popup->GetSiteInstance());
+    EXPECT_EQ(old_subframe_site_instance.get(), popup->GetSiteInstance());
+    EXPECT_NE(url::kAboutBlankURL,
+              popup->GetSiteInstance()->GetSiteURL().scheme());
+    EXPECT_NE(url::kDataScheme,
+              popup->GetSiteInstance()->GetSiteURL().scheme());
+  } else {
+    EXPECT_EQ(opener->GetSiteInstance(), popup->GetSiteInstance());
+    EXPECT_EQ(old_popup_site_instance.get(), popup->GetSiteInstance());
+    EXPECT_EQ(old_subframe_site_instance.get(), popup->GetSiteInstance());
+    EXPECT_NE(url::kAboutBlankURL,
+              popup->GetSiteInstance()->GetSiteURL().scheme());
+    EXPECT_NE(url::kDataScheme,
+              popup->GetSiteInstance()->GetSiteURL().scheme());
+  }
+
+  // 6. Verify the origin of the about:blank URL in the popup.
+  //
+  // Blink calculates the origin of an about:blank frame based on the
+  // opener-or-parent (rather than based on the navigation initiator's origin
+  // as required by the spec).
+  // TODO(lukasza): https://crbug.com/585649: Once Blink is fixed, adjust test
+  // expectations below to make sure the initiator's origin has been committed.
+  // Consider also adding verification that the about:blank page can be scripted
+  // by other frames with the initiator's origin.
+  if (content::AreAllSitesIsolatedForTesting()) {
+    // If the opener is a blink::RemoteFrame, then Blink uses an opaque origin.
+    EXPECT_TRUE(popup->GetMainFrame()->GetLastCommittedOrigin().opaque());
+  } else {
+    EXPECT_EQ(url::Origin::Create(kOpenerUrl),
+              popup->GetMainFrame()->GetLastCommittedOrigin());
+  }
+}
+
+// This test covers a navigation that:
+// 1. is initiated by a cross-site initiator,
+// 2. gets redirected via webRequest API to a data: URL
+// This covers a scenario similar to the one that led to crashes in
+// https://crbug.com/1026738.
+IN_PROC_BROWSER_TEST_F(
+    ChromeNavigationBrowserTest,
+    NavigationInitiatedByCrossSiteSubframeRedirectedToDataUrl) {
+  const GURL kOpenerUrl(
+      embedded_test_server()->GetURL("opener.com", "/title1.html"));
+  const GURL kInitialPopupUrl(embedded_test_server()->GetURL(
+      "initial-site.com",
+      "/frame_tree/page_with_two_frames_remote_and_local.html"));
+  const GURL kRedirectedUrl("https://redirected.com/no-such-path");
+  const GURL kRedirectTargetUrl(
+      "data:text/html,%3Ch1%3EHello%2C%20World!%3C%2Fh1%3E");
+
+  // 1. Install an extension, which will redirect all navigations to
+  //    redirected.com URLs to a data: URL. In general, web servers cannot
+  //    redirect to data: URLs, but extensions with declarativeWebRequest API
+  //    permissions can.
+  const char kManifest[] = R"(
+      {
+        "name": "Test for Bug1026738 - data: URL flavour",
+        "version": "0.1",
+        "manifest_version": 2,
+        "background": {
+          "scripts": ["background.js"]
+        },
+        "permissions": ["webRequest", "webRequestBlocking", "<all_urls>"]
+      }
+  )";
+  const char kRulesScriptTemplate[] = R"(
+      chrome.webRequest.onBeforeRequest.addListener(function(d) {
+          console.log("onBeforeRequest: ", d);
+          return {redirectUrl: $1};
+        }, {urls: ["*://redirected.com/*"]}, ["blocking"]);
+      chrome.test.sendMessage('ready');
+  )";
+  extensions::TestExtensionDir ext_dir;
+  ext_dir.WriteManifest(kManifest);
+  ext_dir.WriteFile(
+      FILE_PATH_LITERAL("background.js"),
+      content::JsReplace(kRulesScriptTemplate, kRedirectTargetUrl));
+  ExtensionTestMessageListener ready_listener("ready", false /* will_reply */);
+  extensions::ChromeTestExtensionLoader extension_loader(browser()->profile());
+  scoped_refptr<const extensions::Extension> extension =
+      extension_loader.LoadExtension(ext_dir.UnpackedPath());
+  ASSERT_TRUE(extension);
+  ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
+  content::BrowserContext::GetDefaultStoragePartition(browser()->profile())
+      ->FlushNetworkInterfaceForTesting();
+
+  // 2. Open a popup containing a cross-site subframe.
+  ui_test_utils::NavigateToURL(browser(), kOpenerUrl);
+  content::RenderFrameHost* opener =
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+  EXPECT_EQ(kOpenerUrl, opener->GetLastCommittedURL());
+  EXPECT_EQ(url::Origin::Create(kOpenerUrl), opener->GetLastCommittedOrigin());
+  content::WebContents* popup = nullptr;
+  {
+    content::WebContentsAddedObserver popup_observer;
+    ASSERT_TRUE(content::ExecJs(
+        opener,
+        content::JsReplace("window.open($1, 'my-popup')", kInitialPopupUrl)));
+    popup = popup_observer.GetWebContents();
+    EXPECT_TRUE(WaitForLoadStop(popup));
+  }
+
+  // 3. Find the cross-site subframes in the popup.
+  EXPECT_EQ(3u, popup->GetAllFrames().size());
+  content::RenderFrameHost* popup_root = popup->GetMainFrame();
+  content::RenderFrameHost* cross_site_subframe = popup->GetAllFrames()[1];
+  EXPECT_NE(cross_site_subframe->GetLastCommittedOrigin(),
+            popup_root->GetLastCommittedOrigin());
+  EXPECT_NE(cross_site_subframe->GetLastCommittedOrigin(),
+            opener->GetLastCommittedOrigin());
+  if (content::AreAllSitesIsolatedForTesting()) {
+    EXPECT_NE(cross_site_subframe->GetSiteInstance(),
+              popup_root->GetSiteInstance());
+    EXPECT_NE(cross_site_subframe->GetSiteInstance(),
+              opener->GetSiteInstance());
+  }
+  scoped_refptr<content::SiteInstance> old_popup_site_instance =
+      popup_root->GetSiteInstance();
+
+  // 4. Initiate popup navigation from the cross-site subframe.
+  //    Note that the extension from step 1 above will redirect
+  //    this navigation to a data: URL.
+  //
+  // This step might hit the CHECK in GetOriginForURLLoaderFactory once we start
+  // enforcing opaque origins with no precursor in CanAccessDataForOrigin.
+  content::TestNavigationObserver nav_observer(popup, 1);
+  ASSERT_TRUE(ExecJs(cross_site_subframe,
+                     content::JsReplace("top.location = $1", kRedirectedUrl)));
+  nav_observer.Wait();
+  EXPECT_EQ(kRedirectTargetUrl, popup->GetLastCommittedURL());
+  EXPECT_TRUE(popup->GetMainFrame()->GetLastCommittedOrigin().opaque());
+
+  // 5. Verify that with site-per-process the data: URL is hosted in a brand
+  //    new, separate process (separate from the opener and the previous popup
+  //    process).
+  if (content::AreAllSitesIsolatedForTesting()) {
+    EXPECT_NE(opener->GetSiteInstance(), popup->GetSiteInstance());
+    EXPECT_NE(old_popup_site_instance.get(), popup->GetSiteInstance());
+    EXPECT_EQ(url::kDataScheme,
+              popup->GetSiteInstance()->GetSiteURL().scheme());
+  } else {
+    EXPECT_EQ(opener->GetSiteInstance(), popup->GetSiteInstance());
+    EXPECT_EQ(old_popup_site_instance.get(), popup->GetSiteInstance());
+    EXPECT_NE(url::kDataScheme,
+              popup->GetSiteInstance()->GetSiteURL().scheme());
   }
 }
 
@@ -1342,7 +1591,7 @@ IN_PROC_BROWSER_TEST_F(HistoryManipulationInterventionBrowserTest,
   GURL skippable_url(embedded_test_server()->GetURL("/title1.html"));
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), skippable_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   content::WebContents* main_contents =
       browser()->tab_strip_model()->GetActiveWebContents();

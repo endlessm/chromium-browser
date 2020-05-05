@@ -25,8 +25,8 @@
 
 #include "perfetto/base/logging.h"
 #include "perfetto/ext/base/optional.h"
+#include "src/trace_processor/containers/string_pool.h"
 #include "src/trace_processor/db/column.h"
-#include "src/trace_processor/string_pool.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -76,7 +76,39 @@ class Table {
   Table& operator=(Table&& other) noexcept;
 
   // Filters the Table using the specified filter constraints.
-  Table Filter(const std::vector<Constraint>& cs) const;
+  Table Filter(
+      const std::vector<Constraint>& cs,
+      RowMap::OptimizeFor optimize_for = RowMap::OptimizeFor::kMemory) const {
+    return Apply(FilterToRowMap(cs, optimize_for));
+  }
+
+  // Filters the Table using the specified filter constraints optionally
+  // specifying what the returned RowMap should optimize for.
+  // Returns a RowMap which, if applied to the table, would contain the rows
+  // post filter.
+  RowMap FilterToRowMap(
+      const std::vector<Constraint>& cs,
+      RowMap::OptimizeFor optimize_for = RowMap::OptimizeFor::kMemory) const {
+    RowMap rm(0, row_count_, optimize_for);
+    for (const Constraint& c : cs) {
+      columns_[c.col_idx].FilterInto(c.op, c.value, &rm);
+    }
+    return rm;
+  }
+
+  // Applies the given RowMap to the current table by picking out the rows
+  // specified in the RowMap to be present in the output table.
+  // Note: the RowMap should not reorder this table; this is guaranteed if the
+  // passed RowMap is generated using |FilterToRowMap|.
+  Table Apply(RowMap rm) const {
+    Table table = CopyExceptRowMaps();
+    table.row_count_ = rm.size();
+    for (const RowMap& map : row_maps_) {
+      table.row_maps_.emplace_back(map.SelectRows(rm));
+      PERFETTO_DCHECK(table.row_maps_.back().size() == table.row_count());
+    }
+    return table;
+  }
 
   // Sorts the Table using the specified order by constraints.
   Table Sort(const std::vector<Order>& od) const;
@@ -118,7 +150,7 @@ class Table {
   // Returns an iterator into the Table.
   Iterator IterateRows() const { return Iterator(this); }
 
-  uint32_t size() const { return size_; }
+  uint32_t row_count() const { return row_count_; }
   const std::vector<RowMap>& row_maps() const { return row_maps_; }
 
  protected:
@@ -126,7 +158,7 @@ class Table {
 
   std::vector<RowMap> row_maps_;
   std::vector<Column> columns_;
-  uint32_t size_ = 0;
+  uint32_t row_count_ = 0;
 
   StringPool* string_pool_ = nullptr;
 

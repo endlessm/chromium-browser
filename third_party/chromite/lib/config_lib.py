@@ -27,7 +27,6 @@ CONFIG_TYPE_RELEASE = 'release'
 CONFIG_TYPE_FULL = 'full'
 CONFIG_TYPE_FIRMWARE = 'firmware'
 CONFIG_TYPE_FACTORY = 'factory'
-CONFIG_TYPE_RELEASE_AFDO = 'release-afdo'
 CONFIG_TYPE_TOOLCHAIN = 'toolchain'
 
 # DISPLAY labels are used to group related builds together in the GE UI.
@@ -194,11 +193,6 @@ def IsMasterChromePFQ(config):
 def IsMasterAndroidPFQ(config):
   """Returns True if this build is master Android PFQ type."""
   return config.build_type == constants.ANDROID_PFQ_TYPE and config.master
-
-
-def IsMasterCQ(config):
-  """Returns True if this build is master CQ."""
-  return config.build_type == constants.PALADIN_TYPE and config.master
 
 
 def GetHWTestEnv(builder_run_config, model_config=None, suite_config=None):
@@ -758,17 +752,6 @@ def DefaultSettings():
       # specify 'buildtools'.
       manifest=constants.DEFAULT_MANIFEST,
 
-      # Applies only to paladin builders. If true, Sync to the manifest
-      # without applying any test patches, then do a fresh build in a new
-      # chroot. Then, apply the patches and build in the existing chroot.
-      build_before_patching=False,
-
-      # Applies only to paladin builders. If True, Sync to the master manifest
-      # without applying any of the test patches, rather than running
-      # CommitQueueSync. This is basically ToT immediately prior to the
-      # current commit queue run.
-      do_not_apply_cq_patches=False,
-
       # emerge use flags to use while setting up the board, building packages,
       # making images, etc.
       useflags=[],
@@ -890,11 +873,14 @@ def DefaultSettings():
       afdo_generate_min=False,
 
       # Update the Chrome ebuild with the AFDO profile info.
-      afdo_update_ebuild=False,
+      afdo_update_chrome_ebuild=False,
+
+      # Update the kernel ebuild with the AFDO profile info.
+      afdo_update_kernel_ebuild=False,
 
       # Uses AFDO data. The Chrome build will be optimized using the AFDO
-      # profile information found in the chrome ebuild file.
-      afdo_use=False,
+      # profile information found in Chrome's source tree.
+      afdo_use=True,
 
       # A list of VMTestConfig objects to run by default.
       vm_tests=[
@@ -918,6 +904,10 @@ def DefaultSettings():
       # If True, run SkylabHWTestStage instead of HWTestStage for suites that
       # use pools other than pool:cts.
       enable_skylab_hw_tests=False,
+
+      # If set, this is the URL of the bug justifying why hw_tests are disabled
+      # on a builder that should always have hw_tests.
+      hw_tests_disabled_bug='',
 
       # If True, run SkylabHWTestStage instead of HWTestStage for suites that
       # use pool:cts.

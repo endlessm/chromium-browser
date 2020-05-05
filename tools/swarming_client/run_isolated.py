@@ -39,7 +39,9 @@ https://chromium.googlesource.com/infra/luci/luci-py.git/+/master/appengine/swar
 for more information about bot_config.py.
 """
 
-__version__ = '1.0.0'
+from __future__ import print_function
+
+__version__ = '1.0.1'
 
 import argparse
 import base64
@@ -50,6 +52,7 @@ import json
 import logging
 import optparse
 import os
+import platform
 import re
 import sys
 import tempfile
@@ -60,6 +63,7 @@ tools.force_local_third_party()
 
 # third_party/
 from depot_tools import fix_encoding
+import six
 
 # pylint: disable=ungrouped-imports
 import auth
@@ -100,10 +104,17 @@ RUN_TEST_CASES_LOG = 'run_test_cases.log'
 # - ir stands for isolated_run
 # - io stands for isolated_out
 # - it stands for isolated_tmp
+# - ic stands for isolated_client
 ISOLATED_RUN_DIR = u'ir'
 ISOLATED_OUT_DIR = u'io'
 ISOLATED_TMP_DIR = u'it'
+ISOLATED_CLIENT_DIR = u'ic'
 
+# TODO(tikuta): take these parameter from luci-config?
+# Take revision from
+# https://ci.chromium.org/p/infra-internal/g/infra-packagers/console
+ISOLATED_PACKAGE = 'infra/tools/luci/isolated/${platform}'
+ISOLATED_REVISION = 'git_revision:0c630715fe1307ec34118ec6d4160de489e0eca5'
 
 # Keep synced with task_request.py
 CACHE_NAME_RE = re.compile(r'^[a-z0-9_]{1,4096}$')
@@ -152,60 +163,64 @@ MAX_AGE_SECS = 21*24*60*60
 TaskData = collections.namedtuple(
     'TaskData',
     [
-      # List of strings; the command line to use, independent of what was
-      # specified in the isolated file.
-      'command',
-      # Relative directory to start command into.
-      'relative_cwd',
-      # List of strings; the arguments to add to the command specified in the
-      # isolated file.
-      'extra_args',
-      # Hash of the .isolated file that must be retrieved to recreate the tree
-      # of files to run the target executable. The command specified in the
-      # .isolated is executed.  Mutually exclusive with command argument.
-      'isolated_hash',
-      # isolateserver.Storage instance to retrieve remote objects. This object
-      # has a reference to an isolateserver.StorageApi, which does the actual
-      # I/O.
-      'storage',
-      # isolateserver.LocalCache instance to keep from retrieving the same
-      # objects constantly by caching the objects retrieved. Can be on-disk or
-      # in-memory.
-      'isolate_cache',
-      # List of paths relative to root_dir to put into the output isolated
-      # bundle upon task completion (see link_outputs_to_outdir).
-      'outputs',
-      # Function (run_dir) => context manager that installs named caches into
-      # |run_dir|.
-      'install_named_caches',
-      # If True, the temporary directory will be deliberately leaked for later
-      # examination.
-      'leak_temp_dir',
-      # Path to the directory to use to create the temporary directory. If not
-      # specified, a random temporary directory is created.
-      'root_dir',
-      # Kills the process if it lasts more than this amount of seconds.
-      'hard_timeout',
-      # Number of seconds to wait between SIGTERM and SIGKILL.
-      'grace_period',
-      # Path to a file with bot state, used in place of ${SWARMING_BOT_FILE}
-      # task command line argument.
-      'bot_file',
-      # Logical account to switch LUCI_CONTEXT into.
-      'switch_to_account',
-      # Context manager dir => CipdInfo, see install_client_and_packages.
-      'install_packages_fn',
-      # Create tree with symlinks instead of hardlinks.
-      'use_symlinks',
-      # Environment variables to set.
-      'env',
-      # Environment variables to mutate with relative directories.
-      # Example: {"ENV_KEY": ['relative', 'paths', 'to', 'prepend']}
-      'env_prefix',
-      # Lowers the task process priority.
-      'lower_priority',
-      # subprocess42.Containment instance. Can be None.
-      'containment',
+        # List of strings; the command line to use, independent of what was
+        # specified in the isolated file.
+        'command',
+        # Relative directory to start command into.
+        'relative_cwd',
+        # List of strings; the arguments to add to the command specified in the
+        # isolated file.
+        'extra_args',
+        # Hash of the .isolated file that must be retrieved to recreate the tree
+        # of files to run the target executable. The command specified in the
+        # .isolated is executed.  Mutually exclusive with command argument.
+        'isolated_hash',
+        # isolateserver.Storage instance to retrieve remote objects. This object
+        # has a reference to an isolateserver.StorageApi, which does the actual
+        # I/O.
+        'storage',
+        # isolateserver.LocalCache instance to keep from retrieving the same
+        # objects constantly by caching the objects retrieved. Can be on-disk or
+        # in-memory.
+        'isolate_cache',
+        # List of paths relative to root_dir to put into the output isolated
+        # bundle upon task completion (see link_outputs_to_outdir).
+        'outputs',
+        # Function (run_dir) => context manager that installs named caches into
+        # |run_dir|.
+        'install_named_caches',
+        # If True, the temporary directory will be deliberately leaked for later
+        # examination.
+        'leak_temp_dir',
+        # Path to the directory to use to create the temporary directory. If not
+        # specified, a random temporary directory is created.
+        'root_dir',
+        # Kills the process if it lasts more than this amount of seconds.
+        'hard_timeout',
+        # Number of seconds to wait between SIGTERM and SIGKILL.
+        'grace_period',
+        # Path to a file with bot state, used in place of ${SWARMING_BOT_FILE}
+        # task command line argument.
+        'bot_file',
+        # Logical account to switch LUCI_CONTEXT into.
+        'switch_to_account',
+        # Context manager dir => CipdInfo, see install_client_and_packages.
+        'install_packages_fn',
+        # Use go isolated client.
+        'use_go_isolated',
+        # Cache directory for go isolated client.
+        'go_cache_dir',
+        # Parameters passed to go isolated client.
+        'go_cache_policies',
+        # Environment variables to set.
+        'env',
+        # Environment variables to mutate with relative directories.
+        # Example: {"ENV_KEY": ['relative', 'paths', 'to', 'prepend']}
+        'env_prefix',
+        # Lowers the task process priority.
+        'lower_priority',
+        # subprocess42.Containment instance. Can be None.
+        'containment',
     ])
 
 
@@ -222,14 +237,14 @@ def _to_str(s):
 
 def _to_unicode(s):
   """Upgrades a str instance to unicode. Pass unicode through as-is."""
-  if isinstance(s, unicode) or s is None:
+  if isinstance(s, six.text_type) or s is None:
     return s
   return s.decode('utf-8')
 
 
 def make_temp_dir(prefix, root_dir):
   """Returns a new unique temporary directory."""
-  return unicode(tempfile.mkdtemp(prefix=prefix, dir=root_dir))
+  return six.text_type(tempfile.mkdtemp(prefix=prefix, dir=root_dir))
 
 
 def change_tree_read_only(rootdir, read_only):
@@ -267,7 +282,7 @@ def set_luci_context_account(account, tmp_dir):
   If 'account' is None or '', does nothing at all. This happens when
   run_isolated.py is called without '--switch-to-account' flag. In this case,
   if run_isolated.py is running in some LUCI_CONTEXT environment, the task will
-  just inherit whatever account is already set. This may happen is users invoke
+  just inherit whatever account is already set. This may happen if users invoke
   run_isolated.py explicitly from their code.
 
   If the requested account is not defined in the context, switches to
@@ -369,7 +384,7 @@ def get_command_env(tmp_dir, cipd_info, run_dir, env, env_prefixes, out_dir,
         SWARMING_BOT_FILE_PARAMETER.
   """
   out = os.environ.copy()
-  for k, v in env.iteritems():
+  for k, v in env.items():
     if not v:
       out.pop(k, None)
     else:
@@ -380,7 +395,7 @@ def get_command_env(tmp_dir, cipd_info, run_dir, env, env_prefixes, out_dir,
     out['PATH'] = '%s%s%s' % (_to_str(bin_dir), os.pathsep, out['PATH'])
     out['CIPD_CACHE_DIR'] = _to_str(cipd_info.cache_dir)
 
-  for key, paths in env_prefixes.iteritems():
+  for key, paths in env_prefixes.items():
     assert isinstance(paths, list), paths
     paths = [os.path.normpath(os.path.join(run_dir, p)) for p in paths]
     cur = out.get(key)
@@ -483,8 +498,10 @@ def run_command(
       # This is not considered to be an internal error. The executable simply
       # does not exit.
       sys.stderr.write(
-          '<The executable does not exist or a dependent library is missing>\n'
-          '<Check for missing .so/.dll in the .isolate or GN file>\n'
+          '<The executable does not exist, a dependent library is missing or '
+          'the command line is too long>\n'
+          '<Check for missing .so/.dll in the .isolate or GN file or length of '
+          'command line args>\n'
           '<Command: %s>\n' % command)
       if os.environ.get('SWARMING_TASK_ID'):
         # Give an additional hint when running as a swarming task.
@@ -498,7 +515,65 @@ def run_command(
   return exit_code, had_hard_timeout
 
 
-def fetch_and_map(isolated_hash, storage, cache, outdir, use_symlinks):
+def _fetch_and_map_with_go(isolated_hash, storage, outdir, go_cache_dir,
+                           policies, isolated_client):
+  """
+  Fetches an isolated tree using go client, create the tree and returns
+  (bundle, stats).
+  """
+  start = time.time()
+  server_ref = storage.server_ref
+  result_json_handle, result_json_path = tempfile.mkstemp(
+      prefix=u'fetch-and-map-result-', suffix=u'.json')
+  os.close(result_json_handle)
+  try:
+    subprocess42.check_call([
+        isolated_client,
+        'download',
+        '-isolate-server',
+        server_ref.url,
+        '-namespace',
+        server_ref.namespace,
+        '-isolated',
+        isolated_hash,
+
+        # flags for cache
+        '-cache-dir',
+        go_cache_dir,
+        '-cache-max-items',
+        str(policies.max_items),
+        '-cache-max-size',
+        str(policies.max_cache_size),
+        '-cache-min-free-space',
+        str(policies.min_free_space),
+
+        # flags for output
+        '-output-dir',
+        outdir,
+        '-fetch-and-map-result-json',
+        result_json_path,
+    ])
+    with open(result_json_path) as json_file:
+      result_json = json.load(json_file)
+
+    isolated = result_json['isolated']
+    bundle = isolateserver.IsolatedBundle(filter_cb=None)
+    # Only following properties are used in caller.
+    bundle.command = isolated.get('command')
+    bundle.read_only = isolated.get('read_only')
+    bundle.relative_cwd = isolated.get('relative_cwd')
+
+    return bundle, {
+        'duration': time.time() - start,
+        'items_cold': result_json['items_cold'],
+        'items_hot': result_json['items_hot'],
+    }
+  finally:
+    fs.remove(result_json_path)
+
+
+# TODO(crbug.com/932396): remove this function.
+def fetch_and_map(isolated_hash, storage, cache, outdir):
   """Fetches an isolated tree, create the tree and returns (bundle, stats)."""
   start = time.time()
   bundle = isolateserver.fetch_isolated(
@@ -506,7 +581,7 @@ def fetch_and_map(isolated_hash, storage, cache, outdir, use_symlinks):
       storage=storage,
       cache=cache,
       outdir=outdir,
-      use_symlinks=use_symlinks)
+      use_symlinks=False)
   hot = (collections.Counter(cache.used) -
          collections.Counter(cache.added)).elements()
   return bundle, {
@@ -636,44 +711,53 @@ def map_and_run(data, constant_run_path):
 
   Returns metadata about the result.
   """
+
+  if data.isolate_cache:
+    download_stats = {
+        #'duration': 0.,
+        'initial_number_items': len(data.isolate_cache),
+        'initial_size': data.isolate_cache.total_size,
+        #'items_cold': '<large.pack()>',
+        #'items_hot': '<large.pack()>',
+    }
+  else:
+    # TODO(tikuta): take stats from state.json in this case too.
+    download_stats = {}
+
   result = {
-    'duration': None,
-    'exit_code': None,
-    'had_hard_timeout': False,
-    'internal_failure': 'run_isolated did not complete properly',
-    'stats': {
-      'isolated': {
-        #'cipd': {
-        #  'duration': 0.,
-        #  'get_client_duration': 0.,
-        #},
-        'download': {
-          #'duration': 0.,
-          'initial_number_items': len(data.isolate_cache),
-          'initial_size': data.isolate_cache.total_size,
-          #'items_cold': '<large.pack()>',
-          #'items_hot': '<large.pack()>',
-        },
-        #'upload': {
-        #  'duration': 0.,
-        #  'items_cold': '<large.pack()>',
-        #  'items_hot': '<large.pack()>',
-        #},
+      'duration': None,
+      'exit_code': None,
+      'had_hard_timeout': False,
+      'internal_failure': 'run_isolated did not complete properly',
+      'stats': {
+          #'cipd': {
+          #  'duration': 0.,
+          #  'get_client_duration': 0.,
+          #},
+          'isolated': {
+              'download': download_stats,
+              #'upload': {
+              #  'duration': 0.,
+              #  'items_cold': '<large.pack()>',
+              #  'items_hot': '<large.pack()>',
+              #},
+          },
       },
-    },
-    #'cipd_pins': {
-    #  'packages': [
-    #    {'package_name': ..., 'version': ..., 'path': ...},
-    #    ...
-    #  ],
-    # 'client_package': {'package_name': ..., 'version': ...},
-    #},
-    'outputs_ref': None,
-    'version': 5,
+      #'cipd_pins': {
+      #  'packages': [
+      #    {'package_name': ..., 'version': ..., 'path': ...},
+      #    ...
+      #  ],
+      # 'client_package': {'package_name': ..., 'version': ...},
+      #},
+      'outputs_ref': None,
+      'version': 5,
   }
 
   if data.root_dir:
     file_path.ensure_tree(data.root_dir, 0o700)
+  elif data.use_go_isolated:
+    data = data._replace(root_dir=os.path.dirname(data.go_cache_dir))
   elif data.isolate_cache.cache_dir:
     data = data._replace(
         root_dir=os.path.dirname(data.isolate_cache.cache_dir))
@@ -693,24 +777,34 @@ def map_and_run(data, constant_run_path):
   out_dir = make_temp_dir(
       ISOLATED_OUT_DIR, data.root_dir) if data.storage else None
   tmp_dir = make_temp_dir(ISOLATED_TMP_DIR, data.root_dir)
+  isolated_client_dir = make_temp_dir(ISOLATED_CLIENT_DIR, data.root_dir)
   cwd = run_dir
   if data.relative_cwd:
     cwd = os.path.normpath(os.path.join(cwd, data.relative_cwd))
   command = data.command
   try:
-    with data.install_packages_fn(run_dir) as cipd_info:
+    with data.install_packages_fn(run_dir, isolated_client_dir) as cipd_info:
       if cipd_info:
         result['stats']['cipd'] = cipd_info.stats
         result['cipd_pins'] = cipd_info.pins
 
       if data.isolated_hash:
         isolated_stats = result['stats'].setdefault('isolated', {})
-        bundle, stats = fetch_and_map(
-            isolated_hash=data.isolated_hash,
-            storage=data.storage,
-            cache=data.isolate_cache,
-            outdir=run_dir,
-            use_symlinks=data.use_symlinks)
+        if data.use_go_isolated:
+          bundle, stats = _fetch_and_map_with_go(
+              isolated_hash=data.isolated_hash,
+              storage=data.storage,
+              outdir=run_dir,
+              go_cache_dir=data.go_cache_dir,
+              policies=data.go_cache_policies,
+              isolated_client=os.path.join(isolated_client_dir,
+                                           'isolated' + cipd.EXECUTABLE_SUFFIX))
+        else:
+          bundle, stats = fetch_and_map(
+              isolated_hash=data.isolated_hash,
+              storage=data.storage,
+              cache=data.isolate_cache,
+              outdir=run_dir)
         isolated_stats['download'].update(stats)
         change_tree_read_only(run_dir, bundle.read_only)
         # Inject the command
@@ -793,24 +887,17 @@ def map_and_run(data, constant_run_path):
         # process locks *.exe file). Examine out_dir only after that call
         # completes (since child processes may write to out_dir too and we need
         # to wait for them to finish).
-        if fs.isdir(run_dir):
+        for directory in (run_dir, tmp_dir, isolated_client_dir):
+          if not fs.isdir(directory):
+            continue
           try:
-            success = file_path.rmtree(run_dir)
+            success = file_path.rmtree(directory)
           except OSError as e:
-            logging.error('rmtree(%r) failed: %s', run_dir, e)
+            logging.error('rmtree(%r) failed: %s', directory, e)
             success = False
           if not success:
-            sys.stderr.write(OUTLIVING_ZOMBIE_MSG % ('run', data.grace_period))
-            if result['exit_code'] == 0:
-              result['exit_code'] = 1
-        if fs.isdir(tmp_dir):
-          try:
-            success = file_path.rmtree(tmp_dir)
-          except OSError as e:
-            logging.error('rmtree(%r) failed: %s', tmp_dir, e)
-            success = False
-          if not success:
-            sys.stderr.write(OUTLIVING_ZOMBIE_MSG % ('temp', data.grace_period))
+            sys.stderr.write(
+                OUTLIVING_ZOMBIE_MSG % (directory, data.grace_period))
             if result['exit_code'] == 0:
               result['exit_code'] = 1
 
@@ -897,12 +984,12 @@ CipdInfo = collections.namedtuple('CipdInfo', [
 
 
 @contextlib.contextmanager
-def noop_install_packages(_run_dir):
+def noop_install_packages(_run_dir, _isolated_dir):
   """Placeholder for 'install_client_and_packages' if cipd is disabled."""
   yield None
 
 
-def _install_packages(run_dir, cipd_cache_dir, client, packages, timeout):
+def _install_packages(run_dir, cipd_cache_dir, client, packages):
   """Calls 'cipd ensure' for packages.
 
   Args:
@@ -910,7 +997,6 @@ def _install_packages(run_dir, cipd_cache_dir, client, packages, timeout):
     cipd_cache_dir (str): the directory to use for the cipd package cache.
     client (CipdClient): the cipd client to use
     packages: packages to install, list [(path, package_name, version), ...].
-    timeout: max duration in seconds that this function can take.
 
   Returns: list of pinned packages.  Looks like [
     {
@@ -938,16 +1024,15 @@ def _install_packages(run_dir, cipd_cache_dir, client, packages, timeout):
     by_path[path].append((name, version, i))
 
   pins = client.ensure(
-    run_dir,
-    {
-      subdir: [(name, vers) for name, vers, _ in pkgs]
-      for subdir, pkgs in by_path.iteritems()
-    },
-    cache_dir=cipd_cache_dir,
-    timeout=timeout,
+      run_dir,
+      {
+          subdir: [(name, vers) for name, vers, _ in pkgs
+                  ] for subdir, pkgs in by_path.items()
+      },
+      cache_dir=cipd_cache_dir,
   )
 
-  for subdir, pin_list in sorted(pins.iteritems()):
+  for subdir, pin_list in sorted(pins.items()):
     this_subdir = by_path[subdir]
     for i, (name, version) in enumerate(pin_list):
       insert_pin(subdir, name, version, this_subdir[i][2])
@@ -958,9 +1043,9 @@ def _install_packages(run_dir, cipd_cache_dir, client, packages, timeout):
 
 
 @contextlib.contextmanager
-def install_client_and_packages(
-    run_dir, packages, service_url, client_package_name,
-    client_version, cache_dir, timeout=None):
+def install_client_and_packages(run_dir, packages, service_url,
+                                client_package_name, client_version, cache_dir,
+                                isolated_dir):
   """Bootstraps CIPD client and installs CIPD packages.
 
   Yields CipdClient, stats, client info and pins (as single CipdInfo object).
@@ -992,11 +1077,10 @@ def install_client_and_packages(
     client_package_name (str): CIPD package name of CIPD client.
     client_version (str): Version of CIPD client.
     cache_dir (str): where to keep cache of cipd clients, packages and tags.
-    timeout: max duration in seconds that this function can take.
+    isolated_dir (str): where to download isolated client.
   """
   assert cache_dir
 
-  timeoutfn = tools.sliding_timeout(timeout)
   start = time.time()
 
   cache_dir = os.path.abspath(cache_dir)
@@ -1005,17 +1089,20 @@ def install_client_and_packages(
   packages = packages or []
 
   get_client_start = time.time()
-  client_manager = cipd.get_client(
-      service_url, client_package_name, client_version, cache_dir,
-      timeout=timeoutfn())
+  client_manager = cipd.get_client(service_url, client_package_name,
+                                   client_version, cache_dir)
 
   with client_manager as client:
     get_client_duration = time.time() - get_client_start
 
     package_pins = []
     if packages:
-      package_pins = _install_packages(
-        run_dir, cipd_cache_dir, client, packages, timeoutfn())
+      package_pins = _install_packages(run_dir, cipd_cache_dir, client,
+                                       packages)
+
+    # Install isolated client to |isolated_dir|.
+    _install_packages(isolated_dir, cipd_cache_dir, client,
+                      [('', ISOLATED_PACKAGE, ISOLATED_REVISION)])
 
     file_path.make_tree_files_read_only(run_dir)
 
@@ -1049,9 +1136,6 @@ def create_option_parser():
       help='Cleans the cache, trimming it necessary and remove corrupted items '
            'and returns without executing anything; use with -v to know what '
            'was done')
-  parser.add_option(
-      '--use-symlinks', action='store_true',
-      help='Use symlinks instead of hardlinks')
   parser.add_option(
       '--json',
       help='dump output metadata to json file. When used, run_isolated returns '
@@ -1190,7 +1274,7 @@ def process_named_cache_options(parser, options, time_fn=None):
         min_free_space=options.min_free_space,
         max_items=50,
         max_age_secs=MAX_AGE_SECS)
-    root_dir = unicode(os.path.abspath(options.named_cache_root))
+    root_dir = six.text_type(os.path.abspath(options.named_cache_root))
     return local_caching.NamedCache(root_dir, policies, time_fn=time_fn)
   return None
 
@@ -1214,7 +1298,7 @@ def parse_args(args):
       # We don't need to error out here - "args" is now empty,
       # so the call below to parser.parse_args(args) will fail
       # and print the full help text.
-      print >> sys.stderr, 'Couldn\'t read arguments: %s' % e
+      print('Couldn\'t read arguments: %s' % e, file=sys.stderr)
 
   # Even if we failed to read the args, just call the normal parser now since it
   # will print the correct help message.
@@ -1252,15 +1336,25 @@ def main(args):
     options.min_free_space += hint
     named_cache = process_named_cache_options(parser, options)
 
+  # TODO(crbug.com/932396): Remove this.
+  use_go_isolated = (
+      options.cipd_enabled and
+      # TODO(crbug.com/1045281): win7 has flaky connection issue.
+      not (sys.platform == 'win32' and platform.release() == '7'))
+
   # TODO(maruel): CIPD caches should be defined at an higher level here too, so
   # they can be cleaned the same way.
-  isolate_cache = isolateserver.process_cache_options(options, trim=False)
+  if use_go_isolated:
+    isolate_cache = None
+  else:
+    isolate_cache = isolateserver.process_cache_options(options, trim=False)
+
   caches = []
   if isolate_cache:
     caches.append(isolate_cache)
   if named_cache:
     caches.append(named_cache)
-  root = caches[0].cache_dir if caches else unicode(os.getcwd())
+  root = caches[0].cache_dir if caches else six.text_type(os.getcwd())
   if options.clean:
     if options.isolated:
       parser.error('Can\'t use --isolated with --clean.')
@@ -1309,9 +1403,9 @@ def main(args):
         '%s in args requires --isolate-server' % ISOLATED_OUTDIR_PARAMETER)
 
   if options.root_dir:
-    options.root_dir = unicode(os.path.abspath(options.root_dir))
+    options.root_dir = six.text_type(os.path.abspath(options.root_dir))
   if options.json:
-    options.json = unicode(os.path.abspath(options.json))
+    options.json = six.text_type(os.path.abspath(options.json))
 
   if any('=' not in i for i in options.env):
     parser.error(
@@ -1341,21 +1435,21 @@ def main(args):
 
   install_packages_fn = noop_install_packages
   if options.cipd_enabled:
-    install_packages_fn = lambda run_dir: install_client_and_packages(
+    install_packages_fn = (
+      lambda run_dir, isolated_dir: install_client_and_packages(
         run_dir, cipd.parse_package_args(options.cipd_packages),
         options.cipd_server, options.cipd_client_package,
-        options.cipd_client_version, cache_dir=options.cipd_cache)
+        options.cipd_client_version, cache_dir=options.cipd_cache,
+        isolated_dir=isolated_dir))
 
   @contextlib.contextmanager
   def install_named_caches(run_dir):
     # WARNING: this function depends on "options" variable defined in the outer
     # function.
-    assert unicode(run_dir), repr(run_dir)
+    assert six.text_type(run_dir), repr(run_dir)
     assert os.path.isabs(run_dir), run_dir
-    named_caches = [
-      (os.path.join(run_dir, unicode(relpath)), name)
-      for name, relpath, _ in options.named_caches
-    ]
+    named_caches = [(os.path.join(run_dir, six.text_type(relpath)), name)
+                    for name, relpath, _ in options.named_caches]
     for path, name in named_caches:
       named_cache.install(path, name)
     try:
@@ -1416,7 +1510,14 @@ def main(args):
       bot_file=options.bot_file,
       switch_to_account=options.switch_to_account,
       install_packages_fn=install_packages_fn,
-      use_symlinks=bool(options.use_symlinks),
+      use_go_isolated=use_go_isolated,
+      go_cache_dir=options.cache,
+      go_cache_policies=local_caching.CachePolicies(
+          max_cache_size=options.max_cache_size,
+          min_free_space=options.min_free_space,
+          max_items=options.max_items,
+          max_age_secs=None,
+      ),
       env=options.env,
       env_prefix=options.env_prefix,
       lower_priority=bool(options.lower_priority),
@@ -1436,7 +1537,7 @@ def main(args):
       cipd.Error,
       local_caching.NamedCacheError,
       local_caching.NoMoreSpace) as ex:
-    print >> sys.stderr, ex.message
+    print(ex.message, file=sys.stderr)
     return 1
 
 

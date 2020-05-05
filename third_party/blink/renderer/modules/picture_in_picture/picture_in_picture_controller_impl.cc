@@ -12,6 +12,7 @@
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_picture_in_picture_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -20,7 +21,6 @@
 #include "third_party/blink/renderer/core/html/media/html_media_element.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
 #include "third_party/blink/renderer/modules/picture_in_picture/enter_picture_in_picture_event.h"
-#include "third_party/blink/renderer/modules/picture_in_picture/picture_in_picture_options.h"
 #include "third_party/blink/renderer/modules/picture_in_picture/picture_in_picture_window.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -45,12 +45,6 @@ bool IsVideoElement(const Element& element) {
 }  // namespace
 
 // static
-PictureInPictureControllerImpl* PictureInPictureControllerImpl::Create(
-    Document& document) {
-  return MakeGarbageCollected<PictureInPictureControllerImpl>(document);
-}
-
-// static
 PictureInPictureControllerImpl& PictureInPictureControllerImpl::From(
     Document& document) {
   return static_cast<PictureInPictureControllerImpl&>(
@@ -58,11 +52,11 @@ PictureInPictureControllerImpl& PictureInPictureControllerImpl::From(
 }
 
 bool PictureInPictureControllerImpl::PictureInPictureEnabled() const {
-  return IsDocumentAllowed() == Status::kEnabled;
+  return IsDocumentAllowed(/*report_failure=*/true) == Status::kEnabled;
 }
 
 PictureInPictureController::Status
-PictureInPictureControllerImpl::IsDocumentAllowed() const {
+PictureInPictureControllerImpl::IsDocumentAllowed(bool report_failure) const {
   DCHECK(GetSupplementable());
 
   // If document has been detached from a frame, return kFrameDetached status.
@@ -80,8 +74,9 @@ PictureInPictureControllerImpl::IsDocumentAllowed() const {
   // "picture-in-picture", return kDisabledByFeaturePolicy status.
   if (RuntimeEnabledFeatures::PictureInPictureAPIEnabled() &&
       !GetSupplementable()->IsFeatureEnabled(
-          blink::mojom::FeaturePolicyFeature::kPictureInPicture,
-          ReportOptions::kReportOnFailure)) {
+          blink::mojom::blink::FeaturePolicyFeature::kPictureInPicture,
+          report_failure ? ReportOptions::kReportOnFailure
+                         : ReportOptions::kDoNotReport)) {
     return Status::kDisabledByFeaturePolicy;
   }
 
@@ -104,13 +99,19 @@ PictureInPictureControllerImpl::VerifyElementAndOptions(
     }
   }
 
-  return IsElementAllowed(element);
+  return IsElementAllowed(element, /*report_failure=*/true);
 }
 
 PictureInPictureController::Status
 PictureInPictureControllerImpl::IsElementAllowed(
     const HTMLElement& element) const {
-  PictureInPictureController::Status status = IsDocumentAllowed();
+  return IsElementAllowed(element, /*report_failure=*/false);
+}
+
+PictureInPictureController::Status
+PictureInPictureControllerImpl::IsElementAllowed(const HTMLElement& element,
+                                                 bool report_failure) const {
+  PictureInPictureController::Status status = IsDocumentAllowed(report_failure);
   if (status != Status::kEnabled)
     return status;
 
@@ -205,7 +206,7 @@ void PictureInPictureControllerImpl::OnEnteredPictureInPicture(
       mojo::Remote<mojom::blink::PictureInPictureSession>(
           std::move(session_remote));
 
-  if (IsElementAllowed(*element) != Status::kEnabled) {
+  if (IsElementAllowed(*element, /*report_failure=*/true) != Status::kEnabled) {
     if (resolver) {
       resolver->Reject(MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kInvalidStateError, ""));
@@ -339,7 +340,8 @@ bool PictureInPictureControllerImpl::IsEnterAutoPictureInPictureAllowed()
     return false;
 
   // Allow if video is allowed to enter Picture-in-Picture.
-  return (IsElementAllowed(*AutoPictureInPictureElement()) == Status::kEnabled);
+  return (IsElementAllowed(*AutoPictureInPictureElement(),
+                           /*report_failure=*/true) == Status::kEnabled);
 }
 
 bool PictureInPictureControllerImpl::IsExitAutoPictureInPictureAllowed() const {

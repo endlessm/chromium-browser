@@ -8,22 +8,19 @@
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/tls_client_handshaker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
-TlsHandshaker::TlsHandshaker(QuicCryptoStream* stream,
-                             QuicSession* session,
-                             SSL_CTX* /*ssl_ctx*/)
-    : stream_(stream), session_(session), delegate_(session) {
-  QUIC_BUG_IF(!GetQuicReloadableFlag(quic_supports_tls_handshake))
-      << "Attempted to create TLS handshaker when TLS is disabled";
-}
+TlsHandshaker::TlsHandshaker(QuicCryptoStream* stream, QuicSession* session)
+    : stream_(stream), delegate_(session) {}
 
 TlsHandshaker::~TlsHandshaker() {}
 
-bool TlsHandshaker::ProcessInput(QuicStringPiece input, EncryptionLevel level) {
+bool TlsHandshaker::ProcessInput(quiche::QuicheStringPiece input,
+                                 EncryptionLevel level) {
   if (parser_error_ != QUIC_NO_ERROR) {
     return false;
   }
@@ -82,7 +79,8 @@ void TlsHandshaker::SetEncryptionSecret(
                                 std::move(encrypter));
 }
 
-void TlsHandshaker::WriteMessage(EncryptionLevel level, QuicStringPiece data) {
+void TlsHandshaker::WriteMessage(EncryptionLevel level,
+                                 quiche::QuicheStringPiece data) {
   stream_->WriteCryptoData(level, data);
 }
 

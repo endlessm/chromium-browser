@@ -232,8 +232,9 @@ GLOzone* HeadlessSurfaceFactory::GetGLOzone(
 }
 
 std::unique_ptr<SurfaceOzoneCanvas>
-HeadlessSurfaceFactory::CreateCanvasForWidget(gfx::AcceleratedWidget widget,
-                                              base::TaskRunner* task_runner) {
+HeadlessSurfaceFactory::CreateCanvasForWidget(
+    gfx::AcceleratedWidget widget,
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   return std::make_unique<FileSurface>(GetPathForWidget(base_path_, widget));
 }
 
@@ -242,7 +243,8 @@ scoped_refptr<gfx::NativePixmap> HeadlessSurfaceFactory::CreateNativePixmap(
     VkDevice vk_device,
     gfx::Size size,
     gfx::BufferFormat format,
-    gfx::BufferUsage usage) {
+    gfx::BufferUsage usage,
+    base::Optional<gfx::Size> framebuffer_size) {
   return new TestPixmap(format);
 }
 

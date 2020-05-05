@@ -12,7 +12,7 @@
 
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
-#include "core/fpdfdoc/cpdf_docjsactions.h"
+#include "core/fpdfdoc/cpdf_nametree.h"
 #include "core/fxcrt/fx_memory_wrappers.h"
 #include "fpdfsdk/cpdfsdk_actionhandler.h"
 #include "fpdfsdk/cpdfsdk_annothandlermgr.h"
@@ -123,7 +123,7 @@ FPDF_PAGE CPDFSDK_FormFillEnvironment::GetCurrentPage() const {
 
 WideString CPDFSDK_FormFillEnvironment::GetLanguage() {
 #ifdef PDF_ENABLE_XFA
-  if (!m_pInfo || !m_pInfo->FFI_GetLanguage)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_GetLanguage)
     return WideString();
 
   int nRequiredLen = m_pInfo->FFI_GetLanguage(m_pInfo, nullptr, 0);
@@ -145,7 +145,7 @@ WideString CPDFSDK_FormFillEnvironment::GetLanguage() {
 
 WideString CPDFSDK_FormFillEnvironment::GetPlatform() {
 #ifdef PDF_ENABLE_XFA
-  if (!m_pInfo || !m_pInfo->FFI_GetPlatform)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_GetPlatform)
     return WideString();
 
   int nRequiredLen = m_pInfo->FFI_GetPlatform(m_pInfo, nullptr, 0);
@@ -226,7 +226,8 @@ WideString CPDFSDK_FormFillEnvironment::JS_fieldBrowse() {
   if (nActualLen <= 0 || nActualLen > nRequiredLen)
     return WideString();
 
-  pBuff.resize(nActualLen);
+  // Don't include trailing NUL.
+  pBuff.resize(nActualLen - 1);
   return WideString::FromDefANSI(ByteStringView(pBuff));
 }
 
@@ -299,7 +300,8 @@ WideString CPDFSDK_FormFillEnvironment::GetFilePath() const {
   if (nActualLen <= 0 || nActualLen > nRequiredLen)
     return WideString();
 
-  pBuff.resize(nActualLen);
+  // Don't include trailing NUL.
+  pBuff.resize(nActualLen - 1);
   return WideString::FromDefANSI(ByteStringView(pBuff));
 }
 
@@ -407,28 +409,28 @@ void CPDFSDK_FormFillEnvironment::DisplayCaret(IPDF_Page* page,
                                                double top,
                                                double right,
                                                double bottom) {
-  if (m_pInfo && m_pInfo->FFI_DisplayCaret) {
+  if (m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_DisplayCaret) {
     m_pInfo->FFI_DisplayCaret(m_pInfo, FPDFPageFromIPDFPage(page), bVisible,
                               left, top, right, bottom);
   }
 }
 
 int CPDFSDK_FormFillEnvironment::GetCurrentPageIndex() const {
-  if (!m_pInfo || !m_pInfo->FFI_GetCurrentPageIndex)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_GetCurrentPageIndex)
     return -1;
   return m_pInfo->FFI_GetCurrentPageIndex(
       m_pInfo, FPDFDocumentFromCPDFDocument(m_pCPDFDoc.Get()));
 }
 
 void CPDFSDK_FormFillEnvironment::SetCurrentPage(int iCurPage) {
-  if (!m_pInfo || !m_pInfo->FFI_SetCurrentPage)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_SetCurrentPage)
     return;
   m_pInfo->FFI_SetCurrentPage(
       m_pInfo, FPDFDocumentFromCPDFDocument(m_pCPDFDoc.Get()), iCurPage);
 }
 
 void CPDFSDK_FormFillEnvironment::GotoURL(const WideString& wsURL) {
-  if (!m_pInfo || !m_pInfo->FFI_GotoURL)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_GotoURL)
     return;
 
   ByteString bsTo = wsURL.ToUTF16LE();
@@ -438,7 +440,7 @@ void CPDFSDK_FormFillEnvironment::GotoURL(const WideString& wsURL) {
 
 FS_RECTF CPDFSDK_FormFillEnvironment::GetPageViewRect(IPDF_Page* page) {
   FS_RECTF rect = {0.0f, 0.0f, 0.0f, 0.0f};
-  if (!m_pInfo || !m_pInfo->FFI_GetPageViewRect)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_GetPageViewRect)
     return rect;
 
   double left;
@@ -459,7 +461,7 @@ bool CPDFSDK_FormFillEnvironment::PopupMenu(IPDF_Page* page,
                                             FPDF_WIDGET hWidget,
                                             int menuFlag,
                                             const CFX_PointF& pt) {
-  return m_pInfo && m_pInfo->FFI_PopupMenu &&
+  return m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_PopupMenu &&
          m_pInfo->FFI_PopupMenu(m_pInfo, FPDFPageFromIPDFPage(page), hWidget,
                                 menuFlag, pt.x, pt.y);
 }
@@ -470,32 +472,32 @@ void CPDFSDK_FormFillEnvironment::EmailTo(FPDF_FILEHANDLER* fileHandler,
                                           FPDF_WIDESTRING pCC,
                                           FPDF_WIDESTRING pBcc,
                                           FPDF_WIDESTRING pMsg) {
-  if (m_pInfo && m_pInfo->FFI_EmailTo)
+  if (m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_EmailTo)
     m_pInfo->FFI_EmailTo(m_pInfo, fileHandler, pTo, pSubject, pCC, pBcc, pMsg);
 }
 
 void CPDFSDK_FormFillEnvironment::UploadTo(FPDF_FILEHANDLER* fileHandler,
                                            int fileFlag,
                                            FPDF_WIDESTRING uploadTo) {
-  if (m_pInfo && m_pInfo->FFI_UploadTo)
+  if (m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_UploadTo)
     m_pInfo->FFI_UploadTo(m_pInfo, fileHandler, fileFlag, uploadTo);
 }
 
 FPDF_FILEHANDLER* CPDFSDK_FormFillEnvironment::OpenFile(int fileType,
                                                         FPDF_WIDESTRING wsURL,
                                                         const char* mode) {
-  if (m_pInfo && m_pInfo->FFI_OpenFile)
+  if (m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_OpenFile)
     return m_pInfo->FFI_OpenFile(m_pInfo, fileType, wsURL, mode);
   return nullptr;
 }
 
 RetainPtr<IFX_SeekableReadStream> CPDFSDK_FormFillEnvironment::DownloadFromURL(
     const WideString& url) {
-  if (!m_pInfo || !m_pInfo->FFI_DownloadFromURL)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_DownloadFromURL)
     return nullptr;
 
   ByteString bstrURL = url.ToUTF16LE();
-  FPDF_LPFILEHANDLER fileHandler =
+  FPDF_FILEHANDLER* fileHandler =
       m_pInfo->FFI_DownloadFromURL(m_pInfo, AsFPDFWideString(&bstrURL));
 
   return MakeSeekableStream(fileHandler);
@@ -507,7 +509,7 @@ WideString CPDFSDK_FormFillEnvironment::PostRequestURL(
     const WideString& wsContentType,
     const WideString& wsEncode,
     const WideString& wsHeader) {
-  if (!m_pInfo || !m_pInfo->FFI_PostRequestURL)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_PostRequestURL)
     return WideString();
 
   ByteString bsURL = wsURL.ToUTF16LE();
@@ -535,7 +537,7 @@ FPDF_BOOL CPDFSDK_FormFillEnvironment::PutRequestURL(
     const WideString& wsURL,
     const WideString& wsData,
     const WideString& wsEncode) {
-  if (!m_pInfo || !m_pInfo->FFI_PutRequestURL)
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_PutRequestURL)
     return false;
 
   ByteString bsURL = wsURL.ToUTF16LE();
@@ -549,7 +551,7 @@ FPDF_BOOL CPDFSDK_FormFillEnvironment::PutRequestURL(
 
 void CPDFSDK_FormFillEnvironment::PageEvent(int iPageCount,
                                             uint32_t dwEventType) const {
-  if (m_pInfo && m_pInfo->FFI_PageEvent)
+  if (m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_PageEvent)
     m_pInfo->FFI_PageEvent(m_pInfo, iPageCount, dwEventType);
 }
 #endif  // PDF_ENABLE_XFA
@@ -589,13 +591,13 @@ CPDFSDK_PageView* CPDFSDK_FormFillEnvironment::GetPageView(int nIndex) {
   return it != m_PageMap.end() ? it->second.get() : nullptr;
 }
 
-void CPDFSDK_FormFillEnvironment::ProcJavascriptFun() {
-  CPDF_DocJSActions docJS(m_pCPDFDoc.Get());
-  int iCount = docJS.CountJSActions();
+void CPDFSDK_FormFillEnvironment::ProcJavascriptAction() {
+  CPDF_NameTree docJS(m_pCPDFDoc.Get(), "JavaScript");
+  int iCount = docJS.GetCount();
   for (int i = 0; i < iCount; i++) {
-    WideString csJSName;
-    CPDF_Action jsAction = docJS.GetJSActionAndName(i, &csJSName);
-    GetActionHandler()->DoAction_JavaScript(jsAction, csJSName, this);
+    WideString name;
+    CPDF_Action action(ToDictionary(docJS.LookupValueAndName(i, &name)));
+    GetActionHandler()->DoAction_JavaScript(action, name, this);
   }
 }
 

@@ -199,6 +199,7 @@ const int kHostOfflineReasonTimeoutSeconds = 10;
 const char kHostOfflineReasonPolicyReadError[] = "POLICY_READ_ERROR";
 const char kHostOfflineReasonPolicyChangeRequiresRestart[] =
     "POLICY_CHANGE_REQUIRES_RESTART";
+const char kHostOfflineReasonRemoteRestartHost[] = "REMOTE_RESTART_HOST";
 
 }  // namespace
 
@@ -206,6 +207,7 @@ namespace remoting {
 
 class HostProcess : public ConfigWatcher::Delegate,
                     public FtlHostChangeNotificationListener::Listener,
+                    public HeartbeatSender::Delegate,
                     public IPC::Listener,
                     public base::RefCountedThreadSafe<HostProcess> {
  public:
@@ -323,12 +325,11 @@ class HostProcess : public ConfigWatcher::Delegate,
   void StartHostIfReady();
   void StartHost();
 
-  // Error handler for HeartbeatSender.
-  void OnHeartbeatSuccessful();
-  void OnUnknownHostIdError();
-
-  // Error handler for FtlSignalingConnector.
-  void OnAuthFailed();
+  // HeartbeatSender::Delegate implementations.
+  void OnFirstHeartbeatSuccessful() override;
+  void OnHostNotFound() override;
+  void OnAuthFailed() override;
+  void OnRemoteRestartHost() override;
 
   void RestartHost(const std::string& host_offline_reason);
   void ShutdownHost(HostExitCodes exit_code);
@@ -445,10 +446,6 @@ class HostProcess : public ConfigWatcher::Delegate,
   ShutdownWatchdog* shutdown_watchdog_;
 
 #if defined(OS_MACOSX)
-  // A basic decktop capturer that captures a single screen in order to trigger
-  // the native OS permission check.
-  std::unique_ptr<DesktopCapturerChecker> capture_checker_;
-
   // When using the command line option to check the Accessibility or Screen
   // Recording permission, these track the permission state and indicate that
   // the host should exit immediately with the result.
@@ -512,8 +509,7 @@ bool HostProcess::InitWithCommandLine(const base::CommandLine* cmd_line) {
     // important to add the host bundle to the list of apps under
     // Security & Privacy -> Screen Recording.
     if (base::mac::IsAtLeastOS10_15()) {
-      capture_checker_ = std::make_unique<DesktopCapturerChecker>();
-      capture_checker_->TriggerSingleCapture();
+      DesktopCapturerChecker().TriggerSingleCapture();
     }
     checking_permission_state_ = true;
     permission_granted_ = mac::CanRecordScreen();
@@ -943,12 +939,12 @@ void HostProcess::ShutdownOnUiThread() {
 #endif
 }
 
-void HostProcess::OnUnknownHostIdError() {
+void HostProcess::OnHostNotFound() {
   LOG(ERROR) << "Host ID not found.";
   ShutdownHost(kInvalidHostIdExitCode);
 }
 
-void HostProcess::OnHeartbeatSuccessful() {
+void HostProcess::OnFirstHeartbeatSuccessful() {
   if (state_ != HOST_STARTED) {
     return;
   }
@@ -1446,12 +1442,7 @@ void HostProcess::InitializeSignaling() {
       base::BindOnce(&HostProcess::OnAuthFailed, base::Unretained(this)));
   ftl_signaling_connector_->Start();
   heartbeat_sender_ = std::make_unique<HeartbeatSender>(
-      base::BindOnce(&HostProcess::OnHeartbeatSuccessful,
-                     base::Unretained(this)),
-      base::BindOnce(&HostProcess::OnUnknownHostIdError,
-                     base::Unretained(this)),
-      base::BindOnce(&HostProcess::OnAuthFailed, base::Unretained(this)),
-      host_id_, ftl_signal_strategy.get(), oauth_token_getter_.get(),
+      this, host_id_, ftl_signal_strategy.get(), oauth_token_getter_.get(),
       log_to_server_.get());
   ftl_host_change_notification_listener_ =
       std::make_unique<FtlHostChangeNotificationListener>(
@@ -1561,15 +1552,10 @@ void HostProcess::StartHost() {
 #if defined(OS_MACOSX)
   // Don't run the permission-checks as root (i.e. at the login screen), as they
   // are not actionable there.
-  if (getuid() != 0U) {
-    // Capture a single screen image to trigger OS permission checks which will
-    // add our binary to the list of apps that can be granted permission. This
-    // is only needed for OS X 10.15 and later.
-    if (base::mac::IsAtLeastOS10_15()) {
-      capture_checker_.reset(new DesktopCapturerChecker());
-      capture_checker_->TriggerSingleCapture();
-    }
-
+  // Also, the permission-checks are not needed on MacOS 10.15+, as they are
+  // always handled by the new permission-wizard (the old shell script is
+  // never used on 10.15+).
+  if (getuid() != 0U && base::mac::IsAtMostOS10_14()) {
     mac::PromptUserToChangeTrustStateIfNeeded(context_->ui_task_runner());
   }
 #endif  // defined(OS_MACOSX)
@@ -1584,6 +1570,10 @@ void HostProcess::StartHost() {
 
 void HostProcess::OnAuthFailed() {
   ShutdownHost(kInvalidOauthCredentialsExitCode);
+}
+
+void HostProcess::OnRemoteRestartHost() {
+  RestartHost(kHostOfflineReasonRemoteRestartHost);
 }
 
 void HostProcess::RestartHost(const std::string& host_offline_reason) {

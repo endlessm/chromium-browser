@@ -30,11 +30,9 @@
 #include "chrome/browser/notifications/notification_permission_context.h"
 #include "chrome/browser/notifications/stub_notification_display_service.h"
 #include "chrome/browser/permissions/permission_manager.h"
-#include "chrome/browser/permissions/permission_result.h"
 #include "chrome/browser/push_messaging/push_messaging_app_identifier.h"
 #include "chrome/browser/push_messaging/push_messaging_service_factory.h"
 #include "chrome/browser/push_messaging/push_messaging_service_impl.h"
-#include "chrome/browser/ui/extensions/browser_action_test_util.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/api/web_navigation.h"
@@ -42,6 +40,7 @@
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/gcm_driver/fake_gcm_profile_service.h"
 #include "components/gcm_driver/instance_id/fake_gcm_driver_for_instance_id.h"
+#include "components/permissions/permission_result.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/console_message.h"
 #include "content/public/browser/navigation_controller.h"
@@ -162,7 +161,7 @@ class ServiceWorkerTest : public ExtensionApiTest {
   content::WebContents* Navigate(const GURL& url) {
     ui_test_utils::NavigateToURLWithDisposition(
         browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-        ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+        ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     content::WaitForLoadStop(web_contents);
@@ -521,6 +520,49 @@ class ServiceWorkerRegistrationAtStartupTest
   std::unique_ptr<base::RunLoop> run_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerRegistrationAtStartupTest);
+};
+
+// Observes ServiceWorkerTaskQueue::DidStartWorkerFail.
+class ServiceWorkerStartFailureObserver
+    : public ServiceWorkerTaskQueue::TestObserver {
+ public:
+  explicit ServiceWorkerStartFailureObserver(const ExtensionId& extension_id)
+      : extension_id_(extension_id) {
+    ServiceWorkerTaskQueue::SetObserverForTest(this);
+  }
+  ~ServiceWorkerStartFailureObserver() override {
+    ServiceWorkerTaskQueue::SetObserverForTest(nullptr);
+  }
+
+  ServiceWorkerStartFailureObserver(const ServiceWorkerStartFailureObserver&) =
+      delete;
+  ServiceWorkerStartFailureObserver& operator=(
+      const ServiceWorkerStartFailureObserver&) = delete;
+
+  size_t WaitForDidStartWorkerFailAndGetTaskCount() {
+    if (pending_tasks_count_at_worker_failure_)
+      return *pending_tasks_count_at_worker_failure_;
+
+    run_loop_.Run();
+    return *pending_tasks_count_at_worker_failure_;
+  }
+
+  // ServiceWorkerTaskQueue::TestObserver:
+  void DidStartWorkerFail(const ExtensionId& extension_id,
+                          size_t num_pending_tasks) override {
+    if (extension_id == extension_id_) {
+      pending_tasks_count_at_worker_failure_ = num_pending_tasks;
+      run_loop_.Quit();
+    }
+  }
+
+ private:
+  // Holds number of pending tasks for worker at the time DidStartWorkerFail is
+  // observed.
+  base::Optional<size_t> pending_tasks_count_at_worker_failure_;
+
+  ExtensionId extension_id_;
+  base::RunLoop run_loop_;
 };
 
 // Test extension id at
@@ -1168,13 +1210,9 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerTest, NotificationAPI) {
                                   "page.html"));
 }
 
-// Flaky on Linux (crbug.com/1006129).
-#if defined(OS_LINUX)
-#define MAYBE_WebAccessibleResourcesFetch DISABLED_WebAccessibleResourcesFetch
-#else
-#define MAYBE_WebAccessibleResourcesFetch WebAccessibleResourcesFetch
-#endif
-IN_PROC_BROWSER_TEST_F(ServiceWorkerTest, MAYBE_WebAccessibleResourcesFetch) {
+// Flaky (crbug.com/1006129).
+IN_PROC_BROWSER_TEST_F(ServiceWorkerTest,
+                       DISABLED_WebAccessibleResourcesFetch) {
   EXPECT_TRUE(RunExtensionSubtest(
       "service_worker/web_accessible_resources/fetch/", "page.html"));
 }
@@ -1182,9 +1220,8 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerTest, MAYBE_WebAccessibleResourcesFetch) {
 // Tests that updating a packed extension with modified scripts works
 // properly -- we expect that the new script will execute, rather than the
 // previous one.
-// Flaky on all platforms: https://crbug.com/1003244
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest,
-                       DISABLED_UpdatePackedExtension) {
+                       UpdatePackedExtension) {
   constexpr char kManifest1[] =
       R"({
            "name": "Test Extension",
@@ -1589,6 +1626,66 @@ class TestRegistrationObserver : public content::ServiceWorkerContextObserver {
   content::ServiceWorkerContext* context_;
 };
 
+// Observer for an extension service worker to start and stop.
+class TestWorkerObserver : public content::ServiceWorkerContextObserver {
+ public:
+  TestWorkerObserver(content::ServiceWorkerContext* context,
+                     const ExtensionId& extension_id)
+      : context_(context),
+        extension_url_(Extension::GetBaseURLFromExtensionId(extension_id)) {
+    context_->AddObserver(this);
+  }
+  ~TestWorkerObserver() override {
+    if (context_) {
+      context_->RemoveObserver(this);
+    }
+  }
+
+  TestWorkerObserver(const TestWorkerObserver&) = delete;
+  TestWorkerObserver& operator=(const TestWorkerObserver&) = delete;
+
+  void WaitForWorkerStart() {
+    if (running_version_id_.has_value())
+      return;
+    started_run_loop_.Run();
+  }
+
+  void WaitForWorkerStop() {
+    DCHECK(running_version_id_.has_value()) << "Worker hasn't started";
+    stopped_run_loop_.Run();
+  }
+
+ private:
+  // ServiceWorkerContextObserver:
+  void OnVersionStartedRunning(
+      content::ServiceWorkerContext* context,
+      int64_t version_id,
+      const content::ServiceWorkerRunningInfo& running_info) override {
+    if (running_info.scope != extension_url_)
+      return;
+
+    running_version_id_ = version_id;
+    started_run_loop_.Quit();
+  }
+  void OnVersionStoppedRunning(content::ServiceWorkerContext* context,
+                               int64_t version_id) override {
+    if (running_version_id_ == version_id)
+      stopped_run_loop_.Quit();
+  }
+  void OnDestruct(content::ServiceWorkerContext* context) override {
+    context_->RemoveObserver(this);
+    context_ = nullptr;
+  }
+
+  base::RunLoop started_run_loop_;
+  base::RunLoop stopped_run_loop_;
+  // Holds version id of an extension worker once OnVersionStartedRunning is
+  // observed.
+  base::Optional<int64_t> running_version_id_;
+  content::ServiceWorkerContext* context_ = nullptr;
+  GURL extension_url_;
+};
+
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest,
                        EventsToStoppedWorker) {
   content::StoragePartition* storage_partition =
@@ -1841,6 +1938,79 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest,
   EXPECT_EQ(1, observer.GetCompletedCount(extension->url()));
 }
 
+// Tests that a worker that failed to start due to 'install' error, clears its
+// PendingTasks correctly. Also tests that subsequent tasks are properly
+// cleared.
+// Regression test for https://crbug.com/1019161.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest,
+                       WorkerStartFailureClearsPendingTasks) {
+  content::StoragePartition* storage_partition =
+      content::BrowserContext::GetDefaultStoragePartition(browser()->profile());
+  content::ServiceWorkerContext* context =
+      storage_partition->GetServiceWorkerContext();
+
+  const ExtensionId kTestExtensionId("iegclhlplifhodhkoafiokenjoapiobj");
+  // Set up an observer to wait for worker to start and then stop.
+  TestWorkerObserver observer(context, kTestExtensionId);
+
+  TestExtensionDir test_dir;
+  // Key for extension id |kTestExtensionId|.
+  constexpr const char kKey[] =
+      "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjzv7dI7Ygyh67VHE1DdidudpYf8P"
+      "Ffv8iucWvzO+3xpF/Dm5xNo7aQhPNiEaNfHwJQ7lsp4gc+C+4bbaVewBFspTruoSJhZc5uEf"
+      "qxwovJwN+v1/SUFXTXQmQBv6gs0qZB4gBbl4caNQBlqrFwAMNisnu1V6UROna8rOJQ90D7Nv"
+      "7TCwoVPKBfVshpFjdDOTeBg4iLctO3S/06QYqaTDrwVceSyHkVkvzBY6tc6mnYX0RZu78J9i"
+      "L8bdqwfllOhs69cqoHHgrLdI6JdOyiuh6pBP6vxMlzSKWJ3YTNjaQTPwfOYaLMuzdl0v+Ydz"
+      "afIzV9zwe4Xiskk+5JNGt8b2rQIDAQAB";
+
+  test_dir.WriteManifest(base::StringPrintf(
+      R"({
+           "name": "Test Extension",
+           "manifest_version": 2,
+           "version": "0.1",
+           "key": "%s",
+           "permissions": ["tabs"],
+           "background": {"service_worker": "script.js"}
+         })",
+      kKey));
+  constexpr char kScript[] =
+      R"(self.oninstall = function(event) {
+           event.waitUntil(Promise.reject(new Error('foo')));
+         };)";
+  test_dir.WriteFile(FILE_PATH_LITERAL("script.js"), kScript);
+  const Extension* extension = LoadExtension(test_dir.UnpackedPath());
+  ASSERT_TRUE(extension);
+  ASSERT_EQ(kTestExtensionId, extension->id());
+  LazyContextId context_id(browser()->profile(), extension->id(),
+                           extension->url());
+  ServiceWorkerStartFailureObserver worker_start_failure_observer(
+      extension->id());
+
+  // Let the worker start so it rejects 'install' event. This causes the worker
+  // to stop.
+  observer.WaitForWorkerStart();
+  observer.WaitForWorkerStop();
+
+  ServiceWorkerTaskQueue* service_worker_task_queue =
+      ServiceWorkerTaskQueue::Get(browser()->profile());
+  // Adding a pending task to ServiceWorkerTaskQueue will try to start the
+  // worker that failed during installation before. This enables us to ensure
+  // that this pending task is cleared on failure.
+  service_worker_task_queue->AddPendingTask(context_id, base::DoNothing());
+
+  // Since the worker rejects installation, it will fail to start now. Ensure
+  // that the queue sees pending tasks while the error is observed.
+  EXPECT_GT(
+      worker_start_failure_observer.WaitForDidStartWorkerFailAndGetTaskCount(),
+      0u);
+  // Ensure DidStartWorkerFail finished clearing tasks.
+  base::RunLoop().RunUntilIdle();
+
+  // And the task count will be reset to zero afterwards.
+  EXPECT_EQ(0u,
+            service_worker_task_queue->GetNumPendingTasksForTest(context_id));
+}
+
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest,
                        ProcessManagerRegistrationOnShutdown) {
   // Note that StopServiceWorkerForScope call below expects the worker to be
@@ -2009,7 +2179,8 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, EventsAfterRestart) {
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, TabsOnCreated) {
   ASSERT_TRUE(RunExtensionTestWithFlags("tabs/lazy_background_on_created",
-                                        kFlagRunAsServiceWorkerBasedExtension))
+                                        kFlagRunAsServiceWorkerBasedExtension,
+                                        kFlagNone))
       << message_;
 }
 

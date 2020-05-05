@@ -13,7 +13,7 @@
 #include "base/macros.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/gpu_fence.h"
-#include "ui/ozone/common/linux/gbm_buffer.h"
+#include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
@@ -82,7 +82,7 @@ class ScreenManagerTest : public testing::Test {
       modifiers.push_back(format_modifier);
     auto buffer = drm_->gbm_device()->CreateBufferWithModifiers(
         format, size, GBM_BO_USE_SCANOUT, modifiers);
-    return DrmFramebuffer::AddFramebuffer(drm_, buffer.get(), modifiers);
+    return DrmFramebuffer::AddFramebuffer(drm_, buffer.get(), size, modifiers);
   }
 
  protected:

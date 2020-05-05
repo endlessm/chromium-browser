@@ -94,7 +94,8 @@ def _GenerateFiles(source, output):
       os.path.join(source, 'chromite'),
       os.path.join(source, 'chromiumos'),
       os.path.join(source, 'config'),
-      os.path.join(source, 'test_platform')
+      os.path.join(source, 'test_platform'),
+      os.path.join(source, 'device')
   ]
   for basedir in subdirs:
     for dirpath, _dirnames, filenames in os.walk(basedir):
@@ -105,7 +106,7 @@ def _GenerateFiles(source, output):
 
   cmd = [_PROTOC, '--python_out', output, '--proto_path', source] + targets
   result = cros_build_lib.run(
-      cmd, cwd=source, print_cmd=False, error_code_ok=True)
+      cmd, cwd=source, print_cmd=False, check=False)
 
   if result.returncode:
     raise GenerationError('Error compiling the proto. See the output for a '

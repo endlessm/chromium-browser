@@ -117,6 +117,7 @@ type DICompileUnit struct {
 	Optimized      bool
 	Flags          string
 	RuntimeVersion int
+	SysRoot        string
 }
 
 // CreateCompileUnit creates compile unit debug metadata.
@@ -129,6 +130,8 @@ func (d *DIBuilder) CreateCompileUnit(cu DICompileUnit) Metadata {
 	defer C.free(unsafe.Pointer(producer))
 	flags := C.CString(cu.Flags)
 	defer C.free(unsafe.Pointer(flags))
+	sysroot := C.CString(cu.SysRoot)
+	defer C.free(unsafe.Pointer(sysroot))
 	result := C.LLVMDIBuilderCreateCompileUnit(
 		d.ref,
 		C.LLVMDWARFSourceLanguage(cu.Language),
@@ -142,6 +145,7 @@ func (d *DIBuilder) CreateCompileUnit(cu DICompileUnit) Metadata {
 		/*DWOId=*/ 0,
 		/*SplitDebugInlining*/ C.LLVMBool(boolToCInt(true)),
 		/*DebugInfoForProfiling*/ C.LLVMBool(boolToCInt(false)),
+		sysroot, C.size_t(len(cu.SysRoot)),
 	)
 	return Metadata{C: result}
 }
@@ -504,6 +508,7 @@ type DITypedef struct {
 	File    Metadata
 	Line    int
 	Context Metadata
+  AlignInBits uint32
 }
 
 // CreateTypedef creates typedef type debug metadata.
@@ -518,6 +523,7 @@ func (d *DIBuilder) CreateTypedef(t DITypedef) Metadata {
 		t.File.C,
 		C.unsigned(t.Line),
 		t.Context.C,
+    C.uint32_t(t.AlignInBits),
 	)
 	return Metadata{C: result}
 }
@@ -582,6 +588,11 @@ func (d *DIBuilder) InsertValueAtEnd(v Value, diVarInfo, expr Metadata, l DebugL
 
 func (v Value) SetSubprogram(sp Metadata) {
 	C.LLVMSetSubprogram(v.C, sp.C)
+}
+
+func (v Value) Subprogram() (md Metadata) {
+	md.C = C.LLVMGetSubprogram(v.C)
+	return
 }
 
 func boolToCInt(v bool) C.int {

@@ -1,15 +1,10 @@
-//===-- CommandCompletions.cpp ----------------------------------*- C++ -*-===//
+//===-- CommandCompletions.cpp --------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-
-#include <sys/stat.h>
-#if defined(__APPLE__) || defined(__linux__)
-#include <pwd.h>
-#endif
 
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSet.h"
@@ -23,13 +18,10 @@
 #include "lldb/Interpreter/OptionValueProperties.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/Variable.h"
-#include "lldb/Target/Target.h"
-#include "lldb/Utility/Args.h"
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/StreamString.h"
 #include "lldb/Utility/TildeExpressionResolver.h"
 
-#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 

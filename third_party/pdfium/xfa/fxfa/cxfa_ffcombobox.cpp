@@ -33,6 +33,10 @@ CXFA_FFComboBox::CXFA_FFComboBox(CXFA_Node* pNode) : CXFA_FFDropDown(pNode) {}
 
 CXFA_FFComboBox::~CXFA_FFComboBox() = default;
 
+CXFA_FFComboBox* CXFA_FFComboBox::AsComboBox() {
+  return this;
+}
+
 CFX_RectF CXFA_FFComboBox::GetBBox(FocusOption focus) {
   if (focus == kDrawFocus)
     return CFX_RectF();
@@ -49,7 +53,7 @@ bool CXFA_FFComboBox::LoadWidget() {
   auto pNew = pdfium::MakeUnique<CFWL_ComboBox>(GetFWLApp());
   CFWL_ComboBox* pComboBox = pNew.get();
   SetNormalWidget(std::move(pNew));
-  pComboBox->SetFFWidget(this);
+  pComboBox->SetAdapterIface(this);
 
   CFWL_NoteDriver* pNoteDriver = pComboBox->GetOwnerApp()->GetNoteDriver();
   pNoteDriver->RegisterEventTarget(pComboBox, pComboBox);
@@ -107,10 +111,13 @@ bool CXFA_FFComboBox::OnRButtonUp(uint32_t dwFlags, const CFX_PointF& point) {
 }
 
 bool CXFA_FFComboBox::OnKillFocus(CXFA_FFWidget* pNewWidget) {
+  ObservedPtr<CXFA_FFWidget> pWatched(this);
+  ObservedPtr<CXFA_FFWidget> pNewWatched(pNewWidget);
   if (!ProcessCommittedData())
     UpdateFWLData();
 
-  return CXFA_FFField::OnKillFocus(pNewWidget);
+  return pWatched && pNewWatched &&
+         CXFA_FFField::OnKillFocus(pNewWatched.Get());
 }
 
 void CXFA_FFComboBox::OpenDropDownList() {
@@ -309,9 +316,13 @@ void CXFA_FFComboBox::OnTextChanged(CFWL_Widget* pWidget,
 }
 
 void CXFA_FFComboBox::OnSelectChanged(CFWL_Widget* pWidget, bool bLButtonUp) {
+  ObservedPtr<CXFA_FFComboBox> watched(this);
   CXFA_EventParam eParam;
   eParam.m_wsPrevText = m_pNode->GetValue(XFA_VALUEPICTURE_Raw);
   FWLEventSelChange(&eParam);
+  if (!watched)
+    return;
+
   if (m_pNode->IsChoiceListCommitOnSelect() && bLButtonUp)
     m_pDocView->SetFocusNode(nullptr);
 }
@@ -335,6 +346,7 @@ void CXFA_FFComboBox::OnProcessMessage(CFWL_Message* pMessage) {
 }
 
 void CXFA_FFComboBox::OnProcessEvent(CFWL_Event* pEvent) {
+  ObservedPtr<CXFA_FFComboBox> watched(this);
   CXFA_FFField::OnProcessEvent(pEvent);
   switch (pEvent->GetType()) {
     case CFWL_Event::Type::SelectChanged: {
@@ -358,7 +370,8 @@ void CXFA_FFComboBox::OnProcessEvent(CFWL_Event* pEvent) {
     default:
       break;
   }
-  m_pOldDelegate->OnProcessEvent(pEvent);
+  if (watched)
+    m_pOldDelegate->OnProcessEvent(pEvent);
 }
 
 void CXFA_FFComboBox::OnDrawWidget(CXFA_Graphics* pGraphics,

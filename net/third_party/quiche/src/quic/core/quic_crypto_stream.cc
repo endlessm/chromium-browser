@@ -14,7 +14,7 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -33,10 +33,10 @@ QuicCryptoStream::QuicCryptoStream(QuicSession* session)
           QuicVersionUsesCryptoFrames(session->transport_version())
               ? CRYPTO
               : BIDIRECTIONAL),
-      substreams_{{this, ENCRYPTION_INITIAL},
-                  {this, ENCRYPTION_HANDSHAKE},
-                  {this, ENCRYPTION_ZERO_RTT},
-                  {this, ENCRYPTION_FORWARD_SECURE}} {
+      substreams_{{{this, ENCRYPTION_INITIAL},
+                   {this, ENCRYPTION_HANDSHAKE},
+                   {this, ENCRYPTION_ZERO_RTT},
+                   {this, ENCRYPTION_FORWARD_SECURE}}} {
   // The crypto stream is exempt from connection level flow control.
   DisableConnectionFlowControlForThisStream();
 }
@@ -72,13 +72,7 @@ void QuicCryptoStream::OnCryptoFrame(const QuicCryptoFrame& frame) {
       << "Versions less than 47 shouldn't receive CRYPTO frames";
   EncryptionLevel level = session()->connection()->last_decrypted_level();
   substreams_[level].sequencer.OnCryptoFrame(frame);
-  EncryptionLevel frame_level;
-  if (GetQuicReloadableFlag(quic_use_connection_encryption_level)) {
-    QUIC_RELOADABLE_FLAG_COUNT(quic_use_connection_encryption_level);
-    frame_level = level;
-  } else {
-    frame_level = frame.level;
-  }
+  EncryptionLevel frame_level = level;
   if (substreams_[level].sequencer.NumBytesBuffered() >
       BufferSizeLimitForLevel(frame_level)) {
     CloseConnectionWithDetails(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA,
@@ -113,14 +107,15 @@ void QuicCryptoStream::OnDataAvailableInSequencer(
     EncryptionLevel level) {
   struct iovec iov;
   while (sequencer->GetReadableRegion(&iov)) {
-    QuicStringPiece data(static_cast<char*>(iov.iov_base), iov.iov_len);
+    quiche::QuicheStringPiece data(static_cast<char*>(iov.iov_base),
+                                   iov.iov_len);
     if (!crypto_message_parser()->ProcessInput(data, level)) {
       CloseConnectionWithDetails(crypto_message_parser()->error(),
                                  crypto_message_parser()->error_detail());
       return;
     }
     sequencer->MarkConsumed(iov.iov_len);
-    if (handshake_confirmed() &&
+    if (one_rtt_keys_available() &&
         crypto_message_parser()->InputBytesRemaining() == 0) {
       // If the handshake is complete and the current message has been fully
       // processed then no more handshake messages are likely to arrive soon
@@ -130,11 +125,11 @@ void QuicCryptoStream::OnDataAvailableInSequencer(
   }
 }
 
-bool QuicCryptoStream::ExportKeyingMaterial(QuicStringPiece label,
-                                            QuicStringPiece context,
+bool QuicCryptoStream::ExportKeyingMaterial(quiche::QuicheStringPiece label,
+                                            quiche::QuicheStringPiece context,
                                             size_t result_len,
                                             std::string* result) const {
-  if (!handshake_confirmed()) {
+  if (!one_rtt_keys_available()) {
     QUIC_DLOG(ERROR) << "ExportKeyingMaterial was called before forward-secure"
                      << "encryption was established.";
     return false;
@@ -145,7 +140,7 @@ bool QuicCryptoStream::ExportKeyingMaterial(QuicStringPiece label,
 }
 
 void QuicCryptoStream::WriteCryptoData(EncryptionLevel level,
-                                       QuicStringPiece data) {
+                                       quiche::QuicheStringPiece data) {
   if (!QuicVersionUsesCryptoFrames(session()->transport_version())) {
     // The QUIC crypto handshake takes care of setting the appropriate
     // encryption level before writing data. Since that is the only handshake

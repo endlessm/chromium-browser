@@ -136,8 +136,18 @@ class DefaultFlavor(object):
         env['VK_ICD_FILENAMES'] = str(dri_path.join('intel_icd.x86_64.json'))
 
       if 'Vulkan' in extra_tokens:
+        env['VULKAN_SDK'] = str(slave_dir.join('linux_vulkan_sdk'))
         path.append(slave_dir.join('linux_vulkan_sdk', 'bin'))
         ld_library_path.append(slave_dir.join('linux_vulkan_sdk', 'lib'))
+        # Enable layers for Debug only to avoid affecting perf results on
+        # Release.
+        # ASAN reports leaks in the Vulkan SDK when the debug layer is enabled.
+        # TSAN runs out of memory.
+        if (self.m.vars.builder_cfg.get('configuration', '') != 'Release' and
+            'ASAN' not in extra_tokens and
+            'TSAN' not in extra_tokens):
+          env['VK_LAYER_PATH'] = str(slave_dir.join(
+              'linux_vulkan_sdk', 'etc', 'vulkan', 'explicit_layer.d'))
 
       if 'OpenCL' in extra_tokens:
         ld_library_path.append(slave_dir.join('opencl_ocl_icd_linux'))
@@ -186,11 +196,13 @@ class DefaultFlavor(object):
       #   specified dir
       cmd = [procdump, '-accepteula', '-mp', '-e', '1', '-x', dumps_dir] + cmd
 
-    if 'ASAN' in extra_tokens or 'UBSAN' in extra_tokens:
+    if 'ASAN' in extra_tokens:
       # Note: if you see "<unknown module>" in stacktraces for xSAN warnings,
       # try adding "fast_unwind_on_malloc=0" to xSAN_OPTIONS.
-      if 'Mac' in self.m.vars.builder_cfg.get('os', ''):
-        env['ASAN_OPTIONS'] = 'symbolize=1'  # Mac doesn't support detect_leaks.
+      os = self.m.vars.builder_cfg.get('os', '')
+      if 'Mac' in os or 'Win' in os:
+        # Mac and Win don't support detect_leaks.
+        env['ASAN_OPTIONS'] = 'symbolize=1'
       else:
         env['ASAN_OPTIONS'] = 'symbolize=1 detect_leaks=1'
       env[ 'LSAN_OPTIONS'] = 'symbolize=1 print_suppressions=1'

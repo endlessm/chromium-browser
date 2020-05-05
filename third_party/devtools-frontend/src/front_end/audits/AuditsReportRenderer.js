@@ -30,7 +30,7 @@ export class AuditsReportRenderer extends ReportRenderer {
 
     async function onViewTraceClick() {
       Host.userMetrics.actionTaken(Host.UserMetrics.Action.AuditsViewTrace);
-      await UI.inspectorView.showPanel('timeline');
+      await self.UI.inspectorView.showPanel('timeline');
       Timeline.TimelinePanel.instance().loadFromEvents(defaultPassTrace.traceEvents);
     }
   }
@@ -39,7 +39,7 @@ export class AuditsReportRenderer extends ReportRenderer {
    * @param {!Element} el
    */
   static async linkifyNodeDetails(el) {
-    const mainTarget = SDK.targetManager.mainTarget();
+    const mainTarget = self.SDK.targetManager.mainTarget();
     const domModel = mainTarget.model(SDK.DOMModel);
 
     for (const origElement of el.getElementsByClassName('lh-node')) {
@@ -91,7 +91,7 @@ export class AuditsReportRenderer extends ReportRenderer {
    * @param {!Element} el
    */
   static handleDarkMode(el) {
-    if (UI.themeSupport.themeName() === 'dark') {
+    if (self.UI.themeSupport.themeName() === 'dark') {
       el.classList.add('dark');
     }
   }
@@ -145,7 +145,7 @@ export class AuditsReportUIFeatures extends ReportUIFeatures {
     const ext = blob.type.match('json') ? '.json' : '.html';
     const basename = `${sanitizedDomain}-${timestamp}${ext}`;
     const text = await blob.text();
-    Workspace.fileManager.save(basename, text, true /* forceSaveAs */);
+    self.Workspace.fileManager.save(basename, text, true /* forceSaveAs */);
   }
 
   async _print() {
@@ -157,7 +157,7 @@ export class AuditsReportUIFeatures extends ReportUIFeatures {
     printWindow.document.head.appendChild(style);
     printWindow.document.body.replaceWith(clonedReport);
     // Linkified nodes are shadow elements, which aren't exposed via `cloneNode`.
-    await Audits.ReportRenderer.linkifyNodeDetails(clonedReport);
+    await AuditsReportRenderer.linkifyNodeDetails(clonedReport);
 
     if (this._beforePrint) {
       this._beforePrint();
@@ -185,20 +185,3 @@ export class AuditsReportUIFeatures extends ReportUIFeatures {
     this._resetUIState();
   }
 }
-
-
-/* Legacy exported object */
-self.Audits = self.Audits || {};
-
-/* Legacy exported object */
-Audits = Audits || {};
-
-/**
- * @constructor
- */
-Audits.ReportRenderer = AuditsReportRenderer;
-
-/**
- * @constructor
- */
-Audits.ReportUIFeatures = AuditsReportUIFeatures;

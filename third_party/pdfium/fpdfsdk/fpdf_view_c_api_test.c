@@ -49,6 +49,9 @@ int CheckPDFiumCApi() {
     CHK(FPDFAnnot_GetFontSize);
     CHK(FPDFAnnot_GetFormFieldAtPoint);
     CHK(FPDFAnnot_GetFormFieldFlags);
+    CHK(FPDFAnnot_GetFormFieldName);
+    CHK(FPDFAnnot_GetFormFieldType);
+    CHK(FPDFAnnot_GetFormFieldValue);
     CHK(FPDFAnnot_GetLinkedAnnot);
     CHK(FPDFAnnot_GetNumberValue);
     CHK(FPDFAnnot_GetObject);
@@ -211,6 +214,7 @@ int CheckPDFiumCApi() {
     CHK(FPDFTextObj_GetMatrix);
     CHK(FPDFTextObj_GetText);
     CHK(FPDFTextObj_GetTextRenderMode);
+    CHK(FPDFTextObj_SetTextRenderMode);
     CHK(FPDFText_LoadFont);
     CHK(FPDFText_LoadStandardFont);
     CHK(FPDFText_SetText);
@@ -337,6 +341,7 @@ int CheckPDFiumCApi() {
     CHK(FPDFText_GetFontSize);
     CHK(FPDFText_GetFontWeight);
     CHK(FPDFText_GetLooseCharBox);
+    CHK(FPDFText_GetMatrix);
     CHK(FPDFText_GetRect);
     CHK(FPDFText_GetSchCount);
     CHK(FPDFText_GetSchResultIndex);
@@ -401,8 +406,11 @@ int CheckPDFiumCApi() {
     CHK(FPDF_GetPageBoundingBox);
     CHK(FPDF_GetPageCount);
     CHK(FPDF_GetPageHeight);
+    CHK(FPDF_GetPageHeightF);
     CHK(FPDF_GetPageSizeByIndex);
+    CHK(FPDF_GetPageSizeByIndexF);
     CHK(FPDF_GetPageWidth);
+    CHK(FPDF_GetPageWidthF);
 #ifdef PDF_ENABLE_V8
     CHK(FPDF_GetRecommendedV8Flags);
 #endif

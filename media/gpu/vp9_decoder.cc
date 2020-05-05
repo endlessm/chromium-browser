@@ -186,12 +186,12 @@ VP9Decoder::DecodeResult VP9Decoder::Decode() {
     gfx::Size new_pic_size = curr_frame_size_;
     gfx::Rect new_render_rect(curr_frame_hdr_->render_width,
                               curr_frame_hdr_->render_height);
-    // For safety, check the validity of render size or leave it as (0, 0).
+    // For safety, check the validity of render size or leave it as pic size.
     if (!gfx::Rect(new_pic_size).Contains(new_render_rect)) {
       DVLOG(1) << "Render size exceeds picture size. render size: "
                << new_render_rect.ToString()
                << ", picture size: " << new_pic_size.ToString();
-      new_render_rect = gfx::Rect();
+      new_render_rect = gfx::Rect(new_pic_size);
     }
     VideoCodecProfile new_profile =
         VP9ProfileToVideoCodecProfile(curr_frame_hdr_->profile);
@@ -253,7 +253,7 @@ VP9Decoder::DecodeResult VP9Decoder::Decode() {
     }
     pic->frame_hdr = std::move(curr_frame_hdr_);
 
-    if (!DecodeAndOutputPicture(pic)) {
+    if (!DecodeAndOutputPicture(std::move(pic))) {
       SetError();
       return kDecodeError;
     }
@@ -279,17 +279,19 @@ bool VP9Decoder::DecodeAndOutputPicture(scoped_refptr<VP9Picture> pic) {
   DCHECK(!pic_size_.IsEmpty());
   DCHECK(pic->frame_hdr);
 
-  base::Closure done_cb;
+  base::OnceClosure done_cb;
   const auto& context_refresh_cb =
       parser_.GetContextRefreshCb(pic->frame_hdr->frame_context_idx);
   if (context_refresh_cb)
-    done_cb = base::Bind(&VP9Decoder::UpdateFrameContext,
-                         base::Unretained(this), pic, context_refresh_cb);
+    done_cb = base::BindOnce(&VP9Decoder::UpdateFrameContext,
+                             base::Unretained(this), pic, context_refresh_cb);
 
   const Vp9Parser::Context& context = parser_.context();
   if (!accelerator_->SubmitDecode(pic, context.segmentation(),
-                                  context.loop_filter(), ref_frames_, done_cb))
+                                  context.loop_filter(), ref_frames_,
+                                  std::move(done_cb))) {
     return false;
+  }
 
   if (pic->frame_hdr->show_frame) {
     if (!accelerator_->OutputPicture(pic))

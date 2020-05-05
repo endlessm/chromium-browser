@@ -14,6 +14,7 @@
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
+#include "core/fpdfapi/parser/cpdf_boolean.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
@@ -215,6 +216,57 @@ void UpdateBBox(CPDF_Dictionary* annot_dict) {
 CPDF_Dictionary* GetAnnotDictFromFPDFAnnotation(FPDF_ANNOTATION annot) {
   CPDF_AnnotContext* context = CPDFAnnotContextFromFPDFAnnotation(annot);
   return context ? context->GetAnnotDict() : nullptr;
+}
+
+RetainPtr<CPDF_Dictionary> SetExtGStateInResourceDict(
+    CPDF_Document* pDoc,
+    const CPDF_Dictionary* pAnnotDict,
+    const ByteString& sBlendMode) {
+  auto pGSDict =
+      pdfium::MakeRetain<CPDF_Dictionary>(pAnnotDict->GetByteStringPool());
+
+  // ExtGState represents a graphics state parameter dictionary.
+  pGSDict->SetNewFor<CPDF_Name>("Type", "ExtGState");
+
+  // CA respresents current stroking alpha specifying constant opacity
+  // value that should be used in transparent imaging model.
+  float fOpacity = pAnnotDict->GetNumberFor("CA");
+
+  pGSDict->SetNewFor<CPDF_Number>("CA", fOpacity);
+
+  // ca represents fill color alpha specifying constant opacity
+  // value that should be used in transparent imaging model.
+  pGSDict->SetNewFor<CPDF_Number>("ca", fOpacity);
+
+  // AIS represents alpha source flag specifying whether current alpha
+  // constant shall be interpreted as shape value (true) or opacity value
+  // (false).
+  pGSDict->SetNewFor<CPDF_Boolean>("AIS", false);
+
+  // BM represents Blend Mode
+  pGSDict->SetNewFor<CPDF_Name>("BM", sBlendMode);
+
+  auto pExtGStateDict =
+      pdfium::MakeRetain<CPDF_Dictionary>(pAnnotDict->GetByteStringPool());
+
+  pExtGStateDict->SetFor("GS", pGSDict);
+
+  auto pResourceDict = pDoc->New<CPDF_Dictionary>();
+  pResourceDict->SetFor("ExtGState", pExtGStateDict);
+  return pResourceDict;
+}
+
+CPDF_FormField* GetFormField(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot) {
+  CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
+  if (!pAnnotDict)
+    return nullptr;
+
+  CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
+  if (!pForm)
+    return nullptr;
+
+  CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
+  return pPDFForm->GetFieldByDict(pAnnotDict);
 }
 
 }  // namespace
@@ -656,7 +708,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetRect(FPDF_ANNOTATION annot,
   if (!pAnnotDict || !rect)
     return false;
 
-  CFX_FloatRect newRect = CFXFloatRectFromFSRECTF(*rect);
+  CFX_FloatRect newRect = CFXFloatRectFromFSRectF(*rect);
 
   // Update the "Rect" entry in the annotation dictionary.
   pAnnotDict->SetRectFor(pdfium::annotation::kRect, newRect);
@@ -682,7 +734,7 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_GetRect(FPDF_ANNOTATION annot,
   if (!pAnnotDict || !rect)
     return false;
 
-  *rect = FSRECTFFromCFXFloatRect(
+  *rect = FSRectFFromCFXFloatRect(
       pAnnotDict->GetRectFor(pdfium::annotation::kRect));
   return true;
 }
@@ -794,6 +846,15 @@ FPDFAnnot_SetAP(FPDF_ANNOTATION annot,
     pStreamDict->SetNewFor<CPDF_Name>(pdfium::annotation::kType, "XObject");
     pStreamDict->SetNewFor<CPDF_Name>(pdfium::annotation::kSubtype, "Form");
     pStreamDict->SetRectFor("BBox", rect);
+    // Transparency values are specified in range [0.0f, 1.0f]. We are strictly
+    // checking for value < 1 and not <= 1 so that the output PDF size does not
+    // unnecessarily bloat up by creating a new dictionary in case of solid
+    // color.
+    if (pAnnotDict->KeyExist("CA") && pAnnotDict->GetNumberFor("CA") < 1.0f) {
+      RetainPtr<CPDF_Dictionary> pResourceDict =
+          SetExtGStateInResourceDict(pDoc, pAnnotDict, "Normal");
+      pStreamDict->SetFor("Resources", pResourceDict);
+    }
 
     // Storing reference to indirect object in annotation's AP
     if (!pApDict)
@@ -868,24 +929,17 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetFlags(FPDF_ANNOTATION annot,
 
 FPDF_EXPORT int FPDF_CALLCONV
 FPDFAnnot_GetFormFieldFlags(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot) {
-  CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
-  if (!pForm)
-    return FPDF_FORMFLAG_NONE;
-
-  CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
-  if (!pAnnotDict)
-    return FPDF_FORMFLAG_NONE;
-
-  CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
-  CPDF_FormField* pFormField = pPDFForm->GetFieldByDict(pAnnotDict);
+  CPDF_FormField* pFormField = GetFormField(hHandle, annot);
   return pFormField ? pFormField->GetFieldFlags() : FPDF_FORMFLAG_NONE;
 }
 
 FPDF_EXPORT FPDF_ANNOTATION FPDF_CALLCONV
 FPDFAnnot_GetFormFieldAtPoint(FPDF_FORMHANDLE hHandle,
                               FPDF_PAGE page,
-                              double page_x,
-                              double page_y) {
+                              const FS_POINTF* point) {
+  if (!point)
+    return nullptr;
+
   CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
   if (!pForm)
     return nullptr;
@@ -897,25 +951,45 @@ FPDFAnnot_GetFormFieldAtPoint(FPDF_FORMHANDLE hHandle,
   CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
   int annot_index = -1;
   CPDF_FormControl* pFormCtrl = pPDFForm->GetControlAtPoint(
-      pPage, CFX_PointF(static_cast<float>(page_x), static_cast<float>(page_y)),
-      &annot_index);
+      pPage, CFXPointFFromFSPointF(*point), &annot_index);
   if (!pFormCtrl || annot_index == -1)
     return nullptr;
   return FPDFPage_GetAnnot(page, annot_index);
 }
 
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFAnnot_GetFormFieldName(FPDF_FORMHANDLE hHandle,
+                           FPDF_ANNOTATION annot,
+                           FPDF_WCHAR* buffer,
+                           unsigned long buflen) {
+  CPDF_FormField* pFormField = GetFormField(hHandle, annot);
+  if (!pFormField)
+    return 0;
+  return Utf16EncodeMaybeCopyAndReturnLength(pFormField->GetFullName(), buffer,
+                                             buflen);
+}
+
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFAnnot_GetFormFieldType(FPDF_FORMHANDLE hHandle, FPDF_ANNOTATION annot) {
+  CPDF_FormField* pFormField = GetFormField(hHandle, annot);
+  return pFormField ? static_cast<int>(pFormField->GetFieldType()) : -1;
+}
+
+FPDF_EXPORT unsigned long FPDF_CALLCONV
+FPDFAnnot_GetFormFieldValue(FPDF_FORMHANDLE hHandle,
+                            FPDF_ANNOTATION annot,
+                            FPDF_WCHAR* buffer,
+                            unsigned long buflen) {
+  CPDF_FormField* pFormField = GetFormField(hHandle, annot);
+  if (!pFormField)
+    return 0;
+  return Utf16EncodeMaybeCopyAndReturnLength(pFormField->GetValue(), buffer,
+                                             buflen);
+}
+
 FPDF_EXPORT int FPDF_CALLCONV FPDFAnnot_GetOptionCount(FPDF_FORMHANDLE hHandle,
                                                        FPDF_ANNOTATION annot) {
-  CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
-  if (!pForm)
-    return -1;
-
-  CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
-  if (!pAnnotDict)
-    return -1;
-
-  CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
-  CPDF_FormField* pFormField = pPDFForm->GetFieldByDict(pAnnotDict);
+  CPDF_FormField* pFormField = GetFormField(hHandle, annot);
   return pFormField ? pFormField->CountOptions() : -1;
 }
 
@@ -925,16 +999,10 @@ FPDFAnnot_GetOptionLabel(FPDF_FORMHANDLE hHandle,
                          int index,
                          FPDF_WCHAR* buffer,
                          unsigned long buflen) {
-  CPDFSDK_InteractiveForm* pForm = FormHandleToInteractiveForm(hHandle);
-  if (!pForm)
+  if (index < 0)
     return 0;
 
-  CPDF_Dictionary* pAnnotDict = GetAnnotDictFromFPDFAnnotation(annot);
-  if (!pAnnotDict || index < 0)
-    return 0;
-
-  CPDF_InteractiveForm* pPDFForm = pForm->GetInteractiveForm();
-  CPDF_FormField* pFormField = pPDFForm->GetFieldByDict(pAnnotDict);
+  CPDF_FormField* pFormField = GetFormField(hHandle, annot);
   if (!pFormField || index >= pFormField->CountOptions())
     return 0;
 

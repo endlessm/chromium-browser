@@ -1,15 +1,17 @@
-/*
- * Copyright 2014 The Chromium Authors. All rights reserved.
- * Use of this source code is governed by a BSD-style license that can be
- * found in the LICENSE file.
- */
+// Copyright 2014 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+import * as ProtocolModule from '../protocol/protocol.js';
+
+import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
 /**
  * @unrestricted
  */
-export default class TracingManager extends SDK.SDKModel {
+export class TracingManager extends SDKModel {
   /**
-   * @param {!SDK.Target} target
+   * @param {!Target} target
    */
   constructor(target) {
     super(target);
@@ -76,7 +78,7 @@ export default class TracingManager extends SDK.SDKModel {
       transferMode: TransferMode.ReportEvents
     };
     const response = await this._tracingAgent.invoke_start(args);
-    if (response[Protocol.Error]) {
+    if (response[ProtocolModule.InspectorBackend.ProtocolError]) {
       this._activeClient = null;
     }
     return response;
@@ -161,17 +163,7 @@ class TracingDispatcher {
   }
 }
 
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.TracingManager = TracingManager;
-
-/** @interface */
-SDK.TracingManagerClient = TracingManagerClient;
+SDKModel.register(TracingManager, Capability.Tracing, false);
 
 /** @typedef {!{
         cat: (string|undefined),
@@ -189,6 +181,4 @@ SDK.TracingManagerClient = TracingManagerClient;
         s: string
     }}
  */
-SDK.TracingManager.EventPayload;
-
-SDK.SDKModel.register(SDK.TracingManager, SDK.Target.Capability.Tracing, false);
+export let EventPayload;

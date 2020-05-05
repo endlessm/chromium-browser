@@ -5,19 +5,21 @@
  * modification, are permitted provided that the following conditions are
  * met:
  *
- * 1. Redistributions of source code must retain the above copyright
+ *     * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above
+ *     * Redistributions in binary form must reproduce the above
  * copyright notice, this list of conditions and the following disclaimer
  * in the documentation and/or other materials provided with the
  * distribution.
+ *     * Neither the name of Google Inc. nor the names of its
+ * contributors may be used to endorse or promote products derived from
+ * this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY GOOGLE INC. AND ITS CONTRIBUTORS
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL GOOGLE INC.
- * OR ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
@@ -25,31 +27,34 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import {UISourceCodeFrame} from './UISourceCodeFrame.js';
+
 /**
  * @interface
  */
-Sources.TabbedEditorContainerDelegate = function() {};
-
-Sources.TabbedEditorContainerDelegate.prototype = {
+export class TabbedEditorContainerDelegate {
   /**
    * @param {!Workspace.UISourceCode} uiSourceCode
    * @return {!UI.Widget}
    */
-  viewForFile(uiSourceCode) {},
+  viewForFile(uiSourceCode) {
+  }
 
   /**
-  * @param {!Sources.UISourceCodeFrame} sourceFrame
+  * @param {!UISourceCodeFrame} sourceFrame
   * @param {!Workspace.UISourceCode} uiSourceCode
   */
-  recycleUISourceCodeFrame(sourceFrame, uiSourceCode) {},
-};
+  recycleUISourceCodeFrame(sourceFrame, uiSourceCode) {
+  }
+}
 
 /**
  * @unrestricted
  */
-Sources.TabbedEditorContainer = class extends Common.Object {
+export class TabbedEditorContainer extends Common.Object {
   /**
-   * @param {!Sources.TabbedEditorContainerDelegate} delegate
+   * @param {!TabbedEditorContainerDelegate} delegate
    * @param {!Common.Setting} setting
    * @param {!Element} placeholderElement
    * @param {!Element=} focusedPlaceholderElement
@@ -60,7 +65,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
 
     this._tabbedPane = new UI.TabbedPane();
     this._tabbedPane.setPlaceholderElement(placeholderElement, focusedPlaceholderElement);
-    this._tabbedPane.setTabDelegate(new Sources.EditorContainerTabDelegate(this));
+    this._tabbedPane.setTabDelegate(new EditorContainerTabDelegate(this));
 
     this._tabbedPane.setCloseableTabs(true);
     this._tabbedPane.setAllowTabReorder(true, true);
@@ -68,16 +73,17 @@ Sources.TabbedEditorContainer = class extends Common.Object {
     this._tabbedPane.addEventListener(UI.TabbedPane.Events.TabClosed, this._tabClosed, this);
     this._tabbedPane.addEventListener(UI.TabbedPane.Events.TabSelected, this._tabSelected, this);
 
-    Persistence.persistence.addEventListener(
+    self.Persistence.persistence.addEventListener(
         Persistence.Persistence.Events.BindingCreated, this._onBindingCreated, this);
-    Persistence.persistence.addEventListener(
+    self.Persistence.persistence.addEventListener(
         Persistence.Persistence.Events.BindingRemoved, this._onBindingRemoved, this);
 
     this._tabIds = new Map();
     this._files = {};
 
     this._previouslyViewedFilesSetting = setting;
-    this._history = Sources.TabbedEditorContainer.History.fromObject(this._previouslyViewedFilesSetting.get());
+    this._history = History.fromObject(this._previouslyViewedFilesSetting.get());
+    this._historyUriToUISourceCode = new Map();
   }
 
   /**
@@ -102,7 +108,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
     if (!fileSystemTabId) {
       const networkView = this._tabbedPane.tabView(networkTabId);
       const tabIndex = this._tabbedPane.tabIndex(networkTabId);
-      if (networkView instanceof Sources.UISourceCodeFrame) {
+      if (networkView instanceof UISourceCodeFrame) {
         this._delegate.recycleUISourceCodeFrame(networkView, binding.fileSystem);
         fileSystemTabId = this._appendFileTab(binding.fileSystem, false, tabIndex, networkView);
       } else {
@@ -196,17 +202,10 @@ Sources.TabbedEditorContainer = class extends Common.Object {
    * @return {!Array.<!Workspace.UISourceCode>}
    */
   historyUISourceCodes() {
-    // FIXME: there should be a way to fetch UISourceCode for its uri.
-    const uriToUISourceCode = {};
-    for (const id in this._files) {
-      const uiSourceCode = this._files[id];
-      uriToUISourceCode[uiSourceCode.url()] = uiSourceCode;
-    }
-
     const result = [];
     const uris = this._history._urls();
-    for (let i = 0; i < uris.length; ++i) {
-      const uiSourceCode = uriToUISourceCode[uris[i]];
+    for (const uri of uris) {
+      const uiSourceCode = this._historyUriToUISourceCode.get(uri);
       if (uiSourceCode) {
         result.push(uiSourceCode);
       }
@@ -246,7 +245,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
     this._history.updateScrollLineNumber(this._currentFile.url(), lineNumber);
 
     /**
-     * @this {Sources.TabbedEditorContainer}
+     * @this {TabbedEditorContainer}
      */
     function saveHistory() {
       this._history.save(this._previouslyViewedFilesSetting);
@@ -261,7 +260,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
     this._history.updateSelectionRange(this._currentFile.url(), range);
     this._history.save(this._previouslyViewedFilesSetting);
 
-    Extensions.extensionServer.sourceSelectionChanged(this._currentFile.url(), range);
+    self.Extensions.extensionServer.sourceSelectionChanged(this._currentFile.url(), range);
   }
 
   /**
@@ -269,7 +268,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
    * @param {boolean=} userGesture
    */
   _innerShowFile(uiSourceCode, userGesture) {
-    const binding = Persistence.persistence.binding(uiSourceCode);
+    const binding = self.Persistence.persistence.binding(uiSourceCode);
     uiSourceCode = binding ? binding.fileSystem : uiSourceCode;
     if (this._currentFile === uiSourceCode) {
       return;
@@ -295,7 +294,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
       previousView: previousView,
       userGesture: userGesture
     };
-    this.dispatchEventToListeners(Sources.TabbedEditorContainer.Events.EditorSelected, eventData);
+    this.dispatchEventToListeners(Events.EditorSelected, eventData);
   }
 
   /**
@@ -374,7 +373,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
    * @param {!Workspace.UISourceCode} uiSourceCode
    */
   addUISourceCode(uiSourceCode) {
-    const binding = Persistence.persistence.binding(uiSourceCode);
+    const binding = self.Persistence.persistence.binding(uiSourceCode);
     uiSourceCode = binding ? binding.fileSystem : uiSourceCode;
     if (this._currentFile === uiSourceCode) {
       return;
@@ -385,6 +384,12 @@ Sources.TabbedEditorContainer = class extends Common.Object {
     if (index === -1) {
       return;
     }
+
+    // Check if we have already opened a tab for this uri....
+    if (this._historyUriToUISourceCode.has(uiSourceCode.url())) {
+      return;
+    }
+    this._historyUriToUISourceCode.set(uiSourceCode.url(), uiSourceCode);
 
     if (!this._tabIds.has(uiSourceCode)) {
       this._appendFileTab(uiSourceCode, false);
@@ -419,11 +424,13 @@ Sources.TabbedEditorContainer = class extends Common.Object {
    */
   removeUISourceCodes(uiSourceCodes) {
     const tabIds = [];
-    for (let i = 0; i < uiSourceCodes.length; ++i) {
-      const uiSourceCode = uiSourceCodes[i];
+    for (const uiSourceCode of uiSourceCodes) {
       const tabId = this._tabIds.get(uiSourceCode);
       if (tabId) {
         tabIds.push(tabId);
+      }
+      if (this._historyUriToUISourceCode.get(uiSourceCode.url()) === uiSourceCode) {
+        this._historyUriToUISourceCode.delete(uiSourceCode.url());
       }
     }
     this._tabbedPane.closeTabs(tabIds);
@@ -442,11 +449,11 @@ Sources.TabbedEditorContainer = class extends Common.Object {
   }
 
   _updateHistory() {
-    const tabIds = this._tabbedPane.lastOpenedTabIds(Sources.TabbedEditorContainer.maximalPreviouslyViewedFilesCount);
+    const tabIds = this._tabbedPane.lastOpenedTabIds(maximalPreviouslyViewedFilesCount);
 
     /**
      * @param {string} tabId
-     * @this {Sources.TabbedEditorContainer}
+     * @this {TabbedEditorContainer}
      */
     function tabIdToURI(tabId) {
       return this._files[tabId].url();
@@ -461,7 +468,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
    * @return {string}
    */
   _tooltipForFile(uiSourceCode) {
-    uiSourceCode = Persistence.persistence.network(uiSourceCode) || uiSourceCode;
+    uiSourceCode = self.Persistence.persistence.network(uiSourceCode) || uiSourceCode;
     return uiSourceCode.url();
   }
 
@@ -551,7 +558,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
 
     this._removeUISourceCodeListeners(uiSourceCode);
 
-    this.dispatchEventToListeners(Sources.TabbedEditorContainer.Events.EditorClosed, uiSourceCode);
+    this.dispatchEventToListeners(Events.EditorClosed, uiSourceCode);
 
     if (userGesture) {
       this._editorClosedByUserAction(uiSourceCode);
@@ -604,7 +611,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
       if (uiSourceCode.loadError()) {
         icon = UI.Icon.create('smallicon-error');
         icon.title = ls`Unable to load this content.`;
-      } else if (Persistence.persistence.hasUnsavedCommittedChanges(uiSourceCode)) {
+      } else if (self.Persistence.persistence.hasUnsavedCommittedChanges(uiSourceCode)) {
         icon = UI.Icon.create('smallicon-warning');
         icon.title = Common.UIString('Changes to this file were not saved to file system.');
       } else {
@@ -643,7 +650,7 @@ Sources.TabbedEditorContainer = class extends Common.Object {
    * @return {string}
    */
   _generateTabId() {
-    return 'tab_' + (Sources.TabbedEditorContainer._tabId++);
+    return 'tab_' + (tabId++);
   }
 
   /**
@@ -652,22 +659,21 @@ Sources.TabbedEditorContainer = class extends Common.Object {
   currentFile() {
     return this._currentFile || null;
   }
-};
+}
 
 /** @enum {symbol} */
-Sources.TabbedEditorContainer.Events = {
+export const Events = {
   EditorSelected: Symbol('EditorSelected'),
   EditorClosed: Symbol('EditorClosed')
 };
 
-Sources.TabbedEditorContainer._tabId = 0;
-
-Sources.TabbedEditorContainer.maximalPreviouslyViewedFilesCount = 30;
+export let tabId = 0;
+export const maximalPreviouslyViewedFilesCount = 30;
 
 /**
  * @unrestricted
  */
-Sources.TabbedEditorContainer.HistoryItem = class {
+export class HistoryItem {
   /**
    * @param {string} url
    * @param {!TextUtils.TextRange=} selectionRange
@@ -675,22 +681,20 @@ Sources.TabbedEditorContainer.HistoryItem = class {
    */
   constructor(url, selectionRange, scrollLineNumber) {
     /** @const */ this.url = url;
-    /** @const */ this._isSerializable =
-        url.length < Sources.TabbedEditorContainer.HistoryItem.serializableUrlLengthLimit;
+    /** @const */ this._isSerializable = url.length < HistoryItem.serializableUrlLengthLimit;
     this.selectionRange = selectionRange;
     this.scrollLineNumber = scrollLineNumber;
   }
 
   /**
    * @param {!Object} serializedHistoryItem
-   * @return {!Sources.TabbedEditorContainer.HistoryItem}
+   * @return {!HistoryItem}
    */
   static fromObject(serializedHistoryItem) {
     const selectionRange = serializedHistoryItem.selectionRange ?
         TextUtils.TextRange.fromObject(serializedHistoryItem.selectionRange) :
         undefined;
-    return new Sources.TabbedEditorContainer.HistoryItem(
-        serializedHistoryItem.url, selectionRange, serializedHistoryItem.scrollLineNumber);
+    return new HistoryItem(serializedHistoryItem.url, selectionRange, serializedHistoryItem.scrollLineNumber);
   }
 
   /**
@@ -706,17 +710,16 @@ Sources.TabbedEditorContainer.HistoryItem = class {
     serializedHistoryItem.scrollLineNumber = this.scrollLineNumber;
     return serializedHistoryItem;
   }
-};
+}
 
-Sources.TabbedEditorContainer.HistoryItem.serializableUrlLengthLimit = 4096;
-
+HistoryItem.serializableUrlLengthLimit = 4096;
 
 /**
  * @unrestricted
  */
-Sources.TabbedEditorContainer.History = class {
+export class History {
   /**
-   * @param {!Array.<!Sources.TabbedEditorContainer.HistoryItem>} items
+   * @param {!Array.<!HistoryItem>} items
    */
   constructor(items) {
     this._items = items;
@@ -725,14 +728,14 @@ Sources.TabbedEditorContainer.History = class {
 
   /**
    * @param {!Array.<!Object>} serializedHistory
-   * @return {!Sources.TabbedEditorContainer.History}
+   * @return {!History}
    */
   static fromObject(serializedHistory) {
     const items = [];
     for (let i = 0; i < serializedHistory.length; ++i) {
-      items.push(Sources.TabbedEditorContainer.HistoryItem.fromObject(serializedHistory[i]));
+      items.push(HistoryItem.fromObject(serializedHistory[i]));
     }
-    return new Sources.TabbedEditorContainer.History(items);
+    return new History(items);
   }
 
   /**
@@ -808,7 +811,7 @@ Sources.TabbedEditorContainer.History = class {
         item = this._items[index];
         this._items.splice(index, 1);
       } else {
-        item = new Sources.TabbedEditorContainer.HistoryItem(urls[i]);
+        item = new HistoryItem(urls[i]);
       }
       this._items.unshift(item);
       this._rebuildItemIndex();
@@ -843,7 +846,7 @@ Sources.TabbedEditorContainer.History = class {
       if (serializedItem) {
         serializedHistory.push(serializedItem);
       }
-      if (serializedHistory.length === Sources.TabbedEditorContainer.maximalPreviouslyViewedFilesCount) {
+      if (serializedHistory.length === maximalPreviouslyViewedFilesCount) {
         break;
       }
     }
@@ -860,16 +863,16 @@ Sources.TabbedEditorContainer.History = class {
     }
     return result;
   }
-};
+}
 
 
 /**
  * @implements {UI.TabbedPaneTabDelegate}
  * @unrestricted
  */
-Sources.EditorContainerTabDelegate = class {
+export class EditorContainerTabDelegate {
   /**
-   * @param {!Sources.TabbedEditorContainer} editorContainer
+   * @param {!TabbedEditorContainer} editorContainer
    */
   constructor(editorContainer) {
     this._editorContainer = editorContainer;
@@ -892,4 +895,4 @@ Sources.EditorContainerTabDelegate = class {
   onContextMenu(tabId, contextMenu) {
     this._editorContainer._onContextMenu(tabId, contextMenu);
   }
-};
+}

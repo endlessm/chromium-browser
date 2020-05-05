@@ -1,13 +1,20 @@
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';
+
+import {CSSModel} from './CSSModel.js';  // eslint-disable-line no-unused-vars
+import {DeferredDOMNode} from './DOMModel.js';
+import {ResourceTreeModel} from './ResourceTreeModel.js';
+
 /**
- * @implements {Common.ContentProvider}
+ * @implements {Common.ContentProvider.ContentProvider}
  * @unrestricted
  */
-export default class CSSStyleSheetHeader {
+export class CSSStyleSheetHeader {
   /**
-   * @param {!SDK.CSSModel} cssModel
+   * @param {!CSSModel} cssModel
    * @param {!Protocol.CSS.CSSStyleSheetHeader} payload
    */
   constructor(cssModel, payload) {
@@ -26,13 +33,13 @@ export default class CSSStyleSheetHeader {
     this.endColumn = payload.endColumn;
     this.contentLength = payload.length;
     if (payload.ownerNode) {
-      this.ownerNode = new SDK.DeferredDOMNode(cssModel.target(), payload.ownerNode);
+      this.ownerNode = new DeferredDOMNode(cssModel.target(), payload.ownerNode);
     }
     this.setSourceMapURL(payload.sourceMapURL);
   }
 
   /**
-   * @return {!Common.ContentProvider}
+   * @return {!Common.ContentProvider.ContentProvider}
    */
   originalContentProvider() {
     if (!this._originalContentProvider) {
@@ -45,7 +52,7 @@ export default class CSSStyleSheetHeader {
         return {content: originalText, isEncoded: false};
       });
       this._originalContentProvider =
-          new Common.StaticContentProvider(this.contentURL(), this.contentType(), lazyContent);
+          new Common.StaticContentProvider.StaticContentProvider(this.contentURL(), this.contentType(), lazyContent);
     }
     return this._originalContentProvider;
   }
@@ -58,7 +65,7 @@ export default class CSSStyleSheetHeader {
   }
 
   /**
-   * @return {!SDK.CSSModel}
+   * @return {!CSSModel}
    */
   cssModel() {
     return this._cssModel;
@@ -82,9 +89,9 @@ export default class CSSStyleSheetHeader {
    * @return {string}
    */
   _viaInspectorResourceURL() {
-    const frame = this._cssModel.target().model(SDK.ResourceTreeModel).frameForId(this.frameId);
+    const frame = this._cssModel.target().model(ResourceTreeModel).frameForId(this.frameId);
     console.assert(frame);
-    const parsedURL = new Common.ParsedURL(frame.url);
+    const parsedURL = new Common.ParsedURL.ParsedURL(frame.url);
     let fakeURL = 'inspector://' + parsedURL.host + parsedURL.folderPathComponents;
     if (!fakeURL.endsWith('/')) {
       fakeURL += '/';
@@ -134,10 +141,10 @@ export default class CSSStyleSheetHeader {
 
   /**
    * @override
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   contentType() {
-    return Common.resourceTypes.Stylesheet;
+    return Common.ResourceType.resourceTypes.Stylesheet;
   }
 
   /**
@@ -183,12 +190,3 @@ export default class CSSStyleSheetHeader {
     return this.origin === 'inspector';
   }
 }
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @constructor */
-SDK.CSSStyleSheetHeader = CSSStyleSheetHeader;

@@ -177,6 +177,22 @@ bool isFloat16Int8FeaturesSupported (const Context& context, ExtensionFloat16Int
 	return true;
 }
 
+bool isVulkanMemoryModelFeaturesSupported (const Context& context, ExtensionVulkanMemoryModelFeatures toCheck)
+{
+	const VkPhysicalDeviceVulkanMemoryModelFeaturesKHR& extensionFeatures = context.getVulkanMemoryModelFeatures();
+
+	if ((toCheck & EXTVULKANMEMORYMODELFEATURES_ENABLE) != 0 && extensionFeatures.vulkanMemoryModel == VK_FALSE)
+		return false;
+
+	if ((toCheck & EXTVULKANMEMORYMODELFEATURES_DEVICESCOPE) != 0 && extensionFeatures.vulkanMemoryModelDeviceScope == VK_FALSE)
+		return false;
+
+	if ((toCheck & EXTVULKANMEMORYMODELFEATURES_AVAILABILITYVISIBILITYCHAINS) != 0 && extensionFeatures.vulkanMemoryModelAvailabilityVisibilityChains == VK_FALSE)
+		return false;
+
+	return true;
+}
+
 bool isFloatControlsFeaturesSupported (const Context& context, const ExtensionFloatControlsFeatures& toCheck)
 {
 	// if all flags are set to false then no float control features are actualy requested by the test
@@ -198,8 +214,7 @@ bool isFloatControlsFeaturesSupported (const Context& context, const ExtensionFl
 		return true;
 
 	// return false when float control features are requested and proper extension is not supported
-	const std::vector<std::string>& deviceExtensions = context.getDeviceExtensions();
-	if (!isDeviceExtensionSupported(context.getUsedApiVersion(), deviceExtensions, "VK_KHR_shader_float_controls"))
+	if (!context.isDeviceFunctionalitySupported("VK_KHR_shader_float_controls"))
 		return false;
 
 	// perform query to get supported float control properties

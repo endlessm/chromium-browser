@@ -28,10 +28,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+
+import {CompilerSourceMappingContentProvider} from './CompilerSourceMappingContentProvider.js';
+
 /**
  * @interface
  */
-export default class SourceMap {
+export class SourceMap {
   /**
    * @return {string}
    */
@@ -52,8 +56,8 @@ export default class SourceMap {
 
   /**
    * @param {string} sourceURL
-   * @param {!Common.ResourceType} contentType
-   * @return {!Common.ContentProvider}
+   * @param {!Common.ResourceType.ResourceType} contentType
+   * @return {!Common.ContentProvider.ContentProvider}
    */
   sourceContentProvider(sourceURL, contentType) {
   }
@@ -210,7 +214,8 @@ export class TextSourceMap {
     if (this._json.sections) {
       const sectionWithURL = !!this._json.sections.find(section => !!section.url);
       if (sectionWithURL) {
-        Common.console.warn(`SourceMap "${sourceMappingURL}" contains unsupported "URL" field in one of its sections.`);
+        self.Common.console.warn(
+            `SourceMap "${sourceMappingURL}" contains unsupported "URL" field in one of its sections.`);
       }
     }
     this._eachSection(this._parseSources.bind(this));
@@ -224,9 +229,9 @@ export class TextSourceMap {
    */
   static async load(sourceMapURL, compiledURL) {
     let content = await new Promise((resolve, reject) => {
-      SDK.multitargetNetworkManager.loadResource(sourceMapURL, (statusCode, _headers, content) => {
-        if (!content || statusCode >= 400) {
-          const error = new Error(ls`Could not load content for ${sourceMapURL} : HTTP status code: ${statusCode}`);
+      self.SDK.multitargetNetworkManager.loadResource(sourceMapURL, (success, _headers, content, errorDescription) => {
+        if (!content || !success) {
+          const error = new Error(ls`Could not load content for ${sourceMapURL}: ${errorDescription.message}`);
           reject(error);
         } else {
           resolve(content);
@@ -238,8 +243,12 @@ export class TextSourceMap {
       content = content.substring(content.indexOf('\n'));
     }
 
-    const payload = /** @type {!SourceMapV3} */ (JSON.parse(content));
-    return new TextSourceMap(compiledURL, sourceMapURL, payload);
+    try {
+      const payload = /** @type {!SourceMapV3} */ (JSON.parse(content));
+      return new TextSourceMap(compiledURL, sourceMapURL, payload);
+    } catch (error) {
+      throw new Error(ls`Could not parse content for ${sourceMapURL}: ${error.message}`);
+    }
   }
 
   /**
@@ -269,15 +278,15 @@ export class TextSourceMap {
   /**
    * @override
    * @param {string} sourceURL
-   * @param {!Common.ResourceType} contentType
-   * @return {!Common.ContentProvider}
+   * @param {!Common.ResourceType.ResourceType} contentType
+   * @return {!Common.ContentProvider.ContentProvider}
    */
   sourceContentProvider(sourceURL, contentType) {
     const info = this._sourceInfos.get(sourceURL);
     if (info.content) {
-      return Common.StaticContentProvider.fromString(sourceURL, contentType, info.content);
+      return Common.StaticContentProvider.StaticContentProvider.fromString(sourceURL, contentType, info.content);
     }
-    return new SDK.CompilerSourceMappingContentProvider(sourceURL, contentType);
+    return new CompilerSourceMappingContentProvider(sourceURL, contentType);
   }
 
   /**
@@ -430,10 +439,10 @@ export class TextSourceMap {
     }
     for (let i = 0; i < sourceMap.sources.length; ++i) {
       const href = sourceRoot + sourceMap.sources[i];
-      let url = Common.ParsedURL.completeURL(this._baseURL, href) || href;
+      let url = Common.ParsedURL.ParsedURL.completeURL(this._baseURL, href) || href;
       const source = sourceMap.sourcesContent && sourceMap.sourcesContent[i];
       if (url === this._compiledURL && source) {
-        url += Common.UIString('? [sm]');
+        url += Common.UIString.UIString('? [sm]');
       }
       this._sourceInfos.set(url, new TextSourceMap.SourceInfo(source, null));
       sourcesList.push(url);
@@ -621,7 +630,7 @@ TextSourceMap.SourceInfo = class {
 TextSourceMap._sourcesListSymbol = Symbol('sourcesList');
 
 /**
- * @implements {SDK.SourceMap}
+ * @implements {SourceMap}
  * @unrestricted
  */
 export class WasmSourceMap {
@@ -655,7 +664,7 @@ export class WasmSourceMap {
   static async load(script, wasmUrl) {
     const [Resolver, wasm] = await Promise.all([WasmSourceMap._loadBindingsOnce(), script.getWasmBytecode()]);
 
-    return new SDK.WasmSourceMap(wasmUrl, new Resolver(new Uint8Array(wasm)));
+    return new WasmSourceMap(wasmUrl, new Resolver(new Uint8Array(wasm)));
   }
 
   /**
@@ -685,11 +694,11 @@ export class WasmSourceMap {
   /**
    * @override
    * @param {string} sourceURL
-   * @param {!Common.ResourceType} contentType
-   * @return {!Common.ContentProvider}
+   * @param {!Common.ResourceType.ResourceType} contentType
+   * @return {!Common.ContentProvider.ContentProvider}
    */
   sourceContentProvider(sourceURL, contentType) {
-    return new SDK.CompilerSourceMappingContentProvider(sourceURL, contentType);
+    return new CompilerSourceMappingContentProvider(sourceURL, contentType);
   }
 
   /**
@@ -705,7 +714,7 @@ export class WasmSourceMap {
    * @override
    * @param {number} lineNumber in compiled resource
    * @param {number} columnNumber in compiled resource
-   * @return {?SDK.SourceMapEntry}
+   * @return {?SourceMapEntry}
    */
   findEntry(lineNumber, columnNumber) {
     if (lineNumber !== 0) {
@@ -743,24 +752,3 @@ export class WasmSourceMap {
 
 /* Special URL that should be kept in sync with one in V8 */
 WasmSourceMap.FAKE_URL = 'wasm://dwarf';
-
-/* Legacy exported object */
-self.SDK = self.SDK || {};
-
-/* Legacy exported object */
-SDK = SDK || {};
-
-/** @interface */
-SDK.SourceMap = SourceMap;
-
-/** @constructor */
-SDK.SourceMapEntry = SourceMapEntry;
-
-/** @constructor */
-SDK.TextSourceMap = TextSourceMap;
-
-/** @constructor */
-SDK.WasmSourceMap = WasmSourceMap;
-
-/** @constructor */
-SDK.SourceMap.EditResult = EditResult;

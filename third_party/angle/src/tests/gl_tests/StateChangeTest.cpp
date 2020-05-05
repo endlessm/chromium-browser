@@ -382,6 +382,39 @@ void main (void)
     EXPECT_PIXEL_COLOR_NEAR(w - 1, h - 1, GLColor::black, kPixelTolerance);
 }
 
+// Tests that drawing with transform feedback paused, then lines without transform feedback works
+// without Vulkan validation errors.
+TEST_P(StateChangeTestES3, DrawPausedXfbThenNonXfbLines)
+{
+    // glTransformFeedbackVaryings for program2 returns GL_INVALID_OPERATION on both Linux and
+    // windows.  http://anglebug.com/4265
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsOpenGL());
+
+    std::vector<std::string> tfVaryings = {"gl_Position"};
+    ANGLE_GL_PROGRAM_TRANSFORM_FEEDBACK(program1, essl1_shaders::vs::Simple(),
+                                        essl1_shaders::fs::Blue(), tfVaryings, GL_SEPARATE_ATTRIBS);
+
+    GLBuffer xfbBuffer;
+    glBindBuffer(GL_TRANSFORM_FEEDBACK_BUFFER, xfbBuffer);
+    glBufferData(GL_TRANSFORM_FEEDBACK_BUFFER, 6 * sizeof(float[4]), nullptr, GL_STATIC_DRAW);
+
+    GLTransformFeedback xfb;
+    glBindTransformFeedback(GL_TRANSFORM_FEEDBACK, xfb);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER, 0, xfbBuffer);
+
+    glUseProgram(program1);
+    glBeginTransformFeedback(GL_TRIANGLES);
+    glPauseTransformFeedback();
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    ANGLE_GL_PROGRAM(program2, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+    glUseProgram(program2);
+    glDrawArrays(GL_LINES, 0, 6);
+    glEndTransformFeedback();
+
+    ASSERT_GL_NO_ERROR();
+}
+
 // Tests that vertex attribute value is preserved across context switches.
 TEST_P(StateChangeTest, MultiContextVertexAttribute)
 {
@@ -1470,8 +1503,8 @@ TEST_P(SimpleStateChangeTest, DrawArraysThenDrawElements)
 {
     // http://anglebug.com/4121
     ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux() && IsOpenGLES());
-    // httpL//anglebug.com/4177
-    ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsOSX() && IsMetal());
+    // http://anglebug.com/4177
+    ANGLE_SKIP_TEST_IF(IsOSX() && IsMetal());
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
     glUseProgram(program);
 
@@ -4448,6 +4481,137 @@ TEST_P(SimpleStateChangeTest, FboLateCullFaceBackCCWState)
 TEST_P(SimpleStateChangeTest, FboLateCullFaceBackCWState)
 {
     drawToFboWithCulling(GL_CW, false);
+}
+
+// Test that vertex attribute translation is still kept after binding it to another buffer then
+// binding back to the previous buffer.
+TEST_P(SimpleStateChangeTest, RebindTranslatedAttribute)
+{
+    constexpr char kVS[] = R"(attribute vec4 a_position;
+attribute float a_attrib;
+varying float v_attrib;
+void main()
+{
+    v_attrib = a_attrib;
+    gl_Position = a_position;
+})";
+
+    constexpr char kFS[] = R"(precision mediump float;
+varying float v_attrib;
+void main()
+{
+    gl_FragColor = vec4(v_attrib, 0, 0, 1);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glBindAttribLocation(program, 0, "a_position");
+    glBindAttribLocation(program, 1, "a_attrib");
+    glLinkProgram(program);
+    glUseProgram(program);
+    ASSERT_GL_NO_ERROR();
+
+    // Set up color data so red is drawn
+    std::vector<GLushort> data(1000, 0xffff);
+
+    GLBuffer redBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, redBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLushort) * data.size(), data.data(), GL_STATIC_DRAW);
+    // Use offset not multiple of 4 GLushorts, this could force vertex translation in Metal backend.
+    glVertexAttribPointer(1, 4, GL_UNSIGNED_SHORT, GL_TRUE, 0,
+                          reinterpret_cast<const void *>(sizeof(GLushort) * 97));
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glEnableVertexAttribArray(1);
+
+    drawQuad(program, "a_position", 0.5f);
+    // Verify red was drawn
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    glClearColor(0, 1, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    // Verify that green was drawn
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Bind black color buffer to the same attribute with zero offset
+    std::vector<GLfloat> black(6, 0.0f);
+    GLBuffer blackBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, blackBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * black.size(), black.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, 0);
+
+    drawQuad(program, "a_position", 0.5f);
+    // Verify black was drawn
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+
+    // Rebind the old buffer & offset
+    glBindBuffer(GL_ARRAY_BUFFER, redBuffer);
+    // Use offset not multiple of 4 GLushorts
+    glVertexAttribPointer(1, 4, GL_UNSIGNED_SHORT, GL_TRUE, 0,
+                          reinterpret_cast<const void *>(sizeof(GLushort) * 97));
+
+    drawQuad(program, "a_position", 0.5f);
+    // Verify red was drawn
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
+// Test that switching between programs that only contain default uniforms is correct.
+TEST_P(SimpleStateChangeTest, TwoProgramsWithOnlyDefaultUniforms)
+{
+    constexpr char kVS[] = R"(attribute vec4 a_position;
+varying float v_attrib;
+uniform float u_value;
+void main()
+{
+    v_attrib = u_value;
+    gl_Position = a_position;
+})";
+
+    constexpr char kFS[] = R"(precision mediump float;
+varying float v_attrib;
+void main()
+{
+    gl_FragColor = vec4(v_attrib, 0, 0, 1);
+})";
+
+    ANGLE_GL_PROGRAM(program1, kVS, kFS);
+    ANGLE_GL_PROGRAM(program2, kVS, kFS);
+
+    // Don't use drawQuad so there's no state changes between the draw calls other than the program
+    // binding.
+
+    constexpr size_t kProgramCount = 2;
+    GLuint programs[kProgramCount] = {program1, program2};
+    for (size_t i = 0; i < kProgramCount; ++i)
+    {
+        glUseProgram(programs[i]);
+        GLint uniformLoc = glGetUniformLocation(programs[i], "u_value");
+        ASSERT_NE(uniformLoc, -1);
+
+        glUniform1f(uniformLoc, static_cast<float>(i + 1) / static_cast<float>(kProgramCount));
+
+        // Ensure position is at location 0 in both programs.
+        GLint positionLocation = glGetAttribLocation(programs[i], "a_position");
+        ASSERT_EQ(positionLocation, 0);
+    }
+    ASSERT_GL_NO_ERROR();
+
+    std::array<Vector3, 6> quadVertices = GetQuadVertices();
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, quadVertices.data());
+    glEnableVertexAttribArray(0);
+
+    // Draw once with each so their uniforms are updated.
+    // The first draw will clear the screen to 255, 0, 0, 255
+    glUseProgram(program2);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    // The second draw will clear the screen to 127, 0, 0, 255
+    glUseProgram(program1);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Draw with the previous program again, to make sure its default uniforms are bound again.
+    glUseProgram(program2);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Verify red was drawn
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 }
 
 // Validates GL_RASTERIZER_DISCARD state is tracked correctly

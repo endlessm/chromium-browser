@@ -68,12 +68,6 @@ const int32_t kMaxDecodeHistory = 32;
 // requesting fallback to software decode.
 const int32_t kMaxConsecutiveErrors = 5;
 
-// Currently, RTCVideoDecoderAdapter only tries one VideoDecoderImplementation.
-// Since we use it in multiple places, memorize it here to make it clear that
-// they must be changed together.
-constexpr media::VideoDecoderImplementation kImplementation =
-    media::VideoDecoderImplementation::kDefault;
-
 // Map webrtc::VideoCodecType to media::VideoCodec.
 media::VideoCodec ToVideoCodec(webrtc::VideoCodecType video_codec_type) {
   switch (video_codec_type) {
@@ -454,7 +448,8 @@ void RTCVideoDecoderAdapter::OnOutput(scoped_refptr<media::VideoFrame> frame) {
       webrtc::VideoFrame::Builder()
           .set_video_frame_buffer(
               new rtc::RefCountedObject<blink::WebRtcVideoFrameAdapter>(
-                  std::move(frame)))
+                  std::move(frame),
+                  WebRtcVideoFrameAdapter::LogStatus::kNoLogging))
           .set_timestamp_rtp(static_cast<uint32_t>(timestamp.InMicroseconds()))
           .set_timestamp_us(0)
           .set_rotation(webrtc::kVideoRotation_0)

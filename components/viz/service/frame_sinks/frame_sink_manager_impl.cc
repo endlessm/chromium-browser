@@ -58,7 +58,8 @@ FrameSinkManagerImpl::FrameSinkManagerImpl(const InitParams& params)
       hit_test_manager_(surface_manager()),
       restart_id_(params.restart_id),
       run_all_compositor_stages_before_draw_(
-          params.run_all_compositor_stages_before_draw) {
+          params.run_all_compositor_stages_before_draw),
+      log_capture_pipeline_in_webrtc_(params.log_capture_pipeline_in_webrtc) {
   surface_manager_.AddObserver(&hit_test_manager_);
   surface_manager_.AddObserver(this);
 }
@@ -282,7 +283,8 @@ void FrameSinkManagerImpl::CreateVideoCapturer(
   video_capturers_.emplace(std::make_unique<FrameSinkVideoCapturerImpl>(
       this, std::move(receiver),
       std::make_unique<media::VideoCaptureOracle>(
-          true /* enable_auto_throttling */)));
+          true /* enable_auto_throttling */),
+      log_capture_pipeline_in_webrtc_));
 }
 
 void FrameSinkManagerImpl::EvictSurfaces(
@@ -626,6 +628,22 @@ base::TimeDelta FrameSinkManagerImpl::GetPreferredFrameIntervalForFrameSinkId(
   return it->second.preferred_frame_interval;
 }
 
+void FrameSinkManagerImpl::DiscardPendingCopyOfOutputRequests(
+    const BeginFrameSource* source) {
+  const auto& root_sink = registered_sources_.at(source);
+  base::queue<FrameSinkId> queue;
+  for (queue.push(root_sink); !queue.empty(); queue.pop()) {
+    auto& frame_sink_id = queue.front();
+    auto support = support_map_.find(frame_sink_id);
+    // The returned copy requests are destroyed upon going out of scope, which
+    // invokes the pending callbacks.
+    if (support != support_map_.end())
+      support->second->TakeCopyOutputRequests(LocalSurfaceId::MaxSequenceId());
+    for (auto child : GetChildrenByParent(frame_sink_id))
+      queue.push(child);
+  }
+}
+
 void FrameSinkManagerImpl::CacheBackBuffer(
     uint32_t cache_id,
     const FrameSinkId& root_frame_sink_id) {
@@ -642,7 +660,6 @@ void FrameSinkManagerImpl::EvictBackBuffer(uint32_t cache_id,
   auto it = cached_back_buffers_.find(cache_id);
   DCHECK(it != cached_back_buffers_.end());
 
-  it->second.RunAndReset();
   cached_back_buffers_.erase(it);
   std::move(callback).Run();
 }

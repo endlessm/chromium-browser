@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-Network.NetworkConfigView = class extends UI.VBox {
+export class NetworkConfigView extends UI.VBox {
   constructor() {
     super(true);
     this.registerRequiredCSS('network/networkConfigView.css');
@@ -20,15 +20,14 @@ Network.NetworkConfigView = class extends UI.VBox {
    * @return {{select: !Element, input: !Element, error: !Element}}
    */
   static createUserAgentSelectAndInput(title) {
-    const userAgentSetting = Common.settings.createSetting('customUserAgent', '');
+    const userAgentSetting = self.Common.settings.createSetting('customUserAgent', '');
     const userAgentSelectElement = createElement('select');
     UI.ARIAUtils.setAccessibleName(userAgentSelectElement, title);
 
     const customOverride = {title: Common.UIString('Custom...'), value: 'custom'};
     userAgentSelectElement.appendChild(new Option(customOverride.title, customOverride.value));
 
-    const groups = Network.NetworkConfigView._userAgentGroups;
-    for (const userAgentDescriptor of groups) {
+    for (const userAgentDescriptor of userAgentGroups) {
       const groupElement = userAgentSelectElement.createChild('optgroup');
       groupElement.label = userAgentDescriptor.title;
       for (const userAgentVersion of userAgentDescriptor.values) {
@@ -118,7 +117,7 @@ Network.NetworkConfigView = class extends UI.VBox {
   _createCacheSection() {
     const section = this._createSection(Common.UIString('Caching'), 'network-config-disable-cache');
     section.appendChild(UI.SettingsUI.createSettingCheckbox(
-        Common.UIString('Disable cache'), Common.moduleSetting('cacheDisabled'), true));
+        Common.UIString('Disable cache'), self.Common.settings.moduleSetting('cacheDisabled'), true));
   }
 
   _createNetworkThrottlingSection() {
@@ -137,16 +136,16 @@ Network.NetworkConfigView = class extends UI.VBox {
     section.appendChild(checkboxLabel);
     const autoCheckbox = checkboxLabel.checkboxElement;
 
-    const customUserAgentSetting = Common.settings.createSetting('customUserAgent', '');
+    const customUserAgentSetting = self.Common.settings.createSetting('customUserAgent', '');
     customUserAgentSetting.addChangeListener(() => {
       if (autoCheckbox.checked) {
         return;
       }
-      SDK.multitargetNetworkManager.setCustomUserAgentOverride(customUserAgentSetting.get());
+      self.SDK.multitargetNetworkManager.setCustomUserAgentOverride(customUserAgentSetting.get());
     });
     const customUserAgentSelectBox = section.createChild('div', 'network-config-ua-custom');
     autoCheckbox.addEventListener('change', userAgentSelectBoxChanged);
-    const customSelectAndInput = Network.NetworkConfigView.createUserAgentSelectAndInput(title);
+    const customSelectAndInput = NetworkConfigView.createUserAgentSelectAndInput(title);
     customSelectAndInput.select.classList.add('chrome-select');
     customUserAgentSelectBox.appendChild(customSelectAndInput.select);
     customUserAgentSelectBox.appendChild(customSelectAndInput.input);
@@ -160,13 +159,13 @@ Network.NetworkConfigView = class extends UI.VBox {
       customSelectAndInput.input.disabled = !useCustomUA;
       customSelectAndInput.error.hidden = !useCustomUA;
       const customUA = useCustomUA ? customUserAgentSetting.get() : '';
-      SDK.multitargetNetworkManager.setCustomUserAgentOverride(customUA);
+      self.SDK.multitargetNetworkManager.setCustomUserAgentOverride(customUA);
     }
   }
-};
+}
 
 /** @type {!Array.<{title: string, values: !Array.<{title: string, value: string}>}>} */
-Network.NetworkConfigView._userAgentGroups = [
+export const userAgentGroups = [
   {
     title: ls`Android`,
     values: [

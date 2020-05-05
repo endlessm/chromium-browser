@@ -91,10 +91,13 @@ extern const int kTrayPopupInkDropCornerRadius;
 
 constexpr float kUnifiedMenuBackgroundBlur = 30.f;
 
+// Threshold to ignore update on the slider value.
+constexpr float kAudioSliderIgnoreUpdateThreshold = 0.01;
+
 constexpr gfx::Insets kUnifiedMenuItemPadding(0, 16, 16, 16);
-constexpr gfx::Insets kUnifiedSystemInfoViewPadding(4, 16, 16, 16);
+constexpr gfx::Insets kUnifiedSystemInfoViewPadding(0, 16, 16, 16);
 constexpr gfx::Insets kUnifiedManagedDeviceViewPadding(4, 19, 4, 16);
-constexpr gfx::Insets kUnifiedSliderRowPadding(0, 12, 8, 16);
+constexpr gfx::Insets kUnifiedSliderRowPadding(0, 16, 8, 16);
 constexpr gfx::Insets kUnifiedSliderBubblePadding(12, 0, 4, 0);
 constexpr gfx::Insets kUnifiedSliderPadding(0, 16);
 
@@ -102,7 +105,7 @@ constexpr int kMessageCenterCollapseThreshold = 175;
 constexpr int kStackedNotificationBarHeight = 32;
 constexpr int kStackedNotificationBarCollapsedHeight = 40;
 constexpr int kNotificationIconStackThreshold = 28;
-constexpr int kUnifiedSliderViewSpacing = 12;
+constexpr int kUnifiedSliderViewSpacing = 16;
 constexpr int kUnifiedMenuPadding = 8;
 constexpr int kUnifiedMessageCenterBubbleSpacing = 8;
 constexpr int kUnifiedNotificationCenterSpacing = 16;
@@ -144,22 +147,27 @@ constexpr int kNotificationIconAnimationOutDurationMs = 67;
 constexpr double kNotificationCenterDragExpandThreshold = 0.8;
 
 // Constants used in FeaturePodsView of UnifiedSystemTray.
-constexpr gfx::Size kUnifiedFeaturePodIconSize(48, 48);
-constexpr gfx::Size kUnifiedFeaturePodSize(112, 88);
-constexpr gfx::Size kUnifiedFeaturePodCollapsedSize(48, 48);
+constexpr gfx::Size kUnifiedFeaturePodIconSize(46, 46);
+constexpr gfx::Size kUnifiedFeaturePodSize(112, 94);
+constexpr gfx::Size kUnifiedFeaturePodCollapsedSize(46, 46);
 constexpr gfx::Insets kUnifiedFeaturePodIconPadding(4);
 constexpr gfx::Insets kUnifiedFeaturePodHoverPadding(2);
-constexpr int kUnifiedFeaturePodVectorIconSize = 24;
+constexpr int kUnifiedFeaturePodVectorIconSize = 20;
 constexpr int kUnifiedFeaturePodLabelWidth = 80;
 constexpr int kUnifiedFeaturePodSpacing = 6;
 constexpr int kUnifiedFeaturePodHoverRadius = 4;
-constexpr int kUnifiedFeaturePodVerticalPadding = 28;
-constexpr int kUnifiedFeaturePodTopPadding = 24;
-constexpr int kUnifiedFeaturePodBottomPadding = 5;
+constexpr int kUnifiedFeaturePodVerticalPadding = 24;
+constexpr int kUnifiedFeaturePodTopPadding = 20;
+constexpr int kUnifiedFeaturePodBottomPadding = 0;
 constexpr int kUnifiedFeaturePodHorizontalSidePadding = 12;
 constexpr int kUnifiedFeaturePodHorizontalMiddlePadding = 0;
 constexpr int kUnifiedFeaturePodCollapsedVerticalPadding = 12;
 constexpr int kUnifiedFeaturePodCollapsedHorizontalPadding = 24;
+constexpr int kUnifiedFeaturePodLabelLineHeight = 16;
+constexpr int kUnifiedFeaturePodSubLabelLineHeight = 15;
+constexpr int kUnifiedFeaturePodLabelFontSize = 13;
+constexpr int kUnifiedFeaturePodSubLabelFontSize = 12;
+constexpr int kUnifiedFeaturePodInterLabelPadding = 2;
 constexpr int kUnifiedFeaturePodArrowSpacing = 4;
 constexpr int kUnifiedFeaturePodItemsInRow = 3;
 constexpr int kUnifiedFeaturePodMaxRows = 3;
@@ -188,8 +196,15 @@ constexpr int kUnifiedTopShortcutButtonMinSpacing = 4;
 constexpr gfx::Insets kUnifiedDetailedViewTitlePadding(0, 0, 0, 16);
 constexpr int kUnifiedDetailedViewTitleRowHeight = 64;
 
+// Constants used for the status area overflow button and state.
+constexpr gfx::Size kStatusAreaOverflowButtonSize(28, 32);
 constexpr int kStatusAreaLeftPaddingForOverflow = 100;
 constexpr int kStatusAreaForceCollapseAvailableWidth = 200;
+constexpr int kStatusAreaOverflowGradientSize = 24;
+
+// Height compensations in tablet mode based on whether the hotseat is shown.
+constexpr int kTrayBubbleInsetTabletModeCompensation = 8;
+constexpr int kTrayBubbleInsetHotseatCompensation = 16;
 
 }  // namespace ash
 

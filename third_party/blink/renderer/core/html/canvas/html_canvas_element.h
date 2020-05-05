@@ -38,7 +38,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
-#include "third_party/blink/renderer/core/html/canvas/image_encode_options.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_source.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
@@ -204,7 +203,8 @@ class CORE_EXPORT HTMLCanvasElement final
                                                AccelerationHint,
                                                const FloatSize&) override;
   bool WouldTaintOrigin() const override;
-  FloatSize ElementSize(const FloatSize&) const override;
+  FloatSize ElementSize(const FloatSize&,
+                        const RespectImageOrientationEnum) const override;
   bool IsCanvasElement() const override { return true; }
   bool IsOpaque() const override;
   bool IsAccelerated() const override;
@@ -234,7 +234,8 @@ class CORE_EXPORT HTMLCanvasElement final
   ScriptPromise CreateImageBitmap(ScriptState*,
                                   EventTarget&,
                                   base::Optional<IntRect> crop_rect,
-                                  const ImageBitmapOptions*) override;
+                                  const ImageBitmapOptions*,
+                                  ExceptionState&) override;
 
   // OffscreenCanvasPlaceholder implementation.
   void SetOffscreenCanvasResource(scoped_refptr<CanvasResource>,
@@ -301,6 +302,11 @@ class CORE_EXPORT HTMLCanvasElement final
   // SurfaceLayerBridge() or RenderingContext(), or nullptr if the canvas is not
   // composited.
   cc::Layer* ContentsCcLayer() const;
+
+  // Return the image orientation setting from the layout object, if available.
+  // In the absence of a layout object, kRespectImageOrientation will be
+  // returned.
+  RespectImageOrientationEnum RespectImageOrientation() const;
 
  protected:
   void DidMoveToNewDocument(Document& old_document) override;

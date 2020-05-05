@@ -13,7 +13,6 @@
 #include "platform/test/fake_clock.h"
 
 namespace openscreen {
-namespace platform {
 
 // Usage:
 //
@@ -25,7 +24,7 @@ namespace platform {
 //     FakeTaskRunner* task_runner() { return &task_runner_; }
 //
 //    private:
-//     FakeClock clock_{platform::Clock::now()};
+//     FakeClock clock_{Clock::now()};
 //     FakeTaskRunner task_runner_{&clock_};
 //   };
 //
@@ -46,7 +45,7 @@ class FakeTaskRunner : public TaskRunner {
   using Task = TaskRunner::Task;
 
   explicit FakeTaskRunner(FakeClock* clock);
-  virtual ~FakeTaskRunner() override;
+  ~FakeTaskRunner() override;
 
   // Runs all ready-to-run tasks.
   void RunTasksUntilIdle();
@@ -62,7 +61,6 @@ class FakeTaskRunner : public TaskRunner {
   std::multimap<Clock::time_point, Task> delayed_tasks_;
 };
 
-}  // namespace platform
 }  // namespace openscreen
 
 #endif  // PLATFORM_TEST_FAKE_TASK_RUNNER_H_

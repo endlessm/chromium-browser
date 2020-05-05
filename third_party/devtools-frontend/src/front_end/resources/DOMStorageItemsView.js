@@ -24,9 +24,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-Resources.DOMStorageItemsView = class extends Resources.StorageItemsView {
+import {DOMStorage} from './DOMStorageModel.js';
+import {StorageItemsView} from './StorageItemsView.js';
+
+export class DOMStorageItemsView extends StorageItemsView {
   /**
-   * @param {!Resources.DOMStorage} domStorage
+   * @param {!DOMStorage} domStorage
    */
   constructor(domStorage) {
     super(Common.UIString('DOM Storage'), 'domStoragePanel');
@@ -35,12 +38,17 @@ Resources.DOMStorageItemsView = class extends Resources.StorageItemsView {
 
     this.element.classList.add('storage-view', 'table');
 
-    const columns = /** @type {!Array<!DataGrid.DataGrid.ColumnDescriptor>} */ ([
+    const columns = /** @type {!Array<!DataGrid.ColumnDescriptor>} */ ([
       {id: 'key', title: Common.UIString('Key'), sortable: false, editable: true, longText: true, weight: 50},
       {id: 'value', title: Common.UIString('Value'), sortable: false, editable: true, longText: true, weight: 50}
     ]);
-    this._dataGrid = new DataGrid.DataGrid(
-        columns, this._editingCallback.bind(this), this._deleteCallback.bind(this), this.refreshItems.bind(this));
+    this._dataGrid = new DataGrid.DataGrid({
+      displayName: ls`DOM Storage Items`,
+      columns,
+      editCallback: this._editingCallback.bind(this),
+      deleteCallback: this._deleteCallback.bind(this),
+      refreshCallback: this.refreshItems.bind(this)
+    });
     this._dataGrid.addEventListener(
         DataGrid.DataGrid.Events.SelectedNode,
         event => this._previewEntry(/** @type {!DataGrid.DataGridNode} */ (event.data)));
@@ -48,11 +56,12 @@ Resources.DOMStorageItemsView = class extends Resources.StorageItemsView {
     this._dataGrid.setStriped(true);
     this._dataGrid.setName('DOMStorageItemsView');
 
-    this._splitWidget = new UI.SplitWidget(false, false);
+    this._splitWidget =
+        new UI.SplitWidget(/* isVertical: */ false, /* secondIsSidebar: */ true, 'domStorageSplitViewState');
     this._splitWidget.show(this.element);
-    this._splitWidget.setSecondIsSidebar(true);
 
     this._previewPanel = new UI.VBox();
+    this._previewPanel.setMinimumSize(0, 50);
     const resizer = this._previewPanel.element.createChild('div', 'preview-panel-resizer');
     const dataGridWidget = this._dataGrid.asWidget();
     dataGridWidget.setMinimumSize(0, 50);
@@ -72,20 +81,16 @@ Resources.DOMStorageItemsView = class extends Resources.StorageItemsView {
   }
 
   /**
-   * @param {!Resources.DOMStorage} domStorage
+   * @param {!DOMStorage} domStorage
    */
   setStorage(domStorage) {
     Common.EventTarget.removeEventListeners(this._eventListeners);
     this._domStorage = domStorage;
     this._eventListeners = [
-      this._domStorage.addEventListener(
-          Resources.DOMStorage.Events.DOMStorageItemsCleared, this._domStorageItemsCleared, this),
-      this._domStorage.addEventListener(
-          Resources.DOMStorage.Events.DOMStorageItemRemoved, this._domStorageItemRemoved, this),
-      this._domStorage.addEventListener(
-          Resources.DOMStorage.Events.DOMStorageItemAdded, this._domStorageItemAdded, this),
-      this._domStorage.addEventListener(
-          Resources.DOMStorage.Events.DOMStorageItemUpdated, this._domStorageItemUpdated, this),
+      this._domStorage.addEventListener(DOMStorage.Events.DOMStorageItemsCleared, this._domStorageItemsCleared, this),
+      this._domStorage.addEventListener(DOMStorage.Events.DOMStorageItemRemoved, this._domStorageItemRemoved, this),
+      this._domStorage.addEventListener(DOMStorage.Events.DOMStorageItemAdded, this._domStorageItemAdded, this),
+      this._domStorage.addEventListener(DOMStorage.Events.DOMStorageItemUpdated, this._domStorageItemUpdated, this),
     ];
     this.refreshItems();
   }
@@ -303,4 +308,4 @@ Resources.DOMStorageItemsView = class extends Resources.StorageItemsView {
     }
     this._showPreview(preview, value);
   }
-};
+}

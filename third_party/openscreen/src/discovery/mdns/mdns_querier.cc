@@ -11,6 +11,28 @@
 
 namespace openscreen {
 namespace discovery {
+namespace {
+
+bool IsNegativeResponseFor(const MdnsRecord& record, DnsType type) {
+  if (record.dns_type() != DnsType::kNSEC) {
+    return false;
+  }
+
+  const NsecRecordRdata& nsec = absl::get<NsecRecordRdata>(record.rdata());
+
+  // RFC 6762 section 6.1, the NSEC bit must NOT be set in the received NSEC
+  // record to indicate this is an mDNS NSEC record rather than a traditional
+  // DNS NSEC record.
+  if (std::find(nsec.types().begin(), nsec.types().end(), DnsType::kNSEC) !=
+      nsec.types().end()) {
+    return false;
+  }
+
+  return std::find(nsec.types().begin(), nsec.types().end(), type) !=
+         nsec.types().end();
+}
+
+}  // namespace
 
 MdnsQuerier::MdnsQuerier(MdnsSender* sender,
                          MdnsReceiver* receiver,
@@ -28,12 +50,11 @@ MdnsQuerier::MdnsQuerier(MdnsSender* sender,
   OSP_DCHECK(now_function_);
   OSP_DCHECK(random_delay_);
 
-  receiver_->SetResponseCallback(
-      [this](const MdnsMessage& message) { OnMessageReceived(message); });
+  receiver_->AddResponseCallback(this);
 }
 
 MdnsQuerier::~MdnsQuerier() {
-  receiver_->SetResponseCallback(nullptr);
+  receiver_->RemoveResponseCallback(this);
 }
 
 // NOTE: The code below is range loops instead of std:find_if, for better
@@ -46,6 +67,7 @@ void MdnsQuerier::StartQuery(const DomainName& name,
                              MdnsRecordChangedCallback* callback) {
   OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
   OSP_DCHECK(callback);
+  OSP_DCHECK(dns_type != DnsType::kNSEC);
 
   // Add a new callback if haven't seen it before
   auto callbacks_it = callbacks_.equal_range(name);
@@ -92,6 +114,7 @@ void MdnsQuerier::StopQuery(const DomainName& name,
                             MdnsRecordChangedCallback* callback) {
   OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
   OSP_DCHECK(callback);
+  OSP_DCHECK(dns_type != DnsType::kNSEC);
 
   // Find and remove the callback.
   int callbacks_for_key = 0;
@@ -132,13 +155,54 @@ void MdnsQuerier::StopQuery(const DomainName& name,
   // be configurable by the caller.
 }
 
+void MdnsQuerier::ReinitializeQueries(const DomainName& name) {
+  OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
+
+  // Get the ongoing queries and their callbacks.
+  std::vector<CallbackInfo> callbacks;
+  auto its = callbacks_.equal_range(name);
+  for (auto it = its.first; it != its.second; it++) {
+    callbacks.push_back(std::move(it->second));
+  }
+  callbacks_.erase(name);
+
+  // Remove all known questions and answers.
+  questions_.erase(name);
+  records_.erase(name);
+
+  // Restart the queries.
+  for (const auto& cb : callbacks) {
+    StartQuery(name, cb.dns_type, cb.dns_class, cb.callback);
+  }
+}
+
 void MdnsQuerier::OnMessageReceived(const MdnsMessage& message) {
   OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
   OSP_DCHECK(message.type() == MessageType::Response);
 
-  // TODO(crbug.com/openscreen/83): Drop answers and additional records if
-  // answer records do not answer any existing questions
-  // TODO(crbug.com/openscreen/83): Check authority records
+  // Drop the message if its answers don't correspond to any existing question.
+  bool is_relevant_answer = false;
+  for (const MdnsRecord& answer : message.answers()) {
+    const auto range = questions_.equal_range(answer.name());
+    const auto it =
+        std::find_if(range.first, range.second, [&answer](const auto& pair) {
+          return (pair.second->question().dns_type() == DnsType::kANY ||
+                  IsNegativeResponseFor(answer,
+                                        pair.second->question().dns_type()) ||
+                  pair.second->question().dns_type() == answer.dns_type()) &&
+                 (pair.second->question().dns_class() == DnsClass::kANY ||
+                  pair.second->question().dns_class() == answer.dns_class());
+        });
+    if (it != range.second) {
+      is_relevant_answer = true;
+      break;
+    }
+  }
+  if (!is_relevant_answer) {
+    return;
+  }
+
+  // TODO(crbug.com/openscreen/83): Check authority records.
   // TODO(crbug.com/openscreen/84): Cap size of cache, to avoid memory blowups
   // when publishers misbehave.
   ProcessRecords(message.answers());
@@ -167,6 +231,11 @@ void MdnsQuerier::ProcessRecords(const std::vector<MdnsRecord>& records) {
   OSP_DCHECK(task_runner_->IsRunningOnTaskRunner());
 
   for (const MdnsRecord& record : records) {
+    if (record.dns_type() == DnsType::kNSEC) {
+      // TODO(rwkeane): Handle NSEC negative response records.
+      continue;
+    }
+
     switch (record.record_type()) {
       case RecordType::kShared: {
         ProcessSharedRecord(record);
@@ -299,14 +368,16 @@ void MdnsQuerier::ProcessCallbacks(const MdnsRecord& record,
       callback_info.callback->OnRecordChanged(record, event);
     }
   }
-
-  // TODO(crbug.com/openscreen/83): Update known answers for relevant questions.
 }
 
 void MdnsQuerier::AddQuestion(const MdnsQuestion& question) {
+  const MdnsQuestionTracker::KnownAnswerQuery query(
+      [this](const DomainName& name, DnsType type, DnsClass clazz) {
+        return GetKnownAnswers(name, type, clazz);
+      });
   questions_.emplace(question.name(),
                      std::make_unique<MdnsQuestionTracker>(
-                         std::move(question), sender_, task_runner_,
+                         std::move(question), query, sender_, task_runner_,
                          now_function_, random_delay_));
 }
 
@@ -318,6 +389,24 @@ void MdnsQuerier::AddRecord(const MdnsRecord& record) {
                    std::make_unique<MdnsRecordTracker>(
                        std::move(record), sender_, task_runner_, now_function_,
                        random_delay_, expiration_callback));
+}
+
+std::vector<MdnsRecord::ConstRef> MdnsQuerier::GetKnownAnswers(
+    const DomainName& name,
+    DnsType type,
+    DnsClass clazz) {
+  std::vector<MdnsRecord::ConstRef> records;
+  auto its = records_.equal_range(name);
+  for (auto it = its.first; it != its.second; it++) {
+    const MdnsRecord& record = it->second->record();
+    if ((type == DnsType::kANY || type == record.dns_type()) &&
+        (clazz == DnsClass::kANY || clazz == record.dns_class()) &&
+        !it->second->IsNearingExpiry()) {
+      records.emplace_back(record);
+    }
+  }
+
+  return records;
 }
 
 }  // namespace discovery

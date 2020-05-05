@@ -46,7 +46,8 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -86,7 +87,10 @@ class QUIC_EXPORT_PRIVATE QuicConnectionVisitorInterface {
   virtual void OnGoAway(const QuicGoAwayFrame& frame) = 0;
 
   // Called when |message| has been received.
-  virtual void OnMessageReceived(QuicStringPiece message) = 0;
+  virtual void OnMessageReceived(quiche::QuicheStringPiece message) = 0;
+
+  // Called when a HANDSHAKE_DONE frame has been received.
+  virtual void OnHandshakeDoneReceived() = 0;
 
   // Called when a MAX_STREAMS frame has been received from the peer.
   virtual bool OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame) = 0;
@@ -159,6 +163,9 @@ class QUIC_EXPORT_PRIVATE QuicConnectionVisitorInterface {
   // change is allowed.
   virtual bool AllowSelfAddressChange() const = 0;
 
+  // Called to get current handshake state.
+  virtual HandshakeState GetHandshakeState() const = 0;
+
   // Called when an ACK is received with a larger |largest_acked| than
   // previously observed.
   virtual void OnForwardProgressConfirmed() = 0;
@@ -168,6 +175,9 @@ class QUIC_EXPORT_PRIVATE QuicConnectionVisitorInterface {
 
   // Called when a packet of encryption |level| has been successfully decrypted.
   virtual void OnPacketDecrypted(EncryptionLevel level) = 0;
+
+  // Called when a 1RTT packet has been acknowledged.
+  virtual void OnOneRttPacketAcknowledged() = 0;
 };
 
 // Interface which gets callbacks from the QuicConnection at interesting
@@ -259,6 +269,9 @@ class QUIC_EXPORT_PRIVATE QuicConnectionDebugVisitor
 
   // Called when a MessageFrame has been parsed.
   virtual void OnMessageFrame(const QuicMessageFrame& /*frame*/) {}
+
+  // Called when a HandshakeDoneFrame has been parsed.
+  virtual void OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& /*frame*/) {}
 
   // Called when a public reset packet has been received.
   virtual void OnPublicResetPacket(const QuicPublicResetPacket& /*packet*/) {}
@@ -480,7 +493,9 @@ class QUIC_EXPORT_PRIVATE QuicConnection
       const QuicVersionNegotiationPacket& packet) override;
   void OnRetryPacket(QuicConnectionId original_connection_id,
                      QuicConnectionId new_connection_id,
-                     QuicStringPiece retry_token) override;
+                     quiche::QuicheStringPiece retry_token,
+                     quiche::QuicheStringPiece retry_integrity_tag,
+                     quiche::QuicheStringPiece retry_without_tag) override;
   bool OnUnauthenticatedPublicHeader(const QuicPacketHeader& header) override;
   bool OnUnauthenticatedHeader(const QuicPacketHeader& header) override;
   void OnDecryptedPacket(EncryptionLevel level) override;
@@ -515,6 +530,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
       const QuicRetireConnectionIdFrame& frame) override;
   bool OnNewTokenFrame(const QuicNewTokenFrame& frame) override;
   bool OnMessageFrame(const QuicMessageFrame& frame) override;
+  bool OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& frame) override;
   void OnPacketComplete() override;
   bool IsValidStatelessResetToken(QuicUint128 token) const override;
   void OnAuthenticatedIetfStatelessResetPacket(
@@ -782,7 +798,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   QuicConnectionHelperInterface* helper() { return helper_; }
   QuicAlarmFactory* alarm_factory() { return alarm_factory_; }
 
-  QuicStringPiece GetCurrentPacket();
+  quiche::QuicheStringPiece GetCurrentPacket();
 
   const QuicFramer& framer() const { return framer_; }
 
@@ -860,10 +876,10 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   };
 
   // Whether the handshake completes from this connection's perspective.
-  bool IsHandshakeComplete() const {
-    return sent_packet_manager_.handshake_state() >=
-           QuicSentPacketManager::HANDSHAKE_COMPLETE;
-  }
+  bool IsHandshakeComplete() const;
+
+  // Whether peer completes handshake. Only used with TLS handshake.
+  bool IsHandshakeConfirmed() const;
 
   // Returns the largest received packet number sent by peer.
   QuicPacketNumber GetLargestReceivedPacket() const;
@@ -890,10 +906,6 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   // Called when version is considered negotiated.
   void OnSuccessfulVersionNegotiation();
-
-  bool quic_version_negotiated_by_default_at_server() const {
-    return quic_version_negotiated_by_default_at_server_;
-  }
 
   bool use_handshake_delegate() const { return use_handshake_delegate_; }
 
@@ -996,7 +1008,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
     ~BufferedPacket();
 
     // encrypted_buffer is owned by buffered packet.
-    QuicStringPiece encrypted_buffer;
+    quiche::QuicheStringPiece encrypted_buffer;
     // Self and peer addresses when the packet is serialized.
     const QuicSocketAddress self_address;
     const QuicSocketAddress peer_address;
@@ -1400,6 +1412,10 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // different.
   QuicByteCount long_term_mtu_;
 
+  // The maximum UDP payload size that our peer has advertised support for.
+  // Defaults to kDefaultMaxPacketSizeTransportParam until received from peer.
+  QuicByteCount peer_max_packet_size_;
+
   // The size of the largest packet received from peer.
   QuicByteCount largest_received_packet_size_;
 
@@ -1468,8 +1484,8 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // vector to improve performance since it is expected to be very small.
   std::vector<QuicConnectionId> incoming_connection_ids_;
 
-  // Indicates whether a RETRY packet has been parsed.
-  bool retry_has_been_parsed_;
+  // Indicates whether received RETRY packets should be dropped.
+  bool drop_incoming_retry_packets_;
 
   // If max_consecutive_ptos_ > 0, close connection if consecutive PTOs is
   // greater than max_consecutive_ptos.
@@ -1502,10 +1518,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   QuicConnectionMtuDiscoverer mtu_discoverer_;
 
-  // Latched value of quic_version_negotiated_by_default_at_server.
-  const bool quic_version_negotiated_by_default_at_server_;
-
-  // Latched value of quic_use_handshaker_delegate.
+  // Latched value of quic_use_handshaker_delegate2.
   const bool use_handshake_delegate_;
 };
 

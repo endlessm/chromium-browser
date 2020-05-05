@@ -153,20 +153,39 @@ class AppListItemView::IconImageView : public views::ImageView {
     return old_layer;
   }
 
-  // Update the rounded corner and insets with animation. |show| is true when
-  // the target rounded corner radius and insets are for showing the indicator
-  // circle.
-  void AnimateRoundedCornerAndInsets(const AppListConfig& config, bool show) {
-    ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
-    settings.SetTweenType(gfx::Tween::EASE_IN);
-    settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(125));
+  // Update the rounded corner and insets with animation. |extended| is true
+  // when the target rounded corner radius and insets are for showing the
+  // indicator circle.
+  void SetExtendedState(const AppListConfig& config,
+                        bool extended,
+                        bool animate) {
+    base::Optional<ui::ScopedLayerAnimationSettings> settings;
+    if (animate) {
+      settings.emplace(layer()->GetAnimator());
+      settings->SetTweenType(gfx::Tween::EASE_IN);
+      settings->SetTransitionDuration(base::TimeDelta::FromMilliseconds(125));
+    }
+
+    extended_ = extended;
 
     SetRoundedCornerAndInsets(
-        show ? config.folder_unclipped_icon_dimension() / 2
-             : config.folder_icon_dimension() / 2,
-        show ? gfx::Insets() : gfx::Insets(config.folder_icon_insets()));
+        extended ? config.folder_unclipped_icon_dimension() / 2
+                 : config.folder_icon_dimension() / 2,
+        extended ? gfx::Insets() : gfx::Insets(config.folder_icon_insets()));
   }
 
+  // Ensure that the view has a layer.
+  void EnsureLayer() {
+    if (!layer()) {
+      SetPaintToLayer();
+      layer()->SetFillsBoundsOpaquely(false);
+      layer()->SetName(GetClassName());
+    }
+  }
+
+  bool extended() const { return extended_; }
+
+ private:
   // Sets the rounded corner and the clip insets.
   void SetRoundedCornerAndInsets(int corner_radius, const gfx::Insets& insets) {
     EnsureLayer();
@@ -184,15 +203,10 @@ class AppListItemView::IconImageView : public views::ImageView {
     insets_ = insets;
   }
 
-  // Ensure that the view has a layer.
-  void EnsureLayer() {
-    if (!layer()) {
-      SetPaintToLayer();
-      layer()->SetFillsBoundsOpaquely(false);
-    }
-  }
+  // Whether corner radius and insets are set for showing the drop target
+  // indicator circle.
+  bool extended_ = false;
 
- private:
   // The rounded corner radius.
   int corner_radius_ = 0;
 
@@ -218,11 +232,35 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
       is_folder_(item->GetItemType() == AppListFolderItem::kItemType),
       item_weak_(item),
       delegate_(delegate),
-      apps_grid_view_(apps_grid_view),
-      icon_(new IconImageView),
-      title_(new views::Label),
-      progress_bar_(new views::ProgressBar) {
+      apps_grid_view_(apps_grid_view) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
+
+  if (!is_in_folder && !is_folder_) {
+    // To display shadow for icon while not affecting the icon's bounds, icon
+    // shadow is behind the icon.
+    auto icon_shadow = std::make_unique<views::ImageView>();
+    icon_shadow->set_can_process_events_within_subtree(false);
+    icon_shadow->SetVerticalAlignment(views::ImageView::Alignment::kLeading);
+    icon_shadow_ = AddChildView(std::move(icon_shadow));
+  }
+
+  auto title = std::make_unique<views::Label>();
+  title->SetBackgroundColor(SK_ColorTRANSPARENT);
+  title->SetHandlesTooltips(false);
+  title->SetFontList(GetAppListConfig().app_title_font());
+  title->SetHorizontalAlignment(gfx::ALIGN_CENTER);
+  title->SetEnabledColor(apps_grid_view_->is_in_folder()
+                             ? kFolderGridTitleColor
+                             : GetAppListConfig().grid_title_color());
+  if (!is_in_folder) {
+    gfx::ShadowValues title_shadow = gfx::ShadowValues(
+        1,
+        gfx::ShadowValue(gfx::Vector2d(), kTitleShadowBlur, kTitleShadowColor));
+    title->SetShadows(title_shadow);
+    title_shadow_margins_ = gfx::ShadowValue::GetMargin(title_shadow);
+  }
+
+  icon_ = AddChildView(std::make_unique<IconImageView>());
 
   if (is_folder_) {
     // Set background blur for folder icon and use mask layer to clip it into
@@ -230,38 +268,12 @@ AppListItemView::AppListItemView(AppsGridView* apps_grid_view,
     // smoothness.
     if (apps_grid_view_->IsTabletMode())
       SetBackgroundBlurEnabled(true);
-    icon_->SetRoundedCornerAndInsets(
-        GetAppListConfig().folder_icon_radius(),
-        gfx::Insets(GetAppListConfig().folder_icon_insets()));
+    icon_->SetExtendedState(GetAppListConfig(), false /*extended*/,
+                            false /*animate*/);
   }
 
-  if (!is_in_folder && !is_folder_) {
-    // To display shadow for icon while not affecting the icon's bounds, icon
-    // shadow is behind the icon.
-    icon_shadow_ = new views::ImageView;
-    icon_shadow_->set_can_process_events_within_subtree(false);
-    icon_shadow_->SetVerticalAlignment(views::ImageView::Alignment::kLeading);
-    AddChildView(icon_shadow_);
-  }
-
-  title_->SetBackgroundColor(SK_ColorTRANSPARENT);
-  title_->SetHandlesTooltips(false);
-  title_->SetFontList(GetAppListConfig().app_title_font());
-  title_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  title_->SetEnabledColor(apps_grid_view_->is_in_folder()
-                              ? kFolderGridTitleColor
-                              : GetAppListConfig().grid_title_color());
-  if (!is_in_folder) {
-    gfx::ShadowValues title_shadow = gfx::ShadowValues(
-        1,
-        gfx::ShadowValue(gfx::Vector2d(), kTitleShadowBlur, kTitleShadowColor));
-    title_->SetShadows(title_shadow);
-    title_shadow_margins_ = gfx::ShadowValue::GetMargin(title_shadow);
-  }
-
-  AddChildView(icon_);
-  AddChildView(title_);
-  AddChildView(progress_bar_);
+  title_ = AddChildView(std::move(title));
+  progress_bar_ = AddChildView(std::make_unique<views::ProgressBar>());
 
   SetIcon(item->GetIcon(GetAppListConfig().type()));
   SetItemName(base::UTF8ToUTF16(item->GetDisplayName()),
@@ -307,6 +319,19 @@ void AppListItemView::SetIcon(const gfx::ImageSkia& icon) {
   }
 
   Layout();
+}
+
+void AppListItemView::RefreshIcon() {
+  if (!item_weak_) {
+    SetIcon(gfx::ImageSkia());
+    return;
+  }
+
+  SetIcon(item_weak_->GetIcon(GetAppListConfig().type()));
+  if (is_folder_) {
+    icon_->SetExtendedState(GetAppListConfig(), icon_->extended(),
+                            false /*animate*/);
+  }
 }
 
 void AppListItemView::SetUIState(UIState ui_state) {
@@ -368,13 +393,6 @@ void AppListItemView::SetMouseDragging(bool mouse_dragging) {
 
   SetState(STATE_NORMAL);
   SetUIState(mouse_dragging_ ? UI_STATE_DRAGGING : UI_STATE_NORMAL);
-
-  if (!mouse_dragging_) {
-    mouse_drag_proxy_created_ = false;
-
-    // EndDrag may delete |this|.
-    apps_grid_view_->EndDrag(false);
-  }
 }
 
 void AppListItemView::OnMouseDragTimer() {
@@ -501,7 +519,7 @@ void AppListItemView::OnContextMenuModelReceived(
   views::View::ConvertRectToScreen(parent(), &anchor_rect);
 
   AppLaunchedMetricParams metric_params = {
-      ash::AppListLaunchedFrom::kLaunchedFromGrid};
+      AppListLaunchedFrom::kLaunchedFromGrid};
   delegate_->GetAppLaunchedMetricParams(&metric_params);
 
   context_menu_ = std::make_unique<AppListMenuModelAdapter>(
@@ -650,6 +668,17 @@ bool AppListItemView::OnKeyPressed(const ui::KeyEvent& event) {
 void AppListItemView::OnMouseReleased(const ui::MouseEvent& event) {
   Button::OnMouseReleased(event);
   SetMouseDragging(false);
+
+  // EndDrag may delete |this|.
+  apps_grid_view_->EndDrag(false /*cancel*/);
+}
+
+void AppListItemView::OnMouseCaptureLost() {
+  Button::OnMouseCaptureLost();
+  SetMouseDragging(false);
+
+  // EndDrag may delete |this|.
+  apps_grid_view_->EndDrag(true /*cancel*/);
 }
 
 bool AppListItemView::OnMouseDragged(const ui::MouseEvent& event) {
@@ -772,7 +801,8 @@ base::string16 AppListItemView::GetTooltipText(const gfx::Point& p) const {
 
 void AppListItemView::OnDraggedViewEnter() {
   if (is_folder_) {
-    icon_->AnimateRoundedCornerAndInsets(GetAppListConfig(), true);
+    icon_->SetExtendedState(GetAppListConfig(), true /*extended*/,
+                            true /*animate*/);
     return;
   }
   CreateDraggedViewHoverAnimation();
@@ -781,7 +811,8 @@ void AppListItemView::OnDraggedViewEnter() {
 
 void AppListItemView::OnDraggedViewExit() {
   if (is_folder_) {
-    icon_->AnimateRoundedCornerAndInsets(GetAppListConfig(), false);
+    icon_->SetExtendedState(GetAppListConfig(), false /*extended*/,
+                            true /*animate*/);
     return;
   }
   CreateDraggedViewHoverAnimation();
@@ -805,6 +836,14 @@ void AppListItemView::EnsureLayer() {
 
 void AppListItemView::FireMouseDragTimerForTest() {
   mouse_drag_timer_.FireNow();
+}
+
+bool AppListItemView::FireTouchDragTimerForTest() {
+  if (!touch_drag_timer_.IsRunning())
+    return false;
+
+  touch_drag_timer_.FireNow();
+  return true;
 }
 
 void AppListItemView::AnimationProgressed(const gfx::Animation* animation) {
@@ -916,8 +955,8 @@ gfx::Rect AppListItemView::GetProgressBarBoundsForTargetViewBounds(
   return progress_bar_bounds;
 }
 
-void AppListItemView::ItemIconChanged(ash::AppListConfigType config_type) {
-  if (config_type != ash::AppListConfigType::kShared &&
+void AppListItemView::ItemIconChanged(AppListConfigType config_type) {
+  if (config_type != AppListConfigType::kShared &&
       config_type != GetAppListConfig().type()) {
     return;
   }

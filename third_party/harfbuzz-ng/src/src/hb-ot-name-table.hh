@@ -108,6 +108,15 @@ struct NameRecord
     return_trace (out);
   }
 
+  bool isUnicode () const
+  {
+    unsigned int p = platformID;
+    unsigned int e = encodingID;
+    
+    return (p == 0 ||
+            (p == 3 && (e == 0 || e == 1 || e == 10)));
+  }
+
   bool sanitize (hb_sanitize_context_t *c, const void *base) const
   {
     TRACE_SANITIZE (this);
@@ -210,6 +219,8 @@ struct name
     auto it =
     + nameRecordZ.as_array (count)
     | hb_filter (c->plan->name_ids, &NameRecord::nameID)
+    | hb_filter (c->plan->name_languages, &NameRecord::languageID)
+    | hb_filter ([&] (const NameRecord& namerecord) { return c->plan->name_legacy || namerecord.isUnicode (); })
     ;
 
     name_prime->serialize (c->serializer, it, hb_addressof (this + stringOffset));
@@ -281,16 +292,14 @@ struct name
       this->table.destroy ();
     }
 
-    int get_index (hb_ot_name_id_t   name_id,
-			  hb_language_t     language,
-			  unsigned int     *width=nullptr) const
+    int get_index (hb_ot_name_id_t  name_id,
+		   hb_language_t    language,
+		   unsigned int    *width=nullptr) const
     {
       const hb_ot_name_entry_t key = {name_id, {0}, language};
-      const hb_ot_name_entry_t *entry = (const hb_ot_name_entry_t *)
-					hb_bsearch (&key,
-						    (const hb_ot_name_entry_t *) this->names,
+      const hb_ot_name_entry_t *entry = hb_bsearch (key, (const hb_ot_name_entry_t *) this->names,
 						    this->names.length,
-						    sizeof (key),
+						    sizeof (hb_ot_name_entry_t),
 						    _hb_ot_name_entry_cmp_key);
       if (!entry)
 	return -1;

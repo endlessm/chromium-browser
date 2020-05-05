@@ -578,7 +578,7 @@ void AccessibilityWinBrowserTest::CheckTextAtOffset(
   EXPECT_EQ(S_OK, hr);
   EXPECT_EQ(expected_start_offset, start_offset);
   EXPECT_EQ(expected_end_offset, end_offset);
-  EXPECT_EQ(expected_text, std::wstring(text, text.Length()));
+  EXPECT_STREQ(expected_text.c_str(), text);
 }
 
 std::vector<base::win::ScopedVariant>
@@ -2857,13 +2857,13 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   invalid_offset = InputContentsString().size();
   hr = input_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_CHAR,
                                     &start_offset, &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
   hr = input_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_WORD,
                                     &start_offset, &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2873,9 +2873,16 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
+  hr = input_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_LINE,
+                                    &start_offset, &end_offset, text.Receive());
+  EXPECT_EQ(S_OK, hr);
+  EXPECT_EQ(0, start_offset);
+  EXPECT_EQ(46, end_offset);
+  EXPECT_STREQ(L"Moz/5.0 (ST 6.x; WWW33) WebKit  \"KHTML, like\".", text);
+  text.Reset();
   hr = input_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_ALL,
                                     &start_offset, &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2885,14 +2892,14 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   hr = input_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
                                     IA2_TEXT_BOUNDARY_CHAR, &start_offset,
                                     &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
   hr = input_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
                                     IA2_TEXT_BOUNDARY_WORD, &start_offset,
                                     &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2904,9 +2911,17 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
   hr = input_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
+                                    IA2_TEXT_BOUNDARY_LINE, &start_offset,
+                                    &end_offset, text.Receive());
+  EXPECT_EQ(S_OK, hr);
+  EXPECT_EQ(0, start_offset);
+  EXPECT_EQ(46, end_offset);
+  EXPECT_STREQ(L"Moz/5.0 (ST 6.x; WWW33) WebKit  \"KHTML, like\".", text);
+  text.Reset();
+  hr = input_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
                                     IA2_TEXT_BOUNDARY_ALL, &start_offset,
                                     &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2947,14 +2962,14 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   hr = textarea_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_CHAR,
                                        &start_offset, &end_offset,
                                        text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
   hr = textarea_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_WORD,
                                        &start_offset, &end_offset,
                                        text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2965,10 +2980,18 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
+  hr = textarea_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_LINE,
+                                       &start_offset, &end_offset,
+                                       text.Receive());
+  EXPECT_EQ(S_OK, hr);
+  EXPECT_EQ(32, start_offset);
+  EXPECT_EQ(46, end_offset);
+  EXPECT_STREQ(L"\"KHTML, like\".", text);
+  text.Reset();
   hr = textarea_text->get_textAtOffset(invalid_offset, IA2_TEXT_BOUNDARY_ALL,
                                        &start_offset, &end_offset,
                                        text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2978,14 +3001,14 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   hr = textarea_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
                                        IA2_TEXT_BOUNDARY_CHAR, &start_offset,
                                        &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
   hr = textarea_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
                                        IA2_TEXT_BOUNDARY_WORD, &start_offset,
                                        &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -2997,9 +3020,17 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
   hr = textarea_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
+                                       IA2_TEXT_BOUNDARY_LINE, &start_offset,
+                                       &end_offset, text.Receive());
+  EXPECT_EQ(S_OK, hr);
+  EXPECT_EQ(32, start_offset);
+  EXPECT_EQ(46, end_offset);
+  EXPECT_STREQ(L"\"KHTML, like\".", text);
+  text.Reset();
+  hr = textarea_text->get_textAtOffset(IA2_TEXT_OFFSET_LENGTH,
                                        IA2_TEXT_BOUNDARY_ALL, &start_offset,
                                        &end_offset, text.Receive());
-  EXPECT_EQ(S_FALSE, hr);
+  EXPECT_EQ(E_INVALIDARG, hr);
   EXPECT_EQ(0, start_offset);
   EXPECT_EQ(0, end_offset);
   EXPECT_EQ(nullptr, static_cast<BSTR>(text));
@@ -3105,6 +3136,74 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
       ++offset;
     }
   }
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
+                       TestTextAtOffsetWithBoundaryCharacterAndEmbeddedObject) {
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(<!DOCTYPE html>
+      <div contenteditable>
+        Before<img alt="image">after.
+      </div>
+      )HTML");
+
+  Microsoft::WRL::ComPtr<IAccessible> document(GetRendererAccessible());
+  std::vector<base::win::ScopedVariant> document_children =
+      GetAllAccessibleChildren(document.Get());
+  ASSERT_EQ(1u, document_children.size());
+
+  Microsoft::WRL::ComPtr<IAccessible2> contenteditable;
+  ASSERT_HRESULT_SUCCEEDED(QueryIAccessible2(
+      GetAccessibleFromVariant(document.Get(), document_children[0].AsInput())
+          .Get(),
+      &contenteditable));
+
+  Microsoft::WRL::ComPtr<IAccessibleText> contenteditable_text;
+  ASSERT_HRESULT_SUCCEEDED(contenteditable.As(&contenteditable_text));
+
+  LONG n_characters;
+  ASSERT_HRESULT_SUCCEEDED(
+      contenteditable_text->get_nCharacters(&n_characters));
+  ASSERT_EQ(13, n_characters);
+
+  const base::string16 embedded_character(
+      1, BrowserAccessibilityComWin::kEmbeddedCharacter);
+  const std::wstring expected_hypertext =
+      L"Before" + base::UTF16ToWide(embedded_character) + L"after.";
+
+  // "Before".
+  //
+  // The embedded object character representing the image is at offset 6.
+  for (LONG i = 0; i <= 6; ++i) {
+    CheckTextAtOffset(contenteditable_text, i, IA2_TEXT_BOUNDARY_CHAR, i,
+                      (i + 1), std::wstring(1, expected_hypertext[i]));
+  }
+
+  // "after.".
+  //
+  // Note that according to the IA2 Spec, an offset that is equal to
+  // "n_characters" is not permitted.
+  for (LONG i = 7; i < n_characters; ++i) {
+    CheckTextAtOffset(contenteditable_text, i, IA2_TEXT_BOUNDARY_CHAR, i,
+                      (i + 1), std::wstring(1, expected_hypertext[i]));
+  }
+
+  std::vector<base::win::ScopedVariant> contenteditable_children =
+      GetAllAccessibleChildren(contenteditable.Get());
+  ASSERT_EQ(3u, contenteditable_children.size());
+  // The image is the second child.
+  Microsoft::WRL::ComPtr<IAccessible2> image;
+  ASSERT_HRESULT_SUCCEEDED(QueryIAccessible2(
+      GetAccessibleFromVariant(contenteditable.Get(),
+                               contenteditable_children[1].AsInput())
+          .Get(),
+      &image));
+  LONG image_role = 0;
+  ASSERT_HRESULT_SUCCEEDED(image->role(&image_role));
+  ASSERT_EQ(ROLE_SYSTEM_GRAPHIC, image_role);
+
+  // The alt text of the image is not navigable as text.
+  Microsoft::WRL::ComPtr<IAccessibleText> image_text;
+  EXPECT_HRESULT_FAILED(image.As(&image_text));
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,

@@ -27,22 +27,27 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+import * as Common from '../common/common.js';
+
+import {Events as WorkspaceImplEvents, Project, projectTypes} from './WorkspaceImpl.js';  // eslint-disable-line no-unused-vars
+
 /**
- * @implements {Common.ContentProvider}
+ * @implements {Common.ContentProvider.ContentProvider}
  * @unrestricted
  */
-export default class UISourceCode extends Common.Object {
+export class UISourceCode extends Common.ObjectWrapper.ObjectWrapper {
   /**
-   * @param {!Workspace.Project} project
+   * @param {!Project} project
    * @param {string} url
-   * @param {!Common.ResourceType} contentType
+   * @param {!Common.ResourceType.ResourceType} contentType
    */
   constructor(project, url, contentType) {
     super();
     this._project = project;
     this._url = url;
 
-    const parsedURL = url.asParsedURL();
+    const parsedURL = Common.ParsedURL.ParsedURL.fromString(url);
     if (parsedURL) {
       this._origin = parsedURL.securityOrigin();
       this._parentURL = this._origin + parsedURL.folderPathComponents;
@@ -132,11 +137,11 @@ export default class UISourceCode extends Common.Object {
    */
   displayName(skipTrim) {
     if (!this._name) {
-      return Common.UIString('(index)');
+      return Common.UIString.UIString('(index)');
     }
     let name = this._name;
     try {
-      if (this.project().type() === Workspace.projectTypes.FileSystem) {
+      if (this.project().type() === projectTypes.FileSystem) {
         name = unescape(name);
       } else {
         name = decodeURI(name);
@@ -167,14 +172,14 @@ export default class UISourceCode extends Common.Object {
      * @param {boolean} success
      * @param {string=} newName
      * @param {string=} newURL
-     * @param {!Common.ResourceType=} newContentType
+     * @param {!Common.ResourceType.ResourceType=} newContentType
      * @this {UISourceCode}
      */
     function innerCallback(success, newName, newURL, newContentType) {
       if (success) {
         this._updateName(
             /** @type {string} */ (newName), /** @type {string} */ (newURL),
-            /** @type {!Common.ResourceType} */ (newContentType));
+            /** @type {!Common.ResourceType.ResourceType} */ (newContentType));
       }
       fulfill(success);
     }
@@ -187,7 +192,7 @@ export default class UISourceCode extends Common.Object {
   /**
    * @param {string} name
    * @param {string} url
-   * @param {!Common.ResourceType=} contentType
+   * @param {!Common.ResourceType.ResourceType=} contentType
    */
   _updateName(name, url, contentType) {
     const oldURL = this._url;
@@ -201,7 +206,7 @@ export default class UISourceCode extends Common.Object {
     }
     this.dispatchEventToListeners(Events.TitleChanged, this);
     this.project().workspace().dispatchEventToListeners(
-        Workspace.Workspace.Events.UISourceCodeRenamed, {oldURL: oldURL, uiSourceCode: this});
+        WorkspaceImplEvents.UISourceCodeRenamed, {oldURL: oldURL, uiSourceCode: this});
   }
 
   /**
@@ -214,7 +219,7 @@ export default class UISourceCode extends Common.Object {
 
   /**
    * @override
-   * @return {!Common.ResourceType}
+   * @return {!Common.ResourceType.ResourceType}
    */
   contentType() {
     return this._contentType;
@@ -230,7 +235,7 @@ export default class UISourceCode extends Common.Object {
   }
 
   /**
-   * @return {!Workspace.Project}
+   * @return {!Project}
    */
   project() {
     return this._project;
@@ -347,9 +352,9 @@ export default class UISourceCode extends Common.Object {
     this._innerResetWorkingCopy();
     const data = {uiSourceCode: this, content, encoded: this._contentEncoded};
     this.dispatchEventToListeners(Events.WorkingCopyCommitted, data);
-    this._project.workspace().dispatchEventToListeners(Workspace.Workspace.Events.WorkingCopyCommitted, data);
+    this._project.workspace().dispatchEventToListeners(WorkspaceImplEvents.WorkingCopyCommitted, data);
     if (committedByUser) {
-      this._project.workspace().dispatchEventToListeners(Workspace.Workspace.Events.WorkingCopyCommittedByUser, data);
+      this._project.workspace().dispatchEventToListeners(WorkspaceImplEvents.WorkingCopyCommittedByUser, data);
     }
   }
 
@@ -423,8 +428,7 @@ export default class UISourceCode extends Common.Object {
   _workingCopyChanged() {
     this._removeAllMessages();
     this.dispatchEventToListeners(Events.WorkingCopyChanged, this);
-    this._project.workspace().dispatchEventToListeners(
-        Workspace.Workspace.Events.WorkingCopyChanged, {uiSourceCode: this});
+    this._project.workspace().dispatchEventToListeners(WorkspaceImplEvents.WorkingCopyChanged, {uiSourceCode: this});
   }
 
   removeWorkingCopyGetter() {
@@ -452,7 +456,7 @@ export default class UISourceCode extends Common.Object {
    * @return {string}
    */
   extension() {
-    return Common.ParsedURL.extractExtension(this._name);
+    return Common.ParsedURL.ParsedURL.extractExtension(this._name);
   }
 
   /**
@@ -827,27 +831,3 @@ export class UISourceCodeMetadata {
     this.contentSize = contentSize;
   }
 }
-
-/* Legacy exported object */
-self.Workspace = self.Workspace || {};
-
-/* Legacy exported object */
-Workspace = Workspace || {};
-
-/** @constructor */
-Workspace.UISourceCode = UISourceCode;
-
-/** @enum {symbol} */
-Workspace.UISourceCode.Events = Events;
-
-/** @constructor */
-Workspace.UISourceCode.Message = Message;
-
-/** @constructor */
-Workspace.UISourceCode.LineMarker = LineMarker;
-
-/** @constructor */
-Workspace.UILocation = UILocation;
-
-/** @constructor */
-Workspace.UISourceCodeMetadata = UISourceCodeMetadata;

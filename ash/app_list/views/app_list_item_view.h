@@ -56,6 +56,10 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   // Sets the icon of this image.
   void SetIcon(const gfx::ImageSkia& icon);
 
+  // Updates the current item icon to match the current model and app list
+  // config state.
+  void RefreshIcon();
+
   void SetItemName(const base::string16& display_name,
                    const base::string16& full_name);
   void SetItemIsInstalling(bool is_installing);
@@ -138,6 +142,8 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
 
   void FireMouseDragTimerForTest();
 
+  bool FireTouchDragTimerForTest();
+
   bool is_folder() const { return is_folder_; }
 
  private:
@@ -203,13 +209,14 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
+  void OnMouseCaptureLost() override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
   void OnFocus() override;
   void OnBlur() override;
 
   // AppListItemObserver overrides:
-  void ItemIconChanged(ash::AppListConfigType config_type) override;
+  void ItemIconChanged(AppListConfigType config_type) override;
   void ItemNameChanged() override;
   void ItemIsInstallingChanged() override;
   void ItemPercentDownloadedChanged() override;
@@ -232,12 +239,12 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
 
   AppListItem* item_weak_;  // Owned by AppListModel. Can be nullptr.
 
-  AppListViewDelegate* delegate_;            // Unowned.
-  AppsGridView* apps_grid_view_;             // Parent view, owns this.
-  IconImageView* icon_;                      // Strongly typed child view.
-  views::Label* title_;                      // Strongly typed child view.
-  views::ProgressBar* progress_bar_;         // Strongly typed child view.
-  views::ImageView* icon_shadow_ = nullptr;  // Strongly typed child view.
+  AppListViewDelegate* delegate_;               // Unowned.
+  AppsGridView* apps_grid_view_;                // Parent view, owns this.
+  IconImageView* icon_ = nullptr;               // Strongly typed child view.
+  views::Label* title_ = nullptr;               // Strongly typed child view.
+  views::ProgressBar* progress_bar_ = nullptr;  // Strongly typed child view.
+  views::ImageView* icon_shadow_ = nullptr;     // Strongly typed child view.
 
   std::unique_ptr<AppListMenuModelAdapter> context_menu_;
 
@@ -248,8 +255,6 @@ class APP_LIST_EXPORT AppListItemView : public views::Button,
 
   // True if the app is enabled for drag/drop operation by mouse.
   bool mouse_dragging_ = false;
-  // True if the drag host proxy is crated for mouse dragging.
-  bool mouse_drag_proxy_created_ = false;
 
   // Whether AppsGridView should not be notified of a focus event, triggering
   // A11y alerts and a focus ring.

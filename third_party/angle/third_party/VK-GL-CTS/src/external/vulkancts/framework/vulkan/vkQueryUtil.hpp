@@ -112,10 +112,8 @@ bool										isCompatible							(const VkLayerProperties& layerProperties, cons
 template<typename ExtensionIterator>
 bool										isExtensionSupported					(ExtensionIterator begin, ExtensionIterator end, const RequiredExtension& required);
 bool										isExtensionSupported					(const std::vector<VkExtensionProperties>& extensions, const RequiredExtension& required);
-bool										isDeviceExtensionSupported				(const deUint32 deviceVersion, const std::vector<std::string>& extensions, const std::string& required);
+
 bool										isInstanceExtensionSupported			(const deUint32 instanceVersion, const std::vector<std::string>& extensions, const std::string& required);
-bool										isDeviceExtensionSupported				(const deUint32 deviceVersion, const std::vector<VkExtensionProperties>& extensions, const RequiredExtension& required);
-bool										isInstanceExtensionSupported			(const deUint32 instanceVersion, const std::vector<VkExtensionProperties>& extensions, const RequiredExtension& required);
 
 template<typename LayerIterator>
 bool										isLayerSupported						(LayerIterator begin, LayerIterator end, const RequiredLayer& required);
@@ -138,6 +136,45 @@ StructType*									findStructure							(void* first)
 {
 	return reinterpret_cast<StructType*>(findStructureInChain(first, getStructureType<StructType>()));
 }
+
+struct getPhysicalDeviceExtensionProperties
+{
+	getPhysicalDeviceExtensionProperties (const InstanceInterface&	vki, VkPhysicalDevice physicalDevice) : m_vki(vki), m_physicalDevice(physicalDevice) {};
+
+	template<class ExtensionProperties>
+	operator ExtensionProperties ()
+	{
+		VkPhysicalDeviceProperties2	properties2;
+		ExtensionProperties			extensionProperties;
+
+		deMemset(&extensionProperties, 0x00, sizeof(ExtensionProperties));
+		extensionProperties.sType = getStructureType<ExtensionProperties>();
+
+		deMemset(&properties2, 0x00, sizeof(properties2));
+		properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+		properties2.pNext = &extensionProperties;
+
+		m_vki.getPhysicalDeviceProperties2(m_physicalDevice, &properties2);
+
+		return extensionProperties;
+	}
+
+	operator VkPhysicalDeviceProperties2 ()
+	{
+		VkPhysicalDeviceProperties2	properties2;
+
+		deMemset(&properties2, 0x00, sizeof(properties2));
+		properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+
+		m_vki.getPhysicalDeviceProperties2(m_physicalDevice, &properties2);
+
+		return properties2;
+	}
+
+private:
+	const InstanceInterface&	m_vki;
+	const VkPhysicalDevice		m_physicalDevice;
+};
 
 namespace ValidateQueryBits
 {

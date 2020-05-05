@@ -121,6 +121,10 @@ message StartVmRequest {
 
   // Enable audio capture in the started Vm.
   bool enable_audio_capture = 11;
+
+  // The number of CPUs to give to the VM.  Cannot be larger than the number of
+  // CPUs on the device and cannot be 0.
+  uint32 cpus = 12;
 }
 
 // Information that must be included with every StartPluginVm request.
@@ -140,13 +144,25 @@ message StartPluginVmRequest {
 
   // The IPv4 address to assign to the VM in network-byte order.  Must be in the
   // 100.115.92.128/28 subnet and must not be already assigned to another VM.
+  // If unspecified, a /29 subnet will be dynamically allocated
+  // from 100.115.93.0/24.
+  // Note: this field will be deprecated.
   fixed32 guest_ipv4_address = 5;
 
   // The EUI-48 MAC address to assign to the host side of the ethernet interface
   // to the VM. Must be exactly 6 bytes and must not be in use by another VM.
   // Must have the locally administered bit (0x02) set and the multicast bit
   // (0x01) unset.
+  // If empty, a random MAC address will be generated and assigned.
+  // Note: this field will be deprecated.
   bytes host_mac_address = 6;
+
+  // Indicates that a specific /29 subnet should be allocated from
+  // 100.115.93.0/24 for use by this VM; and if it is not available, then the
+  // request should fail.
+  // This field is only used if |guest_ipv4_address| is empty.
+  // Valid values are 1 - 32, inclusive.
+  uint32 subnet_index = 7;
 }
 
 // Information that must be included with every StartArcVm request.
@@ -363,7 +379,8 @@ message CreateDiskImageRequest {
   string disk_path = 2;
 
   // The logical size of the new disk image, in bytes.
-  // If unspecified or 0, a size will be chosen automatically.
+  // If non-zero, the disk will be preallocated and fixed to the given size.
+  // If unspecified or 0, a size will be chosen automatically and the image will be sparse.
   uint64 disk_size = 3;
 
   // The type of disk image to be created.

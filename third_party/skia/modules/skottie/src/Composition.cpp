@@ -8,7 +8,7 @@
 #include "modules/skottie/src/Composition.h"
 
 #include "include/core/SkCanvas.h"
-#include "modules/skottie/src/SkottieAdapter.h"
+#include "modules/skottie/src/Camera.h"
 #include "modules/skottie/src/SkottieJson.h"
 #include "modules/skottie/src/SkottiePriv.h"
 #include "modules/sksg/include/SkSGGroup.h"
@@ -120,7 +120,10 @@ sk_sp<sksg::RenderNode> AnimationBuilder::attachAssetRef(
 }
 
 CompositionBuilder::CompositionBuilder(const AnimationBuilder& abuilder,
-                                       const skjson::ObjectValue& jcomp) {
+                                       const SkSize& size,
+                                       const skjson::ObjectValue& jcomp)
+    : fSize(size) {
+
     // Optional motion blur params.
     if (const skjson::ObjectValue* jmb = jcomp["mb"]) {
         static constexpr size_t kMaxSamplesPerFrame = 64;
@@ -163,19 +166,11 @@ CompositionBuilder::CompositionBuilder(const AnimationBuilder& abuilder,
         fCameraTransform = fLayerBuilders[camera_builder_index].buildTransform(abuilder, this);
     } else if (ParseDefault<int>(jcomp["ddd"], 0)) {
         // Default/implicit camera when 3D layers are present.
-        fCameraTransform = CameraAdapter::MakeDefault(abuilder.fSize)->refTransform();
+        fCameraTransform = CameraAdaper::DefaultCameraTransform(fSize);
     }
 }
 
 CompositionBuilder::~CompositionBuilder() = default;
-
-void CompositionBuilder::pushMatte(sk_sp<sksg::RenderNode> matte) {
-    fCurrentMatte = std::move(matte);
-}
-
-sk_sp<sksg::RenderNode> CompositionBuilder::popMatte() {
-    return std::move(fCurrentMatte);
-}
 
 LayerBuilder* CompositionBuilder::layerBuilder(int layer_index) {
     if (layer_index < 0) {
@@ -199,10 +194,12 @@ sk_sp<sksg::RenderNode> CompositionBuilder::build(const AnimationBuilder& abuild
     std::vector<sk_sp<sksg::RenderNode>> layers;
     layers.reserve(fLayerBuilders.size());
 
+    LayerBuilder* prev_layer = nullptr;
     for (auto& lbuilder : fLayerBuilders) {
-        if (auto layer = lbuilder.buildRenderTree(abuilder, this)) {
+        if (auto layer = lbuilder.buildRenderTree(abuilder, this, prev_layer)) {
             layers.push_back(std::move(layer));
         }
+        prev_layer = &lbuilder;
     }
 
     if (layers.empty()) {

@@ -4,7 +4,6 @@
 
 package org.chromium.weblayer.test;
 
-import android.os.SystemClock;
 import android.support.test.filters.SmallTest;
 import android.support.v4.app.Fragment;
 import android.view.View;
@@ -15,8 +14,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content_public.browser.test.util.Criteria;
 import org.chromium.content_public.browser.test.util.CriteriaHelper;
@@ -29,7 +29,8 @@ import org.chromium.weblayer.shell.InstrumentationActivity;
 /**
  * Test for top-controls.
  */
-@RunWith(BaseJUnit4ClassRunner.class)
+@RunWith(WebLayerJUnit4ClassRunner.class)
+@CommandLineFlags.Add("enable-features=ImmediatelyHideBrowserControlsForTest")
 public class TopControlsTest {
     @Rule
     public InstrumentationActivityTestRule mActivityTestRule =
@@ -75,6 +76,7 @@ public class TopControlsTest {
 
     @Test
     @SmallTest
+    @FlakyTest(message = "see crbug.com/1035894")
     public void testBasic() throws Exception {
         final String url = UrlUtils.encodeHtmlDataUri("<body><p style='height:5000px'>");
         InstrumentationActivity activity = mActivityTestRule.launchShellWithUrl(url);
@@ -88,10 +90,6 @@ public class TopControlsTest {
         // Get the size of the page.
         mInitialVisiblePageHeight = getVisiblePageHeight();
         Assert.assertTrue(mInitialVisiblePageHeight > 0);
-
-        // TODO(http://crbug.com/1034147): Remove this and find a way to pass command line arguments
-        // to the implementation.
-        SystemClock.sleep(3100);
 
         // Move by the size of the top-controls.
         EventUtils.simulateDragFromCenterOfView(

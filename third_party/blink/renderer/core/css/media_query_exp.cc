@@ -32,6 +32,7 @@
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
 #include "third_party/blink/renderer/core/css/css_math_function_value.h"
 #include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
 #include "third_party/blink/renderer/core/css/parser/css_property_parser_helpers.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
@@ -80,11 +81,9 @@ static inline bool FeatureWithValidIdent(const String& media_feature,
            ident == CSSValueID::kRec2020;
   }
 
-  if (RuntimeEnabledFeatures::MediaQueryPrefersColorSchemeEnabled()) {
-    if (media_feature == media_feature_names::kPrefersColorSchemeMediaFeature) {
-      return ident == CSSValueID::kNoPreference || ident == CSSValueID::kDark ||
-             ident == CSSValueID::kLight;
-    }
+  if (media_feature == media_feature_names::kPrefersColorSchemeMediaFeature) {
+    return ident == CSSValueID::kNoPreference || ident == CSSValueID::kDark ||
+           ident == CSSValueID::kLight;
   }
 
   if (media_feature == media_feature_names::kPrefersReducedMotionMediaFeature)
@@ -259,12 +258,15 @@ MediaQueryExp::MediaQueryExp(const String& media_feature,
     : media_feature_(media_feature), exp_value_(exp_value) {}
 
 MediaQueryExp MediaQueryExp::Create(const String& media_feature,
-                                    CSSParserTokenRange& range) {
+                                    CSSParserTokenRange& range,
+                                    const CSSParserContext& context) {
   DCHECK(!media_feature.IsNull());
 
   MediaQueryExpValue exp_value;
   String lower_media_feature =
       AttemptStaticStringCreation(media_feature.LowerASCII());
+
+  CSSParserContext::ParserModeOverridingScope scope(context, kHTMLStandardMode);
 
   CSSPrimitiveValue* value =
       css_property_parser_helpers::ConsumeInteger(range, 0);
@@ -274,7 +276,7 @@ MediaQueryExp MediaQueryExp::Create(const String& media_feature,
                                                        kValueRangeNonNegative);
   }
   if (!value) {
-    value = css_property_parser_helpers::ConsumeLength(range, kHTMLStandardMode,
+    value = css_property_parser_helpers::ConsumeLength(range, context,
                                                        kValueRangeNonNegative);
   }
   if (!value)

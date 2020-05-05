@@ -728,7 +728,7 @@ int vp9_set_roi_map(VP9_COMP *cpi, unsigned char *map, unsigned int rows,
   }
   CHECK_MEM_ERROR(cm, roi->roi_map, vpx_malloc(rows * cols));
 
-  // Copy to ROI sturcture in the compressor.
+  // Copy to ROI structure in the compressor.
   memcpy(roi->roi_map, map, rows * cols);
   memcpy(&roi->delta_q, delta_q, MAX_SEGMENTS * sizeof(delta_q[0]));
   memcpy(&roi->delta_lf, delta_lf, MAX_SEGMENTS * sizeof(delta_lf[0]));
@@ -1020,6 +1020,10 @@ static void dealloc_compressor_data(VP9_COMP *cpi) {
 
   vpx_free(cpi->mi_ssim_rdmult_scaling_factors);
   cpi->mi_ssim_rdmult_scaling_factors = NULL;
+
+#if CONFIG_RATE_CTRL
+  free_partition_info(cpi);
+#endif
 
   vp9_free_ref_frame_buffers(cm->buffer_pool);
 #if CONFIG_VP9_POSTPROC
@@ -2056,7 +2060,7 @@ void vp9_change_config(struct VP9_COMP *cpi, const VP9EncoderConfig *oxcf) {
   // configuration change has a large change in avg_frame_bandwidth.
   // For SVC check for resetting based on spatial layer average bandwidth.
   // Also reset buffer level to optimal level.
-  if (cm->current_video_frame > 0) {
+  if (cm->current_video_frame > (unsigned int)cpi->svc.number_spatial_layers) {
     if (cpi->use_svc) {
       vp9_svc_check_reset_layer_rc_flag(cpi);
     } else {
@@ -2171,8 +2175,6 @@ static void init_ref_frame_bufs(VP9_COMMON *cm) {
   }
 }
 
-static void init_motion_estimation(VP9_COMP *cpi);
-
 static void update_initial_width(VP9_COMP *cpi, int use_highbitdepth,
                                  int subsampling_x, int subsampling_y) {
   VP9_COMMON *const cm = &cpi->common;
@@ -2193,7 +2195,6 @@ static void update_initial_width(VP9_COMP *cpi, int use_highbitdepth,
     cm->use_highbitdepth = use_highbitdepth;
 #endif
     alloc_util_frame_buffers(cpi);
-    init_motion_estimation(cpi);
     cpi->initial_width = cm->width;
     cpi->initial_height = cm->height;
     cpi->initial_mbs = cm->MBs;
@@ -2652,6 +2653,7 @@ VP9_COMP *vp9_create_compressor(const VP9EncoderConfig *oxcf,
 
 #if CONFIG_RATE_CTRL
   encode_command_init(&cpi->encode_command);
+  partition_info_init(cpi);
 #endif
 
   return cpi;
@@ -4068,7 +4070,7 @@ static int encode_without_recode_loop(VP9_COMP *cpi, size_t *size,
                                  cpi->oxcf.rc_mode == VPX_CBR &&
                                  cm->frame_type != KEY_FRAME;
 
-  vp9_set_quantizer(cm, q);
+  vp9_set_quantizer(cpi, q);
   vp9_set_variance_partition_thresholds(cpi, q, 0);
 
   setup_frame(cpi);
@@ -4097,7 +4099,7 @@ static int encode_without_recode_loop(VP9_COMP *cpi, size_t *size,
       (cpi->rc.high_source_sad ||
        (cpi->use_svc && svc->high_source_sad_superframe))) {
     if (vp9_encodedframe_overshoot(cpi, -1, &q)) {
-      vp9_set_quantizer(cm, q);
+      vp9_set_quantizer(cpi, q);
       vp9_set_variance_partition_thresholds(cpi, q, 0);
     }
   }
@@ -4147,7 +4149,7 @@ static int encode_without_recode_loop(VP9_COMP *cpi, size_t *size,
     // adjust some rate control parameters, and return to re-encode the frame.
     if (vp9_encodedframe_overshoot(cpi, frame_size, &q)) {
       vpx_clear_system_state();
-      vp9_set_quantizer(cm, q);
+      vp9_set_quantizer(cpi, q);
       vp9_set_variance_partition_thresholds(cpi, q, 0);
       suppress_active_map(cpi);
       // Turn-off cyclic refresh for re-encoded frame.
@@ -4297,7 +4299,7 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size,
     }
 #endif
 
-    vp9_set_quantizer(cm, q);
+    vp9_set_quantizer(cpi, q);
 
     if (loop_count == 0) setup_frame(cpi);
 
@@ -4337,7 +4339,7 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size,
 
 #if CONFIG_RATE_CTRL
     // This part needs to be after save_coding_context() because
-    // restore_coding_context may be called in the end of this function.
+    // restore_coding_context will be called in the end of this function.
     // TODO(angiebird): This is a hack for making sure the encoder use the
     // external_quantize_index exactly. Avoid this kind of hack later.
     if (cpi->encode_command.use_external_quantize_index) {
@@ -4482,7 +4484,7 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size,
             // Special case reset for qlow for constrained quality.
             // This should only trigger where there is very substantial
             // undershoot on a frame and the auto cq level is above
-            // the user passsed in value.
+            // the user passed in value.
             if (oxcf->rc_mode == VPX_CQ && q < q_low) {
               q_low = q;
             }
@@ -4521,7 +4523,7 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size,
     }
 
     if (cpi->sf.recode_loop >= ALLOW_RECODE_KFARFGF)
-      if (loop || !enable_acl) restore_coding_context(cpi);
+      if (loop) restore_coding_context(cpi);
   } while (loop);
 
 #ifdef AGGRESSIVE_VBR
@@ -4547,13 +4549,11 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size,
     // Skip recoding, if model diff is below threshold
     const int thresh = compute_context_model_thresh(cpi);
     const int diff = compute_context_model_diff(cm);
-    if (diff < thresh) {
-      vpx_clear_system_state();
-      restore_coding_context(cpi);
-      return;
+    if (diff >= thresh) {
+      vp9_encode_frame(cpi);
     }
-
-    vp9_encode_frame(cpi);
+  }
+  if (cpi->sf.recode_loop >= ALLOW_RECODE_KFARFGF) {
     vpx_clear_system_state();
     restore_coding_context(cpi);
   }
@@ -4697,7 +4697,7 @@ static int setup_interp_filter_search_mask(VP9_COMP *cpi) {
 }
 
 #ifdef ENABLE_KF_DENOISE
-// Baseline Kernal weights for denoise
+// Baseline kernel weights for denoise
 static uint8_t dn_kernal_3[9] = { 1, 2, 1, 2, 4, 2, 1, 2, 1 };
 static uint8_t dn_kernal_5[25] = { 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 4,
                                    2, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1 };
@@ -4732,7 +4732,7 @@ static void spatial_denoise_point(uint8_t *src_ptr, const int stride,
     tmp_ptr += stride;
   }
 
-  // Select the kernal size.
+  // Select the kernel size.
   if (max_diff > (strength + (strength >> 1))) {
     kernal_size = 3;
     half_k_size = 1;
@@ -4740,7 +4740,7 @@ static void spatial_denoise_point(uint8_t *src_ptr, const int stride,
   }
   kernal_ptr = (kernal_size == 3) ? dn_kernal_3 : dn_kernal_5;
 
-  // Apply the kernal
+  // Apply the kernel
   tmp_ptr = src_ptr - (stride * half_k_size) - half_k_size;
   for (i = 0; i < kernal_size; ++i) {
     for (j = 0; j < kernal_size; ++j) {
@@ -4777,7 +4777,7 @@ static void highbd_spatial_denoise_point(uint16_t *src_ptr, const int stride,
     tmp_ptr += stride;
   }
 
-  // Select the kernal size.
+  // Select the kernel size.
   if (max_diff > (strength + (strength >> 1))) {
     kernal_size = 3;
     half_k_size = 1;
@@ -4785,7 +4785,7 @@ static void highbd_spatial_denoise_point(uint16_t *src_ptr, const int stride,
   }
   kernal_ptr = (kernal_size == 3) ? dn_kernal_3 : dn_kernal_5;
 
-  // Apply the kernal
+  // Apply the kernel
   tmp_ptr = src_ptr - (stride * half_k_size) - half_k_size;
   for (i = 0; i < kernal_size; ++i) {
     for (j = 0; j < kernal_size; ++j) {
@@ -4801,7 +4801,7 @@ static void highbd_spatial_denoise_point(uint16_t *src_ptr, const int stride,
 }
 #endif  // CONFIG_VP9_HIGHBITDEPTH
 
-// Apply thresholded spatial noise supression to a given buffer.
+// Apply thresholded spatial noise suppression to a given buffer.
 static void spatial_denoise_buffer(VP9_COMP *cpi, uint8_t *buffer,
                                    const int stride, const int width,
                                    const int height, const int strength) {
@@ -4826,7 +4826,7 @@ static void spatial_denoise_buffer(VP9_COMP *cpi, uint8_t *buffer,
   }
 }
 
-// Apply thresholded spatial noise supression to source.
+// Apply thresholded spatial noise suppression to source.
 static void spatial_denoise_frame(VP9_COMP *cpi) {
   YV12_BUFFER_CONFIG *src = cpi->Source;
   const VP9EncoderConfig *const oxcf = &cpi->oxcf;
@@ -5929,7 +5929,7 @@ static uint32_t full_pixel_motion_search(VP9_COMP *cpi, ThreadData *td,
   int step_param;
   uint32_t bestsme = UINT_MAX;
   const MvLimits tmp_mv_limits = x->mv_limits;
-  // lambda is used to adjust the importance of motion vector consitency.
+  // lambda is used to adjust the importance of motion vector consistency.
   // TODO(angiebird): Figure out lambda's proper value.
   const int lambda = cpi->tpl_stats[frame_idx].lambda;
   int_mv nb_full_mvs[NB_MVS_NUM];
@@ -6650,7 +6650,7 @@ static void predict_mv_mode(VP9_COMP *cpi, MACROBLOCK *x,
   assert(kMvPreCheckSize == (kMvPreCheckLines * (kMvPreCheckLines + 1)) >> 1);
 
   // no new mv
-  // diagnal scan order
+  // diagonal scan order
   tmp_idx = 0;
   for (idx = 0; idx < kMvPreCheckLines; ++idx) {
     int r;
@@ -7101,28 +7101,155 @@ static void setup_tpl_stats(VP9_COMP *cpi) {
 }
 
 static void init_encode_frame_result(ENCODE_FRAME_RESULT *encode_frame_result) {
-  encode_frame_result->show_idx = -1;  // Actual encoding deosn't happen.
+  encode_frame_result->show_idx = -1;  // Actual encoding doesn't happen.
 }
 
 #if !CONFIG_REALTIME_ONLY
-static void update_encode_frame_result(ENCODE_FRAME_RESULT *encode_frame_result,
-                                       int show_idx,
-                                       FRAME_UPDATE_TYPE update_type,
-                                       const YV12_BUFFER_CONFIG *source_frame,
-                                       const YV12_BUFFER_CONFIG *coded_frame,
-                                       int quantize_index, uint32_t bit_depth,
-                                       uint32_t input_bit_depth) {
+#if CONFIG_RATE_CTRL
+static void copy_frame_counts(const FRAME_COUNTS *input_counts,
+                              FRAME_COUNTS *output_counts) {
+  int i, j, k, l, m, n;
+  for (i = 0; i < BLOCK_SIZE_GROUPS; ++i) {
+    for (j = 0; j < INTRA_MODES; ++j) {
+      output_counts->y_mode[i][j] = input_counts->y_mode[i][j];
+    }
+  }
+  for (i = 0; i < INTRA_MODES; ++i) {
+    for (j = 0; j < INTRA_MODES; ++j) {
+      output_counts->uv_mode[i][j] = input_counts->uv_mode[i][j];
+    }
+  }
+  for (i = 0; i < PARTITION_CONTEXTS; ++i) {
+    for (j = 0; j < PARTITION_TYPES; ++j) {
+      output_counts->partition[i][j] = input_counts->partition[i][j];
+    }
+  }
+  for (i = 0; i < TX_SIZES; ++i) {
+    for (j = 0; j < PLANE_TYPES; ++j) {
+      for (k = 0; k < REF_TYPES; ++k) {
+        for (l = 0; l < COEF_BANDS; ++l) {
+          for (m = 0; m < COEFF_CONTEXTS; ++m) {
+            output_counts->eob_branch[i][j][k][l][m] =
+                input_counts->eob_branch[i][j][k][l][m];
+            for (n = 0; n < UNCONSTRAINED_NODES + 1; ++n) {
+              output_counts->coef[i][j][k][l][m][n] =
+                  input_counts->coef[i][j][k][l][m][n];
+            }
+          }
+        }
+      }
+    }
+  }
+  for (i = 0; i < SWITCHABLE_FILTER_CONTEXTS; ++i) {
+    for (j = 0; j < SWITCHABLE_FILTERS; ++j) {
+      output_counts->switchable_interp[i][j] =
+          input_counts->switchable_interp[i][j];
+    }
+  }
+  for (i = 0; i < INTER_MODE_CONTEXTS; ++i) {
+    for (j = 0; j < INTER_MODES; ++j) {
+      output_counts->inter_mode[i][j] = input_counts->inter_mode[i][j];
+    }
+  }
+  for (i = 0; i < INTRA_INTER_CONTEXTS; ++i) {
+    for (j = 0; j < 2; ++j) {
+      output_counts->intra_inter[i][j] = input_counts->intra_inter[i][j];
+    }
+  }
+  for (i = 0; i < COMP_INTER_CONTEXTS; ++i) {
+    for (j = 0; j < 2; ++j) {
+      output_counts->comp_inter[i][j] = input_counts->comp_inter[i][j];
+    }
+  }
+  for (i = 0; i < REF_CONTEXTS; ++i) {
+    for (j = 0; j < 2; ++j) {
+      for (k = 0; k < 2; ++k) {
+        output_counts->single_ref[i][j][k] = input_counts->single_ref[i][j][k];
+      }
+    }
+  }
+  for (i = 0; i < REF_CONTEXTS; ++i) {
+    for (j = 0; j < 2; ++j) {
+      output_counts->comp_ref[i][j] = input_counts->comp_ref[i][j];
+    }
+  }
+  for (i = 0; i < SKIP_CONTEXTS; ++i) {
+    for (j = 0; j < 2; ++j) {
+      output_counts->skip[i][j] = input_counts->skip[i][j];
+    }
+  }
+  for (i = 0; i < TX_SIZE_CONTEXTS; i++) {
+    for (j = 0; j < TX_SIZES; j++) {
+      output_counts->tx.p32x32[i][j] = input_counts->tx.p32x32[i][j];
+    }
+    for (j = 0; j < TX_SIZES - 1; j++) {
+      output_counts->tx.p16x16[i][j] = input_counts->tx.p16x16[i][j];
+    }
+    for (j = 0; j < TX_SIZES - 2; j++) {
+      output_counts->tx.p8x8[i][j] = input_counts->tx.p8x8[i][j];
+    }
+  }
+  for (i = 0; i < TX_SIZES; i++) {
+    output_counts->tx.tx_totals[i] = input_counts->tx.tx_totals[i];
+  }
+  for (i = 0; i < MV_JOINTS; i++) {
+    output_counts->mv.joints[i] = input_counts->mv.joints[i];
+  }
+  for (k = 0; k < 2; k++) {
+    nmv_component_counts *const comps = &output_counts->mv.comps[k];
+    const nmv_component_counts *const comps_t = &input_counts->mv.comps[k];
+    for (i = 0; i < 2; i++) {
+      comps->sign[i] = comps_t->sign[i];
+      comps->class0_hp[i] = comps_t->class0_hp[i];
+      comps->hp[i] = comps_t->hp[i];
+    }
+    for (i = 0; i < MV_CLASSES; i++) {
+      comps->classes[i] = comps_t->classes[i];
+    }
+    for (i = 0; i < CLASS0_SIZE; i++) {
+      comps->class0[i] = comps_t->class0[i];
+      for (j = 0; j < MV_FP_SIZE; j++) {
+        comps->class0_fp[i][j] = comps_t->class0_fp[i][j];
+      }
+    }
+    for (i = 0; i < MV_OFFSET_BITS; i++) {
+      for (j = 0; j < 2; j++) {
+        comps->bits[i][j] = comps_t->bits[i][j];
+      }
+    }
+    for (i = 0; i < MV_FP_SIZE; i++) {
+      comps->fp[i] = comps_t->fp[i];
+    }
+  }
+}
+#endif  // CONFIG_RATE_CTRL
+
+static void update_encode_frame_result(
+    int show_idx, FRAME_UPDATE_TYPE update_type,
+    const YV12_BUFFER_CONFIG *source_frame,
+    const YV12_BUFFER_CONFIG *coded_frame, int quantize_index,
+    uint32_t bit_depth, uint32_t input_bit_depth, const FRAME_COUNTS *counts,
+    ENCODE_FRAME_RESULT *encode_frame_result) {
+#if CONFIG_RATE_CTRL
   PSNR_STATS psnr;
 #if CONFIG_VP9_HIGHBITDEPTH
   vpx_calc_highbd_psnr(source_frame, coded_frame, &psnr, bit_depth,
                        input_bit_depth);
-#else
+#else   // CONFIG_VP9_HIGHBITDEPTH
   (void)bit_depth;
   (void)input_bit_depth;
   vpx_calc_psnr(source_frame, coded_frame, &psnr);
-#endif
+#endif  // CONFIG_VP9_HIGHBITDEPTH
   encode_frame_result->psnr = psnr.psnr[0];
   encode_frame_result->sse = psnr.sse[0];
+  copy_frame_counts(counts, &encode_frame_result->frame_counts);
+#else   // CONFIG_RATE_CTRL
+  (void)bit_depth;
+  (void)input_bit_depth;
+  (void)source_frame;
+  (void)coded_frame;
+  (void)counts;
+#endif  // CONFIG_RATE_CTRL
   encode_frame_result->show_idx = show_idx;
   encode_frame_result->update_type = update_type;
   encode_frame_result->quantize_index = quantize_index;
@@ -7413,17 +7540,18 @@ int vp9_get_compressed_data(VP9_COMP *cpi, unsigned int *frame_flags,
     // 1) twopass.gf_group.index is initialized at define_gf_group by vp9_zero()
     // for the first frame in the gf_group and is updated for the next frame at
     // vp9_twopass_postencode_update().
-    // 2) cpi->Source is updated at the beginging of this function, i.e.
+    // 2) cpi->Source is updated at the beginning of this function, i.e.
     // vp9_get_compressed_data()
-    // 3) cm->new_fb_idx is updated at the beginging of this function by
+    // 3) cm->new_fb_idx is updated at the beginning of this function by
     // get_free_fb(cm)
     // TODO(angiebird): Improve the codebase to make the update of frame
     // dependent variables more robust.
     update_encode_frame_result(
-        encode_frame_result, source->show_idx,
+        source->show_idx,
         cpi->twopass.gf_group.update_type[cpi->twopass.gf_group.index],
         cpi->Source, get_frame_new_buffer(cm), vp9_get_quantizer(cpi),
-        cpi->oxcf.input_bit_depth, cm->bit_depth);
+        cpi->oxcf.input_bit_depth, cm->bit_depth, cpi->td.counts,
+        encode_frame_result);
     vp9_twopass_postencode_update(cpi);
   } else if (cpi->use_svc) {
     SvcEncode(cpi, size, dest, frame_flags);

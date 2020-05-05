@@ -47,7 +47,7 @@ void main() {
 
     {
         SkScalar y = srcRect.y() * invH;
-        if (srcProxy.origin() != kTopLeft_GrSurfaceOrigin) {
+        if (srcView.origin() != kTopLeft_GrSurfaceOrigin) {
             y = 1.0f - (srcRect.height() / bounds.height()) - y;
         }
 
@@ -57,7 +57,7 @@ void main() {
     {
         SkScalar y = bounds.y() * invH;
         SkScalar hSign = 1.f;
-        if (srcProxy.origin() != kTopLeft_GrSurfaceOrigin) {
+        if (srcView.origin() != kTopLeft_GrSurfaceOrigin) {
             y = 1.0f - bounds.y() * invH;
             hSign = -1.f;
         }
@@ -71,7 +71,7 @@ void main() {
 }
 
 @test(d) {
-    sk_sp<GrTextureProxy> proxy = d->textureProxy(0);
+    auto [proxy, ct, at] = d->randomProxy();
     const int kMaxWidth = 200;
     const int kMaxHeight = 200;
     const SkScalar kMaxInset = 20.0f;

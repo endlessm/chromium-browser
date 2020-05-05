@@ -50,7 +50,7 @@ GrGLProgram* GrGLProgramBuilder::CreateProgram(GrRenderTarget* renderTarget,
                                                GrProgramDesc* desc,
                                                GrGLGpu* gpu,
                                                const GrGLPrecompiledProgram* precompiledProgram) {
-    ATRACE_ANDROID_FRAMEWORK("Shader Compile");
+    ATRACE_ANDROID_FRAMEWORK_ALWAYS("shader_compile");
     GrAutoLocaleSetter als("C");
 
     // create a builder.  This will be handed off to effects so they can use it to add
@@ -254,6 +254,7 @@ GrGLProgram* GrGLProgramBuilder::finalize(const GrGLPrecompiledProgram* precompi
         this->computeCountsAndStrides(programID, primProc, false);
         usedProgramBinaries = true;
     } else if (cached) {
+        ATRACE_ANDROID_FRAMEWORK_ALWAYS("cache_hit");
         SkReader32 reader(fCached->data(), fCached->size());
         SkFourByteTag shaderType = reader.readU32();
 
@@ -303,6 +304,7 @@ GrGLProgram* GrGLProgramBuilder::finalize(const GrGLPrecompiledProgram* precompi
         }
     }
     if (!usedProgramBinaries) {
+        ATRACE_ANDROID_FRAMEWORK_ALWAYS("cache_miss");
         // Either a cache miss, or we got something other than binaries from the cache
 
         /*
@@ -362,6 +364,38 @@ GrGLProgram* GrGLProgramBuilder::finalize(const GrGLPrecompiledProgram* precompi
         }
 
         /*
+           Tessellation Shaders
+        */
+        if (fProgramInfo.primProc().willUseTessellationShaders()) {
+            // Tessellation shaders are not currently supported by SkSL. So here, we temporarily
+            // generate GLSL strings directly using back door methods on GrPrimitiveProcessor, and
+            // pass those raw strings on to the driver.
+            SkString versionAndExtensionDecls;
+            versionAndExtensionDecls.appendf("%s\n", this->shaderCaps()->versionDeclString());
+            if (const char* extensionString = this->shaderCaps()->tessellationExtensionString()) {
+                versionAndExtensionDecls.appendf("#extension %s : require\n", extensionString);
+            }
+
+            SkString tessControlShader = primProc.getTessControlShaderGLSL(
+                    versionAndExtensionDecls.c_str(), *this->shaderCaps());
+            if (!this->compileAndAttachShaders(tessControlShader.c_str(), programID,
+                                               GR_GL_TESS_CONTROL_SHADER, &shadersToDelete,
+                                               errorHandler)) {
+                cleanup_program(fGpu, programID, shadersToDelete);
+                return nullptr;
+            }
+
+            SkString tessEvaluationShader = primProc.getTessEvaluationShaderGLSL(
+                    versionAndExtensionDecls.c_str(), *this->shaderCaps());
+            if (!this->compileAndAttachShaders(tessEvaluationShader.c_str(), programID,
+                                               GR_GL_TESS_EVALUATION_SHADER, &shadersToDelete,
+                                               errorHandler)) {
+                cleanup_program(fGpu, programID, shadersToDelete);
+                return nullptr;
+            }
+        }
+
+        /*
            Geometry Shader
         */
         if (primProc.willUseGeoShader()) {
@@ -404,9 +438,16 @@ GrGLProgram* GrGLProgramBuilder::finalize(const GrGLPrecompiledProgram* precompi
     // and ANGLE's deserialized program state doesn't restore enough state to handle that.
     // The native NVIDIA drivers do, but this is such an edge case that it's easier to just
     // black-list caching these programs in all cases. See: anglebug.com/3619
+    //
+    // We temporarily can't cache tessellation shaders while using back door GLSL.
+    //
     // We also can't cache SkSL or GLSL if we were given a precompiled program, but there's not
     // much point in doing so.
-    if (!cached && !primProc.isPathRendering() && !precompiledProgram) {
+    if (!cached && !primProc.isPathRendering() && !primProc.willUseTessellationShaders() &&
+        !precompiledProgram) {
+        // FIXME: Remove the check for tessellation shaders in the above 'if' once the back door
+        // GLSL mechanism is removed.
+        (void)&GrPrimitiveProcessor::getTessControlShaderGLSL;
         bool isSkSL = false;
         if (fGpu->getContext()->priv().options().fShaderCacheStrategy ==
                 GrContextOptions::ShaderCacheStrategy::kSkSL) {

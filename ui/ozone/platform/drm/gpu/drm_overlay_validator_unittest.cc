@@ -14,9 +14,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/linux/drm_util_linux.h"
+#include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/ozone/common/gpu/ozone_gpu_message_params.h"
-#include "ui/ozone/common/linux/drm_util_linux.h"
-#include "ui/ozone/common/linux/gbm_buffer.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
@@ -47,7 +47,7 @@ constexpr uint32_t kInFormatsPropId = 301;
 
 class DrmOverlayValidatorTest : public testing::Test {
  public:
-  DrmOverlayValidatorTest() {}
+  DrmOverlayValidatorTest() = default;
 
   void SetUp() override;
   void TearDown() override;
@@ -67,14 +67,15 @@ class DrmOverlayValidatorTest : public testing::Test {
   scoped_refptr<ui::DrmFramebuffer> CreateBuffer() {
     auto gbm_buffer = drm_->gbm_device()->CreateBuffer(
         DRM_FORMAT_XRGB8888, primary_rect_.size(), GBM_BO_USE_SCANOUT);
-    return ui::DrmFramebuffer::AddFramebuffer(drm_, gbm_buffer.get());
+    return ui::DrmFramebuffer::AddFramebuffer(drm_, gbm_buffer.get(),
+                                              primary_rect_.size());
   }
 
   scoped_refptr<ui::DrmFramebuffer> CreateOverlayBuffer(uint32_t format,
                                                         const gfx::Size& size) {
     auto gbm_buffer =
         drm_->gbm_device()->CreateBuffer(format, size, GBM_BO_USE_SCANOUT);
-    return ui::DrmFramebuffer::AddFramebuffer(drm_, gbm_buffer.get());
+    return ui::DrmFramebuffer::AddFramebuffer(drm_, gbm_buffer.get(), size);
   }
 
  protected:

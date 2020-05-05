@@ -249,8 +249,7 @@ void CPDFXFA_WidgetHandler::OnDraw(CPDFSDK_PageView* pPageView,
 void CPDFXFA_WidgetHandler::OnLoad(CPDFSDK_Annot* pAnnot) {}
 
 void CPDFXFA_WidgetHandler::ReleaseAnnot(
-    std::unique_ptr<CPDFSDK_Annot> pAnnot) {
-}
+    std::unique_ptr<CPDFSDK_Annot> pAnnot) {}
 
 CFX_FloatRect CPDFXFA_WidgetHandler::GetViewBBox(CPDFSDK_PageView* pPageView,
                                                  CPDFSDK_Annot* pAnnot) {
@@ -356,12 +355,9 @@ bool CPDFXFA_WidgetHandler::HitTest(CPDFSDK_PageView* pPageView,
     return false;
 
   CXFA_FFWidgetHandler* pWidgetHandler = pDocView->GetWidgetHandler();
-  if (!pWidgetHandler)
-    return false;
-
-  FWL_WidgetHit dwHitTest =
-      pWidgetHandler->OnHitTest(pXFAWidget->GetXFAFFWidget(), point);
-  return dwHitTest != FWL_WidgetHit::Unknown;
+  return pWidgetHandler &&
+         pWidgetHandler->HitTest(pXFAWidget->GetXFAFFWidget(), point) !=
+             FWL_WidgetHit::Unknown;
 }
 
 void CPDFXFA_WidgetHandler::OnMouseEnter(CPDFSDK_PageView* pPageView,

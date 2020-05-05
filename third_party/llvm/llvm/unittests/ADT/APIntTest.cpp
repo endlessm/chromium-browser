@@ -2604,31 +2604,36 @@ TEST(APIntTest, RoundingSDiv) {
       EXPECT_EQ(0, APIntOps::RoundingSDiv(Zero, A, APInt::Rounding::TOWARD_ZERO));
     }
 
-    for (uint64_t Bi = -128; Bi <= 127; Bi++) {
+    for (int64_t Bi = -128; Bi <= 127; Bi++) {
       if (Bi == 0)
         continue;
 
       APInt B(8, Bi);
+      APInt QuoTowardZero = A.sdiv(B);
       {
         APInt Quo = APIntOps::RoundingSDiv(A, B, APInt::Rounding::UP);
-        auto Prod = Quo.sext(16) * B.sext(16);
-        EXPECT_TRUE(Prod.uge(A));
-        if (Prod.ugt(A)) {
-          EXPECT_TRUE(((Quo - 1).sext(16) * B.sext(16)).ult(A));
+        if (A.srem(B).isNullValue()) {
+          EXPECT_EQ(QuoTowardZero, Quo);
+        } else if (A.isNegative() !=
+                   B.isNegative()) { // if the math quotient is negative.
+          EXPECT_EQ(QuoTowardZero, Quo);
+        } else {
+          EXPECT_EQ(QuoTowardZero + 1, Quo);
         }
       }
       {
         APInt Quo = APIntOps::RoundingSDiv(A, B, APInt::Rounding::DOWN);
-        auto Prod = Quo.sext(16) * B.sext(16);
-        EXPECT_TRUE(Prod.ule(A));
-        if (Prod.ult(A)) {
-          EXPECT_TRUE(((Quo + 1).sext(16) * B.sext(16)).ugt(A));
+        if (A.srem(B).isNullValue()) {
+          EXPECT_EQ(QuoTowardZero, Quo);
+        } else if (A.isNegative() !=
+                   B.isNegative()) { // if the math quotient is negative.
+          EXPECT_EQ(QuoTowardZero - 1, Quo);
+        } else {
+          EXPECT_EQ(QuoTowardZero, Quo);
         }
       }
-      {
-        APInt Quo = A.sdiv(B);
-        EXPECT_EQ(Quo, APIntOps::RoundingSDiv(A, B, APInt::Rounding::TOWARD_ZERO));
-      }
+      EXPECT_EQ(QuoTowardZero,
+                APIntOps::RoundingSDiv(A, B, APInt::Rounding::TOWARD_ZERO));
     }
   }
 }
@@ -2843,6 +2848,23 @@ TEST(APIntTest, GetMostSignificantDifferentBitExaustive) {
       }
     }
   }
+}
+
+TEST(APIntTest, SignbitZeroChecks) {
+  EXPECT_TRUE(APInt(8, -1).isNegative());
+  EXPECT_FALSE(APInt(8, -1).isNonNegative());
+  EXPECT_FALSE(APInt(8, -1).isStrictlyPositive());
+  EXPECT_TRUE(APInt(8, -1).isNonPositive());
+
+  EXPECT_FALSE(APInt(8, 0).isNegative());
+  EXPECT_TRUE(APInt(8, 0).isNonNegative());
+  EXPECT_FALSE(APInt(8, 0).isStrictlyPositive());
+  EXPECT_TRUE(APInt(8, 0).isNonPositive());
+
+  EXPECT_FALSE(APInt(8, 1).isNegative());
+  EXPECT_TRUE(APInt(8, 1).isNonNegative());
+  EXPECT_TRUE(APInt(8, 1).isStrictlyPositive());
+  EXPECT_FALSE(APInt(8, 1).isNonPositive());
 }
 
 } // end anonymous namespace

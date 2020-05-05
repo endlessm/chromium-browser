@@ -13,6 +13,7 @@
 #include "base/base_paths.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
+#include "base/lazy_instance.h"
 #include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -36,6 +37,11 @@
 
 #if defined(OS_WIN)
 #include "base/win/registry.h"
+#endif
+
+#if defined(OS_LINUX)
+#include "base/environment.h"
+#include "base/nix/xdg_util.h"
 #endif
 
 #if defined(OS_MACOSX)
@@ -364,20 +370,34 @@ std::string ReadEncryptedSecret() {
 
 #endif  // defined(OS_MACOSX)
 
+base::FilePath* GetEndpointVerificationDirOverride() {
+  static base::NoDestructor<base::FilePath> dir_override;
+  return dir_override.get();
+}
+
 // Returns "AppData\Local\Google\Endpoint Verification".
 base::FilePath GetEndpointVerificationDir() {
   base::FilePath path;
+  if (!GetEndpointVerificationDirOverride()->empty())
+    return *GetEndpointVerificationDirOverride();
 #if defined(OS_WIN)
   if (!base::PathService::Get(base::DIR_LOCAL_APP_DATA, &path))
 #elif defined(OS_LINUX)
-  if (!base::PathService::Get(base::DIR_CACHE, &path))
+  std::unique_ptr<base::Environment> env(base::Environment::Create());
+  path = base::nix::GetXDGDirectory(env.get(), base::nix::kXdgConfigHomeEnvVar,
+                                    base::nix::kDotConfigDir);
+  if (path.empty())
 #elif defined(OS_MACOSX)
   if (!base::PathService::Get(base::DIR_APP_DATA, &path))
 #else
   if (true)
 #endif
     return path;
+#if defined(OS_LINUX)
+  path = path.AppendASCII("google");
+#else
   path = path.AppendASCII("Google");
+#endif
   path = path.AppendASCII("Endpoint Verification");
   return path;
 }
@@ -418,8 +438,13 @@ GenerateChromeDesktopReportRequest(const base::DictionaryValue& report,
   return request;
 }
 
+// Sets the path used to store Endpoint Verification data for tests.
+void OverrideEndpointVerificationDirForTesting(const base::FilePath& path) {
+  *GetEndpointVerificationDirOverride() = path;
+}
+
 void StoreDeviceData(const std::string& id,
-                     const std::vector<uint8_t>& data,
+                     const std::unique_ptr<std::vector<uint8_t>> data,
                      base::OnceCallback<void(bool)> callback) {
   base::FilePath data_file = GetEndpointVerificationDir();
   if (data_file.empty()) {
@@ -431,28 +456,36 @@ void StoreDeviceData(const std::string& id,
   // subdir+file of the EV folder.
   data_file = data_file.AppendASCII(id);
 
-  // Ensure the directory exists.
-  bool success = base::CreateDirectory(data_file.DirName());
-  if (!success) {
-    LOG(ERROR) << "Could not create directory: "
-               << data_file.DirName().LossyDisplayName();
-    std::move(callback).Run(false);
-    return;
+  bool success = false;
+  if (data) {
+    // Ensure the directory exists.
+    success = base::CreateDirectory(data_file.DirName());
+    if (!success) {
+      LOG(ERROR) << "Could not create directory: "
+                 << data_file.DirName().LossyDisplayName();
+      std::move(callback).Run(false);
+      return;
+    }
+
+    base::FilePath tmp_path;
+    success = base::CreateTemporaryFileInDir(data_file.DirName(), &tmp_path);
+    if (!success) {
+      LOG(ERROR) << "Could not open file for writing: "
+                 << tmp_path.LossyDisplayName();
+      std::move(callback).Run(false);
+      return;
+    }
+
+    base::WriteFile(tmp_path, reinterpret_cast<const char*>(data->data()),
+                    data->size());
+    success = base::Move(tmp_path, data_file);
+  } else {
+    // Not passing a second parameter means clear the data sored under |id|.
+    success = base::DeleteFile(data_file, false);
+    if (base::IsDirectoryEmpty(data_file.DirName()))
+      base::DeleteFile(data_file.DirName(), false);
   }
 
-  base::FilePath tmp_path;
-  success = base::CreateTemporaryFileInDir(data_file.DirName(), &tmp_path);
-  if (!success) {
-    LOG(ERROR) << "Could not open file for writing: "
-               << tmp_path.LossyDisplayName();
-    std::move(callback).Run(false);
-    return;
-  }
-
-  base::WriteFile(tmp_path, reinterpret_cast<const char*>(data.data()),
-                  data.size());
-
-  success = base::Move(tmp_path, data_file);
   std::move(callback).Run(success);
 }
 
@@ -465,9 +498,16 @@ void RetrieveDeviceData(
     return;
   }
   data_file = data_file.AppendASCII(id);
-  // TODO(pastarmovj): Make sure the resulting path is still a direct file or
-  // subdir+file of the EV folder.
+  // If the file does not exist don't treat this as an error rather return an
+  // empty string.
+  if (!base::PathExists(data_file)) {
+    std::move(callback).Run("", true);
+    return;
+  }
   std::string data;
+  // ReadFileToString does not permit traversal with .. so this is guaranteed to
+  // be a descendant of the data directory up to links created outside of
+  // Chrome.
   bool result = base::ReadFileToString(data_file, &data);
 
   std::move(callback).Run(data, result);

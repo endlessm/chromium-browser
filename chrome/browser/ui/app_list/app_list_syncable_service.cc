@@ -20,9 +20,11 @@
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/chromeos/arc/arc_util.h"
 #include "chrome/browser/chromeos/crostini/crostini_features.h"
+#include "chrome/browser/chromeos/extensions/default_web_app_ids.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/app_service/app_service_app_model_builder.h"
@@ -39,7 +41,9 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/constants/chromeos_switches.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/sync_data.h"
 #include "components/sync/model/sync_merge_result.h"
@@ -185,6 +189,11 @@ bool IsTopLevelAppItem(const AppListSyncableService::SyncItem& sync_item) {
 // Returns true if the sync item is a page break item.
 bool IsPageBreakItem(const AppListSyncableService::SyncItem& sync_item) {
   return sync_item.item_type == sync_pb::AppListSpecifics::TYPE_PAGE_BREAK;
+}
+
+// Returns true if the app is Settings app
+bool IsOsSettingsApp(const std::string& app_id) {
+  return app_id == chromeos::default_web_apps::kOsSettingsAppId;
 }
 
 }  // namespace
@@ -408,6 +417,20 @@ void AppListSyncableService::BuildModel() {
 
   if (wait_until_ready_to_sync_cb_)
     std::move(wait_until_ready_to_sync_cb_).Run();
+
+  // Install default page brakes for tablet form factor devices here as
+  // these devices do not have app list sync turned on.
+  if (chromeos::switches::IsTabletFormFactor() && profile_->IsNewProfile()) {
+    DCHECK(!ProfileSyncServiceFactory::GetForProfile(profile_)
+                ->GetActiveDataTypes()
+                .Has(syncer::APP_LIST));
+    // Create call back to create the default page break items at later time so
+    // that default page break items are not removed by
+    // |PruneRedundantPageBreakItems|
+    install_default_page_breaks_ =
+        base::BindOnce(&AppListSyncableService::InstallDefaultPageBreaks,
+                       weak_ptr_factory_.GetWeakPtr());
+  }
 }
 
 void AppListSyncableService::AddObserverAndStart(Observer* observer) {
@@ -535,7 +558,14 @@ void AppListSyncableService::AddItem(
     model_updater_->AddItemToFolder(std::move(app_item), folder_id);
   }
 
+  // Calculate this early since |sync_item| could be deleted in
+  // PruneRedundantPageBreakItems.
+  bool run_install_default_page_breaks =
+      install_default_page_breaks_ && IsOsSettingsApp(sync_item->item_id);
   PruneRedundantPageBreakItems();
+
+  if (run_install_default_page_breaks)
+    std::move(install_default_page_breaks_).Run();
 }
 
 AppListSyncableService::SyncItem* AppListSyncableService::FindOrAddSyncItem(

@@ -32,6 +32,7 @@ import {TickmarkPanel} from './tickmark_panel';
 import {TimeAxisPanel} from './time_axis_panel';
 import {computeZoom} from './time_scale';
 import {TimeSelectionPanel} from './time_selection_panel';
+import {DISMISSED_PANNING_HINT_KEY} from './topbar';
 import {TrackGroupPanel} from './track_group_panel';
 import {TrackPanel} from './track_panel';
 import {VideoPanel} from './video_panel';
@@ -131,7 +132,10 @@ class TraceViewer implements m.ClassComponent {
     const frontendLocalState = globals.frontendLocalState;
     const updateDimensions = () => {
       const rect = vnode.dom.getBoundingClientRect();
-      frontendLocalState.updateResolution(0, rect.width - TRACK_SHELL_WIDTH);
+      frontendLocalState.updateResolution(
+          0,
+          rect.width - TRACK_SHELL_WIDTH -
+              frontendLocalState.getScrollbarWidth());
     };
 
     updateDimensions();
@@ -167,6 +171,8 @@ class TraceViewer implements m.ClassComponent {
           tStart = tEnd - origDelta;
         }
         frontendLocalState.updateVisibleTime(new TimeSpan(tStart, tEnd));
+        // If the user has panned they no longer need the hint.
+        localStorage.setItem(DISMISSED_PANNING_HINT_KEY, 'true');
         globals.rafScheduler.scheduleRedraw();
       },
       onZoomed: (zoomedPositionPx: number, zoomRatio: number) => {
@@ -179,10 +185,10 @@ class TraceViewer implements m.ClassComponent {
         frontendLocalState.updateVisibleTime(newSpan);
         globals.rafScheduler.scheduleRedraw();
       },
-      shouldDrag: (currentPx: number) => {
+      editSelection: (currentPx: number) => {
         return onTimeRangeBoundary(currentPx) !== null;
       },
-      onDrag: (
+      onSelection: (
           dragStartX: number,
           dragStartY: number,
           prevX: number,
@@ -195,30 +201,45 @@ class TraceViewer implements m.ClassComponent {
         if (editing) {
           const selectedArea = frontendLocalState.selectedArea.area;
           if (selectedArea !== undefined) {
-            const newTime = scale.pxToTime(currentX - TRACK_SHELL_WIDTH);
+            let newTime = scale.pxToTime(currentX - TRACK_SHELL_WIDTH);
             // Have to check again for when one boundary crosses over the other.
             const curBoundary = onTimeRangeBoundary(prevX);
             if (curBoundary == null) return;
             const keepTime = curBoundary === 'START' ? selectedArea.endSec :
                                                        selectedArea.startSec;
+            // Don't drag selection outside of current screen.
+            if (newTime < keepTime) {
+              newTime = Math.max(newTime, scale.pxToTime(scale.startPx));
+            } else {
+              newTime = Math.min(newTime, scale.pxToTime(scale.endPx));
+            }
             frontendLocalState.selectArea(
                 Math.max(Math.min(keepTime, newTime), traceTime.startSec),
                 Math.min(Math.max(keepTime, newTime), traceTime.endSec),
             );
           }
         } else {
-          frontendLocalState.setShowTimeSelectPreview(false);
-          const dragStartTime = scale.pxToTime(dragStartX - TRACK_SHELL_WIDTH);
-          const dragEndTime = scale.pxToTime(currentX - TRACK_SHELL_WIDTH);
+          const startPx = Math.max(
+              Math.min(dragStartX, currentX) - TRACK_SHELL_WIDTH,
+              scale.startPx);
+          const endPx = Math.min(
+              Math.max(dragStartX, currentX) - TRACK_SHELL_WIDTH, scale.endPx);
           frontendLocalState.selectArea(
-              Math.max(
-                  Math.min(dragStartTime, dragEndTime), traceTime.startSec),
-              Math.min(Math.max(dragStartTime, dragEndTime), traceTime.endSec),
-          );
+              scale.pxToTime(startPx), scale.pxToTime(endPx));
           frontendLocalState.areaY.start = dragStartY;
           frontendLocalState.areaY.end = currentY;
         }
         globals.rafScheduler.scheduleRedraw();
+      },
+      selectingStarted: () => {
+        globals.frontendLocalState.selectingArea = true;
+      },
+      selectingEnded: () => {
+        globals.frontendLocalState.selectingArea = false;
+        globals.frontendLocalState.areaY.start = undefined;
+        globals.frontendLocalState.areaY.end = undefined;
+        // Full redraw to color track shell.
+        globals.rafScheduler.scheduleFullRedraw();
       }
     });
   }
@@ -229,19 +250,21 @@ class TraceViewer implements m.ClassComponent {
   }
 
   view() {
-    const scrollingPanels: AnyAttrsVnode[] =
-        globals.state.scrollingTracks.map(id => m(TrackPanel, {key: id, id}));
+    const scrollingPanels: AnyAttrsVnode[] = globals.state.scrollingTracks.map(
+        id => m(TrackPanel, {key: id, id, selectable: true}));
 
     for (const group of Object.values(globals.state.trackGroups)) {
       scrollingPanels.push(m(TrackGroupPanel, {
         trackGroupId: group.id,
         key: `trackgroup-${group.id}`,
+        selectable: true,
       }));
       if (group.collapsed) continue;
       for (const trackId of group.tracks) {
         scrollingPanels.push(m(TrackPanel, {
           key: `track-${group.id}-${trackId}`,
           id: trackId,
+          selectable: true,
         }));
       }
     }
@@ -270,7 +293,7 @@ class TraceViewer implements m.ClassComponent {
                   m(NotesPanel, {key: 'notes'}),
                   m(TickmarkPanel, {key: 'searchTickmarks'}),
                   ...globals.state.pinnedTracks.map(
-                      id => m(TrackPanel, {key: id, id})),
+                      id => m(TrackPanel, {key: id, id, selectable: true})),
                 ],
                 kind: 'OVERVIEW',
               })),

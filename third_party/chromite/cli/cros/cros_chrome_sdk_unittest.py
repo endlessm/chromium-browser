@@ -324,12 +324,6 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
 
     self.assertIn('use_goma = false', self.cmd_mock.env['GN_ARGS'])
 
-  def testClang(self):
-    """Verifies clang codepath."""
-    with cros_test_lib.LoggingCapturer():
-      self.SetupCommandMock(extra_args=['--clang'])
-      self.cmd_mock.inst.Run()
-
   def testGnArgsStalenessCheckNoMatch(self):
     """Verifies the GN args are checked for staleness with a mismatch."""
     with cros_test_lib.LoggingCapturer() as logs:
@@ -359,6 +353,7 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
       osutils.SafeMakedirs(gn_args_file_dir)
       osutils.WriteFile(gn_args_file_path, self.cmd_mock.env['GN_ARGS'])
 
+      os.environ.pop(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV, None)
       self.cmd_mock.inst.Run()
 
       self.AssertLogsContain(logs, 'Stale args.gn file', inverted=True)
@@ -379,6 +374,7 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
       gn_args_dict = gn_helpers.FromGNArgs(self.cmd_mock.env['GN_ARGS'])
       osutils.WriteFile(gn_args_file_path, gn_helpers.ToGNString(gn_args_dict))
 
+      os.environ.pop(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV, None)
       self.cmd_mock.inst.Run()
 
       self.AssertLogsContain(logs, 'Stale args.gn file', inverted=True)

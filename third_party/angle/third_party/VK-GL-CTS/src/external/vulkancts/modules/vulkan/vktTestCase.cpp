@@ -64,7 +64,10 @@ vector<string> filterExtensions (const vector<VkExtensionProperties>& extensions
 		"VK_KHX_",
 		"VK_NV_cooperative_matrix",
 		"VK_NV_shading_rate_image",
-		"VK_NV_ray_tracing"
+		"VK_NV_ray_tracing",
+		"VK_AMD_mixed_attachment_samples",
+		"VK_AMD_shader_fragment_mask",
+		"VK_AMD_buffer_marker",
 	};
 
 	for (size_t extNdx = 0; extNdx < extensions.size(); extNdx++)
@@ -409,6 +412,25 @@ deUint32								Context::getDeviceVersion					(void) const { return m_device->ge
 const vk::VkPhysicalDeviceFeatures&		Context::getDeviceFeatures					(void) const { return m_device->getDeviceFeatures();					}
 const vk::VkPhysicalDeviceFeatures2&	Context::getDeviceFeatures2					(void) const { return m_device->getDeviceFeatures2();					}
 
+bool Context::isDeviceFunctionalitySupported (const std::string& extension) const
+{
+	// check if extension was promoted to core
+	if (isCoreDeviceExtension(getUsedApiVersion(), extension))
+		return true;
+
+	// check if extension is on the lits of extensions for current device
+	const auto& extensions = getDeviceExtensions();
+	return de::contains(extensions.begin(), extensions.end(), extension);
+}
+
+bool Context::isInstanceFunctionalitySupported(const std::string& extension) const
+{
+	// NOTE: current implementation uses isInstanceExtensionSupported but
+	// this will change when some instance extensions will be promoted to the
+	// core; don't use isInstanceExtensionSupported directly, use this method instead
+	return isInstanceExtensionSupported(getUsedApiVersion(), getInstanceExtensions(), extension);
+}
+
 #include "vkDeviceFeaturesForContextDefs.inl"
 
 const vk::VkPhysicalDeviceProperties&	Context::getDeviceProperties				(void) const { return m_device->getDeviceProperties();					}
@@ -428,17 +450,17 @@ bool									Context::contextSupports					(const ApiVersion version) const
 bool									Context::contextSupports					(const deUint32 requiredApiVersionBits) const
 																								{ return m_device->getUsedApiVersion() >= requiredApiVersionBits; }
 
-bool Context::requireDeviceExtension (const std::string& required)
+bool Context::requireDeviceFunctionality (const std::string& required)
 {
-	if (!isDeviceExtensionSupported(getUsedApiVersion(), getDeviceExtensions(), required))
+	if (!isDeviceFunctionalitySupported(required))
 		TCU_THROW(NotSupportedError, required + " is not supported");
 
 	return true;
 }
 
-bool Context::requireInstanceExtension (const std::string& required)
+bool Context::requireInstanceFunctionality (const std::string& required)
 {
-	if (!isInstanceExtensionSupported(getUsedApiVersion(), getInstanceExtensions(), required))
+	if (!isInstanceFunctionalitySupported(required))
 		TCU_THROW(NotSupportedError, required + " is not supported");
 
 	return true;
@@ -531,6 +553,12 @@ bool Context::requireDeviceCoreFeature (const DeviceCoreFeature requiredFeature)
 void* Context::getInstanceProcAddr	()
 {
 	return (void*)m_platformInterface.getGetInstanceProcAddr();
+}
+
+bool Context::isBufferDeviceAddressSupported(void) const
+{
+	return isDeviceFunctionalitySupported("VK_KHR_buffer_device_address") ||
+		   isDeviceFunctionalitySupported("VK_EXT_buffer_device_address");
 }
 
 // TestCase

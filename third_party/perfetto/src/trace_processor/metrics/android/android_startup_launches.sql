@@ -20,11 +20,11 @@ CREATE TABLE launching_events_helper AS
 SELECT
   arg_set_id,
   STR_SPLIT(STR_SPLIT(args.string_value, "|", 2), ": ", 1) package_name,
-  STR_SPLIT(args.string_value, "|", 0) type
+  STR_SPLIT(args.string_value, "|", 0) launch_type
 FROM args
 WHERE string_value LIKE '%|launching: %';
 
--- TODO: Replace with proper async slices once available
+-- TODO: Replace with proper async slice once available
 -- The start of the launching event corresponds to the end of the AM handling
 -- the startActivity intent, whereas the end corresponds to the first frame drawn.
 -- Only successful app launches have a launching event.
@@ -32,7 +32,7 @@ CREATE TABLE launching_events AS
 SELECT
   ts,
   package_name,
-  type
+  launch_type
 FROM raw
 CROSS JOIN launching_events_helper
 JOIN thread USING(utid)
@@ -44,13 +44,13 @@ AND process.name = 'system_server';
 -- Marks the beginning of the trace and is equivalent to when the statsd launch
 -- logging begins.
 CREATE VIEW activity_intent_received AS
-SELECT ts FROM slices
+SELECT ts FROM slice
 WHERE name = 'MetricsLogger:launchObserverNotifyIntentStarted';
 
 -- Successful activity launch. The end of the 'launching' event is not related
 -- to whether it actually succeeded or not.
 CREATE VIEW activity_intent_launch_successful AS
-SELECT ts FROM slices
+SELECT ts FROM slice
 WHERE name = 'MetricsLogger:launchObserverNotifyActivityLaunchFinished';
 
 -- We partition the trace into spans based on posted activity intents.
@@ -75,7 +75,7 @@ WHERE 1 = (
   SELECT COUNT(1)
   FROM launching_events
   WHERE TRUE
-    AND type = 'S'
+    AND launch_type = 'S'
     AND ts BETWEEN spans.ts AND spans.ts + spans.dur);
 
 -- All activity launches in the trace, keyed by ID.
@@ -96,9 +96,9 @@ SELECT
   lpart.id AS id,
   start_event.package_name AS package
 FROM launch_partitions AS lpart
-JOIN (SELECT * FROM launching_events WHERE type = 'S') AS start_event
+JOIN (SELECT * FROM launching_events WHERE launch_type = 'S') AS start_event
   ON start_event.ts BETWEEN lpart.ts AND lpart.ts + lpart.dur
-JOIN (SELECT * FROM launching_events WHERE type = 'F') AS finish_event
+JOIN (SELECT * FROM launching_events WHERE launch_type = 'F') AS finish_event
   ON finish_event.ts BETWEEN lpart.ts AND lpart.ts + lpart.dur
 JOIN activity_intent_launch_successful AS successful
   ON successful.ts BETWEEN lpart.ts AND lpart.ts + lpart.dur;

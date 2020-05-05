@@ -1051,7 +1051,7 @@ void fillWithMetaballs (const PixelBufferAccess& dst, int numBalls, deUint32 see
 	}
 }
 
-void copy (const PixelBufferAccess& dst, const ConstPixelBufferAccess& src)
+void copy (const PixelBufferAccess& dst, const ConstPixelBufferAccess& src, const bool clearUnused)
 {
 	DE_ASSERT(src.getSize() == dst.getSize());
 
@@ -1097,7 +1097,7 @@ void copy (const PixelBufferAccess& dst, const ConstPixelBufferAccess& src)
 			for (int x = 0; x < width; x++)
 				dst.setPixDepth(src.getPixDepth(x, y, z), x, y, z);
 		}
-		else if (dstHasDepth && !srcHasDepth)
+		else if (dstHasDepth && !srcHasDepth && clearUnused)
 		{
 			// consistency with color copies
 			tcu::clearDepth(dst, 0.0f);
@@ -1110,7 +1110,7 @@ void copy (const PixelBufferAccess& dst, const ConstPixelBufferAccess& src)
 			for (int x = 0; x < width; x++)
 				dst.setPixStencil(src.getPixStencil(x, y, z), x, y, z);
 		}
-		else if (dstHasStencil && !srcHasStencil)
+		else if (dstHasStencil && !srcHasStencil && clearUnused)
 		{
 			// consistency with color copies
 			tcu::clearStencil(dst, 0u);
@@ -1265,14 +1265,19 @@ deUint32 packRGB999E5 (const tcu::Vec4& color)
 	float	gc		= deFloatClamp(color[1], 0.0f, maxVal);
 	float	bc		= deFloatClamp(color[2], 0.0f, maxVal);
 	float	maxc	= de::max(rc, de::max(gc, bc));
-	int		expp	= de::max(-eBias - 1, deFloorFloatToInt32(deFloatLog2(maxc))) + 1 + eBias;
-	float	e		= deFloatPow(2.0f, (float)(expp-eBias-mBits));
+	int		exps	= de::max(-eBias - 1, deFloorFloatToInt32(deFloatLog2(maxc))) + 1 + eBias;
+	float	e		= deFloatPow(2.0f, (float)(exps-eBias-mBits));
 	int		maxs	= deFloorFloatToInt32(maxc / e + 0.5f);
 
-	deUint32	exps	= maxs == (1<<mBits) ? expp+1 : expp;
-	deUint32	rs		= (deUint32)deClamp32(deFloorFloatToInt32(rc / e + 0.5f), 0, (1<<9)-1);
-	deUint32	gs		= (deUint32)deClamp32(deFloorFloatToInt32(gc / e + 0.5f), 0, (1<<9)-1);
-	deUint32	bs		= (deUint32)deClamp32(deFloorFloatToInt32(bc / e + 0.5f), 0, (1<<9)-1);
+	if (maxs == (1<<mBits))
+	{
+		exps++;
+		e *= 2.0f;
+	}
+
+	deUint32 rs = (deUint32)deFloorFloatToInt32(rc / e + 0.5f);
+	deUint32 gs = (deUint32)deFloorFloatToInt32(gc / e + 0.5f);
+	deUint32 bs = (deUint32)deFloorFloatToInt32(bc / e + 0.5f);
 
 	DE_ASSERT((exps & ~((1<<5)-1)) == 0);
 	DE_ASSERT((rs & ~((1<<9)-1)) == 0);

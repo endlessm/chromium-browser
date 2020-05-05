@@ -60,7 +60,27 @@ def UndefinedBoolConversion : DiagGroup<"undefined-bool-conversion">;
 def BoolConversion : DiagGroup<"bool-conversion", [PointerBoolConversion,
                                                    UndefinedBoolConversion]>;
 def IntConversion : DiagGroup<"int-conversion">;
-def EnumConversion : DiagGroup<"enum-conversion">;
+def DeprecatedEnumCompareConditional :
+  DiagGroup<"deprecated-enum-compare-conditional">;
+def EnumCompareConditional : DiagGroup<"enum-compare-conditional",
+                                       [DeprecatedEnumCompareConditional]>;
+def EnumCompareSwitch : DiagGroup<"enum-compare-switch">;
+def DeprecatedEnumCompare : DiagGroup<"deprecated-enum-compare">;
+def EnumCompare : DiagGroup<"enum-compare", [EnumCompareSwitch,
+                                             DeprecatedEnumCompare]>;
+def DeprecatedAnonEnumEnumConversion : DiagGroup<"deprecated-anon-enum-enum-conversion">;
+def DeprecatedEnumEnumConversion : DiagGroup<"deprecated-enum-enum-conversion">;
+def DeprecatedEnumFloatConversion : DiagGroup<"deprecated-enum-float-conversion">;
+def AnonEnumEnumConversion : DiagGroup<"anon-enum-enum-conversion",
+                                   [DeprecatedAnonEnumEnumConversion]>;
+def EnumEnumConversion : DiagGroup<"enum-enum-conversion",
+                                   [DeprecatedEnumEnumConversion]>;
+def EnumFloatConversion : DiagGroup<"enum-float-conversion",
+                                    [DeprecatedEnumFloatConversion]>;
+def EnumConversion : DiagGroup<"enum-conversion",
+                               [EnumEnumConversion,
+                                EnumFloatConversion,
+                                EnumCompareConditional]>;
 def ObjCSignedCharBoolImplicitIntConversion :
   DiagGroup<"objc-signed-char-bool-implicit-int-conversion">;
 def ImplicitIntConversion : DiagGroup<"implicit-int-conversion",
@@ -113,7 +133,7 @@ def UndefinedVarTemplate : DiagGroup<"undefined-var-template">;
 def UndefinedFuncTemplate : DiagGroup<"undefined-func-template">;
 def MissingNoEscape : DiagGroup<"missing-noescape">;
 
-def DefaultedComparison : DiagGroup<"defaulted-comparison">;
+def DefaultedFunctionDeleted : DiagGroup<"defaulted-function-deleted">;
 def DeleteIncomplete : DiagGroup<"delete-incomplete">;
 def DeleteNonAbstractNonVirtualDtor : DiagGroup<"delete-non-abstract-non-virtual-dtor">;
 def DeleteAbstractNonVirtualDtor : DiagGroup<"delete-abstract-non-virtual-dtor">;
@@ -126,6 +146,7 @@ def FinalDtorNonFinalClass : DiagGroup<"final-dtor-non-final-class">;
 def CXX11CompatDeprecatedWritableStr :
   DiagGroup<"c++11-compat-deprecated-writable-strings">;
 
+def DeprecatedArrayCompare : DiagGroup<"deprecated-array-compare">;
 def DeprecatedAttributes : DiagGroup<"deprecated-attributes">;
 def DeprecatedCommaSubscript : DiagGroup<"deprecated-comma-subscript">;
 def DeprecatedCopy : DiagGroup<"deprecated-copy">;
@@ -147,12 +168,18 @@ def DeprecatedVolatile : DiagGroup<"deprecated-volatile">;
 def DeprecatedWritableStr : DiagGroup<"deprecated-writable-strings",
                                       [CXX11CompatDeprecatedWritableStr]>;
 // FIXME: Why is DeprecatedImplementations not in this group?
-def Deprecated : DiagGroup<"deprecated", [DeprecatedAttributes,
+def Deprecated : DiagGroup<"deprecated", [DeprecatedAnonEnumEnumConversion,
+                                          DeprecatedArrayCompare,
+                                          DeprecatedAttributes,
                                           DeprecatedCommaSubscript,
                                           DeprecatedCopy,
                                           DeprecatedCopyDtor,
                                           DeprecatedDeclarations,
                                           DeprecatedDynamicExceptionSpec,
+                                          DeprecatedEnumCompare,
+                                          DeprecatedEnumCompareConditional,
+                                          DeprecatedEnumEnumConversion,
+                                          DeprecatedEnumFloatConversion,
                                           DeprecatedIncrementBool,
                                           DeprecatedRegister,
                                           DeprecatedThisCapture,
@@ -573,9 +600,6 @@ def CoveredSwitchDefault : DiagGroup<"covered-switch-default">;
 def SwitchBool     : DiagGroup<"switch-bool">;
 def SwitchEnum     : DiagGroup<"switch-enum">;
 def Switch         : DiagGroup<"switch">;
-def EnumCompareConditional : DiagGroup<"enum-compare-conditional">;
-def EnumCompareSwitch : DiagGroup<"enum-compare-switch">;
-def EnumCompare       : DiagGroup<"enum-compare", [EnumCompareSwitch]>;
 def ImplicitFallthroughPerFunction :
   DiagGroup<"implicit-fallthrough-per-function">;
 def ImplicitFallthrough  : DiagGroup<"implicit-fallthrough",
@@ -693,6 +717,7 @@ def ZeroLengthArray : DiagGroup<"zero-length-array">;
 def GNUZeroLineDirective : DiagGroup<"gnu-zero-line-directive">;
 def GNUZeroVariadicMacroArguments : DiagGroup<"gnu-zero-variadic-macro-arguments">;
 def Fallback : DiagGroup<"fallback">;
+def MisleadingIndentation : DiagGroup<"misleading-indentation">;
 
 // This covers both the deprecated case (in C++98)
 // and the extension case (in C++11 onwards).
@@ -832,11 +857,11 @@ def Most : DiagGroup<"most", [
     CharSubscript,
     Comment,
     DeleteNonVirtualDtor,
-    ForLoopAnalysis,
     Format,
     Implicit,
     InfiniteRecursion,
     IntInBoolContext,
+    LoopAnalysis,
     MismatchedTags,
     MissingBraces,
     Move,
@@ -884,7 +909,7 @@ def Consumed       : DiagGroup<"consumed">;
 // Note that putting warnings in -Wall will not disable them by default. If a
 // warning should be active _only_ when -Wall is passed in, mark it as
 // DefaultIgnore in addition to putting it here.
-def All : DiagGroup<"all", [Most, Parentheses, Switch, SwitchBool]>;
+def All : DiagGroup<"all", [Most, Parentheses, Switch, SwitchBool, MisleadingIndentation]>;
 
 // Warnings that should be in clang-cl /w4.
 def : DiagGroup<"CL4", [All, Extra]>;
@@ -1056,7 +1081,11 @@ def ASM : DiagGroup<"asm", [
 def SourceUsesOpenMP : DiagGroup<"source-uses-openmp">;
 def OpenMPClauses : DiagGroup<"openmp-clauses">;
 def OpenMPLoopForm : DiagGroup<"openmp-loop-form">;
-def OpenMPTarget : DiagGroup<"openmp-target">;
+def OpenMPMapping : DiagGroup<"openmp-mapping">;
+def OpenMPTarget : DiagGroup<"openmp-target", [OpenMPMapping]>;
+def OpenMP : DiagGroup<"openmp", [
+    SourceUsesOpenMP, OpenMPClauses, OpenMPLoopForm, OpenMPTarget, OpenMPMapping
+  ]>;
 
 // Backend warnings.
 def BackendInlineAsm : DiagGroup<"inline-asm">;
@@ -1083,6 +1112,9 @@ def SerializedDiagnostics : DiagGroup<"serialized-diagnostics">;
 // A warning group for warnings about code that clang accepts when
 // compiling CUDA C/C++ but which is not compatible with the CUDA spec.
 def CudaCompat : DiagGroup<"cuda-compat">;
+
+// Warning about unknown CUDA SDK version.
+def CudaUnknownVersion: DiagGroup<"unknown-cuda-version">;
 
 // A warning group for warnings about features supported by HIP but
 // ignored by CUDA.
@@ -1120,3 +1152,32 @@ def CrossTU : DiagGroup<"ctu">;
 def CTADMaybeUnsupported : DiagGroup<"ctad-maybe-unsupported">;
 
 def FortifySource : DiagGroup<"fortify-source">;
+
+def MaxTokens : DiagGroup<"max-tokens"> {
+  code Documentation = [{
+The warning is issued if the number of pre-processor tokens exceeds
+the token limit, which can be set in three ways:
+
+1. As a limit at a specific point in a file, using the ``clang max_tokens_here``
+  pragma:
+
+   .. code-block: c++
+      #pragma clang max_tokens_here 1234
+
+2. As a per-translation unit limit, using the ``-fmax-tokens`` command-line
+   flag:
+
+   .. code-block: console
+      clang -c a.cpp -fmax-tokens 1234
+
+3. As a per-translation unit limit using the ``clang max_tokens_total`` pragma,
+   which works like and overrides the ``-fmax-tokens`` flag:
+
+   .. code-block: c++
+      #pragma clang max_file_tokens 1234
+
+These limits can be helpful in limiting code growth through included files.
+
+Setting a token limit of zero means no limit.
+}];
+}

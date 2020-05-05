@@ -35,18 +35,6 @@
 #include "platform/test/fake_task_runner.h"
 #include "util/logging.h"
 
-using openscreen::Error;
-using openscreen::ErrorOr;
-using openscreen::IPAddress;
-using openscreen::IPEndpoint;
-using openscreen::platform::Clock;
-using openscreen::platform::ClockNowFunctionPtr;
-using openscreen::platform::FakeClock;
-using openscreen::platform::FakeTaskRunner;
-using openscreen::platform::TaskRunner;
-using openscreen::platform::UdpPacket;
-using openscreen::platform::UdpSocket;
-
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
@@ -58,8 +46,8 @@ using testing::Gt;
 using testing::Invoke;
 using testing::SaveArg;
 
+namespace openscreen {
 namespace cast {
-namespace streaming {
 namespace {
 
 // Receiver configuration.
@@ -294,9 +282,9 @@ class ReceiverTest : public testing::Test {
                    /* .receiver_ssrc = */ kReceiverSsrc,
                    /* .rtp_timebase = */ kRtpTimebase,
                    /* .channels = */ 2,
+                   /* .target_playout_delay = */ kTargetPlayoutDelay,
                    /* .aes_secret_key = */ kAesKey,
-                   /* .aes_iv_mask = */ kCastIvMask},
-                  kTargetPlayoutDelay),
+                   /* .aes_iv_mask = */ kCastIvMask}),
         sender_(&task_runner_, &env_) {
     env_.set_socket_error_handler(
         [](Error error) { ASSERT_TRUE(error.ok()) << error; });
@@ -839,5 +827,5 @@ TEST_F(ReceiverTest, DropsLateFrames) {
 }
 
 }  // namespace
-}  // namespace streaming
 }  // namespace cast
+}  // namespace openscreen

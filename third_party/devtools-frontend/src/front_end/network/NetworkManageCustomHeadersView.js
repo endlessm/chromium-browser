@@ -1,13 +1,12 @@
-/*
- * Copyright 2016 The Chromium Authors. All rights reserved.
- * Use of this source code is governed by a BSD-style license that can be
- * found in the LICENSE file.
- */
+// Copyright 2016 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 /**
  * @implements {UI.ListWidget.Delegate}
  * @unrestricted
  */
-Network.NetworkManageCustomHeadersView = class extends UI.VBox {
+export class NetworkManageCustomHeadersView extends UI.VBox {
   /**
    * @param {!Array.<!{title: string, editable: boolean}>} columnData
    * @param {function(string) : boolean} addHeaderColumnCallback
@@ -145,7 +144,7 @@ Network.NetworkManageCustomHeadersView = class extends UI.VBox {
      * @param {*} item
      * @param {number} index
      * @param {!HTMLInputElement|!HTMLSelectElement} input
-     * @this {Network.NetworkManageCustomHeadersView}
+     * @this {NetworkManageCustomHeadersView}
      * @return {!UI.ListWidget.ValidatorResult}
      */
     function validateHeader(item, index, input) {
@@ -157,4 +156,4 @@ Network.NetworkManageCustomHeadersView = class extends UI.VBox {
       return {valid};
     }
   }
-};
+}

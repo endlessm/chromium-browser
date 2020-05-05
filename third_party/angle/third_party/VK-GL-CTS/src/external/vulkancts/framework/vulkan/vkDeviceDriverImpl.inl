@@ -797,6 +797,16 @@ VkResult DeviceDriver::getFenceFdKHR (VkDevice device, const VkFenceGetFdInfoKHR
 	return m_vk.getFenceFdKHR(device, pGetFdInfo, pFd);
 }
 
+VkResult DeviceDriver::acquireProfilingLockKHR (VkDevice device, const VkAcquireProfilingLockInfoKHR* pInfo) const
+{
+	return m_vk.acquireProfilingLockKHR(device, pInfo);
+}
+
+void DeviceDriver::releaseProfilingLockKHR (VkDevice device) const
+{
+	m_vk.releaseProfilingLockKHR(device);
+}
+
 void DeviceDriver::cmdDrawIndirectCountKHR (VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer, VkDeviceSize countBufferOffset, deUint32 maxDrawCount, deUint32 stride) const
 {
 	m_vk.cmdDrawIndirectCountKHR(commandBuffer, buffer, offset, countBuffer, countBufferOffset, maxDrawCount, stride);
@@ -820,6 +830,21 @@ VkResult DeviceDriver::waitSemaphoresKHR (VkDevice device, const VkSemaphoreWait
 VkResult DeviceDriver::signalSemaphoreKHR (VkDevice device, const VkSemaphoreSignalInfoKHR* pSignalInfo) const
 {
 	return m_vk.signalSemaphoreKHR(device, pSignalInfo);
+}
+
+VkDeviceAddress DeviceDriver::getBufferDeviceAddressKHR (VkDevice device, const VkBufferDeviceAddressInfoKHR* pInfo) const
+{
+	return m_vk.getBufferDeviceAddressKHR(device, pInfo);
+}
+
+uint64_t DeviceDriver::getBufferOpaqueCaptureAddressKHR (VkDevice device, const VkBufferDeviceAddressInfoKHR* pInfo) const
+{
+	return m_vk.getBufferOpaqueCaptureAddressKHR(device, pInfo);
+}
+
+uint64_t DeviceDriver::getDeviceMemoryOpaqueCaptureAddressKHR (VkDevice device, const VkDeviceMemoryOpaqueCaptureAddressInfoKHR* pInfo) const
+{
+	return m_vk.getDeviceMemoryOpaqueCaptureAddressKHR(device, pInfo);
 }
 
 VkResult DeviceDriver::getPipelineExecutablePropertiesKHR (VkDevice device, const VkPipelineInfoKHR* pPipelineInfo, deUint32* pExecutableCount, VkPipelineExecutablePropertiesKHR* pProperties) const
@@ -1247,7 +1272,7 @@ void DeviceDriver::setLocalDimmingAMD (VkDevice device, VkSwapchainKHR swapChain
 	m_vk.setLocalDimmingAMD(device, swapChain, localDimmingEnable);
 }
 
-VkDeviceAddress DeviceDriver::getBufferDeviceAddressEXT (VkDevice device, const VkBufferDeviceAddressInfoEXT* pInfo) const
+VkDeviceAddress DeviceDriver::getBufferDeviceAddressEXT (VkDevice device, const VkBufferDeviceAddressInfoKHR* pInfo) const
 {
 	return m_vk.getBufferDeviceAddressEXT(device, pInfo);
 }

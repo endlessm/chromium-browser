@@ -17,10 +17,12 @@
 #ifndef SPIRV_CROSS_ERROR_HANDLING
 #define SPIRV_CROSS_ERROR_HANDLING
 
-#include <stdexcept>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#ifndef SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS
+#include <stdexcept>
+#endif
 
 #ifdef SPIRV_CROSS_NAMESPACE_OVERRIDE
 #define SPIRV_CROSS_NAMESPACE SPIRV_CROSS_NAMESPACE_OVERRIDE
@@ -33,6 +35,8 @@ namespace SPIRV_CROSS_NAMESPACE
 #ifdef SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS
 #if !defined(_MSC_VER) || defined(__clang__)
 [[noreturn]]
+#elif defined(_MSC_VER)
+__declspec(noreturn)
 #endif
 inline void
 report_and_abort(const std::string &msg)

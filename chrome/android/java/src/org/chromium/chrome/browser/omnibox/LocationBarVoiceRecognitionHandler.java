@@ -15,10 +15,12 @@ import android.text.TextUtils;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.CachedMetrics;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.FeatureUtilities;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteCoordinator;
+import org.chromium.chrome.browser.omnibox.voice.AssistantVoiceSearchService;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
@@ -68,6 +70,7 @@ public class LocationBarVoiceRecognitionHandler {
 
     private final Delegate mDelegate;
     private WebContentsObserver mVoiceSearchWebContentsObserver;
+    private AssistantVoiceSearchService mAssistantVoiceSearchService;
 
     // VoiceInteractionEventSource defined in tools/metrics/histograms/enums.xml.
     // Do not reorder or remove items, only add new items before HISTOGRAM_BOUNDARY.
@@ -161,6 +164,12 @@ public class LocationBarVoiceRecognitionHandler {
 
     public LocationBarVoiceRecognitionHandler(Delegate delegate) {
         mDelegate = delegate;
+    }
+
+    /** Set the AssistantVoiceSearchService for this class. */
+    public void setAssistantVoiceSearchService(
+            AssistantVoiceSearchService assistantVoiceSearchService) {
+        mAssistantVoiceSearchService = assistantVoiceSearchService;
     }
 
     /**
@@ -307,36 +316,26 @@ public class LocationBarVoiceRecognitionHandler {
 
     /**
      * Triggers a voice recognition intent to allow the user to specify a search query.
+     *
      * @param source The source of the voice recognition initiation, such as NTP or omnibox.
      */
     public void startVoiceRecognition(@VoiceInteractionSource int source) {
+        ThreadUtils.assertOnUiThread();
+
         WindowAndroid windowAndroid = mDelegate.getWindowAndroid();
         if (windowAndroid == null) return;
         Activity activity = windowAndroid.getActivity().get();
         if (activity == null) return;
 
-        if (!windowAndroid.hasPermission(Manifest.permission.RECORD_AUDIO)) {
-            if (windowAndroid.canRequestPermission(Manifest.permission.RECORD_AUDIO)) {
-                PermissionCallback callback = new PermissionCallback() {
-                    @Override
-                    public void onRequestPermissionsResult(
-                            String[] permissions, int[] grantResults) {
-                        if (grantResults.length != 1) return;
-
-                        if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                            startVoiceRecognition(source);
-                        } else {
-                            mDelegate.updateMicButtonState();
-                        }
-                    }
-                };
-                windowAndroid.requestPermissions(
-                        new String[] {Manifest.permission.RECORD_AUDIO}, callback);
-            } else {
-                mDelegate.updateMicButtonState();
-            }
+        // Check if this can be handled by Assistant Voice Search, if so let it handle the search.
+        if (mAssistantVoiceSearchService != null
+                && mAssistantVoiceSearchService.shouldRequestAssistantVoiceSearch()) {
+            startAGSAForAssistantVoiceSearch(windowAndroid, source);
             return;
         }
+        // Check if we need to request audio permissions. If we don't, then trigger a permissions
+        // prompt will appear and startVoiceRecognition will be called again.
+        if (!ensureAudioPermissionGranted(windowAndroid, source)) return;
 
         // Record metrics on the source of a voice search interaction, such as NTP or omnibox.
         recordVoiceSearchStartEventSource(source);
@@ -351,6 +350,54 @@ public class LocationBarVoiceRecognitionHandler {
         if (!showSpeechRecognitionIntent(windowAndroid, intent, source)) {
             // Requery whether or not the recognition intent can be handled.
             isRecognitionIntentPresent(false);
+            mDelegate.updateMicButtonState();
+            recordVoiceSearchFailureEventSource(source);
+        }
+    }
+
+    /**
+     * Requests the audio permission and resolves the voice recognition request if necessary.
+     *
+     * @param windowAndroid Used to request audio permissions from the Android system.
+     * @param source The source of the mic button click, used to record metrics.
+     * @return Whether audio permissions are granted.
+     */
+    @VisibleForTesting
+    boolean ensureAudioPermissionGranted(
+            WindowAndroid windowAndroid, @VoiceInteractionSource int source) {
+        if (windowAndroid.hasPermission(Manifest.permission.RECORD_AUDIO)) return true;
+
+        // If we don't have permission and also can't ask, then there's no more work left other
+        // than telling the delegate to update the mic state.
+        if (!windowAndroid.canRequestPermission(Manifest.permission.RECORD_AUDIO)) {
+            mDelegate.updateMicButtonState();
+            return false;
+        }
+
+        PermissionCallback callback = (permissions, grantResults) -> {
+            if (grantResults.length != 1) {
+                return;
+            }
+
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startVoiceRecognition(source);
+            } else {
+                mDelegate.updateMicButtonState();
+            }
+        };
+        windowAndroid.requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, callback);
+
+        return false;
+    }
+
+    /** Start AGSA to fulfill the current voice search. */
+    private void startAGSAForAssistantVoiceSearch(
+            WindowAndroid windowAndroid, @VoiceInteractionSource int source) {
+        recordVoiceSearchStartEventSource(source);
+
+        Intent intent = mAssistantVoiceSearchService.getAssistantVoiceSearchIntent();
+
+        if (!showSpeechRecognitionIntent(windowAndroid, intent, source)) {
             mDelegate.updateMicButtonState();
             recordVoiceSearchFailureEventSource(source);
         }

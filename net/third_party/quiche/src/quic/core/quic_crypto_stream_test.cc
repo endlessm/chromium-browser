@@ -47,7 +47,7 @@ class MockQuicCryptoStream : public QuicCryptoStream,
   std::vector<CryptoHandshakeMessage>* messages() { return &messages_; }
 
   bool encryption_established() const override { return false; }
-  bool handshake_confirmed() const override { return false; }
+  bool one_rtt_keys_available() const override { return false; }
 
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override {
@@ -57,6 +57,9 @@ class MockQuicCryptoStream : public QuicCryptoStream,
     return QuicCryptoHandshaker::crypto_message_parser();
   }
   void OnPacketDecrypted(EncryptionLevel /*level*/) override {}
+  void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakeDoneReceived() override {}
+  HandshakeState GetHandshakeState() const override { return HANDSHAKE_START; }
 
  private:
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters> params_;
@@ -98,7 +101,7 @@ class QuicCryptoStreamTest : public QuicTest {
 
 TEST_F(QuicCryptoStreamTest, NotInitiallyConected) {
   EXPECT_FALSE(stream_->encryption_established());
-  EXPECT_FALSE(stream_->handshake_confirmed());
+  EXPECT_FALSE(stream_->one_rtt_keys_available());
 }
 
 TEST_F(QuicCryptoStreamTest, ProcessRawData) {

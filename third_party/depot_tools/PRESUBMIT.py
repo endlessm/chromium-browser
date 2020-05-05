@@ -70,10 +70,10 @@ def CommonChecks(input_api, output_api, tests_to_black_list, run_on_python3):
     print('Warning: skipping most unit tests on Windows')
     tests_to_black_list = [
         r'.*auth_test\.py$',
-        r'.*gclient_smoketest\.py$',
         r'.*git_cl_test\.py$',
         r'.*git_common_test\.py$',
         r'.*git_hyper_blame_test\.py$',
+        r'.*git_map_test\.py$',
         r'.*git_number_test\.py$',
         r'.*git_rebase_update_test\.py$',
         r'.*ninjalog_uploader_test\.py$',
@@ -100,8 +100,8 @@ def CommonChecks(input_api, output_api, tests_to_black_list, run_on_python3):
   rel_file = lambda rel: input_api.os_path.join(root, rel)
   cipd_manifests = set(rel_file(input_api.os_path.join(*x)) for x in (
     ('cipd_manifest.txt',),
-    ('bootstrap', 'win', 'manifest.txt'),
-    ('bootstrap', 'win', 'manifest_bleeding_edge.txt'),
+    ('bootstrap', 'manifest.txt'),
+    ('bootstrap', 'manifest_bleeding_edge.txt'),
 
     # Also generate a file for the cipd client itself.
     ('cipd_client_version',),

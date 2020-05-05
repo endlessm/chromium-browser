@@ -50,7 +50,6 @@ void GrProgramInfo::validate(bool flushTime) const {
 
             const GrBackendFormat& format = dynamicPrimProcTextures[s]->backendFormat();
             GrTextureType type = dynamicPrimProcTextures[s]->backendFormat().textureType();
-            GrPixelConfig config = dynamicPrimProcTextures[s]->config();
 
             for (int m = 1; m < fNumDynamicStateArrays; ++m) {
                 dynamicPrimProcTextures = this->dynamicPrimProcTextures(m);
@@ -59,7 +58,6 @@ void GrProgramInfo::validate(bool flushTime) const {
                 SkASSERT(testProxy->asTextureProxy());
                 SkASSERT(testProxy->backendFormat() == format);
                 SkASSERT(testProxy->backendFormat().textureType() == type);
-                SkASSERT(testProxy->config() == config);
             }
         }
     }
@@ -84,8 +82,7 @@ void GrProgramInfo::checkAllInstantiated() const {
 }
 
 void GrProgramInfo::checkMSAAAndMIPSAreResolved() const {
-
-    auto assertResolved = [](GrTexture* tex, const GrSamplerState& sampler) {
+    auto assertResolved = [](GrTexture* tex, GrSamplerState sampler) {
         SkASSERT(tex);
 
         // Ensure mipmaps were all resolved ahead of time by the DAG.
@@ -121,12 +118,27 @@ void GrProgramInfo::checkMSAAAndMIPSAreResolved() const {
     }
 }
 
-void GrProgramInfo::compatibleWithMeshes(const GrMesh meshes[], int meshCount) const {
+void GrProgramInfo::compatibleWithMeshes(const GrMesh meshes[], int meshCount,
+                                         const GrCaps& caps) const {
     SkASSERT(!fNumDynamicStateArrays || meshCount == fNumDynamicStateArrays);
 
     for (int i = 0; i < meshCount; ++i) {
-        SkASSERT(fPrimProc->hasVertexAttributes() == meshes[i].hasVertexData());
-        SkASSERT(fPrimProc->hasInstanceAttributes() == meshes[i].hasInstanceData());
+        SkASSERT(fPrimitiveType == meshes[i].primitiveType());
+        if (GrPrimitiveType::kPatches == fPrimitiveType) {
+            SkASSERT(fTessellationPatchVertexCount == meshes[i].tessellationPatchVertexCount());
+        }
+        SkASSERT(fPrimProc->hasVertexAttributes() == SkToBool(meshes[i].vertexBuffer()));
+        SkASSERT(fPrimProc->hasInstanceAttributes() == SkToBool(meshes[i].instanceBuffer()));
+        if (fPipeline->usesConservativeRaster()) {
+            // Conservative raster, by default, only supports triangles. Implementations can
+            // optionally indicate that they also support points and lines, but we don't currently
+            // query or track that info.
+            SkASSERT(GrIsPrimTypeTris(meshes[i].primitiveType()));
+        }
+        SkASSERT(GrPrimitiveType::kPatches != meshes[i].primitiveType() ||
+                 caps.shaderCaps()->tessellationSupport());
+        SkASSERT(GrPrimitiveRestart::kNo == meshes[i].primitiveRestart() ||
+                 caps.usePrimitiveRestart());
     }
 }
 

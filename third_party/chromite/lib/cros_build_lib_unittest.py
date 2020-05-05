@@ -34,7 +34,7 @@ class RunCommandErrorStrTest(cros_test_lib.TestCase):
 
   def testNonUTF8Characters(self):
     """Test that non-UTF8 characters do not kill __str__"""
-    result = cros_build_lib.run(['ls', '/does/not/exist'], error_code_ok=True)
+    result = cros_build_lib.run(['ls', '/does/not/exist'], check=False)
     rce = cros_build_lib.RunCommandError('\x81', result)
     str(rce)
 
@@ -159,15 +159,15 @@ class TestRunCommandNoMock(cros_test_lib.TestCase):
 
   def testErrorCodeNotRaisesError(self):
     """Don't raise exception when command returns non-zero exit code."""
-    result = cros_build_lib.run(['ls', '/does/not/exist'], error_code_ok=True)
+    result = cros_build_lib.run(['ls', '/does/not/exist'], check=False)
     self.assertTrue(result.returncode != 0)
 
   def testMissingCommandRaisesError(self):
     """Raise error when command is not found."""
     self.assertRaises(cros_build_lib.RunCommandError, cros_build_lib.run,
-                      ['/does/not/exist'], error_code_ok=False)
+                      ['/does/not/exist'], check=True)
     self.assertRaises(cros_build_lib.RunCommandError, cros_build_lib.run,
-                      ['/does/not/exist'], error_code_ok=True)
+                      ['/does/not/exist'], check=False)
 
   def testInputBytes(self):
     """Verify input argument when it is bytes."""
@@ -491,7 +491,7 @@ class TestRunCommand(cros_test_lib.MockTestCase):
                            ignore_sigint=ignore_sigint):
       self.assertRaises(cros_build_lib.RunCommandError,
                         cros_build_lib.run, cmd, shell=True,
-                        ignore_sigint=ignore_sigint, error_code_ok=False)
+                        ignore_sigint=ignore_sigint, check=True)
 
   @_ForceLoggingLevel
   def testSubprocessCommunicateExceptionRaisesError(self, ignore_sigint=False):
@@ -694,7 +694,7 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
   @_ForceLoggingLevel
   def testLogStdoutToFile(self):
     log = os.path.join(self.tempdir, 'output')
-    ret = cros_build_lib.run(['echo', 'monkeys'], log_stdout_to_file=log)
+    ret = cros_build_lib.run(['echo', 'monkeys'], stdout=log)
     self.assertEqual(osutils.ReadFile(log), 'monkeys\n')
     self.assertIs(ret.output, None)
     self.assertIs(ret.error, None)
@@ -702,7 +702,7 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
     os.unlink(log)
     ret = cros_build_lib.run(
         ['sh', '-c', 'echo monkeys3 >&2'],
-        log_stdout_to_file=log, redirect_stderr=True)
+        stdout=log, stderr=True)
     self.assertEqual(ret.error, b'monkeys3\n')
     self.assertExists(log)
     self.assertEqual(os.path.getsize(log), 0)
@@ -710,7 +710,7 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
     os.unlink(log)
     ret = cros_build_lib.run(
         ['sh', '-c', 'echo monkeys4; echo monkeys5 >&2'],
-        log_stdout_to_file=log, combine_stdout_stderr=True)
+        stdout=log, stderr=subprocess.STDOUT)
     self.assertIs(ret.output, None)
     self.assertIs(ret.error, None)
     self.assertEqual(osutils.ReadFile(log), 'monkeys4\nmonkeys5\n')
@@ -719,24 +719,34 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
   @_ForceLoggingLevel
   def testLogStdoutToFileWithOrWithoutAppend(self):
     log = os.path.join(self.tempdir, 'output')
-    ret = cros_build_lib.run(['echo', 'monkeys'], log_stdout_to_file=log)
+    ret = cros_build_lib.run(['echo', 'monkeys'], stdout=log)
     self.assertEqual(osutils.ReadFile(log), 'monkeys\n')
     self.assertIs(ret.output, None)
     self.assertIs(ret.error, None)
 
     # Without append
-    ret = cros_build_lib.run(['echo', 'monkeys2'], log_stdout_to_file=log)
+    ret = cros_build_lib.run(['echo', 'monkeys2'], stdout=log)
     self.assertEqual(osutils.ReadFile(log), 'monkeys2\n')
     self.assertIs(ret.output, None)
     self.assertIs(ret.error, None)
 
     # With append
     ret = cros_build_lib.run(
-        ['echo', 'monkeys3'], append_to_file=True, log_stdout_to_file=log)
+        ['echo', 'monkeys3'], append_to_file=True, stdout=log)
     self.assertEqual(osutils.ReadFile(log), 'monkeys2\nmonkeys3\n')
     self.assertIs(ret.output, None)
     self.assertIs(ret.error, None)
 
+  def testOutputFileHandle(self):
+    """Verify writing to existing file handles."""
+    stdout = os.path.join(self.tempdir, 'stdout')
+    stderr = os.path.join(self.tempdir, 'stderr')
+    with open(stdout, 'wb') as outfp:
+      with open(stderr, 'wb') as errfp:
+        cros_build_lib.run(['sh', '-c', 'echo out; echo err >&2'],
+                           stdout=outfp, stderr=errfp)
+    self.assertEqual('out\n', osutils.ReadFile(stdout))
+    self.assertEqual('err\n', osutils.ReadFile(stderr))
 
   def _CaptureRunCommand(self, command, mute_output):
     """Capture a run() output with the specified |mute_output|.
@@ -772,14 +782,14 @@ class TestRunCommandOutput(cros_test_lib.TempDirTestCase,
     # Needed by cros_sdk and brillo/cros chroot.
     with self.OutputCapturer():
       cros_build_lib.run(['echo', 'foo'], mute_output=False,
-                         error_code_ok=True, print_cmd=False,
+                         check=False, print_cmd=False,
                          debug_level=logging.NOTICE)
     self.AssertOutputContainsLine('foo')
 
   def testRunCommandRedirectStdoutStderrOnCommandError(self):
     """Tests that stderr is captured when run raises."""
     with self.assertRaises(cros_build_lib.RunCommandError) as cm:
-      cros_build_lib.run(['cat', '/'], redirect_stderr=True)
+      cros_build_lib.run(['cat', '/'], stderr=True)
     self.assertIsNotNone(cm.exception.result.error)
     self.assertNotEqual('', cm.exception.result.error)
 

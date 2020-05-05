@@ -1,18 +1,24 @@
 // Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import {createTextButton} from './UIUtils.js';
+import {createShadowRootWithCoreStyles} from './utils/create-shadow-root-with-core-styles.js';
+import {Widget} from './Widget.js';  // eslint-disable-line no-unused-vars
+
 /**
  * @unrestricted
  */
-export default class Infobar {
+export class Infobar {
   /**
    * @param {!Type} type
    * @param {string} text
-   * @param {!Common.Setting=} disableSetting
+   * @param {!Common.Settings.Setting=} disableSetting
    */
   constructor(type, text, disableSetting) {
     this.element = createElementWithClass('div', 'flex-none');
-    this._shadowRoot = UI.createShadowRootWithCoreStyles(this.element, 'ui/infobar.css');
+    this._shadowRoot = createShadowRootWithCoreStyles(this.element, 'ui/infobar.css');
     this._contentElement = this._shadowRoot.createChild('div', 'infobar infobar-' + type);
 
     this._mainRow = this._contentElement.createChild('div', 'infobar-main-row');
@@ -22,14 +28,13 @@ export default class Infobar {
     this._detailsRows = this._contentElement.createChild('div', 'infobar-details-rows hidden');
 
     this._toggleElement =
-        UI.createTextButton(ls`more`, this._onToggleDetails.bind(this), 'infobar-toggle link-style hidden');
+        createTextButton(ls`more`, this._onToggleDetails.bind(this), 'infobar-toggle link-style hidden');
     this._mainRow.appendChild(this._toggleElement);
 
-    /** @type {?Common.Setting} */
+    /** @type {?Common.Settings.Setting} */
     this._disableSetting = disableSetting || null;
     if (disableSetting) {
-      const disableButton =
-          UI.createTextButton(ls`never show`, this._onDisable.bind(this), 'infobar-toggle link-style');
+      const disableButton = createTextButton(ls`never show`, this._onDisable.bind(this), 'infobar-toggle link-style');
       this._mainRow.appendChild(disableButton);
     }
 
@@ -44,7 +49,7 @@ export default class Infobar {
   /**
    * @param {!Type} type
    * @param {string} text
-   * @param {!Common.Setting=} disableSetting
+   * @param {!Common.Settings.Setting=} disableSetting
    * @return {?Infobar}
    */
   static create(type, text, disableSetting) {
@@ -78,7 +83,7 @@ export default class Infobar {
   }
 
   /**
-   * @param {!UI.Widget} parentView
+   * @param {!Widget} parentView
    */
   setParentView(parentView) {
     this._parentView = parentView;
@@ -119,15 +124,3 @@ export const Type = {
   Warning: 'warning',
   Info: 'info'
 };
-
-/* Legacy exported object*/
-self.UI = self.UI || {};
-
-/* Legacy exported object*/
-UI = UI || {};
-
-/** @constructor */
-UI.Infobar = Infobar;
-
-/** @enum {string} */
-UI.Infobar.Type = Type;

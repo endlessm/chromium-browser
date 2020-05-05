@@ -2,23 +2,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {NetworkGroupNode} from './NetworkDataGridNode.js';
+import {GroupLookupInterface, NetworkLogView} from './NetworkLogView.js';  // eslint-disable-line no-unused-vars
+
 /**
- * @implements {Network.GroupLookupInterface}
+ * @implements {GroupLookupInterface}
  */
-Network.NetworkFrameGrouper = class {
+export class NetworkFrameGrouper {
   /**
-   * @param {!Network.NetworkLogView} parentView
+   * @param {!NetworkLogView} parentView
    */
   constructor(parentView) {
     this._parentView = parentView;
-    /** @type {!Map<!SDK.ResourceTreeFrame, !Network.FrameGroupNode>} */
+    /** @type {!Map<!SDK.ResourceTreeFrame, !FrameGroupNode>} */
     this._activeGroups = new Map();
   }
 
   /**
    * @override
    * @param {!SDK.NetworkRequest} request
-   * @return {?Network.NetworkGroupNode}
+   * @return {?NetworkGroupNode}
    */
   groupNodeForRequest(request) {
     const frame = SDK.ResourceTreeModel.frameForRequest(request);
@@ -29,7 +32,7 @@ Network.NetworkFrameGrouper = class {
     if (groupNode) {
       return groupNode;
     }
-    groupNode = new Network.FrameGroupNode(this._parentView, frame);
+    groupNode = new FrameGroupNode(this._parentView, frame);
     this._activeGroups.set(frame, groupNode);
     return groupNode;
   }
@@ -40,11 +43,11 @@ Network.NetworkFrameGrouper = class {
   reset() {
     this._activeGroups.clear();
   }
-};
+}
 
-Network.FrameGroupNode = class extends Network.NetworkGroupNode {
+export class FrameGroupNode extends NetworkGroupNode {
   /**
-   * @param {!Network.NetworkLogView} parentView
+   * @param {!NetworkLogView} parentView
    * @param {!SDK.ResourceTreeFrame} frame
    */
   constructor(parentView, frame) {
@@ -72,6 +75,7 @@ Network.FrameGroupNode = class extends Network.NetworkGroupNode {
       cell.appendChild(UI.Icon.create('largeicon-navigator-frame', 'network-frame-group-icon'));
       cell.createTextChild(name);
       cell.title = name;
+      this.setCellAccessibleName(cell.textContent, cell, columnId);
     }
   }
-};
+}
