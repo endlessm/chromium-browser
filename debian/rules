@@ -430,7 +430,7 @@ debian/chromium-browser.sh: debian/chromium-browser.sh.in
     $< > $@
 
 out/Release/gn:
-	CC=clang-6.0 CXX=clang++-6.0 AR=llvm-ar-6.0 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
+	CC=clang-9 CXX=clang++-9 AR=llvm-ar-9 tools/gn/bootstrap/bootstrap.py --verbose --no-rebuild --gn-gen-args '$(common_defines)'
 	echo built $@
 
 
