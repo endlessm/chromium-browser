@@ -32,6 +32,7 @@ Build-Depends:
 	libfdk-aac-dev (>= 2.0.0),
 	libgles2-mesa-dev [armel armhf],
 	libpci-dev,
+	libxcb-dri3-dev,
 	libx11-xcb-dev,
 	libxtst-dev,
 	libxss-dev,
