@@ -28,6 +28,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';
+import * as UI from '../ui/ui.js';
+
 import {EventSourceMessagesView} from './EventSourceMessagesView.js';
 import {NetworkTimeCalculator} from './NetworkTimeCalculator.js';  // eslint-disable-line no-unused-vars
 import {RequestCookiesView} from './RequestCookiesView.js';
@@ -38,51 +42,62 @@ import {RequestResponseView} from './RequestResponseView.js';
 import {RequestTimingView} from './RequestTimingView.js';
 import {ResourceWebSocketFrameView} from './ResourceWebSocketFrameView.js';
 
-export class NetworkItemView extends UI.TabbedPane {
+export class NetworkItemView extends UI.TabbedPane.TabbedPane {
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @param {!NetworkTimeCalculator} calculator
+   * @param {!Tabs=} initialTab If specified, will open `initalTab` when the view shows. Otherwise the tab that
+   *                            was last shown is opened. Note that specifying `initalTab` won't override the
+   *                            setting that stores the 'last opened tab' (similar to how revealers work).
    */
-  constructor(request, calculator) {
+  constructor(request, calculator, initialTab) {
     super();
     this._request = request;
     this.element.classList.add('network-item-view');
 
-    this._resourceViewTabSetting = self.Common.settings.createSetting('resourceViewTab', 'preview');
+    this._resourceViewTabSetting = Common.Settings.Settings.instance().createSetting('resourceViewTab', 'preview');
 
     this._headersView = new RequestHeadersView(request);
     this.appendTab(
-        Tabs.Headers, Common.UIString('Headers'), this._headersView, Common.UIString('Headers and request body'));
+        Tabs.Headers, Common.UIString.UIString('Headers'), this._headersView,
+        Common.UIString.UIString('Headers and request body'));
 
     this.addEventListener(UI.TabbedPane.Events.TabSelected, this._tabSelected, this);
 
-    if (request.resourceType() === Common.resourceTypes.WebSocket) {
+    if (request.resourceType() === Common.ResourceType.resourceTypes.WebSocket) {
       const frameView = new ResourceWebSocketFrameView(request);
-      this.appendTab(Tabs.WsFrames, Common.UIString('Messages'), frameView, Common.UIString('WebSocket messages'));
+      this.appendTab(
+          Tabs.WsFrames, Common.UIString.UIString('Messages'), frameView,
+          Common.UIString.UIString('WebSocket messages'));
     } else if (request.mimeType === 'text/event-stream') {
-      this.appendTab(Tabs.EventSource, Common.UIString('EventStream'), new EventSourceMessagesView(request));
+      this.appendTab(Tabs.EventSource, Common.UIString.UIString('EventStream'), new EventSourceMessagesView(request));
     } else {
       this._responseView = new RequestResponseView(request);
       const previewView = new RequestPreviewView(request);
-      this.appendTab(Tabs.Preview, Common.UIString('Preview'), previewView, Common.UIString('Response preview'));
+      this.appendTab(
+          Tabs.Preview, Common.UIString.UIString('Preview'), previewView, Common.UIString.UIString('Response preview'));
       if (request.signedExchangeInfo() && request.signedExchangeInfo().errors &&
           request.signedExchangeInfo().errors.length) {
-        const icon = UI.Icon.create('smallicon-error');
-        icon.title = Common.UIString('SignedExchange error');
+        const icon = UI.Icon.Icon.create('smallicon-error');
+        icon.title = Common.UIString.UIString('SignedExchange error');
         this.setTabIcon(Tabs.Preview, icon);
       }
       this.appendTab(
-          Tabs.Response, Common.UIString('Response'), this._responseView, Common.UIString('Raw response data'));
+          Tabs.Response, Common.UIString.UIString('Response'), this._responseView,
+          Common.UIString.UIString('Raw response data'));
     }
 
     this.appendTab(Tabs.Initiator, ls`Initiator`, new RequestInitiatorView(request), ls`Request initiator call stack`);
 
     this.appendTab(
-        Tabs.Timing, Common.UIString('Timing'), new RequestTimingView(request, calculator),
-        Common.UIString('Request and response timeline'));
+        Tabs.Timing, Common.UIString.UIString('Timing'), new RequestTimingView(request, calculator),
+        Common.UIString.UIString('Request and response timeline'));
 
     /** @type {?RequestCookiesView} */
     this._cookiesView = null;
+
+    /** @type {!Tabs} */
+    this._initialTab = initialTab || this._resourceViewTabSetting.get();
   }
 
   /**
@@ -95,7 +110,7 @@ export class NetworkItemView extends UI.TabbedPane {
     this._request.addEventListener(
         SDK.NetworkRequest.Events.ResponseHeadersChanged, this._maybeAppendCookiesPanel, this);
     this._maybeAppendCookiesPanel();
-    this._selectTab();
+    this._selectTab(this._initialTab);
   }
 
   /**
@@ -114,18 +129,15 @@ export class NetworkItemView extends UI.TabbedPane {
     if (cookiesPresent && !this._cookiesView) {
       this._cookiesView = new RequestCookiesView(this._request);
       this.appendTab(
-          Tabs.Cookies, Common.UIString('Cookies'), this._cookiesView, Common.UIString('Request and response cookies'));
+          Tabs.Cookies, Common.UIString.UIString('Cookies'), this._cookiesView,
+          Common.UIString.UIString('Request and response cookies'));
     }
   }
 
   /**
-   * @param {string=} tabId
+   * @param {string} tabId
    */
   _selectTab(tabId) {
-    if (!tabId) {
-      tabId = this._resourceViewTabSetting.get();
-    }
-
     if (!this.selectTab(tabId)) {
       this.selectTab('headers');
     }
@@ -139,7 +151,7 @@ export class NetworkItemView extends UI.TabbedPane {
   }
 
   /**
-   * @return {!SDK.NetworkRequest}
+   * @return {!SDK.NetworkRequest.NetworkRequest}
    */
   request() {
     return this._request;

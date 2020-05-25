@@ -12,12 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-export interface AggregateCpuData {
+export type Column = (StringColumn|TimestampColumn|NumberColumn|StateColumn)&
+    {title: string, columnId: string};
+
+export interface StringColumn {
+  kind: 'STRING';
+  data: Uint16Array;
+}
+
+export interface TimestampColumn {
+  kind: 'TIMESTAMP_NS';
+  data: Float64Array;
+}
+
+export interface NumberColumn {
+  kind: 'NUMBER';
+  data: Uint16Array;
+}
+
+export interface StateColumn {
+  kind: 'STATE';
+  data: Uint16Array;
+}
+
+type TypedArrayConstructor = Uint16ArrayConstructor|Float64ArrayConstructor;
+export interface ColumnDef {
+  title: string;
+  kind: string;
+  columnConstructor: TypedArrayConstructor;
+  columnId: string;
+}
+
+export interface AggregateData {
+  tabName: string;
+  columns: Column[];
+  // For string interning.
   strings: string[];
-  procNameId: Uint16Array;
-  pid: Uint32Array;
-  threadNameId: Uint16Array;
-  tid: Uint32Array;
-  totalDur: Float64Array;
-  occurrences: Uint16Array;
 }

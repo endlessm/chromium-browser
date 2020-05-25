@@ -13,6 +13,8 @@
 //  * FuchsiaLocksChecker, which is also rather similar.
 //  * C11LockChecker which also closely follows Pthread semantics.
 //
+//  TODO: Path notes.
+//
 //===----------------------------------------------------------------------===//
 
 #include "clang/StaticAnalyzer/Checkers/BuiltinCheckerRegistration.h"
@@ -256,7 +258,9 @@ void PthreadLockChecker::checkPostCall(const CallEvent &Call,
   // are global C functions.
   // TODO: Maybe make this the default behavior of CallDescription
   // with exactly one identifier?
-  if (!Call.isGlobalCFunction())
+  // FIXME: Try to handle cases when the implementation was inlined rather
+  // than just giving up.
+  if (!Call.isGlobalCFunction() || C.wasInlined)
     return;
 
   if (const FnCheck *Callback = PThreadCallbacks.lookup(Call))
@@ -721,7 +725,7 @@ void ento::registerPthreadLockBase(CheckerManager &mgr) {
   mgr.registerChecker<PthreadLockChecker>();
 }
 
-bool ento::shouldRegisterPthreadLockBase(const LangOptions &LO) { return true; }
+bool ento::shouldRegisterPthreadLockBase(const CheckerManager &mgr) { return true; }
 
 #define REGISTER_CHECKER(name)                                                 \
   void ento::register##name(CheckerManager &mgr) {                             \
@@ -731,7 +735,7 @@ bool ento::shouldRegisterPthreadLockBase(const LangOptions &LO) { return true; }
         mgr.getCurrentCheckerName();                                           \
   }                                                                            \
                                                                                \
-  bool ento::shouldRegister##name(const LangOptions &LO) { return true; }
+  bool ento::shouldRegister##name(const CheckerManager &mgr) { return true; }
 
 REGISTER_CHECKER(PthreadLockChecker)
 REGISTER_CHECKER(FuchsiaLockChecker)

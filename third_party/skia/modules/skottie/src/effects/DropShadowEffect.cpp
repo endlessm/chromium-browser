@@ -7,7 +7,6 @@
 
 #include "modules/skottie/src/effects/Effects.h"
 
-#include "modules/skottie/src/Animator.h"
 #include "modules/skottie/src/SkottieValue.h"
 #include "modules/sksg/include/SkSGRenderEffect.h"
 #include "src/utils/SkJSON.h"
@@ -19,50 +18,71 @@ namespace  {
 
 class DropShadowAdapter final : public AnimatablePropertyContainer {
 public:
-    static sk_sp<DropShadowAdapter> Make(const skjson::ArrayValue& jprops,
-                                         sk_sp<sksg::RenderNode> layer,
-                                         const AnimationBuilder* abuilder) {
-        return sk_sp<DropShadowAdapter>(new DropShadowAdapter(jprops, std::move(layer), abuilder));
+    static sk_sp<DropShadowAdapter> MakeEffect(const skjson::ArrayValue& jprops,
+                                               sk_sp<sksg::RenderNode> layer,
+                                               const AnimationBuilder& abuilder) {
+        enum : size_t {
+            kShadowColor_Index = 0,
+                kOpacity_Index = 1,
+              kDirection_Index = 2,
+               kDistance_Index = 3,
+               kSoftness_Index = 4,
+             kShadowOnly_Index = 5,
+        };
+
+        sk_sp<DropShadowAdapter> adapter(new DropShadowAdapter(std::move(layer), Type::fEffect));
+
+        EffectBinder(jprops, abuilder, adapter.get())
+                .bind(kShadowColor_Index, adapter->fColor    )
+                .bind(    kOpacity_Index, adapter->fOpacity  )
+                .bind(  kDirection_Index, adapter->fDirection)
+                .bind(   kDistance_Index, adapter->fDistance )
+                .bind(   kSoftness_Index, adapter->fSoftness )
+                .bind( kShadowOnly_Index, adapter->fShdwOnly );
+
+        return adapter;
+    }
+
+    static sk_sp<DropShadowAdapter> MakeStyle(const skjson::ObjectValue& jstyle,
+                                              sk_sp<sksg::RenderNode> layer,
+                                              const AnimationBuilder& abuilder) {
+        sk_sp<DropShadowAdapter> adapter(new DropShadowAdapter(std::move(layer), Type::fStyle));
+
+        adapter->bind(abuilder, jstyle["a"], adapter->fDirection);
+        adapter->bind(abuilder, jstyle["c"], adapter->fColor    );
+        adapter->bind(abuilder, jstyle["d"], adapter->fDistance );
+        adapter->bind(abuilder, jstyle["o"], adapter->fOpacity  );
+        adapter->bind(abuilder, jstyle["s"], adapter->fSoftness );
+
+        return adapter;
     }
 
     const sk_sp<sksg::RenderNode>& node() const { return fImageFilterEffect; }
 
 private:
-    DropShadowAdapter(const skjson::ArrayValue& jprops,
-                      sk_sp<sksg::RenderNode> layer,
-                      const AnimationBuilder* abuilder)
+    enum class Type { fEffect, fStyle };
+    DropShadowAdapter(sk_sp<sksg::RenderNode> layer, Type ty)
         : fDropShadow(sksg::DropShadowImageFilter::Make())
-        , fImageFilterEffect(sksg::ImageFilterEffect::Make(std::move(layer), fDropShadow)) {
-        enum : size_t {
-            kShadowColor_Index = 0,
-            kOpacity_Index     = 1,
-            kDirection_Index   = 2,
-            kDistance_Index    = 3,
-            kSoftness_Index    = 4,
-            kShadowOnly_Index  = 5,
-        };
-
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops, kShadowColor_Index), &fColor    );
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops,     kOpacity_Index), &fOpacity  );
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops,   kDirection_Index), &fDirection);
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops,    kDistance_Index), &fDistance );
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops,    kSoftness_Index), &fSoftness );
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops,  kShadowOnly_Index), &fShdwOnly );
+        , fImageFilterEffect(sksg::ImageFilterEffect::Make(std::move(layer), fDropShadow))
+        , fType(ty) {
+        fOpacity = this->maxOpacity();
     }
 
     void onSync() override {
         // fColor -> RGB, fOpacity -> A
         const auto color = ValueTraits<VectorValue>::As<SkColor>(fColor);
-        fDropShadow->setColor(SkColorSetA(color, SkTPin(SkScalarRoundToInt(fOpacity), 0, 255)));
+        fDropShadow->setColor(SkColorSetA(color,
+                                          SkScalarRoundToInt(SkTPin(fOpacity / this->maxOpacity(),
+                                                                    0.0f, 1.0f) * 255)));
 
-        // The offset is specified in terms of a bearing angle + distance.
-        SkScalar rad = SkDegreesToRadians(90 - fDirection);
+        // The offset is specified in terms of an angle + distance.
+        const auto rad = SkDegreesToRadians(fType == Type::fEffect
+                                                ?  90 - fDirection   // bearing      (effect)
+                                                : 180 + fDirection); // 0deg -> left (style)
         fDropShadow->setOffset(SkVector::Make( fDistance * SkScalarCos(rad),
                                               -fDistance * SkScalarSin(rad)));
 
-        // Close enough to AE.
-        static constexpr SkScalar kSoftnessToSigmaFactor = 0.3f;
-        const auto sigma = fSoftness * kSoftnessToSigmaFactor;
+        const auto sigma = fSoftness * kBlurSizeToSigma;
         fDropShadow->setSigma(SkVector::Make(sigma, sigma));
 
         fDropShadow->setMode(SkToBool(fShdwOnly)
@@ -70,11 +90,18 @@ private:
                                 : sksg::DropShadowImageFilter::Mode::kShadowAndForeground);
     }
 
+    float maxOpacity() const {
+        return fType == Type::fEffect
+                ? 255.0f  // effect: 0 - 255
+                : 100.0f; // style : 0 - 100
+    }
+
     const sk_sp<sksg::DropShadowImageFilter> fDropShadow;
     const sk_sp<sksg::RenderNode>            fImageFilterEffect;
+    const Type                               fType;
 
     VectorValue fColor     = { 0, 0, 0, 1 };
-    ScalarValue fOpacity   = 255.f,
+    ScalarValue fOpacity,       // initialized explicitly depending on type
                 fDirection = 0,
                 fDistance  = 0,
                 fSoftness  = 0,
@@ -85,9 +112,22 @@ private:
 
 sk_sp<sksg::RenderNode> EffectBuilder::attachDropShadowEffect(const skjson::ArrayValue& jprops,
                                                               sk_sp<sksg::RenderNode> layer) const {
-    return fBuilder->attachDiscardableAdapter<DropShadowAdapter>(jprops,
-                                                                 std::move(layer),
-                                                                 fBuilder);
+    auto adapter     = DropShadowAdapter::MakeEffect(jprops, std::move(layer), *fBuilder);
+    auto effect_node = adapter->node();
+
+    fBuilder->attachDiscardableAdapter(std::move(adapter));
+
+    return effect_node;
+}
+
+sk_sp<sksg::RenderNode> EffectBuilder::attachDropShadowStyle(const skjson::ObjectValue& jstyle,
+                                                             sk_sp<sksg::RenderNode> layer) const {
+    auto adapter     = DropShadowAdapter::MakeStyle(jstyle, std::move(layer), *fBuilder);
+    auto effect_node = adapter->node();
+
+    fBuilder->attachDiscardableAdapter(std::move(adapter));
+
+    return effect_node;
 }
 
 } // namespace internal

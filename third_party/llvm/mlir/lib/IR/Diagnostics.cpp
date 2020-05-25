@@ -352,7 +352,8 @@ struct SourceMgrDiagnosticHandlerImpl {
     // Otherwise, try to load the source file.
     const llvm::MemoryBuffer *newBuf = nullptr;
     std::string ignored;
-    if (auto newBufID = mgr.AddIncludeFile(filename, llvm::SMLoc(), ignored))
+    if (auto newBufID =
+            mgr.AddIncludeFile(std::string(filename), llvm::SMLoc(), ignored))
       newBuf = mgr.getMemoryBuffer(newBufID);
     return filenameToBuf[filename] = newBuf;
   }
@@ -373,6 +374,32 @@ static Optional<FileLineColLoc> getFileLineColLoc(Location loc) {
   case StandardAttributes::CallSiteLocation:
     // Process the callee of a callsite location.
     return getFileLineColLoc(loc.cast<CallSiteLoc>().getCallee());
+  case StandardAttributes::FusedLocation:
+    for (auto subLoc : loc.cast<FusedLoc>().getLocations()) {
+      if (auto callLoc = getFileLineColLoc(subLoc)) {
+        return callLoc;
+      }
+    }
+    return llvm::None;
+  default:
+    return llvm::None;
+  }
+}
+
+/// Return a processable CallSiteLoc from the given location.
+static Optional<CallSiteLoc> getCallSiteLoc(Location loc) {
+  switch (loc->getKind()) {
+  case StandardAttributes::NameLocation:
+    return getCallSiteLoc(loc.cast<NameLoc>().getChildLoc());
+  case StandardAttributes::CallSiteLocation:
+    return loc.cast<CallSiteLoc>();
+  case StandardAttributes::FusedLocation:
+    for (auto subLoc : loc.cast<FusedLoc>().getLocations()) {
+      if (auto callLoc = getCallSiteLoc(subLoc)) {
+        return callLoc;
+      }
+    }
+    return llvm::None;
   default:
     return llvm::None;
   }
@@ -408,7 +435,8 @@ SourceMgrDiagnosticHandler::SourceMgrDiagnosticHandler(llvm::SourceMgr &mgr,
 SourceMgrDiagnosticHandler::~SourceMgrDiagnosticHandler() {}
 
 void SourceMgrDiagnosticHandler::emitDiagnostic(Location loc, Twine message,
-                                                DiagnosticSeverity kind) {
+                                                DiagnosticSeverity kind,
+                                                bool displaySourceLine) {
   // Extract a file location from this loc.
   auto fileLoc = getFileLineColLoc(loc);
 
@@ -422,41 +450,52 @@ void SourceMgrDiagnosticHandler::emitDiagnostic(Location loc, Twine message,
     return mgr.PrintMessage(os, llvm::SMLoc(), getDiagKind(kind), strOS.str());
   }
 
-  // Otherwise, try to convert the file location to an SMLoc.
-  auto smloc = convertLocToSMLoc(*fileLoc);
-  if (smloc.isValid())
-    return mgr.PrintMessage(os, smloc, getDiagKind(kind), message);
+  // Otherwise if we are displaying the source line, try to convert the file
+  // location to an SMLoc.
+  if (displaySourceLine) {
+    auto smloc = convertLocToSMLoc(*fileLoc);
+    if (smloc.isValid())
+      return mgr.PrintMessage(os, smloc, getDiagKind(kind), message);
+  }
 
   // If the conversion was unsuccessful, create a diagnostic with the file
-  // information.
-  llvm::SMDiagnostic diag(fileLoc->getFilename(), getDiagKind(kind),
-                          message.str());
+  // information. We manually combine the line and column to avoid asserts in
+  // the constructor of SMDiagnostic that takes a location.
+  std::string locStr;
+  llvm::raw_string_ostream locOS(locStr);
+  locOS << fileLoc->getFilename() << ":" << fileLoc->getLine() << ":"
+        << fileLoc->getColumn();
+  llvm::SMDiagnostic diag(locOS.str(), getDiagKind(kind), message.str());
   diag.print(nullptr, os);
 }
 
 /// Emit the given diagnostic with the held source manager.
 void SourceMgrDiagnosticHandler::emitDiagnostic(Diagnostic &diag) {
   // Emit the diagnostic.
-  auto loc = diag.getLocation();
+  Location loc = diag.getLocation();
   emitDiagnostic(loc, diag.str(), diag.getSeverity());
 
   // If the diagnostic location was a call site location, then print the call
   // stack as well.
-  if (auto callLoc = loc.dyn_cast<CallSiteLoc>()) {
+  if (auto callLoc = getCallSiteLoc(loc)) {
     // Print the call stack while valid, or until the limit is reached.
-    Location callerLoc = callLoc.getCaller();
+    loc = callLoc->getCaller();
     for (unsigned curDepth = 0; curDepth < callStackLimit; ++curDepth) {
-      emitDiagnostic(callerLoc, "called from", DiagnosticSeverity::Note);
-      if ((callLoc = callerLoc.dyn_cast<CallSiteLoc>()))
-        callerLoc = callLoc.getCaller();
+      emitDiagnostic(loc, "called from", DiagnosticSeverity::Note);
+      if ((callLoc = getCallSiteLoc(loc)))
+        loc = callLoc->getCaller();
       else
         break;
     }
   }
 
-  // Emit each of the notes.
-  for (auto &note : diag.getNotes())
-    emitDiagnostic(note.getLocation(), note.str(), note.getSeverity());
+  // Emit each of the notes. Only display the source code if the location is
+  // different from the previous location.
+  for (auto &note : diag.getNotes()) {
+    emitDiagnostic(note.getLocation(), note.str(), note.getSeverity(),
+                   /*displaySourceLine=*/loc != note.getLocation());
+    loc = note.getLocation();
+  }
 }
 
 /// Get a memory buffer for the given file, or nullptr if one is not found.

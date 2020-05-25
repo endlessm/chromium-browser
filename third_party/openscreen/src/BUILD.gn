@@ -21,11 +21,12 @@ group("gn_all") {
   deps = [
     "cast/common:certificate",
     "cast/common:channel",
-    "cast/common:discovery",
+    "cast/common:public",
     "cast/receiver:channel",
     "cast/sender:channel",
     "cast/streaming:receiver",
     "cast/streaming:sender",
+    "discovery:common",
     "discovery:dnssd",
     "discovery:mdns",
     "discovery:public",
@@ -35,6 +36,7 @@ group("gn_all") {
     "third_party/abseil",
     "third_party/boringssl",
     "third_party/jsoncpp",
+    "third_party/mozilla",
     "third_party/tinycbor",
     "tools/cddl($host_toolchain)",
     "util",
@@ -69,7 +71,10 @@ group("gn_all") {
     # TODO(crbug.com/openscreen/86): Build for Mac too once the mac buildbot
     # compiler is upgraded.
     if (!is_mac || force_build_standalone_receiver) {
-      deps += [ "cast/standalone_receiver:cast_receiver" ]
+      deps += [
+        "cast/standalone_receiver:cast_receiver",
+        "cast/standalone_sender:cast_sender",
+      ]
     }
   }
 }
@@ -106,6 +111,24 @@ if (!build_with_chromium) {
     testonly = true
     deps = [
       ":openscreen_unittests_all",
+    ]
+  }
+}
+
+if (!build_with_chromium && is_posix) {
+  source_set("e2e_tests_all") {
+    testonly = true
+    public_deps = [
+      "cast/common:discovery_e2e_test",
+      "cast/test:e2e_tests",
+      "third_party/googletest:gtest_main",
+    ]
+  }
+
+  executable("e2e_tests") {
+    testonly = true
+    deps = [
+      ":e2e_tests_all",
     ]
   }
 }

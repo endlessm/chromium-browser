@@ -23,6 +23,8 @@ source_set("fxge") {
     "cfx_color.cpp",
     "cfx_color.h",
     "cfx_defaultrenderdevice.h",
+    "cfx_drawutils.cpp",
+    "cfx_drawutils.h",
     "cfx_face.cpp",
     "cfx_face.h",
     "cfx_folderfontinfo.cpp",
@@ -103,7 +105,6 @@ source_set("fxge") {
     "renderdevicedriver_iface.h",
     "scoped_font_transform.cpp",
     "scoped_font_transform.h",
-    "scoped_font_transform.h",
     "systemfontinfo_iface.h",
     "text_char_pos.cpp",
     "text_char_pos.h",
@@ -154,7 +155,7 @@ source_set("fxge") {
       "android/cfpf_skiapathfont.h",
       "android/cfx_androidfontinfo.cpp",
       "android/cfx_androidfontinfo.h",
-      "android/fx_android_imp.cpp",
+      "android/fx_android_impl.cpp",
     ]
   }
 
@@ -164,10 +165,11 @@ source_set("fxge") {
 
   if (is_mac) {
     sources += [
-      "apple/apple_int.h",
       "apple/fx_apple_platform.cpp",
-      "apple/fx_mac_imp.cpp",
+      "apple/fx_mac_impl.cpp",
+      "apple/fx_mac_impl.h",
       "apple/fx_quartz_device.cpp",
+      "apple/fx_quartz_device.h",
     ]
     libs = [ "CoreGraphics.framework" ]
   }
@@ -196,6 +198,7 @@ source_set("fxge") {
 
 pdfium_unittest_source_set("unittests") {
   sources = [
+    "cfx_folderfontinfo_unittest.cpp",
     "cfx_fontmapper_unittest.cpp",
     "dib/cfx_cmyk_to_srgb_unittest.cpp",
     "dib/cfx_dibitmap_unittest.cpp",

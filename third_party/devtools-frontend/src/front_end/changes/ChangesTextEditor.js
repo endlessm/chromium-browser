@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {RowType} from './ChangesView.js';
+import * as TextEditor from '../text_editor/text_editor.js';
+import * as UI from '../ui/ui.js';  // eslint-disable-line no-unused-vars
+
+import {Row, RowType} from './ChangesView.js';  // eslint-disable-line no-unused-vars
 
 /**
- * @extends {TextEditor.CodeMirrorTextEditor}
+ * @extends {TextEditor.CodeMirrorTextEditor.CodeMirrorTextEditor}
  */
-export class ChangesTextEditor extends TextEditor.CodeMirrorTextEditor {
+export class ChangesTextEditor extends TextEditor.CodeMirrorTextEditor.CodeMirrorTextEditor {
   /**
    * @param {!UI.TextEditor.Options} options
    */
@@ -15,11 +18,26 @@ export class ChangesTextEditor extends TextEditor.CodeMirrorTextEditor {
     options.inputStyle = 'devToolsAccessibleDiffTextArea';
     super(options);
     this.codeMirror().setOption('gutters', ['CodeMirror-linenumbers', 'changes-diff-gutter']);
-    this.codeMirror().setOption('extraKeys', {Enter: false, Space: false});
+    this.codeMirror().setOption('extraKeys', {
+      Enter: false,
+      Space: false,
+      Left: function(cm) {
+        const scrollInfo = cm.getScrollInfo();
+        // Left edge check required due to bug where line numbers would disappear when attempting to scroll left when the scrollbar is at the leftmost point.
+        // CodeMirror Issue: https://github.com/codemirror/CodeMirror/issues/6139
+        if (scrollInfo.left > 0) {
+          cm.scrollTo(scrollInfo.left - Math.round(scrollInfo.clientWidth / 6), null);
+        }
+      },
+      Right: function(cm) {
+        const scrollInfo = cm.getScrollInfo();
+        cm.scrollTo(scrollInfo.left + Math.round(scrollInfo.clientWidth / 6), null);
+      }
+    });
   }
 
   /**
-   * @param {!Array<!Changes.ChangesView.Row>} diffRows
+   * @param {!Array<!Row>} diffRows
    */
   updateDiffGutter(diffRows) {
     this.codeMirror().eachLine(line => {

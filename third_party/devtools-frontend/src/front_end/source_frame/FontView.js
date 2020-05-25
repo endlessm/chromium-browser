@@ -26,28 +26,33 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as Platform from '../platform/platform.js';
+import * as TextUtils from '../text_utils/text_utils.js';
+import * as UI from '../ui/ui.js';
+
 /**
  * @unrestricted
  */
-export class FontView extends UI.SimpleView {
+export class FontView extends UI.View.SimpleView {
   /**
    * @param {string} mimeType
-   * @param {!Common.ContentProvider} contentProvider
+   * @param {!TextUtils.ContentProvider.ContentProvider} contentProvider
    */
   constructor(mimeType, contentProvider) {
-    super(Common.UIString('Font'));
+    super(Common.UIString.UIString('Font'));
     this.registerRequiredCSS('source_frame/fontView.css');
     this.element.classList.add('font-view');
     this._url = contentProvider.contentURL();
     UI.ARIAUtils.setAccessibleName(this.element, ls`Preview of font from ${this._url}`);
     this._mimeType = mimeType;
     this._contentProvider = contentProvider;
-    this._mimeTypeLabel = new UI.ToolbarText(mimeType);
+    this._mimeTypeLabel = new UI.Toolbar.ToolbarText(mimeType);
   }
 
   /**
    * @override
-   * @return {!Promise<!Array<!UI.ToolbarItem>>}
+   * @return {!Promise<!Array<!UI.Toolbar.ToolbarItem>>}
    */
   async toolbarItems() {
     return [this._mimeTypeLabel];
@@ -55,13 +60,13 @@ export class FontView extends UI.SimpleView {
 
   /**
    * @param {string} uniqueFontName
-   * @param {!Common.DeferredContent} deferredContent
+   * @param {!TextUtils.ContentProvider.DeferredContent} deferredContent
    */
   _onFontContentLoaded(uniqueFontName, deferredContent) {
     const {content} = deferredContent;
-    const url = content ? Common.ContentProvider.contentAsDataURL(content, this._mimeType, true) : this._url;
+    const url = content ? TextUtils.ContentProvider.contentAsDataURL(content, this._mimeType, true) : this._url;
     this.fontStyleElement.textContent =
-        String.sprintf('@font-face { font-family: "%s"; src: url(%s); }', uniqueFontName, url);
+        Platform.StringUtilities.sprintf('@font-face { font-family: "%s"; src: url(%s); }', uniqueFontName, url);
   }
 
   _createContentIfNeeded() {

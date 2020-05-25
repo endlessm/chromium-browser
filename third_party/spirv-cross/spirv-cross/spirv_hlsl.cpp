@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2019 Robert Konrad
+ * Copyright 2016-2020 Robert Konrad
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1113,16 +1113,25 @@ void CompilerHLSL::replace_illegal_names()
 		"line", "linear", "matrix", "point", "row_major", "sampler",
 	};
 
-	ir.for_each_typed_id<SPIRVariable>([&](uint32_t, SPIRVariable &var) {
-		if (!is_hidden_variable(var))
-		{
-			auto &m = ir.meta[var.self].decoration;
-			if (keywords.find(m.alias) != end(keywords))
-				m.alias = join("_", m.alias);
-		}
+	CompilerGLSL::replace_illegal_names(keywords);
+	CompilerGLSL::replace_illegal_names();
+}
+
+void CompilerHLSL::declare_undefined_values()
+{
+	bool emitted = false;
+	ir.for_each_typed_id<SPIRUndef>([&](uint32_t, const SPIRUndef &undef) {
+		string initializer;
+		if (options.force_zero_initialized_variables && type_can_zero_initialize(this->get<SPIRType>(undef.basetype)))
+			initializer = join(" = ", to_zero_initialized_expression(undef.basetype));
+
+		statement("static ", variable_decl(this->get<SPIRType>(undef.basetype), to_name(undef.self), undef.self),
+		          initializer, ";");
+		emitted = true;
 	});
 
-	CompilerGLSL::replace_illegal_names();
+	if (emitted)
+		statement("");
 }
 
 void CompilerHLSL::emit_resources()
@@ -1358,7 +1367,15 @@ void CompilerHLSL::emit_resources()
 					storage = "static";
 					break;
 				}
-				statement(storage, " ", variable_decl(var), ";");
+
+				string initializer;
+				if (options.force_zero_initialized_variables && var.storage == StorageClassPrivate &&
+				    !var.initializer && !var.static_expression && type_can_zero_initialize(get_variable_data_type(var)))
+				{
+					initializer = join(" = ", to_zero_initialized_expression(get_variable_data_type_id(var)));
+				}
+				statement(storage, " ", variable_decl(var), initializer, ";");
+
 				emitted = true;
 			}
 		}
@@ -1853,8 +1870,8 @@ void CompilerHLSL::emit_buffer_block(const SPIRVariable &var)
 	if (is_uav)
 	{
 		Bitset flags = ir.get_buffer_block_flags(var);
-		bool is_readonly = flags.get(DecorationNonWritable);
-		bool is_coherent = flags.get(DecorationCoherent);
+		bool is_readonly = flags.get(DecorationNonWritable) && !hlsl_options.force_storage_buffer_as_uav;
+		bool is_coherent = flags.get(DecorationCoherent) && !is_readonly;
 		bool is_interlocked = interlocked_resources.count(var.self) > 0;
 		const char *type_name = "ByteAddressBuffer ";
 		if (!is_readonly)
@@ -2977,7 +2994,7 @@ string CompilerHLSL::to_resource_binding(const SPIRVariable &var)
 			if (has_decoration(type.self, DecorationBufferBlock))
 			{
 				Bitset flags = ir.get_buffer_block_flags(var);
-				bool is_readonly = flags.get(DecorationNonWritable);
+				bool is_readonly = flags.get(DecorationNonWritable) && !hlsl_options.force_storage_buffer_as_uav;
 				space = is_readonly ? 't' : 'u'; // UAV
 				resource_flags = is_readonly ? HLSL_BINDING_AUTO_SRV_BIT : HLSL_BINDING_AUTO_UAV_BIT;
 			}
@@ -2996,7 +3013,7 @@ string CompilerHLSL::to_resource_binding(const SPIRVariable &var)
 		{
 			// UAV or SRV depending on readonly flag.
 			Bitset flags = ir.get_buffer_block_flags(var);
-			bool is_readonly = flags.get(DecorationNonWritable);
+			bool is_readonly = flags.get(DecorationNonWritable) && !hlsl_options.force_storage_buffer_as_uav;
 			space = is_readonly ? 't' : 'u';
 			resource_flags = is_readonly ? HLSL_BINDING_AUTO_SRV_BIT : HLSL_BINDING_AUTO_UAV_BIT;
 		}
@@ -4006,6 +4023,9 @@ void CompilerHLSL::emit_access_chain(const Instruction &instruction)
 			inherit_expression_dependencies(ops[1], ops[i]);
 			add_implied_read_expression(e, ops[i]);
 		}
+
+		if (has_decoration(ops[1], DecorationNonUniformEXT) || has_decoration(ops[2], DecorationNonUniformEXT))
+			propagate_nonuniform_qualifier(ops[1]);
 	}
 	else
 	{
@@ -4844,8 +4864,13 @@ void CompilerHLSL::emit_instruction(const Instruction &instruction)
 	{
 		uint32_t result_type = ops[0];
 		uint32_t id = ops[1];
-		auto &e =
-		    set<SPIRExpression>(id, join(to_expression(ops[2]), "[", to_expression(ops[3]), "]"), result_type, true);
+
+		auto expr = to_expression(ops[2]);
+		if (has_decoration(id, DecorationNonUniformEXT) || has_decoration(ops[2], DecorationNonUniformEXT))
+			convert_non_uniform_expression(expression_type(ops[2]), expr);
+		expr += join("[", to_expression(ops[3]), "]");
+
+		auto &e = set<SPIRExpression>(id, expr, result_type, true);
 
 		// When using the pointer, we need to know which variable it is actually loaded from.
 		auto *var = maybe_get_backing_variable(ops[2]);

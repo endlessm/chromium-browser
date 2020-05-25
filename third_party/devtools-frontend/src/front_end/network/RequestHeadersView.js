@@ -28,9 +28,14 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-export class RequestHeadersView extends UI.VBox {
+import * as Common from '../common/common.js';
+import * as ObjectUI from '../object_ui/object_ui.js';
+import * as SDK from '../sdk/sdk.js';
+import * as UI from '../ui/ui.js';
+
+export class RequestHeadersView extends UI.Widget.VBox {
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   constructor(request) {
     super();
@@ -42,10 +47,10 @@ export class RequestHeadersView extends UI.VBox {
     this._showRequestHeadersText = false;
     this._showResponseHeadersText = false;
 
-    /** @type {?UI.TreeElement} */
+    /** @type {?UI.TreeOutline.TreeElement} */
     this._highlightedElement = null;
 
-    const root = new UI.TreeOutlineInShadow();
+    const root = new UI.TreeOutline.TreeOutlineInShadow();
     root.registerRequiredCSS('object_ui/objectValue.css');
     root.registerRequiredCSS('object_ui/objectPropertiesSection.css');
     root.registerRequiredCSS('network/requestHeadersTree.css');
@@ -53,7 +58,7 @@ export class RequestHeadersView extends UI.VBox {
     root.makeDense();
     this.element.appendChild(root.element);
 
-    const generalCategory = new Category(root, 'general', Common.UIString('General'));
+    const generalCategory = new Category(root, 'general', Common.UIString.UIString('General'));
     generalCategory.hidden = false;
     this._root = generalCategory;
     this._urlItem = generalCategory.createLeaf();
@@ -68,7 +73,7 @@ export class RequestHeadersView extends UI.VBox {
     this._requestHeadersCategory = new Category(root, 'requestHeaders', '');
     this._queryStringCategory = new Category(root, 'queryString', '');
     this._formDataCategory = new Category(root, 'formData', '');
-    this._requestPayloadCategory = new Category(root, 'requestPayload', Common.UIString('Request Payload'));
+    this._requestPayloadCategory = new Category(root, 'requestPayload', Common.UIString.UIString('Request Payload'));
   }
 
   /**
@@ -119,6 +124,59 @@ export class RequestHeadersView extends UI.VBox {
   }
 
   /**
+   * @param {!{name:string,value:(string|undefined),headerNotSet:(boolean|undefined),headerValueIncorrect:(boolean|undefined),details:(!{explanation:string,examples:!Array<!{codeSnippet:string,comment:(string|undefined)}>}|undefined)}} header
+   * @return {!DocumentFragment}
+   */
+  _formatHeaderObject(header) {
+    const fragment = createDocumentFragment();
+    if (header.headerNotSet) {
+      fragment.createChild('div', 'header-badge header-badge-text').textContent = 'not-set';
+    }
+    const colon = header.value ? ': ' : '';
+    fragment.createChild('div', 'header-name').textContent = header.name + colon;
+    fragment.createChild('span', 'header-separator');
+    if (header.value) {
+      if (header.headerValueIncorrect) {
+        fragment.createChild('div', 'header-value source-code header-warning').textContent = header.value;
+      } else {
+        fragment.createChild('div', 'header-value source-code').textContent = header.value;
+      }
+    }
+    if (header.details) {
+      const detailsNode = fragment.createChild('div', 'header-details');
+      const callToAction = detailsNode.createChild('div', 'call-to-action');
+      const callToActionBody = callToAction.createChild('div', 'call-to-action-body');
+      callToActionBody.createChild('div', 'explanation').textContent = header.details.explanation;
+      for (const example of header.details.examples) {
+        const exampleNode = callToActionBody.createChild('div', 'example');
+        exampleNode.createChild('code').textContent = example.codeSnippet;
+        if (example.comment) {
+          exampleNode.createChild('span', 'comment').textContent = example.comment;
+        }
+      }
+
+      if (Root.Runtime.experiments.isEnabled('issuesPane') &&
+          SDK.RelatedIssue.hasIssueOfCategory(
+              this._request, SDK.RelatedIssue.IssueCategory.CrossOriginEmbedderPolicy)) {
+        const link = createElementWithClass('div', 'devtools-link');
+        link.onclick = () => {
+          SDK.RelatedIssue.reveal(this._request, SDK.RelatedIssue.IssueCategory.CrossOriginEmbedderPolicy);
+        };
+        const text = createElementWithClass('span', 'devtools-link');
+        text.textContent = 'Learn more in the issues panel';
+        link.appendChild(text);
+        link.prepend(UI.Icon.Icon.create('largeicon-breaking-change', 'icon'));
+        callToActionBody.appendChild(link);
+      } else if (header.details.link) {
+        const link = UI.XLink.XLink.create(header.details.link.url, ls`Learn more`, 'link');
+        link.prepend(UI.Icon.Icon.create('largeicon-link', 'link-icon'));
+        callToActionBody.appendChild(link);
+      }
+    }
+    return fragment;
+  }
+
+  /**
    * @param {string} value
    * @param {string} className
    * @param {boolean} decodeParameters
@@ -142,7 +200,7 @@ export class RequestHeadersView extends UI.VBox {
       div.classList.add('empty-value');
     }
     if (errorDecoding) {
-      div.createChild('span', 'header-decode-error').textContent = Common.UIString('(unable to decode value)');
+      div.createChild('span', 'header-decode-error').textContent = Common.UIString.UIString('(unable to decode value)');
     } else {
       div.textContent = value;
     }
@@ -150,7 +208,7 @@ export class RequestHeadersView extends UI.VBox {
   }
 
   _refreshURL() {
-    this._urlItem.title = this._formatHeader(Common.UIString('Request URL'), this._request.url());
+    this._urlItem.title = this._formatHeader(Common.UIString.UIString('Request URL'), this._request.url());
   }
 
   _refreshQueryString() {
@@ -159,7 +217,7 @@ export class RequestHeadersView extends UI.VBox {
     this._queryStringCategory.hidden = !queryParameters;
     if (queryParameters) {
       this._refreshParams(
-          Common.UIString('Query String Parameters'), queryParameters, queryString, this._queryStringCategory);
+          Common.UIString.UIString('Query String Parameters'), queryParameters, queryString, this._queryStringCategory);
     }
   }
 
@@ -175,7 +233,7 @@ export class RequestHeadersView extends UI.VBox {
     const formParameters = await this._request.formParameters();
     if (formParameters) {
       this._formDataCategory.hidden = false;
-      this._refreshParams(Common.UIString('Form Data'), formParameters, formData, this._formDataCategory);
+      this._refreshParams(Common.UIString.UIString('Form Data'), formParameters, formData, this._formDataCategory);
     } else {
       this._requestPayloadCategory.hidden = false;
       try {
@@ -188,7 +246,7 @@ export class RequestHeadersView extends UI.VBox {
   }
 
   /**
-   * @param {!UI.TreeElement} treeElement
+   * @param {!UI.TreeOutline.TreeElement} treeElement
    * @param {?string} sourceText
    */
   _populateTreeElementWithSourceText(treeElement, sourceText) {
@@ -199,7 +257,7 @@ export class RequestHeadersView extends UI.VBox {
     const sourceTextElement = createElementWithClass('span', 'header-value source-code');
     sourceTextElement.textContent = trim ? text.substr(0, max_len) : text;
 
-    const sourceTreeElement = new UI.TreeElement(sourceTextElement);
+    const sourceTreeElement = new UI.TreeOutline.TreeElement(sourceTextElement);
     treeElement.removeChildren();
     treeElement.appendChild(sourceTreeElement);
     if (!trim) {
@@ -207,7 +265,7 @@ export class RequestHeadersView extends UI.VBox {
     }
 
     const showMoreButton = createElementWithClass('button', 'request-headers-show-more-button');
-    showMoreButton.textContent = Common.UIString('Show more');
+    showMoreButton.textContent = Common.UIString.UIString('Show more');
 
     function showMore() {
       showMoreButton.remove();
@@ -220,7 +278,7 @@ export class RequestHeadersView extends UI.VBox {
      * @param {!Event} event
      */
     function onContextMenuShowMore(event) {
-      const contextMenu = new UI.ContextMenu(event);
+      const contextMenu = new UI.ContextMenu.ContextMenu(event);
       const section = contextMenu.newSection();
       section.appendItem(ls`Show more`, showMore);
       contextMenu.show();
@@ -233,7 +291,7 @@ export class RequestHeadersView extends UI.VBox {
    * @param {string} title
    * @param {?Array.<!SDK.NetworkRequest.NameValue>} params
    * @param {?string} sourceText
-   * @param {!UI.TreeElement} paramsTreeElement
+   * @param {!UI.TreeOutline.TreeElement} paramsTreeElement
    */
   _refreshParams(title, params, sourceText, paramsTreeElement) {
     paramsTreeElement.removeChildren();
@@ -243,7 +301,7 @@ export class RequestHeadersView extends UI.VBox {
     paramsTreeElement.listItemElement.createTextChild(title);
 
     const headerCount = createElementWithClass('span', 'header-count');
-    headerCount.textContent = Common.UIString('\xA0(%d)', params.length);
+    headerCount.textContent = Common.UIString.UIString('\xA0(%d)', params.length);
     paramsTreeElement.listItemElement.appendChild(headerCount);
 
     const shouldViewSource = paramsTreeElement[_viewSourceSymbol];
@@ -258,7 +316,7 @@ export class RequestHeadersView extends UI.VBox {
    * @param {string} title
    * @param {?Array.<!SDK.NetworkRequest.NameValue>} params
    * @param {?string} sourceText
-   * @param {!UI.TreeElement} paramsTreeElement
+   * @param {!UI.TreeOutline.TreeElement} paramsTreeElement
    */
   _appendParamsSource(title, params, sourceText, paramsTreeElement) {
     this._populateTreeElementWithSourceText(paramsTreeElement, sourceText);
@@ -285,7 +343,7 @@ export class RequestHeadersView extends UI.VBox {
       if (!paramsTreeElement.expanded) {
         return;
       }
-      const contextMenu = new UI.ContextMenu(event);
+      const contextMenu = new UI.ContextMenu.ContextMenu(event);
       contextMenu.newSection().appendItem(ls`View parsed`, viewParsed.bind(this, event));
       contextMenu.show();
     }.bind(this);
@@ -300,7 +358,7 @@ export class RequestHeadersView extends UI.VBox {
    * @param {string} title
    * @param {?Array.<!SDK.NetworkRequest.NameValue>} params
    * @param {?string} sourceText
-   * @param {!UI.TreeElement} paramsTreeElement
+   * @param {!UI.TreeOutline.TreeElement} paramsTreeElement
    */
   _appendParamsParsed(title, params, sourceText, paramsTreeElement) {
     for (let i = 0; i < params.length; ++i) {
@@ -312,11 +370,11 @@ export class RequestHeadersView extends UI.VBox {
         paramNameValue.createChild('span', 'header-separator');
         paramNameValue.appendChild(value);
       } else {
-        paramNameValue.appendChild(
-            this._formatParameter(Common.UIString('(empty)'), 'empty-request-header', this._decodeRequestParameters));
+        paramNameValue.appendChild(this._formatParameter(
+            Common.UIString.UIString('(empty)'), 'empty-request-header', this._decodeRequestParameters));
       }
 
-      const paramTreeElement = new UI.TreeElement(paramNameValue);
+      const paramTreeElement = new UI.TreeOutline.TreeElement(paramNameValue);
       paramsTreeElement.appendChild(paramTreeElement);
     }
 
@@ -351,7 +409,7 @@ export class RequestHeadersView extends UI.VBox {
       if (!paramsTreeElement.expanded) {
         return;
       }
-      const contextMenu = new UI.ContextMenu(event);
+      const contextMenu = new UI.ContextMenu.ContextMenu(event);
       const section = contextMenu.newSection();
       section.appendItem(ls`View source`, viewSource.bind(this, event));
       const viewURLEncodedText = this._decodeRequestParameters ? ls`View URL encoded` : ls`View decoded`;
@@ -422,7 +480,7 @@ export class RequestHeadersView extends UI.VBox {
       if (!rootListItem.expanded) {
         return;
       }
-      const contextMenu = new UI.ContextMenu(event);
+      const contextMenu = new UI.ContextMenu.ContextMenu(event);
       contextMenu.newSection().appendItem(ls`View parsed`, viewParsed.bind(this, event));
       contextMenu.show();
     }.bind(this);
@@ -436,7 +494,8 @@ export class RequestHeadersView extends UI.VBox {
    * @param {string} sourceText
    */
   _appendJSONPayloadParsed(rootListItem, parsedObject, sourceText) {
-    const object = /** @type {!SDK.LocalJSONObject} */ (SDK.RemoteObject.fromLocalObject(parsedObject));
+    const object =
+        /** @type {!SDK.RemoteObject.LocalJSONObject} */ (SDK.RemoteObject.RemoteObject.fromLocalObject(parsedObject));
     const section = new ObjectUI.ObjectPropertiesSection.RootElement(object);
     section.title = object.description;
     section.expand();
@@ -466,7 +525,7 @@ export class RequestHeadersView extends UI.VBox {
       if (!rootListItem.expanded) {
         return;
       }
-      const contextMenu = new UI.ContextMenu(event);
+      const contextMenu = new UI.ContextMenu.ContextMenu(event);
       contextMenu.newSection().appendItem(ls`View source`, viewSource.bind(this, event));
       contextMenu.show();
     }.bind(this);
@@ -483,7 +542,8 @@ export class RequestHeadersView extends UI.VBox {
    * @return {!Element}
    */
   _createViewSourceToggle(viewSource, handler) {
-    const viewSourceToggleTitle = viewSource ? Common.UIString('view parsed') : Common.UIString('view source');
+    const viewSourceToggleTitle =
+        viewSource ? Common.UIString.UIString('view parsed') : Common.UIString.UIString('view source');
     const viewSourceToggleButton = this._createToggleButton(viewSourceToggleTitle);
     viewSourceToggleButton.addEventListener('click', handler, false);
     return viewSourceToggleButton;
@@ -508,9 +568,10 @@ export class RequestHeadersView extends UI.VBox {
     const headersText = this._request.requestHeadersText();
 
     if (this._showRequestHeadersText && headersText) {
-      this._refreshHeadersText(Common.UIString('Request Headers'), headers.length, headersText, treeElement);
+      this._refreshHeadersText(Common.UIString.UIString('Request Headers'), headers.length, headersText, treeElement);
     } else {
-      this._refreshHeaders(Common.UIString('Request Headers'), headers, treeElement, headersText === undefined);
+      this._refreshHeaders(
+          Common.UIString.UIString('Request Headers'), headers, treeElement, headersText === undefined);
     }
 
     if (headersText) {
@@ -528,17 +589,46 @@ export class RequestHeadersView extends UI.VBox {
     const headersText = this._request.responseHeadersText;
 
     if (this._showResponseHeadersText) {
-      this._refreshHeadersText(Common.UIString('Response Headers'), headers.length, headersText, treeElement);
+      this._refreshHeadersText(Common.UIString.UIString('Response Headers'), headers.length, headersText, treeElement);
     } else {
+      const headersWithIssues = [];
+      if (this._request.wasBlocked()) {
+        const headerWithIssues = BlockedReasonDetails.get(this._request.blockedReason());
+        if (headerWithIssues) {
+          headersWithIssues.push(headerWithIssues);
+        }
+      }
       this._refreshHeaders(
-          Common.UIString('Response Headers'), headers, treeElement, /* provisional */ false,
-          this._request.blockedResponseCookies());
+          Common.UIString.UIString('Response Headers'), mergeHeadersWithIssues(headers, headersWithIssues), treeElement,
+          /* provisional */ false, this._request.blockedResponseCookies());
     }
 
     if (headersText) {
       const toggleButton = this._createHeadersToggleButton(this._showResponseHeadersText);
       toggleButton.addEventListener('click', this._toggleResponseHeadersText.bind(this), false);
       treeElement.listItemElement.appendChild(toggleButton);
+    }
+
+    /**
+     *
+     * @param {!Array<*>} headers
+     * @param {!Array<*>} headersWithIssues
+     */
+    function mergeHeadersWithIssues(headers, headersWithIssues) {
+      let i = 0, j = 0;
+      const result = [];
+      while (i < headers.length || j < headersWithIssues.length) {
+        if (i < headers.length && (j >= headersWithIssues.length || headers[i].name < headersWithIssues[j].name)) {
+          result.push({...headers[i++], headerNotSet: false});
+        } else if (
+            j < headersWithIssues.length && (i >= headers.length || headers[i].name > headersWithIssues[j].name)) {
+          result.push({...headersWithIssues[j++], headerNotSet: true});
+        } else if (
+            i < headers.length && j < headersWithIssues.length && headers[i].name === headersWithIssues[j].name) {
+          result.push({...headersWithIssues[j++], ...headers[i++], headerNotSet: false});
+        }
+      }
+      return result;
     }
   }
 
@@ -595,7 +685,7 @@ export class RequestHeadersView extends UI.VBox {
 
   /**
    * @param {string} title
-   * @param {!UI.TreeElement} headersTreeElement
+   * @param {!UI.TreeOutline.TreeElement} headersTreeElement
    * @param {number} headersLength
    */
   _refreshHeadersTitle(title, headersTreeElement, headersLength) {
@@ -603,14 +693,14 @@ export class RequestHeadersView extends UI.VBox {
     headersTreeElement.listItemElement.createChild('div', 'selection fill');
     headersTreeElement.listItemElement.createTextChild(title);
 
-    const headerCount = Common.UIString('\xA0(%d)', headersLength);
+    const headerCount = Common.UIString.UIString('\xA0(%d)', headersLength);
     headersTreeElement.listItemElement.createChild('span', 'header-count').textContent = headerCount;
   }
 
   /**
    * @param {string} title
    * @param {!Array.<!SDK.NetworkRequest.NameValue>} headers
-   * @param {!UI.TreeElement} headersTreeElement
+   * @param {!UI.TreeOutline.TreeElement} headersTreeElement
    * @param {boolean=} provisionalHeaders
    * @param {!Array<!SDK.NetworkRequest.BlockedSetCookieWithReason>=} blockedResponseCookies
    */
@@ -634,7 +724,7 @@ export class RequestHeadersView extends UI.VBox {
       cautionElement.title = cautionTitle;
       cautionElement.createChild('span', '', 'dt-icon-label').type = 'smallicon-warning';
       cautionElement.createChild('div', 'caution').textContent = cautionText;
-      const cautionTreeElement = new UI.TreeElement(cautionElement);
+      const cautionTreeElement = new UI.TreeOutline.TreeElement(cautionElement);
       headersTreeElement.appendChild(cautionTreeElement);
     }
 
@@ -648,13 +738,13 @@ export class RequestHeadersView extends UI.VBox {
 
     headersTreeElement.hidden = !length && !provisionalHeaders;
     for (let i = 0; i < length; ++i) {
-      const headerTreeElement = new UI.TreeElement(this._formatHeader(headers[i].name, headers[i].value));
+      const headerTreeElement = new UI.TreeOutline.TreeElement(this._formatHeaderObject(headers[i]));
       headerTreeElement[_headerNameSymbol] = headers[i].name;
 
       if (headers[i].name.toLowerCase() === 'set-cookie') {
         const matchingBlockedReasons = blockedCookieLineToReasons.get(headers[i].value);
         if (matchingBlockedReasons) {
-          const icon = UI.Icon.create('smallicon-warning', '');
+          const icon = UI.Icon.Icon.create('smallicon-warning', '');
           headerTreeElement.listItemElement.appendChild(icon);
 
           let titleText = '';
@@ -676,7 +766,7 @@ export class RequestHeadersView extends UI.VBox {
    * @param {string} title
    * @param {number} count
    * @param {string} headersText
-   * @param {!UI.TreeElement} headersTreeElement
+   * @param {!UI.TreeOutline.TreeElement} headersTreeElement
    */
   _refreshHeadersText(title, count, headersText, headersTreeElement) {
     this._populateTreeElementWithSourceText(headersTreeElement, headersText);
@@ -688,7 +778,7 @@ export class RequestHeadersView extends UI.VBox {
     const treeElement = this._remoteAddressItem;
     treeElement.hidden = !remoteAddress;
     if (remoteAddress) {
-      treeElement.title = this._formatHeader(Common.UIString('Remote Address'), remoteAddress);
+      treeElement.title = this._formatHeader(Common.UIString.UIString('Remote Address'), remoteAddress);
     }
   }
 
@@ -697,7 +787,7 @@ export class RequestHeadersView extends UI.VBox {
     const treeElement = this._referrerPolicyItem;
     treeElement.hidden = !referrerPolicy;
     if (referrerPolicy) {
-      treeElement.title = this._formatHeader(Common.UIString('Referrer Policy'), referrerPolicy);
+      treeElement.title = this._formatHeader(Common.UIString.UIString('Referrer Policy'), referrerPolicy);
     }
   }
 
@@ -734,7 +824,8 @@ export class RequestHeadersView extends UI.VBox {
    * @return {!Element}
    */
   _createHeadersToggleButton(isHeadersTextShown) {
-    const toggleTitle = isHeadersTextShown ? Common.UIString('view parsed') : Common.UIString('view source');
+    const toggleTitle =
+        isHeadersTextShown ? Common.UIString.UIString('view parsed') : Common.UIString.UIString('view source');
     return this._createToggleButton(toggleTitle);
   }
 
@@ -747,7 +838,7 @@ export class RequestHeadersView extends UI.VBox {
 
 
   /**
-   * @param {?UI.TreeElement} category
+   * @param {?UI.TreeOutline.TreeElement} category
    * @param {string} name
    */
   _revealAndHighlight(category, name) {
@@ -784,9 +875,9 @@ export const _viewSourceSymbol = Symbol('ViewSource');
 /**
  * @unrestricted
  */
-export class Category extends UI.TreeElement {
+export class Category extends UI.TreeOutline.TreeElement {
   /**
-   * @param {!UI.TreeOutline} root
+   * @param {!UI.TreeOutline.TreeOutline} root
    * @param {string} name
    * @param {string=} title
    */
@@ -794,16 +885,17 @@ export class Category extends UI.TreeElement {
     super(title || '', true);
     this.toggleOnClick = true;
     this.hidden = true;
-    this._expandedSetting = self.Common.settings.createSetting('request-info-' + name + '-category-expanded', true);
+    this._expandedSetting =
+        Common.Settings.Settings.instance().createSetting('request-info-' + name + '-category-expanded', true);
     this.expanded = this._expandedSetting.get();
     root.appendChild(this);
   }
 
   /**
-   * @return {!UI.TreeElement}
+   * @return {!UI.TreeOutline.TreeElement}
    */
   createLeaf() {
-    const leaf = new UI.TreeElement();
+    const leaf = new UI.TreeOutline.TreeElement();
     this.appendChild(leaf);
     return leaf;
   }
@@ -822,3 +914,81 @@ export class Category extends UI.TreeElement {
     this._expandedSetting.set(false);
   }
 }
+
+
+const BlockedReasonDetails = new Map([
+  [
+    Protocol.Network.BlockedReason.CoepFrameResourceNeedsCoepHeader, {
+      name: 'cross-origin-embedder-policy',
+      value: null,
+      details: {
+          explanation:
+              ls
+          `To embed this frame in your document, the response needs to enable the cross-origin embedder policy by specifying the following response header:`,
+          examples: [{codeSnippet:'Cross-Origin-Embedder-Policy: require-corp'}],
+          link: {url: 'https://web.dev/coop-coep/'}
+      }
+    }
+  ],
+  [
+    Protocol.Network.BlockedReason.CorpNotSameOriginAfterDefaultedToSameOriginByCoep, {
+      name: 'cross-origin-resource-policy',
+      value: null,
+      details: {
+        explanation:
+            ls
+            `To use this resource from a different origin, the server needs to specify a cross-origin resource policy in the response headers:`,
+        examples: [
+          {codeSnippet:'Cross-Origin-Resource-Policy: same-site', comment: ls`Choose this option if the resource and the document are served from the same site.` },
+          {codeSnippet:'Cross-Origin-Resource-Policy: cross-origin', comment: ls`Only choose this option if an arbitrary website including this resource does not impose a security risk.` },
+        ],
+        link: {url: 'https://web.dev/coop-coep/'}
+      }
+    }
+  ],
+  [
+    Protocol.Network.BlockedReason.CoopSandboxedIframeCannotNavigateToCoopPage, {
+      name: 'cross-origin-opener-policy',
+      value: null,
+      headerValueIncorrect: false,
+      details: {
+        explanation:
+        ls
+        `This document was blocked from loading in an iframe with a sandbox attribute because this document specified a cross-origin opener policy.`,
+        examples: [],
+        link: {url: 'https://web.dev/coop-coep/'}
+      }
+    }
+  ],
+  [
+    Protocol.Network.BlockedReason.CorpNotSameSite, {
+      name: 'cross-origin-resource-policy',
+      value: null,
+      headerValueIncorrect: true,
+      details: {
+        explanation:
+            ls
+            `To use this resource from a different site, the server may relax the cross-origin resource policy response header:`,
+        examples: [
+          {codeSnippet:'Cross-Origin-Resource-Policy: cross-origin', comment: ls`Only choose this option if an arbitrary website including this resource does not impose a security risk.` },
+        ]
+      }
+    }
+  ],
+  [
+    Protocol.Network.BlockedReason.CorpNotSameOrigin, {
+      name: 'cross-origin-resource-policy',
+      value: null,
+      headerValueIncorrect: true,
+      details: {
+        explanation:
+            ls
+            `To use this resource from a different origin, the server may relax the cross-origin resource policy response header:`,
+            examples: [
+              {codeSnippet:'Cross-Origin-Resource-Policy: same-site', comment: ls`Choose this option if the resource and the document are served from the same site.` },
+              {codeSnippet:'Cross-Origin-Resource-Policy: cross-origin', comment: ls`Only choose this option if an arbitrary website including this resource does not impose a security risk.` },
+            ]
+      }
+    }
+  ],
+]);

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
 #include "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #include "ios/chrome/grit/ios_strings.h"
@@ -30,6 +31,17 @@ const char kMobileSiteLabel[] = "Mobile";
 
 const char kDesktopSiteLabel[] = "Desktop";
 const char kDesktopPlatformLabel[] = "MacIntel";
+
+// URL to be used when the page needs to be reloaded on back/forward
+// navigations.
+const char kPurgeURL[] = "url-purge.com";
+// JavaScript used to reload the page on back/forward navigations.
+const char kJavaScriptReload[] =
+    "<script>window.onpageshow = function(event) {"
+    "    if (event.persisted) {"
+    "       window.location.href = window.location.href + \"?reloaded\""
+    "    }"
+    "};</script>";
 
 // Custom timeout used when waiting for a web state after requesting desktop
 // or mobile mode.
@@ -79,15 +91,20 @@ class UserAgentResponseProvider : public web::DataResponseProvider {
       return;
     }
 
+    std::string purge_additions = "";
+    if (request.url.path().find(kPurgeURL) != std::string::npos) {
+      purge_additions = kJavaScriptReload;
+    }
+
     *headers = web::ResponseProvider::GetDefaultResponseHeaders();
     std::string userAgent;
     std::string desktop_user_agent =
         web::BuildUserAgentFromProduct(web::UserAgentType::DESKTOP, "");
     if (request.headers.GetHeader("User-Agent", &userAgent) &&
         userAgent == desktop_user_agent) {
-      response_body->assign("Desktop");
+      response_body->assign(std::string("Desktop\n") + purge_additions);
     } else {
-      response_body->assign("Mobile");
+      response_body->assign(std::string("Mobile\n") + purge_additions);
     }
   }
 };
@@ -119,6 +136,46 @@ class UserAgentResponseProvider : public web::DataResponseProvider {
   // Verify that desktop user agent propagates.
   [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl("http://2.com")];
   [ChromeEarlGrey waitForWebStateContainingText:kDesktopSiteLabel];
+}
+
+// Tests that requesting desktop site of a page works and the requested user
+// agent is kept when restoring the session.
+- (void)testRequestDesktopSiteKeptSessionRestoration {
+  std::unique_ptr<web::DataResponseProvider> provider(
+      new UserAgentResponseProvider());
+  web::test::SetUpHttpServer(std::move(provider));
+
+  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl("http://1.com")];
+  // Verify initial reception of the mobile site.
+  [ChromeEarlGrey waitForWebStateContainingText:kMobileSiteLabel];
+
+  // Request and verify reception of the desktop site.
+  [ChromeEarlGreyUI openToolsMenu];
+  [RequestDesktopButton() performAction:grey_tap()];
+  [ChromeEarlGrey waitForWebStateContainingText:kDesktopSiteLabel
+                                        timeout:kWaitForUserAgentChangeTimeout];
+
+  // Close all tabs and undo, trigerring a restoration.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::ShowTabsButton()]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridCloseAllButton()]
+      performAction:grey_tap()];
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::TabGridUndoCloseAllButton()]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::TabGridCellAtIndex(0)]
+      performAction:grey_tap()];
+
+  // Verify that desktop user agent propagates.
+  if (@available(iOS 13, *)) {
+    [ChromeEarlGreyUI openToolsMenu];
+    [RequestMobileButton() assertWithMatcher:grey_notNil()];
+    [ChromeEarlGrey waitForWebStateContainingText:kDesktopSiteLabel];
+  } else {
+    [ChromeEarlGreyUI openToolsMenu];
+    [RequestDesktopButton() assertWithMatcher:grey_notNil()];
+    [ChromeEarlGrey waitForWebStateContainingText:kMobileSiteLabel];
+  }
 }
 
 // Tests that requesting desktop site of a page works and desktop user agent
@@ -165,6 +222,45 @@ class UserAgentResponseProvider : public web::DataResponseProvider {
   // Verify that going back returns to the mobile site.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::BackButton()]
       performAction:grey_tap()];
+  [ChromeEarlGrey waitForWebStateContainingText:kMobileSiteLabel];
+}
+
+// Tests that when requesting desktop on another page and coming back to a page
+// that has been purged from memory, we still display the mobile page.
+- (void)testRequestDesktopSiteGoBackToMobilePurged {
+  if (@available(iOS 13, *)) {
+  } else {
+    EARL_GREY_TEST_DISABLED(@"On iOS 12, the User Agent can be wrong when "
+                            @"doing back/forward navigations");
+  }
+
+  std::unique_ptr<web::DataResponseProvider> provider(
+      new UserAgentResponseProvider());
+  web::test::SetUpHttpServer(std::move(provider));
+
+  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl(
+                              "http://" + std::string(kPurgeURL))];
+  // Verify initial reception of the mobile site.
+  [ChromeEarlGrey waitForWebStateContainingText:kMobileSiteLabel];
+
+  [ChromeEarlGrey loadURL:web::test::HttpServer::MakeUrl("http://2.com")];
+
+  // Request and verify reception of the desktop site.
+  [ChromeEarlGreyUI openToolsMenu];
+  [RequestDesktopButton() performAction:grey_tap()];
+  [ChromeEarlGrey waitForWebStateContainingText:kDesktopSiteLabel
+                                        timeout:kWaitForUserAgentChangeTimeout];
+
+  // Verify that going back returns to the mobile site.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::BackButton()]
+      performAction:grey_tap()];
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(
+                 base::test::ios::kWaitForPageLoadTimeout,
+                 ^bool {
+                   return [ChromeEarlGrey webStateVisibleURL].query() ==
+                          "reloaded";
+                 }),
+             @"Page did not reload");
   [ChromeEarlGrey waitForWebStateContainingText:kMobileSiteLabel];
 }
 

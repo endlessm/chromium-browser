@@ -89,16 +89,11 @@ class Blitter
 		    , destSamples(destSamples)
 		{}
 
-		bool operator==(const State &state) const
-		{
-			static_assert(is_memcmparable<State>::value, "Cannot memcmp State");
-			return memcmp(this, &state, sizeof(State)) == 0;
-		}
-
 		vk::Format sourceFormat;
 		vk::Format destFormat;
 		int srcSamples = 0;
 		int destSamples = 0;
+		bool filter3D = false;
 	};
 
 	struct BlitData
@@ -112,16 +107,23 @@ class Blitter
 
 		float x0;
 		float y0;
+		float z0;
 		float w;
 		float h;
+		float d;
 
-		int y0d;
-		int y1d;
 		int x0d;
 		int x1d;
+		int y0d;
+		int y1d;
+		int z0d;
+		int z1d;
 
 		int sWidth;
 		int sHeight;
+		int sDepth;
+
+		bool filter3D;
 	};
 
 	struct CubeBorderData
@@ -161,13 +163,17 @@ private:
 	void write(Int4 &color, Pointer<Byte> element, const State &state);
 	static void ApplyScaleAndClamp(Float4 &value, const State &state, bool preScaled = false);
 	static Int ComputeOffset(Int &x, Int &y, Int &pitchB, int bytes);
-	static Float4 LinearToSRGB(Float4 &color);
-	static Float4 sRGBtoLinear(Float4 &color);
+	static Int ComputeOffset(Int &x, Int &y, Int &z, Int &sliceB, Int &pitchB, int bytes);
+	static Float4 LinearToSRGB(const Float4 &color);
+	static Float4 sRGBtoLinear(const Float4 &color);
 
 	using BlitFunction = FunctionT<void(const BlitData *)>;
 	using BlitRoutineType = BlitFunction::RoutineType;
 	BlitRoutineType getBlitRoutine(const State &state);
 	BlitRoutineType generate(const State &state);
+	Float4 sample(Pointer<Byte> &source, Float &x, Float &y, Float &z,
+	              Int &sWidth, Int &sHeight, Int &sDepth,
+	              Int &sSliceB, Int &sPitchB, const State &state);
 
 	using CornerUpdateFunction = FunctionT<void(const CubeBorderData *)>;
 	using CornerUpdateRoutineType = CornerUpdateFunction::RoutineType;

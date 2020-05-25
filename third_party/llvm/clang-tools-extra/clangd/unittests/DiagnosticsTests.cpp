@@ -61,9 +61,7 @@ MATCHER_P3(Fix, Range, Replacement, Message,
          arg.Edits[0].range == Range && arg.Edits[0].newText == Replacement;
 }
 
-MATCHER_P(FixMessage, Message, "") {
-  return arg.Message == Message;
-}
+MATCHER_P(FixMessage, Message, "") { return arg.Message == Message; }
 
 MATCHER_P(EqualToLSPDiag, LSPDiag,
           "LSP diagnostic " + llvm::to_string(LSPDiag)) {
@@ -208,7 +206,7 @@ TEST(DiagnosticsTest, DeduplicatedClangTidyDiagnostics) {
       func(2.0);
     }
   )cpp");
-  TU.Code = Test.code();
+  TU.Code = std::string(Test.code());
   // The check doesn't handle template instantiations which ends up emitting
   // duplicated messages, verify that we deduplicate them.
   EXPECT_THAT(
@@ -258,13 +256,13 @@ TEST(DiagnosticsTest, ClangTidy) {
           Diag(Test.range("macroarg"),
                "multiple unsequenced modifications to 'y'"),
           AllOf(
-            Diag(Test.range("main"),
-                 "use a trailing return type for this function"),
-            DiagSource(Diag::ClangTidy),
-            DiagName("modernize-use-trailing-return-type"),
-            // Verify that we don't have "[check-name]" suffix in the message.
-            WithFix(FixMessage("use a trailing return type for this function")))
-          ));
+              Diag(Test.range("main"),
+                   "use a trailing return type for this function"),
+              DiagSource(Diag::ClangTidy),
+              DiagName("modernize-use-trailing-return-type"),
+              // Verify that we don't have "[check-name]" suffix in the message.
+              WithFix(FixMessage(
+                  "use a trailing return type for this function")))));
 }
 
 TEST(DiagnosticTest, ClangTidySuppressionComment) {
@@ -274,7 +272,11 @@ TEST(DiagnosticTest, ClangTidySuppressionComment) {
       double d = 8 / i;  // NOLINT
       // NOLINTNEXTLINE
       double e = 8 / i;
-      double f = [[8]] / i;
+      #define BAD 8 / i
+      double f = BAD;  // NOLINT
+      double g = [[8]] / i;
+      #define BAD2 BAD
+      double h = BAD2;  // NOLINT
     }
   )cpp");
   TestTU TU = TestTU::withCode(Main.code());
@@ -332,7 +334,7 @@ TEST(DiagnosticTest, LongFixMessages) {
 n]] = 10; // error-ok
     }
   )cpp");
-  TU.Code = Source.code();
+  TU.Code = std::string(Source.code());
   EXPECT_THAT(TU.build().getDiagnostics(),
               ElementsAre(WithFix(
                   Fix(Source.range(), "ident", "change 'ide\\…' to 'ident'"))));
@@ -433,7 +435,7 @@ TEST(DiagnosticsTest, ToLSP) {
   D.InsideMainFile = true;
   D.Severity = DiagnosticsEngine::Error;
   D.File = "foo/bar/main.cpp";
-  D.AbsFile = MainFile.file();
+  D.AbsFile = std::string(MainFile.file());
 
   clangd::Note NoteInMain;
   NoteInMain.Message = "declared somewhere in the main file";
@@ -441,7 +443,7 @@ TEST(DiagnosticsTest, ToLSP) {
   NoteInMain.Severity = DiagnosticsEngine::Remark;
   NoteInMain.File = "../foo/bar/main.cpp";
   NoteInMain.InsideMainFile = true;
-  NoteInMain.AbsFile = MainFile.file();
+  NoteInMain.AbsFile = std::string(MainFile.file());
 
   D.Notes.push_back(NoteInMain);
 
@@ -451,7 +453,7 @@ TEST(DiagnosticsTest, ToLSP) {
   NoteInHeader.Severity = DiagnosticsEngine::Note;
   NoteInHeader.File = "../foo/baz/header.h";
   NoteInHeader.InsideMainFile = false;
-  NoteInHeader.AbsFile = HeaderFile.file();
+  NoteInHeader.AbsFile = std::string(HeaderFile.file());
   D.Notes.push_back(NoteInHeader);
 
   clangd::Fix F;
@@ -678,7 +680,7 @@ void foo() {
 TEST(IncludeFixerTest, NoCrashMemebrAccess) {
   Annotations Test(R"cpp(// error-ok
     struct X { int  xyz; };
-    void g() { X x; x.$[[xy]] }
+    void g() { X x; x.$[[xy]]; }
   )cpp");
   auto TU = TestTU::withCode(Test.code());
   auto Index = buildIndexWithSymbol(
@@ -738,7 +740,7 @@ $insert[[]]namespace ns {
 void g() {  ns::$[[scope]]::X_Y();  }
   )cpp");
   TestTU TU;
-  TU.Code = Test.code();
+  TU.Code = std::string(Test.code());
   // FIXME: Figure out why this is needed and remove it, PR43662.
   TU.ExtraArgs.push_back("-fno-ms-compatibility");
   auto Index = buildIndexWithSymbol(
@@ -764,7 +766,7 @@ void f() {
 }
   )cpp");
   TestTU TU;
-  TU.Code = Test.code();
+  TU.Code = std::string(Test.code());
   // FIXME: Figure out why this is needed and remove it, PR43662.
   TU.ExtraArgs.push_back("-fno-ms-compatibility");
   auto Index = buildIndexWithSymbol(
@@ -836,8 +838,9 @@ TEST(IncludeFixerTest, NoCrashOnTemplateInstantiations) {
   auto Index = buildIndexWithSymbol({});
   TU.ExternalIndex = Index.get();
 
-  EXPECT_THAT(TU.build().getDiagnostics(),
-              ElementsAre(Diag(Test.range(), "use of undeclared identifier 'a'")));
+  EXPECT_THAT(
+      TU.build().getDiagnostics(),
+      ElementsAre(Diag(Test.range(), "use of undeclared identifier 'a'")));
 }
 
 TEST(DiagsInHeaders, DiagInsideHeader) {
@@ -846,7 +849,7 @@ TEST(DiagsInHeaders, DiagInsideHeader) {
     void foo() {})cpp");
   Annotations Header("[[no_type_spec]]; // error-ok");
   TestTU TU = TestTU::withCode(Main.code());
-  TU.AdditionalFiles = {{"a.h", Header.code()}};
+  TU.AdditionalFiles = {{"a.h", std::string(Header.code())}};
   EXPECT_THAT(TU.build().getDiagnostics(),
               UnorderedElementsAre(AllOf(
                   Diag(Main.range(), "in included file: C++ requires a "
@@ -953,7 +956,7 @@ TEST(DiagsInHeaders, OnlyErrorOrFatal) {
     [[no_type_spec]]; // error-ok
     int x = 5/0;)cpp");
   TestTU TU = TestTU::withCode(Main.code());
-  TU.AdditionalFiles = {{"a.h", Header.code()}};
+  TU.AdditionalFiles = {{"a.h", std::string(Header.code())}};
   EXPECT_THAT(TU.build().getDiagnostics(),
               UnorderedElementsAre(AllOf(
                   Diag(Main.range(), "in included file: C++ requires "
@@ -969,7 +972,7 @@ TEST(DiagsInHeaders, FromNonWrittenSources) {
     int x = 5/0;
     int b = [[FOO]]; // error-ok)cpp");
   TestTU TU = TestTU::withCode(Main.code());
-  TU.AdditionalFiles = {{"a.h", Header.code()}};
+  TU.AdditionalFiles = {{"a.h", std::string(Header.code())}};
   TU.ExtraArgs = {"-DFOO=NOOO"};
   EXPECT_THAT(TU.build().getDiagnostics(),
               UnorderedElementsAre(AllOf(
@@ -988,7 +991,7 @@ TEST(DiagsInHeaders, ErrorFromMacroExpansion) {
   #define X foo
   X;)cpp");
   TestTU TU = TestTU::withCode(Main.code());
-  TU.AdditionalFiles = {{"a.h", Header.code()}};
+  TU.AdditionalFiles = {{"a.h", std::string(Header.code())}};
   EXPECT_THAT(TU.build().getDiagnostics(),
               UnorderedElementsAre(
                   Diag(Main.range(), "in included file: use of undeclared "
@@ -1005,7 +1008,7 @@ TEST(DiagsInHeaders, ErrorFromMacroArgument) {
   #define X(arg) arg
   X(foo);)cpp");
   TestTU TU = TestTU::withCode(Main.code());
-  TU.AdditionalFiles = {{"a.h", Header.code()}};
+  TU.AdditionalFiles = {{"a.h", std::string(Header.code())}};
   EXPECT_THAT(TU.build().getDiagnostics(),
               UnorderedElementsAre(
                   Diag(Main.range(), "in included file: use of undeclared "

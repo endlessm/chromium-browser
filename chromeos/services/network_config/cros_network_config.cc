@@ -1086,9 +1086,8 @@ mojom::ManagedOpenVPNPropertiesPtr GetManagedOpenVPNProperties(
       GetManagedString(openvpn_dict, ::onc::client_cert::kClientCertRef);
   openvpn->client_cert_type =
       GetManagedString(openvpn_dict, ::onc::client_cert::kClientCertType);
-  openvpn->comp_lzo = GetManagedString(openvpn_dict, ::onc::openvpn::kCompLZO);
-  openvpn->comp_no_adapt =
-      GetManagedBoolean(openvpn_dict, ::onc::openvpn::kCompNoAdapt);
+  openvpn->compression_algorithm =
+      GetManagedString(openvpn_dict, ::onc::openvpn::kCompressionAlgorithm);
   openvpn->extra_hosts =
       GetManagedStringList(openvpn_dict, ::onc::openvpn::kExtraHosts);
   openvpn->ignore_default_route =
@@ -1828,8 +1827,8 @@ void CrosNetworkConfig::GetManagedProperties(
 
   network_configuration_handler_->GetManagedProperties(
       chromeos::LoginState::Get()->primary_user_hash(), network->path(),
-      base::Bind(&CrosNetworkConfig::GetManagedPropertiesSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::GetManagedPropertiesSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
       base::Bind(&CrosNetworkConfig::GetManagedPropertiesFailure,
                  weak_factory_.GetWeakPtr(), guid, callback_id));
 }
@@ -1877,8 +1876,8 @@ void CrosNetworkConfig::GetManagedPropertiesSuccess(
   managed_properties_[callback_id] = std::move(managed_properties);
   network_configuration_handler_->GetManagedProperties(
       chromeos::LoginState::Get()->primary_user_hash(), eap_state->path(),
-      base::Bind(&CrosNetworkConfig::GetManagedPropertiesSuccessEap,
-                 weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::GetManagedPropertiesSuccessEap,
+                     weak_factory_.GetWeakPtr(), callback_id),
       base::Bind(&CrosNetworkConfig::GetManagedPropertiesSuccessNoEap,
                  weak_factory_.GetWeakPtr(), callback_id));
 }
@@ -2060,6 +2059,7 @@ void CrosNetworkConfig::ConfigureNetwork(mojom::ConfigPropertiesPtr properties,
     NET_LOG(ERROR)
         << "Attempt to set unshared configuration from non primary user";
     std::move(callback).Run(/*guid=*/base::nullopt, kErrorAccessToSharedConfig);
+    return;
   }
 
   std::unique_ptr<base::DictionaryValue> onc =
@@ -2372,8 +2372,8 @@ void CrosNetworkConfig::StartConnect(const std::string& guid,
 
   network_connection_handler_->ConnectToNetwork(
       service_path,
-      base::Bind(&CrosNetworkConfig::StartConnectSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::StartConnectSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
       base::Bind(&CrosNetworkConfig::StartConnectFailure,
                  weak_factory_.GetWeakPtr(), callback_id),
       true /* check_error_state */, chromeos::ConnectCallbackMode::ON_STARTED);
@@ -2434,8 +2434,8 @@ void CrosNetworkConfig::StartDisconnect(const std::string& guid,
 
   network_connection_handler_->DisconnectNetwork(
       service_path,
-      base::Bind(&CrosNetworkConfig::StartDisconnectSuccess,
-                 weak_factory_.GetWeakPtr(), callback_id),
+      base::BindOnce(&CrosNetworkConfig::StartDisconnectSuccess,
+                     weak_factory_.GetWeakPtr(), callback_id),
       base::Bind(&CrosNetworkConfig::StartDisconnectFailure,
                  weak_factory_.GetWeakPtr(), callback_id));
 }

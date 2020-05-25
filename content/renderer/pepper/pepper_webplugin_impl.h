@@ -14,7 +14,6 @@
 #include "base/sequenced_task_runner_helpers.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "ppapi/c/pp_var.h"
-#include "third_party/blink/public/mojom/clipboard/clipboard.mojom.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-forward.h"
 #include "third_party/blink/public/web/web_plugin.h"
 #include "ui/gfx/geometry/rect.h"
@@ -55,7 +54,7 @@ class PepperWebPluginImpl : public blink::WebPlugin {
   void UpdateVisibility(bool visible) override;
   blink::WebInputEventResult HandleInputEvent(
       const blink::WebCoalescedInputEvent& event,
-      blink::WebCursorInfo& cursor_info) override;
+      ui::Cursor* cursor) override;
   void DidReceiveResponse(const blink::WebURLResponse& response) override;
   void DidReceiveData(const char* data, size_t data_length) override;
   void DidFinishLoading() override;
@@ -107,7 +106,6 @@ class PepperWebPluginImpl : public blink::WebPlugin {
   gfx::Rect plugin_rect_;
   PP_Var instance_object_;
   blink::WebPluginContainer* container_;
-  mojo::Remote<blink::mojom::ClipboardHost> clipboard_;
 
   DISALLOW_COPY_AND_ASSIGN(PepperWebPluginImpl);
 };

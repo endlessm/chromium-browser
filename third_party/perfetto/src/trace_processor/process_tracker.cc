@@ -15,7 +15,7 @@
  */
 
 #include "src/trace_processor/process_tracker.h"
-#include "src/trace_processor/stats.h"
+#include "src/trace_processor/storage/stats.h"
 
 #include <utility>
 
@@ -26,9 +26,6 @@ namespace trace_processor {
 
 ProcessTracker::ProcessTracker(TraceProcessorContext* context)
     : context_(context) {
-  // Create a mapping from (t|p)id 0 -> u(t|p)id 0 for the idle process.
-  tids_.emplace(0, std::vector<UniqueTid>{0});
-  pids_.emplace(0, 0);
 }
 
 ProcessTracker::~ProcessTracker() = default;
@@ -258,6 +255,10 @@ UniquePid ProcessTracker::SetProcessMetadata(uint32_t pid,
 void ProcessTracker::SetProcessUid(UniquePid upid, uint32_t uid) {
   auto* process_table = context_->storage->mutable_process_table();
   process_table->mutable_uid()->Set(upid, uid);
+
+  // The notion of the app ID (as derived from the uid) is defined in
+  // frameworks/base/core/java/android/os/UserHandle.java
+  process_table->mutable_android_appid()->Set(upid, uid % 100000);
 }
 
 void ProcessTracker::SetProcessNameIfUnset(UniquePid upid,
@@ -397,6 +398,12 @@ void ProcessTracker::ResolvePendingAssociations(UniqueTid utid_arg,
       resolved_utids.emplace_back(other_utid);
     }
   }  // while (!resolved_utids.empty())
+}
+
+void ProcessTracker::SetPidZeroIgnoredForIdleProcess() {
+  // Create a mapping from (t|p)id 0 -> u(t|p)id 0 for the idle process.
+  tids_.emplace(0, std::vector<UniqueTid>{0});
+  pids_.emplace(0, 0);
 }
 
 }  // namespace trace_processor

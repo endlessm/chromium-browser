@@ -21,6 +21,7 @@ class TaskRunner;
 
 namespace discovery {
 
+struct Config;
 class MdnsProbeManager;
 class MdnsRandom;
 class MdnsSender;
@@ -48,7 +49,8 @@ class MdnsPublisher : public MdnsResponder::RecordHandler {
   MdnsPublisher(MdnsSender* sender,
                 MdnsProbeManager* ownership_manager,
                 TaskRunner* task_runner,
-                ClockNowFunctionPtr now_function);
+                ClockNowFunctionPtr now_function,
+                const Config& config);
   ~MdnsPublisher() override;
 
   // Registers a new mDNS record for advertisement by this service. For A, AAAA,
@@ -75,9 +77,9 @@ class MdnsPublisher : public MdnsResponder::RecordHandler {
  private:
   // Class responsible for sending announcement and goodbye messages for
   // MdnsRecord instances when they are published, updated, or unpublished. The
-  // announcement messages will be sent 8 times, first at an interval of 1
-  // second apart, and then with delay increasing by a factor of 2 with each
-  // successive announcement.
+  // announcement messages will be sent |target_announcement_attempts| times,
+  // first at an interval of 1 second apart, and then with delay increasing by a
+  // factor of 2 with each successive announcement.
   // NOTE: |publisher| must be the MdnsPublisher instance from which this
   // instance was created.
   class RecordAnnouncer {
@@ -85,7 +87,8 @@ class MdnsPublisher : public MdnsResponder::RecordHandler {
     RecordAnnouncer(MdnsRecord record,
                     MdnsPublisher* publisher,
                     TaskRunner* task_runner,
-                    ClockNowFunctionPtr now_function);
+                    ClockNowFunctionPtr now_function,
+                    int max_announcement_attempts);
     RecordAnnouncer(const RecordAnnouncer& other) = delete;
     RecordAnnouncer(RecordAnnouncer&& other) noexcept = delete;
     ~RecordAnnouncer();
@@ -122,35 +125,33 @@ class MdnsPublisher : public MdnsResponder::RecordHandler {
     // Record to send.
     const MdnsRecord record_;
 
+    // Alarm used to cancel future resend attempts if this object is deleted.
+    Alarm alarm_;
+
     // Number of attempts at sending this record which have occurred so far.
     int attempts_ = 0;
 
-    // Alarm used to cancel future resend attempts if this object is deleted.
-    Alarm alarm_;
+    // Number of times to announce a newly published record.
+    const int target_announcement_attempts_;
   };
+
+  using RecordAnnouncerPtr = std::unique_ptr<RecordAnnouncer>;
 
   friend class MdnsPublisherTesting;
 
   // Creates a new published from the provided record.
-  std::unique_ptr<RecordAnnouncer> CreateAnnouncer(MdnsRecord record) {
+  RecordAnnouncerPtr CreateAnnouncer(MdnsRecord record) {
     return std::make_unique<RecordAnnouncer>(std::move(record), this,
-                                             task_runner_, now_function_);
+                                             task_runner_, now_function_,
+                                             max_announcement_attempts_);
   }
 
-  // Registers a new MdnsRecord. Only valid for the annotated types.
-  Error RegisterPtrRecord(const MdnsRecord& record);
-  Error RegisterNonPtrRecord(const MdnsRecord& record);
+  // Removes the given record from the |records_| map. A goodbye record is only
+  // sent for this removal if |should_announce_deletion| is true.
+  Error RemoveRecord(const MdnsRecord& record, bool should_announce_deletion);
 
-  // Unregisters a previously existing MdnsRecord. Only valid for the annotated
-  // types.
-  Error UnregisterPtrRecord(const MdnsRecord& record);
-  Error UnregisterNonPtrRecord(const MdnsRecord& record);
-
-  // Removes the provided record from the |records_| map, returning an error if
-  // it does not exist. If the should_announce_deletion is set, a goodbye
-  // message for this record will be sent. Otherwise, one will not.
-  Error RemoveNonPtrRecord(const MdnsRecord& record,
-                           bool should_announce_deletion);
+  // Returns whether the provided record has had its name claimed so far.
+  bool IsRecordNameClaimed(const MdnsRecord& record) const;
 
   // Processes the |records_to_send_| queue, sending out the records together as
   // a single MdnsMessage.
@@ -168,6 +169,7 @@ class MdnsPublisher : public MdnsResponder::RecordHandler {
   std::vector<MdnsRecord::ConstRef> GetRecords(const DomainName& name,
                                                DnsType type,
                                                DnsClass clazz) override;
+  std::vector<MdnsRecord::ConstRef> GetPtrRecords(DnsClass clazz) override;
 
   MdnsSender* const sender_;
   MdnsProbeManager* const ownership_manager_;
@@ -178,25 +180,18 @@ class MdnsPublisher : public MdnsResponder::RecordHandler {
   // instead send them immediately. Variable is only set when it is in use.
   absl::optional<Alarm> batch_records_alarm_;
 
+  // Number of times to announce a newly published record.
+  const int max_announcement_attempts_;
+
   // The queue for announce and goodbye records to be sent periodically.
-  static std::vector<MdnsRecord>* records_to_send_;
+  std::vector<MdnsRecord> records_to_send_;
 
-  // Stores non-PTR mDNS records that have been published. The keys here are the
-  // set of DomainNames for which this service is the exclusive owner, and the
-  // values are the RecordAnnouncer entities associated with all published
-  // MdnsRecords for the keyed domain. These are responsible for publishing a
-  // specific MdnsRecord, announcing it when its created and sending a goodbye
-  // record when it's deleted. When a key is present in this map, it signifies
-  // that this service instance is the exclusive owner of that domain name.
-  std::map<DomainName, std::vector<std::unique_ptr<RecordAnnouncer>>> records_;
-
-  // Stores all PTR mDNS announcers. These are stored separately from the above
-  // records because the DomainName parameter here is not unique to this
-  // service instance, so the presence of a record for a given PTR domain is
-  // different from that of a non-PTR domain.
-  // NOTE: This storage format assumes that only one PTR record for a given
-  // service type will be registered per service instance.
-  std::map<DomainName, std::unique_ptr<RecordAnnouncer>> ptr_records_;
+  // Stores mDNS records that have been published. The keys here are domain
+  // names for valid mDNS Records, and the values are the RecordAnnouncer
+  // entities associated with all published MdnsRecords for the keyed domain.
+  // These are responsible for publishing a specific MdnsRecord, announcing it
+  // when its created and sending a goodbye record when it's deleted.
+  std::map<DomainName, std::vector<RecordAnnouncerPtr>> records_;
 };
 
 }  // namespace discovery

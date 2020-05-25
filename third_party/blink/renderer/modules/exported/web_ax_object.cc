@@ -194,9 +194,8 @@ bool WebAXObject::UpdateLayoutAndCheckValidity() {
     Document* document = private_->GetDocument();
     if (!document || !document->View())
       return false;
-    if (IsLayoutClean(document))
-      return true;
-    if (!document->View()->UpdateLifecycleToCompositingCleanPlusScrolling())
+    if (!document->View()->UpdateLifecycleToCompositingCleanPlusScrolling(
+            DocumentUpdateReason::kAccessibility))
       return false;
   }
 
@@ -254,7 +253,7 @@ WebAXObject WebAXObject::ParentObject() const {
   if (IsDetached())
     return WebAXObject();
 
-  return WebAXObject(private_->ParentObject());
+  return WebAXObject(private_->ParentObjectIncludedInTree());
 }
 
 void WebAXObject::GetSparseAXAttributes(
@@ -369,13 +368,6 @@ bool WebAXObject::IsLinked() const {
     return false;
 
   return private_->IsLinked();
-}
-
-bool WebAXObject::IsLoaded() const {
-  if (IsDetached())
-    return false;
-
-  return private_->IsLoaded();
 }
 
 bool WebAXObject::IsModal() const {
@@ -679,13 +671,6 @@ WebString WebAXObject::AriaInvalidValue() const {
   return private_->AriaInvalidValue();
 }
 
-double WebAXObject::EstimatedLoadingProgress() const {
-  if (IsDetached())
-    return 0.0;
-
-  return private_->EstimatedLoadingProgress();
-}
-
 int WebAXObject::HeadingLevel() const {
   if (IsDetached())
     return 0;
@@ -839,6 +824,27 @@ static ax::mojom::TextAffinity ToAXAffinity(TextAffinity affinity) {
       NOTREACHED();
       return ax::mojom::TextAffinity::kDownstream;
   }
+}
+
+bool WebAXObject::IsLoaded() const {
+  if (IsDetached())
+    return false;
+
+  return private_->IsLoaded();
+}
+
+double WebAXObject::EstimatedLoadingProgress() const {
+  if (IsDetached())
+    return 0.0;
+
+  return private_->EstimatedLoadingProgress();
+}
+
+WebAXObject WebAXObject::RootScroller() const {
+  if (IsDetached())
+    return WebAXObject();
+
+  return WebAXObject(private_->RootScroller());
 }
 
 void WebAXObject::Selection(bool& is_selection_backward,
@@ -1510,6 +1516,12 @@ bool WebAXObject::IsScrollableContainer() const {
   return private_->IsScrollableContainer();
 }
 
+bool WebAXObject::IsUserScrollable() const {
+  if (IsDetached())
+    return false;
+
+  return private_->IsUserScrollable();
+}
 gfx::Point WebAXObject::GetScrollOffset() const {
   if (IsDetached())
     return gfx::Point();
@@ -1601,9 +1613,9 @@ bool WebAXObject::ScrollToMakeVisibleWithSubFocus(
           ? vertical_behavior
           : mojom::blink::ScrollAlignment::Behavior::kNoScroll;
 
-  blink::ScrollAlignment blink_horizontal_scroll_alignment = {
+  blink::mojom::blink::ScrollAlignment blink_horizontal_scroll_alignment = {
       visible_horizontal_behavior, horizontal_behavior, horizontal_behavior};
-  blink::ScrollAlignment blink_vertical_scroll_alignment = {
+  blink::mojom::blink::ScrollAlignment blink_vertical_scroll_alignment = {
       visible_vertical_behavior, vertical_behavior, vertical_behavior};
   return private_->RequestScrollToMakeVisibleWithSubFocusAction(
       subfocus, blink_horizontal_scroll_alignment,

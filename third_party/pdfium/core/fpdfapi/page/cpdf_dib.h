@@ -10,9 +10,7 @@
 #include <memory>
 #include <vector>
 
-#include "core/fpdfapi/page/cpdf_clippath.h"
 #include "core/fpdfapi/page/cpdf_colorspace.h"
-#include "core/fpdfapi/page/cpdf_graphicstates.h"
 #include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/retain_ptr.h"
 #include "core/fxcrt/unowned_ptr.h"
@@ -79,6 +77,15 @@ class CPDF_DIB final : public CFX_DIBBase {
   CPDF_DIB();
   ~CPDF_DIB() override;
 
+  struct JpxSMaskInlineData {
+    JpxSMaskInlineData();
+    ~JpxSMaskInlineData();
+
+    int width;
+    int height;
+    std::vector<uint8_t> data;
+  };
+
   LoadState StartLoadMask();
   LoadState StartLoadMaskDIB(RetainPtr<const CPDF_Stream> mask);
   bool ContinueToLoadMask();
@@ -95,7 +102,7 @@ class CPDF_DIB final : public CFX_DIBBase {
                               const uint8_t* src_scan) const;
   bool TranslateScanline24bppDefaultDecode(uint8_t* dest_scan,
                                            const uint8_t* src_scan) const;
-  void ValidateDictParam();
+  void ValidateDictParam(const ByteString& filter);
   void DownSampleScanline1Bit(int orig_Bpp,
                               int dest_Bpp,
                               uint32_t src_width,
@@ -153,6 +160,7 @@ class CPDF_DIB final : public CFX_DIBBase {
   RetainPtr<CPDF_DIB> m_pMask;
   RetainPtr<CPDF_StreamAcc> m_pGlobalAcc;
   std::unique_ptr<fxcodec::ScanlineDecoder> m_pDecoder;
+  JpxSMaskInlineData m_JpxInlineData;
 
   // Must come after |m_pCachedBitmap|.
   std::unique_ptr<fxcodec::Jbig2Context> m_pJbig2Context;

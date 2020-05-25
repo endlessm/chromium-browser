@@ -63,7 +63,7 @@ std::string VkVersionString(VulkanVersion v) {
     return std::to_string(v.major) + "." + std::to_string(v.minor) + "." + std::to_string(v.patch);
 }
 
-enum class OutputType { text, html, json };
+enum class OutputType { text, html, json, vkconfig_output };
 
 class Printer {
    public:
@@ -181,6 +181,14 @@ class Printer {
                 out << "\t}";
                 indents++;
                 is_first_item.push(false);
+                is_array.push(false);
+                break;
+            case (OutputType::vkconfig_output):
+                out << "{\n";
+                out << "\t\"Vulkan Instance Version\": \"" << VkVersionString(vulkan_version) << "\"";
+                indents++;
+                is_first_item.push(false);
+                is_array.push(false);
                 break;
             default:
                 break;
@@ -198,10 +206,12 @@ class Printer {
                 indents -= 3;
                 break;
             case (OutputType::json):
+            case (OutputType::vkconfig_output):
                 out << "\n}\n";
                 indents--;
                 is_first_item.pop();
                 assert(is_first_item.empty() && "mismatched number of ObjectStart/ObjectEnd or ArrayStart/ArrayEnd's");
+                is_array.pop();
                 break;
         }
         assert(indents == 0 && "indents must be zero at program end");
@@ -211,6 +221,34 @@ class Printer {
     const Printer &operator=(const Printer &) = delete;
 
     OutputType Type() { return output_type; }
+
+    // When an error occurs, call this to create a valid output file. Needed for json/html
+    void FinishOutput() {
+        switch (output_type) {
+            case (OutputType::text):
+                indents = 0;
+                break;
+            case (OutputType::html):
+                while (indents > 3) {
+                    out << "</details>\n";
+                    indents--;
+                }
+                break;
+            case (OutputType::json):
+            case (OutputType::vkconfig_output):
+                while (indents > 1) {
+                    out << "\n" << std::string(static_cast<size_t>(indents), '\t');
+                    if (is_array.top()) {
+                        out << "]";
+                    } else {
+                        out << "}";
+                    }
+                    is_array.pop();
+                    indents--;
+                }
+                break;
+        }
+    }
 
     // Custom Formatting
     // use by prepending with p.SetXXX().ObjectStart/ArrayStart
@@ -246,17 +284,24 @@ class Printer {
         return *this;
     }
 
-    void ObjectStart(std::string object_name) {
+    void ObjectStart(std::string object_name, int32_t count_subobjects = -1) {
         switch (output_type) {
             case (OutputType::text): {
                 out << std::string(static_cast<size_t>(indents), '\t') << object_name;
                 if (element_index != -1) {
                     out << "[" << element_index << "]";
                 }
-                out << ":\n";
+                out << ":";
+                if (count_subobjects >= 0) {
+                    out << " count = " << count_subobjects;
+                }
+                out << "\n";
                 size_t headersize = object_name.size() + 1;
+                if (count_subobjects >= 0) {
+                    headersize += 9 + std::to_string(count_subobjects).size();
+                }
                 if (element_index != -1) {
-                    headersize += 1 + std::to_string(element_index).size();
+                    headersize += 2 + std::to_string(element_index).size();
                     element_index = -1;
                 }
                 PrintHeaderUnderlines(headersize);
@@ -281,6 +326,9 @@ class Printer {
                     out << "[<span class='val'>" << element_index << "</span>]";
                     element_index = -1;
                 }
+                if (count_subobjects >= 0) {
+                    out << ": count = <span class='val'>" << std::to_string(count_subobjects) << "</span>";
+                }
                 out << "</summary>\n";
                 break;
             case (OutputType::json):
@@ -299,6 +347,26 @@ class Printer {
                 }
 
                 is_first_item.push(true);
+                is_array.push(false);
+
+                break;
+            case (OutputType::vkconfig_output):
+                if (!is_first_item.top()) {
+                    out << ",\n";
+                } else {
+                    is_first_item.top() = false;
+                }
+                out << std::string(static_cast<size_t>(indents), '\t');
+
+                if (element_index != -1) {
+                    out << "\"" << object_name << "[" << element_index << "]\": {\n";
+                    element_index = -1;
+                } else {
+                    out << "\"" << object_name << "\": {\n";
+                }
+                is_first_item.push(true);
+                is_array.push(false);
+
                 break;
             default:
                 break;
@@ -316,20 +384,29 @@ class Printer {
                 out << std::string(static_cast<size_t>(indents), '\t') << "</details>\n";
                 break;
             case (OutputType::json):
+            case (OutputType::vkconfig_output):
                 out << "\n" << std::string(static_cast<size_t>(indents), '\t') << "}";
                 is_first_item.pop();
+                assert(is_array.top() == false && "cannot call ObjectEnd while inside an Array");
+                is_array.pop();
                 break;
             default:
                 break;
         }
     }
-    void ArrayStart(std::string array_name, size_t element_count = 0) {
+    void ArrayStart(std::string array_name, int32_t element_count = 0) {
         switch (output_type) {
-            case (OutputType::text):
-                out << std::string(static_cast<size_t>(indents), '\t') << array_name << ": "
-                    << "count = " << element_count << "\n";
-                PrintHeaderUnderlines(array_name.size() + 1);
+            case (OutputType::text): {
+                out << std::string(static_cast<size_t>(indents), '\t') << array_name << ":";
+                size_t underline_count = array_name.size() + 1;
+                if (element_count >= 0) {
+                    out << " count = " << element_count;
+                    underline_count += 9 + std::to_string(element_count).size();
+                }
+                out << "\n";
+                PrintHeaderUnderlines(underline_count);
                 break;
+            }
             case (OutputType::html):
                 out << std::string(static_cast<size_t>(indents), '\t');
                 if (set_details_open) {
@@ -338,9 +415,14 @@ class Printer {
                 } else {
                     out << "<details>";
                 }
-                out << "<summary>" << array_name << ": count = <span class='val'>" << element_count << "</span></summary>\n";
+                out << "<summary>" << array_name;
+                if (element_count >= 0) {
+                    out << ": count = <span class='val'>" << element_count << "</span>";
+                }
+                out << "</summary>\n";
                 break;
             case (OutputType::json):
+            case (OutputType::vkconfig_output):
                 if (!is_first_item.top()) {
                     out << ",\n";
                 } else {
@@ -349,6 +431,7 @@ class Printer {
                 out << std::string(static_cast<size_t>(indents), '\t') << "\"" << array_name << "\": "
                     << "[\n";
                 is_first_item.push(true);
+                is_array.push(true);
                 break;
             default:
                 break;
@@ -366,8 +449,11 @@ class Printer {
                 out << std::string(static_cast<size_t>(indents), '\t') << "</details>\n";
                 break;
             case (OutputType::json):
+            case (OutputType::vkconfig_output):
                 out << "\n" << std::string(static_cast<size_t>(indents), '\t') << "]";
                 is_first_item.pop();
+                assert(is_array.top() == true && "cannot call ArrayEnd while inside an Object");
+                is_array.pop();
                 break;
             default:
                 break;
@@ -415,6 +501,19 @@ class Printer {
                     is_first_item.top() = false;
                 }
                 out << std::string(static_cast<size_t>(indents), '\t') << "\"" << key << "\": " << value;
+                break;
+            case (OutputType::vkconfig_output):
+                if (!is_first_item.top()) {
+                    out << ",\n";
+                } else {
+                    is_first_item.top() = false;
+                }
+                out << std::string(static_cast<size_t>(indents), '\t') << "\"" << key << "\": ";
+                if (value_description != "") {
+                    out << "\"" << value << " (" << value_description << ")\"";
+                } else {
+                    out << value;
+                }
             default:
                 break;
         }
@@ -428,6 +527,7 @@ class Printer {
                 PrintKeyValue(key, value, min_key_width, value_description);
                 break;
             case (OutputType::json):
+            case (OutputType::vkconfig_output):
                 PrintKeyValue(key, std::string("\"") + value + "\"", min_key_width, value_description);
                 break;
             default:
@@ -440,6 +540,7 @@ class Printer {
         switch (output_type) {
             case (OutputType::text):
             case (OutputType::html):
+            case (OutputType::vkconfig_output):
                 PrintKeyValue(key, value ? "true" : "false", min_key_width, value_description);
                 break;
             case (OutputType::json):
@@ -475,6 +576,7 @@ class Printer {
                 out << "</summary></details>\n";
                 break;
             case (OutputType::json):
+            case (OutputType::vkconfig_output):
                 if (!is_first_item.top()) {
                     out << ",\n";
                 } else {
@@ -486,6 +588,19 @@ class Printer {
                 break;
         }
     }
+    void PrintString(std::string string, std::string value_description = "") {
+        switch (output_type) {
+            case (OutputType::text):
+            case (OutputType::html):
+                PrintElement(string, value_description);
+                break;
+            case (OutputType::json):
+            case (OutputType::vkconfig_output):
+                PrintElement("\"" + string + "\"", value_description);
+            default:
+                break;
+        }
+    }
     void PrintExtension(std::string ext_name, uint32_t revision, int min_width = 0) {
         switch (output_type) {
             case (OutputType::text):
@@ -493,12 +608,16 @@ class Printer {
                     << " : extension revision " << revision << "\n";
                 break;
             case (OutputType::html):
-                out << std::string(static_cast<size_t>(indents), '\t') << "<details><summary><span class='type'>" << ext_name
-                    << "</span>" << std::string(min_width - ext_name.size(), ' ') << " : extension revision <span class='val'>"
-                    << revision << "</span></summary></details>\n";
+                out << std::string(static_cast<size_t>(indents), '\t') << "<details><summary>" << DecorateAsType(ext_name)
+                    << std::string(min_width - ext_name.size(), ' ') << " : extension revision "
+                    << DecorateAsValue(std::to_string(revision)) << "</summary></details>\n";
                 break;
             case (OutputType::json):
-
+                break;
+            case (OutputType::vkconfig_output):
+                ObjectStart(ext_name);
+                PrintKeyValue("specVersion", revision);
+                ObjectEnd();
                 break;
             default:
                 break;
@@ -519,6 +638,20 @@ class Printer {
             indents--;
             assert(indents >= 0 && "indents cannot go below zero");
         }
+    }
+
+    std::string DecorateAsType(const std::string &input) {
+        if (output_type == OutputType::html)
+            return "<span class='type'>" + input + "</span>";
+        else
+            return input;
+    }
+
+    std::string DecorateAsValue(const std::string &input) {
+        if (output_type == OutputType::html)
+            return "<span class='val'>" + input + "</span>";
+        else
+            return input;
     }
 
    protected:
@@ -543,7 +676,8 @@ class Printer {
     int element_index = -1;  // negative one is the sentinel value
 
     // json
-    std::stack<bool> is_first_item;
+    std::stack<bool> is_first_item;  // for json: for adding a comma inbetween objects
+    std::stack<bool> is_array;       // for json: match pairs of {}'s and []'s
 
     // utility
     void PrintHeaderUnderlines(size_t length) {
@@ -557,4 +691,39 @@ class Printer {
             set_next_subheader = false;
         }
     }
+};
+// Purpose: When a Printer starts an object or array it will automatically indent the output. This isn't
+// always desired, requiring a manual decrease of indention. This wrapper facilitates that while also
+// automatically re-indenting the output to the previous indent level on scope exit.
+class IndentWrapper {
+   public:
+    IndentWrapper(Printer &p) : p(p) {
+        if (p.Type() == OutputType::text) p.IndentDecrease();
+    }
+    ~IndentWrapper() {
+        if (p.Type() == OutputType::text) p.IndentIncrease();
+    }
+
+   private:
+    Printer &p;
+};
+
+class ObjectWrapper {
+   public:
+    ObjectWrapper(Printer &p, std::string object_name, int32_t count_subobjects = -1) : p(p) {
+        p.ObjectStart(object_name, count_subobjects);
+    }
+    ~ObjectWrapper() { p.ObjectEnd(); }
+
+   private:
+    Printer &p;
+};
+
+class ArrayWrapper {
+   public:
+    ArrayWrapper(Printer &p, std::string array_name, int32_t element_count = 0) : p(p) { p.ArrayStart(array_name, element_count); }
+    ~ArrayWrapper() { p.ArrayEnd(); }
+
+   private:
+    Printer &p;
 };

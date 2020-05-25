@@ -14,7 +14,7 @@
 
 import {assertExists} from '../base/logging';
 import {DeferredAction} from '../common/actions';
-import {AggregateCpuData} from '../common/aggregation_data';
+import {AggregateData} from '../common/aggregation_data';
 import {CurrentSearchResults, SearchSummary} from '../common/search_data';
 import {CallsiteInfo, createEmptyState, State} from '../common/state';
 
@@ -25,6 +25,8 @@ import {ServiceWorkerController} from './service_worker_controller';
 type Dispatch = (action: DeferredAction) => void;
 type TrackDataStore = Map<string, {}>;
 type QueryResultsStore = Map<string, {}>;
+type AggregateDataStore = Map<string, AggregateData>;
+type Args = Map<string, string>;
 export interface SliceDetails {
   ts?: number;
   dur?: number;
@@ -38,6 +40,7 @@ export interface SliceDetails {
   wakerCpu?: number;
   category?: string;
   name?: string;
+  args?: Args;
 }
 
 export interface CounterDetails {
@@ -48,11 +51,10 @@ export interface CounterDetails {
 }
 
 export interface HeapProfileDetails {
+  type?: string;
   id?: number;
   ts?: number;
   tsNs?: number;
-  allocated?: number;
-  allocatedNotFreed?: number;
   pid?: number;
   upid?: number;
   flamegraph?: CallsiteInfo[];
@@ -92,6 +94,7 @@ class Globals {
   private _trackDataStore?: TrackDataStore = undefined;
   private _queryResults?: QueryResultsStore = undefined;
   private _overviewStore?: OverviewStore = undefined;
+  private _aggregateDataStore?: AggregateDataStore = undefined;
   private _threadMap?: ThreadMap = undefined;
   private _sliceDetails?: SliceDetails = undefined;
   private _counterDetails?: CounterDetails = undefined;
@@ -99,15 +102,7 @@ class Globals {
   private _numQueriesQueued = 0;
   private _bufferUsage?: number = undefined;
   private _recordingLog?: string = undefined;
-  private _aggregateCpuData: AggregateCpuData = {
-    strings: [],
-    procNameId: new Uint16Array(0),
-    pid: new Uint32Array(0),
-    threadNameId: new Uint16Array(0),
-    tid: new Uint32Array(0),
-    totalDur: new Float64Array(0),
-    occurrences: new Uint16Array(0)
-  };
+
   private _currentSearchResults: CurrentSearchResults = {
     sliceIds: new Float64Array(0),
     tsStarts: new Float64Array(0),
@@ -122,6 +117,11 @@ class Globals {
     count: new Uint8Array(0),
   };
 
+  // This variable is set by the is_internal_user.js script if the user is a
+  // googler. This is used to avoid exposing features that are not ready yet
+  // for public consumption. The gated features themselves are not secret.
+  isInternalUser = false;
+
   initialize(dispatch: Dispatch, controllerWorker: Worker) {
     this._dispatch = dispatch;
     this._controllerWorker = controllerWorker;
@@ -134,6 +134,7 @@ class Globals {
     this._trackDataStore = new Map<string, {}>();
     this._queryResults = new Map<string, {}>();
     this._overviewStore = new Map<string, QuantizedLoad[]>();
+    this._aggregateDataStore = new Map<string, AggregateData>();
     this._threadMap = new Map<number, ThreadDesc>();
     this._sliceDetails = {};
     this._counterDetails = {};
@@ -197,12 +198,8 @@ class Globals {
     this._counterDetails = assertExists(click);
   }
 
-  get aggregateCpuData(): AggregateCpuData {
-    return assertExists(this._aggregateCpuData);
-  }
-
-  set aggregateCpuData(value: AggregateCpuData) {
-    this._aggregateCpuData = value;
+  get aggregateDataStore(): AggregateDataStore {
+    return assertExists(this._aggregateDataStore);
   }
 
   get heapProfileDetails() {
@@ -249,6 +246,10 @@ class Globals {
     this._recordingLog = recordingLog;
   }
 
+  setAggregateData(kind: string, data: AggregateData) {
+    this.aggregateDataStore.set(kind, data);
+  }
+
   getCurResolution() {
     // Truncate the resolution to the closest power of 2.
     // This effectively means the resolution changes every 6 zoom levels.
@@ -277,6 +278,7 @@ class Globals {
     this._overviewStore = undefined;
     this._threadMap = undefined;
     this._sliceDetails = undefined;
+    this._aggregateDataStore = undefined;
     this._numQueriesQueued = 0;
     this._currentSearchResults = {
       sliceIds: new Float64Array(0),
@@ -285,15 +287,6 @@ class Globals {
       trackIds: [],
       sources: [],
       totalResults: 0,
-    };
-    this._aggregateCpuData = {
-      strings: [],
-      procNameId: new Uint16Array(0),
-      pid: new Uint32Array(0),
-      threadNameId: new Uint16Array(0),
-      tid: new Uint32Array(0),
-      totalDur: new Float64Array(0),
-      occurrences: new Uint16Array(0)
     };
   }
 

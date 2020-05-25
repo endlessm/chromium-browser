@@ -15,7 +15,7 @@
 #include "ShaderCore.hpp"
 
 #include "Device/Renderer.hpp"
-#include "Vulkan/VkDebug.hpp"
+#include "System/Debug.hpp"
 
 #include <limits.h>
 
@@ -162,13 +162,13 @@ Float4 logarithm2(RValue<Float4> x, bool pp)
 
 Float4 exponential(RValue<Float4> x, bool pp)
 {
-	// FIXME: Propagate the constant
+	// TODO: Propagate the constant
 	return exponential2(Float4(1.44269504f) * x, pp);  // 1/ln(2)
 }
 
 Float4 logarithm(RValue<Float4> x, bool pp)
 {
-	// FIXME: Propagate the constant
+	// TODO: Propagate the constant
 	return Float4(6.93147181e-1f) * logarithm2(x, pp);  // ln(2)
 }
 
@@ -611,7 +611,8 @@ Float4 r11g11b10Unpack(UInt r11g11b10bits)
 
 UInt r11g11b10Pack(const Float4 &value)
 {
-	auto halfBits = floatToHalfBits(As<UInt4>(value), true);
+	// 10 and 11 bit floats are unsigned, so their minimal value is 0
+	auto halfBits = floatToHalfBits(As<UInt4>(Max(value, Float4(0.0f))), true);
 	// Truncates instead of rounding. See b/147900455
 	UInt4 truncBits = halfBits & UInt4(0x7FF00000, 0x7FF00000, 0x7FE00000, 0);
 	return (UInt(truncBits.x) >> 20) | (UInt(truncBits.y) >> 9) | (UInt(truncBits.z) << 1);

@@ -17,13 +17,13 @@
 
 #if SK_SUPPORT_GPU
 #include "include/gpu/GrContext.h"
-#include "include/gpu/GrTexture.h"
 #include "include/private/GrRecordingContext.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrCoordTransform.h"
 #include "src/gpu/GrFixedClip.h"
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTextureProxy.h"
 #include "src/gpu/SkGr.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
@@ -400,7 +400,7 @@ GrMorphologyEffect::GrMorphologyEffect(GrSurfaceProxyView view,
                                        MorphType type,
                                        const float range[2])
         : INHERITED(kGrMorphologyEffect_ClassID, ModulateForClampedSamplerOptFlags(srcAlphaType))
-        , fCoordTransform(view.proxy())
+        , fCoordTransform(view.proxy(), view.origin())
         , fTextureSampler(std::move(view))
         , fDirection(direction)
         , fRadius(radius)
@@ -455,11 +455,7 @@ GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrMorphologyEffect);
 
 #if GR_TEST_UTILS
 std::unique_ptr<GrFragmentProcessor> GrMorphologyEffect::TestCreate(GrProcessorTestData* d) {
-    auto [proxy, ct, at] = d->randomProxy();
-
-    GrSurfaceOrigin origin = proxy->origin();
-    GrSwizzle swizzle = proxy->textureSwizzle();
-    GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
+    auto [view, ct, at] = d->randomView();
 
     MorphDirection dir = d->fRandom->nextBool() ? MorphDirection::kX : MorphDirection::kY;
     static const int kMaxRadius = 10;
@@ -555,7 +551,7 @@ static void apply_morphology_pass(GrRenderTargetContext* renderTargetContext,
 static sk_sp<SkSpecialImage> apply_morphology(
         GrRecordingContext* context, SkSpecialImage* input, const SkIRect& rect,
         MorphType morphType, SkISize radius, const SkImageFilter_Base::Context& ctx) {
-    GrSurfaceProxyView srcView = input->asSurfaceProxyViewRef(context);
+    GrSurfaceProxyView srcView = input->view(context);
     SkAlphaType srcAlphaType = input->alphaType();
     SkASSERT(srcView.asTextureProxy());
     sk_sp<SkColorSpace> colorSpace = ctx.refColorSpace();
@@ -624,7 +620,7 @@ namespace {
         const int dstStrideX = direction == MorphDirection::kX ? 1 : dstStride;
         const int srcStrideY = direction == MorphDirection::kX ? srcStride : 1;
         const int dstStrideY = direction == MorphDirection::kX ? dstStride : 1;
-        radius = SkMin32(radius, width - 1);
+        radius = std::min(radius, width - 1);
         const SkPMColor* upperSrc = src + radius * srcStrideX;
         for (int x = 0; x < width; ++x) {
             const SkPMColor* lp = src;
@@ -657,7 +653,7 @@ namespace {
         const int dstStrideX = direction == MorphDirection::kX ? 1 : dstStride;
         const int srcStrideY = direction == MorphDirection::kX ? srcStride : 1;
         const int dstStrideY = direction == MorphDirection::kX ? dstStride : 1;
-        radius = SkMin32(radius, width - 1);
+        radius = std::min(radius, width - 1);
         const SkPMColor* upperSrc = src + radius * srcStrideX;
         for (int x = 0; x < width; ++x) {
             const SkPMColor* lp = src;
@@ -689,7 +685,7 @@ namespace {
         const int dstStrideX = direction == MorphDirection::kX ? 1 : dstStride;
         const int srcStrideY = direction == MorphDirection::kX ? srcStride : 1;
         const int dstStrideY = direction == MorphDirection::kX ? dstStride : 1;
-        radius = SkMin32(radius, width - 1);
+        radius = std::min(radius, width - 1);
         const SkPMColor* upperSrc = src + radius * srcStrideX;
         for (int x = 0; x < width; ++x) {
             const SkPMColor* lp = src;
@@ -705,15 +701,15 @@ namespace {
                         r = SkGetPackedR32(*p),
                         a = SkGetPackedA32(*p);
                     if (type == MorphType::kDilate) {
-                        B = SkTMax(b, B);
-                        G = SkTMax(g, G);
-                        R = SkTMax(r, R);
-                        A = SkTMax(a, A);
+                        B = std::max(b, B);
+                        G = std::max(g, G);
+                        R = std::max(r, R);
+                        A = std::max(a, A);
                     } else {
-                        B = SkTMin(b, B);
-                        G = SkTMin(g, G);
-                        R = SkTMin(r, R);
-                        A = SkTMin(a, A);
+                        B = std::min(b, B);
+                        G = std::min(g, G);
+                        R = std::min(r, R);
+                        A = std::min(a, A);
                     }
                 }
                 *dptr = SkPackARGB32(A, R, G, B);

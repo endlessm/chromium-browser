@@ -21,7 +21,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_optional.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_protocol.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_session_interface.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_stream.h"
@@ -95,8 +94,8 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
     return nullptr;
   }
 
-  void OnCryptoHandshakeEvent(CryptoHandshakeEvent event) override;
   void SetDefaultEncryptionLevel(EncryptionLevel level) override;
+  void OnOneRttKeysAvailable() override;
   void OnMessageReceived(quiche::QuicheStringPiece message) override;
 
   // Return the earliest incoming stream that has been received by the session
@@ -151,8 +150,8 @@ class QUIC_EXPORT_PRIVATE QuicTransportClientSession
   // has not accepted to a smaller number, by checking the size of
   // |incoming_bidirectional_streams_| and |incoming_unidirectional_streams_|
   // before sending MAX_STREAMS.
-  QuicDeque<QuicTransportStream*> incoming_bidirectional_streams_;
-  QuicDeque<QuicTransportStream*> incoming_unidirectional_streams_;
+  QuicCircularDeque<QuicTransportStream*> incoming_bidirectional_streams_;
+  QuicCircularDeque<QuicTransportStream*> incoming_unidirectional_streams_;
 };
 
 }  // namespace quic

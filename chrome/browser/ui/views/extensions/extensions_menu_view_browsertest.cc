@@ -6,27 +6,25 @@
 
 #include <algorithm>
 
-#include "base/path_service.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
-#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/extension_action_runner.h"
+#include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/scripting_permissions_modifier.h"
-#include "chrome/browser/ui/extensions/extension_installed_bubble.h"
-#include "chrome/browser/ui/test/test_browser_dialog.h"
+#include "chrome/browser/ui/extensions/extension_install_ui_default.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
-#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/extensions/extensions_menu_button.h"
 #include "chrome/browser/ui/views/extensions/extensions_menu_item_view.h"
+#include "chrome/browser/ui/views/extensions/extensions_toolbar_browsertest.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_button.h"
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_container.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/hover_button_controller.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_actions_bar_bubble_views.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/common/chrome_paths.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -34,43 +32,34 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/test/test_extension_dir.h"
-#include "net/dns/mock_host_resolver.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/layout/animating_layout_manager.h"
 #include "ui/views/layout/animating_layout_manager_test_util.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/view_class_properties.h"
+#include "ui/views/widget/any_widget_observer.h"
 
-class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
- protected:
-  Profile* profile() { return browser()->profile(); }
+class ExtensionsMenuViewBrowserTest : public ExtensionsToolbarBrowserTest {
+ public:
+  enum class ExtensionRemovalMethod {
+    kDisable,
+    kUninstall,
+    kBlocklist,
+    kTerminate,
+  };
 
-  void LoadTestExtension(const std::string& extension,
-                         bool allow_incognito = false) {
-    extensions::ChromeTestExtensionLoader loader(profile());
-    loader.set_allow_incognito_access(allow_incognito);
-    base::FilePath test_data_dir;
-    base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
-    extensions_.push_back(
-        loader.LoadExtension(test_data_dir.AppendASCII(extension)));
-  }
-
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(features::kExtensionsToolbarMenu);
-    DialogBrowserTest::SetUp();
-  }
-
-  void SetUpIncognitoBrowser() {
-    incognito_browser_ = CreateIncognitoBrowser();
-  }
-
-  void SetUpOnMainThread() override {
-    DialogBrowserTest::SetUpOnMainThread();
-    host_resolver()->AddRule("*", "127.0.0.1");
-    views::test::ReduceAnimationDuration(GetExtensionsToolbarContainer());
+  static std::vector<ExtensionsMenuItemView*> GetExtensionsMenuItemViews() {
+    return ExtensionsMenuView::GetExtensionsMenuViewForTesting()
+        ->extensions_menu_items_for_testing();
   }
 
   void ShowUi(const std::string& name) override {
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+    // The extensions menu can appear offscreen on Linux, so verifying bounds
+    // makes the tests flaky.
+    set_should_verify_dialog_bounds(false);
+#endif
     ui_test_name_ = name;
 
     if (name == "ReloadPageBubble") {
@@ -86,36 +75,31 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
 
       // Without the uninstall dialog the icon should now be invisible.
       EXPECT_FALSE(container->IsActionVisibleOnToolbar(
-          container->GetActionForId(extensions_[0]->id())));
-      EXPECT_FALSE(container->GetViewForId(extensions_[0]->id())->GetVisible());
+          container->GetActionForId(extensions()[0]->id())));
+      EXPECT_FALSE(
+          container->GetViewForId(extensions()[0]->id())->GetVisible());
 
       // Trigger uninstall dialog.
+      views::NamedWidgetShownWaiter waiter(
+          views::test::AnyWidgetTestPasskey{},
+          "ExtensionUninstallDialogDelegateView");
       extensions::ExtensionContextMenuModel menu_model(
-          extensions_[0].get(), browser(),
+          extensions()[0].get(), browser(),
           extensions::ExtensionContextMenuModel::VISIBLE, nullptr,
           false /* can_show_icon_in_toolbar */);
       menu_model.ExecuteCommand(
           extensions::ExtensionContextMenuModel::UNINSTALL, 0);
-
-      // Executing UNINSTALL consists of two separate asynchronous processes:
-      // - the command itself, which is immediately queued for execution
-      // - the animation and display of the uninstall dialog, which is driven by
-      //   an animation in the layout
-      //
-      // Flush the task queue so the first asynchronous process has completed.
-      base::RunLoop run_loop;
-      base::PostTask(FROM_HERE, run_loop.QuitClosure());
-      run_loop.Run();
-
+      ASSERT_TRUE(waiter.WaitIfNeededAndGet());
     } else if (ui_test_name_ == "InstallDialog") {
       LoadTestExtension("extensions/uitest/long_name");
       LoadTestExtension("extensions/uitest/window_open");
 
       // Trigger post-install dialog.
-      ExtensionInstalledBubble::ShowBubble(extensions_[0], browser(),
-                                           SkBitmap());
+      ExtensionInstallUIDefault::ShowPlatformBubble(extensions()[0], browser(),
+                                                    SkBitmap());
     } else {
       ClickExtensionsMenuButton();
+      ASSERT_TRUE(ExtensionsMenuView::GetExtensionsMenuViewForTesting());
     }
 
     // Wait for any pending animations to finish so that correct pinned
@@ -124,7 +108,7 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
   }
 
   bool VerifyUi() override {
-    EXPECT_TRUE(DialogBrowserTest::VerifyUi());
+    EXPECT_TRUE(ExtensionsToolbarBrowserTest::VerifyUi());
 
     if (ui_test_name_ == "ReloadPageBubble") {
       ExtensionsToolbarContainer* const container =
@@ -132,7 +116,7 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
       // Clicking the extension should close the extensions menu, pop out the
       // extension, and display the "reload this page" bubble.
       EXPECT_TRUE(container->GetAnchoredWidgetForExtensionForTesting(
-          extensions_[0]->id()));
+          extensions()[0]->id()));
       EXPECT_FALSE(container->GetPoppedOutAction());
       EXPECT_FALSE(ExtensionsMenuView::IsShowing());
     } else if (ui_test_name_ == "UninstallDialog_Accept" ||
@@ -141,8 +125,8 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
       ExtensionsToolbarContainer* const container =
           GetExtensionsToolbarContainer();
       EXPECT_TRUE(container->IsActionVisibleOnToolbar(
-          container->GetActionForId(extensions_[0]->id())));
-      EXPECT_TRUE(container->GetViewForId(extensions_[0]->id())->GetVisible());
+          container->GetActionForId(extensions()[0]->id())));
+      EXPECT_TRUE(container->GetViewForId(extensions()[0]->id())->GetVisible());
     }
 
     return true;
@@ -159,7 +143,7 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
       ExtensionsToolbarContainer* const container =
           GetExtensionsToolbarContainer();
       views::BubbleDialogDelegateView* const install_bubble =
-          container->GetViewForId(extensions_[0]->id())
+          container->GetViewForId(extensions()[0]->id())
               ->GetProperty(views::kAnchoredDialogKey);
       ASSERT_TRUE(install_bubble);
       install_bubble->GetWidget()->Close();
@@ -167,7 +151,7 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
     }
 
     // Use default implementation for other tests.
-    DialogBrowserTest::DismissUi();
+    ExtensionsToolbarBrowserTest::DismissUi();
   }
 
   void DismissUninstallDialog() {
@@ -175,7 +159,7 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
         GetExtensionsToolbarContainer();
     // Accept or cancel the dialog.
     views::BubbleDialogDelegateView* const uninstall_bubble =
-        container->GetViewForId(extensions_[0]->id())
+        container->GetViewForId(extensions()[0]->id())
             ->GetProperty(views::kAnchoredDialogKey);
     ASSERT_TRUE(uninstall_bubble);
     views::test::WidgetDestroyedWaiter destroyed_waiter(
@@ -190,9 +174,9 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
     if (ui_test_name_ == "UninstallDialog_Accept") {
       // Accepting the dialog should remove the item from the container and the
       // ExtensionRegistry.
-      EXPECT_EQ(nullptr, container->GetActionForId(extensions_[0]->id()));
+      EXPECT_EQ(nullptr, container->GetActionForId(extensions()[0]->id()));
       EXPECT_EQ(nullptr, extensions::ExtensionRegistry::Get(profile())
-                             ->GetInstalledExtension(extensions_[0]->id()));
+                             ->GetInstalledExtension(extensions()[0]->id()));
     } else {
       // After dismissal the icon should become invisible.
       // Wait for animations to finish.
@@ -202,52 +186,15 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
       // The extension should still be present in the ExtensionRegistry (not
       // uninstalled) when the uninstall dialog is dismissed.
       EXPECT_NE(nullptr, extensions::ExtensionRegistry::Get(profile())
-                             ->GetInstalledExtension(extensions_[0]->id()));
+                             ->GetInstalledExtension(extensions()[0]->id()));
       // Without the uninstall dialog present the icon should now be
       // invisible.
       EXPECT_FALSE(container->IsActionVisibleOnToolbar(
-          container->GetActionForId(extensions_[0]->id())));
-      EXPECT_FALSE(container->GetViewForId(extensions_[0]->id())->GetVisible());
+          container->GetActionForId(extensions()[0]->id())));
+      EXPECT_FALSE(
+          container->GetViewForId(extensions()[0]->id())->GetVisible());
     }
   }
-
-  void ClickExtensionsMenuButton(Browser* browser) {
-    ui::MouseEvent click_event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
-                               base::TimeTicks(), ui::EF_LEFT_MOUSE_BUTTON, 0);
-    BrowserView::GetBrowserViewForBrowser(browser)
-        ->toolbar()
-        ->GetExtensionsButton()
-        ->OnMousePressed(click_event);
-  }
-
-  void ClickExtensionsMenuButton() { ClickExtensionsMenuButton(browser()); }
-
-  ExtensionsToolbarContainer* GetExtensionsToolbarContainer() const {
-    return BrowserView::GetBrowserViewForBrowser(browser())
-        ->toolbar()
-        ->extensions_container();
-  }
-
-  static std::vector<ExtensionsMenuItemView*> GetExtensionsMenuItemViews() {
-    return ExtensionsMenuView::GetExtensionsMenuViewForTesting()
-        ->extensions_menu_items_for_testing();
-  }
-
-  std::vector<ToolbarActionView*> GetToolbarActionViews() const {
-    std::vector<ToolbarActionView*> views;
-    for (auto* view : GetExtensionsToolbarContainer()->children()) {
-      if (view->GetClassName() == ToolbarActionView::kClassName)
-        views.push_back(static_cast<ToolbarActionView*>(view));
-    }
-    return views;
-  }
-
-  std::vector<ToolbarActionView*> GetVisibleToolbarActionViews() const {
-    auto views = GetToolbarActionViews();
-    base::EraseIf(views, [](views::View* view) { return !view->GetVisible(); });
-    return views;
-  }
-
   void TriggerSingleExtensionButton() {
     auto menu_items = GetExtensionsMenuItemViews();
     ASSERT_EQ(1u, menu_items.size());
@@ -263,10 +210,79 @@ class ExtensionsMenuViewBrowserTest : public DialogBrowserTest {
     views::test::WaitForAnimatingLayoutManager(GetExtensionsToolbarContainer());
   }
 
+  void RightClickExtensionInToolbar(ToolbarActionView* extension) {
+    ui::MouseEvent click_down_event(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                                    gfx::Point(), base::TimeTicks(),
+                                    ui::EF_RIGHT_MOUSE_BUTTON, 0);
+    ui::MouseEvent click_up_event(ui::ET_MOUSE_RELEASED, gfx::Point(),
+                                  gfx::Point(), base::TimeTicks(),
+                                  ui::EF_RIGHT_MOUSE_BUTTON, 0);
+    extension->OnMouseEvent(&click_down_event);
+    extension->OnMouseEvent(&click_up_event);
+  }
+
+  void ClickExtensionsMenuButton(Browser* browser) {
+    ui::MouseEvent click_event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                               base::TimeTicks(), ui::EF_LEFT_MOUSE_BUTTON, 0);
+    BrowserView::GetBrowserViewForBrowser(browser)
+        ->toolbar()
+        ->GetExtensionsButton()
+        ->OnMousePressed(click_event);
+  }
+
+  void ClickExtensionsMenuButton() { ClickExtensionsMenuButton(browser()); }
+
+  void RemoveExtension(ExtensionRemovalMethod method,
+                       const std::string& extension_id) {
+    extensions::ExtensionService* const extension_service =
+        extensions::ExtensionSystem::Get(browser()->profile())
+            ->extension_service();
+    switch (method) {
+      case ExtensionRemovalMethod::kDisable:
+        extension_service->DisableExtension(
+            extension_id, extensions::disable_reason::DISABLE_USER_ACTION);
+        break;
+      case ExtensionRemovalMethod::kUninstall:
+        extension_service->UninstallExtension(
+            extension_id, extensions::UNINSTALL_REASON_FOR_TESTING, nullptr);
+        break;
+      case ExtensionRemovalMethod::kBlocklist:
+        extension_service->BlacklistExtensionForTest(extension_id);
+        break;
+      case ExtensionRemovalMethod::kTerminate:
+        extension_service->TerminateExtension(extension_id);
+        break;
+    }
+
+    // Removing an extension can result in the container changing visibility.
+    // Allow it to finish laying out appropriately.
+    auto* container = GetExtensionsToolbarContainer();
+    container->GetWidget()->LayoutRootViewIfNecessary();
+  }
+
+  void VerifyContainerVisibility(ExtensionRemovalMethod method,
+                                 bool expected_visibility) {
+    // An empty container should not be shown.
+    EXPECT_FALSE(GetExtensionsToolbarContainer()->GetVisible());
+
+    // Loading the first extension should show the button (and container).
+    LoadTestExtension("extensions/uitest/long_name");
+    EXPECT_TRUE(GetExtensionsToolbarContainer()->IsDrawn());
+
+    // Add another extension so we can make sure that removing some don't change
+    // the visibility.
+    LoadTestExtension("extensions/uitest/window_open");
+
+    // Remove 1/2 extensions, should still be drawn.
+    RemoveExtension(method, extensions()[0]->id());
+    EXPECT_TRUE(GetExtensionsToolbarContainer()->IsDrawn());
+
+    // Removing the last extension. All actions now have the same state.
+    RemoveExtension(method, extensions()[1]->id());
+    EXPECT_EQ(expected_visibility, GetExtensionsToolbarContainer()->IsDrawn());
+  }
+
   std::string ui_test_name_;
-  base::test::ScopedFeatureList scoped_feature_list_;
-  Browser* incognito_browser_ = nullptr;
-  std::vector<scoped_refptr<const extensions::Extension>> extensions_;
 };
 
 IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest, InvokeUi_default) {
@@ -276,8 +292,29 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest, InvokeUi_default) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest, InvokeUi_NoExtensions) {
-  ShowAndVerifyUi();
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       InvisibleWithoutExtension_Disable) {
+  VerifyContainerVisibility(ExtensionRemovalMethod::kDisable, false);
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       InvisibleWithoutExtension_Uninstall) {
+  VerifyContainerVisibility(ExtensionRemovalMethod::kUninstall, false);
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       InvisibleWithoutExtension_Blocklist) {
+  VerifyContainerVisibility(ExtensionRemovalMethod::kBlocklist, false);
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       InvisibleWithoutExtension_Terminate) {
+  // TODO(pbos): Keep the container visible when extensions are terminated
+  // (crash). This lets users find and restart them. Then update this test
+  // expectation to be kept visible by terminated extensions. Also update the
+  // test name to reflect that the container should be visible with only
+  // terminated extensions.
+  VerifyContainerVisibility(ExtensionRemovalMethod::kTerminate, false);
 }
 
 // Invokes the UI shown when a user has to reload a page in order to run an
@@ -303,13 +340,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
   test_dir.WriteFile(FILE_PATH_LITERAL("script.js"),
                      "console.log('injected!');");
 
-  extensions_.push_back(
+  AppendExtension(
       extensions::ChromeTestExtensionLoader(profile()).LoadExtension(
           test_dir.UnpackedPath()));
-  ASSERT_EQ(1u, extensions_.size());
-  ASSERT_TRUE(extensions_.front());
+  ASSERT_EQ(1u, extensions().size());
+  ASSERT_TRUE(extensions().front());
 
-  extensions::ScriptingPermissionsModifier(profile(), extensions_.front())
+  extensions::ScriptingPermissionsModifier(profile(), extensions().front())
       .SetWithholdHostPermissions(true);
 
   // Navigate to a page the extension wants to run on.
@@ -323,6 +360,18 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
   }
 
   ShowAndVerifyUi();
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       ExtensionsMenuButtonHighlight) {
+  LoadTestExtension("extensions/uitest/window_open");
+  ClickExtensionsMenuButton();
+  EXPECT_EQ(BrowserView::GetBrowserViewForBrowser(browser())
+                ->toolbar()
+                ->GetExtensionsButton()
+                ->GetInkDrop()
+                ->GetTargetInkDropState(),
+            views::InkDropState::ACTIVATED);
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest, TriggerPopup) {
@@ -355,6 +404,46 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest, TriggerPopup) {
   // and the icon should no longer be visible in the extensions container.
   EXPECT_EQ(nullptr, extensions_container->GetPoppedOutAction());
   EXPECT_TRUE(GetVisibleToolbarActionViews().empty());
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       ContextMenuKeepsExtensionPoppedOut) {
+  LoadTestExtension("extensions/simple_with_popup");
+  ShowUi("");
+  VerifyUi();
+
+  ExtensionsToolbarContainer* const extensions_container =
+      GetExtensionsToolbarContainer();
+
+  EXPECT_EQ(nullptr, extensions_container->GetPoppedOutAction());
+  EXPECT_TRUE(GetVisibleToolbarActionViews().empty());
+
+  TriggerSingleExtensionButton();
+
+  // After triggering an extension with a popup, there should a popped-out
+  // action and show the view.
+  auto visible_icons = GetVisibleToolbarActionViews();
+  EXPECT_NE(nullptr, extensions_container->GetPoppedOutAction());
+  EXPECT_EQ(base::nullopt,
+            extensions_container->GetExtensionWithOpenContextMenuForTesting());
+  ASSERT_EQ(1u, visible_icons.size());
+  EXPECT_EQ(extensions_container->GetPoppedOutAction(),
+            visible_icons[0]->view_controller());
+
+  RightClickExtensionInToolbar(extensions_container->GetViewForId(
+      extensions_container->GetPoppedOutAction()->GetId()));
+  extensions_container->HideActivePopup();
+
+  // Wait for animations to finish.
+  views::test::WaitForAnimatingLayoutManager(extensions_container);
+
+  visible_icons = GetVisibleToolbarActionViews();
+  ASSERT_EQ(1u, visible_icons.size());
+  EXPECT_EQ(nullptr, extensions_container->GetPoppedOutAction());
+  EXPECT_NE(base::nullopt,
+            extensions_container->GetExtensionWithOpenContextMenuForTesting());
+  EXPECT_EQ(extensions_container->GetExtensionWithOpenContextMenuForTesting(),
+            visible_icons[0]->view_controller()->GetId());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
@@ -408,20 +497,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
   EXPECT_FALSE(ExtensionsMenuView::IsShowing());
 }
 
-#if defined(OS_WIN)
-#define MAYBE_CreatesOneMenuItemPerExtension \
-  DISABLED_CreatesOneMenuItemPerExtension
-#else
-#define MAYBE_CreatesOneMenuItemPerExtension CreatesOneMenuItemPerExtension
-#endif
 IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
-                       MAYBE_CreatesOneMenuItemPerExtension) {
+                       CreatesOneMenuItemPerExtension) {
   LoadTestExtension("extensions/uitest/long_name");
   LoadTestExtension("extensions/uitest/window_open");
   ShowUi("");
   VerifyUi();
-  EXPECT_EQ(2u, extensions_.size());
-  EXPECT_EQ(extensions_.size(), GetExtensionsMenuItemViews().size());
+  EXPECT_EQ(2u, extensions().size());
+  EXPECT_EQ(extensions().size(), GetExtensionsMenuItemViews().size());
   DismissUi();
 }
 
@@ -433,14 +516,14 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
   // Make sure the pinning item is disabled for context menus in the Incognito
   // browser.
   extensions::ExtensionContextMenuModel menu(
-      extensions_[0].get(), incognito_browser_,
+      extensions()[0].get(), incognito_browser(),
       extensions::ExtensionContextMenuModel::VISIBLE, nullptr,
       true /* can_show_icon_in_toolbar */);
   EXPECT_FALSE(menu.IsCommandIdEnabled(
       extensions::ExtensionContextMenuModel::TOGGLE_VISIBILITY));
 
   // Show menu and verify that the in-menu pin button is disabled too.
-  ClickExtensionsMenuButton(incognito_browser_);
+  ClickExtensionsMenuButton(incognito_browser());
 
   ASSERT_TRUE(VerifyUi());
   ASSERT_EQ(1u, GetExtensionsMenuItemViews().size());
@@ -452,7 +535,98 @@ IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       PinnedExtensionShowsCorrectContextMenuPinOption) {
+  LoadTestExtension("extensions/simple_with_popup");
+
+  ClickExtensionsMenuButton();
+  ExtensionsToolbarContainer* const extensions_container =
+      GetExtensionsToolbarContainer();
+
+  // Pin extension from menu.
+  ASSERT_TRUE(VerifyUi());
+  ASSERT_EQ(1u, GetExtensionsMenuItemViews().size());
+  ui::MouseEvent click_pressed_event(ui::ET_MOUSE_PRESSED, gfx::Point(),
+                                     gfx::Point(), base::TimeTicks(),
+                                     ui::EF_LEFT_MOUSE_BUTTON, 0);
+  ui::MouseEvent click_released_event(ui::ET_MOUSE_RELEASED, gfx::Point(),
+                                      gfx::Point(), base::TimeTicks(),
+                                      ui::EF_LEFT_MOUSE_BUTTON, 0);
+  GetExtensionsMenuItemViews()
+      .front()
+      ->pin_button_for_testing()
+      ->OnMousePressed(click_pressed_event);
+  GetExtensionsMenuItemViews()
+      .front()
+      ->pin_button_for_testing()
+      ->OnMouseReleased(click_released_event);
+
+  // Wait for any pending animations to finish so that correct pinned
+  // extensions and dialogs are actually showing.
+  views::test::WaitForAnimatingLayoutManager(GetExtensionsToolbarContainer());
+
+  // Verify extension is pinned but not stored as the popped out action.
+  auto visible_icons = GetVisibleToolbarActionViews();
+  visible_icons = GetVisibleToolbarActionViews();
+  ASSERT_EQ(1u, visible_icons.size());
+  EXPECT_EQ(nullptr, extensions_container->GetPoppedOutAction());
+
+  // Trigger the pinned extension.
+  ToolbarActionView* pinned_extension =
+      extensions_container->GetViewForId(extensions()[0]->id());
+  pinned_extension->OnMouseEvent(&click_pressed_event);
+  pinned_extension->OnMouseEvent(&click_released_event);
+
+  // Wait for any pending animations to finish so that correct pinned
+  // extensions and dialogs are actually showing.
+  views::test::WaitForAnimatingLayoutManager(GetExtensionsToolbarContainer());
+
+  EXPECT_NE(nullptr, extensions_container->GetPoppedOutAction());
+
+  // Verify the context menu option is to unpin the extension.
+  ui::SimpleMenuModel* context_menu = static_cast<ui::SimpleMenuModel*>(
+      extensions_container->GetActionForId(extensions()[0]->id())
+          ->GetContextMenu());
+  int visibility_index = context_menu->GetIndexOfCommandId(
+      extensions::ExtensionContextMenuModel::TOGGLE_VISIBILITY);
+  ASSERT_GE(visibility_index, 0);
+  base::string16 visibility_label = context_menu->GetLabelAt(visibility_index);
+  EXPECT_EQ(base::UTF16ToUTF8(visibility_label), "Unpin");
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
+                       UnpinnedExtensionShowsCorrectContextMenuPinOption) {
+  LoadTestExtension("extensions/simple_with_popup");
+
+  ClickExtensionsMenuButton();
+  ExtensionsToolbarContainer* const extensions_container =
+      GetExtensionsToolbarContainer();
+
+  TriggerSingleExtensionButton();
+
+  // Wait for any pending animations to finish so that correct pinned
+  // extensions and dialogs are actually showing.
+  views::test::WaitForAnimatingLayoutManager(GetExtensionsToolbarContainer());
+
+  // Verify extension is visible and tbere is a popped out action.
+  auto visible_icons = GetVisibleToolbarActionViews();
+  ASSERT_EQ(1u, visible_icons.size());
+  EXPECT_NE(nullptr, extensions_container->GetPoppedOutAction());
+
+  // Verify the context menu option is to unpin the extension.
+  ui::SimpleMenuModel* context_menu = static_cast<ui::SimpleMenuModel*>(
+      extensions_container->GetActionForId(extensions()[0]->id())
+          ->GetContextMenu());
+  int visibility_index = context_menu->GetIndexOfCommandId(
+      extensions::ExtensionContextMenuModel::TOGGLE_VISIBILITY);
+  ASSERT_GE(visibility_index, 0);
+  base::string16 visibility_label = context_menu->GetLabelAt(visibility_index);
+  EXPECT_EQ(base::UTF16ToUTF8(visibility_label), "Pin");
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionsMenuViewBrowserTest,
                        ManageExtensionsOpensExtensionsPage) {
+  // Ensure the menu is visible by adding an extension.
+  LoadTestExtension("extensions/trigger_actions/browser_action");
   ShowUi("");
   VerifyUi();
 
@@ -518,7 +692,7 @@ IN_PROC_BROWSER_TEST_P(ActivateWithReloadExtensionsMenuBrowserTest,
                        ActivateWithReload) {
   ASSERT_TRUE(embedded_test_server()->Start());
   LoadTestExtension("extensions/blocked_actions/content_scripts");
-  auto extension = extensions_.back();
+  auto extension = extensions().back();
   extensions::ScriptingPermissionsModifier modifier(profile(), extension);
   modifier.SetWithholdHostPermissions(true);
 
@@ -542,7 +716,7 @@ IN_PROC_BROWSER_TEST_P(ActivateWithReloadExtensionsMenuBrowserTest,
       BrowserView::GetBrowserViewForBrowser(browser())
           ->toolbar()
           ->extensions_container()
-          ->GetAnchoredWidgetForExtensionForTesting(extensions_[0]->id())
+          ->GetAnchoredWidgetForExtensionForTesting(extensions()[0]->id())
           ->widget_delegate()
           ->AsDialogDelegate();
   ASSERT_TRUE(action_bubble);

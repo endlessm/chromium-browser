@@ -6,29 +6,35 @@ options:
   diskSizeGb: 100
   machineType: 'N1_HIGHCPU_8'
 steps:
-- name: 'gcr.io/$PROJECT_ID/docker-compose'
-  dir: '/workspace/dashboard'
+- name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    docker pull gcr.io/$PROJECT_ID/dashboard-base:latest || exit 0
+- name: 'gcr.io/cloud-builders/docker'
+  dir: 'dashboard/dev_dockerfiles'
   args: [
-    '-f', 'dev_dockerfiles/cloud_build/docker-compose.yml',
-    'build'
+    'build',
+    '-t', 'dashboard-base:latest',
+    '-t', 'gcr.io/$PROJECT_ID/dashboard-base:latest',
+    '--cache-from', 'gcr.io/$PROJECT_ID/dashboard-base:latest',
+    '.'
   ]
 - name: 'gcr.io/$PROJECT_ID/docker-compose'
-  dir: '/workspace/dashboard'
+  dir: 'dashboard/dev_dockerfiles'
   args: [
-    '-f', 'dev_dockerfiles/cloud_build/docker-compose.yml',
-    'run', 'dashboard-tests'
+    'run', 'python-unittest-dashboard'
   ]
 # We need to provide the auth token that the service account is using to the
 # container from which we're going to deploy the Dashboard services.
 - name: 'gcr.io/$PROJECT_ID/docker-compose'
-  dir: '/workspace/dashboard'
+  dir: 'dashboard/dev_dockerfiles'
   args: [
-    '-f', 'dev_dockerfiles/cloud_build/docker-compose.yml',
-    'run',
-    'deploy-dashboard',
+    'run', 'cloudbuild-prepare-deployment'
   ]
 - name: 'gcr.io/cloud-builders/gcloud'
-  dir: '/workspace/deploy-dashboard'
+  dir: 'deploy-dashboard'
   args: [
     app, deploy, '--promote', '--version', 'cloud-build-${SHORT_SHA}',
     # We enumerate the files we need to deploy just for the dashboard.
@@ -37,7 +43,9 @@ steps:
     # used by cloud-build, so we've left it out for now.
     api.yaml,
     app.yaml,
-    index.yaml,
     upload-processing.yaml,
     upload.yaml,
+    # Deploy Pinpoint as well.
+    pinpoint.yaml,
   ]
+images: ['gcr.io/$PROJECT_ID/dashboard-base:latest']

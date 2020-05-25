@@ -7,7 +7,7 @@ import * as Common from '../common/common.js';
 import {DebuggerModel, Events as DebuggerModelEvents} from './DebuggerModel.js';
 import {DeferredDOMNode, DOMModel, DOMNode} from './DOMModel.js';  // eslint-disable-line no-unused-vars
 import {RemoteObject} from './RemoteObject.js';                    // eslint-disable-line no-unused-vars
-import {Capability, SDKModel, Target} from './SDKModel.js';        // eslint-disable-line no-unused-vars
+import {Capability, SDKModel, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
 /**
  * @implements {Protocol.OverlayDispatcher}
@@ -25,15 +25,19 @@ export class OverlayModel extends SDKModel {
 
     this._debuggerModel = target.model(DebuggerModel);
     if (this._debuggerModel) {
-      self.Common.settings.moduleSetting('disablePausedStateOverlay')
+      Common.Settings.Settings.instance()
+          .moduleSetting('disablePausedStateOverlay')
           .addChangeListener(this._updatePausedInDebuggerMessage, this);
-      this._debuggerModel.addEventListener(
-          DebuggerModelEvents.DebuggerPaused, this._updatePausedInDebuggerMessage, this);
-      this._debuggerModel.addEventListener(
-          DebuggerModelEvents.DebuggerResumed, this._updatePausedInDebuggerMessage, this);
+      this._debuggerModel.addEventListener(DebuggerModelEvents.DebuggerPaused, event => {
+        this._updatePausedInDebuggerMessage();
+      }, this);
+      this._debuggerModel.addEventListener(DebuggerModelEvents.DebuggerResumed, event => {
+        this._updatePausedInDebuggerMessage();
+      }, this);
       // TODO(dgozman): we should get DebuggerResumed on navigations instead of listening to GlobalObjectCleared.
-      this._debuggerModel.addEventListener(
-          DebuggerModelEvents.GlobalObjectCleared, this._updatePausedInDebuggerMessage, this);
+      this._debuggerModel.addEventListener(DebuggerModelEvents.GlobalObjectCleared, event => {
+        this._updatePausedInDebuggerMessage();
+      }, this);
     }
 
     this._inspectModeEnabled = false;
@@ -41,13 +45,14 @@ export class OverlayModel extends SDKModel {
     this._defaultHighlighter = new DefaultHighlighter(this);
     this._highlighter = this._defaultHighlighter;
 
-    this._showPaintRectsSetting = self.Common.settings.moduleSetting('showPaintRects');
-    this._showLayoutShiftRegionsSetting = self.Common.settings.moduleSetting('showLayoutShiftRegions');
-    this._showAdHighlightsSetting = self.Common.settings.moduleSetting('showAdHighlights');
-    this._showDebugBordersSetting = self.Common.settings.moduleSetting('showDebugBorders');
-    this._showFPSCounterSetting = self.Common.settings.moduleSetting('showFPSCounter');
-    this._showScrollBottleneckRectsSetting = self.Common.settings.moduleSetting('showScrollBottleneckRects');
-    this._showHitTestBordersSetting = self.Common.settings.moduleSetting('showHitTestBorders');
+    this._showPaintRectsSetting = Common.Settings.Settings.instance().moduleSetting('showPaintRects');
+    this._showLayoutShiftRegionsSetting = Common.Settings.Settings.instance().moduleSetting('showLayoutShiftRegions');
+    this._showAdHighlightsSetting = Common.Settings.Settings.instance().moduleSetting('showAdHighlights');
+    this._showDebugBordersSetting = Common.Settings.Settings.instance().moduleSetting('showDebugBorders');
+    this._showFPSCounterSetting = Common.Settings.Settings.instance().moduleSetting('showFPSCounter');
+    this._showScrollBottleneckRectsSetting =
+        Common.Settings.Settings.instance().moduleSetting('showScrollBottleneckRects');
+    this._showHitTestBordersSetting = Common.Settings.Settings.instance().moduleSetting('showHitTestBorders');
 
     this._registeredListeners = [];
     this._showViewportSizeOnResize = true;
@@ -68,17 +73,17 @@ export class OverlayModel extends SDKModel {
   }
 
   static hideDOMNodeHighlight() {
-    for (const overlayModel of self.SDK.targetManager.models(OverlayModel)) {
+    for (const overlayModel of TargetManager.instance().models(OverlayModel)) {
       overlayModel._delayedHideHighlight(0);
     }
   }
 
   static async muteHighlight() {
-    return Promise.all(self.SDK.targetManager.models(OverlayModel).map(model => model.suspendModel()));
+    return Promise.all(TargetManager.instance().models(OverlayModel).map(model => model.suspendModel()));
   }
 
   static async unmuteHighlight() {
-    return Promise.all(self.SDK.targetManager.models(OverlayModel).map(model => model.resumeModel()));
+    return Promise.all(TargetManager.instance().models(OverlayModel).map(model => model.resumeModel()));
   }
 
   /**
@@ -158,18 +163,15 @@ export class OverlayModel extends SDKModel {
     this._overlayAgent.setShowViewportSizeOnResize(show);
   }
 
-  /**
-   * @return {!Promise}
-   */
   _updatePausedInDebuggerMessage() {
     if (this.target().suspended()) {
-      return Promise.resolve();
+      return;
     }
-    const message =
-        this._debuggerModel.isPaused() && !self.Common.settings.moduleSetting('disablePausedStateOverlay').get() ?
+    const message = this._debuggerModel.isPaused() &&
+            !Common.Settings.Settings.instance().moduleSetting('disablePausedStateOverlay').get() ?
         Common.UIString.UIString('Paused in debugger') :
         undefined;
-    return this._overlayAgent.setPausedInDebuggerMessage(message);
+    this._overlayAgent.setPausedInDebuggerMessage(message);
   }
 
   /**
@@ -199,7 +201,7 @@ export class OverlayModel extends SDKModel {
   }
 
   /**
-   * @param {!SDK.OverlayModel.HighlightData} data
+   * @param {!HighlightData} data
    * @param {string=} mode
    * @param {boolean=} showInfo
    */
@@ -216,7 +218,7 @@ export class OverlayModel extends SDKModel {
   }
 
   /**
-   * @param {!SDK.OverlayModel.HighlightData} data
+   * @param {!HighlightData} data
    */
   highlightInOverlayForTwoSeconds(data) {
     this.highlightInOverlay(data);
@@ -249,7 +251,7 @@ export class OverlayModel extends SDKModel {
    * @return {!Protocol.Overlay.HighlightConfig}
    */
   _buildHighlightConfig(mode = 'all', showStyles = false) {
-    const showRulers = self.Common.settings.moduleSetting('showMetricsRulers').get();
+    const showRulers = Common.Settings.Settings.instance().moduleSetting('showMetricsRulers').get();
     const highlightConfig =
         {showInfo: mode === 'all', showRulers: showRulers, showStyles, showExtensionLines: showRulers};
     if (mode === 'all' || mode === 'content') {
@@ -347,7 +349,7 @@ export const Events = {
  */
 export class Highlighter {
   /**
-   * @param {!SDK.OverlayModel.HighlightData} data
+   * @param {!HighlightData} data
    * @param {!Protocol.Overlay.HighlightConfig} config
    */
   highlightInOverlay(data, config) {
@@ -380,7 +382,7 @@ class DefaultHighlighter {
 
   /**
    * @override
-   * @param {!SDK.OverlayModel.HighlightData} data
+   * @param {!HighlightData} data
    * @param {!Protocol.Overlay.HighlightConfig} config
    */
   highlightInOverlay(data, config) {
@@ -417,3 +419,9 @@ class DefaultHighlighter {
 }
 
 SDKModel.register(OverlayModel, Capability.DOM, true);
+
+/** @typedef {{node: (!DOMNode|undefined),
+ deferredNode: (!DeferredDOMNode|undefined),
+ selectorList: (string|undefined),
+ object:(!RemoteObject|undefined)}} */
+export let HighlightData;

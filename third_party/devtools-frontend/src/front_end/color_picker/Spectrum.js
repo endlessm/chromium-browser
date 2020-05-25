@@ -28,6 +28,7 @@
 
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
+import * as Platform from '../platform/platform.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 
@@ -57,10 +58,15 @@ export class Spectrum extends UI.Widget.VBox {
 
     super(true);
     this.registerRequiredCSS('color_picker/spectrum.css');
-    this.contentElement.tabIndex = 0;
-    this.setDefaultFocusedElement(this.contentElement);
 
     this._colorElement = this.contentElement.createChild('div', 'spectrum-color');
+    this._colorElement.tabIndex = 0;
+    this.setDefaultFocusedElement(this._colorElement);
+    this._colorElement.addEventListener('keydown', this._onSliderKeydown.bind(this, positionColor.bind(this)));
+    const swatchAriaText = ls
+    `Press arrow keys with or without modifiers to move swatch position. Arrow key with Shift key moves position largely, with Ctrl key it is less and with Alt key it is even less`;
+    UI.ARIAUtils.setAccessibleName(this._colorElement, swatchAriaText);
+    UI.ARIAUtils.markAsApplication(this._colorElement);
     this._colorDragElement = this._colorElement.createChild('div', 'spectrum-sat fill')
                                  .createChild('div', 'spectrum-val fill')
                                  .createChild('div', 'spectrum-dragger');
@@ -94,6 +100,7 @@ export class Spectrum extends UI.Widget.VBox {
 
     // RGBA/HSLA display.
     this._displayContainer = toolsContainer.createChild('div', 'spectrum-text source-code');
+    UI.ARIAUtils.markAsPoliteLiveRegion(this._displayContainer, true);
     this._textValues = [];
     for (let i = 0; i < 4; ++i) {
       const inputValue = UI.UIUtils.createInput('spectrum-text-value');
@@ -109,6 +116,7 @@ export class Spectrum extends UI.Widget.VBox {
 
     // HEX display.
     this._hexContainer = toolsContainer.createChild('div', 'spectrum-text spectrum-text-hex source-code');
+    UI.ARIAUtils.markAsPoliteLiveRegion(this._hexContainer, true);
     this._hexValue = UI.UIUtils.createInput('spectrum-text-value');
     this._hexContainer.appendChild(this._hexValue);
     this._hexValue.maxLength = 9;
@@ -153,7 +161,7 @@ export class Spectrum extends UI.Widget.VBox {
     }
 
     this.element.classList.add('flex-none');
-    /** @type {!Map.<string, !ColorPicker.Spectrum.Palette>} */
+    /** @type {!Map.<string, !Palette>} */
     this._palettes = new Map();
     this._palettePanel = this.contentElement.createChild('div', 'palette-panel');
     this._palettePanelShowing = false;
@@ -240,7 +248,7 @@ export class Spectrum extends UI.Widget.VBox {
       const hueAlphaLeft = this._hueElement.getBoundingClientRect().left;
       const positionFraction = (sliderPosition - hueAlphaLeft) / this._hueAlphaWidth;
       const newHue = 1 - positionFraction;
-      hsva[0] = Number.constrain(newHue, 0, 1);
+      hsva[0] = Platform.NumberUtilities.clamp(newHue, 0, 1);
       this._innerSetColor(hsva, '', undefined /* colorName */, undefined, ChangeSource.Other);
       const colorValues = this._color().canonicalHSLA();
       UI.ARIAUtils.setValueNow(this._hueElement, colorValues[0]);
@@ -256,7 +264,7 @@ export class Spectrum extends UI.Widget.VBox {
       const hueAlphaLeft = this._hueElement.getBoundingClientRect().left;
       const positionFraction = (sliderPosition - hueAlphaLeft) / this._hueAlphaWidth;
       const newAlpha = Math.round(positionFraction * 100) / 100;
-      hsva[3] = Number.constrain(newAlpha, 0, 1);
+      hsva[3] = Platform.NumberUtilities.clamp(newAlpha, 0, 1);
       this._innerSetColor(hsva, '', undefined /* colorName */, undefined, ChangeSource.Other);
       const colorValues = this._color().canonicalHSLA();
       UI.ARIAUtils.setValueText(this._alphaElement, colorValues[3]);
@@ -268,10 +276,53 @@ export class Spectrum extends UI.Widget.VBox {
      */
     function positionColor(event) {
       const hsva = this._hsv.slice();
-      hsva[1] = Number.constrain((event.x - this._colorOffset.left) / this.dragWidth, 0, 1);
-      hsva[2] = Number.constrain(1 - (event.y - this._colorOffset.top) / this.dragHeight, 0, 1);
+      const colorPosition = getUpdatedColorPosition(this._colorDragElement, event);
+      this._colorOffset = this._colorElement.totalOffset();
+      hsva[1] = Platform.NumberUtilities.clamp((colorPosition.x - this._colorOffset.left) / this.dragWidth, 0, 1);
+      hsva[2] = Platform.NumberUtilities.clamp(1 - (colorPosition.y - this._colorOffset.top) / this.dragHeight, 0, 1);
 
       this._innerSetColor(hsva, '', undefined /* colorName */, undefined, ChangeSource.Other);
+    }
+
+    /**
+     * @param {!Element} dragElement
+     * @param {!Event} event
+     * @return {{x: number, y: number}}
+     */
+    function getUpdatedColorPosition(dragElement, event) {
+      const elementPosition = dragElement.getBoundingClientRect();
+      const verticalX = elementPosition.x + elementPosition.width / 2;
+      const horizontalY = elementPosition.y + elementPosition.width / 2;
+      const defaultUnit = elementPosition.width / 4;
+      const unit = getUnitToMove(defaultUnit, event);
+      switch (event.key) {
+        case 'ArrowLeft':
+          return {x: elementPosition.left - unit, y: horizontalY};
+        case 'ArrowRight':
+          return {x: elementPosition.right + unit, y: horizontalY};
+        case 'ArrowDown':
+          return {x: verticalX, y: elementPosition.bottom + unit};
+        case 'ArrowUp':
+          return {x: verticalX, y: elementPosition.top - unit};
+        default:
+          return {x: event.x, y: event.y};
+      }
+    }
+
+    /**
+     * @param {number} unit
+     * @param {!Event} event
+     * @return {number}
+     */
+    function getUnitToMove(unit, event) {
+      if (event.altKey) {
+        unit = 1;
+      } else if (event.ctrlKey) {
+        unit = 10;
+      } else if (event.shiftKey) {
+        unit = 20;
+      }
+      return unit;
     }
   }
 
@@ -364,7 +415,8 @@ export class Spectrum extends UI.Widget.VBox {
    */
   _createPaletteColor(colorText, colorName, animationDelay) {
     const element = createElementWithClass('div', 'spectrum-palette-color');
-    element.style.background = String.sprintf('linear-gradient(%s, %s), url(Images/checker.png)', colorText, colorText);
+    element.style.background =
+        Platform.StringUtilities.sprintf('linear-gradient(%s, %s), url(Images/checker.png)', colorText, colorText);
     if (animationDelay) {
       element.animate([{opacity: 0}, {opacity: 1}], {duration: 100, delay: animationDelay, fill: 'backwards'});
     }
@@ -373,7 +425,7 @@ export class Spectrum extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!ColorPicker.Spectrum.Palette} palette
+   * @param {!Palette} palette
    * @param {boolean} animate
    * @param {!Event=} event
    */
@@ -593,15 +645,17 @@ export class Spectrum extends UI.Widget.VBox {
 
   _loadPalettes() {
     this._palettes.set(MaterialPalette.title, MaterialPalette);
-    /** @type {!ColorPicker.Spectrum.Palette} */
+    /** @type {!Palette} */
     const defaultCustomPalette = {title: 'Custom', colors: [], colorNames: [], mutable: true};
-    this._customPaletteSetting = self.Common.settings.createSetting('customColorPalette', defaultCustomPalette);
+    this._customPaletteSetting =
+        Common.Settings.Settings.instance().createSetting('customColorPalette', defaultCustomPalette);
     const customPalette = this._customPaletteSetting.get();
     // Fallback case for custom palettes created pre-m67
     customPalette.colorNames = customPalette.colorNames || [];
     this._palettes.set(customPalette.title, customPalette);
 
-    this._selectedColorPalette = self.Common.settings.createSetting('selectedColorPalette', GeneratedPaletteTitle);
+    this._selectedColorPalette =
+        Common.Settings.Settings.instance().createSetting('selectedColorPalette', GeneratedPaletteTitle);
     const palette = this._palettes.get(this._selectedColorPalette.get());
     if (palette) {
       this._showPalette(palette, true);
@@ -609,7 +663,7 @@ export class Spectrum extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!ColorPicker.Spectrum.Palette} palette
+   * @param {!Palette} palette
    */
   addPalette(palette) {
     this._palettes.set(palette.title, palette);
@@ -619,7 +673,7 @@ export class Spectrum extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!ColorPicker.Spectrum.Palette} palette
+   * @param {!Palette} palette
    * @return {!Element}
    */
   _createPreviewPaletteElement(palette) {
@@ -644,7 +698,7 @@ export class Spectrum extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!ColorPicker.Spectrum.Palette} palette
+   * @param {!Palette} palette
    */
   _paletteSelected(palette) {
     this._selectedColorPalette.set(palette.title);
@@ -968,8 +1022,8 @@ export class Spectrum extends UI.Widget.VBox {
     this._colorDragElement.style.backgroundColor =
         /** @type {string} */ (this._color().asString(Common.Color.Format.RGBA));
     const noAlpha = Common.Color.Color.fromHSVA(this._hsv.slice(0, 3).concat(1));
-    this._alphaElementBackground.style.backgroundImage =
-        String.sprintf('linear-gradient(to right, rgba(0,0,0,0), %s)', noAlpha.asString(Common.Color.Format.RGB));
+    this._alphaElementBackground.style.backgroundImage = Platform.StringUtilities.sprintf(
+        'linear-gradient(to right, rgba(0,0,0,0), %s)', noAlpha.asString(Common.Color.Format.RGB));
   }
 
   _formatViewSwitch() {
@@ -1011,7 +1065,7 @@ export class Spectrum extends UI.Widget.VBox {
     } else {
       const format = this._colorFormat === cf.RGB ? 'rgba' : 'hsla';
       const values = this._textValues.map(elementValue).join(', ');
-      colorString = String.sprintf('%s(%s)', format, values);
+      colorString = Platform.StringUtilities.sprintf('%s(%s)', format, values);
     }
 
     const color = Common.Color.Color.parse(colorString);
@@ -1059,7 +1113,7 @@ export class Spectrum extends UI.Widget.VBox {
 
   /**
    * @param {boolean=} enabled
-   * @param {!Common.Event=} event
+   * @param {!Common.EventTarget.EventTargetEvent=} event
    */
   _toggleColorPicker(enabled, event) {
     if (enabled === undefined) {
@@ -1084,7 +1138,7 @@ export class Spectrum extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _colorPicked(event) {
     const rgbColor = /** @type {!{r: number, g: number, b: number, a: number}} */ (event.data);
@@ -1113,19 +1167,23 @@ const GeneratedPaletteTitle = 'Page colors';
 
 export class PaletteGenerator {
   /**
-   * @param {function(!ColorPicker.Spectrum.Palette)} callback
+   * @param {function(!Palette)} callback
    */
   constructor(callback) {
     this._callback = callback;
     /** @type {!Map.<string, number>} */
     this._frequencyMap = new Map();
     const stylesheetPromises = [];
-    for (const cssModel of self.SDK.targetManager.models(SDK.CSSModel.CSSModel)) {
+    for (const cssModel of SDK.SDKModel.TargetManager.instance().models(SDK.CSSModel.CSSModel)) {
       for (const stylesheet of cssModel.allStyleSheets()) {
         stylesheetPromises.push(this._processStylesheet(stylesheet));
       }
     }
-    Promise.all(stylesheetPromises).catchException(null).then(this._finish.bind(this));
+    Promise.all(stylesheetPromises)
+        .catch(error => {
+          console.error(error);
+        })
+        .then(this._finish.bind(this));
   }
 
   /**
@@ -1166,7 +1224,7 @@ export class PaletteGenerator {
       return (hsvb[0] + 0.94) % 1 - (hsva[0] + 0.94) % 1;
     }
 
-    let colors = this._frequencyMap.keysArray();
+    let colors = [...this._frequencyMap.keys()];
     colors = colors.sort(this._frequencyComparator.bind(this));
     /** @type {!Map.<string, !Common.Color.Color>} */
     const paletteColors = new Map();
@@ -1182,7 +1240,7 @@ export class PaletteGenerator {
 
     this._callback({
       title: GeneratedPaletteTitle,
-      colors: paletteColors.keysArray().sort(hueComparator),
+      colors: [...paletteColors.keys()].sort(hueComparator),
       colorNames: [],
       mutable: false
     });
@@ -1308,3 +1366,6 @@ export class Swatch {
     UI.ARIAUtils.setPressed(this._swatchOverlayElement, false);
   }
 }
+
+/** @typedef {{ title: string, colors: !Array<string>, colorNames: !Array<string>, mutable: boolean }} */
+export let Palette;

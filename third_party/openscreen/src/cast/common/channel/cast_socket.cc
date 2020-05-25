@@ -4,8 +4,6 @@
 
 #include "cast/common/channel/cast_socket.h"
 
-#include <atomic>
-
 #include "cast/common/channel/message_framer.h"
 #include "util/logging.h"
 
@@ -15,17 +13,11 @@ namespace cast {
 using ::cast::channel::CastMessage;
 using message_serialization::DeserializeResult;
 
-uint32_t GetNextSocketId() {
-  static std::atomic<uint32_t> id(1);
-  return id++;
-}
-
 CastSocket::CastSocket(std::unique_ptr<TlsConnection> connection,
-                       Client* client,
-                       uint32_t socket_id)
+                       Client* client)
     : connection_(std::move(connection)),
       client_(client),
-      socket_id_(socket_id) {
+      socket_id_(g_next_socket_id_++) {
   OSP_DCHECK(client);
   connection_->SetClient(this);
 }
@@ -89,6 +81,8 @@ void CastSocket::OnRead(TlsConnection* connection, std::vector<uint8_t> block) {
                      read_buffer_.begin() + message_or_error.value().length);
   client_->OnMessage(this, std::move(message_or_error.value().message));
 }
+
+int CastSocket::g_next_socket_id_ = 1;
 
 }  // namespace cast
 }  // namespace openscreen

@@ -85,18 +85,6 @@ UnifiedMessageCenterBubble::UnifiedMessageCenterBubble(UnifiedSystemTray* tray)
       bubble_view_->AddChildView(std::make_unique<UnifiedMessageCenterView>(
           nullptr /* parent */, tray->model(), this));
 
-  // Check if the message center bubble should be collapsed or expanded
-  // when it is initially opened.
-  if (CalculateAvailableHeight() < kMessageCenterCollapseThreshold &&
-      message_center_view_->GetPreferredSize().height()) {
-    if (tray_->IsQuickSettingsExplicitlyExpanded()) {
-      message_center_view_->SetCollapsed(false /*animate*/);
-    } else {
-      message_center_view_->SetExpanded();
-      tray_->EnsureQuickSettingsCollapsed(false /*animate*/);
-    }
-  }
-
   message_center_view_->AddObserver(this);
 }
 
@@ -115,6 +103,18 @@ void UnifiedMessageCenterBubble::ShowBubble() {
   widget_layer->Add(border_->layer());
 
   bubble_view_->InitializeAndShowBubble();
+
+  // Check if the message center bubble should be collapsed or expanded
+  // when it is initially opened.
+  if (CalculateAvailableHeight() < kMessageCenterCollapseThreshold &&
+      message_center_view_->GetPreferredSize().height()) {
+    if (tray_->IsQuickSettingsExplicitlyExpanded()) {
+      message_center_view_->SetCollapsed(false /*animate*/);
+    } else {
+      message_center_view_->SetExpanded();
+      tray_->EnsureQuickSettingsCollapsed(false /*animate*/);
+    }
+  }
 
   UpdatePosition();
 }
@@ -167,7 +167,8 @@ void UnifiedMessageCenterBubble::UpdatePosition() {
   gfx::Rect anchor_rect = tray_->shelf()->GetSystemTrayAnchorRect();
 
   gfx::Insets tray_bubble_insets = GetTrayBubbleInsets();
-  int left_offset = tray_->shelf()->alignment() == ShelfAlignment::kLeft
+  int left_offset = (tray_->shelf()->alignment() == ShelfAlignment::kLeft ||
+                     base::i18n::IsRTL())
                         ? tray_bubble_insets.left()
                         : -tray_bubble_insets.right();
 
@@ -189,6 +190,10 @@ bool UnifiedMessageCenterBubble::FocusOut(bool reverse) {
   return tray_->FocusQuickSettings(reverse);
 }
 
+void UnifiedMessageCenterBubble::ActivateQuickSettingsBubble() {
+  tray_->ActivateBubble();
+}
+
 void UnifiedMessageCenterBubble::FocusFirstNotification() {
   // Move focus to first notification from notification bar if it is visible.
   if (message_center_view_->IsNotificationBarVisible())
@@ -197,6 +202,10 @@ void UnifiedMessageCenterBubble::FocusFirstNotification() {
 
 bool UnifiedMessageCenterBubble::IsMessageCenterVisible() {
   return !!bubble_widget_ && message_center_view_->GetVisible();
+}
+
+bool UnifiedMessageCenterBubble::IsMessageCenterCollapsed() {
+  return message_center_view_->collapsed();
 }
 
 TrayBackgroundView* UnifiedMessageCenterBubble::GetTray() const {

@@ -23,8 +23,7 @@ import sys
 import six
 from six.moves import urllib
 
-# TODO(build): sort the cbuildbot.constants/lib.constants issue;
-# lib shouldn't have to import from buildbot like this.
+from chromite.lib import build_target_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_collections
@@ -167,6 +166,16 @@ def NormalizeUri(value):
     return urllib.parse.urlunparse(o)
   else:
     return NormalizeLocalOrGSPath(value)
+
+
+def ParseBuildTarget(value):
+  """Parse a build target argument into a build target object."""
+  if not build_target_lib.is_valid_name(value):
+    msg = 'Invalid build target name.'
+    logging.error(msg)
+    raise ValueError(msg)
+
+  return build_target_lib.BuildTarget(value)
 
 
 # A Device object holds information parsed from the command line input:
@@ -434,6 +443,7 @@ class _SplitExtendAction(argparse.Action):
 VALID_TYPES = {
     'ab_url': NormalizeAbUrl,
     'bool': ParseBool,
+    'build_target': ParseBuildTarget,
     'date': ParseDate,
     'path': osutils.ExpandPath,
     'gs_path': NormalizeGSPath,
@@ -621,9 +631,14 @@ class BaseParser(object):
           default=self.default_log_level,
           help='Set logging level to report at.')
       self.add_common_argument_to_group(
-          self.debug_group, '--log_format', action='store',
+          self.debug_group, '--log-format', action='store',
           default=constants.LOGGER_FMT,
           help='Set logging format to use.')
+      # Backwards compat name.  We should delete this at some point.
+      self.add_common_argument_to_group(
+          self.debug_group, '--log_format', action='store',
+          default=constants.LOGGER_FMT,
+          help=argparse.SUPPRESS)
       if self.debug_enabled:
         self.add_common_argument_to_group(
             self.debug_group, '--debug', action='store_const', const='debug',

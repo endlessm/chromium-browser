@@ -20,9 +20,10 @@
 #include "SpirvID.hpp"
 #include "Device/Config.hpp"
 #include "Device/Sampler.hpp"
+#include "System/Debug.hpp"
+#include "System/Math.hpp"
 #include "System/Types.hpp"
 #include "Vulkan/VkConfig.h"
-#include "Vulkan/VkDebug.hpp"
 #include "Vulkan/VkDescriptorSet.hpp"
 
 #include <spirv/unified1/spirv.hpp>
@@ -135,7 +136,7 @@ public:
 	using InsnStore = std::vector<uint32_t>;
 	InsnStore insns;
 
-	using ImageSampler = void(void *texture, void *sampler, void *uvsIn, void *texelOut, void *constants);
+	using ImageSampler = void(void *texture, void *uvsIn, void *texelOut, void *constants);
 
 	enum class YieldResult
 	{
@@ -544,6 +545,7 @@ public:
 		bool GroupNonUniformArithmetic : 1;
 		bool DeviceGroup : 1;
 		bool MultiView : 1;
+		bool StencilExportEXT : 1;
 	};
 
 	Capabilities const &getUsedCapabilities() const
@@ -1159,6 +1161,11 @@ private:
 	// If NDEBUG is defined, then OpcodeName() will only return the numerical code.
 	static std::string OpcodeName(spv::Op op);
 	static std::memory_order MemoryOrder(spv::MemorySemanticsMask memorySemantics);
+
+	// IsStatement() returns true if the given opcode actually performs
+	// work (as opposed to declaring a type, defining a function start / end,
+	// etc).
+	static bool IsStatement(spv::Op op);
 
 	// Helper as we often need to take dot products as part of doing other things.
 	SIMD::Float Dot(unsigned numComponents, GenericValue const &x, GenericValue const &y) const;

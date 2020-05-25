@@ -43,7 +43,14 @@ export class ActionRegistry {
    * @return {!Array.<!Action>}
    */
   availableActions() {
-    return this.applicableActions(this._actionsById.keysArray(), self.UI.context);
+    return this.applicableActions([...this._actionsById.keys()], self.UI.context);
+  }
+
+  /**
+   * @return {!Array.<!Action>}
+   */
+  actions() {
+    return [...this._actionsById.values()];
   }
 
   /**
@@ -59,7 +66,7 @@ export class ActionRegistry {
         extensions.push(action.extension());
       }
     }, this);
-    return context.applicableExtensions(extensions).valuesArray().map(extensionToAction.bind(this));
+    return [...context.applicableExtensions(extensions)].map(extensionToAction.bind(this));
 
     /**
      * @param {!Root.Runtime.Extension} extension

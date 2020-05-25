@@ -35,7 +35,6 @@ public:
     bool isFormatSRGB(const GrBackendFormat&) const override;
     SkImage::CompressionType compressionType(const GrBackendFormat&) const override;
 
-    bool isFormatTexturableAndUploadable(GrColorType, const GrBackendFormat&) const override;
     bool isFormatTexturable(const GrBackendFormat&) const override;
     bool isVkFormatTexturable(VkFormat) const;
 
@@ -178,7 +177,7 @@ public:
     }
 
     GrSwizzle getReadSwizzle(const GrBackendFormat&, GrColorType) const override;
-    GrSwizzle getOutputSwizzle(const GrBackendFormat&, GrColorType) const override;
+    GrSwizzle getWriteSwizzle(const GrBackendFormat&, GrColorType) const override;
 
     uint64_t computeFormatKey(const GrBackendFormat&) const override;
 
@@ -224,7 +223,7 @@ private:
     bool onSurfaceSupportsWritePixels(const GrSurface*) const override;
     bool onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
                           const SkIRect& srcRect, const SkIPoint& dstPoint) const override;
-    GrBackendFormat onGetDefaultBackendFormat(GrColorType, GrRenderable) const override;
+    GrBackendFormat onGetDefaultBackendFormat(GrColorType) const override;
 
     bool onAreColorTypeAndFormatCompatible(GrColorType, const GrBackendFormat&) const override;
 
@@ -246,7 +245,7 @@ private:
         uint32_t fFlags = 0;
 
         GrSwizzle fReadSwizzle;
-        GrSwizzle fOutputSwizzle;
+        GrSwizzle fWriteSwizzle;
     };
 
     struct FormatInfo {
@@ -282,7 +281,7 @@ private:
         std::unique_ptr<ColorTypeInfo[]> fColorTypeInfos;
         int fColorTypeInfoCount = 0;
     };
-    static const size_t kNumVkFormats = 21;
+    static const size_t kNumVkFormats = 22;
     FormatInfo fFormatTable[kNumVkFormats];
 
     FormatInfo& getFormatInfo(VkFormat);

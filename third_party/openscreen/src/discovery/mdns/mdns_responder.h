@@ -53,6 +53,9 @@ class MdnsResponder {
     virtual std::vector<MdnsRecord::ConstRef> GetRecords(const DomainName& name,
                                                          DnsType type,
                                                          DnsClass clazz) = 0;
+
+    // Enumerates all PTR records owned by this service.
+    virtual std::vector<MdnsRecord::ConstRef> GetPtrRecords(DnsClass clazz) = 0;
   };
 
   // |record_handler|, |sender|, |receiver|, |task_runner|, and |random_delay|
@@ -72,7 +75,8 @@ class MdnsResponder {
 
   void SendResponse(const MdnsQuestion& question,
                     const std::vector<MdnsRecord>& known_answers,
-                    std::function<void(const MdnsMessage&)> send_response);
+                    std::function<void(const MdnsMessage&)> send_response,
+                    bool is_exclusive_owner);
 
   RecordHandler* const record_handler_;
   MdnsProbeManager* const ownership_handler_;

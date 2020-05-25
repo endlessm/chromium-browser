@@ -4,6 +4,7 @@
 
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
+import * as Platform from '../platform/platform.js';
 import * as UI from '../ui/ui.js';
 
 import {DeviceModeModel, Events, MaxDeviceSize, MinDeviceSize, Type} from './DeviceModeModel.js';
@@ -29,9 +30,9 @@ export class DeviceModeView extends UI.Widget.VBox {
     this._model.addEventListener(Events.Updated, this._updateUI, this);
     this._mediaInspector =
         new MediaQueryInspector(() => this._model.appliedDeviceSize().width, this._model.setWidth.bind(this._model));
-    this._showMediaInspectorSetting = self.Common.settings.moduleSetting('showMediaQueryInspector');
+    this._showMediaInspectorSetting = Common.Settings.Settings.instance().moduleSetting('showMediaQueryInspector');
     this._showMediaInspectorSetting.addChangeListener(this._updateUI, this);
-    this._showRulersSetting = self.Common.settings.moduleSetting('emulation.showRulers');
+    this._showRulersSetting = Common.Settings.Settings.instance().moduleSetting('emulation.showRulers');
     this._showRulersSetting.addChangeListener(this._updateUI, this);
 
     this._topRuler = new Ruler(true, this._model.setWidthAndScaleToFit.bind(this._model));
@@ -39,7 +40,7 @@ export class DeviceModeView extends UI.Widget.VBox {
     this._leftRuler = new Ruler(false, this._model.setHeightAndScaleToFit.bind(this._model));
     this._leftRuler.element.classList.add('device-mode-ruler-left');
     this._createUI();
-    self.UI.zoomManager.addEventListener(UI.ZoomManager.Events.ZoomChanged, this._zoomChanged, this);
+    UI.ZoomManager.ZoomManager.instance().addEventListener(UI.ZoomManager.Events.ZoomChanged, this._zoomChanged, this);
   }
 
   _createUI() {
@@ -144,7 +145,7 @@ export class DeviceModeView extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onResizeStart(event) {
     this._slowPositionStart = null;
@@ -155,7 +156,7 @@ export class DeviceModeView extends UI.Widget.VBox {
   /**
    * @param {number} widthFactor
    * @param {number} heightFactor
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onResizeUpdate(widthFactor, heightFactor, event) {
     if (event.data.shiftKey !== !!this._slowPositionStart) {
@@ -172,7 +173,7 @@ export class DeviceModeView extends UI.Widget.VBox {
     }
 
     if (widthFactor) {
-      const dipOffsetX = cssOffsetX * self.UI.zoomManager.zoomFactor();
+      const dipOffsetX = cssOffsetX * UI.ZoomManager.ZoomManager.instance().zoomFactor();
       let newWidth = this._resizeStart.width + dipOffsetX * widthFactor;
       newWidth = Math.round(newWidth / this._model.scale());
       if (newWidth >= MinDeviceSize && newWidth <= MaxDeviceSize) {
@@ -181,7 +182,7 @@ export class DeviceModeView extends UI.Widget.VBox {
     }
 
     if (heightFactor) {
-      const dipOffsetY = cssOffsetY * self.UI.zoomManager.zoomFactor();
+      const dipOffsetY = cssOffsetY * UI.ZoomManager.ZoomManager.instance().zoomFactor();
       let newHeight = this._resizeStart.height + dipOffsetY * heightFactor;
       newHeight = Math.round(newHeight / this._model.scale());
       if (newHeight >= MinDeviceSize && newHeight <= MaxDeviceSize) {
@@ -191,7 +192,7 @@ export class DeviceModeView extends UI.Widget.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onResizeEnd(event) {
     delete this._resizeStart;
@@ -214,7 +215,7 @@ export class DeviceModeView extends UI.Widget.VBox {
       return;
     }
 
-    const zoomFactor = self.UI.zoomManager.zoomFactor();
+    const zoomFactor = UI.ZoomManager.ZoomManager.instance().zoomFactor();
     let callDoResize = false;
     const showRulers = this._showRulersSetting.get() && this._model.type() !== Type.None;
     let contentAreaResized = false;
@@ -339,7 +340,7 @@ export class DeviceModeView extends UI.Widget.VBox {
     if (this._model.type() !== Type.None) {
       return;
     }
-    const zoomFactor = self.UI.zoomManager.zoomFactor();
+    const zoomFactor = UI.ZoomManager.ZoomManager.instance().zoomFactor();
     const rect = element.getBoundingClientRect();
     const availableSize =
         new UI.Geometry.Size(Math.max(rect.width * zoomFactor, 1), Math.max(rect.height * zoomFactor, 1));
@@ -347,7 +348,7 @@ export class DeviceModeView extends UI.Widget.VBox {
   }
 
   _contentAreaResized() {
-    const zoomFactor = self.UI.zoomManager.zoomFactor();
+    const zoomFactor = UI.ZoomManager.ZoomManager.instance().zoomFactor();
     const rect = this._contentArea.getBoundingClientRect();
     const availableSize =
         new UI.Geometry.Size(Math.max(rect.width * zoomFactor, 1), Math.max(rect.height * zoomFactor, 1));
@@ -500,7 +501,7 @@ export class DeviceModeView extends UI.Widget.VBox {
    */
   _saveScreenshot(canvas) {
     const url = this._model.inspectedURL();
-    let fileName = url ? url.trimURL().removeURLFragment() : '';
+    let fileName = url ? Platform.StringUtilities.trimURL(url).removeURLFragment() : '';
     if (this._model.type() === Type.Device) {
       fileName += Common.UIString.UIString('(%s)', this._model.device().title);
     }
@@ -552,7 +553,7 @@ export class Ruler extends UI.Widget.VBox {
    * @return {!Promise.<?>}
    */
   _update() {
-    const zoomFactor = self.UI.zoomManager.zoomFactor();
+    const zoomFactor = UI.ZoomManager.ZoomManager.instance().zoomFactor();
     const size = this._horizontal ? this._contentElement.offsetWidth : this._contentElement.offsetHeight;
 
     if (this._scale !== this._renderedScale || zoomFactor !== this._renderedZoomFactor) {

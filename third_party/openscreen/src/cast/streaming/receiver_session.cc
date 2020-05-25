@@ -10,9 +10,11 @@
 
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
+#include "cast/streaming/environment.h"
 #include "cast/streaming/message_port.h"
 #include "cast/streaming/message_util.h"
 #include "cast/streaming/offer_messages.h"
+#include "cast/streaming/receiver.h"
 #include "util/logging.h"
 
 namespace openscreen {
@@ -35,7 +37,7 @@ namespace {
 std::string GetCodecName(ReceiverSession::AudioCodec codec) {
   switch (codec) {
     case ReceiverSession::AudioCodec::kAac:
-      return "aac_ld";
+      return "aac";
     case ReceiverSession::AudioCodec::kOpus:
       return "opus";
   }
@@ -95,14 +97,14 @@ Preferences::Preferences(Preferences&&) noexcept = default;
 Preferences& Preferences::operator=(Preferences&&) noexcept = default;
 
 ReceiverSession::ReceiverSession(Client* const client,
-                                 std::unique_ptr<Environment> environment,
-                                 std::unique_ptr<MessagePort> message_port,
+                                 Environment* environment,
+                                 MessagePort* message_port,
                                  Preferences preferences)
     : client_(client),
-      environment_(std::move(environment)),
-      message_port_(std::move(message_port)),
+      environment_(environment),
+      message_port_(message_port),
       preferences_(std::move(preferences)),
-      packet_router_(environment_.get()) {
+      packet_router_(environment_) {
   OSP_DCHECK(client_);
   OSP_DCHECK(message_port_);
   OSP_DCHECK(environment_);
@@ -201,7 +203,7 @@ ReceiverSession::ConstructReceiver(const Stream& stream) {
                           stream.target_delay, stream.aes_key,
                           stream.aes_iv_mask};
   auto receiver =
-      std::make_unique<Receiver>(environment_.get(), &packet_router_, config);
+      std::make_unique<Receiver>(environment_, &packet_router_, config);
 
   return std::make_pair(std::move(config), std::move(receiver));
 }
@@ -238,7 +240,7 @@ ErrorOr<ConfiguredReceivers> ReceiverSession::TrySpawningReceivers(
 
 void ReceiverSession::ResetReceivers() {
   if (current_video_receiver_ || current_audio_receiver_) {
-    client_->OnReceiversDestroyed(this);
+    client_->OnConfiguredReceiversDestroyed(this);
     current_audio_receiver_.reset();
     current_video_receiver_.reset();
   }

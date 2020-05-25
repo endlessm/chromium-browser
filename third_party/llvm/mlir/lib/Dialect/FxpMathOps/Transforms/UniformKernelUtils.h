@@ -9,9 +9,9 @@
 #ifndef MLIR_FXPMATH_UNIFORM_KERNEL_UTILS_H_
 #define MLIR_FXPMATH_UNIFORM_KERNEL_UTILS_H_
 
-#include "mlir/Dialect/QuantOps/QuantOps.h"
-#include "mlir/Dialect/QuantOps/QuantTypes.h"
-#include "mlir/Dialect/QuantOps/UniformSupport.h"
+#include "mlir/Dialect/Quant/QuantOps.h"
+#include "mlir/Dialect/Quant/QuantTypes.h"
+#include "mlir/Dialect/Quant/UniformSupport.h"
 #include "mlir/IR/Operation.h"
 
 #include <cmath>
@@ -168,11 +168,11 @@ inline Type castElementType(Type t, Type newElementType) {
     case StandardTypes::Kind::UnrankedTensor:
       return UnrankedTensorType::get(newElementType);
     case StandardTypes::Kind::MemRef:
-      return MemRefType::get(st.getShape(), newElementType,
-                             st.cast<MemRefType>().getAffineMaps());
+      return MemRefType::Builder(st.cast<MemRefType>())
+          .setElementType(newElementType);
     }
   }
-  assert(t.isIntOrFloat());
+  assert(t.isSignlessIntOrFloat());
   return newElementType;
 }
 
@@ -180,13 +180,13 @@ inline Type castElementType(Type t, Type newElementType) {
 /// be a scalar primitive or a shaped type).
 inline Attribute broadcastScalarConstIntValue(Type t, int64_t value) {
   if (auto st = t.dyn_cast<ShapedType>()) {
-    assert(st.getElementType().isa<IntegerType>());
+    assert(st.getElementType().isSignlessInteger());
     return DenseElementsAttr::get(st,
                                   IntegerAttr::get(st.getElementType(), value));
   }
 
   auto integerType = t.cast<IntegerType>();
-  assert(t.isa<IntegerType>() && "integer broadcast must be of integer type");
+  assert(t.isSignlessInteger() && "integer broadcast must be of integer type");
   return IntegerAttr::get(integerType, value);
 }
 

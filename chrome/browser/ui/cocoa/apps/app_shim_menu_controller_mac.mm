@@ -9,19 +9,22 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/apps/app_shim/extension_app_shim_handler_mac.h"
+#include "chrome/browser/apps/app_shim/app_shim_manager_mac.h"
 #include "chrome/browser/apps/platform_apps/app_window_registry_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/grit/generated_resources.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/native_app_window.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
 using extensions::Extension;
+using extensions::ExtensionRegistry;
 
 namespace {
 
@@ -129,9 +132,17 @@ const Extension* GetExtensionForNSWindow(NSWindow* window,
   // If there is no corresponding AppWindow, this could be a hosted app, so
   // check for a browser.
   if (Browser* browser = chrome::FindBrowserWithWindow(window)) {
+    const std::string app_id =
+        web_app::GetAppIdFromApplicationName(browser->app_name());
     if (profile)
       *profile = browser->profile();
-    return apps::ExtensionAppShimHandler::MaybeGetAppForBrowser(browser);
+    ExtensionRegistry* registry = ExtensionRegistry::Get(browser->profile());
+    const Extension* extension =
+        registry->GetExtensionById(app_id, ExtensionRegistry::ENABLED);
+    if (extension &&
+        (extension->is_platform_app() || extension->is_hosted_app())) {
+      return extension;
+    }
   }
   return nullptr;
 }

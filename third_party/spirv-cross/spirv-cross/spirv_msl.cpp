@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2019 The Brenwill Workshop Ltd.
+ * Copyright 2016-2020 The Brenwill Workshop Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,12 @@ void CompilerMSL::add_dynamic_buffer(uint32_t desc_set, uint32_t binding, uint32
 {
 	SetBindingPair pair = { desc_set, binding };
 	buffers_requiring_dynamic_offset[pair] = { index, 0 };
+}
+
+void CompilerMSL::add_inline_uniform_block(uint32_t desc_set, uint32_t binding)
+{
+	SetBindingPair pair = { desc_set, binding };
+	inline_uniform_blocks.insert(pair);
 }
 
 void CompilerMSL::add_discrete_descriptor_set(uint32_t desc_set)
@@ -884,7 +890,7 @@ void CompilerMSL::emit_entry_point_declarations()
 				SPIRV_CROSS_THROW("Runtime arrays with dynamic offsets are not supported yet.");
 			else
 			{
-				use_builtin_array = true;
+				is_using_builtin_array = true;
 				statement(get_argument_address_space(var), " ", type_to_glsl(type), "* ", to_restrict(var_id), name,
 				          type_to_array_glsl(type), " =");
 
@@ -915,7 +921,7 @@ void CompilerMSL::emit_entry_point_declarations()
 				}
 				end_scope_decl();
 				statement_no_indent("");
-				use_builtin_array = false;
+				is_using_builtin_array = false;
 			}
 		}
 		else
@@ -973,14 +979,16 @@ string CompilerMSL::compile()
 	backend.native_row_major_matrix = false;
 	backend.unsized_array_supported = false;
 	backend.can_declare_arrays_inline = false;
-	backend.can_return_array = true; // <-- Allow Metal to use the array<T> template
 	backend.allow_truncated_access_chain = true;
-	backend.array_is_value_type = true; // <-- Allow Metal to use the array<T> template to make arrays a value type
 	backend.comparison_image_samples_scalar = true;
 	backend.native_pointers = true;
 	backend.nonuniform_qualifier = "";
 	backend.support_small_type_sampling_result = true;
 	backend.supports_empty_struct = true;
+
+	// Allow Metal to use the array<T> template unless we force it off.
+	backend.can_return_array = !msl_options.force_native_arrays;
+	backend.array_is_value_type = !msl_options.force_native_arrays;
 
 	capture_output_to_buffer = msl_options.capture_output_to_buffer;
 	is_rasterization_disabled = msl_options.disable_rasterization || capture_output_to_buffer;
@@ -1003,6 +1011,9 @@ string CompilerMSL::compile()
 	fixup_image_load_store_access();
 
 	set_enabled_interface_variables(get_active_interface_variables());
+	if (msl_options.force_active_argument_buffer_resources)
+		activate_argument_buffer_resources();
+
 	if (swizzle_buffer_id)
 		active_interface_variables.insert(swizzle_buffer_id);
 	if (buffer_size_buffer_id)
@@ -1701,6 +1712,7 @@ void CompilerMSL::add_composite_variable_to_interface_block(StorageClass storage
 		set_name(var.self, builtin_to_glsl(builtin, StorageClassFunction));
 
 	bool flatten_from_ib_var = false;
+	string flatten_from_ib_mbr_name;
 
 	if (storage == StorageClassOutput && is_builtin && builtin == BuiltInClipDistance)
 	{
@@ -1708,7 +1720,9 @@ void CompilerMSL::add_composite_variable_to_interface_block(StorageClass storage
 		uint32_t clip_array_mbr_idx = uint32_t(ib_type.member_types.size());
 		ib_type.member_types.push_back(get_variable_data_type_id(var));
 		set_member_decoration(ib_type.self, clip_array_mbr_idx, DecorationBuiltIn, BuiltInClipDistance);
-		set_member_name(ib_type.self, clip_array_mbr_idx, builtin_to_glsl(BuiltInClipDistance, StorageClassOutput));
+
+		flatten_from_ib_mbr_name = builtin_to_glsl(BuiltInClipDistance, StorageClassOutput);
+		set_member_name(ib_type.self, clip_array_mbr_idx, flatten_from_ib_mbr_name);
 
 		// When we flatten, we flatten directly from the "out" struct,
 		// not from a function variable.
@@ -1817,7 +1831,8 @@ void CompilerMSL::add_composite_variable_to_interface_block(StorageClass storage
 						    ";");
 					}
 					else if (flatten_from_ib_var)
-						statement(ib_var_ref, ".", mbr_name, " = ", ib_var_ref, ".", to_name(var.self), "[", i, "];");
+						statement(ib_var_ref, ".", mbr_name, " = ", ib_var_ref, ".", flatten_from_ib_mbr_name, "[", i,
+						          "];");
 					else
 						statement(ib_var_ref, ".", mbr_name, " = ", to_name(var.self), "[", i, "];");
 				});
@@ -1902,6 +1917,7 @@ void CompilerMSL::add_composite_member_variable_to_interface_block(StorageClass 
 		usable_type = &get<SPIRType>(usable_type->parent_type);
 
 	bool flatten_from_ib_var = false;
+	string flatten_from_ib_mbr_name;
 
 	if (storage == StorageClassOutput && is_builtin && builtin == BuiltInClipDistance)
 	{
@@ -1909,7 +1925,9 @@ void CompilerMSL::add_composite_member_variable_to_interface_block(StorageClass 
 		uint32_t clip_array_mbr_idx = uint32_t(ib_type.member_types.size());
 		ib_type.member_types.push_back(mbr_type_id);
 		set_member_decoration(ib_type.self, clip_array_mbr_idx, DecorationBuiltIn, BuiltInClipDistance);
-		set_member_name(ib_type.self, clip_array_mbr_idx, builtin_to_glsl(BuiltInClipDistance, StorageClassOutput));
+
+		flatten_from_ib_mbr_name = builtin_to_glsl(BuiltInClipDistance, StorageClassOutput);
+		set_member_name(ib_type.self, clip_array_mbr_idx, flatten_from_ib_mbr_name);
 
 		// When we flatten, we flatten directly from the "out" struct,
 		// not from a function variable.
@@ -1983,8 +2001,8 @@ void CompilerMSL::add_composite_member_variable_to_interface_block(StorageClass 
 				entry_func.fixup_hooks_out.push_back([=, &var, &var_type]() {
 					if (flatten_from_ib_var)
 					{
-						statement(ib_var_ref, ".", mbr_name, " = ", ib_var_ref, ".", to_member_name(var_type, mbr_idx),
-						          "[", i, "];");
+						statement(ib_var_ref, ".", mbr_name, " = ", ib_var_ref, ".", flatten_from_ib_mbr_name, "[", i,
+						          "];");
 					}
 					else
 					{
@@ -6691,29 +6709,6 @@ void CompilerMSL::emit_barrier(uint32_t id_exe_scope, uint32_t id_mem_scope, uin
 			bar_stmt += "mem_flags::mem_none";
 	}
 
-	if (msl_options.is_ios() && (msl_options.supports_msl_version(2) && !msl_options.supports_msl_version(2, 1)))
-	{
-		bar_stmt += ", ";
-
-		switch (mem_scope)
-		{
-		case ScopeCrossDevice:
-		case ScopeDevice:
-			bar_stmt += "memory_scope_device";
-			break;
-
-		case ScopeSubgroup:
-		case ScopeInvocation:
-			bar_stmt += "memory_scope_simdgroup";
-			break;
-
-		case ScopeWorkgroup:
-		default:
-			bar_stmt += "memory_scope_threadgroup";
-			break;
-		}
-	}
-
 	bar_stmt += ");";
 
 	statement(bar_stmt);
@@ -6735,7 +6730,7 @@ void CompilerMSL::emit_array_copy(const string &lhs, uint32_t rhs_id, StorageCla
 
 	// If threadgroup storage qualifiers are *not* used:
 	// Avoid spvCopy* wrapper functions; Otherwise, spvUnsafeArray<> template cannot be used with that storage qualifier.
-	if (lhs_thread && rhs_thread && !use_builtin_array)
+	if (lhs_thread && rhs_thread && !using_builtin_array())
 	{
 		statement(lhs, " = ", to_expression(rhs_id), ";");
 	}
@@ -6789,9 +6784,9 @@ void CompilerMSL::emit_array_copy(const string &lhs, uint32_t rhs_id, StorageCla
 			SPIRV_CROSS_THROW("Unknown storage class used for copying arrays.");
 
 		// Pass internal array of spvUnsafeArray<> into wrapper functions
-		if (lhs_thread)
+		if (lhs_thread && !msl_options.force_native_arrays)
 			statement("spvArrayCopy", tag, type.array.size(), "(", lhs, ".elements, ", to_expression(rhs_id), ");");
-		else if (rhs_thread)
+		else if (rhs_thread && !msl_options.force_native_arrays)
 			statement("spvArrayCopy", tag, type.array.size(), "(", lhs, ", ", to_expression(rhs_id), ".elements);");
 		else
 			statement("spvArrayCopy", tag, type.array.size(), "(", lhs, ", ", to_expression(rhs_id), ");");
@@ -7241,10 +7236,30 @@ void CompilerMSL::emit_function_prototype(SPIRFunction &func, const Bitset &)
 
 	auto &type = get<SPIRType>(func.return_type);
 
-	decl += func_type_decl(type);
+	if (!type.array.empty() && msl_options.force_native_arrays)
+	{
+		// We cannot return native arrays in MSL, so "return" through an out variable.
+		decl += "void";
+	}
+	else
+	{
+		decl += func_type_decl(type);
+	}
+
 	decl += " ";
 	decl += to_name(func.self);
 	decl += "(";
+
+	if (!type.array.empty() && msl_options.force_native_arrays)
+	{
+		// Fake arrays returns by writing to an out array instead.
+		decl += "thread ";
+		decl += type_to_glsl(type);
+		decl += " (&SPIRV_Cross_return_value)";
+		decl += type_to_array_glsl(type);
+		if (!func.arguments.empty())
+			decl += ", ";
+	}
 
 	if (processing_entry_point)
 	{
@@ -8190,7 +8205,29 @@ string CompilerMSL::to_func_call_arg(const SPIRFunction::Parameter &arg, uint32_
 	if (is_dynamic_img_sampler && !arg_is_dynamic_img_sampler)
 		arg_str = join("spvDynamicImageSampler<", type_to_glsl(get<SPIRType>(type.image.type)), ">(");
 
-	arg_str += CompilerGLSL::to_func_call_arg(arg, id);
+	auto *c = maybe_get<SPIRConstant>(id);
+	if (msl_options.force_native_arrays && c && !get<SPIRType>(c->constant_type).array.empty())
+	{
+		// If we are passing a constant array directly to a function for some reason,
+		// the callee will expect an argument in thread const address space
+		// (since we can only bind to arrays with references in MSL).
+		// To resolve this, we must emit a copy in this address space.
+		// This kind of code gen should be rare enough that performance is not a real concern.
+		// Inline the SPIR-V to avoid this kind of suboptimal codegen.
+		//
+		// We risk calling this inside a continue block (invalid code),
+		// so just create a thread local copy in the current function.
+		arg_str = join("_", id, "_array_copy");
+		auto &constants = current_function->constant_arrays_needed_on_stack;
+		auto itr = find(begin(constants), end(constants), ID(id));
+		if (itr == end(constants))
+		{
+			force_recompile();
+			constants.push_back(id);
+		}
+	}
+	else
+		arg_str += CompilerGLSL::to_func_call_arg(arg, id);
 
 	// Need to check the base variable in case we need to apply a qualified alias.
 	uint32_t var_id = 0;
@@ -8465,9 +8502,9 @@ string CompilerMSL::to_struct_member(const SPIRType &type, uint32_t member_type_
 	// address space.
 	// Array of resources should also be declared as builtin arrays.
 	if (has_member_decoration(type.self, index, DecorationOffset))
-		use_builtin_array = true;
+		is_using_builtin_array = true;
 	else if (has_extended_member_decoration(type.self, index, SPIRVCrossDecorationResourceIndexPrimary))
-		use_builtin_array = true;
+		is_using_builtin_array = true;
 
 	if (member_is_packed_physical_type(type, index))
 	{
@@ -8523,14 +8560,14 @@ string CompilerMSL::to_struct_member(const SPIRType &type, uint32_t member_type_
 	{
 		BuiltIn builtin = BuiltInMax;
 		if (is_member_builtin(type, index, &builtin))
-			use_builtin_array = true;
+			is_using_builtin_array = true;
 		array_type = type_to_array_glsl(physical_type);
 	}
 
 	auto result = join(pack_pfx, type_to_glsl(*declared_type, orig_id), " ", qualifier, to_member_name(type, index),
 	                   member_attribute_qualifier(type, index), array_type, ";");
 
-	use_builtin_array = false;
+	is_using_builtin_array = false;
 	return result;
 }
 
@@ -9407,7 +9444,7 @@ void CompilerMSL::entry_point_args_discrete_descriptors(string &ep_args)
 					SPIRV_CROSS_THROW("Unsized arrays of buffers are not supported in MSL.");
 
 				// Allow Metal to use the array<T> template to make arrays a value type
-				use_builtin_array = true;
+				is_using_builtin_array = true;
 				buffer_arrays.push_back(var_id);
 				for (uint32_t i = 0; i < array_size; ++i)
 				{
@@ -9420,7 +9457,7 @@ void CompilerMSL::entry_point_args_discrete_descriptors(string &ep_args)
 						ep_args += ", raster_order_group(0)";
 					ep_args += "]]";
 				}
-				use_builtin_array = false;
+				is_using_builtin_array = false;
 			}
 			else
 			{
@@ -9902,6 +9939,11 @@ uint32_t CompilerMSL::get_metal_resource_index(SPIRVariable &var, SPIRType::Base
 	// If we did not explicitly remap, allocate bindings on demand.
 	// We cannot reliably use Binding decorations since SPIR-V and MSL's binding models are very different.
 
+	bool allocate_argument_buffer_ids = false;
+
+	if (var.storage != StorageClassPushConstant)
+		allocate_argument_buffer_ids = descriptor_set_is_argument_buffer(var_desc_set);
+
 	uint32_t binding_stride = 1;
 	auto &type = get<SPIRType>(var.basetype);
 	for (uint32_t i = 0; i < uint32_t(type.array.size()); i++)
@@ -9912,20 +9954,11 @@ uint32_t CompilerMSL::get_metal_resource_index(SPIRVariable &var, SPIRType::Base
 	// If a binding has not been specified, revert to incrementing resource indices.
 	uint32_t resource_index;
 
-	bool allocate_argument_buffer_ids = false;
-	uint32_t desc_set = 0;
-
-	if (var.storage != StorageClassPushConstant)
-	{
-		desc_set = get_decoration(var.self, DecorationDescriptorSet);
-		allocate_argument_buffer_ids = descriptor_set_is_argument_buffer(desc_set);
-	}
-
 	if (allocate_argument_buffer_ids)
 	{
 		// Allocate from a flat ID binding space.
-		resource_index = next_metal_resource_ids[desc_set];
-		next_metal_resource_ids[desc_set] += binding_stride;
+		resource_index = next_metal_resource_ids[var_desc_set];
+		next_metal_resource_ids[var_desc_set] += binding_stride;
 	}
 	else
 	{
@@ -9990,9 +10023,9 @@ string CompilerMSL::argument_decl(const SPIRFunction::Parameter &arg)
 	// Allow Metal to use the array<T> template to make arrays a value type
 	string address_space = get_argument_address_space(var);
 	bool builtin = is_builtin_variable(var);
-	use_builtin_array = builtin;
+	is_using_builtin_array = builtin;
 	if (address_space == "threadgroup")
-		use_builtin_array = true;
+		is_using_builtin_array = true;
 
 	if (var.basevariable && (var.basevariable == stage_in_ptr_var_id || var.basevariable == stage_out_ptr_var_id))
 		decl += type_to_glsl(type, arg.id);
@@ -10000,7 +10033,7 @@ string CompilerMSL::argument_decl(const SPIRFunction::Parameter &arg)
 		decl += builtin_type_decl(static_cast<BuiltIn>(get_decoration(arg.id, DecorationBuiltIn)), arg.id);
 	else if ((storage == StorageClassUniform || storage == StorageClassStorageBuffer) && is_array(type))
 	{
-		use_builtin_array = true;
+		is_using_builtin_array = true;
 		decl += join(type_to_glsl(type, arg.id), "*");
 	}
 	else if (is_dynamic_img_sampler)
@@ -10018,10 +10051,34 @@ string CompilerMSL::argument_decl(const SPIRFunction::Parameter &arg)
 	    (storage == StorageClassFunction || storage == StorageClassGeneric))
 	{
 		// If the argument is a pure value and not an opaque type, we will pass by value.
-		if (!address_space.empty())
-			decl = join(address_space, " ", decl);
-		decl += " ";
-		decl += to_expression(name_id);
+		if (msl_options.force_native_arrays && is_array(type))
+		{
+			// We are receiving an array by value. This is problematic.
+			// We cannot be sure of the target address space since we are supposed to receive a copy,
+			// but this is not possible with MSL without some extra work.
+			// We will have to assume we're getting a reference in thread address space.
+			// If we happen to get a reference in constant address space, the caller must emit a copy and pass that.
+			// Thread const therefore becomes the only logical choice, since we cannot "create" a constant array from
+			// non-constant arrays, but we can create thread const from constant.
+			decl = string("thread const ") + decl;
+			decl += " (&";
+			const char *restrict_kw = to_restrict(name_id);
+			if (*restrict_kw)
+			{
+				decl += " ";
+				decl += restrict_kw;
+			}
+			decl += to_expression(name_id);
+			decl += ")";
+			decl += type_to_array_glsl(type);
+		}
+		else
+		{
+			if (!address_space.empty())
+				decl = join(address_space, " ", decl);
+			decl += " ";
+			decl += to_expression(name_id);
+		}
 	}
 	else if (is_array(type) && !type_is_image)
 	{
@@ -10097,7 +10154,7 @@ string CompilerMSL::argument_decl(const SPIRFunction::Parameter &arg)
 		decl += "* " + to_expression(name_id) + "_atomic";
 	}
 
-	use_builtin_array = false;
+	is_using_builtin_array = false;
 
 	return decl;
 }
@@ -10395,19 +10452,31 @@ void CompilerMSL::replace_illegal_names()
 	};
 
 	ir.for_each_typed_id<SPIRVariable>([&](uint32_t self, SPIRVariable &) {
-		auto &dec = ir.meta[self].decoration;
+		auto *meta = ir.find_meta(self);
+		if (!meta)
+			return;
+
+		auto &dec = meta->decoration;
 		if (keywords.find(dec.alias) != end(keywords))
 			dec.alias += "0";
 	});
 
 	ir.for_each_typed_id<SPIRFunction>([&](uint32_t self, SPIRFunction &) {
-		auto &dec = ir.meta[self].decoration;
+		auto *meta = ir.find_meta(self);
+		if (!meta)
+			return;
+
+		auto &dec = meta->decoration;
 		if (illegal_func_names.find(dec.alias) != end(illegal_func_names))
 			dec.alias += "0";
 	});
 
 	ir.for_each_typed_id<SPIRType>([&](uint32_t self, SPIRType &) {
-		for (auto &mbr_dec : ir.meta[self].members)
+		auto *meta = ir.find_meta(self);
+		if (!meta)
+			return;
+
+		for (auto &mbr_dec : meta->members)
 			if (keywords.find(mbr_dec.alias) != end(keywords))
 				mbr_dec.alias += "0";
 	});
@@ -10436,7 +10505,12 @@ string CompilerMSL::to_member_reference(uint32_t base, const SPIRType &type, uin
 
 	if (var)
 	{
-		bool is_buffer_variable = var->storage == StorageClassUniform || var->storage == StorageClassStorageBuffer;
+		// Only allow -> dereference for block types. This is so we get expressions like
+		// buffer[i]->first_member.second_member, rather than buffer[i]->first->second.
+		bool is_block = has_decoration(type.self, DecorationBlock) || has_decoration(type.self, DecorationBufferBlock);
+
+		bool is_buffer_variable =
+		    is_block && (var->storage == StorageClassUniform || var->storage == StorageClassStorageBuffer);
 		declared_as_pointer = is_buffer_variable && is_array(get<SPIRType>(var->basetype));
 	}
 
@@ -10570,7 +10644,7 @@ string CompilerMSL::type_to_glsl(const SPIRType &type, uint32_t id)
 	if (type.vecsize > 1)
 		type_name += to_string(type.vecsize);
 
-	if (type.array.empty() || use_builtin_array)
+	if (type.array.empty() || using_builtin_array())
 	{
 		return type_name;
 	}
@@ -10606,7 +10680,7 @@ string CompilerMSL::type_to_array_glsl(const SPIRType &type)
 	}
 	default:
 	{
-		if (use_builtin_array)
+		if (using_builtin_array())
 			return CompilerGLSL::type_to_array_glsl(type);
 		else
 			return "";
@@ -10619,12 +10693,12 @@ std::string CompilerMSL::variable_decl(const SPIRVariable &variable)
 {
 	if (variable.storage == StorageClassWorkgroup)
 	{
-		use_builtin_array = true;
+		is_using_builtin_array = true;
 	}
 	std::string expr = CompilerGLSL::variable_decl(variable);
 	if (variable.storage == StorageClassWorkgroup)
 	{
-		use_builtin_array = false;
+		is_using_builtin_array = false;
 	}
 	return expr;
 }
@@ -12381,7 +12455,7 @@ void CompilerMSL::bitcast_to_builtin_store(uint32_t target_id, std::string &expr
 	}
 }
 
-std::string CompilerMSL::to_initializer_expression(const SPIRVariable &var)
+string CompilerMSL::to_initializer_expression(const SPIRVariable &var)
 {
 	// We risk getting an array initializer here with MSL. If we have an array.
 	// FIXME: We cannot handle non-constant arrays being initialized.
@@ -12392,6 +12466,11 @@ std::string CompilerMSL::to_initializer_expression(const SPIRVariable &var)
 		return constant_expression(get<SPIRConstant>(var.initializer));
 	else
 		return CompilerGLSL::to_initializer_expression(var);
+}
+
+string CompilerMSL::to_zero_initialized_expression(uint32_t)
+{
+	return "{}";
 }
 
 bool CompilerMSL::descriptor_set_is_argument_buffer(uint32_t desc_set) const
@@ -12426,6 +12505,7 @@ void CompilerMSL::analyze_argument_buffers()
 		uint32_t plane;
 	};
 	SmallVector<Resource> resources_in_set[kMaxArgumentBuffers];
+	SmallVector<uint32_t> inline_block_vars;
 
 	bool set_needs_swizzle_buffer[kMaxArgumentBuffers] = {};
 	bool set_needs_buffer_sizes[kMaxArgumentBuffers] = {};
@@ -12458,6 +12538,7 @@ void CompilerMSL::analyze_argument_buffers()
 				}
 			}
 
+			uint32_t binding = get_decoration(var_id, DecorationBinding);
 			if (type.basetype == SPIRType::SampledImage)
 			{
 				add_resource_name(var_id);
@@ -12480,9 +12561,14 @@ void CompilerMSL::analyze_argument_buffers()
 					    { &var, to_sampler_expression(var_id), SPIRType::Sampler, sampler_resource_index, 0 });
 				}
 			}
+			else if (inline_uniform_blocks.count(SetBindingPair{ desc_set, binding }))
+			{
+				inline_block_vars.push_back(var_id);
+			}
 			else if (!constexpr_sampler)
 			{
 				// constexpr samplers are not declared as resources.
+				// Inline uniform blocks are always emitted at the end.
 				if (!msl_options.is_ios() || type.basetype != SPIRType::Image || type.image.sampled != 2)
 				{
 					add_resource_name(var_id);
@@ -12555,6 +12641,16 @@ void CompilerMSL::analyze_argument_buffers()
 				    { &var, to_name(var_id), SPIRType::UInt, get_metal_resource_index(var, SPIRType::UInt), 0 });
 			}
 		}
+	}
+
+	// Now add inline uniform blocks.
+	for (uint32_t var_id : inline_block_vars)
+	{
+		auto &var = get<SPIRVariable>(var_id);
+		uint32_t desc_set = get_decoration(var_id, DecorationDescriptorSet);
+		add_resource_name(var_id);
+		resources_in_set[desc_set].push_back(
+		    { &var, to_name(var_id), SPIRType::Struct, get_metal_resource_index(var, SPIRType::Struct), 0 });
 	}
 
 	for (uint32_t desc_set = 0; desc_set < kMaxArgumentBuffers; desc_set++)
@@ -12654,6 +12750,12 @@ void CompilerMSL::analyze_argument_buffers()
 					buffer_type.member_types.push_back(var.basetype);
 					buffers_requiring_dynamic_offset[pair].second = var.self;
 				}
+				else if (inline_uniform_blocks.count(pair))
+				{
+					// Put the buffer block itself into the argument buffer.
+					buffer_type.member_types.push_back(get_variable_data_type_id(var));
+					set_qualified_name(var.self, join(to_name(buffer_variable_id), ".", mbr_name));
+				}
 				else
 				{
 					// Resources will be declared as pointers not references, so automatically dereference as appropriate.
@@ -12672,4 +12774,22 @@ void CompilerMSL::analyze_argument_buffers()
 			member_index++;
 		}
 	}
+}
+
+void CompilerMSL::activate_argument_buffer_resources()
+{
+	// For ABI compatibility, force-enable all resources which are part of argument buffers.
+	ir.for_each_typed_id<SPIRVariable>([&](uint32_t self, const SPIRVariable &) {
+		if (!has_decoration(self, DecorationDescriptorSet))
+			return;
+
+		uint32_t desc_set = get_decoration(self, DecorationDescriptorSet);
+		if (descriptor_set_is_argument_buffer(desc_set))
+			active_interface_variables.insert(self);
+	});
+}
+
+bool CompilerMSL::using_builtin_array() const
+{
+	return msl_options.force_native_arrays || is_using_builtin_array;
 }

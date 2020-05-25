@@ -10,6 +10,7 @@
 #include <memory>
 #include <utility>
 
+#include "constants/access_permissions.h"
 #include "constants/annotation_flags.h"
 #include "constants/form_flags.h"
 #include "core/fpdfdoc/cpdf_formcontrol.h"
@@ -610,9 +611,10 @@ bool CJS_Field::AttachField(CJS_Document* pDocument,
                             const WideString& csFieldName) {
   m_pJSDoc.Reset(pDocument);
   m_pFormFillEnv.Reset(pDocument->GetFormFillEnv());
-  m_bCanSet = m_pFormFillEnv->GetPermissions(FPDFPERM_FILL_FORM) ||
-              m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM) ||
-              m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY);
+  m_bCanSet = m_pFormFillEnv->HasPermissions(
+      pdfium::access_permissions::kFillForm |
+      pdfium::access_permissions::kModifyAnnotation |
+      pdfium::access_permissions::kModifyContent);
 
   CPDFSDK_InteractiveForm* pRDForm = m_pFormFillEnv->GetInteractiveForm();
   CPDF_InteractiveForm* pForm = pRDForm->GetInteractiveForm();
@@ -1529,13 +1531,9 @@ CJS_Result CJS_Field::get_page(CJS_Runtime* pRuntime) {
       return CJS_Result::Failure(JSMessage::kBadObjectError);
 
     auto* pWidget = ToCPDFSDKWidget(pObserved.Get());
-    CPDFSDK_PageView* pPageView = pWidget->GetPageView();
-    if (!pPageView)
-      return CJS_Result::Failure(JSMessage::kBadObjectError);
-
     pRuntime->PutArrayElement(
         PageArray, i,
-        pRuntime->NewNumber(static_cast<int32_t>(pPageView->GetPageIndex())));
+        pRuntime->NewNumber(pWidget->GetPageView()->GetPageIndex()));
     ++i;
   }
   return CJS_Result::Success(PageArray);

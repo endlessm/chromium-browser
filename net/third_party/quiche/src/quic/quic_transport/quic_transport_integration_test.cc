@@ -18,7 +18,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_optional.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_client_session.h"
 #include "net/third_party/quiche/src/quic/quic_transport/quic_transport_server_session.h"
@@ -50,7 +49,7 @@ url::Origin GetTestOrigin() {
 }
 
 ParsedQuicVersionVector GetVersions() {
-  return {ParsedQuicVersion{PROTOCOL_TLS1_3, QUIC_VERSION_99}};
+  return {DefaultVersionForQuicTransport()};
 }
 
 class QuicTransportEndpointBase : public QuicEndpointBase {
@@ -60,6 +59,7 @@ class QuicTransportEndpointBase : public QuicEndpointBase {
                             const std::string& peer_name,
                             Perspective perspective)
       : QuicEndpointBase(simulator, name, peer_name) {
+    QuicEnableVersion(DefaultVersionForQuicTransport());
     connection_ = std::make_unique<QuicConnection>(
         TestConnectionId(0x10), simulator::GetAddressFromName(peer_name),
         simulator, simulator->GetAlarmFactory(), &writer_,

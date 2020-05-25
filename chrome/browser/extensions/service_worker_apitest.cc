@@ -13,6 +13,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind_test_util.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/permissions/permissions_api.h"
@@ -29,7 +30,6 @@
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/notification_permission_context.h"
 #include "chrome/browser/notifications/stub_notification_display_service.h"
-#include "chrome/browser/permissions/permission_manager.h"
 #include "chrome/browser/push_messaging/push_messaging_app_identifier.h"
 #include "chrome/browser/push_messaging/push_messaging_service_factory.h"
 #include "chrome/browser/push_messaging/push_messaging_service_impl.h"
@@ -40,7 +40,6 @@
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/gcm_driver/fake_gcm_profile_service.h"
 #include "components/gcm_driver/instance_id/fake_gcm_driver_for_instance_id.h"
-#include "components/permissions/permission_result.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/console_message.h"
 #include "content/public/browser/navigation_controller.h"
@@ -58,6 +57,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/service_worker_test_helpers.h"
 #include "extensions/browser/event_router.h"
+#include "extensions/browser/extension_function_histogram_value.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/process_manager.h"
@@ -310,9 +310,7 @@ class ServiceWorkerBasedBackgroundTestWithNotification
 // The extension is installed and loaded during this step and it registers
 // an event listener for tabs.onCreated event. The step also verifies that tab
 // creation correctly fires the listener.
-//
-// Disabled due to flakiness: https://crbug.com/1003244.
-IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, DISABLED_PRE_Basic) {
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, PRE_Basic) {
   ExtensionTestMessageListener newtab_listener("CREATED", false);
   newtab_listener.set_failure_message("CREATE_FAILED");
   ExtensionTestMessageListener worker_listener("WORKER_RUNNING", false);
@@ -337,9 +335,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, DISABLED_PRE_Basic) {
 // tabs.onCreated event listener to the extension without explicitly loading the
 // extension. This is because the extension registered a listener before browser
 // restarted in PRE_Basic.
-//
-// Disabled due to flakiness: https://crbug.com/1003244.
-IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, DISABLED_Basic) {
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, Basic) {
   ExtensionTestMessageListener newtab_listener("CREATED", false);
   newtab_listener.set_failure_message("CREATE_FAILED");
   const GURL url = embedded_test_server()->GetURL("/extensions/test_file.html");
@@ -379,9 +375,15 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, StorageNoPermissions) {
 
 // Tests chrome.tabs APIs.
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, TabsBasic) {
+  base::HistogramTester histogram_tester;
   ASSERT_TRUE(
       RunExtensionTest("service_worker/worker_based_background/tabs_basic"))
       << message_;
+  // Extension should issue two chrome.tabs.create calls, verify that we logged
+  // histograms for them.
+  EXPECT_EQ(2, histogram_tester.GetBucketCount(
+                   "Extensions.Functions.ExtensionServiceWorkerCalls",
+                   functions::HistogramValue::TABS_CREATE));
 }
 
 // Tests chrome.tabs events.
@@ -402,6 +404,14 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, TabsExecuteScript) {
 IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, WebRequest) {
   ASSERT_TRUE(
       RunExtensionTest("service_worker/worker_based_background/web_request"))
+      << message_;
+}
+
+// Tests more chrome.webRequest APIs. Any potentially flaky tests are isolated
+// here.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest, WebRequest2) {
+  ASSERT_TRUE(
+      RunExtensionTest("service_worker/worker_based_background/web_request2"))
       << message_;
 }
 
@@ -1658,7 +1668,6 @@ class TestWorkerObserver : public content::ServiceWorkerContextObserver {
  private:
   // ServiceWorkerContextObserver:
   void OnVersionStartedRunning(
-      content::ServiceWorkerContext* context,
       int64_t version_id,
       const content::ServiceWorkerRunningInfo& running_info) override {
     if (running_info.scope != extension_url_)
@@ -1667,8 +1676,7 @@ class TestWorkerObserver : public content::ServiceWorkerContextObserver {
     running_version_id_ = version_id;
     started_run_loop_.Quit();
   }
-  void OnVersionStoppedRunning(content::ServiceWorkerContext* context,
-                               int64_t version_id) override {
+  void OnVersionStoppedRunning(int64_t version_id) override {
     if (running_version_id_ == version_id)
       stopped_run_loop_.Quit();
   }
@@ -1983,13 +1991,13 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerBasedBackgroundTest,
   ASSERT_EQ(kTestExtensionId, extension->id());
   LazyContextId context_id(browser()->profile(), extension->id(),
                            extension->url());
-  ServiceWorkerStartFailureObserver worker_start_failure_observer(
-      extension->id());
-
   // Let the worker start so it rejects 'install' event. This causes the worker
   // to stop.
   observer.WaitForWorkerStart();
   observer.WaitForWorkerStop();
+
+  ServiceWorkerStartFailureObserver worker_start_failure_observer(
+      extension->id());
 
   ServiceWorkerTaskQueue* service_worker_task_queue =
       ServiceWorkerTaskQueue::Get(browser()->profile());

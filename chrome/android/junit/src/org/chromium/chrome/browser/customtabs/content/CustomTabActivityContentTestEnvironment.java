@@ -27,7 +27,6 @@ import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.UserDataHost;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.ActivityTabProvider.ActivityTabObserver;
 import org.chromium.chrome.browser.ChromeActivity;
@@ -100,7 +99,8 @@ public class CustomTabActivityContentTestEnvironment extends TestWatcher {
 
     public final CustomTabActivityTabProvider tabProvider = new CustomTabActivityTabProvider();
 
-    @Captor public ArgumentCaptor<ActivityTabObserver> activityTabObserverCaptor;
+    @Captor
+    public ArgumentCaptor<ActivityTabObserver> activityTabObserverCaptor;
 
     // Captures the WebContents with which tabFromFactory is initialized
     @Captor public ArgumentCaptor<WebContents> webContentsCaptor;
@@ -110,7 +110,6 @@ public class CustomTabActivityContentTestEnvironment extends TestWatcher {
     @Override
     protected void starting(Description description) {
         RecordHistogram.setDisabledForTests(true);
-        RecordUserAction.setDisabledForTests(true);
         MockitoAnnotations.initMocks(this);
 
         tabFromFactory = prepareTab();
@@ -118,7 +117,8 @@ public class CustomTabActivityContentTestEnvironment extends TestWatcher {
         when(intentDataProvider.getIntent()).thenReturn(intent);
         when(intentDataProvider.getSession()).thenReturn(session);
         when(intentDataProvider.getUrlToLoad()).thenReturn(INITIAL_URL);
-        when(tabFactory.createTab(webContentsCaptor.capture(), any())).thenReturn(tabFromFactory);
+        when(tabFactory.createTab(webContentsCaptor.capture(), any(), any()))
+                .thenReturn(tabFromFactory);
         when(tabFactory.getTabModelSelector()).thenReturn(tabModelSelector);
         when(tabModelSelector.getModel(anyBoolean())).thenReturn(tabModel);
         when(connection.getSpeculatedUrl(any())).thenReturn(SPECULATED_URL);
@@ -128,14 +128,14 @@ public class CustomTabActivityContentTestEnvironment extends TestWatcher {
 
         when(startupTabPreloader.takeTabIfMatchingOrDestroy(any(), anyInt())).thenReturn(null);
         when(reparentingTaskProvider.get(any())).thenReturn(reparentingTask);
-        doNothing().when(activityTabProvider).addObserverAndTrigger(
-                activityTabObserverCaptor.capture());
+        doNothing()
+                .when(activityTabProvider)
+                .addObserverAndTrigger(activityTabObserverCaptor.capture());
     }
 
     @Override
     protected void finished(Description description) {
         RecordHistogram.setDisabledForTests(false);
-        RecordUserAction.setDisabledForTests(false);
         AsyncTabParamsManager.getAsyncTabParams().clear();
         ShadowExternalNavigationDelegateImpl.setWillChromeHandleIntent(false);
     }

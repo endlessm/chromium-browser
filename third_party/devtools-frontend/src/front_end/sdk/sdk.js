@@ -4,7 +4,7 @@
 
 import './SDKModel.js';
 import './CSSMetadata.js';
-import '../SupportedCSSProperties.js';
+import '../generated/SupportedCSSProperties.js';
 import './ProfileTreeModel.js';
 import './NetworkRequest.js';
 import './NetworkManager.js';
@@ -36,6 +36,7 @@ import * as FilmStripModel from './FilmStripModel.js';
 import * as HARLog from './HARLog.js';
 import * as HeapProfilerModel from './HeapProfilerModel.js';
 import * as IsolateManager from './IsolateManager.js';
+import * as Issue from './Issue.js';
 import * as IssuesModel from './IssuesModel.js';
 import * as LayerTreeBase from './LayerTreeBase.js';
 import * as LogModel from './LogModel.js';
@@ -46,6 +47,7 @@ import * as OverlayModel from './OverlayModel.js';
 import * as PaintProfiler from './PaintProfiler.js';
 import * as PerformanceMetricsModel from './PerformanceMetricsModel.js';
 import * as ProfileTreeModel from './ProfileTreeModel.js';
+import * as RelatedIssue from './RelatedIssue.js';
 import * as RemoteObject from './RemoteObject.js';
 import * as Resource from './Resource.js';
 import * as ResourceTreeModel from './ResourceTreeModel.js';
@@ -88,6 +90,7 @@ export {
   HARLog,
   HeapProfilerModel,
   IsolateManager,
+  Issue,
   IssuesModel,
   LayerTreeBase,
   LogModel,
@@ -98,6 +101,7 @@ export {
   PaintProfiler,
   PerformanceMetricsModel,
   ProfileTreeModel,
+  RelatedIssue,
   RemoteObject,
   Resource,
   ResourceTreeModel,

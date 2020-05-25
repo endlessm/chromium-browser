@@ -17,7 +17,7 @@
 
 #include <limits>
 
-#include "mlir/Dialect/QuantOps/QuantTypes.h"
+#include "mlir/Dialect/Quant/QuantTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Quantizer/Support/Rules.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -35,7 +35,7 @@ public:
 
   // Optional path to write a debug DOT file for the CAG.
   StringRef getDebugCAGDotPath() const { return debugCAGDotPath; }
-  void setDebugCAGDotPath(StringRef p) { debugCAGDotPath = p; }
+  void setDebugCAGDotPath(StringRef p) { debugCAGDotPath = std::string(p); }
 
 private:
   MLIRContext &mlirContext;

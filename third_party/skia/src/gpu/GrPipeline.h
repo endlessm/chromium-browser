@@ -32,7 +32,7 @@ class GrRenderTargetContext;
 /**
  * This immutable object contains information needed to set build a shader program and set API
  * state for a draw. It is used along with a GrPrimitiveProcessor and a source of geometric
- * data (GrMesh or GrPath) to draw.
+ * data to draw.
  */
 class GrPipeline {
 public:
@@ -71,35 +71,7 @@ public:
         const GrUserStencilSettings* fUserStencil = &GrUserStencilSettings::kUnused;
         const GrCaps* fCaps = nullptr;
         GrXferProcessor::DstProxyView fDstProxyView;
-        GrSwizzle fOutputSwizzle;
-    };
-
-    /**
-     * Some state can be changed between GrMeshes without changing GrPipelines. This is generally
-     * less expensive then using multiple pipelines. Such state is called "dynamic state". It can
-     * be specified in two ways:
-     * 1) FixedDynamicState - use this to specify state that does not vary between GrMeshes.
-     * 2) DynamicStateArrays - use this to specify per mesh values for dynamic state.
-     **/
-    struct FixedDynamicState {
-        explicit FixedDynamicState(const SkIRect& scissorRect) : fScissorRect(scissorRect) {}
-        FixedDynamicState() = default;
-        SkIRect fScissorRect = SkIRect::MakeEmpty();
-        // Must have GrPrimitiveProcessor::numTextureSamplers() entries. Can be null if no samplers
-        // or textures are passed using DynamicStateArrays.
-        GrSurfaceProxy** fPrimitiveProcessorTextures = nullptr;
-    };
-
-    /**
-     * Any non-null array overrides the FixedDynamicState on a mesh-by-mesh basis. Arrays must
-     * have one entry for each GrMesh.
-     */
-    struct DynamicStateArrays {
-        const SkIRect* fScissorRects = nullptr;
-        // Must have GrPrimitiveProcessor::numTextureSamplers() * num_meshes entries.
-        // Can be null if no samplers or to use the same textures for all meshes via'
-        // FixedDynamicState.
-        GrSurfaceProxy** fPrimitiveProcessorTextures = nullptr;
+        GrSwizzle fWriteSwizzle;
     };
 
     /**
@@ -107,14 +79,20 @@ public:
      * must be "Porter Duff" (<= kLastCoeffMode). If using GrScissorTest::kEnabled, the caller must
      * specify a scissor rectangle through the DynamicState struct.
      **/
-    GrPipeline(GrScissorTest scissor, SkBlendMode blend, const GrSwizzle& outputSwizzle,
+    GrPipeline(GrScissorTest scissor,
+               SkBlendMode blend,
+               const GrSwizzle& writeSwizzle,
                InputFlags flags = InputFlags::kNone,
                const GrUserStencilSettings* stencil = &GrUserStencilSettings::kUnused)
-            : GrPipeline(scissor, GrPorterDuffXPFactory::MakeNoCoverageXP(blend), outputSwizzle,
-                         flags, stencil) {
-    }
+            : GrPipeline(scissor,
+                         GrPorterDuffXPFactory::MakeNoCoverageXP(blend),
+                         writeSwizzle,
+                         flags,
+                         stencil) {}
 
-    GrPipeline(GrScissorTest, sk_sp<const GrXferProcessor>, const GrSwizzle& outputSwizzle,
+    GrPipeline(GrScissorTest,
+               sk_sp<const GrXferProcessor>,
+               const GrSwizzle& writeSwizzle,
                InputFlags = InputFlags::kNone,
                const GrUserStencilSettings* = &GrUserStencilSettings::kUnused);
 
@@ -194,8 +172,8 @@ public:
         }
     }
 
-    bool isScissorEnabled() const {
-        return SkToBool(fFlags & Flags::kScissorEnabled);
+    bool isScissorTestEnabled() const {
+        return SkToBool(fFlags & Flags::kScissorTestEnabled);
     }
 
     const GrWindowRectsState& getWindowRectsState() const { return fWindowRectsState; }
@@ -232,7 +210,7 @@ public:
     // Used by Vulkan and Metal to cache their respective pipeline objects
     void genKey(GrProcessorKeyBuilder*, const GrCaps&) const;
 
-    const GrSwizzle& outputSwizzle() const { return fOutputSwizzle; }
+    const GrSwizzle& writeSwizzle() const { return fWriteSwizzle; }
 
     void visitProxies(const GrOp::VisitProxyFunc&) const;
 
@@ -243,7 +221,7 @@ private:
     enum class Flags : uint8_t {
         kHasStencilClip = (kLastInputFlag << 1),
         kStencilEnabled = (kLastInputFlag << 2),
-        kScissorEnabled = (kLastInputFlag << 3),
+        kScissorTestEnabled = (kLastInputFlag << 3),
     };
 
     GR_DECL_BITFIELD_CLASS_OPS_FRIENDS(Flags);
@@ -263,7 +241,7 @@ private:
     // This value is also the index in fFragmentProcessors where coverage processors begin.
     int fNumColorProcessors = 0;
 
-    GrSwizzle fOutputSwizzle;
+    GrSwizzle fWriteSwizzle;
 };
 
 GR_MAKE_BITFIELD_CLASS_OPS(GrPipeline::InputFlags);

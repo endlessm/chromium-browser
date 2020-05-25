@@ -30,6 +30,8 @@
 using namespace mlir;
 using namespace mlir::LLVM;
 
+#include "mlir/Dialect/LLVMIR/LLVMConversionEnumsFromLLVM.inc"
+
 // Utility to print an LLVM value as a string for passing to emitError().
 // FIXME: Diagnostic should be able to natively handle types that have
 // operator << (raw_ostream&) defined.
@@ -58,6 +60,8 @@ public:
   GlobalOp processGlobal(llvm::GlobalVariable *GV);
 
 private:
+  /// Returns personality of `f` as a FlatSymbolRefAttr.
+  FlatSymbolRefAttr getPersonalityAsAttr(llvm::Function *f);
   /// Imports `bb` into `block`, which must be initially empty.
   LogicalResult processBasicBlock(llvm::BasicBlock *bb, Block *block);
   /// Imports `inst` and populates instMap[inst] with the imported Value.
@@ -76,7 +80,7 @@ private:
   /// `br` branches to `target`. Append the block arguments to attach to the
   /// generated branch op to `blockArguments`. These should be in the same order
   /// as the PHIs in `target`.
-  LogicalResult processBranchArgs(llvm::BranchInst *br,
+  LogicalResult processBranchArgs(llvm::Instruction *br,
                                   llvm::BasicBlock *target,
                                   SmallVectorImpl<Value> &blockArguments);
   /// Returns the standard type equivalent to be used in attributes for the
@@ -339,7 +343,7 @@ Attribute Importer::getConstantAsAttr(llvm::Constant *value) {
 
   // Unpack constant aggregates to create dense elements attribute whenever
   // possible. Return nullptr (failure) otherwise.
-  if (auto *ca = dyn_cast<llvm::ConstantAggregate>(value)) {
+  if (isa<llvm::ConstantAggregate>(value)) {
     auto outerType = getStdTypeForAttr(processType(value->getType()))
                          .dyn_cast_or_null<ShapedType>();
     if (!outerType)
@@ -363,37 +367,6 @@ Attribute Importer::getConstantAsAttr(llvm::Constant *value) {
   return nullptr;
 }
 
-/// Converts LLVM global variable linkage type into the LLVM dialect predicate.
-static LLVM::Linkage
-processLinkage(llvm::GlobalVariable::LinkageTypes linkage) {
-  switch (linkage) {
-  case llvm::GlobalValue::PrivateLinkage:
-    return LLVM::Linkage::Private;
-  case llvm::GlobalValue::InternalLinkage:
-    return LLVM::Linkage::Internal;
-  case llvm::GlobalValue::AvailableExternallyLinkage:
-    return LLVM::Linkage::AvailableExternally;
-  case llvm::GlobalValue::LinkOnceAnyLinkage:
-    return LLVM::Linkage::Linkonce;
-  case llvm::GlobalValue::WeakAnyLinkage:
-    return LLVM::Linkage::Weak;
-  case llvm::GlobalValue::CommonLinkage:
-    return LLVM::Linkage::Common;
-  case llvm::GlobalValue::AppendingLinkage:
-    return LLVM::Linkage::Appending;
-  case llvm::GlobalValue::ExternalWeakLinkage:
-    return LLVM::Linkage::ExternWeak;
-  case llvm::GlobalValue::LinkOnceODRLinkage:
-    return LLVM::Linkage::LinkonceODR;
-  case llvm::GlobalValue::WeakODRLinkage:
-    return LLVM::Linkage::WeakODR;
-  case llvm::GlobalValue::ExternalLinkage:
-    return LLVM::Linkage::External;
-  }
-
-  llvm_unreachable("unhandled linkage type");
-}
-
 GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
   auto it = globals.find(GV);
   if (it != globals.end())
@@ -408,7 +381,7 @@ GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
     return nullptr;
   GlobalOp op = b.create<GlobalOp>(
       UnknownLoc::get(context), type, GV->isConstant(),
-      processLinkage(GV->getLinkage()), GV->getName(), valueAttr);
+      convertLinkageFromLLVM(GV->getLinkage()), GV->getName(), valueAttr);
   if (GV->hasInitializer() && !valueAttr) {
     Region &r = op.getInitializerRegion();
     currentEntryBlock = b.createBlock(&r);
@@ -422,21 +395,26 @@ GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
 }
 
 Value Importer::processConstant(llvm::Constant *c) {
+  OpBuilder bEntry(currentEntryBlock, currentEntryBlock->begin());
   if (Attribute attr = getConstantAsAttr(c)) {
     // These constants can be represented as attributes.
     OpBuilder b(currentEntryBlock, currentEntryBlock->begin());
     LLVMType type = processType(c->getType());
     if (!type)
       return nullptr;
-    return instMap[c] = b.create<ConstantOp>(unknownLoc, type, attr);
+    return instMap[c] = bEntry.create<ConstantOp>(unknownLoc, type, attr);
   }
   if (auto *cn = dyn_cast<llvm::ConstantPointerNull>(c)) {
-    OpBuilder b(currentEntryBlock, currentEntryBlock->begin());
     LLVMType type = processType(cn->getType());
     if (!type)
       return nullptr;
-    return instMap[c] = b.create<NullOp>(unknownLoc, type);
+    return instMap[c] = bEntry.create<NullOp>(unknownLoc, type);
   }
+  if (auto *GV = dyn_cast<llvm::GlobalVariable>(c))
+    return bEntry.create<AddressOfOp>(UnknownLoc::get(context),
+                                      processGlobal(GV),
+                                      ArrayRef<NamedAttribute>());
+
   if (auto *ce = dyn_cast<llvm::ConstantExpr>(c)) {
     llvm::Instruction *i = ce->getAsInstruction();
     OpBuilder::InsertionGuard guard(b);
@@ -449,6 +427,12 @@ Value Importer::processConstant(llvm::Constant *c) {
     // op.
     i->deleteValue();
     return instMap[c] = instMap[i];
+  }
+  if (auto *ue = dyn_cast<llvm::UndefValue>(c)) {
+    LLVMType type = processType(ue->getType());
+    if (!type)
+      return nullptr;
+    return instMap[c] = bEntry.create<UndefOp>(UnknownLoc::get(context), type);
   }
   emitError(unknownLoc) << "unhandled constant: " << diag(*c);
   return nullptr;
@@ -471,16 +455,6 @@ Value Importer::processValue(llvm::Value *value) {
     return unknownInstMap[value]->getResult(0);
   }
 
-  if (auto *GV = dyn_cast<llvm::GlobalVariable>(value)) {
-    auto global = processGlobal(GV);
-    if (!global)
-      return nullptr;
-    return b.create<AddressOfOp>(UnknownLoc::get(context), global,
-                                 ArrayRef<NamedAttribute>());
-  }
-
-  // Note, constant global variables are both GlobalVariables and Constants,
-  // so we handle GlobalVariables first above.
   if (auto *c = dyn_cast<llvm::Constant>(value))
     return processConstant(c);
 
@@ -499,7 +473,7 @@ static const DenseMap<unsigned, StringRef> opcMap = {
     // FIXME: switch
     // FIXME: indirectbr
     // FIXME: invoke
-    // FIXME: resume
+    INST(Resume, Resume),
     // FIXME: unreachable
     // FIXME: cleanupret
     // FIXME: catchret
@@ -513,8 +487,7 @@ static const DenseMap<unsigned, StringRef> opcMap = {
     INST(Or, Or), INST(Xor, XOr), INST(Alloca, Alloca), INST(Load, Load),
     INST(Store, Store),
     // Getelementptr is handled specially.
-    INST(Ret, Return),
-    // FIXME: fence
+    INST(Ret, Return), INST(Fence, Fence),
     // FIXME: atomiccmpxchg
     // FIXME: atomicrmw
     INST(Trunc, Trunc), INST(ZExt, ZExt), INST(SExt, SExt),
@@ -527,7 +500,7 @@ static const DenseMap<unsigned, StringRef> opcMap = {
     // ICmp is handled specially.
     // FIXME: fcmp
     // PHI is handled specially.
-    INST(Call, Call),
+    INST(Freeze, Freeze), INST(Call, Call),
     // FIXME: select
     // FIXME: vaarg
     // FIXME: extractelement
@@ -567,10 +540,30 @@ static ICmpPredicate getICmpPredicate(llvm::CmpInst::Predicate p) {
   llvm_unreachable("incorrect comparison predicate");
 }
 
+static AtomicOrdering getLLVMAtomicOrdering(llvm::AtomicOrdering ordering) {
+  switch (ordering) {
+  case llvm::AtomicOrdering::NotAtomic:
+    return LLVM::AtomicOrdering::not_atomic;
+  case llvm::AtomicOrdering::Unordered:
+    return LLVM::AtomicOrdering::unordered;
+  case llvm::AtomicOrdering::Monotonic:
+    return LLVM::AtomicOrdering::monotonic;
+  case llvm::AtomicOrdering::Acquire:
+    return LLVM::AtomicOrdering::acquire;
+  case llvm::AtomicOrdering::Release:
+    return LLVM::AtomicOrdering::release;
+  case llvm::AtomicOrdering::AcquireRelease:
+    return LLVM::AtomicOrdering::acq_rel;
+  case llvm::AtomicOrdering::SequentiallyConsistent:
+    return LLVM::AtomicOrdering::seq_cst;
+  }
+  llvm_unreachable("incorrect atomic ordering");
+}
+
 // `br` branches to `target`. Return the branch arguments to `br`, in the
 // same order of the PHIs in `target`.
 LogicalResult
-Importer::processBranchArgs(llvm::BranchInst *br, llvm::BasicBlock *target,
+Importer::processBranchArgs(llvm::Instruction *br, llvm::BasicBlock *target,
                             SmallVectorImpl<Value> &blockArguments) {
   for (auto inst = target->begin(); isa<llvm::PHINode>(inst); ++inst) {
     auto *PN = cast<llvm::PHINode>(&*inst);
@@ -613,6 +606,7 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
   case llvm::Instruction::Load:
   case llvm::Instruction::Store:
   case llvm::Instruction::Ret:
+  case llvm::Instruction::Resume:
   case llvm::Instruction::Trunc:
   case llvm::Instruction::ZExt:
   case llvm::Instruction::SExt:
@@ -625,6 +619,7 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
   case llvm::Instruction::PtrToInt:
   case llvm::Instruction::IntToPtr:
   case llvm::Instruction::AddrSpaceCast:
+  case llvm::Instruction::Freeze:
   case llvm::Instruction::BitCast: {
     OperationState state(loc, opcMap.lookup(inst->getOpcode()));
     SmallVector<Value, 4> ops;
@@ -661,21 +656,29 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
     auto *brInst = cast<llvm::BranchInst>(inst);
     OperationState state(loc,
                          brInst->isConditional() ? "llvm.cond_br" : "llvm.br");
-    SmallVector<Value, 4> ops;
     if (brInst->isConditional()) {
       Value condition = processValue(brInst->getCondition());
       if (!condition)
         return failure();
-      ops.push_back(condition);
+      state.addOperands(condition);
     }
-    state.addOperands(ops);
-    SmallVector<Block *, 4> succs;
-    for (auto *succ : llvm::reverse(brInst->successors())) {
+
+    std::array<int32_t, 3> operandSegmentSizes = {1, 0, 0};
+    for (int i : llvm::seq<int>(0, brInst->getNumSuccessors())) {
+      auto *succ = brInst->getSuccessor(i);
       SmallVector<Value, 4> blockArguments;
       if (failed(processBranchArgs(brInst, succ, blockArguments)))
         return failure();
-      state.addSuccessor(blocks[succ], blockArguments);
+      state.addSuccessors(blocks[succ]);
+      state.addOperands(blockArguments);
+      operandSegmentSizes[i + 1] = blockArguments.size();
     }
+
+    if (brInst->isConditional()) {
+      state.addAttribute(LLVM::CondBrOp::getOperandSegmentSizeAttr(),
+                         b.getI32VectorAttr(operandSegmentSizes));
+    }
+
     b.createOperation(state);
     return success();
   }
@@ -719,6 +722,69 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
       v = op->getResult(0);
     return success();
   }
+  case llvm::Instruction::LandingPad: {
+    llvm::LandingPadInst *lpi = cast<llvm::LandingPadInst>(inst);
+    SmallVector<Value, 4> ops;
+
+    for (unsigned i = 0, ie = lpi->getNumClauses(); i < ie; i++)
+      ops.push_back(processConstant(lpi->getClause(i)));
+
+    Type ty = processType(lpi->getType());
+    if (!ty)
+      return failure();
+
+    v = b.create<LandingpadOp>(loc, ty, lpi->isCleanup(), ops);
+    return success();
+  }
+  case llvm::Instruction::Invoke: {
+    llvm::InvokeInst *ii = cast<llvm::InvokeInst>(inst);
+
+    SmallVector<Type, 2> tys;
+    if (!ii->getType()->isVoidTy())
+      tys.push_back(processType(inst->getType()));
+
+    SmallVector<Value, 4> ops;
+    ops.reserve(inst->getNumOperands() + 1);
+    for (auto &op : ii->arg_operands())
+      ops.push_back(processValue(op.get()));
+
+    SmallVector<Value, 4> normalArgs, unwindArgs;
+    processBranchArgs(ii, ii->getNormalDest(), normalArgs);
+    processBranchArgs(ii, ii->getUnwindDest(), unwindArgs);
+
+    Operation *op;
+    if (llvm::Function *callee = ii->getCalledFunction()) {
+      op = b.create<InvokeOp>(loc, tys, b.getSymbolRefAttr(callee->getName()),
+                              ops, blocks[ii->getNormalDest()], normalArgs,
+                              blocks[ii->getUnwindDest()], unwindArgs);
+    } else {
+      ops.insert(ops.begin(), processValue(ii->getCalledValue()));
+      op = b.create<InvokeOp>(loc, tys, ops, blocks[ii->getNormalDest()],
+                              normalArgs, blocks[ii->getUnwindDest()],
+                              unwindArgs);
+    }
+
+    if (!ii->getType()->isVoidTy())
+      v = op->getResult(0);
+    return success();
+  }
+  case llvm::Instruction::Fence: {
+    StringRef syncscope;
+    SmallVector<StringRef, 4> ssNs;
+    llvm::LLVMContext &llvmContext = dialect->getLLVMContext();
+    llvm::FenceInst *fence = cast<llvm::FenceInst>(inst);
+    llvmContext.getSyncScopeNames(ssNs);
+    int fenceSyncScopeID = fence->getSyncScopeID();
+    for (unsigned i = 0, e = ssNs.size(); i != e; i++) {
+      if (fenceSyncScopeID == llvmContext.getOrInsertSyncScopeID(ssNs[i])) {
+        syncscope = ssNs[i];
+        break;
+      }
+    }
+    b.create<FenceOp>(loc, getLLVMAtomicOrdering(fence->getOrdering()),
+                      syncscope);
+    return success();
+  }
   case llvm::Instruction::GetElementPtr: {
     // FIXME: Support inbounds GEPs.
     llvm::GetElementPtrInst *gep = cast<llvm::GetElementPtrInst>(inst);
@@ -738,6 +804,28 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
   }
 }
 
+FlatSymbolRefAttr Importer::getPersonalityAsAttr(llvm::Function *f) {
+  if (!f->hasPersonalityFn())
+    return nullptr;
+
+  llvm::Constant *pf = f->getPersonalityFn();
+
+  // If it directly has a name, we can use it.
+  if (pf->hasName())
+    return b.getSymbolRefAttr(pf->getName());
+
+  // If it doesn't have a name, currently, only function pointers that are
+  // bitcast to i8* are parsed.
+  if (auto ce = dyn_cast<llvm::ConstantExpr>(pf)) {
+    if (ce->getOpcode() == llvm::Instruction::BitCast &&
+        ce->getType() == llvm::Type::getInt8PtrTy(dialect->getLLVMContext())) {
+      if (auto func = dyn_cast<llvm::Function>(ce->getOperand(0)))
+        return b.getSymbolRefAttr(func->getName());
+    }
+  }
+  return FlatSymbolRefAttr();
+}
+
 LogicalResult Importer::processFunction(llvm::Function *f) {
   blocks.clear();
   instMap.clear();
@@ -750,6 +838,13 @@ LogicalResult Importer::processFunction(llvm::Function *f) {
   b.setInsertionPoint(module.getBody(), getFuncInsertPt());
   LLVMFuncOp fop = b.create<LLVMFuncOp>(UnknownLoc::get(context), f->getName(),
                                         functionType);
+
+  if (FlatSymbolRefAttr personality = getPersonalityAsAttr(f))
+    fop.setAttr(b.getIdentifier("personality"), personality);
+  else if (f->hasPersonalityFn())
+    emitWarning(UnknownLoc::get(context),
+                "could not deduce personality, skipping it");
+
   if (f->isDeclaration())
     return success();
 

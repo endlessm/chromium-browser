@@ -11,6 +11,7 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.weblayer_private.interfaces.INavigationController;
 import org.chromium.weblayer_private.interfaces.INavigationControllerClient;
+import org.chromium.weblayer_private.interfaces.NavigateParams;
 import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
 
 /**
@@ -19,12 +20,10 @@ import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
 @JNINamespace("weblayer")
 public final class NavigationControllerImpl extends INavigationController.Stub {
     private long mNativeNavigationController;
-    private TabImpl mTab;
     private INavigationControllerClient mNavigationControllerClient;
 
     public NavigationControllerImpl(TabImpl tab, INavigationControllerClient client) {
         mNavigationControllerClient = client;
-        mTab = tab;
         mNativeNavigationController =
                 NavigationControllerImplJni.get().getNavigationController(tab.getNativeTab());
         NavigationControllerImplJni.get().setNavigationControllerImpl(
@@ -32,10 +31,18 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
     }
 
     @Override
-    public void navigate(String uri) {
+    public void navigate(String uri, NavigateParams params) throws RemoteException {
         StrictModeWorkaround.apply();
-        NavigationControllerImplJni.get().navigate(
-                mNativeNavigationController, NavigationControllerImpl.this, uri);
+        if (WebLayerFactoryImpl.getClientMajorVersion() < 83) {
+            assert params == null;
+        }
+        if (params == null) {
+            NavigationControllerImplJni.get().navigate(
+                    mNativeNavigationController, NavigationControllerImpl.this, uri);
+        } else {
+            NavigationControllerImplJni.get().navigateWithParams(mNativeNavigationController,
+                    NavigationControllerImpl.this, uri, params.mShouldReplaceCurrentEntry);
+        }
     }
 
     @Override
@@ -168,6 +175,8 @@ public final class NavigationControllerImpl extends INavigationController.Stub {
         long getNavigationController(long tab);
         void navigate(
                 long nativeNavigationControllerImpl, NavigationControllerImpl caller, String uri);
+        void navigateWithParams(long nativeNavigationControllerImpl,
+                NavigationControllerImpl caller, String uri, boolean shouldReplaceCurrentEntry);
         void goBack(long nativeNavigationControllerImpl, NavigationControllerImpl caller);
         void goForward(long nativeNavigationControllerImpl, NavigationControllerImpl caller);
         boolean canGoBack(long nativeNavigationControllerImpl, NavigationControllerImpl caller);

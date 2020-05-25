@@ -12,9 +12,7 @@ namespace discovery {
 
 MdnsReceiver::ResponseClient::~ResponseClient() = default;
 
-MdnsReceiver::MdnsReceiver(UdpSocket* socket) : socket_(socket) {
-  OSP_DCHECK(socket_);
-}
+MdnsReceiver::MdnsReceiver() = default;
 
 MdnsReceiver::~MdnsReceiver() {
   if (state_ == State::kRunning) {
@@ -64,7 +62,7 @@ void MdnsReceiver::OnRead(UdpSocket* socket,
 
   UdpPacket packet = std::move(packet_or_error.value());
 
-  TRACE_SCOPED(TraceCategory::mDNS, "MdnsReceiver::OnRead");
+  TRACE_SCOPED(TraceCategory::kMdns, "MdnsReceiver::OnRead");
   MdnsReader reader(packet.data(), packet.size());
   MdnsMessage message;
   if (!reader.Read(&message)) {
@@ -75,21 +73,16 @@ void MdnsReceiver::OnRead(UdpSocket* socket,
     for (ResponseClient* client : response_clients_) {
       client->OnMessageReceived(message);
     }
+    if (response_clients_.empty()) {
+      OSP_DVLOG << "Response message dropped. No response client registered...";
+    }
   } else {
     if (query_callback_) {
       query_callback_(message, packet.source());
+    } else {
+      OSP_DVLOG << "Query message dropped. No query client registered...";
     }
   }
-}
-
-void MdnsReceiver::OnError(UdpSocket* socket, Error error) {
-  // This method should never be called for MdnsReciever.
-  OSP_UNIMPLEMENTED();
-}
-
-void MdnsReceiver::OnSendError(UdpSocket* socket, Error error) {
-  // This method should never be called for MdnsReciever.
-  OSP_UNIMPLEMENTED();
 }
 
 }  // namespace discovery

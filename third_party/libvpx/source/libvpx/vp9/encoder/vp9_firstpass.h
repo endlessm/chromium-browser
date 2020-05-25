@@ -252,7 +252,6 @@ int vp9_get_frames_to_next_key(const struct VP9EncoderConfig *oxcf,
                                const FIRST_PASS_INFO *first_pass_info,
                                int kf_show_idx, int min_gf_interval);
 #if CONFIG_RATE_CTRL
-
 /* Call this function to get info about the next group of pictures.
  * This function should be called after vp9_create_compressor() when encoding
  * starts or after vp9_get_compressed_data() when the encoding process of
@@ -260,11 +259,12 @@ int vp9_get_frames_to_next_key(const struct VP9EncoderConfig *oxcf,
  */
 void vp9_get_next_group_of_picture(const struct VP9_COMP *cpi,
                                    int *first_is_key_frame, int *use_alt_ref,
-                                   int *coding_frame_count,
-                                   int *first_show_idx);
+                                   int *coding_frame_count, int *first_show_idx,
+                                   int *last_gop_use_alt_ref);
 
 /*!\brief Call this function before coding a new group of pictures to get
  * information about it.
+ * \param[in] external_arf_indexes External arf indexs passed in
  * \param[in] oxcf                 Encoder config
  * \param[in] frame_info           Frame info
  * \param[in] first_pass_info      First pass stats
@@ -279,7 +279,8 @@ void vp9_get_next_group_of_picture(const struct VP9_COMP *cpi,
  *
  * \return Returns coding frame count
  */
-int vp9_get_gop_coding_frame_count(const struct VP9EncoderConfig *oxcf,
+int vp9_get_gop_coding_frame_count(const int *external_arf_indexes,
+                                   const struct VP9EncoderConfig *oxcf,
                                    const FRAME_INFO *frame_info,
                                    const FIRST_PASS_INFO *first_pass_info,
                                    const RATE_CONTROL *rc, int show_idx,
@@ -287,11 +288,12 @@ int vp9_get_gop_coding_frame_count(const struct VP9EncoderConfig *oxcf,
                                    int first_is_key_frame,
                                    int last_gop_use_alt_ref, int *use_alt_ref);
 
-int vp9_get_coding_frame_num(const struct VP9EncoderConfig *oxcf,
+int vp9_get_coding_frame_num(const int *external_arf_indexes,
+                             const struct VP9EncoderConfig *oxcf,
                              const FRAME_INFO *frame_info,
                              const FIRST_PASS_INFO *first_pass_info,
                              int multi_layer_arf, int allow_alt_ref);
-#endif
+#endif  // CONFIG_RATE_CTRL
 
 FIRSTPASS_STATS vp9_get_frame_stats(const TWO_PASS *twopass);
 FIRSTPASS_STATS vp9_get_total_stats(const TWO_PASS *twopass);

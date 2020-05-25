@@ -89,7 +89,7 @@ TEST_P(ClipSpaceTest, ClipSpace) {
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     wgpu::RenderPassEncoder renderPass = commandEncoder.BeginRenderPass(&renderPassDescriptor);
     renderPass.SetPipeline(CreatePipelineForTest());
-    renderPass.Draw(6, 1, 0, 0);
+    renderPass.Draw(6);
     renderPass.EndPass();
     wgpu::CommandBuffer commandBuffer = commandEncoder.Finish();
     wgpu::Queue queue = device.CreateQueue();
@@ -99,4 +99,4 @@ TEST_P(ClipSpaceTest, ClipSpace) {
     EXPECT_PIXEL_RGBA8_EQ(RGBA8::kGreen, colorTexture, 0, 0);
 }
 
-DAWN_INSTANTIATE_TEST(ClipSpaceTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
+DAWN_INSTANTIATE_TEST(ClipSpaceTest, D3D12Backend(), MetalBackend(), OpenGLBackend(), VulkanBackend());

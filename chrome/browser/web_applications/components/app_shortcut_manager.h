@@ -44,6 +44,11 @@ class AppShortcutManager : public AppRegistrarObserver {
   void AddObserver(AppShortcutObserver* observer);
   void RemoveObserver(AppShortcutObserver* observer);
 
+  // AppRegistrarObserver:
+  void OnWebAppInstalled(const AppId& app_id) override;
+  void OnWebAppUninstalled(const AppId& app_id) override;
+  void OnWebAppProfileWillBeDeleted(const AppId& app_id) override;
+
   // Tells the AppShortcutManager that no shortcuts should actually be written
   // to the disk.
   void SuppressShortcutsForTesting();
@@ -64,6 +69,7 @@ class AppShortcutManager : public AppRegistrarObserver {
                                      GetShortcutInfoCallback callback) = 0;
 
  protected:
+  void DeleteSharedAppShims(const AppId& app_id);
   void OnShortcutsCreated(const AppId& app_id,
                           CreateShortcutsCallback callback,
                           bool success);

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+
 import {ProfileNode, ProfileTreeModel} from './ProfileTreeModel.js';
 import {Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
@@ -171,7 +173,7 @@ export class CPUProfileDataModel extends ProfileTreeModel {
     buildChildrenFromParents(nodes);
     this.totalHitCount = nodes.reduce((acc, node) => acc + node.hitCount, 0);
     const sampleTime = (this.profileEndTime - this.profileStartTime) / this.totalHitCount;
-    const keepNatives = !!self.Common.settings.moduleSetting('showNativeFunctionsInJSProfile').get();
+    const keepNatives = !!Common.Settings.Settings.instance().moduleSetting('showNativeFunctionsInJSProfile').get();
     const root = nodes[0];
     /** @type {!Map<number, number>} */
     const idMap = new Map([[root.id, root.id]]);
@@ -315,11 +317,11 @@ export class CPUProfileDataModel extends ProfileTreeModel {
       nodeId = nextNodeId;
     }
     if (count) {
-      self.Common.console.warn(ls`DevTools: CPU profile parser is fixing ${count} missing samples.`);
+      Common.Console.Console.instance().warn(ls`DevTools: CPU profile parser is fixing ${count} missing samples.`);
     }
     /**
      * @param {!ProfileNode} node
-     * @return {!SDK.ProfileNode}
+     * @return {!ProfileNode}
      */
     function bottomNode(node) {
       while (node.parent && node.parent.parent) {

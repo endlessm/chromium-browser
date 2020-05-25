@@ -101,12 +101,12 @@ class AMDGPUPat<dag pattern, dag result> : Pat<pattern, result>,
       PredicateControl;
 
 let RecomputePerFunction = 1 in {
-def FP16Denormals : Predicate<"MF->getInfo<SIMachineFunctionInfo>()->getMode().FP64FP16Denormals">;
-def FP32Denormals : Predicate<"MF->getInfo<SIMachineFunctionInfo>()->getMode().FP32Denormals">;
-def FP64Denormals : Predicate<"MF->getInfo<SIMachineFunctionInfo>()->getMode().FP64FP16Denormals">;
-def NoFP16Denormals : Predicate<"!MF->getInfo<SIMachineFunctionInfo>()->getMode().FP64FP16Denormals">;
-def NoFP32Denormals : Predicate<"!MF->getInfo<SIMachineFunctionInfo>()->getMode().FP32Denormals">;
-def NoFP64Denormals : Predicate<"!MF->getInfo<SIMachineFunctionInfo>()->getMode().FP64FP16Denormals">;
+def FP16Denormals : Predicate<"MF->getInfo<SIMachineFunctionInfo>()->getMode().allFP64FP16Denormals()">;
+def FP32Denormals : Predicate<"MF->getInfo<SIMachineFunctionInfo>()->getMode().allFP32Denormals()">;
+def FP64Denormals : Predicate<"MF->getInfo<SIMachineFunctionInfo>()->getMode().allFP64FP16Denormals()">;
+def NoFP16Denormals : Predicate<"!MF->getInfo<SIMachineFunctionInfo>()->getMode().allFP64FP16Denormals()">;
+def NoFP32Denormals : Predicate<"!MF->getInfo<SIMachineFunctionInfo>()->getMode().allFP32Denormals()">;
+def NoFP64Denormals : Predicate<"!MF->getInfo<SIMachineFunctionInfo>()->getMode().allFP64FP16Denormals()">;
 def UnsafeFPMath : Predicate<"TM.Options.UnsafeFPMath">;
 }
 
@@ -735,6 +735,12 @@ multiclass BFEPattern <Instruction UBFE, Instruction SBFE, Instruction MOV> {
     (SBFE $src, (MOV (i32 0)), $width)
   >;
 }
+
+// fshr pattern
+class FSHRPattern <Instruction BIT_ALIGN> : AMDGPUPat <
+  (fshr i32:$src0, i32:$src1, i32:$src2),
+  (BIT_ALIGN $src0, $src1, $src2)
+>;
 
 // rotr pattern
 class ROTRPattern <Instruction BIT_ALIGN> : AMDGPUPat <

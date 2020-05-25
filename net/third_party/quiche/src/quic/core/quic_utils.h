@@ -101,6 +101,9 @@ class QUIC_EXPORT_PRIVATE QuicUtils {
   static bool IsHandshakeFrame(const QuicFrame& frame,
                                QuicTransportVersion transport_version);
 
+  // Return true if any frame in |frames| is of |type|.
+  static bool ContainsFrameType(const QuicFrames& frames, QuicFrameType type);
+
   // Returns packet state corresponding to |retransmission_type|.
   static SentPacketState RetransmissionTypeToPacketState(
       TransmissionType retransmission_type);
@@ -216,8 +219,7 @@ class QUIC_EXPORT_PRIVATE QuicUtils {
   // Get the maximum value for a V99/IETF QUIC stream count. If a count
   // exceeds this value, it will result in a stream ID that exceeds the
   // implementation limit on stream ID size.
-  static QuicStreamCount GetMaxStreamCount(bool unidirectional,
-                                           Perspective perspective);
+  static QuicStreamCount GetMaxStreamCount();
 };
 
 template <typename Mask>

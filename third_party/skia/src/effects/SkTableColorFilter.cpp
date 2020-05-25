@@ -16,6 +16,7 @@
 #include "src/core/SkEffectPriv.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkReadBuffer.h"
+#include "src/core/SkVM.h"
 #include "src/core/SkWriteBuffer.h"
 
 static const uint8_t gIdentityTable[] = {
@@ -120,6 +121,37 @@ public:
             p->append(SkRasterPipeline::premul);
         }
         return true;
+    }
+
+    skvm::Color onProgram(skvm::Builder* p, skvm::Color c,
+                          SkColorSpace* dstCS,
+                          skvm::Uniforms* uniforms, SkArenaAlloc*) const override {
+
+        auto apply_table_to_component = [&](skvm::F32 c, const uint8_t* bytePtr) -> skvm::F32 {
+            skvm::I32     index = to_unorm(8, clamp01(c));
+            skvm::Uniform table = uniforms->pushPtr(bytePtr);
+            return from_unorm(8, gather8(table, index));
+        };
+
+        c = unpremul(c);
+
+        const uint8_t* ptr = fStorage;
+        if (fFlags & kA_Flag) {
+            c.a = apply_table_to_component(c.a, ptr);
+            ptr += 256;
+        }
+        if (fFlags & kR_Flag) {
+            c.r = apply_table_to_component(c.r, ptr);
+            ptr += 256;
+        }
+        if (fFlags & kG_Flag) {
+            c.g = apply_table_to_component(c.g, ptr);
+            ptr += 256;
+        }
+        if (fFlags & kB_Flag) {
+            c.b = apply_table_to_component(c.b, ptr);
+        }
+        return premul(c);
     }
 
 protected:
@@ -253,8 +285,7 @@ public:
     const char* name() const override { return "ColorTableEffect"; }
 
     std::unique_ptr<GrFragmentProcessor> clone() const override {
-        return std::unique_ptr<GrFragmentProcessor>(
-            new ColorTableEffect(sk_ref_sp(fTextureSampler.view().proxy())));
+        return std::unique_ptr<GrFragmentProcessor>(new ColorTableEffect(fTextureSampler.view()));
     }
 
 private:
@@ -264,10 +295,11 @@ private:
 
     bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
 
-    ColorTableEffect(sk_sp<GrSurfaceProxy> proxy)
-            : INHERITED(kColorTableEffect_ClassID,
-                        kNone_OptimizationFlags) // Not bothering with table-specific optimizations.
-            , fTextureSampler(std::move(proxy)) {
+    ColorTableEffect(GrSurfaceProxyView view)
+            : INHERITED(
+                      kColorTableEffect_ClassID,
+                      kNone_OptimizationFlags)  // Not bothering with table-specific optimizations.
+            , fTextureSampler(std::move(view)) {
         this->setTextureSamplerCnt(1);
     }
 
@@ -342,11 +374,11 @@ std::unique_ptr<GrFragmentProcessor> ColorTableEffect::Make(GrRecordingContext* 
     SkASSERT(bitmap.isImmutable());
 
     auto view = GrMakeCachedBitmapProxyView(context, bitmap);
-    if (!view.proxy()) {
+    if (!view) {
         return nullptr;
     }
 
-    return std::unique_ptr<GrFragmentProcessor>(new ColorTableEffect(view.detachProxy()));
+    return std::unique_ptr<GrFragmentProcessor>(new ColorTableEffect(std::move(view)));
 }
 
 void ColorTableEffect::onGetGLSLProcessorKey(const GrShaderCaps& caps,
@@ -416,6 +448,10 @@ sk_sp<SkColorFilter> SkTableColorFilter::MakeARGB(const uint8_t tableA[256],
                                                   const uint8_t tableR[256],
                                                   const uint8_t tableG[256],
                                                   const uint8_t tableB[256]) {
+    if (!tableA && !tableR && !tableG && !tableB) {
+        return nullptr;
+    }
+
     return sk_make_sp<SkTable_ColorFilter>(tableA, tableR, tableG, tableB);
 }
 

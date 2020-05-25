@@ -13,7 +13,7 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_client_config.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_crypto_server_config.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_reference_counted.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
@@ -99,7 +99,8 @@ class InsecureProofVerifier : public ProofVerifier {
 };
 
 // Implementation of the server-side crypto stream helper.
-class QuartcCryptoServerStreamHelper : public QuicCryptoServerStream::Helper {
+class QuartcCryptoServerStreamHelper
+    : public QuicCryptoServerStreamBase::Helper {
  public:
   bool CanAcceptClientHello(const CryptoHandshakeMessage& message,
                             const QuicSocketAddress& client_address,

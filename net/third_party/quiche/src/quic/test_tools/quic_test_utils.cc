@@ -22,6 +22,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_framer.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
 #include "net/third_party/quiche/src/quic/core/quic_simple_buffer_allocator.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
@@ -106,6 +107,22 @@ QuicAckFrame MakeAckFrameWithAckBlocks(size_t num_ack_blocks,
   for (QuicPacketNumber i = QuicPacketNumber(2);
        i < QuicPacketNumber(2 * num_ack_blocks + 1); i += 2) {
     ack.packets.Add(i + least_unacked);
+  }
+  return ack;
+}
+
+QuicAckFrame MakeAckFrameWithGaps(uint64_t gap_size,
+                                  size_t max_num_gaps,
+                                  uint64_t largest_acked) {
+  QuicAckFrame ack;
+  ack.largest_acked = QuicPacketNumber(largest_acked);
+  ack.packets.Add(QuicPacketNumber(largest_acked));
+  for (size_t i = 0; i < max_num_gaps; ++i) {
+    if (largest_acked <= gap_size) {
+      break;
+    }
+    largest_acked -= gap_size;
+    ack.packets.Add(QuicPacketNumber(largest_acked));
   }
   return ack;
 }
@@ -556,7 +573,7 @@ MockQuicSession::MockQuicSession(QuicConnection* connection,
   if (create_mock_crypto_stream) {
     crypto_stream_ = std::make_unique<MockQuicCryptoStream>(this);
   }
-  ON_CALL(*this, WritevData(_, _, _, _, _))
+  ON_CALL(*this, WritevData(_, _, _, _, _, _))
       .WillByDefault(testing::Return(QuicConsumedData(0, false)));
 }
 
@@ -576,14 +593,17 @@ void MockQuicSession::SetCryptoStream(QuicCryptoStream* crypto_stream) {
   crypto_stream_.reset(crypto_stream);
 }
 
-// static
-QuicConsumedData MockQuicSession::ConsumeData(QuicStream* stream,
-                                              QuicStreamId /*id*/,
-                                              size_t write_length,
-                                              QuicStreamOffset offset,
-                                              StreamSendingState state) {
+QuicConsumedData MockQuicSession::ConsumeData(
+    QuicStreamId id,
+    size_t write_length,
+    QuicStreamOffset offset,
+    StreamSendingState state,
+    TransmissionType /*type*/,
+    quiche::QuicheOptional<EncryptionLevel> /*level*/) {
   if (write_length > 0) {
     auto buf = std::make_unique<char[]>(write_length);
+    QuicStream* stream = GetOrCreateStream(id);
+    DCHECK(stream);
     QuicDataWriter writer(write_length, buf.get(), quiche::HOST_BYTE_ORDER);
     stream->WriteStreamData(offset, write_length, &writer);
   } else {
@@ -627,7 +647,7 @@ MockQuicSpdySession::MockQuicSpdySession(QuicConnection* connection,
     crypto_stream_ = std::make_unique<MockQuicCryptoStream>(this);
   }
 
-  ON_CALL(*this, WritevData(_, _, _, _, _))
+  ON_CALL(*this, WritevData(_, _, _, _, _, _))
       .WillByDefault(testing::Return(QuicConsumedData(0, false)));
 }
 
@@ -645,6 +665,25 @@ const QuicCryptoStream* MockQuicSpdySession::GetCryptoStream() const {
 
 void MockQuicSpdySession::SetCryptoStream(QuicCryptoStream* crypto_stream) {
   crypto_stream_.reset(crypto_stream);
+}
+
+QuicConsumedData MockQuicSpdySession::ConsumeData(
+    QuicStreamId id,
+    size_t write_length,
+    QuicStreamOffset offset,
+    StreamSendingState state,
+    TransmissionType /*type*/,
+    quiche::QuicheOptional<EncryptionLevel> /*level*/) {
+  if (write_length > 0) {
+    auto buf = std::make_unique<char[]>(write_length);
+    QuicStream* stream = GetOrCreateStream(id);
+    DCHECK(stream);
+    QuicDataWriter writer(write_length, buf.get(), quiche::HOST_BYTE_ORDER);
+    stream->WriteStreamData(offset, write_length, &writer);
+  } else {
+    DCHECK(state != NO_FIN);
+  }
+  return QuicConsumedData(write_length, state != NO_FIN);
 }
 
 TestQuicSpdyServerSession::TestQuicSpdyServerSession(
@@ -674,11 +713,6 @@ TestQuicSpdyServerSession::CreateQuicCryptoServerStream(
     QuicCompressedCertsCache* compressed_certs_cache) {
   return CreateCryptoServerStream(crypto_config, compressed_certs_cache, this,
                                   &helper_);
-}
-
-void TestQuicSpdyServerSession::OnCryptoHandshakeEvent(
-    CryptoHandshakeEvent event) {
-  QuicSession::OnCryptoHandshakeEvent(event);
 }
 
 QuicCryptoServerStreamBase*
@@ -711,11 +745,6 @@ TestQuicSpdyClientSession::~TestQuicSpdyClientSession() {}
 
 bool TestQuicSpdyClientSession::IsAuthorized(const std::string& /*authority*/) {
   return true;
-}
-
-void TestQuicSpdyClientSession::OnCryptoHandshakeEvent(
-    CryptoHandshakeEvent event) {
-  QuicSession::OnCryptoHandshakeEvent(event);
 }
 
 QuicCryptoClientStream* TestQuicSpdyClientSession::GetMutableCryptoStream() {
@@ -755,7 +784,12 @@ MockPacketWriter::MockPacketWriter() {
 
 MockPacketWriter::~MockPacketWriter() {}
 
-MockSendAlgorithm::MockSendAlgorithm() {}
+MockSendAlgorithm::MockSendAlgorithm() {
+  ON_CALL(*this, PacingRate(_))
+      .WillByDefault(testing::Return(QuicBandwidth::Zero()));
+  ON_CALL(*this, BandwidthEstimate())
+      .WillByDefault(testing::Return(QuicBandwidth::Zero()));
+}
 
 MockSendAlgorithm::~MockSendAlgorithm() {}
 
@@ -781,14 +815,6 @@ ParsedQuicVersion QuicVersionMax() {
 
 ParsedQuicVersion QuicVersionMin() {
   return AllSupportedVersions().back();
-}
-
-QuicTransportVersion QuicTransportVersionMax() {
-  return AllSupportedTransportVersions().front();
-}
-
-QuicTransportVersion QuicTransportVersionMin() {
-  return AllSupportedTransportVersions().back();
 }
 
 QuicEncryptedPacket* ConstructEncryptedPacket(
@@ -1036,13 +1062,6 @@ QuicConfig DefaultQuicConfig() {
     config.SetConnectionOptionsToSend(connection_options);
   }
   return config;
-}
-
-QuicTransportVersionVector SupportedTransportVersions(
-    QuicTransportVersion version) {
-  QuicTransportVersionVector versions;
-  versions.push_back(version);
-  return versions;
 }
 
 ParsedQuicVersionVector SupportedVersions(ParsedQuicVersion version) {

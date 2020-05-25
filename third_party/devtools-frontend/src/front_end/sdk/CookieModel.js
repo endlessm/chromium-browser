@@ -4,8 +4,8 @@
 
 import * as Common from '../common/common.js';
 
-import {Cookie} from './Cookie.js';
-import {Resource} from './Resource.js';  // eslint-disable-line no-unused-vars
+import {Attributes, Cookie} from './Cookie.js';  // eslint-disable-line no-unused-vars
+import {Resource} from './Resource.js';          // eslint-disable-line no-unused-vars
 import {ResourceTreeModel} from './ResourceTreeModel.js';
 import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
@@ -23,35 +23,7 @@ export class CookieModel extends SDKModel {
 
   /**
    * @param {!Cookie} cookie
-   * @param {string} resourceURL
-   * @return {boolean}
-   */
-  static cookieMatchesResourceURL(cookie, resourceURL) {
-    const url = Common.ParsedURL.ParsedURL.fromString(resourceURL);
-    if (!url || !CookieModel.cookieDomainMatchesResourceDomain(cookie.domain(), url.host)) {
-      return false;
-    }
-    return (
-        url.path.startsWith(cookie.path()) && (!cookie.port() || url.port === cookie.port()) &&
-        (!cookie.secure() || url.scheme === 'https'));
-  }
-
-  /**
-   * @param {string} cookieDomain
-   * @param {string} resourceDomain
-   * @return {boolean}
-   */
-  static cookieDomainMatchesResourceDomain(cookieDomain, resourceDomain) {
-    if (cookieDomain.charAt(0) !== '.') {
-      return resourceDomain === cookieDomain;
-    }
-    return !!resourceDomain.match(
-        new RegExp('^([^\\.]+\\.)*' + cookieDomain.substring(1).escapeForRegExp() + '$', 'i'));
-  }
-
-  /**
-   * @param {!Cookie} cookie
-   * @param {?Array<!CookieTable.BlockedReason>} blockedReasons
+   * @param {?Array<!BlockedReason>} blockedReasons
    */
   addBlockedCookie(cookie, blockedReasons) {
     const key = cookie.key();
@@ -61,10 +33,6 @@ export class CookieModel extends SDKModel {
     if (previousCookie) {
       this._cookieToBlockedReasons.delete(key);
     }
-  }
-
-  getBlockedReasonsByCookie(cookie) {
-    return this._cookieToBlockedReasons.get(cookie) || null;
   }
 
   getCookieToBlockedReasonsMap() {
@@ -158,3 +126,6 @@ export class CookieModel extends SDKModel {
 }
 
 SDKModel.register(CookieModel, Capability.Network, false);
+
+/** @typedef {!{uiString: string, attribute: ?Attributes}} */
+export let BlockedReason;

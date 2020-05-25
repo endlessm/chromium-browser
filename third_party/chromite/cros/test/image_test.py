@@ -14,6 +14,7 @@ from __future__ import print_function
 import collections
 import errno
 import fnmatch
+import io
 import itertools
 import mimetypes
 import os
@@ -25,7 +26,6 @@ from elftools.elf import elffile
 from elftools.common import exceptions
 import lddtree
 import magic  # pylint: disable=import-error
-from six.moves import StringIO
 
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -351,8 +351,8 @@ class SymbolsTest(image_test_lib.ImageTestCase):
     if file_name in self._known_symtabs:
       return self._known_symtabs[file_name]
 
-    # We use StringIO here to obviate fseek/fread time in pyelftools.
-    stream = StringIO(osutils.ReadFile(file_name))
+    # We use BytesIO here to obviate fseek/fread time in pyelftools.
+    stream = io.BytesIO(osutils.ReadFile(file_name, mode='rb'))
 
     try:
       elf = elffile.ELFFile(stream)
@@ -408,9 +408,11 @@ class SymbolsTest(image_test_lib.ImageTestCase):
           exported.update(exp)
 
     known_unsatisfieds = {
-        'libthread_db-1.0.so': set([
-            'ps_pdwrite', 'ps_pdread', 'ps_lgetfpregs', 'ps_lsetregs',
-            'ps_lgetregs', 'ps_lsetfpregs', 'ps_pglobal_lookup', 'ps_getpid']),
+        'libthread_db-1.0.so': {
+            b'ps_pdwrite', b'ps_pdread', b'ps_lgetfpregs', b'ps_lsetregs',
+            b'ps_lgetregs', b'ps_lsetfpregs', b'ps_pglobal_lookup',
+            b'ps_getpid',
+        },
     }
 
     excluded_files = set([
@@ -674,6 +676,9 @@ class SymlinkTest(image_test_lib.ImageTestCase):
   # The key is the symlink and the value is the symlink target.
   # Both accept fnmatch style expressions (i.e. globs).
   _ACCEPTABLE_LINKS = {
+      # Allow any /etc path to point to any /run path.
+      '/etc/*': {'/run/*'},
+
       '/etc/localtime': {'/var/lib/timezone/localtime'},
       '/etc/machine-id': {'/var/lib/dbus/machine-id'},
       '/etc/mtab': {'/proc/mounts'},
@@ -706,16 +711,15 @@ class SymlinkTest(image_test_lib.ImageTestCase):
       '/usr/share/misc/magic.mgc': {'/usr/local/share/misc/magic.mgc'},
       '/usr/share/portage': {'/usr/local/share/portage'},
       # Needed for the ARC++/ARCVM dual build. For test images only.
-      '/opt/google/vms/android': {'/usr/local/vms/android'}
+      '/opt/google/vms/android': {'/usr/local/vms/android'},
+      # TODO(b/150806692): Clenaup this library symlink.
+      # Allow /opt/pita/lib path to point to any /run path. For PluginVM DLC.
+      '/opt/pita/lib': {'/run/*'},
   }
 
   @classmethod
   def _SymlinkTargetAllowed(cls, source, target):
     """See whether |source| points to an acceptable |target|."""
-    # Allow any /etc path to point to any /run path.
-    if source.startswith('/etc') and target.startswith('/run'):
-      return True
-
     # Scan the allow list.
     for allow_source, allow_targets in cls._ACCEPTABLE_LINKS.items():
       if (fnmatch.fnmatch(source, allow_source) and

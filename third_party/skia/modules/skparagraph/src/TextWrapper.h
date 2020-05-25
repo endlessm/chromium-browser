@@ -45,7 +45,7 @@ class TextWrapper {
         }
 
         inline SkScalar width() const { return fWidth; }
-        SkScalar withWithGhostSpaces() const { return fWidthWithGhostSpaces; }
+        SkScalar widthWithGhostSpaces() const { return fWidthWithGhostSpaces; }
         inline Cluster* startCluster() const { return fStart.cluster(); }
         inline Cluster* endCluster() const { return fEnd.cluster(); }
         inline Cluster* breakCluster() const { return fBreak.cluster(); }
@@ -112,7 +112,7 @@ class TextWrapper {
             if (fEnd.cluster() != nullptr &&
                 fEnd.cluster()->master() != nullptr &&
                 fEnd.cluster()->run() != nullptr &&
-                fEnd.cluster()->run()->placeholder() == nullptr &&
+                fEnd.cluster()->run()->placeholderStyle() == nullptr &&
                 fWidth > 0) {
                 fWidth -= (fEnd.cluster()->width() - fEnd.cluster()->trimmedWidth(fEnd.position()));
             }

@@ -15,26 +15,24 @@ namespace quic {
 namespace test {
 namespace {
 
-struct IntervalItem {
+const int32_t kSize = 100;
+const std::size_t kIntervalStep = 10;
+
+}  // namespace
+
+struct TestIntervalItem {
   int32_t val;
   std::size_t interval_start, interval_end;
   QuicInterval<std::size_t> interval() const {
     return QuicInterval<std::size_t>(interval_start, interval_end);
   }
-  IntervalItem(int32_t val,
-               std::size_t interval_start,
-               std::size_t interval_end)
+  TestIntervalItem(int32_t val,
+                   std::size_t interval_start,
+                   std::size_t interval_end)
       : val(val), interval_start(interval_start), interval_end(interval_end) {}
 };
 
-namespace {
-
-typedef QuicIntervalDeque<IntervalItem> QID;
-
-const int32_t kSize = 100;
-const std::size_t kIntervalStep = 10;
-
-}  // namespace
+typedef QuicIntervalDeque<TestIntervalItem> QID;
 
 class QuicIntervalDequeTest : public QuicTest {
  public:
@@ -43,7 +41,7 @@ class QuicIntervalDequeTest : public QuicTest {
     for (int32_t i = 0; i < kSize; ++i) {
       const std::size_t interval_begin = kIntervalStep * i;
       const std::size_t interval_end = interval_begin + kIntervalStep;
-      qid_.PushBack(IntervalItem(i, interval_begin, interval_end));
+      qid_.PushBack(TestIntervalItem(i, interval_begin, interval_end));
     }
   }
 
@@ -52,17 +50,17 @@ class QuicIntervalDequeTest : public QuicTest {
 
 // The goal of this test is to show insertion/push_back, iteration, and and
 // deletion/pop_front from the container.
-TEST_F(QuicIntervalDequeTest, QuicDequeInsertRemoveSize) {
+TEST_F(QuicIntervalDequeTest, InsertRemoveSize) {
   QID qid;
 
   EXPECT_EQ(qid.Size(), std::size_t(0));
-  qid.PushBack(IntervalItem(0, 0, 10));
+  qid.PushBack(TestIntervalItem(0, 0, 10));
   EXPECT_EQ(qid.Size(), std::size_t(1));
-  qid.PushBack(IntervalItem(1, 10, 20));
+  qid.PushBack(TestIntervalItem(1, 10, 20));
   EXPECT_EQ(qid.Size(), std::size_t(2));
-  qid.PushBack(IntervalItem(2, 20, 30));
+  qid.PushBack(TestIntervalItem(2, 20, 30));
   EXPECT_EQ(qid.Size(), std::size_t(3));
-  qid.PushBack(IntervalItem(3, 30, 40));
+  qid.PushBack(TestIntervalItem(3, 30, 40));
   EXPECT_EQ(qid.Size(), std::size_t(4));
 
   // Advance the index all the way...
@@ -84,14 +82,13 @@ TEST_F(QuicIntervalDequeTest, QuicDequeInsertRemoveSize) {
   qid.PopFront();
   EXPECT_EQ(qid.Size(), std::size_t(0));
 
-  EXPECT_QUIC_DEBUG_DEATH(qid.PopFront(),
-                          "Trying to pop from an empty container.");
+  EXPECT_QUIC_BUG(qid.PopFront(), "Trying to pop from an empty container.");
 }
 
 // The goal of this test is to push data into the container at specific
 // intervals and show how the |DataAt| method can move the |cached_index| as the
 // iterator moves through the data.
-TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateWhole) {
+TEST_F(QuicIntervalDequeTest, InsertIterateWhole) {
   // The write index should point to the beginning of the container.
   const int32_t cached_index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(cached_index, 0);
@@ -120,7 +117,7 @@ TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateWhole) {
 // The goal of this test is to push data into the container at specific
 // intervals and show how the |DataAt| method can move the |cached_index| using
 // the off-by-one logic.
-TEST_F(QuicIntervalDequeTest, QuicDequeOffByOne) {
+TEST_F(QuicIntervalDequeTest, OffByOne) {
   // The write index should point to the beginning of the container.
   const int32_t cached_index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(cached_index, 0);
@@ -147,7 +144,7 @@ TEST_F(QuicIntervalDequeTest, QuicDequeOffByOne) {
 
 // The goal of this test is to push data into the container at specific
 // intervals and show modify the structure with a live iterator.
-TEST_F(QuicIntervalDequeTest, QuicDequeIteratorInvalidation) {
+TEST_F(QuicIntervalDequeTest, IteratorInvalidation) {
   // The write index should point to the beginning of the container.
   const int32_t cached_index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(cached_index, 0);
@@ -161,9 +158,9 @@ TEST_F(QuicIntervalDequeTest, QuicDequeIteratorInvalidation) {
   EXPECT_EQ(lookup_end, qid_.DataEnd());
 }
 
-// The goal of this test is the same as |QuicDequeInsertIterateWhole| but to
+// The goal of this test is the same as |InsertIterateWhole| but to
 // skip certain intervals and show the |cached_index| is updated properly.
-TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateSkip) {
+TEST_F(QuicIntervalDequeTest, InsertIterateSkip) {
   // The write index should point to the beginning of the container.
   const int32_t cached_index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(cached_index, 0);
@@ -191,9 +188,9 @@ TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateSkip) {
   }
 }
 
-// The goal of this test is the same as |QuicDequeInsertIterateWhole| but it has
+// The goal of this test is the same as |InsertIterateWhole| but it has
 // |PopFront| calls interleaved to show the |cached_index| updates correctly.
-TEST_F(QuicIntervalDequeTest, QuicDequeInsertDeleteIterate) {
+TEST_F(QuicIntervalDequeTest, InsertDeleteIterate) {
   // The write index should point to the beginning of the container.
   const int32_t index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(index, 0);
@@ -225,7 +222,7 @@ TEST_F(QuicIntervalDequeTest, QuicDequeInsertDeleteIterate) {
 
 // The goal of this test is to move the index to the end and then add more data
 // to show it can be reset to a valid index.
-TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateInsert) {
+TEST_F(QuicIntervalDequeTest, InsertIterateInsert) {
   // The write index should point to the beginning of the container.
   const int32_t index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(index, 0);
@@ -253,7 +250,7 @@ TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateInsert) {
   for (int32_t i = 0; i < kSize; ++i) {
     const std::size_t interval_begin = offset + (kIntervalStep * i);
     const std::size_t interval_end = offset + interval_begin + kIntervalStep;
-    qid_.PushBack(IntervalItem(i + offset, interval_begin, interval_end));
+    qid_.PushBack(TestIntervalItem(i + offset, interval_begin, interval_end));
     const int32_t index_current = QuicIntervalDequePeer::GetCachedIndex(&qid_);
     // Index should now be valid and equal to the size of the container before
     // adding more items to it.
@@ -287,7 +284,7 @@ TEST_F(QuicIntervalDequeTest, QuicDequeInsertIterateInsert) {
 
 // The goal of this test is to push data into the container at specific
 // intervals and show how the |DataAt| can iterate over already scanned data.
-TEST_F(QuicIntervalDequeTest, QuicDequeRescanData) {
+TEST_F(QuicIntervalDequeTest, RescanData) {
   // The write index should point to the beginning of the container.
   const int32_t index = QuicIntervalDequePeer::GetCachedIndex(&qid_);
   EXPECT_EQ(index, 0);
@@ -338,27 +335,26 @@ TEST_F(QuicIntervalDequeTest, QuicDequeRescanData) {
 
 // The goal of this test is to show that popping from an empty container is a
 // bug.
-TEST_F(QuicIntervalDequeTest, QuicDequePopEmpty) {
+TEST_F(QuicIntervalDequeTest, PopEmpty) {
   QID qid;
   EXPECT_TRUE(qid.Empty());
   EXPECT_QUIC_BUG(qid.PopFront(), "Trying to pop from an empty container.");
 }
 
 // The goal of this test is to show that adding a zero-sized interval is a bug.
-TEST_F(QuicIntervalDequeTest, QuicDequeZeroSizedInterval) {
+TEST_F(QuicIntervalDequeTest, ZeroSizedInterval) {
   QID qid;
-  EXPECT_QUIC_BUG(qid.PushBack(IntervalItem(0, 0, 0)),
-                  "Trying to save empty interval to QuicDeque.");
+  EXPECT_QUIC_BUG(qid.PushBack(TestIntervalItem(0, 0, 0)),
+                  "Trying to save empty interval to .");
 }
 
 // The goal of this test is to show that an iterator to an empty container
 // returns |DataEnd|.
-TEST_F(QuicIntervalDequeTest, QuicDequeIteratorEmpty) {
+TEST_F(QuicIntervalDequeTest, IteratorEmpty) {
   QID qid;
   auto it = qid.DataAt(0);
   EXPECT_EQ(it, qid.DataEnd());
 }
 
-}  // namespace
 }  // namespace test
 }  // namespace quic

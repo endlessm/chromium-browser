@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2019 Arm Limited
+ * Copyright 2015-2020 Arm Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -638,6 +638,7 @@ struct SPIREntryPoint
 	uint32_t invocations = 0;
 	uint32_t output_vertices = 0;
 	spv::ExecutionModel model = spv::ExecutionModelMax;
+	bool geometry_passthrough = false;
 };
 
 struct SPIRExpression : IVariant
@@ -937,6 +938,11 @@ struct SPIRFunction : IVariant
 	// Need to defer this, because they might rely on things which change during compilation.
 	// Intentionally not a small vector, this one is rare, and std::function can be large.
 	Vector<std::function<void()>> fixup_hooks_in;
+
+	// On function entry, make sure to copy a constant array into thread addr space to work around
+	// the case where we are passing a constant array by value to a function on backends which do not
+	// consider arrays value types.
+	SmallVector<ID> constant_arrays_needed_on_stack;
 
 	bool active = false;
 	bool flush_undeclared = true;
@@ -1570,6 +1576,8 @@ struct Meta
 		uint32_t set = 0;
 		uint32_t binding = 0;
 		uint32_t offset = 0;
+		uint32_t xfb_buffer = 0;
+		uint32_t xfb_stride = 0;
 		uint32_t array_stride = 0;
 		uint32_t matrix_stride = 0;
 		uint32_t input_attachment = 0;

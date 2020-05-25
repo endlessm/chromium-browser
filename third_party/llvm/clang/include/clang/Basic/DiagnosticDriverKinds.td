@@ -271,6 +271,9 @@ def warn_drv_unsupported_debug_info_opt_for_target : Warning<
   InGroup<UnsupportedTargetOpt>;
 def warn_c_kext : Warning<
   "ignoring -fapple-kext which is valid for C++ and Objective-C++ only">;
+def warn_ignoring_fdiscard_for_bitcode : Warning<
+  "ignoring -fdiscard-value-names for LLVM Bitcode">,
+  InGroup<UnusedCommandLineArgument>;
 def warn_drv_input_file_unused : Warning<
   "%0: '%1' input unused%select{ when '%3' is present|}2">,
   InGroup<UnusedCommandLineArgument>;
@@ -374,6 +377,9 @@ def err_drv_ropi_incompatible_with_cxx : Error<
 def err_stack_tagging_requires_hardware_feature : Error<
   "'-fsanitize=memtag' requires hardware support (+memtag)">;
 
+def err_cmse_pi_are_incompatible : Error<
+  "cmse is not compatible with %select{RWPI|ROPI}0">;
+
 def warn_target_unsupported_nan2008 : Warning<
   "ignoring '-mnan=2008' option because the '%0' architecture does not support it">,
   InGroup<UnsupportedNan>;
@@ -396,6 +402,9 @@ def warn_drv_unsupported_gpopt : Warning<
   "ignoring '-mgpopt' option as it cannot be used with %select{|the implicit"
   " usage of }0-mabicalls">,
   InGroup<UnsupportedGPOpt>;
+def warn_drv_unsupported_sdata : Warning<
+  "ignoring '-msmall-data-limit=' with -mcmodel=large for -fpic or RV64">,
+  InGroup<OptionIgnored>;
 def warn_drv_unsupported_longcalls : Warning<
   "ignoring '-mlong-calls' option as it is not currently supported with "
   "%select{|the implicit usage of }0-mabicalls">,

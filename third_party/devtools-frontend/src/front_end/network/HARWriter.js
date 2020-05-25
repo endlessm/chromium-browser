@@ -28,15 +28,19 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as Platform from '../platform/platform.js';
+import * as SDK from '../sdk/sdk.js';
+
 export class HARWriter {
   /**
-   * @param {!Common.OutputStream} stream
-   * @param {!Array.<!SDK.NetworkRequest>} requests
-   * @param {!Common.Progress} progress
+   * @param {!Common.StringOutputStream.OutputStream} stream
+   * @param {!Array.<!SDK.NetworkRequest.NetworkRequest>} requests
+   * @param {!Common.Progress.Progress} progress
    * @return {!Promise}
    */
   static async write(stream, requests, progress) {
-    const compositeProgress = new Common.CompositeProgress(progress);
+    const compositeProgress = new Common.Progress.CompositeProgress(progress);
 
     const content = await HARWriter._harStringForRequests(requests, compositeProgress);
     if (progress.isCanceled()) {
@@ -46,16 +50,16 @@ export class HARWriter {
   }
 
   /**
-   * @param {!Array<!SDK.NetworkRequest>} requests
-   * @param {!Common.CompositeProgress} compositeProgress
+   * @param {!Array<!SDK.NetworkRequest.NetworkRequest>} requests
+   * @param {!Common.Progress.CompositeProgress} compositeProgress
    * @return {!Promise<string>}
    */
   static async _harStringForRequests(requests, compositeProgress) {
     const progress = compositeProgress.createSubProgress();
-    progress.setTitle(Common.UIString('Collecting content\u2026'));
+    progress.setTitle(Common.UIString.UIString('Collecting content…'));
     progress.setTotalWork(requests.length);
 
-    const harLog = await SDK.HARLog.build(requests);
+    const harLog = await SDK.HARLog.HARLog.build(requests);
     const promises = [];
     for (let i = 0; i < requests.length; i++) {
       const promise = requests[i].contentData();
@@ -96,7 +100,7 @@ export class HARWriter {
       if (contentData.content !== null) {
         let content = contentData.content;
         if (content && !encoded && needsEncoding(content)) {
-          content = content.toBase64();
+          content = Platform.StringUtilities.toBase64(content);
           encoded = true;
         }
         entry.response.content.text = content;
@@ -108,14 +112,14 @@ export class HARWriter {
   }
 
   /**
-   * @param {!Common.OutputStream} stream
-   * @param {!Common.CompositeProgress} compositeProgress
+   * @param {!Common.StringOutputStream.OutputStream} stream
+   * @param {!Common.Progress.CompositeProgress} compositeProgress
    * @param {string} fileContent
    * @return {!Promise}
    */
   static async _writeToStream(stream, compositeProgress, fileContent) {
     const progress = compositeProgress.createSubProgress();
-    progress.setTitle(Common.UIString('Writing file\u2026'));
+    progress.setTitle(Common.UIString.UIString('Writing file…'));
     progress.setTotalWork(fileContent.length);
     for (let i = 0; i < fileContent.length && !progress.isCanceled(); i += _chunkSize) {
       const chunk = fileContent.substr(i, _chunkSize);

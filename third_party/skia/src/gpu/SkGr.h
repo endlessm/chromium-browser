@@ -125,8 +125,6 @@ bool SkPaintToGrPaintWithTexture(GrRecordingContext*,
 ////////////////////////////////////////////////////////////////////////////////
 // Misc Sk to Gr type conversions
 
-GrSurfaceDesc GrImageInfoToSurfaceDesc(const SkImageInfo&);
-
 GrSamplerState::Filter GrSkFilterQualityToGrFilterMode(int imageWidth, int imageHeight,
                                                        SkFilterQuality paintFilterQuality,
                                                        const SkMatrix& viewM,
@@ -165,31 +163,40 @@ static_assert((int)kIDA_GrBlendCoeff == (int)SkBlendModeCoeff::kIDA);
 ////////////////////////////////////////////////////////////////////////////////
 // Texture management
 
-/** Returns a texture representing the bitmap that is compatible with the GrSamplerState. The
- *  texture is inserted into the cache (unless the bitmap is marked volatile) and can be
- *  retrieved again via this function.
- *  The 'scaleAdjust' in/out parameter will be updated to hold any rescaling that needs to be
- *  performed on the absolute texture coordinates (e.g., if the texture is resized out to
- *  the next power of two). It can be null if the caller is sure the bitmap won't be resized.
+/**
+ * Policies for how to create textures for SkImages (and SkBitmaps).
  */
-sk_sp<GrTextureProxy> GrRefCachedBitmapTextureProxy(GrRecordingContext*,
-                                                    const SkBitmap&,
-                                                    GrSamplerState,
-                                                    SkScalar scaleAdjust[2]);
+enum class GrImageTexGenPolicy : int {
+    // Choose the cheapest way to generate the texture. Use GrResourceCache if appropriate.
+    kDraw,
+    // Always make a new texture that is uncached and unbudgeted.
+    kNew_Uncached_Unbudgeted,
+    // Always make a new texture that is uncached and budgeted.
+    kNew_Uncached_Budgeted
+};
+
+/**
+ * Returns a view that wraps a texture representing the bitmap. The texture is inserted into the
+ * cache (unless the bitmap is marked volatile and can be retrieved again via this function.
+ * A MIP mapped texture may be returned even when GrMipMapped is kNo. The function will succeed
+ * with a non-MIP mapped texture if GrMipMapped is kYes but MIP mapping is not supported.
+ */
+GrSurfaceProxyView GrRefCachedBitmapView(GrRecordingContext*, const SkBitmap&, GrMipMapped);
 
 /**
  * Creates a new texture with mipmap levels and copies the baseProxy into the base layer.
  */
-sk_sp<GrTextureProxy> GrCopyBaseMipMapToTextureProxy(GrRecordingContext*,
-                                                     GrSurfaceProxy* baseProxy,
-                                                     GrColorType srcColorType);
+GrSurfaceProxyView GrCopyBaseMipMapToTextureProxy(GrRecordingContext*,
+                                                  GrSurfaceProxy* baseProxy,
+                                                  GrSurfaceOrigin origin,
+                                                  GrColorType srcColorType,
+                                                  SkBudgeted = SkBudgeted::kYes);
 
 /*
  * Create a texture proxy from the provided bitmap and add it to the texture cache
  * using the key also extracted from 'bitmp'.
  */
-GrSurfaceProxyView GrMakeCachedBitmapProxyView(GrRecordingContext*, const SkBitmap& bitmap,
-                                               SkBackingFit fit = SkBackingFit::kExact);
+GrSurfaceProxyView GrMakeCachedBitmapProxyView(GrRecordingContext*, const SkBitmap& bitmap);
 
 /**
  *  Our key includes the offset, width, and height so that bitmaps created by extractSubset()
@@ -199,14 +206,15 @@ GrSurfaceProxyView GrMakeCachedBitmapProxyView(GrRecordingContext*, const SkBitm
  *      - SkBitmap/SkPixelRef
  *      - SkImage
  *      - SkImageGenerator
- *
- *  Note: width/height must fit in 16bits for this impl.
  */
 void GrMakeKeyFromImageID(GrUniqueKey* key, uint32_t imageID, const SkIRect& imageBounds);
 
-/** Call this after installing a GrUniqueKey on texture. It will cause the texture's key to be
-    removed should the bitmap's contents change or be destroyed. */
-void GrInstallBitmapUniqueKeyInvalidator(const GrUniqueKey& key, uint32_t contextID,
-                                         SkPixelRef* pixelRef);
+/**
+ * Makes a SkIDChangeListener from a GrUniqueKey. The key will be invalidated in the resource
+ * cache if the ID becomes invalid. This also modifies the key so that it will cause the listener
+ * to be deregistered if the key is destroyed (to prevent unbounded listener growth when resources
+ * are purged before listeners trigger).
+ */
+sk_sp<SkIDChangeListener> GrMakeUniqueKeyInvalidationListener(GrUniqueKey*, uint32_t contextID);
 
 #endif

@@ -216,12 +216,12 @@ void PepperWebPluginImpl::UpdateVisibility(bool visible) {}
 
 blink::WebInputEventResult PepperWebPluginImpl::HandleInputEvent(
     const blink::WebCoalescedInputEvent& coalesced_event,
-    blink::WebCursorInfo& cursor_info) {
+    ui::Cursor* cursor) {
   // Re-entrancy may cause JS to try to execute script on the plugin before it
   // is fully initialized. See: crbug.com/715747.
   if (!instance_ || instance_->FlashIsFullscreenOrPending())
     return blink::WebInputEventResult::kNotHandled;
-  return instance_->HandleCoalescedInputEvent(coalesced_event, &cursor_info)
+  return instance_->HandleCoalescedInputEvent(coalesced_event, cursor)
              ? blink::WebInputEventResult::kHandledApplication
              : blink::WebInputEventResult::kNotHandled;
 }
@@ -306,6 +306,8 @@ bool PepperWebPluginImpl::CanRedo() const {
 }
 
 bool PepperWebPluginImpl::ExecuteEditCommand(const blink::WebString& name) {
+  DCHECK(name != "Paste");
+  DCHECK(name != "PasteAndMatchStyle");
   return ExecuteEditCommand(name, WebString());
 }
 
@@ -318,40 +320,15 @@ bool PepperWebPluginImpl::ExecuteEditCommand(const blink::WebString& name,
     if (!HasSelection() || !CanEditText())
       return false;
 
-    if (!clipboard_) {
-      blink::Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
-          clipboard_.BindNewPipeAndPassReceiver());
-    }
-    base::string16 markup;
-    base::string16 text;
-    if (instance_) {
-      markup = instance_->GetSelectedText(true);
-      text = instance_->GetSelectedText(false);
-    }
-    clipboard_->WriteHtml(markup, GURL());
-    clipboard_->WriteText(text);
-    clipboard_->CommitWrite();
-
     instance_->ReplaceSelection("");
     return true;
   }
 
-  // If the clipboard contains something other than text (e.g. an image),
-  // ClipboardHost::ReadText() returns an empty string. The empty string is
-  // then pasted, replacing any selected text. This behavior is consistent with
-  // that of HTML text form fields.
   if (name == "Paste" || name == "PasteAndMatchStyle") {
     if (!CanEditText())
       return false;
 
-    if (!clipboard_) {
-      blink::Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
-          clipboard_.BindNewPipeAndPassReceiver());
-    }
-    base::string16 text;
-    clipboard_->ReadText(ui::ClipboardBuffer::kCopyPaste, &text);
-
-    instance_->ReplaceSelection(base::UTF16ToUTF8(text));
+    instance_->ReplaceSelection(value.Utf8());
     return true;
   }
 

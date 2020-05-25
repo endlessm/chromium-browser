@@ -220,6 +220,7 @@ namespace dawn_native {
                                                    wgpu::TextureUsage allowedUsage,
                                                    uint32_t width,
                                                    uint32_t height) const {
+        DAWN_TRY(GetDevice()->ValidateIsAlive());
         DAWN_TRY(GetDevice()->ValidateObject(this));
 
         DAWN_TRY(ValidateTextureUsage(allowedUsage));
@@ -233,6 +234,7 @@ namespace dawn_native {
     }
 
     MaybeError OldSwapChainBase::ValidateGetCurrentTextureView() const {
+        DAWN_TRY(GetDevice()->ValidateIsAlive());
         DAWN_TRY(GetDevice()->ValidateObject(this));
 
         if (mWidth == 0) {
@@ -244,6 +246,7 @@ namespace dawn_native {
     }
 
     MaybeError OldSwapChainBase::ValidatePresent() const {
+        DAWN_TRY(GetDevice()->ValidateIsAlive());
         DAWN_TRY(GetDevice()->ValidateObject(this));
 
         if (mCurrentTextureView.Get() == nullptr) {
@@ -265,6 +268,7 @@ namespace dawn_native {
           mHeight(descriptor->height),
           mFormat(descriptor->format),
           mUsage(descriptor->usage),
+          mPresentMode(descriptor->presentMode),
           mSurface(surface) {
     }
 
@@ -356,7 +360,11 @@ namespace dawn_native {
         return mUsage;
     }
 
-    Surface* NewSwapChainBase::GetSurface() {
+    wgpu::PresentMode NewSwapChainBase::GetPresentMode() const {
+        return mPresentMode;
+    }
+
+    Surface* NewSwapChainBase::GetSurface() const {
         return mSurface;
     }
 

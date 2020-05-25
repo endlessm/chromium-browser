@@ -94,9 +94,11 @@ class MdnsResponderManager;
 class NSSTempCertsCacheChromeOS;
 class P2PSocketManager;
 class ProxyLookupRequest;
+class QuicTransport;
 class ResourceScheduler;
 class ResourceSchedulerClient;
-class QuicTransport;
+class SQLiteTrustTokenPersister;
+class PendingTrustTokenStore;
 class WebSocketFactory;
 
 namespace cors {
@@ -316,6 +318,10 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
       const std::string& ocsp_result,
       const std::string& sct_list,
       VerifyCertForSignedExchangeCallback callback) override;
+  void ParseContentSecurityPolicy(
+      const GURL& base_url,
+      const scoped_refptr<net::HttpResponseHeaders>& headers,
+      ParseContentSecurityPolicyCallback callback) override;
   void AddHSTS(const std::string& host,
                base::Time expiry,
                bool include_subdomains,
@@ -466,6 +472,20 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
 
   size_t NumOpenQuicTransports() const;
 
+  size_t num_url_loader_factories_for_testing() const {
+    return url_loader_factories_.size();
+  }
+
+  // Maintains Trust Tokens protocol state
+  // (https://github.com/WICG/trust-token-api). Used by URLLoader to check
+  // preconditions before annotating requests with protocol-related headers
+  // and to store information conveyed in the corresponding responses.
+  //
+  // May return null if Trust Tokens support is disabled.
+  PendingTrustTokenStore* trust_token_store() {
+    return trust_token_store_.get();
+  }
+
  private:
   URLRequestContextOwner MakeURLRequestContext();
 
@@ -515,6 +535,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
 
   void InitializeCorsParams();
 
+  // If |trust_token_store_| is backed by an asynchronously-constructed (e.g.,
+  // SQL-based) persistence layer, |FinishConstructingTrustTokenStore|
+  // constructs and populates |trust_token_store_| once the persister's
+  // asynchronous initialization has finished.
+  void FinishConstructingTrustTokenStore(
+      std::unique_ptr<SQLiteTrustTokenPersister> persister);
+
   NetworkService* const network_service_;
 
   mojo::Remote<mojom::NetworkContextClient> client_;
@@ -549,6 +576,9 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
 
   mojo::UniqueReceiverSet<mojom::ProxyResolvingSocketFactory>
       proxy_resolving_socket_factories_;
+
+  // See the comment for |trust_token_store()|.
+  std::unique_ptr<PendingTrustTokenStore> trust_token_store_;
 
 #if !defined(OS_IOS)
   std::unique_ptr<WebSocketFactory> websocket_factory_;
@@ -676,6 +706,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) NetworkContext
   // `http_auth_merged_preferences_` which would then be used to create
   // HttpAuthHandle via |NetworkContext::CreateHttpAuthHandlerFactory|.
   net::HttpAuthPreferences http_auth_merged_preferences_;
+
+  base::WeakPtrFactory<NetworkContext> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(NetworkContext);
 };

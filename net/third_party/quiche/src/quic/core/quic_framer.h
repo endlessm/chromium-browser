@@ -312,8 +312,12 @@ class QUIC_EXPORT_PRIVATE QuicFramer {
                                     QuicByteCount length);
   // Size in bytes of all ack frame fields without the missing packets or ack
   // blocks.
+  // TODO(fayang): Remove |largest_observed_length| when deprecating
+  // quic_use_ack_frame_to_get_min_size.
   static size_t GetMinAckFrameSize(
       QuicTransportVersion version,
+      const QuicAckFrame& ack_frame,
+      uint32_t local_ack_delay_exponent,
       QuicPacketNumberLength largest_observed_length);
   // Size in bytes of a stop waiting frame.
   static size_t GetStopWaitingFrameSize(
@@ -519,6 +523,9 @@ class QUIC_EXPORT_PRIVATE QuicFramer {
   // Changes the encrypter used for level |level| to |encrypter|.
   void SetEncrypter(EncryptionLevel level,
                     std::unique_ptr<QuicEncrypter> encrypter);
+
+  // Called to remove encrypter of encryption |level|.
+  void RemoveEncrypter(EncryptionLevel level);
 
   // Sets the encrypter and decrypter for the ENCRYPTION_INITIAL level.
   void SetInitialObfuscators(QuicConnectionId connection_id);
@@ -876,11 +883,6 @@ class QUIC_EXPORT_PRIVATE QuicFramer {
   bool AppendIetfAckFrameAndTypeByte(const QuicAckFrame& frame,
                                      QuicDataWriter* writer);
 
-  // Used by AppendIetfAckFrameAndTypeByte to figure out how many ack
-  // blocks can be included.
-  int CalculateIetfAckBlockCount(const QuicAckFrame& frame,
-                                 QuicDataWriter* writer,
-                                 size_t available_space);
   bool AppendStopWaitingFrame(const QuicPacketHeader& header,
                               const QuicStopWaitingFrame& frame,
                               QuicDataWriter* builder);
@@ -949,14 +951,14 @@ class QUIC_EXPORT_PRIVATE QuicFramer {
                               QuicMaxStreamsFrame* frame,
                               uint64_t frame_type);
 
-  bool AppendIetfBlockedFrame(const QuicBlockedFrame& frame,
+  bool AppendDataBlockedFrame(const QuicBlockedFrame& frame,
                               QuicDataWriter* writer);
-  bool ProcessIetfBlockedFrame(QuicDataReader* reader, QuicBlockedFrame* frame);
+  bool ProcessDataBlockedFrame(QuicDataReader* reader, QuicBlockedFrame* frame);
 
-  bool AppendStreamBlockedFrame(const QuicBlockedFrame& frame,
-                                QuicDataWriter* writer);
-  bool ProcessStreamBlockedFrame(QuicDataReader* reader,
-                                 QuicBlockedFrame* frame);
+  bool AppendStreamDataBlockedFrame(const QuicBlockedFrame& frame,
+                                    QuicDataWriter* writer);
+  bool ProcessStreamDataBlockedFrame(QuicDataReader* reader,
+                                     QuicBlockedFrame* frame);
 
   bool AppendStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame,
                                  QuicDataWriter* writer);
@@ -993,6 +995,11 @@ class QUIC_EXPORT_PRIVATE QuicFramer {
 
   void set_detailed_error(const char* error) { detailed_error_ = error; }
   void set_detailed_error(std::string error) { detailed_error_ = error; }
+
+  // Returns false if the reading fails.
+  bool ReadUint32FromVarint62(QuicDataReader* reader,
+                              QuicIetfFrameType type,
+                              QuicStreamId* id);
 
   std::string detailed_error_;
   QuicFramerVisitorInterface* visitor_;

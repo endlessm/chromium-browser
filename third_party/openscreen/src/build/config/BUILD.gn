@@ -14,7 +14,15 @@ declare_args() {
 
   # Enable thread sanitizer.
   is_tsan = false
+
+  # Must be enabled for fuzzing targets.
+  use_libfuzzer = false
+
+  # Enables clang's source-based coverage (requires is_clang=true).
+  use_coverage = false
 }
+
+assert(!use_coverage || is_clang)
 
 config("compiler_defaults") {
   cflags = []
@@ -193,6 +201,26 @@ config("default_sanitizers") {
   } else if (is_tsan) {
     cflags += [ "-fsanitize=thread" ]
     ldflags += [ "-fsanitize=thread" ]
+  }
+
+  if (use_libfuzzer) {
+    cflags += [ "-fsanitize=fuzzer-no-link" ]
+    if (!is_asan) {
+      ldflags += [ "-fsanitize=address" ]
+    }
+  }
+}
+
+config("default_coverage") {
+  cflags = []
+  ldflags = []
+
+  if (use_coverage) {
+    cflags += [
+      "-fprofile-instr-generate",
+      "-fcoverage-mapping",
+    ]
+    ldflags += [ "-fprofile-instr-generate" ]
   }
 }
 

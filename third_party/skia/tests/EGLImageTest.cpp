@@ -6,11 +6,11 @@
  */
 
 #include "include/gpu/GrContext.h"
-#include "include/gpu/GrTexture.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrRenderTargetContext.h"
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/GrSurfacePriv.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTexturePriv.h"
 #include "src/gpu/GrTextureProxyPriv.h"
 #include "src/gpu/gl/GrGLGpu.h"
@@ -161,15 +161,17 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     // fails on the Nexus5. Why?
     GrSurfaceOrigin origin = kBottomLeft_GrSurfaceOrigin;
     sk_sp<GrSurfaceProxy> texProxy = context0->priv().proxyProvider()->wrapBackendTexture(
-            backendTex, colorType, origin, kBorrow_GrWrapOwnership, GrWrapCacheable::kNo,
-            kRW_GrIOType);
+            backendTex, kBorrow_GrWrapOwnership, GrWrapCacheable::kNo, kRW_GrIOType);
     if (!texProxy) {
         ERRORF(reporter, "Error wrapping external texture in GrTextureProxy.");
         cleanup(glCtx0, externalTexture.fID, glCtx1.get(), context1, &backendTexture1, image);
         return;
     }
-    auto surfaceContext = GrSurfaceContext::Make(context0, std::move(texProxy), colorType,
-                                                 alphaType, nullptr);
+    GrSwizzle swizzle =
+            context0->priv().caps()->getReadSwizzle(texProxy->backendFormat(), colorType);
+    GrSurfaceProxyView view(std::move(texProxy), origin, swizzle);
+    auto surfaceContext =
+            GrSurfaceContext::Make(context0, std::move(view), colorType, alphaType, nullptr);
 
     if (!surfaceContext) {
         ERRORF(reporter, "Error wrapping external texture in GrSurfaceContext.");
@@ -204,7 +206,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(EGLImageTest, reporter, ctxInfo) {
     // Only test RT-config
     // TODO: why do we always need to draw to copy from an external texture?
     TestCopyFromSurface(reporter, context0, surfaceContext->asSurfaceProxy(),
-                        colorType, pixels.get(), "EGLImageTest-copy");
+                        surfaceContext->origin(), colorType, pixels.get(), "EGLImageTest-copy");
 
     cleanup(glCtx0, externalTexture.fID, glCtx1.get(), context1, &backendTexture1, image);
 }

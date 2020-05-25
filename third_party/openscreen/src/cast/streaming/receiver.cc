@@ -5,11 +5,11 @@
 #include "cast/streaming/receiver.h"
 
 #include <algorithm>
-#include <functional>
 
 #include "absl/types/span.h"
 #include "cast/streaming/constants.h"
 #include "cast/streaming/receiver_packet_router.h"
+#include "cast/streaming/session_config.h"
 #include "util/logging.h"
 #include "util/std_util.h"
 
@@ -48,12 +48,12 @@ Receiver::Receiver(Environment* environment,
       consumption_alarm_(environment->now_function(),
                          environment->task_runner()) {
   OSP_DCHECK(packet_router_);
-  OSP_DCHECK_EQ(checkpoint_frame(), FrameId::first() - 1);
+  OSP_DCHECK_EQ(checkpoint_frame(), FrameId::leader());
   OSP_CHECK_GT(rtcp_buffer_capacity_, 0);
   OSP_CHECK(rtcp_buffer_);
 
   rtcp_builder_.SetPlayoutDelay(config.target_playout_delay);
-  playout_delay_changes_.emplace_back(FrameId::first() - 1,
+  playout_delay_changes_.emplace_back(FrameId::leader(),
                                       config.target_playout_delay);
 
   packet_router_->OnReceiverCreated(rtcp_session_.sender_ssrc(), this);
@@ -352,8 +352,7 @@ void Receiver::SendRtcp() {
   // When there are no incomplete frames, use a longer "keepalive" interval.
   const Clock::duration interval =
       (no_nacks ? kRtcpReportInterval : kNackFeedbackInterval);
-  rtcp_alarm_.Schedule(std::bind(&Receiver::SendRtcp, this),
-                       last_rtcp_send_time_ + interval);
+  rtcp_alarm_.Schedule([this] { SendRtcp(); }, last_rtcp_send_time_ + interval);
 }
 
 const Receiver::PendingFrame& Receiver::GetQueueEntry(FrameId frame_id) const {

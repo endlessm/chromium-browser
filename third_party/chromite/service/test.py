@@ -13,6 +13,7 @@ from __future__ import print_function
 import os
 import re
 import shutil
+import sys
 
 from chromite.cbuildbot import commands
 from chromite.lib import constants
@@ -23,6 +24,9 @@ from chromite.lib import image_lib
 from chromite.lib import moblab_vm
 from chromite.lib import osutils
 from chromite.lib import portage_util
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class Error(Exception):
@@ -52,7 +56,7 @@ def BuildTargetUnitTest(build_target, chroot, blacklist=None, was_built=True):
   """Run the ebuild unit tests for the target.
 
   Args:
-    build_target (build_target_util.BuildTarget): The build target.
+    build_target (build_target_lib.BuildTarget): The build target.
     chroot (chroot_lib.Chroot): The chroot where the tests are running.
     blacklist (list[str]|None): Tests to skip.
     was_built (bool): Whether packages were built.
@@ -118,6 +122,20 @@ def DebugInfoTest(sysroot_path):
   cmd = ['debug_info_test', os.path.join(sysroot_path, 'usr/lib/debug')]
   result = cros_build_lib.run(cmd, enter_chroot=True, check=False)
 
+  return result.returncode == 0
+
+
+def ChromitePytest():
+  """Run Pytest tests in Chromite.
+
+  Returns:
+    bool: True iff all tests passed, False otherwise.
+  """
+  cmd = [
+      os.path.join(constants.CHROMITE_SCRIPTS_DIR, 'run_pytest'),
+      constants.CHROMITE_DIR,
+  ]
+  result = cros_build_lib.run(cmd, check=False)
   return result.returncode == 0
 
 

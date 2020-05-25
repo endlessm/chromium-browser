@@ -10,7 +10,7 @@
 #include "src/gpu/GrEagerVertexAllocator.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrOpFlushState.h"
-#include "src/gpu/GrTessellator.h"
+#include "src/gpu/GrTriangulator.h"
 #include "src/gpu/tessellate/GrFillPathShader.h"
 #include "src/gpu/tessellate/GrPathParser.h"
 #include "src/gpu/tessellate/GrStencilPathShader.h"
@@ -21,6 +21,12 @@ GrTessellatePathOp::FixedFunctionFlags GrTessellatePathOp::fixedFunctionFlags() 
         flags |= FixedFunctionFlags::kUsesHWAA;
     }
     return flags;
+}
+
+void GrTessellatePathOp::onPrePrepare(GrRecordingContext*,
+                                      const GrSurfaceProxyView* outputView,
+                                      GrAppliedClip*,
+                                      const GrXferProcessor::DstProxyView&) {
 }
 
 void GrTessellatePathOp::onPrepare(GrOpFlushState* state) {
@@ -44,9 +50,9 @@ void GrTessellatePathOp::onPrepare(GrOpFlushState* state) {
     if (cpuTessellationWork * 500 + (256 * 256) < gpuFragmentWork) {  // Don't try below 256x256.
         bool pathIsLinear;
         // PathToTriangles(..kSimpleInnerPolygon..) will fail if the inner polygon is not simple.
-        if ((fPathVertexCount = GrTessellator::PathToTriangles(
+        if ((fPathVertexCount = GrTriangulator::PathToTriangles(
                 fPath, 0, SkRect::MakeEmpty(), &pathVertexAllocator,
-                GrTessellator::Mode::kSimpleInnerPolygons, &pathIsLinear))) {
+                GrTriangulator::Mode::kSimpleInnerPolygons, &pathIsLinear))) {
             if (((Flags::kStencilOnly | Flags::kWireframe) & fFlags) ||
                 GrAAType::kCoverage == fAAType ||
                 (state->appliedClip() && state->appliedClip()->hasStencilClip())) {
@@ -84,28 +90,19 @@ void GrTessellatePathOp::onPrepare(GrOpFlushState* state) {
     }
 
     // Fastest CPU approach: emit one cubic wedge per verb, fanning out from the center.
-
     if ((fPathVertexCount = GrPathParser::EmitCenterWedgePatches(fPath, &pathVertexAllocator))) {
         fStencilPathShader = state->allocator()->make<GrStencilWedgeShader>(fViewMatrix);
     }
 }
 
 void GrTessellatePathOp::onExecute(GrOpFlushState* state, const SkRect& chainBounds) {
-    GrAppliedClip clip = state->detachAppliedClip();
-    GrPipeline::FixedDynamicState fixedDynamicState;
-    if (clip.scissorState().enabled()) {
-        fixedDynamicState.fScissorRect = clip.scissorState().rect();
-    }
-
-    this->drawStencilPass(state, clip.hardClip(), &fixedDynamicState);
-
+    this->drawStencilPass(state);
     if (!(Flags::kStencilOnly & fFlags)) {
-        this->drawCoverPass(state, std::move(clip), &fixedDynamicState);
+        this->drawCoverPass(state);
     }
 }
 
-void GrTessellatePathOp::drawStencilPass(GrOpFlushState* state, const GrAppliedHardClip& hardClip,
-                                         const GrPipeline::FixedDynamicState* fixedDynamicState) {
+void GrTessellatePathOp::drawStencilPass(GrOpFlushState* state) {
     // Increments clockwise triangles and decrements counterclockwise. Used for "winding" fill.
     constexpr static GrUserStencilSettings kIncrDecrStencil(
         GrUserStencilSettings::StaticInitSeparate<
@@ -138,22 +135,25 @@ void GrTessellatePathOp::drawStencilPass(GrOpFlushState* state, const GrAppliedH
     initArgs.fUserStencil = (SkPathFillType::kWinding == fPath.getFillType()) ?
             &kIncrDecrStencil : &kInvertStencil;
     initArgs.fCaps = &state->caps();
-
-    GrPipeline pipeline(initArgs, GrDisableColorXPFactory::MakeXferProcessor(), hardClip);
+    GrPipeline pipeline(initArgs, GrDisableColorXPFactory::MakeXferProcessor(),
+                        state->appliedHardClip());
 
     if (fStencilPathShader) {
         SkASSERT(fPathVertexBuffer);
-        fStencilPathShader->issueDraw(state, &pipeline, fixedDynamicState, fPathVertexBuffer,
-                                      fPathVertexCount, fBasePathVertex, this->bounds());
+        GrPathShader::ProgramInfo programInfo(state->outputView(), &pipeline, fStencilPathShader);
+        state->bindPipelineAndScissorClip(programInfo, this->bounds());
+        state->bindBuffers(nullptr, nullptr, fPathVertexBuffer.get());
+        state->draw(fPathVertexCount, fBasePathVertex);
     }
 
     if (fCubicInstanceBuffer) {
         // Here we treat the cubic instance buffer as tessellation patches to stencil the curves.
-        GrMesh mesh(GrPrimitiveType::kPatches, 4);
-        mesh.setNonIndexedNonInstanced(fCubicInstanceCount * 4);
-        mesh.setVertexData(fCubicInstanceBuffer, fBaseCubicInstance * 4);
-        GrStencilCubicShader(fViewMatrix).issueDraw(
-                state, &pipeline, fixedDynamicState, mesh, this->bounds());
+        GrStencilCubicShader shader(fViewMatrix);
+        GrPathShader::ProgramInfo programInfo(state->outputView(), &pipeline, &shader);
+        state->bindPipelineAndScissorClip(programInfo, this->bounds());
+        // Bind instancedBuff as vertex.
+        state->bindBuffers(nullptr, nullptr, fCubicInstanceBuffer.get());
+        state->draw(fCubicInstanceCount * 4, fBaseCubicInstance * 4);
     }
 
     // http://skbug.com/9739
@@ -162,8 +162,7 @@ void GrTessellatePathOp::drawStencilPass(GrOpFlushState* state, const GrAppliedH
     }
 }
 
-void GrTessellatePathOp::drawCoverPass(GrOpFlushState* state, GrAppliedClip&& clip,
-                                       const GrPipeline::FixedDynamicState* fixedDynamicState) {
+void GrTessellatePathOp::drawCoverPass(GrOpFlushState* state) {
     // Allows non-zero stencil values to pass and write a color, and resets the stencil value back
     // to zero; discards immediately on stencil values of zero.
     // NOTE: It's ok to not check the clip here because the previous stencil pass only wrote to
@@ -191,9 +190,8 @@ void GrTessellatePathOp::drawCoverPass(GrOpFlushState* state, GrAppliedClip&& cl
     }
     initArgs.fCaps = &state->caps();
     initArgs.fDstProxyView = state->drawOpArgs().dstProxyView();
-    initArgs.fOutputSwizzle = state->drawOpArgs().outputSwizzle();
-
-    GrPipeline pipeline(initArgs, std::move(fProcessors), std::move(clip));
+    initArgs.fWriteSwizzle = state->drawOpArgs().writeSwizzle();
+    GrPipeline pipeline(initArgs, std::move(fProcessors), state->detachAppliedClip());
 
     if (fFillPathShader) {
         SkASSERT(fPathVertexBuffer);
@@ -238,25 +236,32 @@ void GrTessellatePathOp::drawCoverPass(GrOpFlushState* state, GrAppliedClip&& cl
             SkASSERT(!pipeline.hasStencilClip());
             pipeline.setUserStencil(&kFillOrInvertStencil);
         }
-        fFillPathShader->issueDraw(state, &pipeline, fixedDynamicState, fPathVertexBuffer,
-                                   fPathVertexCount, fBasePathVertex, this->bounds());
+        GrPathShader::ProgramInfo programInfo(state->outputView(), &pipeline, fFillPathShader);
+        state->bindPipelineAndScissorClip(programInfo, this->bounds());
+        state->bindTextures(*fFillPathShader, nullptr, pipeline);
+        state->bindBuffers(nullptr, nullptr, fPathVertexBuffer.get());
+        state->draw(fPathVertexCount, fBasePathVertex);
 
         if (fCubicInstanceBuffer) {
             // At this point, every pixel is filled in except the ones touched by curves. Issue a
             // final cover pass over the curves by drawing their convex hulls. This will fill in any
             // remaining samples and reset the stencil buffer.
-            GrMesh mesh(GrPrimitiveType::kTriangleStrip);
-            mesh.setInstanced(fCubicInstanceBuffer, fCubicInstanceCount, fBaseCubicInstance, 4);
             pipeline.setUserStencil(&kTestAndResetStencil);
-            GrFillCubicHullShader(fViewMatrix, fColor).issueDraw(
-                    state, &pipeline, fixedDynamicState, mesh, this->bounds());
+            GrFillCubicHullShader shader(fViewMatrix, fColor);
+            GrPathShader::ProgramInfo programInfo(state->outputView(), &pipeline, &shader);
+            state->bindPipelineAndScissorClip(programInfo, this->bounds());
+            state->bindTextures(shader, nullptr, pipeline);
+            state->bindBuffers(nullptr, fCubicInstanceBuffer.get(), nullptr);
+            state->drawInstanced(fCubicInstanceCount, fBaseCubicInstance, 4, 0);
         }
     } else {
         // There is not a fill shader for the path. Just draw a bounding box.
-        GrMesh mesh(GrPrimitiveType::kTriangleStrip);
-        mesh.setNonIndexedNonInstanced(4);
         pipeline.setUserStencil(&kTestAndResetStencil);
-        GrFillBoundingBoxShader(fViewMatrix, fColor, fPath.getBounds()).issueDraw(
-                state, &pipeline, fixedDynamicState, mesh, this->bounds());
+        GrFillBoundingBoxShader shader(fViewMatrix, fColor, fPath.getBounds());
+        GrPathShader::ProgramInfo programInfo(state->outputView(), &pipeline, &shader);
+        state->bindPipelineAndScissorClip(programInfo, this->bounds());
+        state->bindTextures(shader, nullptr, pipeline);
+        state->bindBuffers(nullptr, nullptr, nullptr);
+        state->draw(4, 0);
     }
 }

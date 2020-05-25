@@ -27,9 +27,50 @@ namespace trace_processor {
 // Implements the SQLite table interface for db tables.
 class DbSqliteTable : public SqliteTable {
  public:
+  enum class TableComputation {
+    // Mode when the table is static (i.e. passed in at construction
+    // time).
+    kStatic,
+
+    // Mode when table is dynamically computed at filter time.
+    kDynamic,
+  };
+
+  // Interface which can be subclassed to allow generation of tables dynamically
+  // at filter time.
+  // This class is used to implement table-valued functions and other similar
+  // tables.
+  class DynamicTableGenerator {
+   public:
+    virtual ~DynamicTableGenerator();
+
+    // Returns the schema of the table that will be returned by ComputeTable.
+    virtual Table::Schema CreateSchema() = 0;
+
+    // Returns the name of the dynamic table.
+    // This will be used to register the table with SQLite.
+    virtual std::string TableName() = 0;
+
+    // Returns the estimated number of rows the table would generate.
+    virtual uint32_t EstimateRowCount() = 0;
+
+    // Checks that the constraint set is valid.
+    //
+    // Returning util::OkStatus means that the required constraints are present
+    // in |qc| for dynamically computing the table (e.g. any required
+    // constraints on hidden columns for table-valued functions are present).
+    virtual util::Status ValidateConstraints(const QueryConstraints& qc) = 0;
+
+    // Dynamically computes the table given the constraints and order by
+    // vectors.
+    virtual std::unique_ptr<Table> ComputeTable(
+        const std::vector<Constraint>& cs,
+        const std::vector<Order>& ob) = 0;
+  };
+
   class Cursor : public SqliteTable::Cursor {
    public:
-    Cursor(SqliteTable*, QueryCache*, const Table*);
+    Cursor(DbSqliteTable*, QueryCache*);
 
     Cursor(Cursor&&) noexcept = default;
     Cursor& operator=(Cursor&&) = default;
@@ -41,12 +82,6 @@ class DbSqliteTable : public SqliteTable {
     int Next() override;
     int Eof() override;
     int Column(sqlite3_context*, int N) override;
-
-   protected:
-    // Sets the table this class uses as the reference for all filter
-    // operations. Should be immediately followed by a call to Filter with
-    // |FilterHistory::kDifferent|.
-    void set_table(const Table* table) { initial_db_table_ = table; }
 
    private:
     enum class Mode {
@@ -61,14 +96,20 @@ class DbSqliteTable : public SqliteTable {
     const Table* SourceTable() const {
       // Try and use the sorted cache table (if it exists) to speed up the
       // sorting. Otherwise, just use the original table.
-      return sorted_cache_table_ ? &*sorted_cache_table_ : initial_db_table_;
+      return sorted_cache_table_ ? &*sorted_cache_table_ : upstream_table_;
     }
 
     Cursor(const Cursor&) = delete;
     Cursor& operator=(const Cursor&) = delete;
 
+    DbSqliteTable* db_sqlite_table_ = nullptr;
     QueryCache* cache_ = nullptr;
-    const Table* initial_db_table_ = nullptr;
+
+    const Table* upstream_table_ = nullptr;
+
+    // Only valid for |db_sqlite_table_->computation_| ==
+    // TableComputation::kDynamic.
+    std::unique_ptr<Table> dynamic_table_;
 
     // Only valid for Mode::kSingleRow.
     base::Optional<uint32_t> single_row_;
@@ -99,13 +140,25 @@ class DbSqliteTable : public SqliteTable {
   };
   struct Context {
     QueryCache* cache;
-    const Table* table;
+    Table::Schema schema;
+    TableComputation computation;
+
+    // Only valid when computation == TableComputation::kStatic.
+    const Table* static_table;
+
+    // Only valid when computation == TableComputation::kDynamic.
+    std::unique_ptr<DynamicTableGenerator> generator;
   };
 
   static void RegisterTable(sqlite3* db,
                             QueryCache* cache,
+                            Table::Schema schema,
                             const Table* table,
                             const std::string& name);
+
+  static void RegisterTable(sqlite3* db,
+                            QueryCache* cache,
+                            std::unique_ptr<DynamicTableGenerator> generator);
 
   DbSqliteTable(sqlite3*, Context context);
   virtual ~DbSqliteTable() override;
@@ -115,18 +168,35 @@ class DbSqliteTable : public SqliteTable {
                     const char* const*,
                     SqliteTable::Schema*) override final;
   std::unique_ptr<SqliteTable::Cursor> CreateCursor() override;
-  int ModifyConstraints(QueryConstraints*) override;
-  int BestIndex(const QueryConstraints&, BestIndexInfo*) override;
+  int ModifyConstraints(QueryConstraints*) override final;
+  int BestIndex(const QueryConstraints&, BestIndexInfo*) override final;
 
-  static SqliteTable::Schema ComputeSchema(const Table& table,
+  // These static functions are useful to allow other callers to make use
+  // of them.
+  static SqliteTable::Schema ComputeSchema(const Table::Schema&,
                                            const char* table_name);
+  static void ModifyConstraints(const Table::Schema&, QueryConstraints*);
+  static void BestIndex(const Table::Schema&,
+                        uint32_t row_count,
+                        const QueryConstraints&,
+                        BestIndexInfo*);
 
   // static for testing.
-  static QueryCost EstimateCost(const Table& table, const QueryConstraints& qc);
+  static QueryCost EstimateCost(const Table::Schema&,
+                                uint32_t row_count,
+                                const QueryConstraints& qc);
 
  private:
   QueryCache* cache_ = nullptr;
-  const Table* table_ = nullptr;
+  Table::Schema schema_;
+
+  TableComputation computation_ = TableComputation::kStatic;
+
+  // Only valid when computation_ == TableComputation::kStatic.
+  const Table* static_table_ = nullptr;
+
+  // Only valid when computation_ == TableComputation::kDynamic.
+  std::unique_ptr<DynamicTableGenerator> generator_;
 };
 
 }  // namespace trace_processor

@@ -51,10 +51,8 @@ function hasLogs(): boolean {
 interface DragHandleAttrs {
   height: number;
   resize: (height: number) => void;
-  tabs: Tab[];
+  tabs: string[];
 }
-
-export type Tab = 'current_selection'|'cpu_slices'|'android_logs';
 
 class DragHandle implements m.ClassComponent<DragHandleAttrs> {
   private dragStartHeight = 0;
@@ -65,10 +63,9 @@ class DragHandle implements m.ClassComponent<DragHandleAttrs> {
   private isFullscreen = false;
   // We can't get real fullscreen height until the pan_and_zoom_handler exists.
   private fullscreenHeight = DEFAULT_DETAILS_HEIGHT_PX;
-  private tabNames = new Map<Tab, string>([
+  private tabNames = new Map<string, string>([
     ['current_selection', 'Current Selection'],
-    ['cpu_slices', 'CPU Slices'],
-    ['android_logs', 'Android Logs']
+    ['android_logs', 'Android Logs'],
   ]);
 
 
@@ -109,11 +106,14 @@ class DragHandle implements m.ClassComponent<DragHandleAttrs> {
   view({attrs}: m.CVnode<DragHandleAttrs>) {
     const icon = this.isClosed ? UP_ICON : DOWN_ICON;
     const title = this.isClosed ? 'Show panel' : 'Hide panel';
-    const renderTab = (key: Tab) => {
+    const renderTab = (key: string) => {
       if (globals.frontendLocalState.currentTab === key ||
           globals.frontendLocalState.currentTab === undefined &&
               attrs.tabs[0] === key) {
-        return m('.tab[active]', this.tabNames.get(key));
+        return m(
+            '.tab[active]',
+            this.tabNames.get(key) === undefined ? key :
+                                                   this.tabNames.get(key));
       }
       return m(
           '.tab',
@@ -123,7 +123,7 @@ class DragHandle implements m.ClassComponent<DragHandleAttrs> {
               globals.rafScheduler.scheduleFullRedraw();
             }
           },
-          this.tabNames.get(key));
+          this.tabNames.get(key) === undefined ? key : this.tabNames.get(key));
     };
     return m(
         '.handle',
@@ -167,7 +167,7 @@ export class DetailsPanel implements m.ClassComponent {
   private showDetailsPanel = true;
 
   view() {
-    const detailsPanels: Map<Tab, AnyAttrsVnode> = new Map();
+    const detailsPanels: Map<string, AnyAttrsVnode> = new Map();
     const curSelection = globals.state.currentSelection;
     if (curSelection) {
       switch (curSelection.kind) {
@@ -213,8 +213,11 @@ export class DetailsPanel implements m.ClassComponent {
       detailsPanels.set('android_logs', m(LogPanel, {}));
     }
 
-    if (globals.frontendLocalState.selectedArea.area !== undefined) {
-      detailsPanels.set('cpu_slices', m(AggregationPanel));
+    for (const [key, value] of globals.aggregateDataStore.entries()) {
+      if (value.columns.length > 0 && value.columns[0].data.length > 0) {
+        detailsPanels.set(
+            value.tabName, m(AggregationPanel, {kind: key, data: value}));
+      }
     }
 
     const wasShowing = this.showDetailsPanel;
@@ -224,7 +227,8 @@ export class DetailsPanel implements m.ClassComponent {
       this.detailsHeight = DEFAULT_DETAILS_HEIGHT_PX;
     }
 
-    const panel = globals.frontendLocalState.currentTab ?
+    const panel = globals.frontendLocalState.currentTab &&
+            detailsPanels.has(globals.frontendLocalState.currentTab) ?
         detailsPanels.get(globals.frontendLocalState.currentTab) :
         detailsPanels.values().next().value;
     const panels = panel ? [panel] : [];

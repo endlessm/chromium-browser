@@ -45,16 +45,11 @@ void SkShaderBase::flatten(SkWriteBuffer& buffer) const {
 }
 
 SkTCopyOnFirstWrite<SkMatrix>
-SkShaderBase::totalLocalMatrix(const SkMatrix* preLocalMatrix,
-                               const SkMatrix* postLocalMatrix) const {
+SkShaderBase::totalLocalMatrix(const SkMatrix* preLocalMatrix) const {
     SkTCopyOnFirstWrite<SkMatrix> m(fLocalMatrix);
 
     if (preLocalMatrix) {
         m.writable()->preConcat(*preLocalMatrix);
-    }
-
-    if (postLocalMatrix) {
-        m.writable()->postConcat(*postLocalMatrix);
     }
 
     return m;
@@ -198,12 +193,10 @@ bool SkShaderBase::onAppendStages(const SkStageRec& rec) const {
     return false;
 }
 
-bool SkShaderBase::program(skvm::Builder* p,
-                           const SkMatrix& ctm, const SkMatrix* localM,
-                           SkFilterQuality quality, SkColorSpace* dstCS,
-                           skvm::Uniforms* uniforms, SkArenaAlloc* alloc,
-                           skvm::F32 x, skvm::F32 y,
-                           skvm::F32* r, skvm::F32* g, skvm::F32* b, skvm::F32* a) const {
+skvm::Color SkShaderBase::program(skvm::Builder* p, skvm::F32 x, skvm::F32 y, skvm::Color paint,
+                                  const SkMatrix& ctm, const SkMatrix* localM,
+                                  SkFilterQuality quality, const SkColorInfo& dst,
+                                  skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const {
     // Force opaque alpha for all opaque shaders.
     //
     // This is primarily nice in that we usually have a 1.0f constant splat
@@ -216,23 +209,28 @@ bool SkShaderBase::program(skvm::Builder* p,
     // shader program hash and blitter Key.  This makes it safe for us to use
     // that bit to make decisions when constructing an SkVMBlitter, like doing
     // SrcOver -> Src strength reduction.
-    if (this->onProgram(p, ctm,localM, quality,dstCS, uniforms,alloc, x,y, r,g,b,a)) {
+    if (auto color = this->onProgram(p, x,y, paint, ctm,localM, quality,dst, uniforms,alloc)) {
         if (this->isOpaque()) {
-            *a = p->splat(1.0f);
+            color.a = p->splat(1.0f);
         }
-        return true;
+        return color;
     }
-    return false;
+    return {};
 }
 
-bool SkShaderBase::onProgram(skvm::Builder*,
-                             const SkMatrix& ctm, const SkMatrix* localM,
-                             SkFilterQuality quality, SkColorSpace* dstCS,
-                             skvm::Uniforms* uniforms, SkArenaAlloc* alloc,
-                             skvm::F32 x, skvm::F32 y,
-                             skvm::F32* r, skvm::F32* g, skvm::F32* b, skvm::F32* a) const {
-    return false;
+skvm::Color SkShaderBase::onProgram(skvm::Builder*, skvm::F32 x, skvm::F32 y, skvm::Color paint,
+                                    const SkMatrix& ctm, const SkMatrix* localM,
+                                    SkFilterQuality quality, const SkColorInfo& dst,
+                                    skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const {
+    //SkDebugf("cannot onProgram %s\n", this->getTypeName());
+    return {};
 }
+
+// need a cheap way to invert the alpha channel of a shader (i.e. 1 - a)
+sk_sp<SkShader> SkShaderBase::makeInvertAlpha() const {
+    return this->makeWithColorFilter(SkColorFilters::Blend(0xFFFFFFFF, SkBlendMode::kSrcOut));
+}
+
 
 void SkShaderBase::ApplyMatrix(skvm::Builder* p, const SkMatrix& m,
                                skvm::F32* x, skvm::F32* y, skvm::Uniforms* uniforms) {
@@ -260,6 +258,12 @@ void SkShaderBase::ApplyMatrix(skvm::Builder* p, const SkMatrix& m,
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+skvm::Color SkEmptyShader::onProgram(skvm::Builder*, skvm::F32, skvm::F32, skvm::Color,
+                                     const SkMatrix&, const SkMatrix*, SkFilterQuality,
+                                     const SkColorInfo&, skvm::Uniforms*, SkArenaAlloc*) const {
+    return {};  // signal failure
+}
 
 sk_sp<SkFlattenable> SkEmptyShader::CreateProc(SkReadBuffer&) {
     return SkShaders::Empty();

@@ -13,7 +13,7 @@
 #include "platform/impl/platform_client_posix.h"
 #include "platform/impl/stream_socket_posix.h"
 #include "platform/impl/tls_write_buffer.h"
-#include "platform/impl/weak_ptr.h"
+#include "util/weak_ptr.h"
 
 namespace openscreen {
 
@@ -37,21 +37,19 @@ class TlsConnectionPosix : public TlsConnection {
   IPEndpoint GetLocalEndpoint() const override;
   IPEndpoint GetRemoteEndpoint() const override;
 
+  // Registers |this| with the platform TlsDataRouterPosix.  This is called
+  // automatically by TlsConnectionFactoryPosix after the handshake completes.
+  void RegisterConnectionWithDataRouter(PlatformClientPosix* platform_client);
+
+  const SocketHandle& socket_handle() const { return socket_->socket_handle(); }
+
  protected:
   friend class TlsConnectionFactoryPosix;
 
-  TlsConnectionPosix(IPEndpoint local_address,
-                     TaskRunner* task_runner,
-                     PlatformClientPosix* platform_client =
-                         PlatformClientPosix::GetInstance());
-  TlsConnectionPosix(IPAddress::Version version,
-                     TaskRunner* task_runner,
-                     PlatformClientPosix* platform_client =
-                         PlatformClientPosix::GetInstance());
+  TlsConnectionPosix(IPEndpoint local_address, TaskRunner* task_runner);
+  TlsConnectionPosix(IPAddress::Version version, TaskRunner* task_runner);
   TlsConnectionPosix(std::unique_ptr<StreamSocket> socket,
-                     TaskRunner* task_runner,
-                     PlatformClientPosix* platform_client =
-                         PlatformClientPosix::GetInstance());
+                     TaskRunner* task_runner);
 
  private:
   // Called on any thread, to post a task to notify the Client that an |error|
@@ -59,7 +57,7 @@ class TlsConnectionPosix : public TlsConnection {
   void DispatchError(Error error);
 
   TaskRunner* const task_runner_;
-  PlatformClientPosix* const platform_client_;
+  PlatformClientPosix* platform_client_ = nullptr;
 
   Client* client_ = nullptr;
 

@@ -203,6 +203,14 @@ sk_sp<const GrGLInterface> GrGLMakeAssembledGLInterface(void *ctx, GrGLGetProc g
         GET_PROC_SUFFIX(DrawElementsInstanced, EXT);
     }
 
+    if (glVer >= GR_GL_VER(4,2)) {
+        GET_PROC(DrawArraysInstancedBaseInstance);
+        GET_PROC(DrawElementsInstancedBaseVertexBaseInstance);
+    } else if (extensions.has("GL_ARB_base_instance")) {
+        GET_PROC(DrawArraysInstancedBaseInstance);
+        GET_PROC(DrawElementsInstancedBaseVertexBaseInstance);
+    }
+
     GET_PROC(DrawBuffers);
     GET_PROC(ReadBuffer);
 
@@ -514,6 +522,6 @@ sk_sp<const GrGLInterface> GrGLMakeAssembledGLInterface(void *ctx, GrGLGetProc g
     interface->fStandard = kGL_GrGLStandard;
     interface->fExtensions.swap(&extensions);
 
-    return interface;
+    return std::move(interface);
 }
 #endif

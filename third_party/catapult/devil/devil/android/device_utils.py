@@ -852,6 +852,9 @@ class DeviceUtils(object):
       CommandFailedError if the package's data directory can't be found,
         whether because it's not installed or otherwise.
     """
+    if not self.IsApplicationInstalled(package):
+      raise device_errors.CommandFailedError('%s is not installed' % package,
+                                             str(self))
     output = self._RunPipedShellCommand(
         'pm dump %s | grep dataDir=' % cmd_helper.SingleQuote(package))
     for line in output:
@@ -859,7 +862,7 @@ class DeviceUtils(object):
       if dataDir:
         return dataDir
     raise device_errors.CommandFailedError(
-        'Could not find data directory for %s', package)
+        'Could not find data directory for %s' % package, str(self))
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def GetSecurityContextForPackage(self,
@@ -1340,8 +1343,8 @@ class DeviceUtils(object):
       else:
         with device_temp_file.DeviceTempFile(self.adb, suffix='.sh') as script:
           self._WriteFileWithPush(script.name, cmd)
-          logger.info('Large shell command will be run from file: %s ...',
-                      cmd[:self._MAX_ADB_COMMAND_LENGTH])
+          logger.debug('Large shell command will be run from file: %s ...',
+                       cmd[:self._MAX_ADB_COMMAND_LENGTH])
           return handle_check_return('sh %s' % script.name_quoted)
 
     def handle_large_output(cmd, large_output_mode):
@@ -3322,7 +3325,11 @@ class DeviceUtils(object):
     Returns:
       Whether the cache was loaded.
     """
-    obj = json.loads(data)
+    try:
+      obj = json.loads(data)
+    except ValueError:
+      logger.error('Unable to parse cache file. Not using it.')
+      return False
     self._EnsureCacheInitialized()
     given_token = obj.get('token')
     if not given_token or self._cache['prev_token'] != given_token:

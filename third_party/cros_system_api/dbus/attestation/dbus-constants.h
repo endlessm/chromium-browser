@@ -26,16 +26,29 @@ constexpr char kGetStatus[] = "GetStatus";
 constexpr char kVerify[] = "Verify";
 constexpr char kCreateEnrollRequest[] = "CreateEnrollRequest";
 constexpr char kFinishEnroll[] = "FinishEnroll";
+constexpr char kEnroll[] = "Enroll";
 constexpr char kCreateCertificateRequest[] = "CreateCertificateRequest";
 constexpr char kFinishCertificateRequest[] = "FinishCertificateRequest";
+constexpr char kGetCertificate[] = "GetCertificate";
 constexpr char kSignEnterpriseChallenge[] = "SignEnterpriseChallenge";
 constexpr char kSignSimpleChallenge[] = "SignSimpleChallenge";
 constexpr char kSetKeyPayload[] = "SetKeyPayload";
 constexpr char kDeleteKeys[] = "DeleteKeys";
 constexpr char kResetIdentity[] = "ResetIdentity";
-constexpr char kSetSystemSalt[] = "SetSystemSalt";
 constexpr char kGetEnrollmentId[] = "GetEnrollmentId";
 constexpr char kGetCertifiedNvIndex[] = "GetCertifiedNvIndex";
+
+namespace pca_agent {
+
+constexpr char kPcaAgentServiceInterface[] = "org.chromium.PcaAgent";
+constexpr char kPcaAgentServicePath[] = "/org/chromium/PcaAgent";
+constexpr char kPcaAgentServiceName[] = "org.chromium.PcaAgent";
+
+// Methods exported by |pca_agentd|.
+constexpr char kEnroll[] = "Enroll";
+constexpr char kGetCertificate[] = "GetCertificate";
+
+}  // namespace pca_agent
 
 }  // namespace attestation
 

@@ -23,8 +23,8 @@ void ReceiverSocketFactory::OnAccepted(
     std::vector<uint8_t> der_x509_peer_cert,
     std::unique_ptr<TlsConnection> connection) {
   IPEndpoint endpoint = connection->GetRemoteEndpoint();
-  auto socket = std::make_unique<CastSocket>(std::move(connection),
-                                             socket_client_, GetNextSocketId());
+  auto socket =
+      std::make_unique<CastSocket>(std::move(connection), socket_client_);
   client_->OnConnected(this, endpoint, std::move(socket));
 }
 
@@ -39,6 +39,8 @@ void ReceiverSocketFactory::OnConnectionFailed(
     TlsConnectionFactory* factory,
     const IPEndpoint& remote_address) {
   OSP_DVLOG << "Receiving connection from endpoint failed: " << remote_address;
+  client_->OnError(this, Error(Error::Code::kConnectionFailed,
+                               "Accepting connection failed."));
 }
 
 void ReceiverSocketFactory::OnError(TlsConnectionFactory* factory,

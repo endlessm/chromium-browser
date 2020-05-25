@@ -9,7 +9,7 @@
 #include <string>
 
 #include "net/third_party/quiche/src/quic/core/quic_crypto_client_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
@@ -74,8 +74,8 @@ class QuartcSession : public QuicSession,
     return VersionSupportsMessageFrames(transport_version());
   }
 
-  void OnCryptoHandshakeEvent(CryptoHandshakeEvent event) override;
   void SetDefaultEncryptionLevel(EncryptionLevel level) override;
+  void OnOneRttKeysAvailable() override;
 
   // QuicConnectionVisitorInterface overrides.
   void OnCongestionWindowChange(QuicTime now) override;
@@ -240,7 +240,7 @@ class QuartcSession : public QuicSession,
   // Queue of pending messages sent by SendQuartcMessage that were not sent
   // yet or blocked by congestion control. Messages are queued in the order
   // of sent by SendOrQueueMessage().
-  QuicDeque<QueuedMessage> send_message_queue_;
+  QuicCircularDeque<QueuedMessage> send_message_queue_;
 
   // Maps message ids to datagram ids, so we could translate message ACKs
   // received from QUIC to datagram ACKs that are propagated up the stack.
@@ -309,7 +309,7 @@ class QuartcServerSession : public QuartcSession {
                       const QuicClock* clock,
                       const QuicCryptoServerConfig* server_crypto_config,
                       QuicCompressedCertsCache* const compressed_certs_cache,
-                      QuicCryptoServerStream::Helper* const stream_helper);
+                      QuicCryptoServerStreamBase::Helper* const stream_helper);
   QuartcServerSession(const QuartcServerSession&) = delete;
   QuartcServerSession& operator=(const QuartcServerSession&) = delete;
 
@@ -328,7 +328,7 @@ class QuartcServerSession : public QuartcSession {
   QuicCompressedCertsCache* const compressed_certs_cache_;
 
   // This helper is needed to create QuicCryptoServerStream.
-  QuicCryptoServerStream::Helper* const stream_helper_;
+  QuicCryptoServerStreamBase::Helper* const stream_helper_;
 
   // Server perspective crypto stream.
   std::unique_ptr<QuicCryptoServerStreamBase> crypto_stream_;

@@ -33,28 +33,18 @@ public:
 
     GrGlyph* getGlyph(const SkGlyph& skGlyph);
 
-    // This variant of the above function is called by GrAtlasTextOp. At this point, it is possible
-    // that the maskformat of the glyph differs from what we expect.  In these cases we will just
-    // draw a clear square.
-    // skbug:4143 crbug:510931
-    GrGlyph* getGlyph(SkPackedGlyphID packed, SkBulkGlyphMetricsAndImages* metricsAndImages);
-
     // returns true if glyph successfully added to texture atlas, false otherwise.  If the glyph's
     // mask format has changed, then addGlyphToAtlas will draw a clear box.  This will almost never
     // happen.
     // TODO we can handle some of these cases if we really want to, but the long term solution is to
     // get the actual glyph image itself when we get the glyph metrics.
-    GrDrawOpAtlas::ErrorCode addGlyphToAtlas(GrResourceProvider*, GrDeferredUploadTarget*,
-                                             GrStrikeCache*, GrAtlasManager*, GrGlyph*,
-                                             SkBulkGlyphMetricsAndImages*,
+    GrDrawOpAtlas::ErrorCode addGlyphToAtlas(const SkGlyph&,
                                              GrMaskFormat expectedMaskFormat,
-                                             bool isScaledGlyph);
-
-    // testing
-    int countGlyphs() const { return fCache.count(); }
-
-    // remove any references to this plot
-    void removeID(GrDrawOpAtlas::PlotLocator);
+                                             bool isScaledGlyph,
+                                             GrResourceProvider*,
+                                             GrDeferredUploadTarget*,
+                                             GrAtlasManager*,
+                                             GrGlyph*);
 
 private:
     struct HashTraits {
@@ -71,8 +61,6 @@ private:
     SkAutoDescriptor fFontScalerKey;
     SkArenaAlloc fAlloc{512};
 
-    int fAtlasedGlyphs{0};
-
     friend class GrStrikeCache;
 };
 
@@ -80,12 +68,9 @@ private:
  * GrStrikeCache manages strikes which are indexed by a SkStrike. These strikes can then be
  * used to generate individual Glyph Masks.
  */
-class GrStrikeCache final : public GrDrawOpAtlas::EvictionCallback {
+class GrStrikeCache {
 public:
-    GrStrikeCache(const GrCaps* caps, size_t maxTextureBytes);
-    ~GrStrikeCache() override;
-
-    void setStrikeToPreserve(GrTextStrike* strike) { fPreserveStrike = strike; }
+    ~GrStrikeCache();
 
     // The user of the cache may hold a long-lived ref to the returned strike. However, actions by
     // another client of the cache may cause the strike to be purged while it is still reffed.
@@ -98,11 +83,7 @@ public:
         return this->generateStrike(desc);
     }
 
-    const SkMasks& getMasks() const { return *f565Masks; }
-
     void freeAll();
-
-    void evict(GrDrawOpAtlas::PlotLocator plotLocator) override;
 
 private:
     sk_sp<GrTextStrike> generateStrike(const SkDescriptor& desc) {
@@ -121,8 +102,6 @@ private:
     using StrikeHash = SkTHashTable<sk_sp<GrTextStrike>, SkDescriptor, DescriptorHashTraits>;
 
     StrikeHash fCache;
-    GrTextStrike* fPreserveStrike;
-    std::unique_ptr<const SkMasks> f565Masks;
 };
 
 #endif  // GrStrikeCache_DEFINED

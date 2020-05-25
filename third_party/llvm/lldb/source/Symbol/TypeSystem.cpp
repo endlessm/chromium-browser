@@ -70,6 +70,10 @@ lldb::TypeSystemSP TypeSystem::CreateInstance(lldb::LanguageType language,
   return CreateInstanceHelper(language, nullptr, target);
 }
 
+#ifndef NDEBUG
+bool TypeSystem::Verify(lldb::opaque_compiler_type_t type) { return true; }
+#endif
+
 bool TypeSystem::IsAnonymousType(lldb::opaque_compiler_type_t type) {
   return false;
 }
@@ -239,7 +243,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
       }
       error = llvm::make_error<llvm::StringError>(
           "TypeSystem for language " +
-              llvm::toStringRef(Language::GetNameForLanguageType(language)) +
+              llvm::StringRef(Language::GetNameForLanguageType(language)) +
               " doesn't exist",
           llvm::inconvertibleErrorCode());
       return std::move(error);
@@ -256,7 +260,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
         }
         error = llvm::make_error<llvm::StringError>(
             "TypeSystem for language " +
-                llvm::toStringRef(Language::GetNameForLanguageType(language)) +
+                llvm::StringRef(Language::GetNameForLanguageType(language)) +
                 " doesn't exist",
             llvm::inconvertibleErrorCode());
         return std::move(error);
@@ -266,7 +270,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
     if (!can_create) {
       error = llvm::make_error<llvm::StringError>(
           "Unable to find type system for language " +
-              llvm::toStringRef(Language::GetNameForLanguageType(language)),
+              llvm::StringRef(Language::GetNameForLanguageType(language)),
           llvm::inconvertibleErrorCode());
     } else {
       // Cache even if we get a shared pointer that contains a null type system
@@ -279,7 +283,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
       }
       error = llvm::make_error<llvm::StringError>(
           "TypeSystem for language " +
-              llvm::toStringRef(Language::GetNameForLanguageType(language)) +
+              llvm::StringRef(Language::GetNameForLanguageType(language)) +
               " doesn't exist",
           llvm::inconvertibleErrorCode());
     }
@@ -308,7 +312,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
       }
       error = llvm::make_error<llvm::StringError>(
           "TypeSystem for language " +
-              llvm::toStringRef(Language::GetNameForLanguageType(language)) +
+              llvm::StringRef(Language::GetNameForLanguageType(language)) +
               " doesn't exist",
           llvm::inconvertibleErrorCode());
       return std::move(error);
@@ -325,7 +329,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
         }
         error = llvm::make_error<llvm::StringError>(
             "TypeSystem for language " +
-                llvm::toStringRef(Language::GetNameForLanguageType(language)) +
+                llvm::StringRef(Language::GetNameForLanguageType(language)) +
                 " doesn't exist",
             llvm::inconvertibleErrorCode());
         return std::move(error);
@@ -335,7 +339,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
     if (!can_create) {
       error = llvm::make_error<llvm::StringError>(
           "Unable to find type system for language " +
-              llvm::toStringRef(Language::GetNameForLanguageType(language)),
+              llvm::StringRef(Language::GetNameForLanguageType(language)),
           llvm::inconvertibleErrorCode());
     } else {
       // Cache even if we get a shared pointer that contains a null type system
@@ -348,7 +352,7 @@ TypeSystemMap::GetTypeSystemForLanguage(lldb::LanguageType language,
       }
       error = llvm::make_error<llvm::StringError>(
           "TypeSystem for language " +
-              llvm::toStringRef(Language::GetNameForLanguageType(language)) +
+              llvm::StringRef(Language::GetNameForLanguageType(language)) +
               " doesn't exist",
           llvm::inconvertibleErrorCode());
     }

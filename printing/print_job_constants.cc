@@ -229,6 +229,8 @@ const char kRGBA[] = "RGBA";
 const char kRGB16[] = "RGB16";
 const char kSharpCMColor[] = "CMColor";
 const char kSharpCMBW[] = "CMBW";
+const char kXeroxAutomatic[] = "Automatic";
+const char kXeroxBW[] = "BW";
 #endif
 
 }  // namespace printing

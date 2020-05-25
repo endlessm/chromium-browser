@@ -7,17 +7,21 @@
 
 from __future__ import print_function
 
+import sys
+
 from chromite.api import faux
 from chromite.api import validate
 from chromite.api.controller import controller_util
 from chromite.api.gen.chromite.api import binhost_pb2
 from chromite.api.gen.chromiumos import common_pb2
-from chromite.lib import build_target_util
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib.uprev_lib import GitRef
 from chromite.service import packages
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 _OVERLAY_TYPE_TO_NAME = {
@@ -38,8 +42,7 @@ def _UprevResponse(_input_proto, output_proto, _config):
 @validate.validation_complete
 def Uprev(input_proto, output_proto, _config):
   """Uprev all cros workon ebuilds that have changes."""
-  target_names = [t.name for t in input_proto.build_targets]
-  build_targets = [build_target_util.BuildTarget(t) for t in target_names]
+  build_targets = controller_util.ParseBuildTargets(input_proto.build_targets)
   overlay_type = _OVERLAY_TYPE_TO_NAME[input_proto.overlay_type]
   chroot = controller_util.ParseChroot(input_proto.chroot)
   output_dir = input_proto.output_dir or None
@@ -189,12 +192,12 @@ def GetTargetVersions(input_proto, output_proto, _config):
   output_proto.full_version = packages.determine_full_version()
 
 
-def _HasChromePrebuiltSuccess(_input_proto, output_proto, _config):
+def _HasPrebuiltSuccess(_input_proto, output_proto, _config):
   """The mock success case for HasChromePrebuilt."""
   output_proto.has_prebuilt = True
 
 
-@faux.success(_HasChromePrebuiltSuccess)
+@faux.success(_HasPrebuiltSuccess)
 @faux.empty_error
 @validate.require('build_target.name')
 @validate.validation_complete
@@ -204,6 +207,22 @@ def HasChromePrebuilt(input_proto, output_proto, _config):
   useflags = 'chrome_internal' if input_proto.chrome else None
   exists = packages.has_prebuilt(constants.CHROME_CP, build_target=build_target,
                                  useflags=useflags)
+
+  output_proto.has_prebuilt = exists
+
+
+@faux.success(_HasPrebuiltSuccess)
+@faux.empty_error
+@validate.require('build_target.name', 'package_info.category',
+                  'package_info.package_name')
+@validate.validation_complete
+def HasPrebuilt(input_proto, output_proto, _config):
+  """Checks if the most recent version of Chrome has a prebuilt."""
+  build_target = controller_util.ParseBuildTarget(input_proto.build_target)
+  package = controller_util.PackageInfoToCPV(input_proto.package_info).cp
+  useflags = 'chrome_internal' if input_proto.chrome else None
+  exists = packages.has_prebuilt(
+      package, build_target=build_target, useflags=useflags)
 
   output_proto.has_prebuilt = exists
 

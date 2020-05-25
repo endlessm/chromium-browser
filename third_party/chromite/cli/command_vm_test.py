@@ -11,6 +11,8 @@ the CLI commands.
 
 from __future__ import print_function
 
+import sys
+
 from chromite.cli import deploy
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -18,6 +20,9 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import remote_access
 from chromite.lib import vm
 from chromite.utils import outcap
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class Error(Exception):
@@ -135,7 +140,7 @@ class CommandVMTest(object):
 
     logging.info('Test to use shell command to read a file on the VM device.')
     read_cmd = cmd + ['--', 'cat %s' % path]
-    result = cros_build_lib.run(read_cmd, capture_output=True,
+    result = cros_build_lib.run(read_cmd, capture_output=True, encoding='utf-8',
                                 check=False)
     if result.returncode or result.output.rstrip() != content:
       logging.error('Failed to read the file on the VM device.')
@@ -241,8 +246,8 @@ class CommandVMTest(object):
     with remote_access.ChromiumOSDeviceHandler(
         remote_access.LOCALHOST, port=self.port) as device:
       try:
-        device.RunCommand(['python', '-c', '"import cherrypy"'])
-        device.RunCommand(['qmerge', '-h'])
+        device.run(['python', '-c', '"import cherrypy"'])
+        device.run(['qmerge', '-h'])
       except cros_build_lib.RunCommandError as e:
         logging.error('Unable to verify packages installed on VM: %s', e)
         raise CommandError()

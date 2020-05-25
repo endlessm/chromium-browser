@@ -9,15 +9,20 @@ from __future__ import print_function
 
 import datetime
 import os
+import sys
 
 from chromite.cli.cros import cros_chrome_sdk
 from chromite.lib import chrome_util
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import device
 from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import vm
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class CrOSTest(object):
@@ -33,8 +38,11 @@ class CrOSTest(object):
 
     self.start_vm = opts.start_vm
     self.cache_dir = opts.cache_dir
+    self.dryrun = opts.dryrun
 
     self.build = opts.build
+    self.flash = opts.flash
+    self.xbuddy = opts.xbuddy
     self.deploy = opts.deploy
     self.nostrip = opts.nostrip
     self.build_dir = opts.build_dir
@@ -59,6 +67,7 @@ class CrOSTest(object):
 
     self.results_src = opts.results_src
     self.results_dest_dir = opts.results_dest_dir
+    self.save_snapshot_on_failure = opts.save_snapshot_on_failure
 
     self.chrome_test = opts.chrome_test
     if self.chrome_test:
@@ -85,6 +94,7 @@ class CrOSTest(object):
       self._device.WaitForBoot()
 
     self._Build()
+    self._Flash()
     self._Deploy()
 
     returncode = self._RunTests()
@@ -121,7 +131,19 @@ class CrOSTest(object):
       return
 
     build_target = self.chrome_test_target or 'chromiumos_preflight'
-    self._device.run(['autoninja', '-C', self.build_dir, build_target])
+    cros_build_lib.run(['autoninja', '-C', self.build_dir, build_target],
+                       dryrun=self.dryrun)
+
+  def _Flash(self):
+    """Flash device."""
+    if not self.flash:
+      return
+
+    xbuddy = self.xbuddy
+    if self._device.board:
+      xbuddy = xbuddy.format(board=self._device.board)
+    cros_build_lib.run(['cros', 'flash', self._device.device, xbuddy],
+                       dryrun=self.dryrun)
 
   def _Deploy(self):
     """Deploy binary files to device."""
@@ -151,7 +173,7 @@ class CrOSTest(object):
       deploy_cmd += ['--nostrip']
     if self.mount:
       deploy_cmd += ['--mount']
-    self._device.run(deploy_cmd)
+    cros_build_lib.run(deploy_cmd, dryrun=self.dryrun)
     self._device.WaitForBoot()
 
   def _DeployChromeTest(self):
@@ -227,8 +249,7 @@ class CrOSTest(object):
     else:
       cmd += [self._device.device]
     cmd += self.autotest
-    return self._device.run(
-        cmd, enter_chroot=not cros_build_lib.IsInsideChroot())
+    return cros_build_lib.run(cmd, dryrun=self.dryrun, enter_chroot=True)
 
   def _RunTastTests(self):
     """Run Tast tests.
@@ -274,11 +295,18 @@ class CrOSTest(object):
           '-remoterunner=%s' % remote_runner_path,
           '-remotebundledir=%s' % remote_bundle_dir,
           '-remotedatadir=%s' % remote_data_dir,
-          # The dev server has trouble downloading assets from Google Storage
-          # from outside the chroot.
-          '-ephemeraldevserver=false',
-          '-keyfile', private_key,
+          '-ephemeraldevserver=true',
+          '-keyfile',
+          private_key,
       ]
+      # Tast may make calls to gsutil during the tests. If we're outside the
+      # chroot, we may not have gsutil on PATH. So push chromite's copy of
+      # gsutil onto path during the test.
+      gsutil_dir = constants.CHROMITE_SCRIPTS_DIR
+      extra_env = {'PATH': os.environ.get('PATH', '') + ':' + gsutil_dir}
+    else:
+      extra_env = None
+
     if self.test_timeout > 0:
       cmd += ['-timeout=%d' % self.test_timeout]
     if self._device.is_vm:
@@ -293,8 +321,11 @@ class CrOSTest(object):
     else:
       cmd += [self._device.device]
     cmd += self.tast
-    return self._device.run(
-        cmd, enter_chroot=need_chroot and not cros_build_lib.IsInsideChroot())
+    return cros_build_lib.run(
+        cmd,
+        dryrun=self.dryrun,
+        extra_env=extra_env,
+        enter_chroot=need_chroot and not cros_build_lib.IsInsideChroot())
 
   def _RunTests(self):
     """Run tests.
@@ -312,8 +343,8 @@ class CrOSTest(object):
       if self.build_dir:
         extra_env['CHROMIUM_OUTPUT_DIR'] = self.build_dir
       # Don't raise an exception if the command fails.
-      result = self._device.run(
-          self.args, check=False, extra_env=extra_env)
+      result = cros_build_lib.run(
+          self.args, check=False, dryrun=self.dryrun, extra_env=extra_env)
     elif self.catapult_tests:
       result = self._RunCatapultTests()
     elif self.autotest:
@@ -326,12 +357,26 @@ class CrOSTest(object):
       result = self._device.remote_run(
           ['/usr/local/autotest/bin/vm_sanity.py'], stream_output=True)
 
+    self._MaybeSaveVMImage(result)
     self._FetchResults()
 
     name = self.args[0] if self.args else 'Test process'
     logging.info('%s exited with status code %d.', name, result.returncode)
 
     return result.returncode
+
+  def _MaybeSaveVMImage(self, result):
+    """Tells the VM to save its image on shutdown if the test failed.
+
+    Args:
+      result: A cros_build_lib.CommandResult object from a test run.
+    """
+    if not self._device.is_vm or not self.save_snapshot_on_failure:
+      return
+    if not result.returncode:
+      return
+    osutils.SafeMakedirs(self.results_dest_dir)
+    self._device.SaveVMImageOnShutdown(self.results_dest_dir)
 
   def _FetchResults(self):
     """Fetch results files/directories."""
@@ -455,11 +500,16 @@ def ParseCommandLine(argv):
                       'collecting runtime deps files.')
   parser.add_argument('--guest', action='store_true', default=False,
                       help='Run tests in incognito mode.')
-  parser.add_argument('--build-dir', type='path',
-                      help='Directory for building and deploying chrome.')
   parser.add_argument('--build', action='store_true', default=False,
                       help='Before running tests, build chrome using ninja, '
                       '--build-dir must be specified.')
+  parser.add_argument('--build-dir', type='path',
+                      help='Directory for building and deploying chrome.')
+  parser.add_argument('--flash', action='store_true', default=False,
+                      help='Before running tests, flash the device.')
+  parser.add_argument('--xbuddy', default='xbuddy://remote/{board}/latest',
+                      help='xbuddy link to use for flashing the device '
+                      '(default: %(default)s).')
   parser.add_argument('--deploy', action='store_true', default=False,
                       help='Before running tests, deploy chrome, '
                       '--build-dir must be specified.')
@@ -496,6 +546,10 @@ def ParseCommandLine(argv):
                       help='Args to pass directly to test_that for autotest.')
   parser.add_argument('--test-timeout', type=int, default=0,
                       help='Timeout for running all tests (for --tast).')
+  parser.add_argument('--save-snapshot-on-failure', action='store_true',
+                      default=False,
+                      help='Save a snapshot of the VM on test failure to '
+                           'results-dest-dir.')
 
   opts = parser.parse_args(argv)
 
@@ -524,6 +578,9 @@ def ParseCommandLine(argv):
     if os.path.isfile(opts.results_dest_dir):
       parser.error('results-dest-dir %s is an existing file.'
                    % opts.results_dest_dir)
+
+  if opts.save_snapshot_on_failure and not opts.results_dest_dir:
+    parser.error('Must specify results-dest-dir with save-snapshot-on-failure')
 
   # Ensure command is provided. For e.g. to copy out to the device and run
   # out/unittest:

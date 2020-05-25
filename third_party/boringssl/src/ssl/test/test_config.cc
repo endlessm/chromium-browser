@@ -128,7 +128,6 @@ const Flag<bool> kBoolFlags[] = {
     {"-no-op-extra-handshake", &TestConfig::no_op_extra_handshake},
     {"-handshake-twice", &TestConfig::handshake_twice},
     {"-allow-unknown-alpn-protos", &TestConfig::allow_unknown_alpn_protos},
-    {"-enable-ed25519", &TestConfig::enable_ed25519},
     {"-use-custom-verify-callback", &TestConfig::use_custom_verify_callback},
     {"-allow-false-start-without-alpn",
      &TestConfig::allow_false_start_without_alpn},
@@ -305,6 +304,12 @@ bool ParseFlag(char *flag, int argc, char **argv, int *i,
     if (!skip) {
       int_vector_field->push_back(atoi(argv[*i]));
     }
+    return true;
+  }
+
+  if (strcmp(flag, "-enable-ed25519") == 0) {
+    // Old argument; ignored for split-handshake compat testing.
+    // Remove after 2020-06-01.
     return true;
   }
 
@@ -1131,12 +1136,18 @@ static enum ssl_select_cert_result_t SelectCertificateCallback(
   return ssl_select_cert_success;
 }
 
-static int SetQuicEncryptionSecrets(SSL *ssl, enum ssl_encryption_level_t level,
-                                    const uint8_t *read_secret,
-                                    const uint8_t *write_secret,
-                                    size_t secret_len) {
-  return GetTestState(ssl)->quic_transport->SetSecrets(
-      level, read_secret, write_secret, secret_len);
+static int SetQuicReadSecret(SSL *ssl, enum ssl_encryption_level_t level,
+                             const SSL_CIPHER *cipher, const uint8_t *secret,
+                             size_t secret_len) {
+  return GetTestState(ssl)->quic_transport->SetReadSecret(level, cipher, secret,
+                                                          secret_len);
+}
+
+static int SetQuicWriteSecret(SSL *ssl, enum ssl_encryption_level_t level,
+                              const SSL_CIPHER *cipher, const uint8_t *secret,
+                              size_t secret_len) {
+  return GetTestState(ssl)->quic_transport->SetWriteSecret(level, cipher,
+                                                           secret, secret_len);
 }
 
 static int AddQuicHandshakeData(SSL *ssl, enum ssl_encryption_level_t level,
@@ -1156,7 +1167,8 @@ static int SendQuicAlert(SSL *ssl, enum ssl_encryption_level_t level,
 }
 
 static const SSL_QUIC_METHOD g_quic_method = {
-    SetQuicEncryptionSecrets,
+    SetQuicReadSecret,
+    SetQuicWriteSecret,
     AddQuicHandshakeData,
     FlushQuicFlight,
     SendQuicAlert,
@@ -1257,10 +1269,6 @@ bssl::UniquePtr<SSL_CTX> TestConfig::SetupCtx(SSL_CTX *old_ctx) const {
 
   if (allow_unknown_alpn_protos) {
     SSL_CTX_set_allow_unknown_alpn_protos(ssl_ctx.get(), 1);
-  }
-
-  if (enable_ed25519) {
-    SSL_CTX_set_ed25519_enabled(ssl_ctx.get(), 1);
   }
 
   if (!verify_prefs.empty()) {

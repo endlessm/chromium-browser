@@ -5,9 +5,9 @@
 #ifndef QUICHE_QUIC_CORE_HTTP_QUIC_SPDY_STREAM_BODY_MANAGER_H_
 #define QUICHE_QUIC_CORE_HTTP_QUIC_SPDY_STREAM_BODY_MANAGER_H_
 
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/quic/core/quic_constants.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_iovec.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_macros.h"
@@ -84,7 +84,7 @@ class QUIC_EXPORT_PRIVATE QuicSpdyStreamBodyManager {
     QuicByteCount trailing_non_body_byte_count;
   };
   // Queue of body fragments and trailing non-body byte counts.
-  QuicDeque<Fragment> fragments_;
+  QuicCircularDeque<Fragment> fragments_;
   // Total body bytes received.
   QuicByteCount total_body_bytes_received_;
 };

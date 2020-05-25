@@ -29,6 +29,7 @@
 <translation id="1243314992276662751">Запампаваць</translation>
 <translation id="1249250836236328755">Жанр</translation>
 <translation id="1278813325885878377">Венгерская клавіятура (QWERTY)</translation>
+<translation id="1293556467332435079">Файлы</translation>
 <translation id="1297922636971898492">Google Дыск зараз недаступны. Як толькі доступ адновіцца, запампоўванне пачнецца аўтаматычна.</translation>
 <translation id="1307931752636661898">Не ўдалося праглядзець файлы Linux</translation>
 <translation id="1310751437842832374">Транслітарацыя (mausam → ନମସ୍ତେ)</translation>
@@ -94,7 +95,7 @@
 <translation id="2028997212275086731">Архіў RAR</translation>
 <translation id="2046702855113914483">Рамен</translation>
 <translation id="2070909990982335904">Назвы, якія пачынаюцца з кропкі, зарэзерваваны сістэмай. Укажыце іншую назву.</translation>
-<translation id="2079545284768500474">Адмяніць</translation>
+<translation id="2079545284768500474">Адрабіць</translation>
 <translation id="2080010875307505892">Сербская раскладка</translation>
 <translation id="2084108471225856927">Налады прылады</translation>
 <translation id="2085470240340828803">Файл пад назвай "<ph name="FILENAME" />" ужо існуе. Што трэба зрабіць?</translation>
@@ -507,6 +508,7 @@
 <translation id="6878261347041253038">Клавіятура дэванагары (фанетычная)</translation>
 <translation id="6885780034956018177">Слімак</translation>
 <translation id="6896758677409633944">Капіраваць</translation>
+<translation id="6898028766943174120">Іншыя ўкладзеныя папкі...</translation>
 <translation id="691516599546977041">Не ўдалося захаваць файлы ў папку "<ph name="FOLDER_NAME" />". Адрэдагаваныя відарысы будуць захаваны ў папку "Спампоўкі".</translation>
 <translation id="6915678159055240887">Chromebox</translation>
 <translation id="6918340160281024199">ЗША (Workman)</translation>
@@ -519,6 +521,7 @@
 <translation id="696203921837389374">Уключыць сінхранізацыю пры мабільнай перадачы даных</translation>
 <translation id="6965382102122355670">ОК</translation>
 <translation id="6970230597523682626">Балгарская</translation>
+<translation id="6973630695168034713">Папкі</translation>
 <translation id="6978611942794658017">Гэты файл створаны для ПК з праграмным забеспячэннем Windows. Ён несумяшчальны з вашай прыладай на Chrome OS. Пашукайце ў Вэб-краме Chrome адпаведную праграму на замену.</translation>
 <translation id="6979158407327259162">Google Дыск</translation>
 <translation id="6990081529015358884">У вас скончылася месца</translation>
@@ -569,7 +572,7 @@
 <translation id="7628656427739290098"><ph name="PERCENT" />% выканана.</translation>
 <translation id="7649070708921625228">Даведка</translation>
 <translation id="7654209398114106148">Ідзе перамяшчэнне элементаў (<ph name="NUMBER_OF_ITEMS" />)...</translation>
-<translation id="7658239707568436148">Адмяніць</translation>
+<translation id="7658239707568436148">Скасаваць</translation>
 <translation id="7695430100978772476">Не ўдалося адфармаціраваць дыск "<ph name="DRIVE_NAME" />"</translation>
 <translation id="770015031906360009">Грэчаская</translation>
 <translation id="7706319470528945664">Партугальская клавіятура</translation>

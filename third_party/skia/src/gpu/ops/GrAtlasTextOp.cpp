@@ -21,6 +21,7 @@
 #include "src/gpu/effects/GrDistanceFieldGeoProc.h"
 #include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
 #include "src/gpu/text/GrAtlasManager.h"
+#include "src/gpu/text/GrDistanceFieldAdjustTable.h"
 #include "src/gpu/text/GrStrikeCache.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -56,7 +57,6 @@ std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeDistanceField(
                                             GrRecordingContext* context,
                                             GrPaint&& paint,
                                             int glyphCount,
-                                            const GrDistanceFieldAdjustTable* distanceAdjustTable,
                                             bool useGammaCorrectDistanceTable,
                                             SkColor luminanceColor,
                                             const SkSurfaceProps& props,
@@ -72,7 +72,6 @@ std::unique_ptr<GrAtlasTextOp> GrAtlasTextOp::MakeDistanceField(
                                        : isLCD ? (isBGR ? kLCDBGRDistanceField_MaskType
                                                         : kLCDDistanceField_MaskType)
                                                : kGrayscaleDistanceField_MaskType;
-        op->fDistanceAdjustTable.reset(SkRef(distanceAdjustTable));
         op->fUseGammaCorrectDistanceTable = useGammaCorrectDistanceTable;
         op->fLuminanceColor = luminanceColor;
         op->fNumGlyphs = glyphCount;
@@ -197,12 +196,16 @@ static void clip_quads(const SkIRect& clipRect, char* currVertex, const char* bl
             auto* blobCoordsRB = reinterpret_cast<const uint16_t*>(blobVertices + 3 * vertexStride +
                                                                    coordOffset);
             // Pull out the texel coordinates and texture index bits
-            uint16_t coordsRectL = blobCoordsLT[0] >> 1;
-            uint16_t coordsRectT = blobCoordsLT[1] >> 1;
-            uint16_t coordsRectR = blobCoordsRB[0] >> 1;
-            uint16_t coordsRectB = blobCoordsRB[1] >> 1;
-            uint16_t pageIndexX = blobCoordsLT[0] & 0x1;
-            uint16_t pageIndexY = blobCoordsLT[1] & 0x1;
+            uint16_t coordsRectL = blobCoordsLT[0];
+            uint16_t coordsRectT = blobCoordsLT[1];
+            uint16_t coordsRectR = blobCoordsRB[0];
+            uint16_t coordsRectB = blobCoordsRB[1];
+            int index0, index1;
+            std::tie(coordsRectL, coordsRectT, index0) =
+                    GrDrawOpAtlas::UnpackIndexFromTexCoords(coordsRectL, coordsRectT);
+            std::tie(coordsRectR, coordsRectB, index1) =
+                    GrDrawOpAtlas::UnpackIndexFromTexCoords(coordsRectR, coordsRectB);
+            SkASSERT(index0 == index1);
 
             int positionRectWidth = positionRect.width();
             int positionRectHeight = positionRect.height();
@@ -211,27 +214,27 @@ static void clip_quads(const SkIRect& clipRect, char* currVertex, const char* bl
 
             // Clip position and texCoords to the clipRect
             unsigned int delta;
-            delta = SkTMin(SkTMax(clipRect.fLeft - positionRect.fLeft, 0), positionRectWidth);
+            delta = std::min(std::max(clipRect.fLeft - positionRect.fLeft, 0), positionRectWidth);
             coordsRectL += delta;
             positionRect.fLeft += delta;
 
-            delta = SkTMin(SkTMax(clipRect.fTop - positionRect.fTop, 0), positionRectHeight);
+            delta = std::min(std::max(clipRect.fTop - positionRect.fTop, 0), positionRectHeight);
             coordsRectT += delta;
             positionRect.fTop += delta;
 
-            delta = SkTMin(SkTMax(positionRect.fRight - clipRect.fRight, 0), positionRectWidth);
+            delta = std::min(std::max(positionRect.fRight - clipRect.fRight, 0), positionRectWidth);
             coordsRectR -= delta;
             positionRect.fRight -= delta;
 
-            delta = SkTMin(SkTMax(positionRect.fBottom - clipRect.fBottom, 0), positionRectHeight);
+            delta = std::min(std::max(positionRect.fBottom - clipRect.fBottom, 0), positionRectHeight);
             coordsRectB -= delta;
             positionRect.fBottom -= delta;
 
             // Repack texel coordinates and index
-            coordsRectL = coordsRectL << 1 | pageIndexX;
-            coordsRectT = coordsRectT << 1 | pageIndexY;
-            coordsRectR = coordsRectR << 1 | pageIndexX;
-            coordsRectB = coordsRectB << 1 | pageIndexY;
+            std::tie(coordsRectL, coordsRectT) =
+                    GrDrawOpAtlas::PackIndexInTexCoords(coordsRectL, coordsRectT, index0);
+            std::tie(coordsRectR, coordsRectB) =
+                    GrDrawOpAtlas::PackIndexInTexCoords(coordsRectR, coordsRectB, index1);
 
             // Set new positions and coords
             SkPoint* currPosition = reinterpret_cast<SkPoint*>(currVertex);
@@ -286,7 +289,6 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
     }
 
     GrAtlasManager* atlasManager = target->atlasManager();
-    GrStrikeCache* glyphCache = target->glyphCache();
 
     GrMaskFormat maskFormat = this->maskFormat();
 
@@ -302,16 +304,16 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
     static_assert(GrDistanceFieldA8TextGeoProc::kMaxTextures == kMaxTextures);
     static_assert(GrDistanceFieldLCDTextGeoProc::kMaxTextures == kMaxTextures);
 
-    auto fixedDynamicState = target->makeFixedDynamicState(kMaxTextures);
+    auto primProcProxies = target->allocPrimProcProxyPtrs(kMaxTextures);
     for (unsigned i = 0; i < numActiveViews; ++i) {
-        fixedDynamicState->fPrimitiveProcessorTextures[i] = views[i].proxy();
+        primProcProxies[i] = views[i].proxy();
         // This op does not know its atlas proxies when it is added to a GrOpsTasks, so the proxies
         // don't get added during the visitProxies call. Thus we add them here.
         target->sampledProxyArray()->push_back(views[i].proxy());
     }
 
     FlushInfo flushInfo;
-    flushInfo.fFixedDynamicState = fixedDynamicState;
+    flushInfo.fPrimProcProxies = primProcProxies;
 
     bool vmPerspective = fGeoData[0].fDrawMatrix.hasPerspective();
     if (this->usesDistanceFields()) {
@@ -361,12 +363,11 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
 
         // TODO4F: Preserve float colors
         GrTextBlob::VertexRegenerator regenerator(
-                resourceProvider, args.fSubRunPtr, target->deferredUploadTarget(), glyphCache,
-                atlasManager);
+                resourceProvider, args.fSubRunPtr, target->deferredUploadTarget(), atlasManager);
 
         // Where the subRun begins and ends relative to totalGlyphsRegened.
         int subRunBegin = totalGlyphsRegened;
-        int subRunEnd = subRunBegin + (int)subRun->fGlyphs.size();
+        int subRunEnd = subRunBegin + subRun->fGlyphs.count();
 
         // Draw all the glyphs in the subRun.
         while (totalGlyphsRegened < subRunEnd) {
@@ -378,7 +379,9 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
             auto[ok, glyphsRegenerated] = regenerator.regenerate(drawBegin, drawEnd);
 
             // There was a problem allocating the glyph in the atlas. Bail.
-            if(!ok) { return; }
+            if (!ok) {
+                return;
+            }
 
             // Update all the vertices for glyphsRegenerate glyphs.
             if (glyphsRegenerated > 0) {
@@ -431,7 +434,7 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
             if (totalGlyphsRegened != subRunEnd) {
                 // Flush if not all glyphs drawn because either the quad buffer is full or the
                 // atlas is out of space.
-                this->flush(target, &flushInfo);
+                this->createDrawForGeneratedGlyphs(target, &flushInfo);
                 if (totalGlyphsRegened == quadBufferEnd) {
                     // Quad buffer is full. Get more buffer.
                     quadBufferBegin = totalGlyphsRegened;
@@ -452,7 +455,7 @@ void GrAtlasTextOp::onPrepareDraws(Target* target) {
             }
         }
     }  // for all geometries
-    this->flush(target, &flushInfo);
+    this->createDrawForGeneratedGlyphs(target, &flushInfo);
 }
 
 void GrAtlasTextOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
@@ -463,7 +466,8 @@ void GrAtlasTextOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBou
     flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
 }
 
-void GrAtlasTextOp::flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const {
+void GrAtlasTextOp::createDrawForGeneratedGlyphs(
+        GrMeshDrawOp::Target* target, FlushInfo* flushInfo) const {
     if (!flushInfo->fGlyphsToFlush) {
         return;
     }
@@ -484,13 +488,13 @@ void GrAtlasTextOp::flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) co
         // During preparation the number of atlas pages has increased.
         // Update the proxies used in the GP to match.
         for (unsigned i = gp->numTextureSamplers(); i < numActiveViews; ++i) {
-            flushInfo->fFixedDynamicState->fPrimitiveProcessorTextures[i] = views[i].proxy();
+            flushInfo->fPrimProcProxies[i] = views[i].proxy();
             // This op does not know its atlas proxies when it is added to a GrOpsTasks, so the
             // proxies don't get added during the visitProxies call. Thus we add them here.
             target->sampledProxyArray()->push_back(views[i].proxy());
             // These will get unreffed when the previously recorded draws destruct.
             for (int d = 0; d < flushInfo->fNumDraws; ++d) {
-                flushInfo->fFixedDynamicState->fPrimitiveProcessorTextures[i]->ref();
+                flushInfo->fPrimProcProxies[i]->ref();
             }
         }
         if (this->usesDistanceFields()) {
@@ -508,12 +512,12 @@ void GrAtlasTextOp::flush(GrMeshDrawOp::Target* target, FlushInfo* flushInfo) co
         }
     }
     int maxGlyphsPerDraw = static_cast<int>(flushInfo->fIndexBuffer->size() / sizeof(uint16_t) / 6);
-    GrMesh* mesh = target->allocMesh(GrPrimitiveType::kTriangles);
-    mesh->setIndexedPatterned(flushInfo->fIndexBuffer, kIndicesPerGlyph, kVerticesPerGlyph,
-                              flushInfo->fGlyphsToFlush, maxGlyphsPerDraw);
-    mesh->setVertexData(flushInfo->fVertexBuffer, flushInfo->fVertexOffset);
-    target->recordDraw(flushInfo->fGeometryProcessor, mesh, 1, flushInfo->fFixedDynamicState,
-                       nullptr, GrPrimitiveType::kTriangles);
+    GrSimpleMesh* mesh = target->allocMesh();
+    mesh->setIndexedPatterned(flushInfo->fIndexBuffer, kIndicesPerGlyph, flushInfo->fGlyphsToFlush,
+                              maxGlyphsPerDraw, flushInfo->fVertexBuffer, kVerticesPerGlyph,
+                              flushInfo->fVertexOffset);
+    target->recordDraw(flushInfo->fGeometryProcessor, mesh, 1, flushInfo->fPrimProcProxies,
+                       GrPrimitiveType::kTriangles);
     flushInfo->fVertexOffset += kVerticesPerGlyph * flushInfo->fGlyphsToFlush;
     flushInfo->fGlyphsToFlush = 0;
     ++flushInfo->fNumDraws;
@@ -604,15 +608,17 @@ GrGeometryProcessor* GrAtlasTextOp::setupDfProcessor(SkArenaAlloc* arena,
         (void)result;
     }
 
+    auto dfAdjustTable = GrDistanceFieldAdjustTable::Get();
+
     // see if we need to create a new effect
     if (isLCD) {
-        float redCorrection = fDistanceAdjustTable->getAdjustment(
+        float redCorrection = dfAdjustTable->getAdjustment(
                 SkColorGetR(fLuminanceColor) >> kDistanceAdjustLumShift,
                 fUseGammaCorrectDistanceTable);
-        float greenCorrection = fDistanceAdjustTable->getAdjustment(
+        float greenCorrection = dfAdjustTable->getAdjustment(
                 SkColorGetG(fLuminanceColor) >> kDistanceAdjustLumShift,
                 fUseGammaCorrectDistanceTable);
-        float blueCorrection = fDistanceAdjustTable->getAdjustment(
+        float blueCorrection = dfAdjustTable->getAdjustment(
                 SkColorGetB(fLuminanceColor) >> kDistanceAdjustLumShift,
                 fUseGammaCorrectDistanceTable);
         GrDistanceFieldLCDTextGeoProc::DistanceAdjust widthAdjust =
@@ -627,8 +633,8 @@ GrGeometryProcessor* GrAtlasTextOp::setupDfProcessor(SkArenaAlloc* arena,
         if (kAliasedDistanceField_MaskType != fMaskType) {
             U8CPU lum = SkColorSpaceLuminance::computeLuminance(SK_GAMMA_EXPONENT,
                                                                 fLuminanceColor);
-            correction = fDistanceAdjustTable->getAdjustment(lum >> kDistanceAdjustLumShift,
-                                                             fUseGammaCorrectDistanceTable);
+            correction = dfAdjustTable->getAdjustment(lum >> kDistanceAdjustLumShift,
+                                                      fUseGammaCorrectDistanceTable);
         }
         return GrDistanceFieldA8TextGeoProc::Make(arena, caps, views, numActiveViews,
                                                   GrSamplerState::Filter::kBilerp, correction,

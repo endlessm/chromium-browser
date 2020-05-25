@@ -86,7 +86,9 @@ source_set("common") {
 source_set("client_api_without_backends") {
   deps = [
     "../../include/perfetto/tracing/core",
+    "../../protos/perfetto/common:zero",
     "../../protos/perfetto/config:cpp",
+    "../../protos/perfetto/config/track_event:cpp",
     "../base",
     "core",
   ]
@@ -148,4 +150,17 @@ source_set("in_process_backend") {
     "core:service",
   ]
   sources = [ "internal/in_process_tracing_backend.cc" ]
+}
+
+if (enable_perfetto_benchmarks) {
+  source_set("benchmarks") {
+    testonly = true
+    deps = [
+      ":platform_posix",
+      "../..:libperfetto_client_experimental",
+      "../../../../../gn:benchmark",
+      "../../../../../gn:default_deps",
+    ]
+    sources = [ "api_benchmark.cc" ]
+  }
 }

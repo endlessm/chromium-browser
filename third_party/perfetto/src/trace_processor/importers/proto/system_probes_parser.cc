@@ -20,9 +20,9 @@
 #include "perfetto/ext/traced/sys_stats_counters.h"
 #include "perfetto/protozero/proto_decoder.h"
 #include "src/trace_processor/event_tracker.h"
-#include "src/trace_processor/metadata.h"
 #include "src/trace_processor/metadata_tracker.h"
 #include "src/trace_processor/process_tracker.h"
+#include "src/trace_processor/storage/metadata.h"
 #include "src/trace_processor/syscall_tracker.h"
 #include "src/trace_processor/trace_processor_context.h"
 
@@ -296,6 +296,8 @@ void SystemProbesParser::ParseSystemInfo(ConstBytes blob) {
       syscall_tracker->SetArchitecture(kAarch64);
     } else if (machine == "x86_64") {
       syscall_tracker->SetArchitecture(kX86_64);
+    } else if (machine == "i686") {
+      syscall_tracker->SetArchitecture(kX86);
     } else {
       PERFETTO_ELOG("Unknown architecture %s", machine.ToStdString().c_str());
     }

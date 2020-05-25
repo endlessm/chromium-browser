@@ -97,6 +97,7 @@
 <translation id="2149973817440762519">Redigera bokmärke</translation>
 <translation id="2179182049312275900">Du kan när som helst inaktivera synkroniseringen i inställningarna.</translation>
 <translation id="2198757192731523470">Google kan anpassa Sök, annonser och andra Google-tjänster utifrån historiken.</translation>
+<translation id="2218443599109088993">Zooma ut</translation>
 <translation id="2230173723195178503">Webbsidan har lästs in</translation>
 <translation id="2239626343334228536">Tar bort webbinformation …</translation>
 <translation id="2257567812274161158">Det går inte att synkronisera.</translation>
@@ -159,6 +160,7 @@
 <translation id="2923448633003185837">Klistra in och öppna</translation>
 <translation id="292639812446257861">Markera som oläst</translation>
 <translation id="2958718410589002129">Lösenord</translation>
+<translation id="2964349545761222050">Blockera cookies från tredje part</translation>
 <translation id="2969979262385602596">Det gick inte att logga in. Försök igen senare.</translation>
 <translation id="298306318844797842">Lägg till betalningsmetod …</translation>
 <translation id="2989805286512600854">Öppna i ny flik</translation>
@@ -166,6 +168,7 @@
 <translation id="3112556859945124369">Markera …</translation>
 <translation id="3153862085237805241">Spara kortet</translation>
 <translation id="3157684681743766797">Markera alla …</translation>
+<translation id="3161291298470460782">Med den här åtgärden loggas du ut, synkroniseringen inaktiveras och all data i Chrome rensas från enheten. Din synkroniserade data finns kvar i Google-kontot.</translation>
 <translation id="3175081911749765310">Webbtjänster</translation>
 <translation id="3178650076442119961">Aktiv i dag</translation>
 <translation id="3207960819495026254">Bokmärkt</translation>
@@ -178,6 +181,7 @@
 <translation id="3290875554372353449">Välj ett konto</translation>
 <translation id="3311748811247479259">Av</translation>
 <translation id="3324193307694657476">Adressrad 2</translation>
+<translation id="3328801116991980348">Platsinformation</translation>
 <translation id="3329904751041170572">Det gick inte att ansluta till servern.</translation>
 <translation id="3335947283844343239">Öppna stängd flik igen</translation>
 <translation id="3371831930909698441">Översättning finns. Alternativ visas nära skärmens nedre kant.</translation>
@@ -197,6 +201,7 @@
 <translation id="3494788280727468875">Bekräfta rensning av webbinformation</translation>
 <translation id="35083190962747987">Öppna ${url}</translation>
 <translation id="3519193562722059437">Öppna en flik om du vill surfa på webben.</translation>
+<translation id="3523473570015918798">När du loggar ut synkroniseras inte längre bokmärken, lösenord och annan data i Chrome till Google-kontot.</translation>
 <translation id="3527085408025491307">Mapp</translation>
 <translation id="3529024052484145543">Inte säkert</translation>
 <translation id="3533202363250687977">Stäng alla inkognitoflikar</translation>
@@ -300,6 +305,7 @@ Din data har krypterats med lösenfrasen för synkronisering. Ange den om du vil
 <translation id="4979397965658815378">Logga in med ditt Google-konto så att du kan använda bokmärken, lösenord, historik med mera på alla dina enheter</translation>
 <translation id="5005498671520578047">Kopiera lösenord</translation>
 <translation id="5010803260590204777">Öppna en inkognitoflik om du vill surfa privat på webben.</translation>
+<translation id="5039020240289137291">Cookies från tredje part blockeras</translation>
 <translation id="5039804452771397117">Tillåt</translation>
 <translation id="5059136629401106827">OK</translation>
 <translation id="5062321486222145940">Installera Google Drive</translation>
@@ -329,6 +335,7 @@ Din data har krypterats med lösenfrasen för synkronisering. Ange den om du vil
 <translation id="54401264925851789">Sidans säkerhetsinfo</translation>
 <translation id="5443952882982198570">Kreditkort</translation>
 <translation id="5457907402803865181">Det gick inte att synkronisera lösenord.</translation>
+<translation id="5508435575041083207">Logga ut och rensa data från enheten</translation>
 <translation id="5525269841082836315">Skapa lösenfras</translation>
 <translation id="5548760955356983418">Med Handoff kan du börja visa en webbplats på den här enheten och sedan enkelt fortsätta på din Mac. Den aktuella öppna webbplatsen visas i Dock på din Mac.
 
@@ -414,9 +421,11 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="6434591244308415567">Ett fel uppstod. Försök igen senare.</translation>
 <translation id="6445051938772793705">Land</translation>
 <translation id="6445981559479772097">SMS skickat.</translation>
+<translation id="6447842834002726250">Cookies</translation>
 <translation id="6464071786529933911">Öppna i ny inkognitoflik</translation>
 <translation id="6476800141292307438">Översätter sidan till <ph name="LANGUAGE" />. Alternativ finns längst ned på skärmen.</translation>
 <translation id="6482629121755362506"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> objekt har tagits bort</translation>
+<translation id="6561262006871132942">Zooma in</translation>
 <translation id="6610002944194042868">Översättningsalternativ</translation>
 <translation id="6628106477656132239">Ogiltigt sista giltighetsdatum</translation>
 <translation id="6638511529934826365">Zooma text …</translation>
@@ -479,7 +488,6 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="734758817008927353">Alternativ för att spara kort</translation>
 <translation id="7348502496356775519">Bokmärke</translation>
 <translation id="7383797227493018512">Läslista</translation>
-<translation id="7392048574806661116">Logga ut och radera synkroniserad data</translation>
 <translation id="7400418766976504921">Webbadress</translation>
 <translation id="7409985198648820906"><ph name="UNREAD_COUNT" /> olästa artiklar.</translation>
 <translation id="7425346204213733349">Ändringar i bokmärken, historik, lösenord och andra inställningar synkroniseras inte längre med ditt Google-konto. Befintlig data fortsätter dock att lagras i Google-kontot.</translation>
@@ -501,6 +509,9 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="766891008101699113">Öppna en ny flik om du vill använda internet privat.</translation>
 <translation id="7671141431838911305">INSTALLERA</translation>
 <translation id="7765158879357617694">Flytta</translation>
+<translation id="7771470029643830783">När du loggar ut synkroniseras inte längre bokmärken, lösenord och annan data i Chrome till Google-kontot.
+
+Eftersom ditt konto hanteras av <ph name="HOSTED_DOMAIN" /> raderas din data i Chrome från enheten när du loggar ut. Din synkroniserade data finns kvar i Google-kontot.</translation>
 <translation id="7772032839648071052">Bekräfta lösenfras</translation>
 <translation id="7781011649027948662">Vill du översätta sidan?</translation>
 <translation id="7781829728241885113">Igår</translation>
@@ -550,6 +561,7 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="8490978609246021741">Spara ändringar</translation>
 <translation id="8503813439785031346">Användarnamn</translation>
 <translation id="850600235656508448">Öppna i inkognitoläge</translation>
+<translation id="8510057420705599706">Med den här åtgärden loggas du ut och synkroniseringen inaktiveras, men bokmärken, historik, lösenord och annan data i Chrome finns kvar på enheten.</translation>
 <translation id="8517375800490286174">Licenser för öppen källkod</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" />-flikarna <ph name="FIRST_VISIBLE_TAB" /> till <ph name="LAST_VISIBLE_TAB" /> av <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8529767659511976195">Nytt</translation>
@@ -592,12 +604,14 @@ Din data krypterades med lösenfrasen den <ph name="TIME" />. Ange den om du vil
 <translation id="9094033019050270033">Uppdatera lösenordet</translation>
 <translation id="9100610230175265781">Lösenfras krävs</translation>
 <translation id="9148126808321036104">Logga in igen</translation>
+<translation id="9152539721251340337">Skapa en QR-kod</translation>
 <translation id="9157836665414082580">Visa inte dialogrutor</translation>
 <translation id="9188680907066685419">Logga ut från hanterat konto</translation>
 <translation id="9203116392574189331">Handoff</translation>
 <translation id="9223358826628549784">Felrapporten har skickats.</translation>
 <translation id="952704832371081537">Avbryt</translation>
 <translation id="988141524645182168">Övriga enheter</translation>
+<translation id="989697783705943787">Säkerhet på webbplatsen</translation>
 <translation id="989988560359834682">Redigera adress</translation>
 <translation id="994757059139821576">Artikelförslag</translation>
 </translationbundle>

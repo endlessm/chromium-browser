@@ -8,7 +8,6 @@
 #include <cstdlib>
 
 #include "ash/public/cpp/ash_pref_names.h"
-#include "ash/public/cpp/ash_prefs.h"
 #include "ash/public/cpp/ash_switches.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/test/shell_test_api.h"
@@ -2641,27 +2640,18 @@ namespace {
 
 class WallpaperControllerPrefTest : public AshTestBase {
  public:
-  WallpaperControllerPrefTest() = default;
-  ~WallpaperControllerPrefTest() override = default;
+  WallpaperControllerPrefTest() {
+    auto property = std::make_unique<base::DictionaryValue>();
+    property->SetInteger("rotation",
+                         static_cast<int>(display::Display::ROTATE_90));
+    property->SetInteger("width", 800);
+    property->SetInteger("height", 600);
 
-  void SetUp() override {
-    {
-      RegisterLocalStatePrefs(local_state_->registry(), true);
-      register_local_state_ = false;
-      DictionaryPrefUpdate update(local_state_.get(),
-                                  prefs::kDisplayProperties);
-
-      base::DictionaryValue* pref_data = update.Get();
-
-      auto property = std::make_unique<base::DictionaryValue>();
-      property->SetInteger("rotation",
-                           static_cast<int>(display::Display::ROTATE_90));
-      property->SetInteger("width", 800);
-      property->SetInteger("height", 600);
-      pref_data->Set("2200000000", std::move(property));
-    }
-    AshTestBase::SetUp();
+    DictionaryPrefUpdate update(local_state(), prefs::kDisplayProperties);
+    update.Get()->Set("2200000000", std::move(property));
   }
+
+  ~WallpaperControllerPrefTest() override = default;
 };
 
 }  // namespace

@@ -76,6 +76,19 @@ def _CreateJob(request):
       arguments.get('experimental_execution_engine') and
       arguments.get('comparison_mode') == job_state.PERFORMANCE)
 
+  # Ensure that we have the required fields in tryjob requests.
+  if comparison_mode == 'try':
+    if 'benchmark' not in arguments:
+      raise ValueError('Missing required "benchmark" argument.')
+
+    # First we check whether there's a quest that's of type 'RunTelemetryTest'.
+    is_telemetry_test = any(
+        [isinstance(q, quest_module.RunTelemetryTest) for q in quests])
+    if is_telemetry_test and ('story' not in arguments and
+                              'story_tags' not in arguments):
+      raise ValueError(
+          'Missing either "story" or "story_tags" as arguments for try jobs.')
+
   # Create job.
   job = job_module.Job.New(
       quests if not use_execution_engine else (),
@@ -257,14 +270,14 @@ def _GenerateQuests(arguments):
     if target in ('performance_test_suite', 'performance_webview_test_suite',
                   'telemetry_perf_tests', 'telemetry_perf_webview_tests'):
       quest_classes = (quest_module.FindIsolate, quest_module.RunTelemetryTest,
-                       quest_module.ReadHistogramsJsonValue)
+                       quest_module.ReadValue)
     elif target == 'vr_perf_tests':
       quest_classes = (quest_module.FindIsolate,
                        quest_module.RunVrTelemetryTest,
-                       quest_module.ReadHistogramsJsonValue)
+                       quest_module.ReadValue)
     else:
       quest_classes = (quest_module.FindIsolate, quest_module.RunGTest,
-                       quest_module.ReadGraphJsonValue)
+                       quest_module.ReadValue)
 
   quest_instances = []
   for quest_class in quest_classes:

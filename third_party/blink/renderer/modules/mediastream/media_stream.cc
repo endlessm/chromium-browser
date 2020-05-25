@@ -56,11 +56,13 @@ MediaStream* MediaStream::Create(ExecutionContext* context) {
   MediaStreamTrackVector audio_tracks;
   MediaStreamTrackVector video_tracks;
 
+  DCHECK(context);
   return MakeGarbageCollected<MediaStream>(context, audio_tracks, video_tracks);
 }
 
 MediaStream* MediaStream::Create(ExecutionContext* context,
                                  MediaStream* stream) {
+  DCHECK(context);
   DCHECK(stream);
 
   MediaStreamTrackVector audio_tracks;
@@ -80,6 +82,7 @@ MediaStream* MediaStream::Create(ExecutionContext* context,
   MediaStreamTrackVector audio_tracks;
   MediaStreamTrackVector video_tracks;
 
+  DCHECK(context);
   for (MediaStreamTrack* track : tracks) {
     ProcessTrack(track, track->kind() == "audio" ? audio_tracks : video_tracks);
   }
@@ -102,7 +105,7 @@ MediaStream* MediaStream::Create(ExecutionContext* context,
 
 MediaStream::MediaStream(ExecutionContext* context,
                          MediaStreamDescriptor* stream_descriptor)
-    : ContextClient(context),
+    : ExecutionContextClient(context),
       descriptor_(stream_descriptor),
       scheduled_event_timer_(
           context->GetTaskRunner(TaskType::kMediaElementEvent),
@@ -137,7 +140,7 @@ MediaStream::MediaStream(ExecutionContext* context,
                          MediaStreamDescriptor* stream_descriptor,
                          const MediaStreamTrackVector& audio_tracks,
                          const MediaStreamTrackVector& video_tracks)
-    : ContextClient(context),
+    : ExecutionContextClient(context),
       descriptor_(stream_descriptor),
       scheduled_event_timer_(
           context->GetTaskRunner(TaskType::kMediaElementEvent),
@@ -167,7 +170,7 @@ MediaStream::MediaStream(ExecutionContext* context,
 MediaStream::MediaStream(ExecutionContext* context,
                          const MediaStreamTrackVector& audio_tracks,
                          const MediaStreamTrackVector& video_tracks)
-    : ContextClient(context),
+    : ExecutionContextClient(context),
       scheduled_event_timer_(
           context->GetTaskRunner(TaskType::kMediaElementEvent),
           this,
@@ -495,14 +498,14 @@ void MediaStream::ScheduledEventTimerFired(TimerBase*) {
   events.clear();
 }
 
-void MediaStream::Trace(blink::Visitor* visitor) {
+void MediaStream::Trace(Visitor* visitor) {
   visitor->Trace(audio_tracks_);
   visitor->Trace(video_tracks_);
   visitor->Trace(descriptor_);
   visitor->Trace(observers_);
   visitor->Trace(scheduled_events_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextClient::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
   MediaStreamDescriptorClient::Trace(visitor);
 }
 

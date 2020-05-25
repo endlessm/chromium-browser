@@ -37,7 +37,8 @@
 #define hb_blob_create_from_file(x)  hb_blob_get_empty ()
 #endif
 
-#if !defined(HB_NO_COLOR) && !defined(HB_NO_GLYPH)
+#if !defined(HB_NO_COLOR) && !defined(HB_NO_DRAW)
+#ifdef HB_EXPERIMENTAL_API
 static void
 svg_dump (hb_face_t *face, unsigned face_index)
 {
@@ -143,9 +144,9 @@ line_to (hb_position_t to_x, hb_position_t to_y, user_data_t &user_data)
 }
 
 static void
-conic_to (hb_position_t control_x, hb_position_t control_y,
-	  hb_position_t to_x, hb_position_t to_y,
-	  user_data_t &user_data)
+quadratic_to (hb_position_t control_x, hb_position_t control_y,
+	      hb_position_t to_x, hb_position_t to_y,
+	      user_data_t &user_data)
 {
   fprintf (user_data.f, "Q%d,%d %d,%d", control_x, user_data.ascender - control_y,
 					to_x, user_data.ascender - to_y);
@@ -169,80 +170,81 @@ close_path (user_data_t &user_data)
 }
 
 static void
-layered_glyph_dump (hb_font_t *font, hb_ot_glyph_decompose_funcs_t *funcs, unsigned face_index)
+layered_glyph_dump (hb_font_t *font, hb_draw_funcs_t *funcs, unsigned face_index)
 {
   hb_face_t *face = hb_font_get_face (font);
-  unsigned num_glyphs = hb_face_get_glyph_count (face);
-  for (hb_codepoint_t gid = 0; gid < num_glyphs; ++gid)
+  unsigned palette_count = hb_ot_color_palette_get_count (face);
+  for (unsigned palette = 0; palette < palette_count; ++palette)
   {
-    unsigned num_layers = hb_ot_color_glyph_get_layers (face, gid, 0, nullptr, nullptr);
-    if (!num_layers) continue;
+    unsigned num_colors = hb_ot_color_palette_get_colors (face, palette, 0, nullptr, nullptr);
+    if (!num_colors) continue;
 
-    hb_ot_color_layer_t *layers = (hb_ot_color_layer_t*) malloc (num_layers * sizeof (hb_ot_color_layer_t));
-
-    hb_ot_color_glyph_get_layers (face, gid, 0, &num_layers, layers);
-    if (num_layers)
+    hb_color_t *colors = (hb_color_t*) calloc (num_colors, sizeof (hb_color_t));
+    hb_ot_color_palette_get_colors (face, palette, 0, &num_colors, colors);
+    if (!num_colors)
     {
-      hb_font_extents_t font_extents;
-      hb_font_get_extents_for_direction (font, HB_DIRECTION_LTR, &font_extents);
-      hb_glyph_extents_t extents = {0};
-      if (!hb_font_get_glyph_extents (font, gid, &extents))
-      {
-	printf ("Skip gid: %d\n", gid);
-	continue;
-      }
+      free (colors);
+      continue;
+    }
 
-      unsigned palette_count = hb_ot_color_palette_get_count (face);
-      for (unsigned palette = 0; palette < palette_count; ++palette)
+    unsigned num_glyphs = hb_face_get_glyph_count (face);
+    for (hb_codepoint_t gid = 0; gid < num_glyphs; ++gid)
+    {
+      unsigned num_layers = hb_ot_color_glyph_get_layers (face, gid, 0, nullptr, nullptr);
+      if (!num_layers) continue;
+
+      hb_ot_color_layer_t *layers = (hb_ot_color_layer_t*) malloc (num_layers * sizeof (hb_ot_color_layer_t));
+
+      hb_ot_color_glyph_get_layers (face, gid, 0, &num_layers, layers);
+      if (num_layers)
       {
-	unsigned num_colors = hb_ot_color_palette_get_colors (face, palette, 0, nullptr, nullptr);
-	if (!num_colors)
+	hb_font_extents_t font_extents;
+	hb_font_get_extents_for_direction (font, HB_DIRECTION_LTR, &font_extents);
+	hb_glyph_extents_t extents = {0};
+	if (!hb_font_get_glyph_extents (font, gid, &extents))
+	{
+	  printf ("Skip gid: %d\n", gid);
 	  continue;
+	}
 
 	char output_path[255];
 	sprintf (output_path, "out/colr-%u-%u-%u.svg", gid, palette, face_index);
-        FILE *f = fopen (output_path, "wb");
-        fprintf (f, "<svg xmlns=\"http://www.w3.org/2000/svg\""
+	FILE *f = fopen (output_path, "wb");
+	fprintf (f, "<svg xmlns=\"http://www.w3.org/2000/svg\""
 		    " viewBox=\"%d %d %d %d\">\n",
 		    extents.x_bearing, 0,
 		    extents.x_bearing + extents.width, -extents.height);
-        user_data_t user_data;
-        user_data.ascender = extents.y_bearing;
-        user_data.f = f;
+	user_data_t user_data;
+	user_data.ascender = extents.y_bearing;
+	user_data.f = f;
 
-	hb_color_t *colors = (hb_color_t*) calloc (num_colors, sizeof (hb_color_t));
-	hb_ot_color_palette_get_colors (face, palette, 0, &num_colors, colors);
-	if (num_colors)
+	for (unsigned layer = 0; layer < num_layers; ++layer)
 	{
-	  for (unsigned layer = 0; layer < num_layers; ++layer)
-	  {
-	    hb_color_t color = 0x000000FF;
-	    if (layers[layer].color_index != 0xFFFF)
-	      color = colors[layers[layer].color_index];
-	    fprintf (f, "<path fill=\"#%02X%02X%02X\" ",
-		     hb_color_get_red (color), hb_color_get_green (color), hb_color_get_green (color));
-	    if (hb_color_get_alpha (color) != 255)
-	      fprintf (f, "fill-opacity=\"%.3f\"", (double) hb_color_get_alpha (color) / 255.);
-	    fprintf (f, "d=\"");
-	    if (!hb_ot_glyph_decompose (font, layers[layer].glyph, funcs, &user_data))
-	      printf ("Failed to decompose layer %d while %d\n", layers[layer].glyph, gid);
-	    fprintf (f, "\"/>\n");
-	  }
+	  hb_color_t color = 0x000000FF;
+	  if (layers[layer].color_index != 0xFFFF)
+	    color = colors[layers[layer].color_index];
+	  fprintf (f, "<path fill=\"#%02X%02X%02X\" ",
+		   hb_color_get_red (color), hb_color_get_green (color), hb_color_get_green (color));
+	  if (hb_color_get_alpha (color) != 255)
+	    fprintf (f, "fill-opacity=\"%.3f\"", (double) hb_color_get_alpha (color) / 255.);
+	  fprintf (f, "d=\"");
+	  if (!hb_font_draw_glyph (font, layers[layer].glyph, funcs, &user_data))
+	    printf ("Failed to decompose layer %d while %d\n", layers[layer].glyph, gid);
+	  fprintf (f, "\"/>\n");
 	}
-	free (colors);
 
 	fprintf (f, "</svg>");
 	fclose (f);
       }
+      free (layers);
     }
 
-
-    free (layers);
+    free (colors);
   }
 }
 
 static void
-dump_glyphs (hb_font_t *font, hb_ot_glyph_decompose_funcs_t *funcs, unsigned face_index)
+dump_glyphs (hb_font_t *font, hb_draw_funcs_t *funcs, unsigned face_index)
 {
   unsigned num_glyphs = hb_face_get_glyph_count (hb_font_get_face (font));
   for (unsigned gid = 0; gid < num_glyphs; ++gid)
@@ -266,7 +268,7 @@ dump_glyphs (hb_font_t *font, hb_ot_glyph_decompose_funcs_t *funcs, unsigned fac
     user_data_t user_data;
     user_data.ascender = font_extents.ascender;
     user_data.f = f;
-    if (!hb_ot_glyph_decompose (font, gid, funcs, &user_data))
+    if (!hb_font_draw_glyph (font, gid, funcs, &user_data))
       printf ("Failed to decompose gid: %d\n", gid);
     fprintf (f, "\"/></svg>");
     fclose (f);
@@ -279,7 +281,7 @@ dump_glyphs (hb_blob_t *blob, const char *font_name)
   FILE *font_name_file = fopen ("out/.dumped_font_name", "r");
   if (font_name_file != nullptr)
   {
-    fprintf (stderr, "Purge or move ./out folder in order to run a new glyph dump,\n"
+    fprintf (stderr, "Purge or rename ./out folder if you like to run a glyph dump,\n"
 		     "run it like `rm -rf out && mkdir out && src/main font-file.ttf`\n");
     return;
   }
@@ -293,12 +295,12 @@ dump_glyphs (hb_blob_t *blob, const char *font_name)
   fwrite (font_name, 1, strlen (font_name), font_name_file);
   fclose (font_name_file);
 
-  hb_ot_glyph_decompose_funcs_t *funcs = hb_ot_glyph_decompose_funcs_create ();
-  hb_ot_glyph_decompose_funcs_set_move_to_func (funcs, (hb_ot_glyph_decompose_move_to_func_t) move_to);
-  hb_ot_glyph_decompose_funcs_set_line_to_func (funcs, (hb_ot_glyph_decompose_line_to_func_t) line_to);
-  hb_ot_glyph_decompose_funcs_set_conic_to_func (funcs, (hb_ot_glyph_decompose_conic_to_func_t) conic_to);
-  hb_ot_glyph_decompose_funcs_set_cubic_to_func (funcs, (hb_ot_glyph_decompose_cubic_to_func_t) cubic_to);
-  hb_ot_glyph_decompose_funcs_set_close_path_func (funcs, (hb_ot_glyph_decompose_close_path_func_t) close_path);
+  hb_draw_funcs_t *funcs = hb_draw_funcs_create ();
+  hb_draw_funcs_set_move_to_func (funcs, (hb_draw_move_to_func_t) move_to);
+  hb_draw_funcs_set_line_to_func (funcs, (hb_draw_line_to_func_t) line_to);
+  hb_draw_funcs_set_quadratic_to_func (funcs, (hb_draw_quadratic_to_func_t) quadratic_to);
+  hb_draw_funcs_set_cubic_to_func (funcs, (hb_draw_cubic_to_func_t) cubic_to);
+  hb_draw_funcs_set_close_path_func (funcs, (hb_draw_close_path_func_t) close_path);
 
   unsigned num_faces = hb_face_count (blob);
   for (unsigned face_index = 0; face_index < num_faces; ++face_index)
@@ -324,8 +326,9 @@ dump_glyphs (hb_blob_t *blob, const char *font_name)
     hb_face_destroy (face);
   }
 
-  hb_ot_glyph_decompose_funcs_destroy (funcs);
+  hb_draw_funcs_destroy (funcs);
 }
+#endif
 #endif
 
 /* Only this part of this mini app uses private API */
@@ -501,8 +504,10 @@ main (int argc, char **argv)
   hb_blob_t *blob = hb_blob_create_from_file (argv[1]);
   printf ("Opened font file %s: %d bytes long\n", argv[1], hb_blob_get_length (blob));
   print_layout_info_using_private_api (blob);
-#if !defined(HB_NO_COLOR) && !defined(HB_NO_GLYPH)
+#if !defined(HB_NO_COLOR) && !defined(HB_NO_DRAW)
+#ifdef HB_EXPERIMENTAL_API
   dump_glyphs (blob, argv[1]);
+#endif
 #endif
   hb_blob_destroy (blob);
 

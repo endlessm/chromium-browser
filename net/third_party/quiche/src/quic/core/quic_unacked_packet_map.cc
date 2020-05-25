@@ -207,41 +207,56 @@ void QuicUnackedPacketMap::RemoveFromInFlight(QuicPacketNumber packet_number) {
   RemoveFromInFlight(info);
 }
 
-void QuicUnackedPacketMap::NeuterUnencryptedPackets() {
+QuicInlinedVector<QuicPacketNumber, 2>
+QuicUnackedPacketMap::NeuterUnencryptedPackets() {
+  QuicInlinedVector<QuicPacketNumber, 2> neutered_packets;
   QuicPacketNumber packet_number = GetLeastUnacked();
   for (QuicUnackedPacketMap::iterator it = unacked_packets_.begin();
        it != unacked_packets_.end(); ++it, ++packet_number) {
     if (!it->retransmittable_frames.empty() &&
         it->encryption_level == ENCRYPTION_INITIAL) {
+      QUIC_DVLOG(2) << "Neutering unencrypted packet " << packet_number;
       // Once the connection swithes to forward secure, no unencrypted packets
       // will be sent. The data has been abandoned in the cryto stream. Remove
       // it from in flight.
       RemoveFromInFlight(packet_number);
       it->state = NEUTERED;
+      neutered_packets.push_back(packet_number);
+      // Notify session that the data has been delivered (but do not notify
+      // send algorithm).
+      // TODO(b/148868195): use NotifyFramesNeutered.
+      NotifyFramesAcked(*it, QuicTime::Delta::Zero(), QuicTime::Zero());
       DCHECK(!HasRetransmittableFrames(*it));
     }
   }
   if (supports_multiple_packet_number_spaces_) {
     last_inflight_packets_sent_time_[INITIAL_DATA] = QuicTime::Zero();
   }
+  return neutered_packets;
 }
 
-void QuicUnackedPacketMap::NeuterHandshakePackets() {
+QuicInlinedVector<QuicPacketNumber, 2>
+QuicUnackedPacketMap::NeuterHandshakePackets() {
+  QuicInlinedVector<QuicPacketNumber, 2> neutered_packets;
   QuicPacketNumber packet_number = GetLeastUnacked();
   for (QuicUnackedPacketMap::iterator it = unacked_packets_.begin();
        it != unacked_packets_.end(); ++it, ++packet_number) {
     if (!it->retransmittable_frames.empty() &&
         GetPacketNumberSpace(it->encryption_level) == HANDSHAKE_DATA) {
+      QUIC_DVLOG(2) << "Neutering handshake packet " << packet_number;
       RemoveFromInFlight(packet_number);
       // Notify session that the data has been delivered (but do not notify
       // send algorithm).
       it->state = NEUTERED;
+      neutered_packets.push_back(packet_number);
+      // TODO(b/148868195): use NotifyFramesNeutered.
       NotifyFramesAcked(*it, QuicTime::Delta::Zero(), QuicTime::Zero());
     }
   }
   if (supports_multiple_packet_number_spaces()) {
     last_inflight_packets_sent_time_[HANDSHAKE_DATA] = QuicTime::Zero();
   }
+  return neutered_packets;
 }
 
 bool QuicUnackedPacketMap::HasInFlightPackets() const {
@@ -454,6 +469,32 @@ QuicUnackedPacketMap::GetLargestSentRetransmittableOfPacketNumberSpace(
     return QuicPacketNumber();
   }
   return largest_sent_retransmittable_packets_[packet_number_space];
+}
+
+const QuicTransmissionInfo*
+QuicUnackedPacketMap::GetFirstInFlightTransmissionInfo() const {
+  DCHECK(HasInFlightPackets());
+  for (auto it = unacked_packets_.begin(); it != unacked_packets_.end(); ++it) {
+    if (it->in_flight) {
+      return &(*it);
+    }
+  }
+  DCHECK(false);
+  return nullptr;
+}
+
+const QuicTransmissionInfo*
+QuicUnackedPacketMap::GetFirstInFlightTransmissionInfoOfSpace(
+    PacketNumberSpace packet_number_space) const {
+  // TODO(fayang): Optimize this part if arm 1st PTO with first in flight sent
+  // time works.
+  for (auto it = unacked_packets_.begin(); it != unacked_packets_.end(); ++it) {
+    if (it->in_flight &&
+        GetPacketNumberSpace(it->encryption_level) == packet_number_space) {
+      return &(*it);
+    }
+  }
+  return nullptr;
 }
 
 void QuicUnackedPacketMap::EnableMultiplePacketNumberSpacesSupport() {

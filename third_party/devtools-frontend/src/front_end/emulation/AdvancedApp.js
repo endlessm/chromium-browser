@@ -65,7 +65,7 @@ export class AdvancedApp {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _openToolboxWindow(event) {
     if (/** @type {string} */ (event.data.to) !== Components.DockController.State.Undocked) {
@@ -84,7 +84,8 @@ export class AdvancedApp {
    * @param {!Document} toolboxDocument
    */
   toolboxLoaded(toolboxDocument) {
-    UI.UIUtils.initializeUIUtils(toolboxDocument, self.Common.settings.createSetting('uiTheme', 'default'));
+    UI.UIUtils.initializeUIUtils(
+        toolboxDocument, Common.Settings.Settings.instance().createSetting('uiTheme', 'default'));
     UI.UIUtils.installComponentRootStyles(/** @type {!Element} */ (toolboxDocument.body));
     UI.ContextMenu.ContextMenu.installHandler(toolboxDocument);
     UI.Tooltip.Tooltip.installHandler(toolboxDocument);
@@ -104,7 +105,7 @@ export class AdvancedApp {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onBeforeDockSideChange(event) {
     if (/** @type {string} */ (event.data.to) === Components.DockController.State.Undocked && this._toolboxRootView) {
@@ -117,7 +118,7 @@ export class AdvancedApp {
   }
 
   /**
-   * @param {!Common.Event=} event
+   * @param {!Common.EventTarget.EventTargetEvent=} event
    */
   _onDockSideChange(event) {
     this._updateDeviceModeView();
@@ -136,7 +137,7 @@ export class AdvancedApp {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onAfterDockSideChange(event) {
     // We may get here on the first dock side change while loading without BeforeDockSideChange.
@@ -182,7 +183,7 @@ export class AdvancedApp {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onSetInspectedPageBounds(event) {
     if (this._changingDockSide) {

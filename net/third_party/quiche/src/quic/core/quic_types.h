@@ -86,7 +86,7 @@ enum QuicAsyncStatus {
 };
 
 // TODO(wtc): see if WriteStatus can be replaced by QuicAsyncStatus.
-enum WriteStatus {
+enum WriteStatus : int16_t {
   WRITE_STATUS_OK,
   // Write is blocked, caller needs to retry.
   WRITE_STATUS_BLOCKED,
@@ -102,6 +102,8 @@ enum WriteStatus {
 };
 
 std::string HistogramEnumString(WriteStatus enum_value);
+QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
+                                             const WriteStatus& status);
 
 inline std::string HistogramEnumDescription(WriteStatus /*dummy*/) {
   return "status";
@@ -143,6 +145,12 @@ struct QUIC_EXPORT_PRIVATE WriteResult {
                                                       const WriteResult& s);
 
   WriteStatus status;
+  // Number of packets dropped as a result of this write.
+  // Only used by batch writers. Otherwise always 0.
+  uint16_t dropped_packets = 0;
+  // TODO(wub): In some cases, WRITE_STATUS_ERROR may set an error_code and
+  // WRITE_STATUS_BLOCKED_DATA_BUFFERED may set bytes_written. This may need
+  // some cleaning up so that perhaps both values can be set and valid.
   union {
     int bytes_written;  // only valid when status is WRITE_STATUS_OK
     int error_code;     // only valid when status is WRITE_STATUS_ERROR
@@ -397,24 +405,6 @@ enum CongestionControlType {
   kBBRv2,
 };
 
-enum LossDetectionType : uint8_t {
-  kNack,               // Used to mimic TCP's loss detection.
-  kTime,               // Time based loss detection.
-  kAdaptiveTime,       // Adaptive time based loss detection.
-  kLazyFack,           // Nack based but with FACK disabled for the first ack.
-  kIetfLossDetection,  // IETF style loss detection.
-};
-
-// TODO(fayang): Remove this when deprecating
-// quic_default_on_ietf_loss_detection.
-inline LossDetectionType GetDefaultLossDetectionType() {
-  if (GetQuicRestartFlag(quic_default_on_ietf_loss_detection)) {
-    QUIC_RESTART_FLAG_COUNT(quic_default_on_ietf_loss_detection);
-    return kIetfLossDetection;
-  }
-  return kNack;
-}
-
 // EncryptionLevel enumerates the stages of encryption that a QUIC connection
 // progresses through. When retransmitting a packet, the encryption level needs
 // to be specified so that it is retransmitted at a level which the peer can
@@ -459,6 +449,12 @@ enum AddressChangeType : uint8_t {
   // IP address change from an IPv6 to an IPv6 address (port may have changed.)
   IPV6_TO_IPV6_CHANGE,
 };
+
+QUIC_EXPORT_PRIVATE std::string AddressChangeTypeToString(
+    AddressChangeType type);
+
+QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
+                                             AddressChangeType type);
 
 enum StreamSendingState {
   // Sender has more data to send on this stream.
@@ -562,9 +558,12 @@ enum QuicIetfTransportErrorCodes : uint64_t {
   FINAL_SIZE_ERROR = 0x6,
   FRAME_ENCODING_ERROR = 0x7,
   TRANSPORT_PARAMETER_ERROR = 0x8,
-  VERSION_NEGOTIATION_ERROR = 0x9,
+  CONNECTION_ID_LIMIT_ERROR = 0x9,
   PROTOCOL_VIOLATION = 0xA,
-  INVALID_MIGRATION = 0xC,
+  INVALID_TOKEN = 0xB,
+  CRYPTO_BUFFER_EXCEEDED = 0xD,
+  CRYPTO_ERROR_FIRST = 0x100,
+  CRYPTO_ERROR_LAST = 0x1FF,
 };
 QUIC_EXPORT_PRIVATE std::string QuicIetfTransportErrorCodeString(
     QuicIetfTransportErrorCodes c);

@@ -85,10 +85,16 @@ source_set("receiver") {
 
 source_set("sender") {
   sources = [
+    "bandwidth_estimator.cc",
+    "bandwidth_estimator.h",
     "compound_rtcp_parser.cc",
     "compound_rtcp_parser.h",
     "rtp_packetizer.cc",
     "rtp_packetizer.h",
+    "sender.cc",
+    "sender.h",
+    "sender_packet_router.cc",
+    "sender_packet_router.h",
     "sender_report_builder.cc",
     "sender_report_builder.h",
   ]
@@ -103,12 +109,15 @@ source_set("unittests") {
 
   sources = [
     "answer_messages_unittest.cc",
+    "bandwidth_estimator_unittest.cc",
     "compound_rtcp_builder_unittest.cc",
     "compound_rtcp_parser_unittest.cc",
     "expanded_value_base_unittest.cc",
     "frame_collector_unittest.cc",
     "frame_crypto_unittest.cc",
     "mock_compound_rtcp_parser_client.h",
+    "mock_environment.cc",
+    "mock_environment.h",
     "ntp_time_unittest.cc",
     "offer_messages_unittest.cc",
     "packet_receive_stats_tracker_unittest.cc",
@@ -119,7 +128,9 @@ source_set("unittests") {
     "rtp_packet_parser_unittest.cc",
     "rtp_packetizer_unittest.cc",
     "rtp_time_unittest.cc",
+    "sender_packet_router_unittest.cc",
     "sender_report_unittest.cc",
+    "sender_unittest.cc",
     "ssrc_unittest.cc",
   ]
 

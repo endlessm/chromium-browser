@@ -449,14 +449,16 @@ DocumentFragment* CreateFragmentFromMarkupWithContext(
 
 String CreateMarkup(const Node* node,
                     ChildrenOnly children_only,
-                    AbsoluteURLs should_resolve_urls) {
+                    AbsoluteURLs should_resolve_urls,
+                    IncludeShadowRoots include_shadow_roots) {
   if (!node)
     return "";
 
   MarkupAccumulator accumulator(should_resolve_urls,
                                 IsA<HTMLDocument>(node->GetDocument())
                                     ? SerializationType::kHTML
-                                    : SerializationType::kXML);
+                                    : SerializationType::kXML,
+                                include_shadow_roots);
   return accumulator.SerializeNodes<EditingStrategy>(*node, children_only);
 }
 
@@ -771,6 +773,8 @@ static Document* CreateStagingDocumentForMarkupSanitization() {
   page->GetSettings().SetScriptEnabled(false);
   page->GetSettings().SetPluginsEnabled(false);
   page->GetSettings().SetAcceleratedCompositingEnabled(false);
+  page->GetSettings().SetParserScriptingFlagPolicy(
+      ParserScriptingFlagPolicy::kEnabled);
 
   LocalFrame* frame = MakeGarbageCollected<LocalFrame>(
       MakeGarbageCollected<EmptyLocalFrameClient>(), *page,
@@ -855,7 +859,7 @@ DocumentFragment* CreateSanitizedFragmentFromMarkupWithContext(
   }
 
   body->appendChild(fragment);
-  staging_document->UpdateStyleAndLayout();
+  staging_document->UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
 
   // This sanitizes stylesheets in the markup into element inline styles
   String markup = CreateMarkup(Position::FirstPositionInNode(*body),

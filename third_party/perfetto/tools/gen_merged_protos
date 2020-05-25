@@ -42,6 +42,7 @@ CONFIG_PROTOS = (
     'protos/perfetto/config/sys_stats/sys_stats_config.proto',
     'protos/perfetto/config/test_config.proto',
     'protos/perfetto/config/trace_config.proto',
+    'protos/perfetto/config/track_event/track_event_config.proto',
     'protos/perfetto/config/profiling/heapprofd_config.proto',
     'protos/perfetto/config/profiling/java_hprof_config.proto',
     'protos/perfetto/config/profiling/perf_event_config.proto',
@@ -103,6 +104,7 @@ TRACE_PROTOS = (
     'protos/perfetto/trace/track_event/chrome_process_descriptor.proto',
     'protos/perfetto/trace/track_event/chrome_thread_descriptor.proto',
     'protos/perfetto/trace/track_event/chrome_user_event.proto',
+    'protos/perfetto/trace/track_event/counter_descriptor.proto',
     'protos/perfetto/trace/track_event/debug_annotation.proto',
     'protos/perfetto/trace/track_event/log_message.proto',
     'protos/perfetto/trace/track_event/process_descriptor.proto',
@@ -175,8 +177,11 @@ def merge_protos_content(proto_paths, follow_imports, added_files, add_header):
   definitions = re.finditer(definitions_re, merged_content, re.MULTILINE)
   types = set((match.group(1) for match in definitions))
 
-  uses_re = r'^( +)(?:repeated)?(?:optional)?\s'\
-            r'?([A-Z]\w+.*)\s+[a-z]\w+\s*=\s*(\d+);'
+  # Limitation: |types| doesn't track the nesting of messages, so a reference to
+  # a nested message (optional One.Two f = 1;) is simplified to its leafmost
+  # name (Two in this example).
+  uses_re = r'^( +)(?:repeated)?(?:optional)?\s?'\
+      r'(?:[A-Z]\w+\.)*([A-Z]\w+)\s+[a-z]\w*\s*=\s*(\d+);'
   uses = re.finditer(uses_re, merged_content, re.MULTILINE)
   substitutions = []
   for use in uses:

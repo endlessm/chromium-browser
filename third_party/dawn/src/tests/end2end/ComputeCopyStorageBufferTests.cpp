@@ -74,7 +74,7 @@ void ComputeCopyStorageBufferTests::BasicTest(const char* shader) {
         wgpu::ComputePassEncoder pass = encoder.BeginComputePass();
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, bindGroup);
-        pass.Dispatch(kInstances, 1, 1);
+        pass.Dispatch(kInstances);
         pass.EndPass();
 
         commands = encoder.Finish();
@@ -173,7 +173,7 @@ TEST_P(ComputeCopyStorageBufferTests, DISABLED_UnsizedDescriptorArray) {
 }
 
 DAWN_INSTANTIATE_TEST(ComputeCopyStorageBufferTests,
-                     D3D12Backend,
-                     MetalBackend,
-                     OpenGLBackend,
-                     VulkanBackend);
+                     D3D12Backend(),
+                     MetalBackend(),
+                     OpenGLBackend(),
+                     VulkanBackend());

@@ -29,6 +29,7 @@
  */
 
 import * as Common from '../common/common.js';
+import * as TextUtils from '../text_utils/text_utils.js';
 import * as Workspace from '../workspace/workspace.js';
 
 import {IsolatedFileSystem} from './IsolatedFileSystem.js';                        // eslint-disable-line no-unused-vars
@@ -140,7 +141,7 @@ export class FileSystemWorkspaceBinding {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onFileSystemAdded(event) {
     const fileSystem = /** @type {!PlatformFileSystem} */ (event.data);
@@ -156,20 +157,20 @@ export class FileSystemWorkspaceBinding {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onFileSystemRemoved(event) {
     const fileSystem = /** @type {!PlatformFileSystem} */ (event.data);
     const boundFileSystem = this._boundFileSystems.get(fileSystem.path());
     boundFileSystem.dispose();
-    this._boundFileSystems.remove(fileSystem.path());
+    this._boundFileSystems.delete(fileSystem.path());
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _fileSystemFilesChanged(event) {
-    const paths = /** @type {!Persistence.IsolatedFileSystemManager.FilesChangedData} */ (event.data);
+    const paths = /** @type {!FilesChangedData} */ (event.data);
     for (const fileSystemPath of paths.changed.keysArray()) {
       const fileSystem = this._boundFileSystems.get(fileSystemPath);
       if (!fileSystem) {
@@ -199,7 +200,7 @@ export class FileSystemWorkspaceBinding {
     Common.EventTarget.EventTarget.removeEventListeners(this._eventListeners);
     for (const fileSystem of this._boundFileSystems.values()) {
       fileSystem.dispose();
-      this._boundFileSystems.remove(fileSystem._fileSystem.path());
+      this._boundFileSystems.delete(fileSystem._fileSystem.path());
     }
   }
 }
@@ -310,7 +311,7 @@ export class FileSystem extends Workspace.Workspace.ProjectStore {
   /**
    * @override
    * @param {!Workspace.UISourceCode.UISourceCode} uiSourceCode
-   * @returns {!Promise<!Common.DeferredContent>}
+   * @returns {!Promise<!TextUtils.ContentProvider.DeferredContent>}
    */
   requestFileContent(uiSourceCode) {
     const filePath = this._filePathForUISourceCode(uiSourceCode);
@@ -399,13 +400,13 @@ export class FileSystem extends Workspace.Workspace.ProjectStore {
    * @param {string} query
    * @param {boolean} caseSensitive
    * @param {boolean} isRegex
-   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   * @return {!Promise<!Array<!TextUtils.ContentProvider.SearchMatch>>}
    */
   async searchInFileContent(uiSourceCode, query, caseSensitive, isRegex) {
     const filePath = this._filePathForUISourceCode(uiSourceCode);
     const {content} = await this._fileSystem.requestFileContent(filePath);
     if (content) {
-      return Common.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex);
+      return TextUtils.TextUtils.performSearchInContent(content, query, caseSensitive, isRegex);
     }
     return [];
   }
@@ -587,3 +588,6 @@ export class FileSystem extends Workspace.Workspace.ProjectStore {
 }
 
 const _metadata = Symbol('FileSystemWorkspaceBinding.Metadata');
+
+/** @typedef {!{changed:!Platform.Multimap<string, string>, added:!Platform.Multimap<string, string>, removed:!Platform.Multimap<string, string>}} */
+export let FilesChangedData;

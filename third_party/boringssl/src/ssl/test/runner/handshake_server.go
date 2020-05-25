@@ -608,7 +608,12 @@ ResendHelloRetryRequest:
 
 		oldClientHelloBytes := hs.clientHello.marshal()
 		hs.writeServerHash(helloRetryRequest.marshal())
-		c.writeRecord(recordTypeHandshake, helloRetryRequest.marshal())
+		if c.config.Bugs.PartialServerHelloWithHelloRetryRequest {
+			data := helloRetryRequest.marshal()
+			c.writeRecord(recordTypeHandshake, append(data[:len(data):len(data)], typeServerHello))
+		} else {
+			c.writeRecord(recordTypeHandshake, helloRetryRequest.marshal())
+		}
 		c.flushHandshake()
 
 		if !c.config.Bugs.SkipChangeCipherSpec {
@@ -704,7 +709,10 @@ ResendHelloRetryRequest:
 	// Decide whether or not to accept early data.
 	if !sendHelloRetryRequest && hs.clientHello.hasEarlyData {
 		if !config.Bugs.AlwaysRejectEarlyData && hs.sessionState != nil {
-			if c.clientProtocol == string(hs.sessionState.earlyALPN) || config.Bugs.AlwaysAcceptEarlyData {
+			if hs.sessionState.cipherSuite == hs.suite.id && c.clientProtocol == string(hs.sessionState.earlyALPN) {
+				encryptedExtensions.extensions.hasEarlyData = true
+			}
+			if config.Bugs.AlwaysAcceptEarlyData {
 				encryptedExtensions.extensions.hasEarlyData = true
 			}
 		}
@@ -712,11 +720,11 @@ ResendHelloRetryRequest:
 			earlyTrafficSecret := hs.finishedHash.deriveSecret(earlyTrafficLabel)
 			c.earlyExporterSecret = hs.finishedHash.deriveSecret(earlyExporterLabel)
 
-			if err := c.useInTrafficSecret(c.wireVersion, hs.suite, earlyTrafficSecret); err != nil {
+			sessionCipher := cipherSuiteFromID(hs.sessionState.cipherSuite)
+			if err := c.useInTrafficSecret(c.wireVersion, sessionCipher, earlyTrafficSecret); err != nil {
 				return err
 			}
 
-			c.earlyCipherSuite = hs.suite
 			for _, expectedMsg := range config.Bugs.ExpectEarlyData {
 				if err := c.readRecord(recordTypeApplicationData); err != nil {
 					return err
@@ -797,15 +805,16 @@ ResendHelloRetryRequest:
 	}
 
 	// Send unencrypted ServerHello.
-	hs.writeServerHash(hs.hello.marshal())
+	helloBytes := hs.hello.marshal()
+	hs.writeServerHash(helloBytes)
+	if config.Bugs.PartialServerHelloWithHelloRetryRequest {
+		// The first byte has already been written.
+		helloBytes = helloBytes[1:]
+	}
 	if config.Bugs.PartialEncryptedExtensionsWithServerHello {
-		helloBytes := hs.hello.marshal()
-		toWrite := make([]byte, 0, len(helloBytes)+1)
-		toWrite = append(toWrite, helloBytes...)
-		toWrite = append(toWrite, typeEncryptedExtensions)
-		c.writeRecord(recordTypeHandshake, toWrite)
+		c.writeRecord(recordTypeHandshake, append(helloBytes[:len(helloBytes):len(helloBytes)], typeEncryptedExtensions))
 	} else {
-		c.writeRecord(recordTypeHandshake, hs.hello.marshal())
+		c.writeRecord(recordTypeHandshake, helloBytes)
 	}
 	c.flushHandshake()
 
@@ -1677,8 +1686,19 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	}
 
 	helloDone := new(serverHelloDoneMsg)
-	hs.writeServerHash(helloDone.marshal())
-	c.writeRecord(recordTypeHandshake, helloDone.marshal())
+	helloDoneBytes := helloDone.marshal()
+	hs.writeServerHash(helloDoneBytes)
+	var toAppend byte
+	if config.Bugs.PartialNewSessionTicketWithServerHelloDone {
+		toAppend = typeNewSessionTicket
+	} else if config.Bugs.PartialFinishedWithServerHelloDone {
+		toAppend = typeFinished
+	}
+	if toAppend != 0 {
+		c.writeRecord(recordTypeHandshake, append(helloDoneBytes[:len(helloDoneBytes):len(helloDoneBytes)], toAppend))
+	} else {
+		c.writeRecord(recordTypeHandshake, helloDoneBytes)
+	}
 	c.flushHandshake()
 
 	var pub crypto.PublicKey // public key for client auth, if any
@@ -1937,7 +1957,12 @@ func (hs *serverHandshakeState) sendSessionTicket() error {
 	}
 
 	hs.writeServerHash(m.marshal())
-	c.writeRecord(recordTypeHandshake, m.marshal())
+	if c.config.Bugs.PartialNewSessionTicketWithServerHelloDone {
+		// The first byte was already sent.
+		c.writeRecord(recordTypeHandshake, m.marshal()[1:])
+	} else {
+		c.writeRecord(recordTypeHandshake, m.marshal())
+	}
 
 	return nil
 }
@@ -1955,6 +1980,10 @@ func (hs *serverHandshakeState) sendFinished(out []byte, isResume bool) error {
 	hs.finishedBytes = finished.marshal()
 	hs.writeServerHash(hs.finishedBytes)
 	postCCSBytes := hs.finishedBytes
+	if c.config.Bugs.PartialFinishedWithServerHelloDone {
+		// The first byte has already been sent.
+		postCCSBytes = postCCSBytes[1:]
+	}
 
 	if c.config.Bugs.FragmentAcrossChangeCipherSpec {
 		c.writeRecord(recordTypeHandshake, postCCSBytes[:5])

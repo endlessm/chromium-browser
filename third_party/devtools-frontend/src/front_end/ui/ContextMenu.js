@@ -28,7 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
 import * as Host from '../host/host.js';
+
 import {SoftContextMenu} from './SoftContextMenu.js';
 
 /**
@@ -86,7 +88,7 @@ export class Item {
    */
   _buildDescriptor() {
     switch (this._type) {
-      case 'item':
+      case 'item': {
         const result = {type: 'item', id: this._id, label: this._label, enabled: !this._disabled};
         if (this._customElement) {
           result.element = this._customElement;
@@ -95,10 +97,13 @@ export class Item {
           result.shortcut = this._shortcut;
         }
         return result;
-      case 'separator':
+      }
+      case 'separator': {
         return {type: 'separator'};
-      case 'checkbox':
+      }
+      case 'checkbox': {
         return {type: 'checkbox', id: this._id, label: this._label, checked: !!this._checked, enabled: !this._disabled};
+      }
     }
     throw new Error('Invalid item type:' + this._type);
   }
@@ -394,7 +399,7 @@ export class ContextMenu extends SubMenu {
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
         Host.InspectorFrontendHostAPI.Events.SetUseSoftMenu, setUseSoftMenu);
     /**
-     * @param {!Common.Event} event
+     * @param {!Common.EventTarget.EventTargetEvent} event
      */
     function setUseSoftMenu(event) {
       ContextMenu._useSoftMenu = /** @type {boolean} */ (event.data);
@@ -518,7 +523,7 @@ export class ContextMenu extends SubMenu {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onItemSelected(event) {
     this._itemSelected(/** @type {string} */ (event.data));

@@ -5,7 +5,6 @@
  * found in the LICENSE file.
  */
 
-#include "src/gpu/GrGpuResourcePriv.h"
 #include "src/gpu/vk/GrVkGpu.h"
 #include "src/gpu/vk/GrVkImage.h"
 #include "src/gpu/vk/GrVkMemory.h"
@@ -260,7 +259,7 @@ void GrVkImage::releaseImage(GrVkGpu* gpu) {
     }
     if (fResource) {
         fResource->removeOwningTexture();
-        fResource->unref(gpu);
+        fResource->unref();
         fResource = nullptr;
     }
 }
@@ -271,47 +270,14 @@ void GrVkImage::setResourceRelease(sk_sp<GrRefCntedCallback> releaseHelper) {
     fResource->setRelease(std::move(releaseHelper));
 }
 
-void GrVkImage::Resource::freeGPUData(GrVkGpu* gpu) const {
+void GrVkImage::Resource::freeGPUData() const {
     this->invokeReleaseProc();
-    VK_CALL(gpu, DestroyImage(gpu->device(), fImage, nullptr));
+    VK_CALL(fGpu, DestroyImage(fGpu->device(), fImage, nullptr));
     bool isLinear = (VK_IMAGE_TILING_LINEAR == fImageTiling);
-    GrVkMemory::FreeImageMemory(gpu, isLinear, fAlloc);
+    GrVkMemory::FreeImageMemory(fGpu, isLinear, fAlloc);
 }
 
-void GrVkImage::Resource::addIdleProc(GrVkTexture* owningTexture,
-                                      sk_sp<GrRefCntedCallback> idleProc) const {
-    SkASSERT(!fOwningTexture || fOwningTexture == owningTexture);
-    fOwningTexture = owningTexture;
-    fIdleProcs.push_back(std::move(idleProc));
-}
-
-int GrVkImage::Resource::idleProcCnt() const { return fIdleProcs.count(); }
-
-sk_sp<GrRefCntedCallback> GrVkImage::Resource::idleProc(int i) const { return fIdleProcs[i]; }
-
-void GrVkImage::Resource::resetIdleProcs() const { fIdleProcs.reset(); }
-
-void GrVkImage::Resource::removeOwningTexture() const { fOwningTexture = nullptr; }
-
-void GrVkImage::Resource::notifyAddedToCommandBuffer() const { ++fNumCommandBufferOwners; }
-
-void GrVkImage::Resource::notifyRemovedFromCommandBuffer() const {
-    SkASSERT(fNumCommandBufferOwners);
-    if (--fNumCommandBufferOwners || !fIdleProcs.count()) {
-        return;
-    }
-    if (fOwningTexture) {
-        if (fOwningTexture->resourcePriv().hasRef()) {
-            // Wait for the texture to become idle in the cache to call the procs.
-            return;
-        }
-        fOwningTexture->callIdleProcsOnBehalfOfResource();
-    } else {
-        fIdleProcs.reset();
-    }
-}
-
-void GrVkImage::BorrowedResource::freeGPUData(GrVkGpu* gpu) const {
+void GrVkImage::BorrowedResource::freeGPUData() const {
     this->invokeReleaseProc();
 }
 

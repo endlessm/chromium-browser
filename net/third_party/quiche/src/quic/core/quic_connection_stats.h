@@ -45,6 +45,11 @@ struct QUIC_EXPORT_PRIVATE QuicConnectionStats {
   QuicPacketCount packets_spuriously_retransmitted = 0;
   // Number of packets abandoned as lost by the loss detection algorithm.
   QuicPacketCount packets_lost = 0;
+  QuicPacketCount packet_spuriously_detected_lost = 0;
+
+  // The sum of the detection time of all lost packets. The detection time of a
+  // lost packet is defined as: T(detection) - T(send).
+  QuicTime::Delta total_loss_detection_time = QuicTime::Delta::Zero();
 
   // Number of times this connection went through the slow start phase.
   uint32_t slowstart_count = 0;
@@ -125,6 +130,9 @@ struct QUIC_EXPORT_PRIVATE QuicConnectionStats {
   // Whether overshooting is detected (and pacing rate decreases) during start
   // up with network parameters adjusted.
   bool overshooting_detected_with_network_parameters_adjusted = false;
+
+  // Whether there is any non app-limited bandwidth sample.
+  bool has_non_app_limited_sample = false;
 };
 
 }  // namespace quic

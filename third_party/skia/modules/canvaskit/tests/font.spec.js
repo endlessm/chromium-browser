@@ -282,7 +282,8 @@ describe('CanvasKit\'s Font Behavior', function() {
                 ttcFontBuffer = buffer;
             });
 
-        Promise.all([LoadCanvasKit, otfFontLoaded, bungeeFontLoaded, woffFontLoaded, woff2FontLoaded]).then(catchException(done, () => {
+        Promise.all([LoadCanvasKit, otfFontLoaded, bungeeFontLoaded, woffFontLoaded,
+                     woff2FontLoaded, ttcFontLoaded]).then(catchException(done, () => {
             const surface = CanvasKit.MakeCanvasSurface('test');
             expect(surface).toBeTruthy('Could not make surface')
             if (!surface) {
@@ -318,6 +319,9 @@ describe('CanvasKit\'s Font Behavior', function() {
             canvas.drawText(`The following should be ${inputs.length + 1} lines of text:`, 5, 30, fontPaint, defaultFont);
 
             for (const fontType of inputs) {
+                // smoke test that the font bytes loaded.
+                expect(fontType.buffer).toBeTruthy(fontType.type + ' did not load');
+
                 const typeface = fontMgr.MakeTypefaceFromData(fontType.buffer);
                 const font = new CanvasKit.SkFont(typeface, 24);
 
@@ -332,7 +336,9 @@ describe('CanvasKit\'s Font Behavior', function() {
 
             // The only ttc font I could find was 14 MB big, so I'm using the smaller test font,
             // which doesn't have very many glyphs in it, so we just check that we got a non-zero
-            // typeface for it. I was able to load NotoSansCJK-Regular.ttc just fine in a manual test.
+            // typeface for it. I was able to load NotoSansCJK-Regular.ttc just fine in a
+            // manual test.
+            expect(ttcFontBuffer).toBeTruthy('.ttc font did not load');
             const typeface = fontMgr.MakeTypefaceFromData(ttcFontBuffer);
             expect(typeface).toBeTruthy('.ttc font');
             if (typeface) {
@@ -346,6 +352,34 @@ describe('CanvasKit\'s Font Behavior', function() {
             fontPaint.delete();
             fontMgr.delete();
             reportSurface(surface, 'various_font_formats', done);
+        }));
+    });
+
+    it('can measure text very precisely with proper settings', function(done) {
+        Promise.all([LoadCanvasKit, notoSerifFontLoaded]).then(catchException(done, () => {
+            const fontMgr = CanvasKit.SkFontMgr.RefDefault();
+            const typeface = fontMgr.MakeTypefaceFromData(notSerifFontBuffer);
+            const fontSizes = [257, 100, 11];
+            // The point of these values is to let us know 1) we can measure to sub-pixel levels
+            // and 2) that measurements don't drastically change. If these change a little bit,
+            // just update them with the new values. For super-accurate readings, one could
+            // run a C++ snippet of code and compare the values, but that is likely unnecessary
+            // unless we suspect a bug with the bindings.
+            const expectedSizes = [1178.71143, 458.64258, 50.450683]
+            for (const idx in fontSizes) {
+                const font = new CanvasKit.SkFont(typeface, fontSizes[idx]);
+                font.setHinting(CanvasKit.FontHinting.None);
+                font.setLinearMetrics(true);
+                font.setSubpixel(true);
+
+                const res = font.measureText('someText');
+                expect(res).toBeCloseTo(expectedSizes[idx], 5);
+                font.delete();
+            }
+
+            typeface.delete();
+            fontMgr.delete();
+            done();
         }));
     });
 

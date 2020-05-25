@@ -105,18 +105,18 @@ GrVkSampler* GrVkSampler::Create(GrVkGpu* gpu, GrSamplerState samplerState,
     VkResult result;
     GR_VK_CALL_RESULT(gpu, result, CreateSampler(gpu->device(), &createInfo, nullptr, &sampler));
     if (result != VK_SUCCESS) {
-        ycbcrConversion->unref(gpu);
+        ycbcrConversion->unref();
         return nullptr;
     }
 
-    return new GrVkSampler(sampler, ycbcrConversion, GenerateKey(samplerState, ycbcrInfo));
+    return new GrVkSampler(gpu, sampler, ycbcrConversion, GenerateKey(samplerState, ycbcrInfo));
 }
 
-void GrVkSampler::freeGPUData(GrVkGpu* gpu) const {
+void GrVkSampler::freeGPUData() const {
     SkASSERT(fSampler);
-    GR_VK_CALL(gpu->vkInterface(), DestroySampler(gpu->device(), fSampler, nullptr));
+    GR_VK_CALL(fGpu->vkInterface(), DestroySampler(fGpu->device(), fSampler, nullptr));
     if (fYcbcrConversion) {
-        fYcbcrConversion->unref(gpu);
+        fYcbcrConversion->unref();
     }
 }
 

@@ -8,7 +8,6 @@
 #include "src/gpu/dawn/GrDawnOpsRenderPass.h"
 
 #include "src/gpu/GrFixedClip.h"
-#include "src/gpu/GrMesh.h"
 #include "src/gpu/GrOpFlushState.h"
 #include "src/gpu/GrPipeline.h"
 #include "src/gpu/GrRenderTargetPriv.h"
@@ -91,10 +90,6 @@ GrDawnOpsRenderPass::~GrDawnOpsRenderPass() {
 
 GrGpu* GrDawnOpsRenderPass::gpu() { return fGpu; }
 
-void GrDawnOpsRenderPass::end() {
-    fPassEncoder.EndPass();
-}
-
 void GrDawnOpsRenderPass::submit() {
     fGpu->appendCommandBuffer(fEncoder.Finish());
 }
@@ -118,21 +113,6 @@ void GrDawnOpsRenderPass::inlineUpload(GrOpFlushState* state,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void GrDawnOpsRenderPass::setScissorState(const GrProgramInfo& programInfo) {
-    SkIRect rect;
-    if (programInfo.pipeline().isScissorEnabled()) {
-        constexpr SkIRect kBogusScissor{0, 0, 1, 1};
-        rect = programInfo.hasFixedScissor() ? programInfo.fixedScissor() : kBogusScissor;
-        if (kBottomLeft_GrSurfaceOrigin == fOrigin) {
-            rect.setXYWH(rect.x(), fRenderTarget->height() - rect.bottom(),
-                         rect.width(), rect.height());
-        }
-    } else {
-        rect = SkIRect::MakeWH(fRenderTarget->width(), fRenderTarget->height());
-    }
-    fPassEncoder.SetScissorRect(rect.x(), rect.y(), rect.width(), rect.height());
-}
-
 void GrDawnOpsRenderPass::applyState(GrDawnProgram* program, const GrProgramInfo& programInfo) {
     auto bindGroup = program->setUniformData(fGpu, fRenderTarget, programInfo);
     fPassEncoder.SetPipeline(program->fRenderPipeline);
@@ -145,50 +125,75 @@ void GrDawnOpsRenderPass::applyState(GrDawnProgram* program, const GrProgramInfo
     const float* c = blendInfo.fBlendConstant.vec();
     wgpu::Color color{c[0], c[1], c[2], c[3]};
     fPassEncoder.SetBlendColor(&color);
-    this->setScissorState(programInfo);
-}
-
-void GrDawnOpsRenderPass::onDraw(const GrProgramInfo& programInfo,
-                                 const GrMesh meshes[],
-                                 int meshCount,
-                                 const SkRect& bounds) {
-    if (!meshCount) {
-        return;
-    }
-    sk_sp<GrDawnProgram> program = fGpu->getOrCreateRenderPipeline(fRenderTarget, programInfo);
-    if (!programInfo.hasDynamicPrimProcTextures()) {
-        auto textures = programInfo.hasFixedPrimProcTextures() ? programInfo.fixedPrimProcTextures()
-                                                               : nullptr;
-        auto bindGroup = program->setTextures(fGpu, programInfo, textures);
-        fPassEncoder.SetBindGroup(1, bindGroup, 0, nullptr);
-    }
-    for (int i = 0; i < meshCount; ++i) {
-        if (programInfo.hasDynamicPrimProcTextures()) {
-            auto textures = programInfo.dynamicPrimProcTextures(i);
-            auto bindGroup = program->setTextures(fGpu, programInfo, textures);
-            fPassEncoder.SetBindGroup(1, bindGroup, 0, nullptr);
-        }
-        this->applyState(program.get(), programInfo);
-        meshes[i].sendToGpu(this);
+    if (!programInfo.pipeline().isScissorTestEnabled()) {
+        // "Disable" scissor by setting it to the full pipeline bounds.
+        SkIRect rect = SkIRect::MakeWH(fRenderTarget->width(), fRenderTarget->height());
+        fPassEncoder.SetScissorRect(rect.x(), rect.y(), rect.width(), rect.height());
     }
 }
 
-void GrDawnOpsRenderPass::sendInstancedMeshToGpu(const GrMesh& mesh, int vertexCount,
-                                                 int baseVertex, int instanceCount,
-                                                 int baseInstance) {
-    wgpu::Buffer vb = static_cast<const GrDawnBuffer*>(mesh.vertexBuffer())->get();
-    fPassEncoder.SetVertexBuffer(0, vb);
-    fPassEncoder.Draw(vertexCount, 1, baseVertex, baseInstance);
+void GrDawnOpsRenderPass::onEnd() {
+    fPassEncoder.EndPass();
+}
+
+bool GrDawnOpsRenderPass::onBindPipeline(const GrProgramInfo& programInfo,
+                                         const SkRect& drawBounds) {
+    fCurrentProgram = fGpu->getOrCreateRenderPipeline(fRenderTarget, programInfo);
+    this->applyState(fCurrentProgram.get(), programInfo);
+    return true;
+}
+
+void GrDawnOpsRenderPass::onSetScissorRect(const SkIRect& scissor) {
+    SkIRect rect;
+    SkIRect currentPipelineBounds =
+            SkIRect::MakeWH(fRenderTarget->width(), fRenderTarget->height());
+    if (!rect.intersect(currentPipelineBounds, scissor)) {
+        rect = SkIRect::MakeEmpty();
+    }
+    fPassEncoder.SetScissorRect(rect.x(), rect.y(), rect.width(), rect.height());
+}
+
+bool GrDawnOpsRenderPass::onBindTextures(const GrPrimitiveProcessor& primProc,
+                                         const GrSurfaceProxy* const primProcTextures[],
+                                         const GrPipeline& pipeline) {
+    auto bindGroup = fCurrentProgram->setTextures(fGpu, primProc, pipeline, primProcTextures);
+    fPassEncoder.SetBindGroup(1, bindGroup, 0, nullptr);
+    return true;
+}
+
+void GrDawnOpsRenderPass::onBindBuffers(const GrBuffer* indexBuffer, const GrBuffer* instanceBuffer,
+                                        const GrBuffer* vertexBuffer, GrPrimitiveRestart) {
+    if (vertexBuffer) {
+        wgpu::Buffer vertex = static_cast<const GrDawnBuffer*>(vertexBuffer)->get();
+        fPassEncoder.SetVertexBuffer(0, vertex);
+    }
+    if (instanceBuffer) {
+        wgpu::Buffer instance = static_cast<const GrDawnBuffer*>(instanceBuffer)->get();
+        fPassEncoder.SetVertexBuffer(1, instance);
+    }
+    if (indexBuffer) {
+        wgpu::Buffer index = static_cast<const GrDawnBuffer*>(indexBuffer)->get();
+        fPassEncoder.SetIndexBuffer(index);
+    }
+}
+
+void GrDawnOpsRenderPass::onDraw(int vertexCount, int baseVertex) {
+    this->onDrawInstanced(1, 0, vertexCount, baseVertex);
+}
+
+void GrDawnOpsRenderPass::onDrawInstanced(int instanceCount, int baseInstance,
+                                          int vertexCount, int baseVertex) {
+    fPassEncoder.Draw(vertexCount, instanceCount, baseVertex, baseInstance);
     fGpu->stats()->incNumDraws();
 }
 
-void GrDawnOpsRenderPass::sendIndexedInstancedMeshToGpu(const GrMesh& mesh, int indexCount,
-                                                        int baseIndex, int baseVertex,
-                                                        int instanceCount, int baseInstance) {
-    wgpu::Buffer vb = static_cast<const GrDawnBuffer*>(mesh.vertexBuffer())->get();
-    wgpu::Buffer ib = static_cast<const GrDawnBuffer*>(mesh.indexBuffer())->get();
-    fPassEncoder.SetIndexBuffer(ib);
-    fPassEncoder.SetVertexBuffer(0, vb);
-    fPassEncoder.DrawIndexed(indexCount, 1, baseIndex, baseVertex, baseInstance);
+void GrDawnOpsRenderPass::onDrawIndexed(int indexCount, int baseIndex, uint16_t minIndexValue,
+                                        uint16_t maxIndexValue, int baseVertex) {
+    this->onDrawIndexedInstanced(indexCount, baseIndex, 1, 0, baseVertex);
+}
+
+void GrDawnOpsRenderPass::onDrawIndexedInstanced(int indexCount, int baseIndex, int instanceCount,
+                                                 int baseInstance, int baseVertex) {
+    fPassEncoder.DrawIndexed(indexCount, instanceCount, baseIndex, baseVertex, baseInstance);
     fGpu->stats()->incNumDraws();
 }

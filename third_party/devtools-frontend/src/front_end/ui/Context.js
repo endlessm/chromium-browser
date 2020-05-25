@@ -27,7 +27,7 @@ export class Context {
     if (flavorValue) {
       this._flavors.set(flavorType, flavorValue);
     } else {
-      this._flavors.remove(flavorType);
+      this._flavors.delete(flavorType);
     }
 
     this._dispatchFlavorChange(flavorType, flavorValue);
@@ -54,7 +54,7 @@ export class Context {
 
   /**
    * @param {function(new:Object, ...)} flavorType
-   * @param {function(!Common.Event)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent)} listener
    * @param {!Object=} thisObject
    */
   addFlavorChangeListener(flavorType, listener, thisObject) {
@@ -68,7 +68,7 @@ export class Context {
 
   /**
    * @param {function(new:Object, ...)} flavorType
-   * @param {function(!Common.Event)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent)} listener
    * @param {!Object=} thisObject
    */
   removeFlavorChangeListener(flavorType, listener, thisObject) {
@@ -78,7 +78,7 @@ export class Context {
     }
     dispatcher.removeEventListener(Events.FlavorChanged, listener, thisObject);
     if (!dispatcher.hasEventListeners(Events.FlavorChanged)) {
-      this._eventDispatchers.remove(flavorType);
+      this._eventDispatchers.delete(flavorType);
     }
   }
 

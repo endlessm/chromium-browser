@@ -13,17 +13,20 @@
 // limitations under the License.
 
 #include "VkImage.hpp"
+
 #include "VkBuffer.hpp"
 #include "VkDevice.hpp"
 #include "VkDeviceMemory.hpp"
+#include "Device/ASTC_Decoder.hpp"
 #include "Device/BC_Decoder.hpp"
 #include "Device/Blitter.hpp"
 #include "Device/ETC_Decoder.hpp"
-#include <cstring>
 
 #ifdef __ANDROID__
 #	include "System/GrallocAndroid.hpp"
 #endif
+
+#include <cstring>
 
 namespace {
 
@@ -75,6 +78,12 @@ int GetBCn(const vk::Format &format)
 		case VK_FORMAT_BC5_UNORM_BLOCK:
 		case VK_FORMAT_BC5_SNORM_BLOCK:
 			return 5;
+		case VK_FORMAT_BC6H_UFLOAT_BLOCK:
+		case VK_FORMAT_BC6H_SFLOAT_BLOCK:
+			return 6;
+		case VK_FORMAT_BC7_UNORM_BLOCK:
+		case VK_FORMAT_BC7_SRGB_BLOCK:
+			return 7;
 		default:
 			UNSUPPORTED("format: %d", int(format));
 			return 0;
@@ -83,7 +92,7 @@ int GetBCn(const vk::Format &format)
 
 // Returns true for BC1 if we have an RGB format, false for RGBA
 // Returns true for BC4 and BC5 if we have an unsigned format, false for signed
-// Ignored by BC2 and BC3
+// Ignored by BC2, BC3, BC6 and BC7
 bool GetNoAlphaOrUnsigned(const vk::Format &format)
 {
 	switch(format)
@@ -101,6 +110,10 @@ bool GetNoAlphaOrUnsigned(const vk::Format &format)
 		case VK_FORMAT_BC3_SRGB_BLOCK:
 		case VK_FORMAT_BC4_SNORM_BLOCK:
 		case VK_FORMAT_BC5_SNORM_BLOCK:
+		case VK_FORMAT_BC6H_UFLOAT_BLOCK:
+		case VK_FORMAT_BC6H_SFLOAT_BLOCK:
+		case VK_FORMAT_BC7_SRGB_BLOCK:
+		case VK_FORMAT_BC7_UNORM_BLOCK:
 			return false;
 		default:
 			UNSUPPORTED("format: %d", int(format));
@@ -163,6 +176,42 @@ const VkMemoryRequirements Image::getMemoryRequirements() const
 	memoryRequirements.size = getStorageSize(format.getAspects()) +
 	                          (decompressedImage ? decompressedImage->getStorageSize(decompressedImage->format.getAspects()) : 0);
 	return memoryRequirements;
+}
+
+size_t Image::getSizeInBytes(const VkImageSubresourceRange &subresourceRange) const
+{
+	size_t size = 0;
+	uint32_t lastLayer = getLastLayerIndex(subresourceRange);
+	uint32_t lastMipLevel = getLastMipLevel(subresourceRange);
+	uint32_t layerCount = lastLayer - subresourceRange.baseArrayLayer + 1;
+	uint32_t mipLevelCount = lastMipLevel - subresourceRange.baseMipLevel + 1;
+
+	auto aspect = static_cast<VkImageAspectFlagBits>(subresourceRange.aspectMask);
+
+	if(layerCount > 1)
+	{
+		if(mipLevelCount < mipLevels)  // Compute size for all layers except the last one, then add relevant mip level sizes only for last layer
+		{
+			size = (layerCount - 1) * getLayerSize(aspect);
+			for(uint32_t mipLevel = subresourceRange.baseMipLevel; mipLevel <= lastMipLevel; ++mipLevel)
+			{
+				size += getMultiSampledLevelSize(aspect, mipLevel);
+			}
+		}
+		else  // All mip levels used, compute full layer sizes
+		{
+			size = layerCount * getLayerSize(aspect);
+		}
+	}
+	else  // Single layer, add all mip levels in the subresource range
+	{
+		for(uint32_t mipLevel = subresourceRange.baseMipLevel; mipLevel <= lastMipLevel; ++mipLevel)
+		{
+			size += getMultiSampledLevelSize(aspect, mipLevel);
+		}
+	}
+
+	return size;
 }
 
 bool Image::canBindToMemory(DeviceMemory *pDeviceMemory) const
@@ -660,7 +709,15 @@ int Image::rowPitchBytes(VkImageAspectFlagBits aspect, uint32_t mipLevel) const
 	ASSERT((aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) !=
 	       (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
 
-	return getFormat(aspect).pitchB(getMipLevelExtent(aspect, mipLevel).width, borderSize(), true);
+	VkExtent3D mipLevelExtent = getMipLevelExtent(aspect, mipLevel);
+	Format usedFormat = getFormat(aspect);
+	if(usedFormat.isCompressed())
+	{
+		VkExtent3D extentInBlocks = imageExtentInBlocks(mipLevelExtent, aspect);
+		return extentInBlocks.width * usedFormat.bytesPerBlock();
+	}
+
+	return usedFormat.pitchB(mipLevelExtent.width, borderSize(), true);
 }
 
 int Image::slicePitchBytes(VkImageAspectFlagBits aspect, uint32_t mipLevel) const
@@ -673,8 +730,8 @@ int Image::slicePitchBytes(VkImageAspectFlagBits aspect, uint32_t mipLevel) cons
 	Format usedFormat = getFormat(aspect);
 	if(usedFormat.isCompressed())
 	{
-		sw::align(mipLevelExtent.width, usedFormat.blockWidth());
-		sw::align(mipLevelExtent.height, usedFormat.blockHeight());
+		VkExtent3D extentInBlocks = imageExtentInBlocks(mipLevelExtent, aspect);
+		return extentInBlocks.height * extentInBlocks.width * usedFormat.bytesPerBlock();
 	}
 
 	return usedFormat.sliceB(mipLevelExtent.width, mipLevelExtent.height, borderSize(), true);
@@ -975,7 +1032,55 @@ void Image::prepareForSampling(const VkImageSubresourceRange &subresourceRange)
 			case VK_FORMAT_BC4_SNORM_BLOCK:
 			case VK_FORMAT_BC5_UNORM_BLOCK:
 			case VK_FORMAT_BC5_SNORM_BLOCK:
+			case VK_FORMAT_BC6H_UFLOAT_BLOCK:
+			case VK_FORMAT_BC6H_SFLOAT_BLOCK:
+			case VK_FORMAT_BC7_UNORM_BLOCK:
+			case VK_FORMAT_BC7_SRGB_BLOCK:
 				decodeBC(subresourceRange);
+				break;
+			case VK_FORMAT_ASTC_4x4_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_5x4_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_5x5_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_6x5_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_6x6_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_8x5_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_8x6_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_8x8_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_10x5_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_10x6_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_10x8_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_10x10_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_12x10_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_12x12_UNORM_BLOCK:
+			case VK_FORMAT_ASTC_4x4_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_5x4_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_5x5_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_6x5_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_6x6_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_8x5_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_8x6_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_8x8_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_10x5_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_10x6_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_10x8_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_10x10_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_12x10_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_12x12_SRGB_BLOCK:
+			case VK_FORMAT_ASTC_4x4_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_5x4_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_5x5_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_6x5_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_6x6_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_8x5_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_8x6_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_8x8_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_10x5_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_10x6_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_10x8_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_10x10_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_12x10_SFLOAT_BLOCK_EXT:
+			case VK_FORMAT_ASTC_12x12_SFLOAT_BLOCK_EXT:
+				decodeASTC(subresourceRange);
 				break;
 			default:
 				break;
@@ -990,11 +1095,14 @@ void Image::prepareForSampling(const VkImageSubresourceRange &subresourceRange)
 			subresourceRange.baseArrayLayer,
 			6
 		};
+
+		// Update the borders of all the groups of 6 layers that can be part of a cubemaps but don't
+		// touch leftover layers that cannot be part of cubemaps.
 		uint32_t lastMipLevel = getLastMipLevel(subresourceRange);
 		for(; subresourceLayers.mipLevel <= lastMipLevel; subresourceLayers.mipLevel++)
 		{
 			for(subresourceLayers.baseArrayLayer = 0;
-			    subresourceLayers.baseArrayLayer < arrayLayers;
+			    subresourceLayers.baseArrayLayer < arrayLayers - 5;
 			    subresourceLayers.baseArrayLayer += 6)
 			{
 				device->getBlitter()->updateBorders(decompressedImage ? decompressedImage : this, subresourceLayers);
@@ -1045,7 +1153,7 @@ void Image::decodeETC2(const VkImageSubresourceRange &subresourceRange) const
 				}
 
 				ETC_Decoder::Decode(source, dest, mipLevelExtent.width, mipLevelExtent.height,
-				                    mipLevelExtent.width, mipLevelExtent.height, pitchB, bytes, inputType);
+				                    pitchB, bytes, inputType);
 			}
 		}
 	}
@@ -1078,7 +1186,52 @@ void Image::decodeBC(const VkImageSubresourceRange &subresourceRange) const
 				uint8_t *dest = static_cast<uint8_t *>(decompressedImage->getTexelPointer({ 0, 0, depth }, subresourceLayers));
 
 				BC_Decoder::Decode(source, dest, mipLevelExtent.width, mipLevelExtent.height,
-				                   mipLevelExtent.width, mipLevelExtent.height, pitchB, bytes, n, noAlphaU);
+				                   pitchB, bytes, n, noAlphaU);
+			}
+		}
+	}
+}
+
+void Image::decodeASTC(const VkImageSubresourceRange &subresourceRange) const
+{
+	ASSERT(decompressedImage);
+
+	int xBlockSize = format.blockWidth();
+	int yBlockSize = format.blockHeight();
+	int zBlockSize = 1;
+	bool isUnsigned = format.isUnsignedComponent(0);
+
+	uint32_t lastLayer = getLastLayerIndex(subresourceRange);
+	uint32_t lastMipLevel = getLastMipLevel(subresourceRange);
+
+	int bytes = decompressedImage->format.bytes();
+
+	VkImageSubresourceLayers subresourceLayers = { subresourceRange.aspectMask, subresourceRange.baseMipLevel, subresourceRange.baseArrayLayer, 1 };
+	for(; subresourceLayers.baseArrayLayer <= lastLayer; subresourceLayers.baseArrayLayer++)
+	{
+		for(; subresourceLayers.mipLevel <= lastMipLevel; subresourceLayers.mipLevel++)
+		{
+			VkExtent3D mipLevelExtent = getMipLevelExtent(static_cast<VkImageAspectFlagBits>(subresourceLayers.aspectMask), subresourceLayers.mipLevel);
+
+			int xblocks = (mipLevelExtent.width + xBlockSize - 1) / xBlockSize;
+			int yblocks = (mipLevelExtent.height + yBlockSize - 1) / yBlockSize;
+			int zblocks = (zBlockSize > 1) ? (mipLevelExtent.depth + zBlockSize - 1) / zBlockSize : 1;
+
+			if(xblocks <= 0 || yblocks <= 0 || zblocks <= 0)
+			{
+				continue;
+			}
+
+			int pitchB = decompressedImage->rowPitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, subresourceLayers.mipLevel);
+			int sliceB = decompressedImage->slicePitchBytes(VK_IMAGE_ASPECT_COLOR_BIT, subresourceLayers.mipLevel);
+
+			for(int32_t depth = 0; depth < static_cast<int32_t>(mipLevelExtent.depth); depth++)
+			{
+				uint8_t *source = static_cast<uint8_t *>(getTexelPointer({ 0, 0, depth }, subresourceLayers));
+				uint8_t *dest = static_cast<uint8_t *>(decompressedImage->getTexelPointer({ 0, 0, depth }, subresourceLayers));
+
+				ASTC_Decoder::Decode(source, dest, mipLevelExtent.width, mipLevelExtent.height, mipLevelExtent.depth, bytes, pitchB, sliceB,
+				                     xBlockSize, yBlockSize, zBlockSize, xblocks, yblocks, zblocks, isUnsigned);
 			}
 		}
 	}

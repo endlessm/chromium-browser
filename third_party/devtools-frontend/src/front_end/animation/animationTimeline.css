@@ -303,6 +303,7 @@ text.animation-timeline-grid-label {
     height: 40px;
     margin: 4px 2px;
     background-color: var(--toolbar-bg-color);
+    border: 1px solid transparent;
     border-radius: 2px;
     flex: 1 1;
     padding: 4px;
@@ -448,4 +449,22 @@ text.animation-timeline-grid-label {
 
 .animation-buffer-preview:hover .animation-remove-button {
     display: flex;
+}
+
+@media (forced-colors: active) {
+    .animation-playback-rate-button[data-keyboard-focus="true"].selected:first-child:focus,
+    .animation-playback-rate-button[data-keyboard-focus="true"]:focus,
+    .animation-playback-rate-button.selected,
+    .animation-playback-rate-button.selected:first-child {
+        forced-color-adjust: none;
+        color: HighlightText;
+        background-color: Highlight;
+    }
+    .animation-node-description[data-keyboard-focus="true"]:focus {
+        background-color: Canvas;
+        forced-color-adjust: none;
+    }
+    .monospace {
+        forced-color-adjust: auto;
+    }
 }

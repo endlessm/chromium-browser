@@ -81,8 +81,8 @@ void AudioEncoderG722Impl::Reset() {
 
 absl::optional<std::pair<TimeDelta, TimeDelta>>
 AudioEncoderG722Impl::GetFrameLengthRange() const {
-  return {{TimeDelta::ms(num_10ms_frames_per_packet_ * 10),
-           TimeDelta::ms(num_10ms_frames_per_packet_ * 10)}};
+  return {{TimeDelta::Millis(num_10ms_frames_per_packet_ * 10),
+           TimeDelta::Millis(num_10ms_frames_per_packet_ * 10)}};
 }
 
 AudioEncoder::EncodedInfo AudioEncoderG722Impl::EncodeImpl(

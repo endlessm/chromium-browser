@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Bindings from '../bindings/bindings.js';
 import * as Common from '../common/common.js';
+import * as Platform from '../platform/platform.js';
 import * as SDK from '../sdk/sdk.js';
 import * as UI from '../ui/ui.js';
 import * as Workspace from '../workspace/workspace.js';  // eslint-disable-line no-unused-vars
@@ -28,8 +30,9 @@ export class MediaQueryInspector extends UI.Widget.Widget {
     this._setWidthCallback = setWidthCallback;
     this._scale = 1;
 
-    self.SDK.targetManager.observeModels(SDK.CSSModel.CSSModel, this);
-    self.UI.zoomManager.addEventListener(UI.ZoomManager.Events.ZoomChanged, this._renderMediaQueries.bind(this), this);
+    SDK.SDKModel.TargetManager.instance().observeModels(SDK.CSSModel.CSSModel, this);
+    UI.ZoomManager.ZoomManager.instance().addEventListener(
+        UI.ZoomManager.Events.ZoomChanged, this._renderMediaQueries.bind(this), this);
   }
 
   /**
@@ -118,16 +121,17 @@ export class MediaQueryInspector extends UI.Widget.Widget {
     const locations = mediaQueryMarker._locations;
     const uiLocations = new Map();
     for (let i = 0; i < locations.length; ++i) {
-      const uiLocation = self.Bindings.cssWorkspaceBinding.rawLocationToUILocation(locations[i]);
+      const uiLocation =
+          Bindings.CSSWorkspaceBinding.CSSWorkspaceBinding.instance().rawLocationToUILocation(locations[i]);
       if (!uiLocation) {
         continue;
       }
-      const descriptor = String.sprintf(
+      const descriptor = Platform.StringUtilities.sprintf(
           '%s:%d:%d', uiLocation.uiSourceCode.url(), uiLocation.lineNumber + 1, uiLocation.columnNumber + 1);
       uiLocations.set(descriptor, uiLocation);
     }
 
-    const contextMenuItems = uiLocations.keysArray().sort();
+    const contextMenuItems = [...uiLocations.keys()].sort();
     const contextMenu = new UI.ContextMenu.ContextMenu(event);
     const subMenuItem =
         contextMenu.defaultSection().appendSubMenuItem(Common.UIString.UIString('Reveal in source code'));
@@ -257,7 +261,7 @@ export class MediaQueryInspector extends UI.Widget.Widget {
    * @return {number}
    */
   _zoomFactor() {
-    return self.UI.zoomManager.zoomFactor() / this._scale;
+    return UI.ZoomManager.ZoomManager.instance().zoomFactor() / this._scale;
   }
 
   /**

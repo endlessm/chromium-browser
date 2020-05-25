@@ -56,9 +56,10 @@ void PipelineStageCodeGenerator::writeBinaryExpression(const BinaryExpression& b
 void PipelineStageCodeGenerator::writeFunctionCall(const FunctionCall& c) {
     if (c.fFunction.fBuiltin && c.fFunction.fName == "sample" &&
         c.fArguments[0]->fType.kind() != Type::Kind::kSampler_Kind) {
-        SkASSERT(c.fArguments.size() == 1);
+        SkASSERT(c.fArguments.size() == 2);
         SkASSERT("fragmentProcessor"  == c.fArguments[0]->fType.name() ||
                  "fragmentProcessor?" == c.fArguments[0]->fType.name());
+        SkASSERT("float2" == c.fArguments[1]->fType.name());
         SkASSERT(Expression::kVariableReference_Kind == c.fArguments[0]->fKind);
         int index = 0;
         bool found = false;
@@ -80,8 +81,15 @@ void PipelineStageCodeGenerator::writeFunctionCall(const FunctionCall& c) {
         }
         SkASSERT(found);
         this->write("%s");
+        size_t childCallIndex = fArgs->fFormatArgs.size();
         fArgs->fFormatArgs.push_back(
                 Compiler::FormatArg(Compiler::FormatArg::Kind::kChildProcessor, index));
+        OutputStream* oldOut = fOut;
+        StringStream buffer;
+        fOut = &buffer;
+        this->writeExpression(*c.fArguments[1], kSequence_Precedence);
+        fOut = oldOut;
+        fArgs->fFormatArgs[childCallIndex].fCoords = buffer.str();
         return;
     }
     if (c.fFunction.fBuiltin) {
@@ -124,17 +132,12 @@ void PipelineStageCodeGenerator::writeVariableReference(const VariableReference&
             this->write("%s");
             fArgs->fFormatArgs.push_back(Compiler::FormatArg(Compiler::FormatArg::Kind::kOutput));
             break;
-        case SK_MAIN_X_BUILTIN:
+        case SK_MAIN_COORDS_BUILTIN:
             this->write("%s");
-            fArgs->fFormatArgs.push_back(Compiler::FormatArg(Compiler::FormatArg::Kind::kCoordX));
+            fArgs->fFormatArgs.push_back(Compiler::FormatArg(Compiler::FormatArg::Kind::kCoords));
             break;
-        case SK_MAIN_Y_BUILTIN:
-            this->write("%s");
-            fArgs->fFormatArgs.push_back(Compiler::FormatArg(Compiler::FormatArg::Kind::kCoordY));
-            break;
-        default:
-            if (ref.fVariable.fModifiers.fFlags & Modifiers::kUniform_Flag) {
-                this->write("%s");
+        default: {
+            auto varIndexByFlag = [this, &ref](uint32_t flag) {
                 int index = 0;
                 bool found = false;
                 for (const auto& e : fProgram) {
@@ -149,18 +152,28 @@ void PipelineStageCodeGenerator::writeVariableReference(const VariableReference&
                                 found = true;
                                 break;
                             }
-                            if (var.fModifiers.fFlags & Modifiers::kUniform_Flag) {
+                            if (var.fModifiers.fFlags & flag) {
                                 ++index;
                             }
                         }
                     }
                 }
                 SkASSERT(found);
+                return index;
+            };
+
+            if (ref.fVariable.fModifiers.fFlags & Modifiers::kUniform_Flag) {
+                this->write("%s");
                 fArgs->fFormatArgs.push_back(
-                        Compiler::FormatArg(Compiler::FormatArg::Kind::kUniform, index));
+                        Compiler::FormatArg(Compiler::FormatArg::Kind::kUniform,
+                                            varIndexByFlag(Modifiers::kUniform_Flag)));
+            } else if (ref.fVariable.fModifiers.fFlags & Modifiers::kVarying_Flag) {
+                this->write("_vtx_attr_");
+                this->write(to_string(varIndexByFlag(Modifiers::kVarying_Flag)));
             } else {
                 this->write(ref.fVariable.fName);
             }
+        }
     }
 }
 
@@ -252,7 +265,8 @@ void PipelineStageCodeGenerator::writeProgramElement(const ProgramElement& p) {
             return;
         }
         const Variable& var = *((VarDeclaration&) *decls.fVars[0]).fVar;
-        if (var.fModifiers.fFlags & (Modifiers::kIn_Flag | Modifiers::kUniform_Flag) ||
+        if (var.fModifiers.fFlags &
+                    (Modifiers::kIn_Flag | Modifiers::kUniform_Flag | Modifiers::kVarying_Flag) ||
             -1 != var.fModifiers.fLayout.fBuiltin) {
             return;
         }

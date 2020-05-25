@@ -15,16 +15,20 @@
 namespace openscreen {
 namespace discovery {
 
+class ReportingClient;
+
 class PublisherImpl : public DnsSdPublisher,
                       public MdnsDomainConfirmedProvider {
  public:
-  PublisherImpl(MdnsService* publisher);
+  PublisherImpl(MdnsService* publisher,
+                ReportingClient* reporting_client,
+                TaskRunner* task_runner);
   ~PublisherImpl() override;
 
   // DnsSdPublisher overrides.
-  Error Register(const DnsSdInstanceRecord& record) override;
+  Error Register(const DnsSdInstanceRecord& record, Client* client) override;
   Error UpdateRegistration(const DnsSdInstanceRecord& record) override;
-  int DeregisterAll(const std::string& service) override;
+  ErrorOr<int> DeregisterAll(const std::string& service) override;
 
  private:
   Error UpdatePublishedRegistration(const DnsSdInstanceRecord& record);
@@ -35,7 +39,7 @@ class PublisherImpl : public DnsSdPublisher,
 
   // The set of records which will be published once the mDNS Probe phase
   // completes.
-  std::vector<DnsSdInstanceRecord> pending_records_;
+  std::map<DnsSdInstanceRecord, Client* const> pending_records_;
 
   // Maps from the requested record to the record which was published after
   // the mDNS Probe phase was completed. The only difference between these
@@ -43,6 +47,8 @@ class PublisherImpl : public DnsSdPublisher,
   std::map<DnsSdInstanceRecord, DnsSdInstanceRecord> published_records_;
 
   MdnsService* const mdns_publisher_;
+  ReportingClient* const reporting_client_;
+  TaskRunner* const task_runner_;
 
   friend class PublisherTesting;
 };

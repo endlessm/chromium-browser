@@ -106,6 +106,16 @@ Polymer({
       },
     },
 
+    /**
+     * Whether a setting for enabling shelf navigation buttons in tablet mode
+     * should be displayed in the accessibility settings.
+     * @private
+     */
+    showShelfNavigationButtonsSettings_: {
+      type: Boolean,
+      value: false,
+    },
+
     /** @private */
     isGuest_: {
       type: Boolean,
@@ -126,6 +136,34 @@ Polymer({
 
     /** @private */
     hasTouchpad_: Boolean,
+
+    /**
+     * Boolean indicating whether shelf navigation buttons should implicitly be
+     * enabled in tablet mode - the navigation buttons are implicitly enabled
+     * when spoken feedback, automatic clicks, or switch access are enabled.
+     * The buttons can also be explicitly enabled by a designated a11y setting.
+     * @private
+     */
+    shelfNavigationButtonsImplicitlyEnabled_: {
+      type: Boolean,
+      computed: 'computeShelfNavigationButtonsImplicitlyEnabled_(' +
+          'prefs.settings.accessibility.value,' +
+          'prefs.settings.a11y.autoclick.value,' +
+          'prefs.settings.a11y.switch_access.enabled.value)',
+    },
+
+    /**
+     * The effective pref value that indicates whether shelf navigation buttons
+     * are enabled in tablet mode.
+     * @type {chrome.settingsPrivate.PrefObject}
+     * @private
+     */
+    shelfNavigationButtonsPref_: {
+      type: Object,
+      computed: 'getShelfNavigationButtonsEnabledPref_(' +
+          'shelfNavigationButtonsImplicitlyEnabled_,' +
+          'prefs.settings.a11y.tablet_mode_shelf_nav_buttons_enabled)',
+    },
   },
 
   observers: [
@@ -151,9 +189,11 @@ Polymer({
   /** @override */
   ready() {
     this.addWebUIListener(
-        'startup-sound-enabled-updated',
-        this.updateStartupSoundEnabled_.bind(this));
-    chrome.send('getStartupSoundEnabled');
+        'initial-data-ready', this.onManageAllyPageReady_.bind(this));
+    chrome.send('manageA11yPageReady');
+
+    this.addWebUIListener(
+        'tablet-mode-changed', this.onTabletModeChanged_.bind(this));
 
     const r = settings.routes;
     this.addFocusConfig_(r.MANAGE_TTS_SETTINGS, '#ttsSubpageButton');
@@ -161,7 +201,6 @@ Polymer({
     this.addFocusConfig_(
         r.MANAGE_SWITCH_ACCESS_SETTINGS, '#switchAccessSubpageButton');
     this.addFocusConfig_(r.DISPLAY, '#displaySubpageButton');
-    this.addFocusConfig_(r.APPEARANCE, '#appearanceSubpageButton');
     this.addFocusConfig_(r.KEYBOARD, '#keyboardSubpageButton');
     this.addFocusConfig_(r.POINTERS, '#pointerSubpageButton');
   },
@@ -200,14 +239,6 @@ Polymer({
    */
   toggleStartupSoundEnabled_(e) {
     chrome.send('setStartupSoundEnabled', [e.detail]);
-  },
-
-  /**
-   * @param {boolean} enabled
-   * @private
-   */
-  updateStartupSoundEnabled_(enabled) {
-    this.$.startupSoundEnabled.checked = enabled;
   },
 
   /** @private */
@@ -258,10 +289,101 @@ Polymer({
         /* dynamicParams */ null, /* removeSearch */ true);
   },
 
+  /**
+   * @return {boolean} Whether shelf navigation buttons should implicitly be
+   *     enabled in tablet mode (due to accessibility settings different than
+   *     shelf_navigation_buttons_enabled_in_tablet_mode).
+   * @private
+   */
+  computeShelfNavigationButtonsImplicitlyEnabled_() {
+    /**
+     * Gets the bool pref value for the provided pref key.
+     * @param {string} key
+     * @return {boolean}
+     */
+    const getBoolPrefValue = (key) => {
+      const pref = /** @type {chrome.settingsPrivate.PrefObject} */ (
+          this.get(key, this.prefs));
+      return pref && !!pref.value;
+    };
+
+    return getBoolPrefValue('settings.accessibility') ||
+        getBoolPrefValue('settings.a11y.autoclick') ||
+        getBoolPrefValue('settings.a11y.switch_access.enabled');
+  },
+
+  /**
+   * Calculates the effective value for "shelf navigation buttons enabled in
+   * tablet mode" setting - if the setting is implicitly enabled (by other a11y
+   * settings), this will return a stub pref value.
+   * @private
+   * @return {chrome.settingsPrivate.PrefObject}
+   */
+  getShelfNavigationButtonsEnabledPref_() {
+    if (this.shelfNavigationButtonsImplicitlyEnabled_) {
+      return /** @type {!chrome.settingsPrivate.PrefObject}*/ ({
+        value: true,
+        type: chrome.settingsPrivate.PrefType.BOOLEAN,
+        key: ''
+      });
+    }
+
+    return /** @type {chrome.settingsPrivate.PrefObject} */ (this.get(
+        'settings.a11y.tablet_mode_shelf_nav_buttons_enabled', this.prefs));
+  },
+
+  /** @private */
+  onShelfNavigationButtonsLearnMoreClicked_() {
+    chrome.metricsPrivate.recordUserAction(
+        'Settings_A11y_ShelfNavigationButtonsLearnMoreClicked');
+  },
+
+  /**
+   * Handles the <code>tablet_mode_shelf_nav_buttons_enabled</code> setting's
+   * toggle changes. It updates the backing pref value, unless the setting is
+   * implicitly enabled.
+   * @private
+   */
+  updateShelfNavigationButtonsEnabledPref_() {
+    if (this.shelfNavigationButtonsImplicitlyEnabled_) {
+      return;
+    }
+
+    const enabled = this.$.shelfNavigationButtonsEnabledControl.checked;
+    this.set(
+        'prefs.settings.a11y.tablet_mode_shelf_nav_buttons_enabled.value',
+        enabled);
+    chrome.send('recordSelectedShowShelfNavigationButtonValue', [enabled]);
+  },
+
   /** @private */
   onMouseTap_() {
     settings.Router.getInstance().navigateTo(
         settings.routes.POINTERS,
         /* dynamicParams */ null, /* removeSearch */ true);
+  },
+
+  /**
+   * Called when tablet mode is changed. Handles updating the visibility of the
+   * shelf navigation buttons setting.
+   * @param {boolean} tabletModeEnabled Whether tablet mode is enabled.
+   * @private
+   */
+  onTabletModeChanged_(tabletModeEnabled) {
+    this.showShelfNavigationButtonsSettings_ = tabletModeEnabled &&
+        loadTimeData.getBoolean('showTabletModeShelfNavigationButtonsSettings');
+  },
+
+  /**
+   * Handles updating the visibility of the shelf navigation buttons setting
+   * and updating whether startupSoundEnabled is checked.
+   * @param {boolean} startup_sound_enabled Whether startup sound is enabled.
+   * @param {boolean} tabletModeEnabled Whether tablet mode is enabled.
+   * @private
+   */
+  onManageAllyPageReady_(startup_sound_enabled, tabletModeEnabled) {
+    this.$.startupSoundEnabled.checked = startup_sound_enabled;
+    this.showShelfNavigationButtonsSettings_ = tabletModeEnabled &&
+        loadTimeData.getBoolean('showTabletModeShelfNavigationButtonsSettings');
   },
 });

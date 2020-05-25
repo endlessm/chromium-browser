@@ -8,7 +8,7 @@
 
 login.createScreen('DemoSetupScreen', 'demo-setup', function() {
   return {
-    EXTERNAL_API: ['onSetupSucceeded', 'onSetupFailed'],
+    EXTERNAL_API: ['setCurrentSetupStep', 'onSetupSucceeded', 'onSetupFailed'],
 
     /**
      * Demo setup module.
@@ -35,6 +35,14 @@ login.createScreen('DemoSetupScreen', 'demo-setup', function() {
     /** @override */
     onBeforeShow() {
       this.demoSetupModule_.reset();
+    },
+
+    /**
+     * Called at the beginning of a setup step.
+     * @param {number} currentStepIndex
+     */
+    setCurrentSetupStep(currentStepIndex) {
+      this.demoSetupModule_.setCurrentSetupStep(currentStepIndex);
     },
 
     /** Called when demo mode setup succeeded. */

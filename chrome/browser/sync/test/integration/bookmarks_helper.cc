@@ -34,6 +34,7 @@
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
+#include "chrome/browser/undo/bookmark_undo_service_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/bookmarks/browser/bookmark_client.h"
 #include "components/bookmarks/browser/bookmark_model.h"
@@ -471,6 +472,11 @@ void TriggerAllFaviconLoading(BookmarkModel* model) {
 }
 
 }  // namespace
+
+BookmarkUndoService* GetBookmarkUndoService(int index) {
+  return BookmarkUndoServiceFactory::GetForProfile(
+      sync_datatype_helper::test()->GetProfile(index));
+}
 
 BookmarkModel* GetBookmarkModel(int index) {
   return BookmarkModelFactory::GetForBrowserContext(
@@ -1273,15 +1279,16 @@ bool ServerBookmarksEqualityChecker::IsExitConditionSatisfied(
     auto it =
         std::find_if(expected.begin(), expected.end(),
                      [actual_specifics](const ExpectedBookmark& bookmark) {
-                       return actual_specifics.title() == bookmark.title &&
+                       return actual_specifics.legacy_canonicalized_title() ==
+                                  bookmark.title &&
                               actual_specifics.url() == bookmark.url;
                      });
     if (it != expected.end()) {
       expected.erase(it);
     } else {
       ADD_FAILURE() << "Could not find expected bookmark with title '"
-                    << actual_specifics.title() << "' and URL '"
-                    << actual_specifics.url() << "'";
+                    << actual_specifics.legacy_canonicalized_title()
+                    << "' and URL '" << actual_specifics.url() << "'";
     }
   }
 

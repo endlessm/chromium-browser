@@ -28,8 +28,7 @@
 
 class GrAtlasManager;
 class GrAtlasTextOp;
-struct GrDistanceFieldAdjustTable;
-struct GrGlyph;
+class GrGlyph;
 
 class SkTextBlob;
 class SkTextBlobRunIterator;
@@ -131,7 +130,6 @@ public:
                         const SkMatrix& drawMatrix, SkPoint drawOrigin);
 
     void flush(GrTextTarget*, const SkSurfaceProps& props,
-               const GrDistanceFieldAdjustTable* distanceAdjustTable,
                const SkPaint& paint, const SkPMColor4f& filteredColor, const GrClip& clip,
                const SkMatrix& drawMatrix, SkPoint drawOrigin);
 
@@ -167,10 +165,9 @@ public:
     size_t size() const;
 
     // Internal test methods
-    std::unique_ptr<GrDrawOp> test_makeOp(int glyphCount,
-                                          const SkMatrix& drawMatrix, SkPoint drawOrigin,
-                                          const SkPaint& paint, const SkPMColor4f& filteredColor,
-                                          const SkSurfaceProps&, const GrDistanceFieldAdjustTable*,
+    std::unique_ptr<GrDrawOp> test_makeOp(int glyphCount, const SkMatrix& drawMatrix,
+                                          SkPoint drawOrigin, const SkPaint& paint,
+                                          const SkPMColor4f& filteredColor, const SkSurfaceProps&,
                                           GrTextTarget*);
 
     bool hasW(SubRunType type) const;
@@ -219,11 +216,10 @@ private:
 
     void insertSubRun(SubRun* subRun);
 
-    std::unique_ptr<GrAtlasTextOp> makeOp(
-            SubRun& info, int glyphCount,
-            const SkMatrix& drawMatrix, SkPoint drawOrigin, const SkIRect& clipRect,
-            const SkPaint& paint, const SkPMColor4f& filteredColor, const SkSurfaceProps&,
-            const GrDistanceFieldAdjustTable*, GrTextTarget*);
+    std::unique_ptr<GrAtlasTextOp> makeOp(SubRun& info, int glyphCount, const SkMatrix& drawMatrix,
+                                          SkPoint drawOrigin, const SkIRect& clipRect,
+                                          const SkPaint& paint, const SkPMColor4f& filteredColor,
+                                          const SkSurfaceProps&, GrTextTarget*);
 
     // Methods to satisfy SkGlyphRunPainterInterface
     void processDeviceMasks(const SkZip<SkGlyphVariant, SkPoint>& drawables,
@@ -297,22 +293,20 @@ public:
      * SkGlyphCache.
      */
     VertexRegenerator(GrResourceProvider*, GrTextBlob::SubRun* subRun,
-                      GrDeferredUploadTarget*, GrStrikeCache*, GrAtlasManager*);
+                      GrDeferredUploadTarget*, GrAtlasManager*);
 
     // Return {success, number of glyphs regenerated}
     std::tuple<bool, int> regenerate(int begin, int end);
 
 private:
     // Return {success, number of glyphs regenerated}
-    std::tuple<bool, int> updateTextureCoordinatesMaybeStrike(int begin, int end);
+    std::tuple<bool, int> updateTextureCoordinates(int begin, int end);
 
     GrResourceProvider* fResourceProvider;
     GrDeferredUploadTarget* fUploadTarget;
-    GrStrikeCache* fGrStrikeCache;
     GrAtlasManager* fFullAtlasManager;
     SkTLazy<SkBulkGlyphMetricsAndImages> fMetricsAndImages;
     SubRun* fSubRun;
-    bool fRegenerateTextureCoordinates{false};
 };
 
 // -- GrTextBlob::SubRun ---------------------------------------------------------------------------

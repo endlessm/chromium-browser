@@ -275,6 +275,17 @@ class CustomWindowStateDelegate : public ash::WindowStateDelegate {
   DISALLOW_COPY_AND_ASSIGN(CustomWindowStateDelegate);
 };
 
+void CloseAllTransientChildren(aura::Window* window) {
+  // Deleting a window may delete other transient children, so
+  // delete them by popping from the list.
+  for (;;) {
+    auto list = wm::GetTransientChildren(window);
+    if (list.empty())
+      return;
+    wm::RemoveTransientChild(window, *list.begin());
+  }
+}
+
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -305,8 +316,7 @@ ShellSurfaceBase::~ShellSurfaceBase() {
     widget_->GetNativeWindow()->RemoveObserver(this);
     widget_->RemoveObserver(this);
     // Remove transient children so they are not automatically destroyed.
-    for (auto* child : wm::GetTransientChildren(widget_->GetNativeWindow()))
-      wm::RemoveTransientChild(widget_->GetNativeWindow(), child);
+    CloseAllTransientChildren(widget_->GetNativeWindow());
     if (widget_->IsVisible())
       widget_->Hide();
     widget_->CloseNow();
@@ -408,8 +418,10 @@ void ShellSurfaceBase::SetStartupId(const char* startup_id) {
 }
 
 void ShellSurfaceBase::SetChildAxTreeId(ui::AXTreeID child_ax_tree_id) {
-  child_ax_tree_id_ = child_ax_tree_id;
+  if (child_ax_tree_id_ == child_ax_tree_id)
+    return;
 
+  child_ax_tree_id_ = child_ax_tree_id;
   this->NotifyAccessibilityEvent(ax::mojom::Event::kChildrenChanged, false);
 }
 
@@ -628,8 +640,7 @@ void ShellSurfaceBase::OnSurfaceDestroying(Surface* surface) {
   // run using the current surface contents.
   if (widget_) {
     // Remove transient children so they are not automatically hidden.
-    for (auto* child : wm::GetTransientChildren(widget_->GetNativeWindow()))
-      wm::RemoveTransientChild(widget_->GetNativeWindow(), child);
+    CloseAllTransientChildren(widget_->GetNativeWindow());
     widget_->Hide();
   }
 
@@ -692,7 +703,17 @@ bool ShellSurfaceBase::OnCloseRequested(
 
 void ShellSurfaceBase::WindowClosing() {
   SetEnabled(false);
+  if (widget_)
+    widget_->RemoveObserver(this);
   widget_ = nullptr;
+}
+
+views::Widget* ShellSurfaceBase::GetWidget() {
+  return widget_;
+}
+
+const views::Widget* ShellSurfaceBase::GetWidget() const {
+  return widget_;
 }
 
 views::View* ShellSurfaceBase::GetContentsView() {
@@ -863,7 +884,6 @@ void ShellSurfaceBase::CreateShellSurfaceWidget(
     activatable_ = false;
     DisableMovement();
   }
-
   views::Widget::InitParams params;
   params.type = emulate_x11_override_redirect
                     ? views::Widget::InitParams::TYPE_MENU
@@ -1072,10 +1092,6 @@ views::NonClientFrameView* ShellSurfaceBase::CreateNonClientFrameViewInternal(
 
 ////////////////////////////////////////////////////////////////////////////////
 // ShellSurfaceBase, private:
-
-const views::Widget* ShellSurfaceBase::GetWidgetImpl() const {
-  return widget_;
-}
 
 float ShellSurfaceBase::GetScale() const {
   return 1.f;

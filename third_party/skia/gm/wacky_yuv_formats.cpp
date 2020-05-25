@@ -159,6 +159,7 @@ static void setup_yuv_indices(YUVFormat yuvFormat, bool addExtraAlpha, SkYUVAInd
                 yuvaIndices[3].fChannel = SkColorChannel::kA; // bc 16bit is stored in A16 or AF16
             } else {
                 yuvaIndices[3].fIndex = -1; // No alpha channel
+                yuvaIndices[3].fChannel = SkColorChannel::kA;
             }
             break;
         case kY416_YUVFormat:
@@ -206,6 +207,7 @@ static void setup_yuv_indices(YUVFormat yuvFormat, bool addExtraAlpha, SkYUVAInd
                 yuvaIndices[3].fChannel = SkColorChannel::kA;
             } else {
                 yuvaIndices[3].fIndex = -1; // No alpha channel
+                yuvaIndices[3].fChannel = SkColorChannel::kA;
             }
             break;
         case kNV21_YUVFormat:
@@ -220,6 +222,7 @@ static void setup_yuv_indices(YUVFormat yuvFormat, bool addExtraAlpha, SkYUVAInd
                 yuvaIndices[3].fChannel = SkColorChannel::kA;
             } else {
                 yuvaIndices[3].fIndex = -1; // No alpha channel
+                yuvaIndices[3].fChannel = SkColorChannel::kA;
             }
             break;
         case kI420_YUVFormat:
@@ -234,6 +237,7 @@ static void setup_yuv_indices(YUVFormat yuvFormat, bool addExtraAlpha, SkYUVAInd
                 yuvaIndices[3].fChannel = SkColorChannel::kA;
             } else {
                 yuvaIndices[3].fIndex = -1; // No alpha channel
+                yuvaIndices[3].fChannel = SkColorChannel::kA;
             }
             break;
         case kYV12_YUVFormat:
@@ -248,6 +252,7 @@ static void setup_yuv_indices(YUVFormat yuvFormat, bool addExtraAlpha, SkYUVAInd
                 yuvaIndices[3].fChannel = SkColorChannel::kA;
             } else {
                 yuvaIndices[3].fIndex = -1; // No alpha channel
+                yuvaIndices[3].fChannel = SkColorChannel::kA;
             }
             break;
     }
@@ -413,19 +418,19 @@ static void convert_rgba_to_yuva(const float mtx[20], SkColor col, uint8_t yuv[4
     const uint8_t g = SkColorGetG(col);
     const uint8_t b = SkColorGetB(col);
 
-    yuv[0] = SkScalarPin(SkScalarRoundToInt(mtx[ 0]*r + mtx[ 1]*g + mtx[ 2]*b + mtx[ 4]*255), 0, 255);
-    yuv[1] = SkScalarPin(SkScalarRoundToInt(mtx[ 5]*r + mtx[ 6]*g + mtx[ 7]*b + mtx[ 9]*255), 0, 255);
-    yuv[2] = SkScalarPin(SkScalarRoundToInt(mtx[10]*r + mtx[11]*g + mtx[12]*b + mtx[14]*255), 0, 255);
+    yuv[0] = SkTPin(SkScalarRoundToInt(mtx[ 0]*r + mtx[ 1]*g + mtx[ 2]*b + mtx[ 4]*255), 0, 255);
+    yuv[1] = SkTPin(SkScalarRoundToInt(mtx[ 5]*r + mtx[ 6]*g + mtx[ 7]*b + mtx[ 9]*255), 0, 255);
+    yuv[2] = SkTPin(SkScalarRoundToInt(mtx[10]*r + mtx[11]*g + mtx[12]*b + mtx[14]*255), 0, 255);
     yuv[3] = SkColorGetA(col);
 }
 
 static SkPMColor convert_yuva_to_rgba(const float mtx[20],
                                       uint8_t y, uint8_t u, uint8_t v, uint8_t a) {
-    uint8_t r = SkScalarPin(SkScalarRoundToInt(mtx[ 0]*y + mtx[ 1]*u + mtx[ 2]*v + mtx[ 4]*255), 0, 255);
-    uint8_t g = SkScalarPin(SkScalarRoundToInt(mtx[ 5]*y + mtx[ 6]*u + mtx[ 7]*v + mtx[ 9]*255), 0, 255);
-    uint8_t b = SkScalarPin(SkScalarRoundToInt(mtx[10]*y + mtx[11]*u + mtx[12]*v + mtx[14]*255), 0, 255);
+    uint8_t r = SkTPin(SkScalarRoundToInt(mtx[ 0]*y + mtx[ 1]*u + mtx[ 2]*v + mtx[ 4]*255), 0, 255);
+    uint8_t g = SkTPin(SkScalarRoundToInt(mtx[ 5]*y + mtx[ 6]*u + mtx[ 7]*v + mtx[ 9]*255), 0, 255);
+    uint8_t b = SkTPin(SkScalarRoundToInt(mtx[10]*y + mtx[11]*u + mtx[12]*v + mtx[14]*255), 0, 255);
 
-    return SkPremultiplyARGBInline(a, b, g, r);
+    return SkPremultiplyARGBInline(a, r, g, b);
 }
 
 static void extract_planes(const SkBitmap& bm, SkYUVColorSpace yuvColorSpace, PlaneData* planes) {
@@ -821,6 +826,7 @@ protected:
 
         if (kUnknown_SkColorType == fFlattened.colorType()) {
             fFlattened.allocPixels(info);
+            SkASSERT(kN32_SkColorType == info.colorType());
             SkASSERT(kPremul_SkAlphaType == info.alphaType());
 
             float mtx[20];
@@ -1048,6 +1054,7 @@ static SkColorType get_color_type(const GrBackendFormat& format) {
             case VK_FORMAT_R8G8B8A8_UNORM:           return kRGBA_8888_SkColorType;
             case VK_FORMAT_B8G8R8A8_UNORM:           return kBGRA_8888_SkColorType;
             case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return kRGBA_1010102_SkColorType;
+            case VK_FORMAT_A2R10G10B10_UNORM_PACK32: return kBGRA_1010102_SkColorType;
             case VK_FORMAT_R16_SFLOAT:               return kA16_float_SkColorType;
             case VK_FORMAT_R16G16_SFLOAT:            return kR16G16_float_SkColorType;
             case VK_FORMAT_R16_UNORM:                return kA16_unorm_SkColorType;
@@ -1152,6 +1159,13 @@ protected:
         for (int i = 0; i < numTextures; ++i) {
             SkColorType ct = get_color_type(yuvaTextures[i].getBackendFormat());
             if (ct == kUnknown_SkColorType || !context->colorTypeSupportedAsSurface(ct)) {
+                return nullptr;
+            }
+
+            if (ct == kRGBA_8888_SkColorType || ct == kRGBA_1010102_SkColorType) {
+                // We disallow resizing AYUV and Y410 formats on the GPU bc resizing them w/ a
+                // premul draw combines the YUV channels w/ the A channel in an inappropriate
+                // manner.
                 return nullptr;
             }
 
@@ -1294,11 +1308,14 @@ protected:
                             ++counter;
                         }
                     } else {
-                        fImages[opaque][cs][format] = make_yuv_gen_image(
-                                                                fOriginalBMs[opaque].info(),
-                                                                (SkYUVColorSpace) cs,
-                                                                yuvaIndices,
-                                                                resultBMs);
+                        SkImageInfo ii = SkImageInfo::MakeN32(fOriginalBMs[opaque].width(),
+                                                              fOriginalBMs[opaque].height(),
+                                                              kPremul_SkAlphaType);
+
+                        fImages[opaque][cs][format] = make_yuv_gen_image(ii,
+                                                                         (SkYUVColorSpace) cs,
+                                                                         yuvaIndices,
+                                                                         resultBMs);
                     }
                 }
             }
@@ -1506,25 +1523,26 @@ protected:
                 canvas->drawImage(raster, x, y);
                 y += kTileWidthHeight + kPad;
 
-                auto yuv = fImages[opaque][tagged]->makeColorSpace(fTargetColorSpace);
-                SkASSERT(SkColorSpace::Equals(yuv->colorSpace(), fTargetColorSpace.get()));
-                canvas->drawImage(yuv, x, y);
-                y += kTileWidthHeight + kPad;
+                if (fImages[opaque][tagged]) {
+                    auto yuv = fImages[opaque][tagged]->makeColorSpace(fTargetColorSpace);
+                    SkASSERT(SkColorSpace::Equals(yuv->colorSpace(), fTargetColorSpace.get()));
+                    canvas->drawImage(yuv, x, y);
+                    y += kTileWidthHeight + kPad;
 
-                auto subset = yuv->makeSubset(SkIRect::MakeWH(kTileWidthHeight / 2,
-                                                              kTileWidthHeight / 2));
-                canvas->drawImage(subset, x, y);
-                y += kTileWidthHeight + kPad;
+                    auto subset = yuv->makeSubset(SkIRect::MakeWH(kTileWidthHeight / 2,
+                        kTileWidthHeight / 2));
+                    canvas->drawImage(subset, x, y);
+                    y += kTileWidthHeight + kPad;
 
-                auto nonTexture = yuv->makeNonTextureImage();
-                canvas->drawImage(nonTexture, x, y);
-                y += kTileWidthHeight + kPad;
+                    auto nonTexture = yuv->makeNonTextureImage();
+                    canvas->drawImage(nonTexture, x, y);
+                    y += kTileWidthHeight + kPad;
 
-                SkBitmap readBack;
-                readBack.allocPixels(yuv->imageInfo());
-                yuv->readPixels(readBack.pixmap(), 0, 0);
-                canvas->drawBitmap(readBack, x, y);
-
+                    SkBitmap readBack;
+                    readBack.allocPixels(yuv->imageInfo());
+                    yuv->readPixels(readBack.pixmap(), 0, 0);
+                    canvas->drawBitmap(readBack, x, y);
+                }
                 x += kTileWidthHeight + kPad;
             }
         }
@@ -1640,9 +1658,9 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
         SkYUVAIndex indices[4];
-        indices[SkYUVAIndex::kY_Index] = {0, SkColorChannel::kR};
-        indices[SkYUVAIndex::kU_Index] = {1, SkColorChannel::kR};
-        indices[SkYUVAIndex::kV_Index] = {2, SkColorChannel::kR};
+        indices[SkYUVAIndex::kY_Index] = {0,  SkColorChannel::kR};
+        indices[SkYUVAIndex::kU_Index] = {1,  SkColorChannel::kR};
+        indices[SkYUVAIndex::kV_Index] = {2,  SkColorChannel::kR};
         indices[SkYUVAIndex::kA_Index] = {-1, SkColorChannel::kR};
 
         canvas->translate(fOrig->width(), 0);

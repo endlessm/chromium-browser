@@ -55,11 +55,8 @@ QuicLongHeaderType EncryptionlevelToLongHeaderType(EncryptionLevel level) {
 }
 
 void LogCoalesceStreamFrameStatus(bool success) {
-  if (GetQuicReloadableFlag(quic_log_coalesce_stream_frame_frequency)) {
-    QUIC_RELOADABLE_FLAG_COUNT(quic_log_coalesce_stream_frame_frequency);
-    QUIC_HISTOGRAM_BOOL("QuicSession.CoalesceStreamFrameStatus", success,
-                        "Success rate of coalesing stream frames attempt.");
-  }
+  QUIC_HISTOGRAM_BOOL("QuicSession.CoalesceStreamFrameStatus", success,
+                      "Success rate of coalesing stream frames attempt.");
 }
 
 // ScopedPacketContextSwitcher saves |packet|'s states and change states
@@ -682,6 +679,15 @@ void QuicPacketCreator::SerializePacket(char* encrypted_buffer,
                 << QuicFramesToString(queued_frames_) << " at encryption_level "
                 << EncryptionLevelToString(packet_.encryption_level);
 
+  if (!framer_->HasEncrypterOfEncryptionLevel(packet_.encryption_level)) {
+    QUIC_BUG << ENDPOINT << "Attempting to serialize " << header
+             << QuicFramesToString(queued_frames_)
+             << " at missing encryption_level "
+             << EncryptionLevelToString(packet_.encryption_level) << " using "
+             << framer_->version();
+    return;
+  }
+
   DCHECK_GE(max_plaintext_size_, packet_size_);
   // Use the packet_size_ instead of the buffer size to ensure smaller
   // packet sizes are properly used.
@@ -806,7 +812,7 @@ QuicPacketCreator::SerializePathChallengeConnectivityProbingPacket(
 
 OwningSerializedPacketPointer
 QuicPacketCreator::SerializePathResponseConnectivityProbingPacket(
-    const QuicDeque<QuicPathFrameBuffer>& payloads,
+    const QuicCircularDeque<QuicPathFrameBuffer>& payloads,
     const bool is_padded) {
   QUIC_BUG_IF(!VersionHasIetfQuicFrames(framer_->transport_version()))
       << "Must be version 99 to serialize path response connectivity probe, is "
@@ -872,7 +878,7 @@ size_t QuicPacketCreator::BuildPathResponsePacket(
     const QuicPacketHeader& header,
     char* buffer,
     size_t packet_length,
-    const QuicDeque<QuicPathFrameBuffer>& payloads,
+    const QuicCircularDeque<QuicPathFrameBuffer>& payloads,
     const bool is_padded,
     EncryptionLevel level) {
   if (payloads.empty()) {
@@ -941,10 +947,17 @@ size_t QuicPacketCreator::SerializeCoalescedPacket(
       << "Attempt to serialize empty coalesced packet";
   size_t packet_length = 0;
   if (coalesced.initial_packet() != nullptr) {
+    // Padding coalesced packet containing initial packet to full.
+    size_t padding_size = coalesced.max_packet_length() - coalesced.length();
+    if (framer_->perspective() == Perspective::IS_SERVER &&
+        QuicUtils::ContainsFrameType(
+            coalesced.initial_packet()->retransmittable_frames,
+            CONNECTION_CLOSE_FRAME)) {
+      // Do not pad server initial connection close packet.
+      padding_size = 0;
+    }
     size_t initial_length = ReserializeInitialPacketInCoalescedPacket(
-        *coalesced.initial_packet(),
-        /*padding_size=*/coalesced.max_packet_length() - coalesced.length(),
-        buffer, buffer_len);
+        *coalesced.initial_packet(), padding_size, buffer, buffer_len);
     if (initial_length == 0) {
       QUIC_BUG << "Failed to reserialize ENCRYPTION_INITIAL packet in "
                   "coalesced packet";

@@ -82,8 +82,6 @@ action("gen_buildflags") {
     "PERFETTO_TP_LINENOISE=$enable_perfetto_trace_processor_linenoise",
     "PERFETTO_TP_HTTPD=$perfetto_tp_httpd",
     "PERFETTO_TP_JSON=$enable_perfetto_trace_processor_json",
-    "PERFETTO_TP_JSON_IMPORT=$enable_perfetto_trace_processor_json_import",
-    "PERFETTO_TP_FUCHSIA=$enable_perfetto_trace_processor_fuchsia",
     "PERFETTO_LOCAL_SYMBOLIZER=$perfetto_local_symbolizer",
     "PERFETTO_ZLIB=$enable_perfetto_zlib",
   ]
@@ -106,9 +104,13 @@ group("default_deps") {
   deps = [ ":gen_buildflags" ]
   if (perfetto_build_standalone) {
     public_deps = [
+      "//gn/standalone:check_build_deps",
       "//gn/standalone/libc++:deps",
       "//gn/standalone/sanitizers:deps",
     ]
+    if (is_android) {
+      public_deps += [ "//gn/standalone:check_build_deps_android" ]
+    }
   }
 }
 
@@ -243,14 +245,22 @@ if (enable_perfetto_trace_processor_sqlite) {
     if (perfetto_root_path == "//") {
       public_deps = [ "//buildtools:sqlite" ]
     } else {
-      public_deps = [ "//third_party/sqlite:sqlite" ]
+      if (build_with_chromium) {
+        public_deps = [ "//third_party/sqlite:sqlite_dev" ]
+      } else {
+        public_deps = [ "//third_party/sqlite:sqlite" ]
+      }
       public_configs = [ ":sqlite_third_party_include_path" ]
     }
   }
 }
 
 config("sqlite_third_party_include_path") {
-  include_dirs = [ "//third_party/sqlite" ]
+  if (build_with_chromium) {
+    include_dirs = [ "//third_party/sqlite/dev" ]
+  } else {
+    include_dirs = [ "//third_party/sqlite" ]
+  }
 }
 
 if (enable_perfetto_trace_processor_json) {

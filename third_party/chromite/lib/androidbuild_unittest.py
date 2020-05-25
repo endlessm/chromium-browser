@@ -20,6 +20,9 @@ from six.moves import builtins
 from chromite.lib import androidbuild
 from chromite.lib import cros_test_lib
 
+pytestmark = cros_test_lib.pytestmark_inside_only
+
+
 TESTDATA_PATH = os.path.join(os.path.dirname(__file__), 'testdata')
 
 
@@ -83,6 +86,7 @@ class AndroidBuildTests(cros_test_lib.TestCase):
       self.assertEqual(json_path,
                        os.path.join(fakeuser_homedir, service_account_name))
 
+  @cros_test_lib.pytestmark_skip
   def testLoadCredentials_ServiceAccount(self):
     """Checks that loading a service account from JSON works."""
     creds = androidbuild.LoadCredentials(os.path.join(

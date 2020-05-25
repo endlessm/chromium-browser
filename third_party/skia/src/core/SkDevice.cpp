@@ -33,26 +33,61 @@
 #include "src/utils/SkPatchUtils.h"
 
 SkBaseDevice::SkBaseDevice(const SkImageInfo& info, const SkSurfaceProps& surfaceProps)
-    : fInfo(info)
-    , fSurfaceProps(surfaceProps)
-{
-    fOrigin = {0, 0};
+        : fInfo(info)
+        , fSurfaceProps(surfaceProps) {
+    fDeviceToGlobal.reset();
+    fGlobalToDevice.reset();
     fLocalToDevice.reset();
 }
 
-void SkBaseDevice::setOrigin(const SkMatrix& globalCTM, int x, int y) {
-    fOrigin.set(x, y);
-    fLocalToDevice = globalCTM;
+void SkBaseDevice::setDeviceCoordinateSystem(const SkMatrix& deviceToGlobal,
+                                             const SkMatrix& localToDevice,
+                                             int bufferOriginX,
+                                             int bufferOriginY) {
+    fDeviceToGlobal = deviceToGlobal;
+    fDeviceToGlobal.normalizePerspective();
+    SkAssertResult(deviceToGlobal.invert(&fGlobalToDevice));
+
+    fLocalToDevice = localToDevice;
     fLocalToDevice.normalizePerspective();
-    fLocalToDevice.postTranslate(SkIntToScalar(-x), SkIntToScalar(-y));
+    if (bufferOriginX | bufferOriginY) {
+        fDeviceToGlobal.preTranslate(bufferOriginX, bufferOriginY);
+        fGlobalToDevice.postTranslate(-bufferOriginX, -bufferOriginY);
+        fLocalToDevice.postTranslate(-bufferOriginX, -bufferOriginY);
+    }
 }
 
 void SkBaseDevice::setGlobalCTM(const SkCanvasMatrix& ctm) {
     fLocalToDevice = ctm;
     fLocalToDevice.normalizePerspective();
-    if (fOrigin.fX | fOrigin.fY) {
-        fLocalToDevice.postTranslate(-SkIntToScalar(fOrigin.fX), -SkIntToScalar(fOrigin.fY));
+    if (!fGlobalToDevice.isIdentity()) {
+        // Map from the global CTM state to this device's coordinate system.
+        fLocalToDevice.postConcat(fGlobalToDevice);
     }
+}
+
+bool SkBaseDevice::isPixelAlignedToGlobal() const {
+    return fDeviceToGlobal.isTranslate() &&
+           SkScalarIsInt(fDeviceToGlobal.getTranslateX()) &&
+           SkScalarIsInt(fDeviceToGlobal.getTranslateY());
+}
+
+SkIPoint SkBaseDevice::getOrigin() const {
+    // getOrigin() is deprecated, the old origin has been moved into the fDeviceToGlobal matrix.
+    // This extracts the origin from the matrix, but asserts that a more complicated coordinate
+    // space hasn't been set of the device. This function can be removed once existing use cases
+    // have been updated to use the device-to-global matrix instead or have themselves been removed
+    // (e.g. Android's device-space clip regions are going away, and are not compatible with the
+    // generalized device coordinate system).
+    SkASSERT(this->isPixelAlignedToGlobal());
+    return SkIPoint::Make(SkScalarFloorToInt(fDeviceToGlobal.getTranslateX()),
+                          SkScalarFloorToInt(fDeviceToGlobal.getTranslateY()));
+}
+
+SkMatrix SkBaseDevice::getRelativeTransform(const SkBaseDevice& inputDevice) const {
+    // To get the transform from the input's space to this space, transform from the input space to
+    // the global space, and then from the global space back to this space.
+    return SkMatrix::Concat(fGlobalToDevice, inputDevice.fDeviceToGlobal);
 }
 
 SkPixelGeometry SkBaseDevice::CreateInfo::AdjustGeometry(TileUsage tileUsage, SkPixelGeometry geo) {
@@ -120,16 +155,7 @@ void SkBaseDevice::drawPatch(const SkPoint cubics[12], const SkColor colors[4],
     auto vertices = SkPatchUtils::MakeVertices(cubics, colors, texCoords, lod.width(), lod.height(),
                                                this->imageInfo().colorSpace());
     if (vertices) {
-        this->drawVertices(vertices.get(), nullptr, 0, bmode, paint);
-    }
-}
-
-void SkBaseDevice::drawImageRect(const SkImage* image, const SkRect* src,
-                                 const SkRect& dst, const SkPaint& paint,
-                                 SkCanvas::SrcRectConstraint constraint) {
-    SkBitmap bm;
-    if (as_IB(image)->getROPixels(&bm)) {
-        this->drawBitmapRect(bm, src, dst, paint, constraint);
+        this->drawVertices(vertices.get(), bmode, paint);
     }
 }
 
@@ -140,16 +166,6 @@ void SkBaseDevice::drawImageNine(const SkImage* image, const SkIRect& center,
     SkRect srcR, dstR;
     while (iter.next(&srcR, &dstR)) {
         this->drawImageRect(image, &srcR, dstR, paint, SkCanvas::kStrict_SrcRectConstraint);
-    }
-}
-
-void SkBaseDevice::drawBitmapNine(const SkBitmap& bitmap, const SkIRect& center,
-                                  const SkRect& dst, const SkPaint& paint) {
-    SkLatticeIter iter(bitmap.width(), bitmap.height(), center, dst);
-
-    SkRect srcR, dstR;
-    while (iter.next(&srcR, &dstR)) {
-        this->drawBitmapRect(bitmap, &srcR, dstR, paint, SkCanvas::kStrict_SrcRectConstraint);
     }
 }
 
@@ -177,17 +193,6 @@ void SkBaseDevice::drawImageLattice(const SkImage* image,
         } else {
             this->drawImageRect(image, &srcR, dstR, paint, SkCanvas::kStrict_SrcRectConstraint);
         }
-    }
-}
-
-void SkBaseDevice::drawBitmapLattice(const SkBitmap& bitmap,
-                                     const SkCanvas::Lattice& lattice, const SkRect& dst,
-                                     const SkPaint& paint) {
-    SkLatticeIter iter(lattice, dst);
-
-    SkRect srcR, dstR;
-    while (iter.next(&srcR, &dstR)) {
-        this->drawBitmapRect(bitmap, &srcR, dstR, paint, SkCanvas::kStrict_SrcRectConstraint);
     }
 }
 
@@ -232,7 +237,7 @@ void SkBaseDevice::drawAtlas(const SkImage* atlas, const SkRSXform xform[],
     }
     SkPaint p(paint);
     p.setShader(atlas->makeShader());
-    this->drawVertices(builder.detach().get(), nullptr, 0, mode, p);
+    this->drawVertices(builder.detach().get(), mode, p);
 }
 
 

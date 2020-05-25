@@ -48,12 +48,16 @@ SCRIPT="${SCRIPT-${BASENAME//-/_}.py}"
 # standalone, but allow other PATH manipulations to take priority.
 PATH=$PATH:$DEPOT_TOOLS
 
-if [[ $PYTHON_DIRECT = 1 ]]; then
-  python.exe "$DEPOT_TOOLS\\$SCRIPT" "$@"
+if [[ $GCLIENT_PY3 = 1 ]]; then
+  # Explicitly run on Python 3
+  vpython3 "$DEPOT_TOOLS/$SCRIPT" "$@"
+elif [[ $GCLIENT_PY3 = 0 ]]; then
+  # Explicitly run on Python 2
+  vpython "$DEPOT_TOOLS/$SCRIPT" "$@"
+elif [[ $(uname -s) = MINGW* || $(uname -s) = CYGWIN* ]]; then
+  # Run on Python 2 on Windows for now, allows default to be flipped.
+  vpython "$DEPOT_TOOLS/$SCRIPT" "$@"
 else
-  if [[ -e "$DEPOT_TOOLS/python.bat" && $OSTYPE = msys ]]; then
-    cmd.exe //c "$DEPOT_TOOLS\\vpython.bat" "$DEPOT_TOOLS\\$SCRIPT" "$@"
-  else
-    vpython "$DEPOT_TOOLS/$SCRIPT" "$@"
-  fi
+  # Run on Python 3, allows default to be flipped.
+  vpython3 "$DEPOT_TOOLS/$SCRIPT" "$@"
 fi

@@ -50,7 +50,6 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/browser/indexed_db_context.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/shared_cors_origin_access_list.h"
 #include "content/public/browser/site_instance.h"
@@ -179,11 +178,6 @@ StoragePartition* GetStoragePartitionFromConfig(
 
 void SaveSessionStateOnIOThread(AppCacheServiceImpl* appcache_service) {
   appcache_service->set_force_keep_session_state();
-}
-
-void SaveSessionStateOnIndexedDBThread(
-    scoped_refptr<IndexedDBContext> indexed_db_context) {
-  indexed_db_context->SetForceKeepSessionState();
 }
 
 void ShutdownServiceWorkerContext(StoragePartition* partition) {
@@ -361,6 +355,14 @@ void BrowserContext::ForEachStoragePartition(
   partition_map->ForEach(std::move(callback));
 }
 
+size_t BrowserContext::GetStoragePartitionCount(
+    BrowserContext* browser_context) {
+  StoragePartitionImplMap* partition_map =
+      static_cast<StoragePartitionImplMap*>(
+          browser_context->GetUserData(kStoragePartitionMapKeyName));
+  return partition_map ? partition_map->size() : 0;
+}
+
 StoragePartition* BrowserContext::GetDefaultStoragePartition(
     BrowserContext* browser_context) {
   return GetStoragePartition(browser_context, nullptr);
@@ -455,14 +457,6 @@ void BrowserContext::NotifyWillBeDestroyed(BrowserContext* browser_context) {
       host->DisableKeepAliveRefCount();
     }
   }
-
-  // Clean up any isolated origins and other security state associated with this
-  // BrowserContext.  This should be safe now that all RenderProcessHosts are
-  // destroyed, since future navigations or security decisions shouldn't ever
-  // need to consult these isolated origins and other security state.
-  ChildProcessSecurityPolicyImpl* policy =
-      ChildProcessSecurityPolicyImpl::GetInstance();
-  policy->RemoveStateForBrowserContext(*browser_context);
 }
 
 void BrowserContext::EnsureResourceContextInitialized(BrowserContext* context) {
@@ -504,12 +498,8 @@ void BrowserContext::SaveSessionState(BrowserContext* browser_context) {
           storage_partition->GetDOMStorageContext());
   dom_storage_context_proxy->SetForceKeepSessionState();
 
-  scoped_refptr<IndexedDBContext> indexed_db_context =
-      storage_partition->GetIndexedDBContext();
-  IndexedDBContext* const indexed_db_context_ptr = indexed_db_context.get();
-  indexed_db_context_ptr->IDBTaskRunner()->PostTask(
-      FROM_HERE, base::BindOnce(&SaveSessionStateOnIndexedDBThread,
-                                std::move(indexed_db_context)));
+  auto& indexed_db_control = storage_partition->GetIndexedDBControl();
+  indexed_db_control.SetForceKeepSessionState();
 }
 
 void BrowserContext::SetDownloadManagerForTesting(
@@ -616,6 +606,12 @@ BrowserContext::~BrowserContext() {
     NOTREACHED();
     base::debug::DumpWithoutCrashing();
   }
+
+  // Clean up any isolated origins and other security state associated with this
+  // BrowserContext.
+  ChildProcessSecurityPolicyImpl* policy =
+      ChildProcessSecurityPolicyImpl::GetInstance();
+  policy->RemoveStateForBrowserContext(*this);
 
   RemoveBrowserContextFromInstanceGroupMap(this);
 
@@ -759,6 +755,10 @@ ContentIndexProvider* BrowserContext::GetContentIndexProvider() {
 
 bool BrowserContext::CanUseDiskWhenOffTheRecord() {
   return false;
+}
+
+variations::VariationsClient* BrowserContext::GetVariationsClient() {
+  return nullptr;
 }
 
 }  // namespace content

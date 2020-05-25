@@ -8,9 +8,9 @@
 #ifndef SkottieTransform_DEFINED
 #define SkottieTransform_DEFINED
 
+#include "include/core/SkM44.h"
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPoint.h"
-#include "include/private/SkM44.h"
 #include "modules/skottie/src/Adapter.h"
 #include "modules/skottie/src/SkottieValue.h"
 #include "modules/sksg/include/SkSGTransform.h"
@@ -61,12 +61,12 @@ public:
 private:
     void onSync() override;
 
-    VectorValue fAnchorPoint,
-                fPosition,
-                fScale    = { 100, 100 };
-    ScalarValue fRotation = 0,
-                fSkew     = 0,
-                fSkewAxis = 0;
+    Vec2Value   fAnchorPoint = {   0,   0 },
+                fPosition    = {   0,   0 },
+                fScale       = { 100, 100 };
+    ScalarValue fRotation    = 0,
+                fSkew        = 0,
+                fSkewAxis    = 0;
 
     using INHERITED = DiscardableAdapterBase<TransformAdapter2D, sksg::Matrix<SkMatrix>>;
 };

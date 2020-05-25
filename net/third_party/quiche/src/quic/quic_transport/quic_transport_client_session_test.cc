@@ -36,7 +36,7 @@ url::Origin GetTestOrigin() {
 }
 
 ParsedQuicVersionVector GetVersions() {
-  return {ParsedQuicVersion{PROTOCOL_TLS1_3, QUIC_VERSION_99}};
+  return {DefaultVersionForQuicTransport()};
 }
 
 std::string DataInStream(QuicStream* stream) {
@@ -57,6 +57,7 @@ class QuicTransportClientSessionTest : public QuicTest {
                     Perspective::IS_CLIENT,
                     GetVersions()),
         crypto_config_(crypto_test_utils::ProofVerifierForTesting()) {
+    QuicEnableVersion(DefaultVersionForQuicTransport());
     CreateSession(GetTestOrigin(), "");
   }
 

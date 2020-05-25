@@ -21,12 +21,12 @@
 #include "Pipeline/Constants.hpp"
 #include "Pipeline/SpirvShader.hpp"
 #include "Reactor/Reactor.hpp"
+#include "System/Debug.hpp"
 #include "System/Half.hpp"
 #include "System/Math.hpp"
 #include "System/Memory.hpp"
 #include "System/Timer.hpp"
 #include "Vulkan/VkConfig.h"
-#include "Vulkan/VkDebug.hpp"
 #include "Vulkan/VkDevice.hpp"
 #include "Vulkan/VkFence.hpp"
 #include "Vulkan/VkImageView.hpp"
@@ -555,7 +555,7 @@ void Renderer::synchronize()
 	MARL_SCOPED_EVENT("synchronize");
 	auto ticket = drawTickets.take();
 	ticket.wait();
-	device->updateSamplingRoutineConstCache();
+	device->updateSamplingRoutineSnapshotCache();
 	ticket.done();
 }
 
@@ -1146,13 +1146,8 @@ bool DrawCall::setupPoint(Primitive &primitive, Triangle &triangle, const DrawCa
 			}
 		}
 
-		triangle.v1 = triangle.v0;
-		triangle.v2 = triangle.v0;
+		primitive.pointSizeInv = 1.0f / pSize;
 
-		constexpr float subPixF = vk::SUBPIXEL_PRECISION_FACTOR;
-
-		triangle.v1.projected.x += iround(subPixF * 0.5f * pSize);
-		triangle.v2.projected.y -= iround(subPixF * 0.5f * pSize) * (data.HxF[0] > 0.0f ? 1 : -1);  // Both Direct3D and OpenGL expect (0, 0) in the top-left corner
 		return draw.setupRoutine(&primitive, &triangle, &polygon, &data);
 	}
 

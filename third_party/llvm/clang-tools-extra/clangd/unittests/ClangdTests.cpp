@@ -61,7 +61,7 @@ bool diagsContainErrors(const std::vector<Diag> &Diagnostics) {
 
 class ErrorCheckingCallbacks : public ClangdServer::Callbacks {
 public:
-  void onDiagnosticsReady(PathRef File,
+  void onDiagnosticsReady(PathRef File, llvm::StringRef Version,
                           std::vector<Diag> Diagnostics) override {
     bool HadError = diagsContainErrors(Diagnostics);
     std::lock_guard<std::mutex> Lock(Mutex);
@@ -82,7 +82,7 @@ private:
 /// least one error.
 class MultipleErrorCheckingCallbacks : public ClangdServer::Callbacks {
 public:
-  void onDiagnosticsReady(PathRef File,
+  void onDiagnosticsReady(PathRef File, llvm::StringRef Version,
                           std::vector<Diag> Diagnostics) override {
     bool HadError = diagsContainErrors(Diagnostics);
 
@@ -97,7 +97,7 @@ public:
     std::vector<std::pair<Path, bool>> Result;
     std::lock_guard<std::mutex> Lock(Mutex);
     for (const auto &It : LastDiagsHadError)
-      Result.emplace_back(It.first(), It.second);
+      Result.emplace_back(std::string(It.first()), It.second);
     return Result;
   }
 
@@ -146,7 +146,8 @@ protected:
     MockCompilationDatabase CDB;
     ClangdServer Server(CDB, FS, ClangdServer::optsForTest(), &DiagConsumer);
     for (const auto &FileWithContents : ExtraFiles)
-      FS.Files[testPath(FileWithContents.first)] = FileWithContents.second;
+      FS.Files[testPath(FileWithContents.first)] =
+          std::string(FileWithContents.second);
 
     auto SourceFilename = testPath(SourceFileRelPath);
     Server.addDocument(SourceFilename, SourceContents);
@@ -275,7 +276,7 @@ TEST_F(ClangdVFSTest, PropagatesContexts) {
     mutable int Got;
   } FS;
   struct Callbacks : public ClangdServer::Callbacks {
-    void onDiagnosticsReady(PathRef File,
+    void onDiagnosticsReady(PathRef File, llvm::StringRef Version,
                             std::vector<Diag> Diagnostics) override {
       Got = Context::current().getExisting(Secret);
     }
@@ -292,6 +293,23 @@ TEST_F(ClangdVFSTest, PropagatesContexts) {
   ASSERT_TRUE(Server.blockUntilIdleForTest());
   EXPECT_EQ(FS.Got, 42);
   EXPECT_EQ(Callbacks.Got, 42);
+}
+
+TEST_F(ClangdVFSTest, PropagatesVersion) {
+  MockCompilationDatabase CDB;
+  MockFSProvider FS;
+  struct Callbacks : public ClangdServer::Callbacks {
+    void onDiagnosticsReady(PathRef File, llvm::StringRef Version,
+                            std::vector<Diag> Diagnostics) override {
+      Got = Version.str();
+    }
+    std::string Got = "";
+  } Callbacks;
+
+  // Verify that the version is plumbed to diagnostics.
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest(), &Callbacks);
+  runAddDocument(Server, testPath("foo.cpp"), "void main(){}", "42");
+  EXPECT_EQ(Callbacks.Got, "42");
 }
 
 // Only enable this test on Unix
@@ -373,7 +391,7 @@ struct bar { T x; };
 
   // Now switch to C++ mode.
   CDB.ExtraClangFlags = {"-xc++"};
-  runAddDocument(Server, FooCpp, SourceContents2, WantDiagnostics::Auto);
+  runAddDocument(Server, FooCpp, SourceContents2);
   EXPECT_FALSE(DiagConsumer.hadErrorInLastDiags());
   // Subsequent addDocument calls should finish without errors too.
   runAddDocument(Server, FooCpp, SourceContents1);
@@ -405,7 +423,7 @@ int main() { return 0; }
 
   // Parse without the define, no errors should be produced.
   CDB.ExtraClangFlags = {};
-  runAddDocument(Server, FooCpp, SourceContents, WantDiagnostics::Auto);
+  runAddDocument(Server, FooCpp, SourceContents);
   ASSERT_TRUE(Server.blockUntilIdleForTest());
   EXPECT_FALSE(DiagConsumer.hadErrorInLastDiags());
   // Subsequent addDocument call should finish without errors too.
@@ -466,8 +484,8 @@ int hello;
   CDB.ExtraClangFlags.clear();
   DiagConsumer.clear();
   Server.removeDocument(BazCpp);
-  Server.addDocument(FooCpp, FooSource.code(), WantDiagnostics::Auto);
-  Server.addDocument(BarCpp, BarSource.code(), WantDiagnostics::Auto);
+  Server.addDocument(FooCpp, FooSource.code());
+  Server.addDocument(BarCpp, BarSource.code());
   ASSERT_TRUE(Server.blockUntilIdleForTest());
 
   EXPECT_THAT(DiagConsumer.filesWithDiags(),
@@ -532,7 +550,8 @@ TEST_F(ClangdVFSTest, InvalidCompileCommand) {
   EXPECT_EQ(runDumpAST(Server, FooCpp), "<no-ast>");
   EXPECT_ERROR(runLocateSymbolAt(Server, FooCpp, Position()));
   EXPECT_ERROR(runFindDocumentHighlights(Server, FooCpp, Position()));
-  EXPECT_ERROR(runRename(Server, FooCpp, Position(), "new_name"));
+  EXPECT_ERROR(runRename(Server, FooCpp, Position(), "new_name",
+                         clangd::RenameOptions()));
   // Identifier-based fallback completion.
   EXPECT_THAT(cantFail(runCodeComplete(Server, FooCpp, Position(),
                                        clangd::CodeCompleteOptions()))
@@ -593,7 +612,7 @@ int d;
   public:
     TestDiagConsumer() : Stats(FilesCount, FileStat()) {}
 
-    void onDiagnosticsReady(PathRef File,
+    void onDiagnosticsReady(PathRef File, llvm::StringRef Version,
                             std::vector<Diag> Diagnostics) override {
       StringRef FileIndexStr = llvm::sys::path::stem(File);
       ASSERT_TRUE(FileIndexStr.consume_front("Foo"));
@@ -670,8 +689,7 @@ int d;
       bool ShouldHaveErrors = ShouldHaveErrorsDist(RandGen);
       Server.addDocument(FilePaths[FileIndex],
                          ShouldHaveErrors ? SourceContentsWithErrors
-                                          : SourceContentsWithoutErrors,
-                         WantDiagnostics::Auto);
+                                          : SourceContentsWithoutErrors);
       UpdateStatsOnAddDocument(FileIndex, ShouldHaveErrors);
     };
 
@@ -773,7 +791,8 @@ TEST_F(ClangdThreadingTest, NoConcurrentDiagnostics) {
     NoConcurrentAccessDiagConsumer(std::promise<void> StartSecondReparse)
         : StartSecondReparse(std::move(StartSecondReparse)) {}
 
-    void onDiagnosticsReady(PathRef, std::vector<Diag>) override {
+    void onDiagnosticsReady(PathRef, llvm::StringRef,
+                            std::vector<Diag>) override {
       ++Count;
       std::unique_lock<std::mutex> Lock(Mutex, std::try_to_lock_t());
       ASSERT_TRUE(Lock.owns_lock())
@@ -1020,7 +1039,8 @@ TEST_F(ClangdVFSTest, FallbackWhenWaitingForCompileCommand) {
       // something goes wrong.
       CanReturnCommand.wait();
       auto FileName = llvm::sys::path::filename(File);
-      std::vector<std::string> CommandLine = {"clangd", "-ffreestanding", File};
+      std::vector<std::string> CommandLine = {"clangd", "-ffreestanding",
+                                              std::string(File)};
       return {tooling::CompileCommand(llvm::sys::path::parent_path(File),
                                       FileName, std::move(CommandLine), "")};
     }
@@ -1062,6 +1082,31 @@ TEST_F(ClangdVFSTest, FallbackWhenWaitingForCompileCommand) {
               ElementsAre(AllOf(Field(&CodeCompletion::Name, "xyz"),
                                 Field(&CodeCompletion::Scope, "ns::"))));
 }
+
+// Tests fails when built with asan due to stack overflow. So skip running the
+// test as a workaround.
+#if !defined(__has_feature) || !__has_feature(address_sanitizer)
+TEST_F(ClangdVFSTest, TestStackOverflow) {
+  MockFSProvider FS;
+  ErrorCheckingCallbacks DiagConsumer;
+  MockCompilationDatabase CDB;
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest(), &DiagConsumer);
+
+  const char *SourceContents = R"cpp(
+    constexpr int foo() { return foo(); }
+    static_assert(foo());
+  )cpp";
+
+  auto FooCpp = testPath("foo.cpp");
+  FS.Files[FooCpp] = SourceContents;
+
+  Server.addDocument(FooCpp, SourceContents);
+  ASSERT_TRUE(Server.blockUntilIdleForTest()) << "Waiting for diagnostics";
+  // check that we got a constexpr depth error, and not crashed by stack
+  // overflow
+  EXPECT_TRUE(DiagConsumer.hadErrorInLastDiags());
+}
+#endif
 
 } // namespace
 } // namespace clangd

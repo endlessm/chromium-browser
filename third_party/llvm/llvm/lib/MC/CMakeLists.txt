@@ -23,6 +23,7 @@ add_llvm_component_library(LLVMMC
   MCInstPrinter.cpp
   MCInstrAnalysis.cpp
   MCInstrDesc.cpp
+  MCInstrInfo.cpp
   MCLabel.cpp
   MCLinkerOptimizationHint.cpp
   MCMachOStreamer.cpp
@@ -44,6 +45,7 @@ add_llvm_component_library(LLVMMC
   MCSymbol.cpp
   MCSymbolELF.cpp
   MCTargetOptions.cpp
+  MCTargetOptionsCommandFlags.cpp
   MCValue.cpp
   MCWasmObjectTargetWriter.cpp
   MCWasmStreamer.cpp

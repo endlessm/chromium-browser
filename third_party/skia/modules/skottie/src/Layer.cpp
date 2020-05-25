@@ -60,22 +60,64 @@ const MaskInfo* GetMaskInfo(char mode) {
     return nullptr;
 }
 
+class MaskAdapter final : public AnimatablePropertyContainer {
+public:
+    MaskAdapter(const skjson::ObjectValue& jmask, const AnimationBuilder& abuilder, SkBlendMode bm)
+        : fMaskPaint(sksg::Color::Make(SK_ColorBLACK)) {
+        fMaskPaint->setAntiAlias(true);
+        fMaskPaint->setBlendMode(bm);
+
+        this->bind(abuilder, jmask["o"], fOpacity);
+
+        if (this->bind(abuilder, jmask["f"], fFeather)) {
+            fMaskFilter = sksg::BlurImageFilter::Make();
+        }
+    }
+
+    bool hasEffect() const {
+        return !this->isStatic()
+            || fOpacity < 100
+            || fFeather != SkV2{0,0};
+    }
+
+    sk_sp<sksg::RenderNode> makeMask(sk_sp<sksg::Path> mask_path) const {
+        auto mask = sksg::Draw::Make(std::move(mask_path), fMaskPaint);
+
+        // Optional mask blur (feather).
+        return sksg::ImageFilterEffect::Make(std::move(mask), fMaskFilter);
+    }
+
+private:
+    void onSync() override {
+        fMaskPaint->setOpacity(fOpacity * 0.01f);
+        if (fMaskFilter) {
+            // Close enough to AE.
+            static constexpr SkScalar kFeatherToSigma = 0.38f;
+            fMaskFilter->setSigma({fFeather.x * kFeatherToSigma,
+                                   fFeather.y * kFeatherToSigma});
+        }
+    }
+
+    const sk_sp<sksg::PaintNode> fMaskPaint;
+    sk_sp<sksg::BlurImageFilter> fMaskFilter; // optional "feather"
+
+    Vec2Value   fFeather = {0,0};
+    ScalarValue fOpacity = 100;
+};
+
 sk_sp<sksg::RenderNode> AttachMask(const skjson::ArrayValue* jmask,
                                    const AnimationBuilder* abuilder,
                                    sk_sp<sksg::RenderNode> childNode) {
     if (!jmask) return childNode;
 
     struct MaskRecord {
-        sk_sp<sksg::Path>            mask_path;  // for clipping and masking
-        sk_sp<sksg::Color>           mask_paint; // for masking
-        sk_sp<sksg::BlurImageFilter> mask_blur;  // for masking
-        sksg::Merge::Mode            merge_mode; // for clipping
+        sk_sp<sksg::Path>  mask_path;    // for clipping and masking
+        sk_sp<MaskAdapter> mask_adapter; // for masking
+        sksg::Merge::Mode  merge_mode;   // for clipping
     };
 
     SkSTArray<4, MaskRecord, true> mask_stack;
-
     bool has_effect = false;
-    auto blur_effect = sksg::BlurImageFilter::Make();
 
     for (const skjson::ObjectValue* m : *jmask) {
         if (!m) continue;
@@ -110,37 +152,20 @@ sk_sp<sksg::RenderNode> AttachMask(const skjson::ArrayValue* jmask,
         mask_path->setFillType(inverted ? SkPathFillType::kInverseWinding
                                         : SkPathFillType::kWinding);
 
-        auto mask_paint = sksg::Color::Make(SK_ColorBLACK);
-        mask_paint->setAntiAlias(true);
-        // First mask in the stack initializes the mask buffer.
-        mask_paint->setBlendMode(mask_stack.empty() ? SkBlendMode::kSrc
-                                                    : mask_info->fBlendMode);
+        const auto blend_mode = mask_stack.empty() ? SkBlendMode::kSrc
+                                                   : mask_info->fBlendMode;
 
-        has_effect |= abuilder->bindProperty<ScalarValue>((*m)["o"],
-            [mask_paint](const ScalarValue& o) {
-                mask_paint->setOpacity(o * 0.01f);
-        }, 100.0f);
+        auto mask_adapter = sk_make_sp<MaskAdapter>(*m, *abuilder, blend_mode);
+        abuilder->attachDiscardableAdapter(mask_adapter);
 
-        static const VectorValue default_feather = { 0, 0 };
-        if (abuilder->bindProperty<VectorValue>((*m)["f"],
-            [blur_effect](const VectorValue& feather) {
-                // Close enough to AE.
-                static constexpr SkScalar kFeatherToSigma = 0.38f;
-                auto sX = feather.size() > 0 ? feather[0] * kFeatherToSigma : 0,
-                     sY = feather.size() > 1 ? feather[1] * kFeatherToSigma : 0;
-                blur_effect->setSigma({ sX, sY });
-            }, default_feather)) {
+        has_effect |= mask_adapter->hasEffect();
 
-            has_effect = true;
-            mask_stack.push_back({ mask_path,
-                                   mask_paint,
-                                   std::move(blur_effect),
-                                   mask_info->fMergeMode});
-            blur_effect = sksg::BlurImageFilter::Make();
-        } else {
-            mask_stack.push_back({mask_path, mask_paint, nullptr, mask_info->fMergeMode});
-        }
+
+        mask_stack.push_back({ std::move(mask_path),
+                               std::move(mask_adapter),
+                               mask_info->fMergeMode });
     }
+
 
     if (mask_stack.empty())
         return childNode;
@@ -167,22 +192,17 @@ sk_sp<sksg::RenderNode> AttachMask(const skjson::ArrayValue* jmask,
         return sksg::ClipEffect::Make(std::move(childNode), std::move(clip_node), true);
     }
 
-    const auto make_mask = [](const MaskRecord& rec) {
-        auto mask = sksg::Draw::Make(std::move(rec.mask_path),
-                                     std::move(rec.mask_paint));
-        // Optional mask blur (feather).
-        return sksg::ImageFilterEffect::Make(std::move(mask), std::move(rec.mask_blur));
-    };
-
+    // Complex masks (non-opaque or blurred) turn into a mask node stack.
     sk_sp<sksg::RenderNode> maskNode;
     if (mask_stack.count() == 1) {
         // no group needed for single mask
-        maskNode = make_mask(mask_stack.front());
+        const auto rec = mask_stack.front();
+        maskNode = rec.mask_adapter->makeMask(std::move(rec.mask_path));
     } else {
         std::vector<sk_sp<sksg::RenderNode>> masks;
         masks.reserve(SkToSizeT(mask_stack.count()));
         for (auto& rec : mask_stack) {
-            masks.push_back(make_mask(rec));
+            masks.push_back(rec.mask_adapter->makeMask(std::move(rec.mask_path)));
         }
 
         maskNode = sksg::Group::Make(std::move(masks));
@@ -191,9 +211,9 @@ sk_sp<sksg::RenderNode> AttachMask(const skjson::ArrayValue* jmask,
     return sksg::MaskEffect::Make(std::move(childNode), std::move(maskNode));
 }
 
-class LayerController final : public sksg::Animator {
+class LayerController final : public Animator {
 public:
-    LayerController(sksg::AnimatorList&& layer_animators,
+    LayerController(AnimatorScope&& layer_animators,
                     sk_sp<sksg::RenderNode> layer,
                     size_t tanim_count, float in, float out)
         : fLayerAnimators(std::move(layer_animators))
@@ -203,10 +223,13 @@ public:
         , fOut(out) {}
 
 protected:
-    void onTick(float t) override {
-        const auto active = (t >= fIn && t < fOut);
+    StateChanged onSeek(float t) override {
+        // in/out may be inverted for time-reversed layers
+        const auto active = (t >= fIn && t < fOut) || (t > fOut && t <= fIn);
 
+        bool changed = false;
         if (fLayerNode) {
+            changed |= (fLayerNode->isVisible() != active);
             fLayerNode->setVisible(active);
         }
 
@@ -216,19 +239,21 @@ protected:
         const auto dispatch_count = active ? fLayerAnimators.size()
                                            : fTransformAnimatorsCount;
         for (size_t i = 0; i < dispatch_count; ++i) {
-            fLayerAnimators[i]->tick(t);
+            changed |= fLayerAnimators[i]->seek(t);
         }
+
+        return changed;
     }
 
 private:
-    const sksg::AnimatorList      fLayerAnimators;
+    const AnimatorScope           fLayerAnimators;
     const sk_sp<sksg::RenderNode> fLayerNode;
     const size_t                  fTransformAnimatorsCount;
     const float                   fIn,
                                   fOut;
 };
 
-class MotionBlurController final : public sksg::Animator {
+class MotionBlurController final : public Animator {
 public:
     explicit MotionBlurController(sk_sp<MotionBlurEffect> mbe)
         : fMotionBlurEffect(std::move(mbe)) {}
@@ -237,8 +262,9 @@ protected:
     // When motion blur is present, time ticks are not passed to layer animators
     // but to the motion blur effect. The effect then drives the animators/scene-graph
     // during reval and render phases.
-    void onTick(float t) override {
+    StateChanged onSeek(float t) override {
         fMotionBlurEffect->setT(t);
+        return true;
     }
 
 private:
@@ -355,7 +381,7 @@ sk_sp<sksg::RenderNode> LayerBuilder::buildRenderTree(const AnimationBuilder& ab
         ParseDefault<float>(fJlayer["ip"], 0.0f),
         ParseDefault<float>(fJlayer["op"], 0.0f),
     };
-    if (layer_info.fInPoint >= layer_info.fOutPoint) {
+    if (SkScalarNearlyEqual(layer_info.fInPoint, layer_info.fOutPoint)) {
         abuilder.log(Logger::Level::kError, nullptr,
                      "Invalid layer in/out points: %f/%f.",
                      layer_info.fInPoint, layer_info.fOutPoint);
@@ -434,6 +460,11 @@ sk_sp<sksg::RenderNode> LayerBuilder::buildRenderTree(const AnimationBuilder& ab
         layer = sksg::TransformEffect::Make(std::move(layer), std::move(fLayerTransform));
     }
 
+    // Optional layer styles.
+    if (const skjson::ArrayValue* jstyles = fJlayer["sy"]) {
+        layer = EffectBuilder(&abuilder, layer_info.fSize).attachStyles(*jstyles, std::move(layer));
+    }
+
     // Optional layer opacity.
     // TODO: de-dupe this "ks" lookup with matrix above.
     if (const skjson::ObjectValue* jtransform = fJlayer["ks"]) {
@@ -442,11 +473,11 @@ sk_sp<sksg::RenderNode> LayerBuilder::buildRenderTree(const AnimationBuilder& ab
 
     const auto has_animators = !abuilder.fCurrentAnimatorScope->empty();
 
-    sk_sp<sksg::Animator> controller = sk_make_sp<LayerController>(ascope.release(),
-                                                                   layer,
-                                                                   fTransformAnimatorCount,
-                                                                   layer_info.fInPoint,
-                                                                   layer_info.fOutPoint);
+    sk_sp<Animator> controller = sk_make_sp<LayerController>(ascope.release(),
+                                                             layer,
+                                                             fTransformAnimatorCount,
+                                                             layer_info.fInPoint,
+                                                             layer_info.fOutPoint);
 
     // Optional motion blur.
     if (layer && has_animators && this->hasMotionBlur(cbuilder)) {

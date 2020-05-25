@@ -57,6 +57,7 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
         QuicByteCount /*byte_size*/) {}
 
     virtual void OnIncomingAck(QuicPacketNumber /*ack_packet_number*/,
+                               EncryptionLevel /*ack_decrypted_level*/,
                                const QuicAckFrame& /*ack_frame*/,
                                QuicTime /*ack_receive_time*/,
                                QuicPacketNumber /*largest_observed*/,
@@ -65,6 +66,7 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     }
 
     virtual void OnPacketLoss(QuicPacketNumber /*lost_packet_number*/,
+                              EncryptionLevel /*encryption_level*/,
                               TransmissionType /*transmission_type*/,
                               QuicTime /*detection_time*/) {}
 
@@ -111,8 +113,7 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
                         const QuicClock* clock,
                         QuicRandom* random,
                         QuicConnectionStats* stats,
-                        CongestionControlType congestion_control_type,
-                        LossDetectionType loss_type);
+                        CongestionControlType congestion_control_type);
   QuicSentPacketManager(const QuicSentPacketManager&) = delete;
   QuicSentPacketManager& operator=(const QuicSentPacketManager&) = delete;
   virtual ~QuicSentPacketManager();
@@ -151,6 +152,11 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // prediction for either |bandwidth| or |rtt|; either can be empty.
   void AdjustNetworkParameters(
       const SendAlgorithmInterface::NetworkParams& params);
+
+  void SetLossDetectionTuner(
+      std::unique_ptr<LossDetectionTunerInterface> tuner);
+  void OnConfigNegotiated();
+  void OnConnectionClosed();
 
   // Retransmits the oldest pending packet there is still a tail loss probe
   // pending.  Invoked after OnRetransmissionTimeout.
@@ -206,6 +212,9 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // Returns the current delay for the path degrading timer, which is used to
   // notify the session that this connection is degrading.
   const QuicTime::Delta GetPathDegradingDelay() const;
+
+  // Returns the current delay for detecting network blackhole.
+  const QuicTime::Delta GetNetworkBlackholeDelay() const;
 
   const RttStats* GetRttStats() const { return &rtt_stats_; }
 
@@ -341,10 +350,6 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
     return largest_packet_peer_knows_is_acked_;
   }
 
-  // TODO(fayang): Stop exposing this when deprecating
-  // quic_use_get_handshake_state.
-  bool handshake_finished() const { return handshake_finished_; }
-
   size_t pending_timer_transmission_count() const {
     return pending_timer_transmission_count_;
   }
@@ -417,28 +422,13 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // Returns the timeout for retransmitting crypto handshake packets.
   const QuicTime::Delta GetCryptoRetransmissionDelay() const;
 
-  // Returns the timeout for a new tail loss probe. |consecutive_tlp_count| is
-  // the number of consecutive tail loss probes that have already been sent.
-  const QuicTime::Delta GetTailLossProbeDelay(
-      size_t consecutive_tlp_count) const;
-
   // Calls GetTailLossProbeDelay() with values from the current state of this
   // packet manager as its params.
-  const QuicTime::Delta GetTailLossProbeDelay() const {
-    return GetTailLossProbeDelay(consecutive_tlp_count_);
-  }
-
-  // Returns the retransmission timeout, after which a full RTO occurs.
-  // |consecutive_rto_count| is the number of consecutive RTOs that have already
-  // occurred.
-  const QuicTime::Delta GetRetransmissionDelay(
-      size_t consecutive_rto_count) const;
+  const QuicTime::Delta GetTailLossProbeDelay() const;
 
   // Calls GetRetransmissionDelay() with values from the current state of this
   // packet manager as its params.
-  const QuicTime::Delta GetRetransmissionDelay() const {
-    return GetRetransmissionDelay(consecutive_rto_count_);
-  }
+  const QuicTime::Delta GetRetransmissionDelay() const;
 
   // Returns the probe timeout.
   const QuicTime::Delta GetProbeTimeoutDelay() const;
@@ -485,6 +475,7 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
 
   // Called after packets have been marked handled with last received ack frame.
   void PostProcessNewlyAckedPackets(QuicPacketNumber ack_packet_number,
+                                    EncryptionLevel ack_decrypted_level,
                                     const QuicAckFrame& ack_frame,
                                     QuicTime ack_receive_time,
                                     bool rtt_updated,
@@ -516,6 +507,15 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   QuicTime GetEarliestPacketSentTimeForPto(
       PacketNumberSpace* packet_number_space) const;
 
+  // Returns true if application data should be used to arm PTO. Only used when
+  // multiple packet number space is enabled.
+  bool ShouldArmPtoForApplicationData() const;
+
+  // A helper function to return total delay of |num_timeouts| retransmission
+  // timeout with TLP and RTO mode.
+  QuicTime::Delta GetNConsecutiveRetransmissionTimeoutDelay(
+      int num_timeouts) const;
+
   // Newly serialized retransmittable packets are added to this map, which
   // contains owning pointers to any contained frames.  If a packet is
   // retransmitted, this map will contain entries for both the old and the new
@@ -535,7 +535,7 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   QuicPacketCount initial_congestion_window_;
   RttStats rtt_stats_;
   std::unique_ptr<SendAlgorithmInterface> send_algorithm_;
-  // Not owned. Always points to |general_loss_algorithm_| outside of tests.
+  // Not owned. Always points to |uber_loss_algorithm_| outside of tests.
   LossDetectionInterface* loss_algorithm_;
   UberLossAlgorithm uber_loss_algorithm_;
 
@@ -643,8 +643,19 @@ class QUIC_EXPORT_PRIVATE QuicSentPacketManager {
   // True if any 1-RTT packet gets acknowledged.
   bool one_rtt_packet_acked_;
 
-  // Latched value of quic_sanitize_ack_delay.
-  const bool sanitize_ack_delay_;
+  // True if any 1-RTT packet gets sent.
+  bool one_rtt_packet_sent_;
+
+  // If > 0, arm the 1st PTO with max of earliest in flight sent time + PTO
+  // delay and multiplier * srtt from last in flight packet.
+  float first_pto_srtt_multiplier_;
+
+  // If true, use standard deviation (instead of mean deviation) when
+  // calculating PTO timeout.
+  bool use_standard_deviation_for_pto_;
+
+  const bool avoid_overestimate_bandwidth_with_aggregation_ =
+      GetQuicReloadableFlag(quic_avoid_overestimate_bandwidth_with_aggregation);
 };
 
 }  // namespace quic

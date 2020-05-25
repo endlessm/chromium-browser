@@ -10,6 +10,7 @@
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/time/time.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -73,16 +74,13 @@ BinaryFCMService::BinaryFCMService()
 BinaryFCMService::~BinaryFCMService() {
   if (gcm_driver_ != nullptr)
     gcm_driver_->RemoveAppHandler(kBinaryFCMServiceAppId);
-  for (const auto& token_to_callback : message_token_map_) {
-    const std::string& token = token_to_callback.first;
-    UnregisterInstanceID(token, base::DoNothing());
-  }
 }
 
 void BinaryFCMService::GetInstanceID(GetInstanceIDCallback callback) {
   instance_id_driver_->GetInstanceID(kBinaryFCMServiceAppId)
       ->GetToken(
           kBinaryFCMServiceSenderId, instance_id::kGCMScope,
+          /*time_to_live=*/base::TimeDelta(),
           /*options=*/{},
           /*flags=*/{},
           base::BindOnce(&BinaryFCMService::OnGetInstanceID,

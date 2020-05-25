@@ -45,8 +45,8 @@ class TraceProcessorContext;
 //     methods.
 // (2) In the constructor call the RegisterForField method for every field
 //     that the module knows how to handle.
-// (3) Create a module instance and add it to the |modules| vector in
-//     TraceProcessorContext.
+// (3) Create a module instance and add it to TraceProcessorContext's |modules|
+//     vector in either default_modules.cc or additional_modules.cc.
 // See GraphicsEventModule for an example.
 
 class ModuleResult {
@@ -119,6 +119,8 @@ class ProtoImporterModule {
   // Called by ProtoTraceParser for trace config packets after the sorting
   // stage, on all existing modules.
   virtual void ParseTraceConfig(const protos::pbzero::TraceConfig_Decoder&);
+
+  virtual void NotifyEndOfFile() {}
 
  protected:
   void RegisterForField(uint32_t field_id, TraceProcessorContext*);

@@ -38,17 +38,22 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
   // This function must be called after entering an appropriate V8 context.
   // |signal| should be non-null when this BodyStreamBuffer is associated with a
   // Response that was created by fetch().
-  static BodyStreamBuffer* Create(ScriptState*,
-                                  BytesConsumer* consumer,
-                                  AbortSignal* signal);
+  static BodyStreamBuffer* Create(
+      ScriptState*,
+      BytesConsumer* consumer,
+      AbortSignal* signal,
+      scoped_refptr<BlobDataHandle> side_data_blob = nullptr);
 
   // Create() should be used instead of calling this constructor directly.
   BodyStreamBuffer(PassKey,
                    ScriptState*,
                    BytesConsumer* consumer,
-                   AbortSignal* signal);
+                   AbortSignal* signal,
+                   scoped_refptr<BlobDataHandle> side_data_blob);
 
-  BodyStreamBuffer(ScriptState*, ReadableStream* stream);
+  BodyStreamBuffer(ScriptState*,
+                   ReadableStream* stream,
+                   scoped_refptr<BlobDataHandle> side_data_blob = nullptr);
 
   ReadableStream* Stream() { return stream_; }
 
@@ -66,7 +71,7 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
   ScriptPromise pull(ScriptState*) override;
   ScriptPromise Cancel(ScriptState*, ScriptValue reason) override;
   bool HasPendingActivity() const override;
-  void ContextDestroyed(ExecutionContext*) override;
+  void ContextDestroyed() override;
 
   // BytesConsumer::Client
   void OnStateChange() override;
@@ -84,7 +89,15 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
 
   bool IsAborted();
 
-  void Trace(blink::Visitor*) override;
+  // Take the blob representing any side data associated with this body
+  // stream.  This must be called before the body is drained or begins
+  // loading.
+  scoped_refptr<BlobDataHandle> TakeSideDataBlob();
+  scoped_refptr<BlobDataHandle> GetSideDataBlobForTest() const {
+    return side_data_blob_;
+  }
+
+  void Trace(Visitor*) override;
 
  private:
   class LoaderClient;
@@ -120,6 +133,10 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
   // We need this to ensure that we detect that abort has been signalled
   // correctly.
   Member<AbortSignal> signal_;
+  // Additional side data associated with this body stream.  It should only be
+  // retained until the body is drained or starts loading.  Client code, such
+  // as service workers, can call TakeSideDataBlob() prior to consumption.
+  scoped_refptr<BlobDataHandle> side_data_blob_;
   bool stream_needs_more_ = false;
   bool made_from_readable_stream_;
   bool in_process_data_ = false;

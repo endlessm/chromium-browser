@@ -35,6 +35,14 @@ source_set("end_to_end_integrationtests") {
     "../src/base:test_support",
     "../src/traced/probes/ftrace",
   ]
+
+  # These binaries are requires by the cmdline tests, which invoke perfetto
+  # and trigger_perfetto via Subprocess.
+  data_deps = [
+    "../src/perfetto_cmd:perfetto",
+    "../src/perfetto_cmd:trigger_perfetto",
+  ]
+
   sources = [ "end_to_end_integrationtest.cc" ]
   if (start_daemons_for_testing) {
     cflags = [ "-DPERFETTO_START_DAEMONS_FOR_TESTING" ]
@@ -144,3 +152,17 @@ if (enable_perfetto_benchmarks) {
     sources = [ "benchmark_main.cc" ]
   }
 }  # if (enable_perfetto_benchmarks)
+
+if (perfetto_build_with_android || (is_android && perfetto_build_standalone)) {
+  # This is used only in-tree builds. It's built in standalone builds just to
+  # get build coverage.
+  static_library("perfetto_gtest_logcat_printer") {
+    testonly = true
+    complete_static_lib = true
+    sources = [ "gtest_logcat_printer.cc" ]
+    deps = [
+      "../gn:default_deps",
+      "../gn:gtest_and_gmock",
+    ]
+  }
+}

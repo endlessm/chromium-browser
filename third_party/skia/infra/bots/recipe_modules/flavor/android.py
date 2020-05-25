@@ -13,8 +13,8 @@ import subprocess  # TODO(borenet): No! Remove this.
 
 
 class AndroidFlavor(default.DefaultFlavor):
-  def __init__(self, m):
-    super(AndroidFlavor, self).__init__(m)
+  def __init__(self, m, app_name):
+    super(AndroidFlavor, self).__init__(m, app_name)
     self._ever_ran_adb = False
     self.ADB_BINARY = '/usr/bin/adb.1.0.35'
     self.ADB_PUB_KEY = '/home/chrome-bot/.android/adbkey'
@@ -75,10 +75,6 @@ class AndroidFlavor(default.DefaultFlavor):
       "Nexus5":  450000000,
       "Nexus5x": 600000000,
     }
-
-  def _run(self, title, *cmd, **kwargs):
-    with self.m.context(cwd=self.m.path['start_dir'].join('skia')):
-      return self.m.run(self.m.step, title, cmd=list(cmd), **kwargs)
 
   def _adb(self, title, *cmd, **kwargs):
     # The only non-infra adb steps (dm / nanobench) happen to not use _adb().
@@ -439,6 +435,15 @@ time.sleep(60)
                  infra_step=True,
                  timeout=300,
                  abort_on_failure=True)
+    if self.app_name:
+      if (self.app_name == 'nanobench'):
+        self._scale_for_nanobench()
+      else:
+        self._scale_for_dm()
+      app_path = self.host_dirs.bin_dir.join(self.app_name)
+      self._adb('push %s' % self.app_name,
+                'push', app_path, self.device_dirs.bin_dir)
+
 
 
   def cleanup_steps(self):
@@ -496,16 +501,7 @@ time.sleep(60)
     if self._ever_ran_adb:
       self._adb('kill adb server', 'kill-server')
 
-  def step(self, name, cmd, **kwargs):
-    if not kwargs.get('skip_binary_push', False):
-      if (cmd[0] == 'nanobench'):
-        self._scale_for_nanobench()
-      else:
-        self._scale_for_dm()
-      app = self.host_dirs.bin_dir.join(cmd[0])
-      self._adb('push %s' % cmd[0],
-                'push', app, self.device_dirs.bin_dir)
-
+  def step(self, name, cmd):
     sh = '%s.sh' % cmd[0]
     self.m.run.writefile(self.m.vars.tmp_dir.join(sh),
         'set -x; %s%s; echo $? >%src' % (

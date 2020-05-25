@@ -303,7 +303,7 @@ class UprevOverlayManager(object):
     Args:
       overlays (list[str]): The overlays to search for ebuilds.
       manifest (git.ManifestCheckout): The manifest object.
-      build_targets (list[build_target_util.BuildTarget]|None): The build
+      build_targets (list[build_target_lib.BuildTarget]|None): The build
         targets to clean in |chroot|, if desired. No effect unless |chroot| is
         provided.
       chroot (chroot_lib.Chroot|None): The chroot to clean, if desired.
@@ -392,6 +392,10 @@ class UprevOverlayManager(object):
     try:
       result = ebuild.RevWorkOnEBuild(
           os.path.join(constants.SOURCE_ROOT, 'src'), self.manifest)
+    except portage_util.InvalidUprevSourceError as e:
+      logging.error('An error occurred while uprevving %s: %s',
+                    ebuild.package, e)
+      raise
     except portage_util.EbuildVersionError as e:
       logging.warning('An error occurred while uprevving %s, skipping: %s',
                       ebuild.package, e)

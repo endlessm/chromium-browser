@@ -18,8 +18,14 @@ const base::Feature kAllowAmbientEQ{"AllowAmbientEQ",
 const base::Feature kAutoNightLight{"AutoNightLight",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kCornerShortcuts{"CornerShortcuts",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kContextualNudges{"ContextualNudges",
+                                      base::FEATURE_ENABLED_BY_DEFAULT};
+
 const base::Feature kDisplayChangeModal{"DisplayChangeModal",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kDockedMagnifier{"DockedMagnifier",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
@@ -58,13 +64,13 @@ const base::Feature kMediaSessionNotification{"MediaSessionNotification",
 const base::Feature kMultiDisplayOverviewAndSplitView{
     "MultiDisplayOverviewAndSplitView", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kNewOverviewLayout{"NewOverviewLayout",
-                                       base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kNightLight{"NightLight", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kNotificationExpansionAnimation{
     "NotificationExpansionAnimation", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kNotificationExperimentalShortTimeouts{
+    "NotificationExperimentalShortTimeouts", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kNotificationScrollBar{"NotificationScrollBar",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
@@ -102,13 +108,13 @@ const base::Feature kEnableBackgroundBlur{"EnableBackgroundBlur",
                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSwipingFromLeftEdgeToGoBack{
-    "SwipingFromLeftEdgeToGoBack", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SwipingFromLeftEdgeToGoBack", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kDragFromShelfToHomeOrOverview{
     "DragFromShelfToHomeOrOverview", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kHideShelfControlsInTabletMode{
-    "HideShelfControlsInTabletMode", base::FEATURE_DISABLED_BY_DEFAULT};
+    "HideShelfControlsInTabletMode", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSystemTrayMicGainSetting{
     "SystemTrayMicGainSetting", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -153,6 +159,10 @@ bool IsNotificationExpansionAnimationEnabled() {
 
 bool IsNotificationScrollBarEnabled() {
   return base::FeatureList::IsEnabled(kNotificationScrollBar);
+}
+
+bool IsNotificationExperimentalShortTimeoutsEnabled() {
+  return base::FeatureList::IsEnabled(kNotificationExperimentalShortTimeouts);
 }
 
 bool IsPipRoundedCornersEnabled() {
@@ -206,11 +216,7 @@ bool IsBackgroundBlurEnabled() {
 }
 
 bool IsSwipingFromLeftEdgeToGoBackEnabled() {
-  // The kSwipingFromLeftEdgeToGoBack feature is only enabled on the devices
-  // that have hotseat enabled (i.e., on Krane and on Dogfood devices) in M80.
-  // See crbug.com/1030122 for details.
-  return base::FeatureList::IsEnabled(kSwipingFromLeftEdgeToGoBack) ||
-         chromeos::switches::ShouldShowShelfHotseat();
+  return base::FeatureList::IsEnabled(kSwipingFromLeftEdgeToGoBack);
 }
 
 bool IsDragFromShelfToHomeOrOverviewEnabled() {
@@ -232,6 +238,14 @@ bool IsHideShelfControlsInTabletModeEnabled() {
 
 bool IsDisplayChangeModalEnabled() {
   return base::FeatureList::IsEnabled(kDisplayChangeModal);
+}
+
+bool AreContextualNudgesEnabled() {
+  return base::FeatureList::IsEnabled(kContextualNudges);
+}
+
+bool IsCornerShortcutsEnabled() {
+  return base::FeatureList::IsEnabled(kCornerShortcuts);
 }
 
 bool IsSystemTrayMicGainSettingEnabled() {

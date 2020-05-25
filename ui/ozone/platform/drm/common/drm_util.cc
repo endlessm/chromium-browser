@@ -108,6 +108,28 @@ float GetRefreshRate(const drmModeModeInfo& mode) {
   return (clock * 1000.0f) / (htotal * vtotal);
 }
 
+display::DisplayConnectionType GetDisplayType(drmModeConnector* connector) {
+  switch (connector->connector_type) {
+    case DRM_MODE_CONNECTOR_VGA:
+      return display::DISPLAY_CONNECTION_TYPE_VGA;
+    case DRM_MODE_CONNECTOR_DVII:
+    case DRM_MODE_CONNECTOR_DVID:
+    case DRM_MODE_CONNECTOR_DVIA:
+      return display::DISPLAY_CONNECTION_TYPE_DVI;
+    case DRM_MODE_CONNECTOR_LVDS:
+    case DRM_MODE_CONNECTOR_eDP:
+    case DRM_MODE_CONNECTOR_DSI:
+      return display::DISPLAY_CONNECTION_TYPE_INTERNAL;
+    case DRM_MODE_CONNECTOR_DisplayPort:
+      return display::DISPLAY_CONNECTION_TYPE_DISPLAYPORT;
+    case DRM_MODE_CONNECTOR_HDMIA:
+    case DRM_MODE_CONNECTOR_HDMIB:
+      return display::DISPLAY_CONNECTION_TYPE_HDMI;
+    default:
+      return display::DISPLAY_CONNECTION_TYPE_UNKNOWN;
+  }
+}
+
 int GetDrmProperty(int fd,
                    drmModeConnector* connector,
                    const std::string& name,
@@ -423,29 +445,6 @@ display::DisplaySnapshot::DisplayModeList ExtractDisplayModes(
   return modes;
 }
 
-display::DisplayConnectionType GetDisplayType(
-    const drmModeConnector* connector) {
-  switch (connector->connector_type) {
-    case DRM_MODE_CONNECTOR_VGA:
-      return display::DISPLAY_CONNECTION_TYPE_VGA;
-    case DRM_MODE_CONNECTOR_DVII:
-    case DRM_MODE_CONNECTOR_DVID:
-    case DRM_MODE_CONNECTOR_DVIA:
-      return display::DISPLAY_CONNECTION_TYPE_DVI;
-    case DRM_MODE_CONNECTOR_LVDS:
-    case DRM_MODE_CONNECTOR_eDP:
-    case DRM_MODE_CONNECTOR_DSI:
-      return display::DISPLAY_CONNECTION_TYPE_INTERNAL;
-    case DRM_MODE_CONNECTOR_DisplayPort:
-      return display::DISPLAY_CONNECTION_TYPE_DISPLAYPORT;
-    case DRM_MODE_CONNECTOR_HDMIA:
-    case DRM_MODE_CONNECTOR_HDMIB:
-      return display::DISPLAY_CONNECTION_TYPE_HDMI;
-    default:
-      return display::DISPLAY_CONNECTION_TYPE_UNKNOWN;
-  }
-}
-
 std::unique_ptr<display::DisplaySnapshot> CreateDisplaySnapshot(
     HardwareDisplayControllerInfo* info,
     int fd,
@@ -605,7 +604,7 @@ int GetFourCCFormatForOpaqueFramebuffer(gfx::BufferFormat format) {
     case gfx::BufferFormat::BGRA_8888:
     case gfx::BufferFormat::BGRX_8888:
       return DRM_FORMAT_XRGB8888;
-    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
       return DRM_FORMAT_XRGB2101010;
     case gfx::BufferFormat::RGBA_1010102:
       return DRM_FORMAT_XBGR2101010;

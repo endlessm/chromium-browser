@@ -64,6 +64,7 @@ GrGLCaps::GrGLCaps(const GrContextOptions& contextOptions,
     fTiledRenderingSupport = false;
     fFBFetchRequiresEnablePerSample = false;
     fSRGBWriteControl = false;
+    fSkipErrorChecks = false;
 
     fShaderCaps.reset(new GrShaderCaps(contextOptions));
 
@@ -93,7 +94,7 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
     }
 
     if (fDriverBugWorkarounds.max_fragment_uniform_vectors_32) {
-        fMaxFragmentUniformVectors = SkMin32(fMaxFragmentUniformVectors, 32);
+        fMaxFragmentUniformVectors = std::min(fMaxFragmentUniformVectors, 32);
     }
     GR_GL_GetIntegerv(gli, GR_GL_MAX_VERTEX_ATTRIBS, &fMaxVertexAttributes);
 
@@ -333,6 +334,8 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
         fSRGBWriteControl = ctxInfo.hasExtension("GL_EXT_sRGB_write_control");
     }  // No WebGL support
 
+    fSkipErrorChecks = ctxInfo.driver() == kChromium_GrGLDriver;
+
     /**************************************************************************
     * GrShaderCaps fields
     **************************************************************************/
@@ -394,6 +397,7 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
         shaderCaps->fShaderDerivativeSupport = version >= GR_GL_VER(2, 0) ||
                                                ctxInfo.hasExtension("GL_OES_standard_derivatives") ||
                                                ctxInfo.hasExtension("OES_standard_derivatives");
+        shaderCaps->fIntegerSupport = (version >= GR_GL_VER(2, 0));
     }
 
     if (ctxInfo.hasExtension("GL_NV_conservative_raster")) {
@@ -408,7 +412,7 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
     static const uint8_t kMaxSaneSamplers = 32;
     GrGLint maxSamplers;
     GR_GL_GetIntegerv(gli, GR_GL_MAX_TEXTURE_IMAGE_UNITS, &maxSamplers);
-    shaderCaps->fMaxFragmentSamplers = SkTMin<GrGLint>(kMaxSaneSamplers, maxSamplers);
+    shaderCaps->fMaxFragmentSamplers = std::min<GrGLint>(kMaxSaneSamplers, maxSamplers);
 
     // SGX and Mali GPUs have tiled architectures that have trouble with frequently changing VBOs.
     // We've measured a performance increase using non-VBO vertex data for dynamic content on these
@@ -547,18 +551,18 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
     GR_GL_GetIntegerv(gli, GR_GL_MAX_TEXTURE_SIZE, &fMaxTextureSize);
 
     if (fDriverBugWorkarounds.max_texture_size_limit_4096) {
-        fMaxTextureSize = SkTMin(fMaxTextureSize, 4096);
+        fMaxTextureSize = std::min(fMaxTextureSize, 4096);
     }
 
     GR_GL_GetIntegerv(gli, GR_GL_MAX_RENDERBUFFER_SIZE, &fMaxRenderTargetSize);
     // Our render targets are always created with textures as the color
     // attachment, hence this min:
-    fMaxRenderTargetSize = SkTMin(fMaxTextureSize, fMaxRenderTargetSize);
+    fMaxRenderTargetSize = std::min(fMaxTextureSize, fMaxRenderTargetSize);
     fMaxPreferredRenderTargetSize = fMaxRenderTargetSize;
 
     if (kARM_GrGLVendor == ctxInfo.vendor()) {
         // On Mali G71, RT's above 4k have been observed to incur a performance cost.
-        fMaxPreferredRenderTargetSize = SkTMin(4096, fMaxPreferredRenderTargetSize);
+        fMaxPreferredRenderTargetSize = std::min(4096, fMaxPreferredRenderTargetSize);
     }
 
     fGpuTracingSupport = ctxInfo.hasExtension("GL_EXT_debug_marker");
@@ -631,8 +635,8 @@ void GrGLCaps::init(const GrContextOptions& contextOptions,
         fDrawIndirectSupport = version >= GR_GL_VER(3,1);
         fMultiDrawIndirectSupport = fDrawIndirectSupport &&
                                     ctxInfo.hasExtension("GL_EXT_multi_draw_indirect");
-        fBaseInstanceSupport = fDrawIndirectSupport &&
-                               ctxInfo.hasExtension("GL_EXT_base_instance");
+        fBaseInstanceSupport = ctxInfo.hasExtension("GL_EXT_base_instance") ||
+                               ctxInfo.hasExtension("GL_ANGLE_base_vertex_base_instance");
         fDrawRangeElementsSupport = version >= GR_GL_VER(3,0);
     } else if (GR_IS_GR_WEBGL(standard)) {
         // WebGL lacks indirect support, but drawRange was added in WebGL 2.0
@@ -1522,7 +1526,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 ctInfo.fColorType = GrColorType::kAlpha_8;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
                 ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fOutputSwizzle = GrSwizzle::AAAA();
+                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
                 this->setColorTypeFormat(GrColorType::kAlpha_8, GrGLFormat::kR8);
 
                 // External IO ColorTypes:
@@ -1853,7 +1857,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
             info.fInternalFormatForTexImageOrStorage = bgraTexImageFormat;
         }
 
-        if (SkToBool(info.fFlags &FormatInfo::kTexturable_Flag)) {
+        if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
             info.fColorTypeInfoCount = 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
             int ctIdx = 0;
@@ -2166,7 +2170,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 ctInfo.fColorType = GrColorType::kAlpha_F16;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
                 ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fOutputSwizzle = GrSwizzle::AAAA();
+                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
                 this->setColorTypeFormat(GrColorType::kAlpha_F16, GrGLFormat::kR16F);
 
                 // External IO ColorTypes:
@@ -2250,7 +2254,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 ctInfo.fColorType = GrColorType::kAlpha_F16;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag;
                 ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fOutputSwizzle = GrSwizzle::AAAA();
+                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
 
                 int idx = static_cast<int>(GrColorType::kAlpha_F16);
                 if (fColorTypeToFormatTable[idx] == GrGLFormat::kUnknown) {
@@ -2447,6 +2451,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                    ctxInfo.hasExtension("GL_EXT_texture_type_2_10_10_10_REV")) {
             info.fFlags = FormatInfo::kTexturable_Flag;
         } // No WebGL support
+
         if (texStorageSupported) {
             info.fFlags |= FormatInfo::kUseTexStorage_Flag;
             info.fInternalFormatForTexImageOrStorage = GR_GL_RGB10_A2;
@@ -2455,8 +2460,11 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                     texImageSupportsSizedInternalFormat ? GR_GL_RGB10_A2 : GR_GL_RGBA;
         }
 
-        if (SkToBool(info.fFlags &FormatInfo::kTexturable_Flag)) {
-            info.fColorTypeInfoCount = 1;
+        if (SkToBool(info.fFlags & FormatInfo::kTexturable_Flag)) {
+            bool supportsBGRAColorType = GR_IS_GR_GL(standard) &&
+                    (version >= GR_GL_VER(1, 2) || ctxInfo.hasExtension("GL_EXT_bgra"));
+
+            info.fColorTypeInfoCount = supportsBGRAColorType ? 2 : 1;
             info.fColorTypeInfos.reset(new ColorTypeInfo[info.fColorTypeInfoCount]());
             int ctIdx = 0;
             // Format: RGB10_A2, Surface: kRGBA_1010102
@@ -2483,6 +2491,40 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 }
 
                 // Format: RGB10_A2, Surface: kRGBA_1010102, Data: kRGBA_8888
+                {
+                    auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
+                    ioFormat.fColorType = GrColorType::kRGBA_8888;
+                    ioFormat.fExternalType = GR_GL_UNSIGNED_BYTE;
+                    ioFormat.fExternalTexImageFormat = 0;
+                    ioFormat.fExternalReadFormat = GR_GL_RGBA;
+                }
+            }
+            //------------------------------------------------------------------
+            // Format: RGB10_A2, Surface: kBGRA_1010102
+            if (supportsBGRAColorType) {
+                auto& ctInfo = info.fColorTypeInfos[ctIdx++];
+                ctInfo.fColorType = GrColorType::kBGRA_1010102;
+                ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
+                this->setColorTypeFormat(GrColorType::kBGRA_1010102, GrGLFormat::kRGB10_A2);
+
+                // External IO ColorTypes:
+                ctInfo.fExternalIOFormatCount = 2;
+                ctInfo.fExternalIOFormats.reset(
+                        new ColorTypeInfo::ExternalIOFormats[ctInfo.fExternalIOFormatCount]());
+                int ioIdx = 0;
+                // Format: RGB10_A2, Surface: kBGRA_1010102, Data: kBGRA_1010102
+                {
+                    auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
+                    ioFormat.fColorType = GrColorType::kBGRA_1010102;
+                    ioFormat.fExternalType = GR_GL_UNSIGNED_INT_2_10_10_10_REV;
+                    ioFormat.fExternalTexImageFormat = GR_GL_BGRA;
+                    ioFormat.fExternalReadFormat =
+                            formatWorkarounds.fDisallowBGRA8ReadPixels ? 0 : GR_GL_BGRA;
+                    // Not guaranteed by ES/WebGL.
+                    ioFormat.fRequiresImplementationReadQuery = !GR_IS_GR_GL(standard);
+                }
+
+                // Format: RGB10_A2, Surface: kBGRA_1010102, Data: kRGBA_8888
                 {
                     auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
                     ioFormat.fColorType = GrColorType::kRGBA_8888;
@@ -2767,7 +2809,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 ctInfo.fColorType = GrColorType::kAlpha_16;
                 ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
                 ctInfo.fReadSwizzle = GrSwizzle::RRRR();
-                ctInfo.fOutputSwizzle = GrSwizzle::AAAA();
+                ctInfo.fWriteSwizzle = GrSwizzle::AAAA();
                 this->setColorTypeFormat(GrColorType::kAlpha_16, GrGLFormat::kR16);
 
                 // External IO ColorTypes:
@@ -3104,7 +3146,7 @@ void GrGLCaps::setupSampleCounts(const GrGLContextInfo& ctxInfo, const GrGLInter
                     GR_GL_GetIntegerv(gli, GR_GL_MAX_SAMPLES, &maxSampleCnt);
                 }
                 // Chrome has a mock GL implementation that returns 0.
-                maxSampleCnt = SkTMax(1, maxSampleCnt);
+                maxSampleCnt = std::max(1, maxSampleCnt);
 
                 static constexpr int kDefaultSamples[] = {1, 2, 4, 8};
                 int count = SK_ARRAY_COUNT(kDefaultSamples);
@@ -3537,6 +3579,12 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         fDrawArraysBaseVertexIsBroken = true;
     }
 
+    // http://anglebug.com/4536
+    if (ctxInfo.driver() == kANGLE_GrGLDriver &&
+        ctxInfo.angleBackend() != GrGLANGLEBackend::kOpenGL) {
+        fBaseInstanceSupport = false;
+    }
+
     // Currently the extension is advertised but fb fetch is broken on 500 series Adrenos like the
     // Galaxy S7.
     // TODO: Once this is fixed we can update the check here to look at a driver version number too.
@@ -3596,6 +3644,14 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
     if (kMaliT_GrGLRenderer == ctxInfo.renderer()) {
         shaderCaps->fMustObfuscateUniformColor = true;
     }
+
+    // On Mali G series GPUs, applying transfer functions in the fragment shader with half-floats
+    // produces answers that are much less accurate than expected/required. This forces full floats
+    // for some intermediate values to get acceptable results.
+    if (kMaliG_GrGLRenderer == ctxInfo.renderer()) {
+        fShaderCaps->fColorSpaceMathNeedsFloat = true;
+    }
+
 #ifdef SK_BUILD_FOR_WIN
     // Check for ANGLE on Windows, so we can workaround a bug in D3D itself (anglebug.com/2098).
     //
@@ -3755,14 +3811,21 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         fDriverBlacklistMSAACCPR = true;
     }
 
-    if (shaderCaps->fTessellationSupport && kNVIDIA_GrGLDriver == ctxInfo.driver()) {
+    // http://skbug.com/9739
+    bool isNVIDIAPascal =
+            kNVIDIA_GrGLDriver == ctxInfo.driver() &&
+            ctxInfo.hasExtension("GL_NV_conservative_raster_pre_snap_triangles") &&  // Pascal+.
+            !ctxInfo.hasExtension("GL_NV_conservative_raster_underestimation");  // Volta+.
+    if (isNVIDIAPascal && ctxInfo.driverVersion() < GR_GL_DRIVER_VER(440, 00, 0)) {
         if (GR_IS_GR_GL(ctxInfo.standard())) {
+            // glMemoryBarrier wasn't around until version 4.2.
             if (ctxInfo.version() >= GR_GL_VER(4,2)) {
                 fRequiresManualFBBarrierAfterTessellatedStencilDraw = true;
             } else {
                 shaderCaps->fTessellationSupport = false;
             }
         } else {
+            // glMemoryBarrier wasn't around until es version 3.1.
             if (ctxInfo.version() >= GR_GL_VER(3,1)) {
                 fRequiresManualFBBarrierAfterTessellatedStencilDraw = true;
             } else {
@@ -3908,6 +3971,17 @@ void GrGLCaps::onApplyOptionsOverrides(const GrContextOptions& options) {
     }
     if (options.fShaderCacheStrategy < GrContextOptions::ShaderCacheStrategy::kBackendBinary) {
         fProgramBinarySupport = false;
+    }
+
+    switch (options.fSkipGLErrorChecks) {
+        case GrContextOptions::Enable::kNo:
+            fSkipErrorChecks = false;
+            break;
+        case GrContextOptions::Enable::kYes:
+            fSkipErrorChecks = true;
+            break;
+        case GrContextOptions::Enable::kDefault:
+            break;
     }
 }
 
@@ -4081,15 +4155,6 @@ SkImage::CompressionType GrGLCaps::compressionType(const GrBackendFormat& format
     SkUNREACHABLE;
 }
 
-bool GrGLCaps::isFormatTexturableAndUploadable(GrColorType ct,
-                                               const GrBackendFormat& format) const {
-    auto glFormat = format.asGLFormat();
-    const FormatInfo& info = this->getFormatInfo(glFormat);
-
-    return this->isFormatTexturable(glFormat) &&
-           SkToBool(info.colorTypeFlags(ct) & ColorTypeInfo::kUploadData_Flag);
-}
-
 bool GrGLCaps::isFormatTexturable(const GrBackendFormat& format) const {
     return this->isFormatTexturable(format.asGLFormat());
 }
@@ -4122,7 +4187,7 @@ int GrGLCaps::getRenderTargetSampleCount(int requestedCount, GrGLFormat format) 
         return 0;
     }
 
-    requestedCount = SkTMax(1, requestedCount);
+    requestedCount = std::max(1, requestedCount);
     if (1 == requestedCount) {
         return info.fColorSampleCounts[0] == 1 ? 1 : 0;
     }
@@ -4131,7 +4196,7 @@ int GrGLCaps::getRenderTargetSampleCount(int requestedCount, GrGLFormat format) 
         if (info.fColorSampleCounts[i] >= requestedCount) {
             int count = info.fColorSampleCounts[i];
             if (fDriverBugWorkarounds.max_msaa_sample_count_4) {
-                count = SkTMin(count, 4);
+                count = std::min(count, 4);
             }
             return count;
         }
@@ -4147,7 +4212,7 @@ int GrGLCaps::maxRenderTargetSampleCount(GrGLFormat format) const {
     }
     int count = table[table.count() - 1];
     if (fDriverBugWorkarounds.max_msaa_sample_count_4) {
-        count = SkTMin(count, 4);
+        count = std::min(count, 4);
     }
     return count;
 }
@@ -4263,12 +4328,10 @@ GrColorType GrGLCaps::getYUVAColorTypeFromBackendFormat(const GrBackendFormat& f
     SkUNREACHABLE;
 }
 
-GrBackendFormat GrGLCaps::onGetDefaultBackendFormat(GrColorType ct,
-                                                    GrRenderable renderable) const {
-    // TODO: make use of renderable.
+GrBackendFormat GrGLCaps::onGetDefaultBackendFormat(GrColorType ct) const {
     auto format = this->getFormatFromColorType(ct);
     if (format == GrGLFormat::kUnknown) {
-        return GrBackendFormat();
+        return {};
     }
     return GrBackendFormat::MakeGL(GrGLFormatToEnum(format), GR_GL_TEXTURE_2D);
 }
@@ -4314,12 +4377,13 @@ GrSwizzle GrGLCaps::getReadSwizzle(const GrBackendFormat& format, GrColorType co
     }
     return GrSwizzle::RGBA();
 }
-GrSwizzle GrGLCaps::getOutputSwizzle(const GrBackendFormat& format, GrColorType colorType) const {
+
+GrSwizzle GrGLCaps::getWriteSwizzle(const GrBackendFormat& format, GrColorType colorType) const {
     const auto& info = this->getFormatInfo(format.asGLFormat());
     for (int i = 0; i < info.fColorTypeInfoCount; ++i) {
         const auto& ctInfo = info.fColorTypeInfos[i];
         if (ctInfo.fColorType == colorType) {
-            return ctInfo.fOutputSwizzle;
+            return ctInfo.fWriteSwizzle;
         }
     }
     return GrSwizzle::RGBA();
@@ -4393,6 +4457,8 @@ std::vector<GrCaps::TestFormatColorTypeCombination> GrGLCaps::getTestingCombinat
     if (GR_IS_GR_GL(fStandard)) {
         combos.push_back({ GrColorType::kBGRA_8888,
                            GrBackendFormat::MakeGL(GR_GL_RGBA8, GR_GL_TEXTURE_2D) });
+        combos.push_back({ GrColorType::kBGRA_1010102,
+                           GrBackendFormat::MakeGL(GR_GL_RGB10_A2, GR_GL_TEXTURE_2D) });
     } else {
         SkASSERT(GR_IS_GR_GL_ES(fStandard) || GR_IS_GR_WEBGL(fStandard));
 

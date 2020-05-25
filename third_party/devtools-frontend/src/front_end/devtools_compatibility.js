@@ -344,10 +344,9 @@
       request.send(null);
       if (request.status === 200) {
         return request.responseText;
-      } else {
-        console.error('Error while decoding chunk in streamWrite');
-        return '';
       }
+      console.error('Error while decoding chunk in streamWrite');
+      return '';
     }
   };
 
@@ -627,7 +626,7 @@
      * @override
      * @param {string} fileSystemId
      * @param {string} registeredName
-     * @return {?DOMFileSystem}
+     * @return {?FileSystem}
      */
     isolatedFileSystem(fileSystemId, registeredName) {
       return DevToolsHost.isolatedFileSystem(fileSystemId, registeredName);
@@ -942,7 +941,7 @@
       'emulation.deviceScaleFactor',
       'emulation.deviceUA',
       'emulation.deviceWidth',
-      'emulation.geolocationOverride',
+      'emulation.locationOverride',
       'emulation.showDeviceMode',
       'emulation.showRulers',
       'enableAsyncStackTraces',

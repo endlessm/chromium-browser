@@ -55,6 +55,7 @@
 <translation id="2580411288591421699">Det er ikke muligt at installere den samme version af Google Chrome, som allerede kører. Luk Google Chrome, og prøv igen.</translation>
 <translation id="2586406160782125153">Denne handling sletter dine browserdata på denne enhed. Hvis du senere vil hente dine data igen, skal du logge ind på Chrome som <ph name="USER_EMAIL" />.</translation>
 <translation id="2588322182880276190">Chrome-logo</translation>
+<translation id="2622559029861875898">Chrome kan ikke søge efter opdateringer. Prøv at tjekke din internetforbindelse.</translation>
 <translation id="2644798301485385923">Chrome OS-system</translation>
 <translation id="2652691236519827073">Åbn linket i en ny Chrome-&amp;fane</translation>
 <translation id="2665296953892887393">Vær med til at gøre Google Chrome bedre ved at sende fejlrapporter og <ph name="UMA_LINK" /> til Google</translation>
@@ -66,7 +67,10 @@
 <translation id="2857540653560290388">Starter Chrome...</translation>
 <translation id="2871893339301912279">Du er logget ind på Chrome.</translation>
 <translation id="2888126860611144412">Om Chrome</translation>
+<translation id="2929907241665500097">Chrome blev ikke opdateret, da der opstod en fejl. <ph name="BEGIN_LINK" />Løs problemer med opdatering af Chrome og mislykkede opdateringer.<ph name="END_LINK" /></translation>
+<translation id="2969728957078202736"><ph name="PAGE_TITLE" /> – Login på netværk – Chrome</translation>
 <translation id="3037838751736561277">Google Chrome kører i baggrunden.</translation>
+<translation id="3059710691562604940">Beskyttet browsing er deaktiveret. Chrome anbefaler, at du aktiverer funktionen.</translation>
 <translation id="3065168410429928842">Fanen Chrome</translation>
 <translation id="3080151273017101988">Fortsæt med at køre baggrundsapps, når Google Chrome er lukket</translation>
 <translation id="3089968997497233615">Der findes en ny, sikker version af Google Chrome.</translation>
@@ -102,8 +106,11 @@
 <translation id="4293420128516039005">Log ind for at synkronisere og tilpasse Chrome på alle dine enheder</translation>
 <translation id="4328355335528187361">Udviklerversionen af Google Chrome (mDNS-In)</translation>
 <translation id="4331809312908958774">Chrome OS</translation>
+<translation id="4335235004908507846">Chrome kan hjælpe med at beskytte dig mod brud på datasikkerheden, farlige udvidelser og meget mere</translation>
 <translation id="4343195214584226067"><ph name="EXTENSION_NAME" /> er føjet til Chrome</translation>
+<translation id="4384570495110188418">Chrome kan ikke tjekke dine adgangskoder, da du ikke er logget ind</translation>
 <translation id="4407807842708586359">Google Chrome OS</translation>
+<translation id="4450664632294415862">Chrome – Login på netværk – <ph name="PAGE_TITLE" /></translation>
 <translation id="4458462641685292929">En anden handling i Google Chrome er i gang. Prøv igen senere.</translation>
 <translation id="4480040274068703980">Chrome OS kunne ikke synkronisere dine data på grund af en fejl under login.</translation>
 <translation id="4561051373932531560">Med Google Chrome kan du klikke på et telefonnummer på nettet og ringe op til det via Skype!</translation>
@@ -145,7 +152,9 @@
 <translation id="573759479754913123">Om Chrome OS</translation>
 <translation id="5795887333006832406"><ph name="PAGE_TITLE" /> – Google Chrome Canary</translation>
 <translation id="5804318322022881572">Chrome kunne ikke startes. Prøv igen.</translation>
+<translation id="5867197326698922595">Google Chrome forsøger at redigere adgangskoder.</translation>
 <translation id="5895138241574237353">Genstart</translation>
+<translation id="5903106910045431592"><ph name="PAGE_TITLE" /> – Login på netværk</translation>
 <translation id="5940385492829620908">Dit webindhold, dine bogmærker og andre Chrome-ting kan findes her.</translation>
 <translation id="5941830788786076944">Gør Google Chrome til din standardbrowser</translation>
 <translation id="6070348360322141662">Som et ekstra sikkerhedsniveau krypterer Google Chrome dine data</translation>
@@ -195,12 +204,15 @@
 <translation id="7777080907402804672">Hvis et billede ikke har en brugbar beskrivelse, forsøger Chrome at angive en for dig. Billederne sendes til Google, så der kan oprettes beskrivelser. Du kan til enhver tid deaktivere denne funktion i indstillingerne.</translation>
 <translation id="7781002470561365167">Der er en ny version af Google Chrome til rådighed.</translation>
 <translation id="7787950393032327779">Profilen ser ud til at være i brug i en anden Google Chrome-proces (<ph name="PROCESS_ID" />) på en anden computer (<ph name="HOST_NAME" />). Chrome har låst profilen, så den ikke bliver beskadiget. Hvis du er sikker på, at ingen andre processer anvender denne profil, kan du låse profilen op og genstarte Chrome.</translation>
+<translation id="7801699035218095297">Google Chrome forsøger at kopiere adgangskoder. Angiv din Windows-adgangskode for at tillade dette.</translation>
 <translation id="7808348361785373670">Fjern fra Chrome...</translation>
 <translation id="7825851276765848807">Installationen mislykkedes på grund af en uspecificeret fejl. Download Google Chrome igen.</translation>
 <translation id="7855730255114109580">Google Chrome er opdateret</translation>
 <translation id="7890208801193284374">Hvis du deler en computer, kan venner og familie browse individuelt og konfigurere Chrome, som de ønsker hver især.</translation>
 <translation id="7896673875602241923">Nogen har tidligere logget ind på Chrome på denne computer som <ph name="ACCOUNT_EMAIL_LAST" />. Opret en ny Chrome-bruger for at holde dine oplysninger adskilt.</translation>
+<translation id="7905891027772979035">Chrome kan ikke tjekke dine udvidelser. Prøv igen senere.</translation>
 <translation id="7916016681687251387">Chrome OS kunne ikke synkronisere dine data. Løs problemet nu.</translation>
+<translation id="7930071585467473040">Google Chrome forsøger at kopiere adgangskoder.</translation>
 <translation id="7962410387636238736">Denne computer modtager ikke længere Google Chrome-opdateringer, da Windows XP og Windows Vista ikke længere understøttes.</translation>
 <translation id="8008534537613507642">Geninstaller Chrome</translation>
 <translation id="8013993649590906847">Hvis et billede ikke har en brugbar beskrivelse, forsøger Chrome at angive en for dig. Billederne sendes til Google, så der kan oprettes beskrivelser.</translation>
@@ -223,6 +235,7 @@
 <translation id="870251953148363156">Opdater &amp;Google Chrome</translation>
 <translation id="873133009373065397">Google Chrome kan ikke fastlægge eller angive standardbrowseren</translation>
 <translation id="8823341990149967727">Chrome er forældet</translation>
+<translation id="8834965163890861871">Google Chrome forsøger at redigere adgangskoder. Angiv din Windows-adgangskode for at tillade dette.</translation>
 <translation id="884296878221830158">Den styrer også, hvilken side der vises, når du åbner Chrome eller klikker på knappen Startside.</translation>
 <translation id="8862326446509486874">Du har ikke de nødvendige rettigheder til en installation på systemniveau. Prøv at køre installationsprogrammet igen som administrator.</translation>
 <translation id="8914504000324227558">Genstart Chrome</translation>

@@ -1,4 +1,3 @@
-
 /*
  * Copyright (C) 2019 The Android Open Source Project
  *
@@ -19,6 +18,8 @@
 #include <sys/system_properties.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+
+#include <random>
 
 #include "perfetto/base/logging.h"
 #include "perfetto/tracing/core/data_source_config.h"
@@ -44,7 +45,21 @@ constexpr uint64_t kExpectedIndividualAllocSz = 4153;
 static_assert(kExpectedIndividualAllocSz > kTestSamplingInterval,
               "kTestSamplingInterval invalid");
 
-std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
+std::string RandomSessionName() {
+  std::random_device rd;
+  std::default_random_engine generator(rd());
+  std::uniform_int_distribution<char> distribution('a', 'z');
+
+  constexpr size_t kSessionNameLen = 20;
+  std::string result(kSessionNameLen, '\0');
+  for (size_t i = 0; i < kSessionNameLen; ++i)
+    result[i] = distribution(generator);
+  return result;
+}
+
+std::vector<protos::gen::TracePacket> ProfileRuntime(
+    const std::string& app_name,
+    const bool enable_extra_guardrails = false) {
   base::TestTaskRunner task_runner;
 
   // (re)start the target app's main activity
@@ -52,7 +67,7 @@ std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
     StopApp(app_name, "old.app.stopped", &task_runner);
     task_runner.RunUntilCheckpoint("old.app.stopped", 1000 /*ms*/);
   }
-  StartAppActivity(app_name, "target.app.running", &task_runner,
+  StartAppActivity(app_name, "MainActivity", "target.app.running", &task_runner,
                    /*delay_ms=*/100);
   task_runner.RunUntilCheckpoint("target.app.running", 1000 /*ms*/);
 
@@ -64,6 +79,8 @@ std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
   TraceConfig trace_config;
   trace_config.add_buffers()->set_size_kb(10 * 1024);
   trace_config.set_duration_ms(4000);
+  trace_config.set_enable_extra_guardrails(enable_extra_guardrails);
+  trace_config.set_unique_session_name(RandomSessionName().c_str());
 
   auto* ds_config = trace_config.add_data_sources()->mutable_config();
   ds_config->set_name("android.heapprofd");
@@ -85,7 +102,9 @@ std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
   return helper.trace();
 }
 
-std::vector<protos::gen::TracePacket> ProfileStartup(std::string app_name) {
+std::vector<protos::gen::TracePacket> ProfileStartup(
+    const std::string& app_name,
+    const bool enable_extra_guardrails = false) {
   base::TestTaskRunner task_runner;
 
   if (IsAppRunning(app_name)) {
@@ -101,6 +120,8 @@ std::vector<protos::gen::TracePacket> ProfileStartup(std::string app_name) {
   TraceConfig trace_config;
   trace_config.add_buffers()->set_size_kb(10 * 1024);
   trace_config.set_duration_ms(4000);
+  trace_config.set_enable_extra_guardrails(enable_extra_guardrails);
+  trace_config.set_unique_session_name(RandomSessionName().c_str());
 
   auto* ds_config = trace_config.add_data_sources()->mutable_config();
   ds_config->set_name("android.heapprofd");
@@ -117,7 +138,7 @@ std::vector<protos::gen::TracePacket> ProfileStartup(std::string app_name) {
   helper.StartTracing(trace_config);
 
   // start app
-  StartAppActivity(app_name, "target.app.running", &task_runner,
+  StartAppActivity(app_name, "MainActivity", "target.app.running", &task_runner,
                    /*delay_ms=*/100);
   task_runner.RunUntilCheckpoint("target.app.running", 2000 /*ms*/);
 
@@ -129,7 +150,7 @@ std::vector<protos::gen::TracePacket> ProfileStartup(std::string app_name) {
 }
 
 void AssertExpectedAllocationsPresent(
-    std::vector<protos::gen::TracePacket> packets) {
+    const std::vector<protos::gen::TracePacket>& packets) {
   ASSERT_GT(packets.size(), 0u);
 
   // TODO(rsavitski): assert particular stack frames once we clarify the
@@ -137,8 +158,10 @@ void AssertExpectedAllocationsPresent(
   // Until then, look for an allocation that is a multiple of the expected
   // allocation size.
   bool found_alloc = false;
+  bool found_proc_dump = false;
   for (const auto& packet : packets) {
     for (const auto& proc_dump : packet.profile_packet().process_dumps()) {
+      found_proc_dump = true;
       for (const auto& sample : proc_dump.samples()) {
         if (sample.self_allocated() > 0 &&
             sample.self_allocated() % kExpectedIndividualAllocSz == 0) {
@@ -151,10 +174,12 @@ void AssertExpectedAllocationsPresent(
       }
     }
   }
+  ASSERT_TRUE(found_proc_dump);
   ASSERT_TRUE(found_alloc);
 }
 
-void AssertNoProfileContents(std::vector<protos::gen::TracePacket> packets) {
+void AssertNoProfileContents(
+    const std::vector<protos::gen::TracePacket>& packets) {
   // If profile packets are present, they must be empty.
   for (const auto& packet : packets) {
     ASSERT_EQ(packet.profile_packet().process_dumps_size(), 0);
@@ -186,6 +211,30 @@ TEST(HeapprofdCtsTest, ProfileableAppStartup) {
   std::string app_name = "android.perfetto.cts.app.profileable";
   const auto& packets = ProfileStartup(app_name);
   AssertExpectedAllocationsPresent(packets);
+  StopApp(app_name);
+}
+
+TEST(HeapprofdCtsTest, ProfileableAppRuntimeExtraGuardrails) {
+  std::string app_name = "android.perfetto.cts.app.profileable";
+  const auto& packets = ProfileRuntime(app_name,
+                                       /*enable_extra_guardrails=*/true);
+
+  if (IsUserBuild())
+    AssertNoProfileContents(packets);
+  else
+    AssertExpectedAllocationsPresent(packets);
+  StopApp(app_name);
+}
+
+TEST(HeapprofdCtsTest, ProfileableAppStartupExtraGuardrails) {
+  std::string app_name = "android.perfetto.cts.app.profileable";
+  const auto& packets = ProfileStartup(app_name,
+                                       /*enable_extra_guardrails=*/
+                                       true);
+  if (IsUserBuild())
+    AssertNoProfileContents(packets);
+  else
+    AssertExpectedAllocationsPresent(packets);
   StopApp(app_name);
 }
 

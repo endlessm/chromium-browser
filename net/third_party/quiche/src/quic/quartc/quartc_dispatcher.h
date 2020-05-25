@@ -10,7 +10,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_config.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_dispatcher.h"
 #include "net/third_party/quiche/src/quic/core/quic_version_manager.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
@@ -34,7 +34,7 @@ class QuartcDispatcher : public QuicDispatcher,
       std::unique_ptr<QuicCryptoServerConfig> crypto_config,
       QuicVersionManager* version_manager,
       std::unique_ptr<QuicConnectionHelperInterface> helper,
-      std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper,
       std::unique_ptr<QuicAlarmFactory> alarm_factory,
       std::unique_ptr<QuartcPacketWriter> packet_writer,
       Delegate* delegate);

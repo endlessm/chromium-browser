@@ -18,19 +18,19 @@
 #include "src/gpu/GrPipeline.h"
 #include "src/gpu/GrRenderTargetContextPriv.h"
 #include "src/gpu/GrXferProcessor.h"
-#include "tests/Test.h"
-#include "tools/gpu/GrContextFactory.h"
-
-#include "src/gpu/ops/GrDrawOp.h"
-
 #include "src/gpu/effects/GrPorterDuffXferProcessor.h"
 #include "src/gpu/effects/GrXfermodeFragmentProcessor.h"
 #include "src/gpu/effects/generated/GrConfigConversionEffect.h"
-
-#include "src/gpu/gl/GrGLGpu.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
+#include "src/gpu/ops/GrDrawOp.h"
+#include "tests/Test.h"
+#include "tools/gpu/GrContextFactory.h"
+
+#ifdef SK_GL
+#include "src/gpu/gl/GrGLGpu.h"
+#endif
 
 /*
  * A dummy processor which just tries to insert a massive key and verify that it can retrieve the
@@ -66,7 +66,7 @@ public:
         return std::unique_ptr<GrFragmentProcessor>(new BigKeyProcessor);
     }
 
-    const char* name() const override { return "Big Ole Key"; }
+    const char* name() const override { return "Big_Ole_Key"; }
 
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override {
         return new GLBigKeyProcessor;
@@ -154,7 +154,7 @@ static std::unique_ptr<GrRenderTargetContext> random_render_target_context(GrCon
 
     int sampleCnt = random->nextBool() ? caps->getRenderTargetSampleCount(2, format) : 1;
     // Above could be 0 if msaa isn't supported.
-    sampleCnt = SkTMax(1, sampleCnt);
+    sampleCnt = std::max(1, sampleCnt);
 
     return GrRenderTargetContext::Make(
             context, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
@@ -257,44 +257,36 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
     GrDrawingManager* drawingManager = context->priv().drawingManager();
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
 
-    GrProcessorTestData::ProxyInfo proxies[2];
+    GrProcessorTestData::ViewInfo views[2];
 
     // setup dummy textures
     GrMipMapped mipMapped = GrMipMapped(context->priv().caps()->mipMapSupport());
     {
-        GrSurfaceDesc dummyDesc;
-        dummyDesc.fWidth = 34;
-        dummyDesc.fHeight = 18;
+        static constexpr SkISize kDummyDims = {34, 18};
         const GrBackendFormat format =
             context->priv().caps()->getDefaultBackendFormat(GrColorType::kRGBA_8888,
                                                             GrRenderable::kYes);
+        auto proxy = proxyProvider->createProxy(format, kDummyDims, GrRenderable::kYes, 1,
+                                                mipMapped, SkBackingFit::kExact, SkBudgeted::kNo,
+                                                GrProtected::kNo, GrInternalSurfaceFlags::kNone);
         GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(format, GrColorType::kRGBA_8888);
-        proxies[0] = {proxyProvider->createProxy(format, dummyDesc, swizzle, GrRenderable::kYes, 1,
-                                                 kBottomLeft_GrSurfaceOrigin, mipMapped,
-                                                 SkBackingFit::kExact, SkBudgeted::kNo,
-                                                 GrProtected::kNo, GrInternalSurfaceFlags::kNone),
-                      GrColorType::kRGBA_8888,
-                      kPremul_SkAlphaType
-        };
+        views[0] = {{std::move(proxy), kBottomLeft_GrSurfaceOrigin, swizzle},
+                    GrColorType::kRGBA_8888, kPremul_SkAlphaType};
     }
     {
-        GrSurfaceDesc dummyDesc;
-        dummyDesc.fWidth = 16;
-        dummyDesc.fHeight = 22;
+        static constexpr SkISize kDummyDims = {16, 22};
         const GrBackendFormat format =
             context->priv().caps()->getDefaultBackendFormat(GrColorType::kAlpha_8,
                                                             GrRenderable::kNo);
+        auto proxy = proxyProvider->createProxy(format, kDummyDims, GrRenderable::kNo, 1, mipMapped,
+                                                SkBackingFit::kExact, SkBudgeted::kNo,
+                                                GrProtected::kNo, GrInternalSurfaceFlags::kNone);
         GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(format, GrColorType::kAlpha_8);
-        proxies[1] = {proxyProvider->createProxy(format, dummyDesc, swizzle, GrRenderable::kNo, 1,
-                                                 kTopLeft_GrSurfaceOrigin, mipMapped,
-                                                 SkBackingFit::kExact, SkBudgeted::kNo,
-                                                 GrProtected::kNo, GrInternalSurfaceFlags::kNone),
-                      GrColorType::kAlpha_8,
-                      kPremul_SkAlphaType
-        };
+        views[1] = {{std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle},
+                      GrColorType::kAlpha_8, kPremul_SkAlphaType};
     }
 
-    if (!std::get<0>(proxies[0]) || !std::get<0>(proxies[1])) {
+    if (!std::get<0>(views[0]) || !std::get<0>(views[1])) {
         SkDebugf("Could not allocate dummy textures");
         return false;
     }
@@ -311,7 +303,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
         }
 
         GrPaint paint;
-        GrProcessorTestData ptd(&random, context, 2, proxies);
+        GrProcessorTestData ptd(&random, context, 2, views);
         set_random_color_coverage_stages(&paint, &ptd, maxStages, maxLevels);
         set_random_xpf(&paint, &ptd);
         GrDrawRandomOp(&random, renderTargetContext.get(), std::move(paint));
@@ -333,7 +325,7 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
     for (int i = 0; i < fpFactoryCnt; ++i) {
         // Since FP factories internally randomize, call each 10 times.
         for (int j = 0; j < 10; ++j) {
-            GrProcessorTestData ptd(&random, context, 2, proxies);
+            GrProcessorTestData ptd(&random, context, 2, views);
 
             GrPaint paint;
             paint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
@@ -351,8 +343,9 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
 #endif
 
 static int get_programs_max_stages(const sk_gpu_test::ContextInfo& ctxInfo) {
-    GrContext* context = ctxInfo.grContext();
     int maxStages = 6;
+#ifdef SK_GL
+    GrContext* context = ctxInfo.grContext();
     if (skiatest::IsGLContextType(ctxInfo.type())) {
         GrGLGpu* gpu = static_cast<GrGLGpu*>(context->priv().getGpu());
         if (kGLES_GrGLStandard == gpu->glStandard()) {
@@ -375,6 +368,7 @@ static int get_programs_max_stages(const sk_gpu_test::ContextInfo& ctxInfo) {
             maxStages = 3;
         }
     }
+#endif
     return maxStages;
 }
 

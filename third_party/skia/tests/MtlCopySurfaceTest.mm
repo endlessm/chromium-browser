@@ -41,31 +41,27 @@ DEF_GPUTEST_FOR_METAL_CONTEXT(MtlCopySurfaceTest, reporter, ctxInfo) {
     GrBackendRenderTarget backendRT(kWidth, kHeight, 1, fbInfo);
 
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
-    sk_sp<GrSurfaceProxy> srcProxy = proxyProvider->wrapBackendRenderTarget(
-                                             backendRT, GrColorType::kBGRA_8888,
-                                             kTopLeft_GrSurfaceOrigin);
+    sk_sp<GrSurfaceProxy> srcProxy = proxyProvider->wrapBackendRenderTarget(backendRT);
 
-    sk_sp<GrTextureProxy> dstProxy = GrSurfaceProxy::Copy(context, srcProxy.get(),
-                                                          GrColorType::kBGRA_8888,
-                                                          GrMipMapped::kNo,
-                                                          SkBackingFit::kExact,
-                                                          SkBudgeted::kYes);
+    GrSurfaceProxyView dstView = GrSurfaceProxy::Copy(context, srcProxy.get(),
+                                                      kTopLeft_GrSurfaceOrigin,
+                                                      GrColorType::kBGRA_8888,
+                                                      GrMipMapped::kNo,
+                                                      SkBackingFit::kExact,
+                                                      SkBudgeted::kYes);
 
     // TODO: GrSurfaceProxy::Copy doesn't check to see if the framebufferOnly bit is set yet.
     // Update this when it does -- it should fail.
-    if (!dstProxy) {
+    if (!dstView.proxy()) {
         ERRORF(reporter, "Expected copy to succeed");
     }
 
     // Try direct copy via GPU (should fail)
-    GrSurfaceDesc desc;
-    desc.fWidth = kWidth;
-    desc.fHeight = kHeight;
     GrBackendFormat backendFormat = GrBackendFormat::MakeMtl(drawable.texture.pixelFormat);
     GrSurface* src = srcProxy->peekSurface();
-    sk_sp<GrTexture> dst = gpu->createTexture(desc, backendFormat, GrRenderable::kNo,
-                                              1, GrMipMapped::kNo, SkBudgeted::kNo,
-                                              GrProtected::kNo);
+    sk_sp<GrTexture> dst =
+            gpu->createTexture({kWidth, kHeight}, backendFormat, GrRenderable::kNo, 1,
+                               GrMipMapped::kNo, SkBudgeted::kNo, GrProtected::kNo);
 
     bool result = gpu->copySurface(dst.get(), src, SkIRect::MakeXYWH(0, 0, kWidth, kHeight),
                                    SkIPoint::Make(0, 0));

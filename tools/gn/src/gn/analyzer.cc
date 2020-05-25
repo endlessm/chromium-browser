@@ -101,7 +101,7 @@ void WriteLabels(const Label& default_toolchain,
                  const std::set<Label>& labels) {
   std::vector<std::string> strings;
   auto value = std::make_unique<base::ListValue>();
-  for (const auto l : labels)
+  for (const auto& l : labels)
     strings.push_back(l.GetUserVisibleName(default_toolchain));
   std::sort(strings.begin(), strings.end());
   value->AppendStrings(strings);
@@ -116,8 +116,8 @@ Label AbsoluteOrSourceAbsoluteStringToLabel(const Label& default_toolchain,
                "\"" + s + "\" is not a source-absolute or absolute path.");
     return Label();
   }
-  return Label::Resolve(SourceDir("//"), default_toolchain, Value(nullptr, s),
-                        err);
+  return Label::Resolve(SourceDir("//"), std::string_view(), default_toolchain,
+                        Value(nullptr, s), err);
 }
 
 Err JSONToInputs(const Label& default_toolchain,
@@ -219,7 +219,7 @@ std::string OutputsToJSON(const Outputs& outputs,
 Analyzer::Analyzer(const Builder& builder,
                    const SourceFile& build_config_file,
                    const SourceFile& dot_file,
-                   const std::set<SourceFile>& build_args_dependency_files)
+                   const SourceFileSet& build_args_dependency_files)
     : all_items_(builder.GetAllResolvedItems()),
       default_toolchain_(builder.loader()->GetDefaultToolchain()),
       build_config_file_(build_config_file),

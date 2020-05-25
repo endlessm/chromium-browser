@@ -133,15 +133,16 @@ namespace dawn_native { namespace null {
 
         if (IsToggleEnabled(Toggle::UseSpvc)) {
             shaderc_spvc::CompileOptions options;
-            shaderc_spvc::Context context;
+            options.SetValidate(IsValidationEnabled());
+            shaderc_spvc::Context* context = module->GetContext();
             shaderc_spvc_status status =
-                context.InitializeForGlsl(descriptor->code, descriptor->codeSize, options);
+                context->InitializeForGlsl(descriptor->code, descriptor->codeSize, options);
             if (status != shaderc_spvc_status_success) {
                 return DAWN_VALIDATION_ERROR("Unable to initialize instance of spvc");
             }
 
             spirv_cross::Compiler* compiler;
-            status = context.GetCompiler(reinterpret_cast<void**>(&compiler));
+            status = context->GetCompiler(reinterpret_cast<void**>(&compiler));
             if (status != shaderc_spvc_status_success) {
                 return DAWN_VALIDATION_ERROR("Unable to get cross compiler");
             }
@@ -210,7 +211,7 @@ namespace dawn_native { namespace null {
     MaybeError Device::IncrementMemoryUsage(size_t bytes) {
         static_assert(kMaxMemoryUsage <= std::numeric_limits<size_t>::max() / 2, "");
         if (bytes > kMaxMemoryUsage || mMemoryUsage + bytes > kMaxMemoryUsage) {
-            return DAWN_DEVICE_LOST_ERROR("Out of memory.");
+            return DAWN_OUT_OF_MEMORY_ERROR("Out of memory.");
         }
         mMemoryUsage += bytes;
         return {};
@@ -249,6 +250,25 @@ namespace dawn_native { namespace null {
 
         mCompletedSerial = mLastSubmittedSerial;
         mLastSubmittedSerial++;
+    }
+
+    // BindGroupDataHolder
+
+    BindGroupDataHolder::BindGroupDataHolder(size_t size)
+        : mBindingDataAllocation(malloc(size))  // malloc is guaranteed to return a
+                                                // pointer aligned enough for the allocation
+    {
+    }
+
+    BindGroupDataHolder::~BindGroupDataHolder() {
+        free(mBindingDataAllocation);
+    }
+
+    // BindGroup
+
+    BindGroup::BindGroup(DeviceBase* device, const BindGroupDescriptor* descriptor)
+        : BindGroupDataHolder(descriptor->layout->GetBindingDataSize()),
+          BindGroupBase(device, descriptor, mBindingDataAllocation) {
     }
 
     // Buffer

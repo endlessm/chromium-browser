@@ -29,7 +29,7 @@
 #include "src/core/SkEnumerate.h"
 #include "src/core/SkFontPriv.h"
 #include "src/core/SkRasterClip.h"
-#include "src/core/SkStrike.h"
+#include "src/core/SkScalerCache.h"
 #include "src/core/SkStrikeCache.h"
 #include "src/core/SkStrikeForGPU.h"
 #include "src/core/SkStrikeSpec.h"
@@ -104,7 +104,7 @@ void SkGlyphRunListPainter::drawForBitmapDevice(
             SkStrikeSpec strikeSpec = SkStrikeSpec::MakePath(
                     runFont, runPaint, props, fScalerContextFlags);
 
-            auto strike = strikeSpec.findOrCreateExclusiveStrike();
+            auto strike = strikeSpec.findOrCreateStrike();
 
             fDrawable.startSource(fRejects.source(), drawOrigin);
             strike->prepareForPathDrawing(&fDrawable, &fRejects);
@@ -121,7 +121,7 @@ void SkGlyphRunListPainter::drawForBitmapDevice(
             SkStrikeSpec strikeSpec = SkStrikeSpec::MakeMask(
                     runFont, runPaint, props, fScalerContextFlags, deviceMatrix);
 
-            auto strike = strikeSpec.findOrCreateExclusiveStrike();
+            auto strike = strikeSpec.findOrCreateStrike();
 
             fDrawable.startDevice(
                     fRejects.source(), drawOrigin, deviceMatrix, strike->roundingSpec());
@@ -358,8 +358,7 @@ void GrTextContext::drawGlyphRunList(
                 glyphRunList, drawMatrix, props, supportsSDFT, fOptions, cachedBlob.get());
     }
 
-    cachedBlob->flush(target, props, fDistanceAdjustTable.get(), blobPaint, drawingColor,
-                      clip, drawMatrix, drawOrigin);
+    cachedBlob->flush(target, props, blobPaint, drawingColor, clip, drawMatrix, drawOrigin);
 }
 
 #if GR_TEST_UTILS
@@ -407,7 +406,7 @@ std::unique_ptr<GrDrawOp> GrTextContext::createOp_TestingOnly(GrRecordingContext
     }
 
     return blob->test_makeOp(textLen, drawMatrix, drawOrigin, skPaint, filteredColor, surfaceProps,
-                             textContext->dfAdjustTable(), rtc->textTarget());
+                             rtc->textTarget());
 }
 
 #endif  // GR_TEST_UTILS

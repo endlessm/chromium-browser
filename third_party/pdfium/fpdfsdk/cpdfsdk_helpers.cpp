@@ -37,6 +37,16 @@ bool RaiseUnsupportedError(int nError) {
   return true;
 }
 
+// Use the existence of the XFA array as a signal for XFA forms.
+bool DocHasXFA(const CPDF_Document* doc) {
+  const CPDF_Dictionary* root = doc->GetRoot();
+  if (!root)
+    return false;
+
+  const CPDF_Dictionary* form = root->GetDictFor("AcroForm");
+  return form && form->GetArrayFor("XFA");
+}
+
 unsigned long GetStreamMaybeCopyAndReturnLengthImpl(const CPDF_Stream* stream,
                                                     void* buffer,
                                                     unsigned long buflen,
@@ -320,53 +330,46 @@ void SetPDFUnsupportInfo(UNSUPPORT_INFO* unsp_info) {
   g_unsupport_info = unsp_info;
 }
 
-UNSUPPORT_INFO* GetPDFUnssuportInto() {
-  return g_unsupport_info;
-}
-
-void ReportUnsupportedFeatures(CPDF_Document* pDoc) {
+void ReportUnsupportedFeatures(const CPDF_Document* pDoc) {
   const CPDF_Dictionary* pRootDict = pDoc->GetRoot();
-  if (pRootDict) {
-    // Portfolios and Packages
-    if (pRootDict->KeyExist("Collection")) {
-      RaiseUnsupportedError(FPDF_UNSP_DOC_PORTABLECOLLECTION);
-      return;
-    }
-    if (pRootDict->KeyExist("Names")) {
-      const CPDF_Dictionary* pNameDict = pRootDict->GetDictFor("Names");
-      if (pNameDict && pNameDict->KeyExist("EmbeddedFiles")) {
-        RaiseUnsupportedError(FPDF_UNSP_DOC_ATTACHMENT);
-        return;
-      }
-      if (pNameDict && pNameDict->KeyExist("JavaScript")) {
-        const CPDF_Dictionary* pJSDict = pNameDict->GetDictFor("JavaScript");
-        const CPDF_Array* pArray =
-            pJSDict ? pJSDict->GetArrayFor("Names") : nullptr;
-        if (pArray) {
-          for (size_t i = 0; i < pArray->size(); i++) {
-            ByteString cbStr = pArray->GetStringAt(i);
-            if (cbStr.Compare("com.adobe.acrobat.SharedReview.Register") == 0) {
-              RaiseUnsupportedError(FPDF_UNSP_DOC_SHAREDREVIEW);
-              return;
-            }
+  if (!pRootDict)
+    return;
+
+  // Portfolios and Packages
+  if (pRootDict->KeyExist("Collection"))
+    RaiseUnsupportedError(FPDF_UNSP_DOC_PORTABLECOLLECTION);
+
+  const CPDF_Dictionary* pNameDict = pRootDict->GetDictFor("Names");
+  if (pNameDict) {
+    if (pNameDict->KeyExist("EmbeddedFiles"))
+      RaiseUnsupportedError(FPDF_UNSP_DOC_ATTACHMENT);
+
+    const CPDF_Dictionary* pJSDict = pNameDict->GetDictFor("JavaScript");
+    if (pJSDict) {
+      const CPDF_Array* pArray = pJSDict->GetArrayFor("Names");
+      if (pArray) {
+        for (size_t i = 0; i < pArray->size(); i++) {
+          ByteString cbStr = pArray->GetStringAt(i);
+          if (cbStr.Compare("com.adobe.acrobat.SharedReview.Register") == 0) {
+            RaiseUnsupportedError(FPDF_UNSP_DOC_SHAREDREVIEW);
+            break;
           }
         }
       }
     }
+  }
 
-    // SharedForm
-    const CPDF_Stream* pStream = pRootDict->GetStreamFor("Metadata");
-    if (pStream) {
-      CPDF_Metadata metaData(pStream);
-      for (const auto& err : metaData.CheckForSharedForm())
-        RaiseUnsupportedError(static_cast<int>(err));
-    }
+  // SharedForm
+  const CPDF_Stream* pStream = pRootDict->GetStreamFor("Metadata");
+  if (pStream) {
+    CPDF_Metadata metadata(pStream);
+    for (const UnsupportedFeature& feature : metadata.CheckForSharedForm())
+      RaiseUnsupportedError(static_cast<int>(feature));
   }
 }
 
-void ReportUnsupportedXFA(CPDF_Document* pDoc) {
-  // XFA Forms
-  if (!pDoc->GetExtension() && CPDF_InteractiveForm(pDoc).HasXFAForm())
+void ReportUnsupportedXFA(const CPDF_Document* pDoc) {
+  if (!pDoc->GetExtension() && DocHasXFA(pDoc))
     RaiseUnsupportedError(FPDF_UNSP_DOC_XFAFORM);
 }
 

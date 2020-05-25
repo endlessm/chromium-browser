@@ -61,12 +61,11 @@ _blank_or_eapi_re = re.compile(r'^\s*(?:#|EAPI=|$)')
 # This regex is used to extract test names from IUSE_TESTS
 _autotest_re = re.compile(r'\+tests_(\w+)', re.VERBOSE)
 
+# Where portage stores metadata about installed packages.
+VDB_PATH = 'var/db/pkg'
+
 WORKON_EBUILD_VERSION = '9999'
 WORKON_EBUILD_SUFFIX = '-%s.ebuild' % WORKON_EBUILD_VERSION
-
-UNITTEST_PACKAGE_BLACKLIST = set((
-    'sys-devel/binutils',
-))
 
 # A structure to hold computed values of CROS_WORKON_*.
 CrosWorkonVars = collections.namedtuple(
@@ -101,6 +100,10 @@ class EbuildVersionError(Error):
 
 class MissingOverlayError(Error):
   """This exception indicates that a needed overlay is missing."""
+
+
+class InvalidUprevSourceError(Error):
+  """Error for when an uprev source is invalid."""
 
 
 def GetOverlayRoot(path):
@@ -525,6 +528,7 @@ class EBuild(object):
     is_stable = False
     is_blacklisted = False
     has_test = False
+    restrict_tests = False
     with open(ebuild_path, mode='rb') as fp:
       for i, line in enumerate(fp):
         # If the file has bad encodings, produce a helpful diagnostic for the
@@ -554,8 +558,10 @@ class EBuild(object):
         elif (line.startswith('src_test()') or
               line.startswith('platform_pkg_test()')):
           has_test = True
+        elif line.startswith('RESTRICT=') and 'test' in line:
+          restrict_tests = True
     return EBuildClassifyAttributes(
-        is_workon, is_stable, is_blacklisted, has_test)
+        is_workon, is_stable, is_blacklisted, has_test and not restrict_tests)
 
   def _ReadEBuild(self, path):
     """Determine the settings of `is_workon`, `is_stable` and is_blacklisted
@@ -954,10 +960,10 @@ class EBuild(object):
     try:
       main_pv = int(main_pv)
     except ValueError:
-      raise ValueError('PV returned is invalid: %s' % output)
+      raise ValueError('%s: PV returned is invalid: %s' % (vers_script, output))
     if main_pv >= int(WORKON_EBUILD_VERSION):
-      raise ValueError('cros-workon packages must have a PV < %s; not %s'
-                       % (WORKON_EBUILD_VERSION, output))
+      raise ValueError('%s: cros-workon packages must have a PV < %s; not %s'
+                       % (vers_script, WORKON_EBUILD_VERSION, output))
 
     # Sanity check: We should be able to parse a CPV string with the produced
     # version number.
@@ -1007,13 +1013,17 @@ class EBuild(object):
       OSError: Error occurred while creating a new ebuild.
       IOError: Error occurred while writing to the new revved ebuild file.
     """
-
     if self.is_stable:
-      stable_version_no_rev = self.GetVersion(srcroot, manifest,
-                                              self.version_no_rev)
+      starting_pv = self.version_no_rev
     else:
       # If given unstable ebuild, use preferred version rather than 9999.
-      stable_version_no_rev = self.GetVersion(srcroot, manifest, '0.0.1')
+      starting_pv = '0.0.1'
+
+    try:
+      stable_version_no_rev = self.GetVersion(srcroot, manifest, starting_pv)
+    except Exception as e:
+      logging.critical('%s: uprev failed: %s', self.ebuild_path, e)
+      raise
 
     old_version = '%s-r%d' % (
         stable_version_no_rev, self.current_revision)
@@ -1028,9 +1038,13 @@ class EBuild(object):
     srcdirs = info.srcdirs
     subtrees = info.subtrees
     commit_ids = [self.GetCommitId(x) for x in srcdirs]
+    if not commit_ids:
+      raise InvalidUprevSourceError('No commit_ids found for %s' % srcdirs)
     tree_ids = [self.GetTreeId(x) for x in subtrees]
     # Make sure they are all valid (e.g. a deleted repo).
     tree_ids = [tree_id for tree_id in tree_ids if tree_id]
+    if not tree_ids:
+      raise InvalidUprevSourceError('No tree_ids found for %s' % subtrees)
     variables = dict(CROS_WORKON_COMMIT=self.FormatBashArray(commit_ids),
                      CROS_WORKON_TREE=self.FormatBashArray(tree_ids))
 
@@ -1207,7 +1221,7 @@ class PortageDB(object):
       root: The path to the root to inspect, for example "/build/foo".
     """
     self.root = root
-    self.db_path = os.path.join(root, 'var/db/pkg')
+    self.db_path = os.path.join(root, VDB_PATH)
     self._ebuilds = {}
 
   def GetInstalledPackage(self, category, pv):
@@ -1329,7 +1343,7 @@ class InstalledPackage(object):
     """
     if field_name not in self._fields:
       try:
-        value = osutils.ReadFile(os.path.join(self.pkgdir, field_name))
+        value = osutils.ReadFile(os.path.join(self.pkgdir, field_name)).strip()
       except IOError as e:
         if e.errno != errno.ENOENT:
           raise
@@ -1342,8 +1356,24 @@ class InstalledPackage(object):
     return self._ReadField('CATEGORY')
 
   @property
+  def homepage(self):
+    return self._ReadField('HOMEPAGE')
+
+  @property
+  def license(self):
+    return self._ReadField('LICENSE')
+
+  @property
   def pf(self):
     return self._ReadField('PF')
+
+  @property
+  def repository(self):
+    return self._ReadField('repository')
+
+  @property
+  def size(self):
+    return self._ReadField('SIZE')
 
   def ListContents(self):
     """List of files and directories installed by this package.
@@ -2392,3 +2422,25 @@ def GeneratePackageSizes(db, root, installed_packages):
     logging.debug('%s installed_package size is %d', package_cpv,
                   total_package_filesize)
     yield (package_cpv, total_package_filesize)
+
+
+def UpdateEbuildManifest(ebuild_path, chroot=None):
+  """Updates the ebuild manifest for the provided ebuild path.
+
+  Args:
+    ebuild_path: path - The absolute path to the ebuild.
+    chroot (chroot_lib.Chroot): Optionally specify a chroot to enter.
+
+  Returns:
+    CommandResult
+  """
+
+  chroot_args = None
+  if chroot:
+    chroot_args = chroot.get_enter_args()
+
+  command = [
+      'ebuild', ebuild_path, 'manifest', '--force'
+  ]
+  return cros_build_lib.run(command, enter_chroot=True,
+                            chroot_args=chroot_args)

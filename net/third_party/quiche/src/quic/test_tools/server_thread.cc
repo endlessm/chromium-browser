@@ -15,6 +15,7 @@ namespace test {
 ServerThread::ServerThread(QuicServer* server, const QuicSocketAddress& address)
     : QuicThread("server_thread"),
       server_(server),
+      clock_(server->epoll_server()),
       address_(address),
       port_(0),
       initialized_(false) {}
@@ -68,6 +69,24 @@ void ServerThread::WaitForCryptoHandshakeConfirmed() {
   confirmed_.WaitForNotification();
 }
 
+bool ServerThread::WaitUntil(std::function<bool()> termination_predicate,
+                             QuicTime::Delta timeout) {
+  const QuicTime deadline = clock_.Now() + timeout;
+  while (clock_.Now() < deadline) {
+    QuicNotification done_checking;
+    bool should_terminate = false;
+    Schedule([&] {
+      should_terminate = termination_predicate();
+      done_checking.Notify();
+    });
+    done_checking.WaitForNotification();
+    if (should_terminate) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void ServerThread::Pause() {
   DCHECK(!pause_.HasBeenNotified());
   pause_.Notify();
@@ -106,7 +125,7 @@ void ServerThread::MaybeNotifyOfHandshakeConfirmation() {
 }
 
 void ServerThread::ExecuteScheduledActions() {
-  QuicDeque<std::function<void()>> actions;
+  QuicCircularDeque<std::function<void()>> actions;
   {
     QuicWriterMutexLock lock(&scheduled_actions_lock_);
     actions.swap(scheduled_actions_);

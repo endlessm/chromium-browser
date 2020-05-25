@@ -166,8 +166,8 @@ void AudioEncoderMultiChannelOpusImpl::Reset() {
 
 absl::optional<std::pair<TimeDelta, TimeDelta>>
 AudioEncoderMultiChannelOpusImpl::GetFrameLengthRange() const {
-  return {{TimeDelta::ms(config_.frame_size_ms),
-           TimeDelta::ms(config_.frame_size_ms)}};
+  return {{TimeDelta::Millis(config_.frame_size_ms),
+           TimeDelta::Millis(config_.frame_size_ms)}};
 }
 
 // If the given config is OK, recreate the Opus encoder instance with those

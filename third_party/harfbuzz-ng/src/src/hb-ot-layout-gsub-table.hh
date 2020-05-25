@@ -259,9 +259,8 @@ struct SingleSubst
     if (glyphs)
     {
       format = 1;
-      auto get_delta = [=] (hb_codepoint_pair_t _) {
-			 return (unsigned) (_.second - _.first) & 0xFFFF;
-		       };
+      auto get_delta = [=] (hb_codepoint_pair_t _)
+		       { return (unsigned) (_.second - _.first) & 0xFFFF; };
       delta = get_delta (*glyphs);
       if (!hb_all (++(+glyphs), delta, get_delta)) format = 2;
     }
@@ -363,9 +362,9 @@ struct Sequence
     if (!intersects (&glyphset)) return_trace (false);
 
     auto it =
-      + hb_iter (substitute)
-      | hb_map (glyph_map)
-      ;
+    + hb_iter (substitute)
+    | hb_map (glyph_map)
+    ;
 
     auto *out = c->serializer->start_embed (*this);
     return_trace (out->serialize (c->serializer, it));
@@ -458,7 +457,7 @@ struct MultipleSubstFormat1
     hb_sorted_vector_t<hb_codepoint_t> new_coverage;
     + hb_zip (this+coverage, sequence)
     | hb_filter (glyphset, hb_first)
-    | hb_filter (subset_offset_array (c, out->sequence, this, out), hb_second)
+    | hb_filter (subset_offset_array (c, out->sequence, this), hb_second)
     | hb_map (hb_first)
     | hb_map (glyph_map)
     | hb_sink (new_coverage)
@@ -605,6 +604,7 @@ struct AlternateSubstFormat1
   void closure (hb_closure_context_t *c) const
   {
     + hb_zip (this+coverage, alternateSet)
+    | hb_filter (c->glyphs, hb_first)
     | hb_map (hb_second)
     | hb_map (hb_add (this))
     | hb_apply ([c] (const AlternateSet &_) { _.closure (c); })
@@ -670,7 +670,7 @@ struct AlternateSubstFormat1
     hb_sorted_vector_t<hb_codepoint_t> new_coverage;
     + hb_zip (this+coverage, alternateSet)
     | hb_filter (glyphset, hb_first)
-    | hb_filter (subset_offset_array (c, out->alternateSet, this, out), hb_second)
+    | hb_filter (subset_offset_array (c, out->alternateSet, this), hb_second)
     | hb_map (hb_first)
     | hb_map (glyph_map)
     | hb_sink (new_coverage)
@@ -930,7 +930,7 @@ struct LigatureSet
     if (unlikely (!c->serializer->extend_min (out))) return_trace (false);
 
     + hb_iter (ligature)
-    | hb_filter (subset_offset_array (c, out->ligature, this, out))
+    | hb_filter (subset_offset_array (c, out->ligature, this))
     | hb_drain
     ;
     return_trace (bool (out->ligature));
@@ -1002,7 +1002,7 @@ struct LigatureSubstFormat1
   {
     TRACE_APPLY (this);
 
-    unsigned int index = (this+coverage).get_coverage (c->buffer->cur().codepoint);
+    unsigned int index = (this+coverage).get_coverage (c->buffer->cur ().codepoint);
     if (likely (index == NOT_COVERED)) return_trace (false);
 
     const LigatureSet &lig_set = this+ligatureSet[index];
@@ -1046,7 +1046,7 @@ struct LigatureSubstFormat1
     hb_sorted_vector_t<hb_codepoint_t> new_coverage;
     + hb_zip (this+coverage, ligatureSet)
     | hb_filter (glyphset, hb_first)
-    | hb_filter (subset_offset_array (c, out->ligatureSet, this, out), hb_second)
+    | hb_filter (subset_offset_array (c, out->ligatureSet, this), hb_second)
     | hb_map (hb_first)
     | hb_map (glyph_map)
     | hb_sink (new_coverage)
@@ -1199,7 +1199,7 @@ struct ReverseChainSingleSubstFormat1
     if (unlikely (c->nesting_level_left != HB_MAX_NESTING_LEVEL))
       return_trace (false); /* No chaining to this type */
 
-    unsigned int index = (this+coverage).get_coverage (c->buffer->cur().codepoint);
+    unsigned int index = (this+coverage).get_coverage (c->buffer->cur ().codepoint);
     if (likely (index == NOT_COVERED)) return_trace (false);
 
     const OffsetArrayOf<Coverage> &lookahead = StructAfter<OffsetArrayOf<Coverage>> (backtrack);
@@ -1360,7 +1360,7 @@ struct SubstLookup : Lookup
   {
     unsigned int type = get_type ();
     if (unlikely (type == SubTable::Extension))
-      return reinterpret_cast<const ExtensionSubst &> (get_subtable(0)).is_reverse ();
+      return reinterpret_cast<const ExtensionSubst &> (get_subtable (0)).is_reverse ();
     return lookup_type_is_reverse (type);
   }
 

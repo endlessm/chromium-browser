@@ -43,7 +43,7 @@
 #include "tools/viewer/SvgSlide.h"
 #include "tools/viewer/Viewer.h"
 
-#include <stdlib.h>
+#include <cstdlib>
 #include <map>
 
 #include "imgui.h"
@@ -130,6 +130,11 @@ static DEFINE_int_2(threads, j, -1,
 static DEFINE_bool(redraw, false, "Toggle continuous redraw.");
 
 static DEFINE_bool(offscreen, false, "Force rendering to an offscreen surface.");
+static DEFINE_bool(skvm, false, "Try to use skvm blitters for raster.");
+
+#ifndef SK_GL
+static_assert(false, "viewer requires GL backend for raster.")
+#endif
 
 const char* kBackendTypeStrings[sk_app::Window::kBackendTypeCount] = {
     "OpenGL",
@@ -247,6 +252,8 @@ const char* kON = "ON";
 const char* kOFF = "OFF";
 const char* kRefreshStateName = "Refresh";
 
+extern bool gUseSkVMBlitter;
+
 Viewer::Viewer(int argc, char** argv, void* platformData)
     : fCurrentSlide(-1)
     , fRefresh(false)
@@ -277,11 +284,11 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     SkGraphics::Init();
 
     gPathRendererNames[GpuPathRenderers::kDefault] = "Default Path Renderers";
-    gPathRendererNames[GpuPathRenderers::kGpuTessellation] = "GPU Tessellation";
+    gPathRendererNames[GpuPathRenderers::kTessellation] = "Tessellation";
     gPathRendererNames[GpuPathRenderers::kStencilAndCover] = "NV_path_rendering";
     gPathRendererNames[GpuPathRenderers::kSmall] = "Small paths (cached sdf or alpha masks)";
     gPathRendererNames[GpuPathRenderers::kCoverageCounting] = "CCPR";
-    gPathRendererNames[GpuPathRenderers::kTessellating] = "Tessellating";
+    gPathRendererNames[GpuPathRenderers::kTriangulating] = "Triangulating";
     gPathRendererNames[GpuPathRenderers::kNone] = "Software masks";
 
     SkDebugf("Command line arguments: ");
@@ -294,6 +301,8 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
 #ifdef SK_BUILD_FOR_ANDROID
     SetResourcePath("/data/local/tmp/resources");
 #endif
+
+    gUseSkVMBlitter = FLAGS_skvm;
 
     ToolUtils::SetDefaultFontMgr();
 
@@ -598,6 +607,16 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
         fStatsLayer.setDisplayScale(fZoomUI ? 2.0f : 1.0f);
         fWindow->inval();
     });
+    fCommands.addCommand('$', "ViaSerialize", "Toggle ViaSerialize", [this]() {
+        fDrawViaSerialize = !fDrawViaSerialize;
+        this->updateTitle();
+        fWindow->inval();
+    });
+    fCommands.addCommand('!', "SkVM", "Toggle SkVM", [this]() {
+        gUseSkVMBlitter = !gUseSkVMBlitter;
+        this->updateTitle();
+        fWindow->inval();
+    });
 
     // set up slides
     this->initSlides();
@@ -810,6 +829,12 @@ void Viewer::updateTitle() {
         } else {
             title.append(" <AAA>");
         }
+    }
+    if (fDrawViaSerialize) {
+        title.append(" <serialize>");
+    }
+    if (gUseSkVMBlitter) {
+        title.append(" <skvm>");
     }
 
     SkPaintTitleUpdater paintTitle(&title);
@@ -1036,12 +1061,12 @@ void Viewer::setupCurrentSlide() {
     }
 }
 
-#define MAX_ZOOM_LEVEL  8
-#define MIN_ZOOM_LEVEL  -8
+#define MAX_ZOOM_LEVEL  8.0f
+#define MIN_ZOOM_LEVEL  -8.0f
 
 void Viewer::changeZoomLevel(float delta) {
     fZoomLevel += delta;
-    fZoomLevel = SkScalarPin(fZoomLevel, MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL);
+    fZoomLevel = SkTPin(fZoomLevel, MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL);
     this->preTouchMatrixChanged();
 }
 
@@ -1329,6 +1354,14 @@ void Viewer::drawSlide(SkSurface* surface) {
         slideCanvas = offscreenSurface->getCanvas();
     }
 
+    SkPictureRecorder recorder;
+    SkCanvas* recorderRestoreCanvas = nullptr;
+    if (fDrawViaSerialize) {
+        recorderRestoreCanvas = slideCanvas;
+        slideCanvas = recorder.beginRecording(
+                SkRect::Make(fSlides[fCurrentSlide]->getDimensions()));
+    }
+
     int count = slideCanvas->save();
     slideCanvas->clear(SK_ColorWHITE);
     // Time the painting logic of the slide
@@ -1336,19 +1369,11 @@ void Viewer::drawSlide(SkSurface* surface) {
     if (fTiled) {
         int tileW = SkScalarCeilToInt(fWindow->width() * fTileScale.width());
         int tileH = SkScalarCeilToInt(fWindow->height() * fTileScale.height());
-        sk_sp<SkSurface> tileSurface = make_surface(tileW, tileH);
-        SkCanvas* tileCanvas = tileSurface->getCanvas();
-        SkMatrix m = this->computeMatrix();
         for (int y = 0; y < fWindow->height(); y += tileH) {
             for (int x = 0; x < fWindow->width(); x += tileW) {
-                SkAutoCanvasRestore acr(tileCanvas, true);
-                tileCanvas->translate(-x, -y);
-                tileCanvas->clear(SK_ColorTRANSPARENT);
-                tileCanvas->concat(m);
-                OveridePaintFilterCanvas filterCanvas(tileCanvas, &fPaint, &fPaintOverrides,
-                                                      &fFont, &fFontOverrides);
-                fSlides[fCurrentSlide]->draw(&filterCanvas);
-                tileSurface->draw(slideCanvas, x, y, nullptr);
+                SkAutoCanvasRestore acr(slideCanvas, true);
+                slideCanvas->clipRect(SkRect::MakeXYWH(x, y, tileW, tileH));
+                fSlides[fCurrentSlide]->draw(slideCanvas);
             }
         }
 
@@ -1373,6 +1398,13 @@ void Viewer::drawSlide(SkSurface* surface) {
     }
     fStatsLayer.endTiming(fPaintTimer);
     slideCanvas->restoreToCount(count);
+
+    if (recorderRestoreCanvas) {
+        sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
+        auto data = picture->serialize();
+        slideCanvas = recorderRestoreCanvas;
+        slideCanvas->drawPicture(SkPicture::MakeFromData(data.get()));
+    }
 
     // Force a flush so we can time that, too
     fStatsLayer.beginTiming(fFlushTimer);
@@ -1713,7 +1745,7 @@ void Viewer::drawImGui() {
                         prButton(GpuPathRenderers::kDefault);
                         if (fWindow->sampleCount() > 1 || caps->mixedSamplesSupport()) {
                             if (caps->shaderCaps()->tessellationSupport()) {
-                                prButton(GpuPathRenderers::kGpuTessellation);
+                                prButton(GpuPathRenderers::kTessellation);
                             }
                             if (caps->shaderCaps()->pathRenderingSupport()) {
                                 prButton(GpuPathRenderers::kStencilAndCover);
@@ -1725,7 +1757,7 @@ void Viewer::drawImGui() {
                             }
                             prButton(GpuPathRenderers::kSmall);
                         }
-                        prButton(GpuPathRenderers::kTessellating);
+                        prButton(GpuPathRenderers::kTriangulating);
                         prButton(GpuPathRenderers::kNone);
                     }
                     ImGui::TreePop();
@@ -2119,7 +2151,7 @@ void Viewer::drawImGui() {
                         }
 
                         SkReader32 reader(data->data(), data->size());
-                        entry.fShaderType = reader.readU32();
+                        entry.fShaderType = GrPersistentCacheUtils::GetType(&reader);
                         GrPersistentCacheUtils::UnpackCachedShaders(&reader, entry.fShader,
                                                                     entry.fInputs,
                                                                     kGrShaderTypeCount);
@@ -2239,11 +2271,11 @@ void Viewer::drawImGui() {
         if (ImGui::Begin("Zoom", &fShowZoomWindow)) {
             static int zoomFactor = 8;
             if (ImGui::Button("<<")) {
-                zoomFactor = SkTMax(zoomFactor / 2, 4);
+                zoomFactor = std::max(zoomFactor / 2, 4);
             }
             ImGui::SameLine(); ImGui::Text("%2d", zoomFactor); ImGui::SameLine();
             if (ImGui::Button(">>")) {
-                zoomFactor = SkTMin(zoomFactor * 2, 32);
+                zoomFactor = std::min(zoomFactor * 2, 32);
             }
 
             if (!fZoomWindowFixed) {
@@ -2380,7 +2412,7 @@ void Viewer::updateUIState() {
                 if (fWindow->sampleCount() > 1 || caps->mixedSamplesSupport()) {
                     if (caps->shaderCaps()->tessellationSupport()) {
                         writer.appendString(
-                                gPathRendererNames[GpuPathRenderers::kGpuTessellation].c_str());
+                                gPathRendererNames[GpuPathRenderers::kTessellation].c_str());
                     }
                     if (caps->shaderCaps()->pathRenderingSupport()) {
                         writer.appendString(
@@ -2394,7 +2426,7 @@ void Viewer::updateUIState() {
                     }
                     writer.appendString(gPathRendererNames[GpuPathRenderers::kSmall].c_str());
                 }
-                writer.appendString(gPathRendererNames[GpuPathRenderers::kTessellating].c_str());
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kTriangulating].c_str());
                 writer.appendString(gPathRendererNames[GpuPathRenderers::kNone].c_str());
             }
         });

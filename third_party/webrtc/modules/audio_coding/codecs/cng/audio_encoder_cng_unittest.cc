@@ -238,7 +238,8 @@ TEST_F(AudioEncoderCngTest, CheckPacketLossFractionPropagation) {
 
 TEST_F(AudioEncoderCngTest, CheckGetFrameLengthRangePropagation) {
   CreateCng(MakeCngConfig());
-  auto expected_range = std::make_pair(TimeDelta::ms(20), TimeDelta::ms(20));
+  auto expected_range =
+      std::make_pair(TimeDelta::Millis(20), TimeDelta::Millis(20));
   EXPECT_CALL(*mock_encoder_, GetFrameLengthRange())
       .WillRepeatedly(Return(absl::make_optional(expected_range)));
   EXPECT_THAT(cng_->GetFrameLengthRange(), Optional(Eq(expected_range)));

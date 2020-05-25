@@ -62,7 +62,7 @@ class RemoteNebraskaWrapperTest(cros_test_lib.MockTempDirTestCase):
     run_command_mock = self._PatchRemoteCommand()
     self.assertTrue(self._nebraska.IsReady())
     run_command_mock.assert_called_once_with(
-        ['curl', 'http://127.0.0.1:10/check_health', '-o', '/dev/null'],
+        ['curl', 'http://127.0.0.1:10/health_check', '-o', '/dev/null'],
         check=False)
 
   def test_ReadPortNumber(self):
@@ -116,7 +116,8 @@ class RemoteNebraskaWrapperTest(cros_test_lib.MockTempDirTestCase):
     self.PatchObject(timeout_util, 'WaitForReturnTrue')
     run_command_mock = self._PatchRemoteCommand(output='10')
     self._nebraska._WaitUntilStarted()
-    read_port_number_mock.assert_called_once()
+    # TODO(crbug/1065172): Invalid assertion that had previously been mocked.
+    # read_port_number_mock.assert_called_once()
     self.assertEqual(self._nebraska._pid, 10)
     run_command_mock.assert_called_once_with(['cat', '/run/nebraska/pid'],
                                              capture_output=True)

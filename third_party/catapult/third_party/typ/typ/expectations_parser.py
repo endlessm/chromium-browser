@@ -60,10 +60,10 @@ class ParseError(Exception):
 
 
 class Expectation(object):
-    def __init__(self, reason='', test='*', tags=None, results=None, lineno=0,
+    def __init__(self, reason=None, test='*', tags=None, results=None, lineno=0,
                  retry_on_failure=False, is_slow_test=False,
                  conflict_resolution=ConflictResolutionTypes.UNION, raw_tags=None, raw_results=None,
-                 is_glob=False, trailing_comments=''):
+                 is_glob=False, trailing_comments=None):
         """Constructor for expectations.
 
         Args:
@@ -78,7 +78,9 @@ class Expectation(object):
         """
         tags = tags or []
         results = results or {ResultType.Pass}
-        assert python_2_3_compat.is_str(reason) or reason is None
+        reason = reason or ''
+        trailing_comments = trailing_comments or ''
+        assert python_2_3_compat.is_str(reason)
         assert python_2_3_compat.is_str(test)
         self._reason = reason
         self._test = test
@@ -98,7 +100,8 @@ class Expectation(object):
                 and self.should_retry_on_failure == other.should_retry_on_failure
                 and self.is_slow_test == other.is_slow_test
                 and self.tags == other.tags and self.results == other.results
-                and self.lineno == other.lineno)
+                and self.lineno == other.lineno
+                and self.trailing_comments == other.trailing_comments)
 
     def _set_string_value(self):
         """This method will create an expectation line in string form and set the
@@ -107,16 +110,6 @@ class Expectation(object):
         Setting the _raw_results and _raw_tags list to the original lists through the constructor
         during parsing stops unintended modifications to test expectations when rewriting files.
         """
-        # Use tags and results lists to set raw tag string lists
-        # if they were not already passed to the constructor
-        if not self._raw_tags:
-            self._raw_tags = [t[0].upper() + t[1:].lower() for t in self._tags]
-        if not self._raw_results:
-            self._raw_results = [_RESULT_TAGS[t] for t in self._results]
-            if self.is_slow_test:
-                self._raw_results.append(_SLOW_TAG)
-            if self.should_retry_on_failure:
-                self._raw_results.append(_RETRY_ON_FAILURE_TAG)
         # If this instance is for a glob type expectation then do not escape
         # the last asterisk
         if self.is_glob:
@@ -129,12 +122,28 @@ class Expectation(object):
         self._string_value = ''
         if self._reason:
             self._string_value += self._reason + ' '
-        if self._raw_tags:
-            self._string_value += '[ %s ] ' % ' '.join(self._raw_tags)
+        if self.raw_tags:
+            self._string_value += '[ %s ] ' % ' '.join(self.raw_tags)
         self._string_value += pattern + ' '
-        self._string_value += '[ %s ]' % ' '.join(self._raw_results)
+        self._string_value += '[ %s ]' % ' '.join(self.raw_results)
         if self._trailing_comments:
             self._string_value += self._trailing_comments
+
+    @property
+    def raw_tags(self):
+        if not self._raw_tags:
+            self._raw_tags = {t[0].upper() + t[1:].lower() for t in self._tags}
+        return self._raw_tags
+
+    @property
+    def raw_results(self):
+        if not self._raw_results:
+            self._raw_results = {_RESULT_TAGS[t] for t in self._results}
+            if self.is_slow_test:
+                self._raw_results.add(_SLOW_TAG)
+            if self.should_retry_on_failure:
+                self._raw_results.add(_RETRY_ON_FAILURE_TAG)
+        return self._raw_results
 
     def to_string(self):
         self._set_string_value()
@@ -168,6 +177,10 @@ class Expectation(object):
     @property
     def lineno(self):
         return self._lineno
+
+    @lineno.setter
+    def lineno(self, lineno):
+        self._lineno = lineno
 
     @property
     def is_glob(self):
@@ -384,7 +397,7 @@ class TaggedTestListParser(object):
         return Expectation(
             reason, test, tags, results, lineno, retry_on_failure, is_slow_test,
             self._conflict_resolution, raw_tags=raw_tags, raw_results=raw_results,
-            is_glob=is_glob, trailing_comments=trailing_comments or '')
+            is_glob=is_glob, trailing_comments=trailing_comments)
 
 
 class TestExpectations(object):
@@ -514,6 +527,7 @@ class TestExpectations(object):
         self._reasons = set()
         self._should_retry_on_failure = False
         self._is_slow_test = False
+        self._trailing_comments = str()
 
         def _update_expected_results(exp):
             if exp.tags.issubset(self._tags):
@@ -521,12 +535,15 @@ class TestExpectations(object):
                     self._results.update(exp.results)
                     self._should_retry_on_failure |= exp.should_retry_on_failure
                     self._is_slow_test |= exp.is_slow_test
+                    if exp.trailing_comments:
+                        self._trailing_comments += exp.trailing_comments + '\n'
                     if exp.reason:
                         self._reasons.update([exp.reason])
                 else:
                     self._results = set(exp.results)
                     self._should_retry_on_failure = exp.should_retry_on_failure
                     self._is_slow_test = exp.is_slow_test
+                    self._trailing_comments = exp.trailing_comments
                     if exp.reason:
                         self._reasons = {exp.reason}
 
@@ -538,7 +555,8 @@ class TestExpectations(object):
             return Expectation(
                     test=test, results=self._results,
                     retry_on_failure=self._should_retry_on_failure,
-                    is_slow_test=self._is_slow_test, reason=' '.join(self._reasons))
+                    is_slow_test=self._is_slow_test, reason=' '.join(self._reasons),
+                    trailing_comments=self._trailing_comments)
 
         # If we didn't find an exact match, check for matching globs. Match by
         # the most specific (i.e., longest) glob first. Because self.globs_exps
@@ -555,7 +573,8 @@ class TestExpectations(object):
                     return Expectation(
                             test=test, results=self._results,
                             retry_on_failure=self._should_retry_on_failure,
-                            is_slow_test=self._is_slow_test, reason=' '.join(self._reasons))
+                            is_slow_test=self._is_slow_test, reason=' '.join(self._reasons),
+                            trailing_comments=self._trailing_comments)
 
         # Nothing matched, so by default, the test is expected to pass.
         return Expectation(test=test)

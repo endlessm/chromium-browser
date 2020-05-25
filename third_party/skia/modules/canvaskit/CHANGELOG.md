@@ -5,12 +5,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+ - Support for DOMMatrix in addition to the SkMatrix currently supported by some APIs. [WIP]
+
+### Removed
+ - Previously deprecated functions MakeSkDashPathEffect, MakeLinearGradientShader,
+   MakeRadialGradientShader, MakeTwoPointConicalGradientShader, MakeSkCornerPathEffect,
+   MakeSkDiscretePathEffect
+
+### Changed
+ - CanvasKit colors are now represented with a TypedArray of four floats.
+
+### Removed
+ - SkPaint.setColorf is obsolete and removed. setColor accepts a CanvasKit color which is
+   always composed of floats.
+ - localmatrix option for `SkShader.Lerp` and `SkShader.Blend`.
+
+
+## [0.14.0] - 2020-03-18
+
+### Added
+ - `SkShader.MakeSweepGradient`
+ - `SkCanvas.saveLayer` can now be called with 1 argument (the paint). In this case the current
+   effective clip will be used, as the current rect is assumed to be null.
+ - `SkPaint.setAlphaf`
+ - Clients can supply `no_codecs` to compile.sh to remove all codec encoding and decoded code.
+   This can save over 100 kb compressed if codecs are not needed.
+
+### Deprecated
+ - `MakeSkDashPathEffect` will be removed soon. Calls can be replaced with
+   `SkPathEffect.MakeDash`.
+ - `MakeLinearGradientShader` will be removed soon. Calls can be replaced with
+   `SkShader.MakeLinearGradient`.
+ - `MakeRadialGradientShader` will be removed soon. Calls can be replaced with
+   `SkShader.MakeRadialGradient`.
+ - `MakeTwoPointConicalGradientShader` will be removed soon. Calls can be replaced with
+   `SkShader.MakeTwoPointConicalGradient`.
+
+### Fixed
+ - Shadows are properly draw on fillRect and strokeRect in the canvas2d emulation layer.
+ - Shadow offsets properly ignore the CTM in the canvas2d emulation layer.
+
+### Changed
+ - Stop compiling jpeg and webp encoders by default. This results in a 100kb binary size reduction.
+   Clients that need these encoders can supply `force_encode_webp` or `force_encode_jpeg` to
+   compile.sh.
+
+### Removed
+ - Removed inverse filltypes.
+ - Removed StrokeAndFill paint style.
+ - Removed TextEncoding enum (it was only used internally). All functions assume UTF-8.
+
+## [0.13.0] - 2020-02-28
+
+### Deprecated
+ - `MakeSkCornerPathEffect` will be removed soon. Calls can be replaced with
+   `SkPathEffect.MakeCorner`.
+ - `MakeSkDiscretePathEffect` will be removed soon. Calls can be replaced with
+   `SkPathEffect.MakeDiscrete`.
+
 ### Added
  - `SkSurface.drawOnce` for drawing a single frame (in addition to already existing
    `SkSurface.requestAnimationFrame` for animation logic).
+ - `CanvasKit.parseColorString` which processes color strings like "#2288FF"
+ - Particles module now exposes effect uniforms, which can be modified for live-updating.
+ - Experimental 4x4 matrices added in `SkM44`.
+ - Vector math functions added in `SkVector`.
+ - `SkRuntimeEffect.makeShaderWithChildren`, which can take in other shaders as fragmentProcessors.
+ - `GrContext.releaseResourcesAndAbandonContext` to free up WebGL contexts.
+ - A few methods on `SkFont`: `setHinting`, `setLinearMetrics`, `setSubpixel`.
 
 ### Changed
  - We now compile/ship with Emscripten v1.39.6.
+ - `SkMatrix.multiply` can now accept any number of matrix arguments, multiplying them
+    left-to-right.
+ - SkMatrix.invert now returns null when the matrix is not invertible. Previously it would return an
+   identity matrix. Callers must determine what behavior would be appropriate in this situation.
+ - In Canvas2D compatibility layer, the underlying SkFont will have setSubpixel(true).
+ - Bones are removed from Vertices builder
 
 ### Fixed
  - Support for .otf fonts (.woff and .woff2 still not supported).

@@ -35,9 +35,17 @@ import {IsolatedFileSystem} from './IsolatedFileSystem.js';
 import {PlatformFileSystem} from './PlatformFileSystem.js';  // eslint-disable-line no-unused-vars
 
 /**
+ * @type {!IsolatedFileSystemManager}
+ */
+let isolatedFileSystemManagerInstance;
+
+/**
  * @unrestricted
  */
 export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrapper {
+  /**
+   * @private
+   */
   constructor() {
     super();
 
@@ -51,7 +59,9 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
         Host.InspectorFrontendHostAPI.Events.FileSystemRemoved, this._onFileSystemRemoved, this);
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
-        Host.InspectorFrontendHostAPI.Events.FileSystemAdded, this._onFileSystemAdded, this);
+        Host.InspectorFrontendHostAPI.Events.FileSystemAdded, event => {
+          this._onFileSystemAdded(event);
+        }, this);
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
         Host.InspectorFrontendHostAPI.Events.FileSystemFilesChangedAddedRemoved, this._onFileSystemFilesChanged, this);
     Host.InspectorFrontendHost.InspectorFrontendHostInstance.events.addEventListener(
@@ -71,6 +81,18 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!isolatedFileSystemManagerInstance || forceNew) {
+      isolatedFileSystemManagerInstance = new IsolatedFileSystemManager();
+    }
+
+    return isolatedFileSystemManagerInstance;
+  }
+
+  /**
    * @return {!Promise<!Array<!IsolatedFileSystem>>}
    */
   _requestFileSystems() {
@@ -82,11 +104,11 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
     return promise;
 
     /**
-     * @param {!Common.Event} event
+     * @param {!Common.EventTarget.EventTargetEvent} event
      * @this {IsolatedFileSystemManager}
      */
     function onFileSystemsLoaded(event) {
-      const fileSystems = /** @type {!Array.<!Persistence.IsolatedFileSystemManager.FileSystem>} */ (event.data);
+      const fileSystems = /** @type {!Array.<!FileSystem>} */ (event.data);
       const promises = [];
       for (let i = 0; i < fileSystems.length; ++i) {
         promises.push(this._innerAddFileSystem(fileSystems[i], false));
@@ -128,7 +150,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Persistence.IsolatedFileSystemManager.FileSystem} fileSystem
+   * @param {!FileSystem} fileSystem
    * @param {boolean} dispatchEvent
    * @return {!Promise<?IsolatedFileSystem>}
    */
@@ -165,29 +187,32 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
-  async _onFileSystemAdded(event) {
+  _onFileSystemAdded(event) {
     const errorMessage = /** @type {string} */ (event.data['errorMessage']);
-    let fileSystem = /** @type {?Persistence.IsolatedFileSystemManager.FileSystem} */ (event.data['fileSystem']);
+    const fileSystem = /** @type {?FileSystem} */ (event.data['fileSystem']);
     if (errorMessage) {
-      self.Common.console.error(Common.UIString.UIString('Unable to add filesystem: %s', errorMessage));
+      if (errorMessage !== '<selection cancelled>') {
+        Common.Console.Console.instance().error(Common.UIString.UIString('Unable to add filesystem: %s', errorMessage));
+      }
       if (!this._fileSystemRequestResolve) {
         return;
       }
       this._fileSystemRequestResolve.call(null, null);
       this._fileSystemRequestResolve = null;
     } else if (fileSystem) {
-      fileSystem = await this._innerAddFileSystem(fileSystem, true);
-      if (this._fileSystemRequestResolve) {
-        this._fileSystemRequestResolve.call(null, fileSystem);
-        this._fileSystemRequestResolve = null;
-      }
+      this._innerAddFileSystem(fileSystem, true).then(fileSystem => {
+        if (this._fileSystemRequestResolve) {
+          this._fileSystemRequestResolve.call(null, fileSystem);
+          this._fileSystemRequestResolve = null;
+        }
+      });
     }
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onFileSystemRemoved(event) {
     const embedderPath = /** @type {string} */ (event.data);
@@ -202,7 +227,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onFileSystemFilesChanged(event) {
     const urlPaths = {
@@ -241,7 +266,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
    * @return {!Array<!IsolatedFileSystem>}
    */
   fileSystems() {
-    return this._fileSystems.valuesArray();
+    return [...this._fileSystems.values()];
   }
 
   /**
@@ -272,7 +297,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
       defaultExcludedFolders = defaultExcludedFolders.concat(defaultLinuxExcludedFolders);
     }
     const defaultExcludedFoldersPattern = defaultExcludedFolders.join('|');
-    this._workspaceFolderExcludePatternSetting = self.Common.settings.createRegExpSetting(
+    this._workspaceFolderExcludePatternSetting = Common.Settings.Settings.instance().createRegExpSetting(
         'workspaceFolderExcludePattern', defaultExcludedFoldersPattern, Host.Platform.isWin() ? 'i' : '');
   }
 
@@ -304,7 +329,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onIndexingTotalWorkCalculated(event) {
     const requestId = /** @type {number} */ (event.data['requestId']);
@@ -318,7 +343,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onIndexingWorked(event) {
     const requestId = /** @type {number} */ (event.data['requestId']);
@@ -336,7 +361,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onIndexingDone(event) {
     const requestId = /** @type {number} */ (event.data['requestId']);
@@ -350,7 +375,7 @@ export class IsolatedFileSystemManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onSearchCompleted(event) {
     const requestId = /** @type {number} */ (event.data['requestId']);
@@ -375,3 +400,6 @@ export const Events = {
 };
 
 let _lastRequestId = 0;
+
+/** @typedef {!{type: string, fileSystemName: string, rootURL: string, fileSystemPath: string}} */
+export let FileSystem;

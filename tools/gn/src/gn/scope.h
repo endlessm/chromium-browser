@@ -17,12 +17,12 @@
 #include "gn/err.h"
 #include "gn/pattern.h"
 #include "gn/source_dir.h"
+#include "gn/source_file.h"
 #include "gn/value.h"
 
 class Item;
 class ParseNode;
 class Settings;
-class SourceFile;
 class Template;
 
 // Scope for the script execution.
@@ -289,10 +289,11 @@ class Scope {
   // set is constructed conservatively, meanining that every file that can
   // potentially affect this scope is included, but not necessarily every change
   // to these files will affect this scope.
-  const std::set<SourceFile>& build_dependency_files() const {
+  const SourceFileSet& build_dependency_files() const {
     return build_dependency_files_;
   }
   void AddBuildDependencyFile(const SourceFile& build_dependency_file);
+  void AddBuildDependencyFiles(const SourceFileSet& build_dependency_files);
 
   // The item collector is where Items (Targets, Configs, etc.) go that have
   // been defined. If a scope can generate items, this non-owning pointer will
@@ -388,7 +389,7 @@ class Scope {
 
   SourceDir source_dir_;
 
-  std::set<SourceFile> build_dependency_files_;
+  SourceFileSet build_dependency_files_;
 
   DISALLOW_COPY_AND_ASSIGN(Scope);
 };

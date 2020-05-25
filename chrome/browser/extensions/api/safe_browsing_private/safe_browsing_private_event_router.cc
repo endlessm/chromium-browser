@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router.h"
 
+#include "base/bind_helpers.h"
 #include "build/build_config.h"
 
 #include <utility>
@@ -17,6 +18,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service_factory.h"
 #include "components/safe_browsing/content/web_ui/safe_browsing_ui.h"
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
@@ -28,7 +30,6 @@
 #include "chrome/browser/policy/chrome_browser_cloud_management_controller.h"
 #endif
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
-#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
@@ -72,7 +73,7 @@ const char kChromeBrowserCloudManagementClientDescription[] =
 namespace extensions {
 
 const base::Feature SafeBrowsingPrivateEventRouter::kRealtimeReportingFeature{
-    "SafeBrowsingRealtimeReporting", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SafeBrowsingRealtimeReporting", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Key names used with when building the dictionary to pass to the real-time
 // reporting API.
@@ -658,6 +659,12 @@ void SafeBrowsingPrivateEventRouter::SetCloudPolicyClientForTesting(
   client_ = client;
 }
 
+void SafeBrowsingPrivateEventRouter::SetBinaryUploadServiceForTesting(
+    safe_browsing::BinaryUploadService* binary_upload_service) {
+  DCHECK_EQ(nullptr, binary_upload_service_);
+  binary_upload_service_ = binary_upload_service;
+}
+
 void SafeBrowsingPrivateEventRouter::InitRealtimeReportingClient() {
   // If already initialized, do nothing.
   if (client_) {
@@ -692,7 +699,7 @@ void SafeBrowsingPrivateEventRouter::InitRealtimeReportingClient() {
 
   if (g_browser_process) {
     binary_upload_service_ =
-        g_browser_process->safe_browsing_service()->GetBinaryUploadService(
+        safe_browsing::BinaryUploadServiceFactory::GetForProfile(
             Profile::FromBrowserContext(context_));
     IfAuthorized(base::BindOnce(
         &SafeBrowsingPrivateEventRouter::InitRealtimeReportingClientCallback,
@@ -718,6 +725,9 @@ void SafeBrowsingPrivateEventRouter::InitRealtimeReportingClientCallback(
   auto* user = GetChromeOSUser();
   if (user) {
     auto* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(user);
+    // If primary user profile is not finalized, use the current profile.
+    if (!profile)
+      profile = Profile::FromBrowserContext(context_);
     DCHECK(profile);
     if (user->IsActiveDirectoryUser()) {
       // TODO(crbug.com/1012048): Handle AD, likely through crbug.com/1012170.
@@ -879,14 +889,10 @@ bool SafeBrowsingPrivateEventRouter::IsRealtimeReportingAvailable() {
            ->IsEnterpriseManaged())
     return false;
 
-  // The Chrome OS user must be afiliated with the device.
+  // The Chrome OS user must be affiliated with the device.
+  // This also implies that the user is managed.
   auto* user = GetChromeOSUser();
-  if (!user || !user->IsAffiliated())
-    return false;
-
-  // And that user must be managed.
-  auto* profile = chromeos::ProfileHelper::Get()->GetProfileByUser(user);
-  return profile && profile->GetProfilePolicyConnector()->IsManaged();
+  return user && user->IsAffiliated();
 #else
   return policy::ChromeBrowserCloudManagementController::IsEnabled();
 #endif

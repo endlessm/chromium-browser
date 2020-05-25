@@ -266,7 +266,7 @@ bool CPDFXFA_DocEnvironment::PopupMenu(CXFA_FFWidget* hWidget,
   if (hWidget->CanSelectAll())
     menuFlag |= FXFA_MENU_SELECTALL;
 
-  return pFormFillEnv->PopupMenu(pPage.Get(), nullptr, menuFlag, ptPopup);
+  return pFormFillEnv->PopupMenu(pPage.Get(), menuFlag, ptPopup);
 }
 
 void CPDFXFA_DocEnvironment::PageViewEvent(CXFA_FFPageView* pPageView,
@@ -550,7 +550,8 @@ void CPDFXFA_DocEnvironment::SetFocusWidget(CXFA_FFDoc* hDoc,
 
   int pageViewCount = m_pContext->GetFormFillEnv()->GetPageViewCount();
   for (int i = 0; i < pageViewCount; i++) {
-    CPDFSDK_PageView* pPageView = m_pContext->GetFormFillEnv()->GetPageView(i);
+    CPDFSDK_PageView* pPageView =
+        m_pContext->GetFormFillEnv()->GetPageViewAtIndex(i);
     if (!pPageView)
       continue;
 

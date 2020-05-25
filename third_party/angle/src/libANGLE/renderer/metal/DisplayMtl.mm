@@ -37,7 +37,9 @@ DisplayImpl *CreateMetalDisplay(const egl::DisplayState &state)
     return new DisplayMtl(state);
 }
 
-DisplayMtl::DisplayMtl(const egl::DisplayState &state) : DisplayImpl(state), mUtils(this) {}
+DisplayMtl::DisplayMtl(const egl::DisplayState &state)
+    : DisplayImpl(state), mUtils(this), mGlslangInitialized(false)
+{}
 
 DisplayMtl::~DisplayMtl() {}
 
@@ -67,7 +69,11 @@ angle::Result DisplayMtl::initializeImpl(egl::Display *display)
 
         mCapsInitialized = false;
 
-        GlslangInitialize();
+        if (!mGlslangInitialized)
+        {
+            GlslangInitialize();
+            mGlslangInitialized = true;
+        }
 
         if (!mState.featuresAllDisabled)
         {
@@ -91,7 +97,11 @@ void DisplayMtl::terminate()
     mMetalDevice     = nil;
     mCapsInitialized = false;
 
-    GlslangRelease();
+    if (mGlslangInitialized)
+    {
+        GlslangRelease();
+        mGlslangInitialized = false;
+    }
 }
 
 bool DisplayMtl::testDeviceLost()
@@ -608,6 +618,11 @@ void DisplayMtl::initializeTextureCaps() const
 
     // Re-verify texture extensions.
     mNativeExtensions.setTextureExtensionSupport(mNativeTextureCaps);
+
+    // Disable all depth buffer and stencil buffer readback extensions until we need them
+    mNativeExtensions.readDepthNV         = false;
+    mNativeExtensions.readStencilNV       = false;
+    mNativeExtensions.depthBufferFloat2NV = false;
 }
 
 void DisplayMtl::initializeFeatures()

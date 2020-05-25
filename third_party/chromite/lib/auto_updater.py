@@ -5,14 +5,6 @@
 
 """Library containing functions to execute auto-update on a remote device.
 
-TODO(xixuan): Make this lib support other update logics, including:
-  auto-update CrOS images for DUT
-  beaglebones for servo
-  stage images to servo usb
-  install custom CrOS images for chaos lab
-  install firmware images with FAFT
-  install android/brillo
-
 ChromiumOSUpdater includes:
   ----Check-----
   * Check functions, including kernel/version/cgpt check.
@@ -55,6 +47,7 @@ from chromite.lib import operation
 from chromite.lib import osutils
 from chromite.lib import remote_access
 from chromite.lib import retry_util
+from chromite.lib import stateful_updater
 from chromite.lib import timeout_util
 
 from chromite.utils import key_value_store
@@ -120,8 +113,6 @@ class BaseUpdater(object):
 
 class ChromiumOSUpdater(BaseUpdater):
   """Used to update DUT with image."""
-  # Stateful update files.
-  REMOTE_STATEFUL_UPDATE_PATH = '/usr/local/bin/stateful_update'
 
   # Nebraska files.
   LOCAL_NEBRASKA_LOG_FILENAME = 'nebraska.log'
@@ -160,19 +151,21 @@ class ChromiumOSUpdater(BaseUpdater):
 
   PAYLOAD_DIR_NAME = 'payloads'
 
-  def __init__(self, device, build_name, payload_dir, dev_dir='',
-               log_file=None, tempdir=None, original_payload_dir=None,
-               clobber_stateful=True, local_devserver=False, yes=False,
-               do_rootfs_update=True, do_stateful_update=True,
-               reboot=True, disable_verification=False,
+  def __init__(self, device, build_name, payload_dir, transfer_class,
+               dev_dir='', log_file=None, tempdir=None,
+               original_payload_dir=None, clobber_stateful=True,
+               local_devserver=False, yes=False, do_rootfs_update=True,
+               do_stateful_update=True, reboot=True, disable_verification=False,
                send_payload_in_parallel=False, payload_filename=None,
-               experimental_au=False, transfer_obj=None, staging_server=None):
+               experimental_au=False, staging_server=None):
     """Initialize a ChromiumOSUpdater for auto-update a chromium OS device.
 
     Args:
       device: the ChromiumOSDevice to be updated.
       build_name: the target update version for the device.
       payload_dir: the directory of payload(s).
+      transfer_class: A reference to any subclass of
+          auto_updater_transfer.Transfer class.
       dev_dir: the directory of the nebraska that runs the CrOS auto-update.
       log_file: The file to save running logs.
       tempdir: the temp directory in caller, not in the device. For example,
@@ -205,15 +198,10 @@ class ChromiumOSUpdater(BaseUpdater):
           in parallel. The default is False.
       experimental_au: Use experimental features of auto updater instead. It
           should be deprecated once crbug.com/872441 is fixed.
-      transfer_obj: An instance of the subclass of
-          auto_updater_transfer.Transfer. If transfer_obj is None, then an
-          instance of auto_updater_transfer.LocalTransfer or
-          auto_updater_transfer.LabTransfer (see documentation for
-          staging_server below) will be created.
       staging_server: URL (str) of the server that's staging the payload files.
-          Assuming transfer_obj is None, if value for staging_server is None or
-          empty, an auto_updater_transfer.LocalTransfer instance is created. If
-          not, then an auto_updater_transfer.LabTransfer instance is created.
+          Assuming transfer_class is None, if value for staging_server is None
+          or empty, an auto_updater_transfer.LocalTransfer reference must be
+          passed through the transfer_class parameter.
     """
     super(ChromiumOSUpdater, self).__init__(device, payload_dir)
 
@@ -239,7 +227,6 @@ class ChromiumOSUpdater(BaseUpdater):
     self.device_payload_dir = os.path.join(self.device.work_dir,
                                            self.PAYLOAD_DIR_NAME)
     self.device_restore_dir = os.path.join(self.device.work_dir, 'old')
-    self.stateful_update_bin = None
     # autoupdate_EndToEndTest uses exact payload filename for update
     self.payload_filename = payload_filename
     if send_payload_in_parallel:
@@ -257,28 +244,39 @@ class ChromiumOSUpdater(BaseUpdater):
       }
       self._cmd_kwargs.update(log_kwargs)
       self._cmd_kwargs_omit_error.update(log_kwargs)
+
     self._staging_server = staging_server
-    arguments = {'device': self.device, 'payload_dir': self.payload_dir,
-                 'payload_name': self._GetRootFsPayloadFileName(),
-                 'cmd_kwargs': self._cmd_kwargs,
-                 'transfer_rootfs_update': self._do_rootfs_update,
-                 'transfer_stateful_update': self._do_rootfs_update,
-                 'dev_dir': self.dev_dir,
-                 'original_payload_dir': self.original_payload_dir,
-                 'device_restore_dir': self.device_restore_dir,
-                 'device_payload_dir': self.device_payload_dir,
-                 'tempdir': self.tempdir, 'payload_mode': self.payload_mode}
-    if transfer_obj:
-      self._transfer_obj = transfer_obj
-    elif staging_server:
-      self._transfer_obj = auto_updater_transfer.LabTransfer(
-          staging_server=self._staging_server, **arguments)
-    else:
-      self._transfer_obj = auto_updater_transfer.LocalTransfer(**arguments)
+    self._transfer_obj = self._CreateTransferObject(transfer_class)
 
   @property
   def is_au_endtoendtest(self):
     return self.payload_filename is not None
+
+  def _CreateTransferObject(self, transfer_class):
+    """Create the correct Transfer class.
+
+    Args:
+      transfer_class: A variable that contains a reference to one of the
+          Transfer classes in auto_updater_transfer.
+    """
+    assert issubclass(transfer_class, auto_updater_transfer.Transfer)
+
+    # Determine if staging_server needs to be passed as an argument to
+    # class_ref.
+    cls_kwargs = {}
+    if self._staging_server:
+      cls_kwargs['staging_server'] = self._staging_server
+
+    return transfer_class(
+        device=self.device, payload_dir=self.payload_dir,
+        payload_name=self._GetRootFsPayloadFileName(),
+        cmd_kwargs=self._cmd_kwargs,
+        transfer_rootfs_update=self._do_rootfs_update,
+        transfer_stateful_update=self._do_rootfs_update, dev_dir=self.dev_dir,
+        original_payload_dir=self.original_payload_dir,
+        device_restore_dir=self.device_restore_dir,
+        device_payload_dir=self.device_payload_dir, tempdir=self.tempdir,
+        payload_mode=self.payload_mode, **cls_kwargs)
 
   def CheckPayloads(self):
     """DEPRECATED.  Use auto_updater_transfer.Transfer Class instead.
@@ -333,9 +331,8 @@ class ChromiumOSUpdater(BaseUpdater):
       A list of values in the order of |keys|.
     """
     keys = keys or ['CURRENT_OP']
-    result = device.RunCommand([cls.REMOTE_UPDATE_ENGINE_BIN_FILENAME,
-                                '--status'],
-                               capture_output=True, log_output=True)
+    result = device.run([cls.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '--status'],
+                        capture_output=True, log_output=True)
 
     if not result.output:
       raise Exception('Cannot get update status')
@@ -362,7 +359,7 @@ class ChromiumOSUpdater(BaseUpdater):
       device: a ChromiumOSDevice object, defines whose root device we
           want to fetch.
     """
-    rootdev = device.RunCommand(
+    rootdev = device.run(
         ['rootdev', '-s'], capture_output=True).output.strip()
     logging.debug('Current root device is %s', rootdev)
     return rootdev
@@ -374,8 +371,8 @@ class ChromiumOSUpdater(BaseUpdater):
       device: a ChromiumOSDevice object, defines the target root device.
     """
     try:
-      result = device.RunCommand(['start', 'update-engine'],
-                                 capture_output=True, log_output=True).output
+      result = device.run(['start', 'update-engine'],
+                          capture_output=True, log_output=True).stdout
       if 'start/running' in result:
         logging.info('update engine was not running, so we started it.')
     except cros_build_lib.RunCommandError as e:
@@ -397,7 +394,7 @@ class ChromiumOSUpdater(BaseUpdater):
 
   def _GetDevicePythonSysPath(self):
     """Get python sys.path of the given |device|."""
-    sys_path = self.device.RunCommand(
+    sys_path = self.device.run(
         ['python', '-c', '"import json, sys; json.dump(sys.path, sys.stdout)"'],
         capture_output=True, log_output=True).output
     return json.loads(sys_path)
@@ -433,33 +430,16 @@ class ChromiumOSUpdater(BaseUpdater):
     """Clear any pending stateful update request."""
     logging.debug('Resetting stateful partition...')
     try:
-      self.device.RunCommand(['sh', self.stateful_update_bin,
-                              '--stateful_change=reset'],
-                             **self._cmd_kwargs)
-    except cros_build_lib.RunCommandError as e:
-      if self.is_au_endtoendtest and not self.device.HasRsync():
-        # If we have updated backwards from a build with ext4 crytpo to a
-        # build without ext4 crypto the DUT gets powerwashed. So the stateful
-        # bin, payloads, and nebraska files are no longer accessible.
-        # See crbug.com/689105. Rsync will no longer be available either so we
-        # will need to use scp for the rest of the update.
-        logging.warning('Exception while resetting stateful: %s', e)
-        if self.CheckRestoreStateful():
-          logging.info('Stateful files and nebraska code now back on '
-                       'the device. Trying to reset stateful again.')
-          self.device.RunCommand(['sh', self.stateful_update_bin,
-                                  '--stateful_change=reset'],
-                                 **self._cmd_kwargs)
-
-      else:
-        raise
+      stateful_updater.StatefulUpdater(self.device).Reset()
+    except stateful_updater.Error as e:
+      raise StatefulUpdateError(e)
 
   def RevertBootPartition(self):
     """Revert the boot partition."""
     part = self.GetRootDev(self.device)
     logging.warning('Reverting update; Boot partition will be %s', part)
     try:
-      self.device.RunCommand(['/postinst', part], **self._cmd_kwargs)
+      self.device.run(['/postinst', part], **self._cmd_kwargs)
     except cros_build_lib.RunCommandError as e:
       logging.warning('Reverting the boot partition failed: %s', e)
 
@@ -484,7 +464,7 @@ class ChromiumOSUpdater(BaseUpdater):
              '--omaha_url="%s"' % nebraska_url]
 
       self._StartPerformanceMonitoringForAUTest()
-      self.device.RunCommand(cmd, **self._cmd_kwargs)
+      self.device.run(cmd, **self._cmd_kwargs)
 
       # If we are using a progress bar, update it every 0.5s instead of 10s.
       if command.UseProgressBar():
@@ -516,8 +496,8 @@ class ChromiumOSUpdater(BaseUpdater):
 
         if op == UPDATE_STATUS_IDLE:
           # Something went wrong. Try to get last error code.
-          cmd = 'cat %s' % self.REMOTE_UPDATE_ENGINE_LOGFILE_PATH
-          log = self.device.RunCommand(cmd).output.strip().splitlines()
+          cmd = ['cat', self.REMOTE_UPDATE_ENGINE_LOGFILE_PATH]
+          log = self.device.run(cmd).stdout.strip().splitlines()
           err_str = 'Updating payload state for error code: '
           targets = [line for line in log if err_str in line]
           logging.debug('Error lines found: %s', targets)
@@ -574,26 +554,22 @@ class ChromiumOSUpdater(BaseUpdater):
       use_original_build: True if we use stateful.tgz of original build for
         stateful update, otherwise, as default, False.
     """
-    msg = 'Updating stateful partition'
     if self.original_payload_dir and use_original_build:
       payload_dir = self.device_restore_dir
     else:
       payload_dir = self.device.work_dir
-    cmd = ['sh',
-           self.stateful_update_bin,
-           os.path.join(payload_dir, auto_updater_transfer.STATEFUL_FILENAME)]
 
-    if self._clobber_stateful:
-      cmd.append('--stateful_change=clean')
-      msg += ' with clobber enabled'
-
-    logging.info('%s...', msg)
     try:
-      self.device.RunCommand(cmd, **self._cmd_kwargs)
-    except cros_build_lib.RunCommandError:
-      logging.exception('Stateful update failed.')
+      updater = stateful_updater.StatefulUpdater(self.device)
+      updater.Update(
+          os.path.join(payload_dir, auto_updater_transfer.STATEFUL_FILENAME),
+          update_type=(stateful_updater.StatefulUpdater.UPDATE_TYPE_CLOBBER if
+                       self._clobber_stateful else None))
+    except stateful_updater.Error as e:
+      error_msg = 'Stateful update failed with error: %s' % str(e)
+      logging.exception(error_msg)
       self.ResetStatefulPartition()
-      raise StatefulUpdateError('Stateful partition update failed.')
+      raise StatefulUpdateError(error_msg)
 
   def _FixPayloadPropertiesFile(self):
     """Fix the update payload properties file so nebraska can use it.
@@ -664,7 +640,7 @@ class ChromiumOSUpdater(BaseUpdater):
     1. Copy files to remote device needed by stateful update.
     2. Do stateful update.
     """
-    self.stateful_update_bin = self._transfer_obj.TransferStatefulUpdate()
+    self._transfer_obj.TransferStatefulUpdate()
     self.UpdateStateful()
 
   def RebootAndVerify(self):
@@ -685,7 +661,7 @@ class ChromiumOSUpdater(BaseUpdater):
     old_root_dev = self.GetRootDev(self.device)
     self.device.Reboot()
     if self._clobber_stateful:
-      self.device.RunCommand(['mkdir', '-p', self.device.work_dir])
+      self.device.run(['mkdir', '-p', self.device.work_dir])
 
     if self._do_rootfs_update:
       logging.notice('Verifying that the device has been updated...')
@@ -764,7 +740,7 @@ class ChromiumOSUpdater(BaseUpdater):
 
     cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--start-bg']
     try:
-      perf_id = self.device.RunCommand(cmd).output.strip()
+      perf_id = self.device.run(cmd).stdout.strip()
       logging.info('update_engine_performance_monitors pid is %s.', perf_id)
       self.perf_id = perf_id
     except cros_build_lib.RunCommandError as e:
@@ -777,9 +753,9 @@ class ChromiumOSUpdater(BaseUpdater):
     cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--stop-bg',
            self.perf_id]
     try:
-      perf_json_data = self.device.RunCommand(cmd).output.strip()
-      self.device.RunCommand(['echo', json.dumps(perf_json_data), '>',
-                              self.REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH])
+      perf_json_data = self.device.run(cmd).stdout.strip()
+      self.device.run(['echo', json.dumps(perf_json_data), '>',
+                       self.REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH])
     except cros_build_lib.RunCommandError as e:
       logging.debug('Could not stop performance monitoring process: %s', e)
 
@@ -921,10 +897,10 @@ class ChromiumOSUpdater(BaseUpdater):
     if (expected_kernel_state and
         active_kernel_state != expected_kernel_state):
       logging.debug('Dumping partition table.')
-      self.device.RunCommand(['cgpt', 'show', '$(rootdev -s -d)'],
-                             **self._cmd_kwargs)
+      self.device.run(['cgpt', 'show', '$(rootdev -s -d)'],
+                      **self._cmd_kwargs)
       logging.debug('Dumping crossystem for firmware debugging.')
-      self.device.RunCommand(['crossystem', '--all'], **self._cmd_kwargs)
+      self.device.run(['crossystem', '--all'], **self._cmd_kwargs)
       raise RootfsUpdateError(rollback_message)
 
     # Make sure chromeos-setgoodkernel runs
@@ -935,7 +911,7 @@ class ChromiumOSUpdater(BaseUpdater):
           self.KERNEL_UPDATE_TIMEOUT,
           period=5)
     except timeout_util.TimeoutError:
-      services_status = self.device.RunCommand(
+      services_status = self.device.run(
           ['status', 'system-services'], capture_output=True,
           log_output=True).output
       logging.debug('System services_status: %r', services_status)
@@ -976,7 +952,7 @@ class ChromiumOSUpdater(BaseUpdater):
     return retry_util.RetryException(
         remote_access.SSHConnectionError,
         MAX_RETRY,
-        self.device.RunCommand,
+        self.device.run,
         cmd, delay_sec=DELAY_SEC_FOR_RETRY, **kwargs)
 
   # TODO(crbug.com/872441): cros_autoupdate in platform/dev-utils package still
@@ -1033,7 +1009,7 @@ class ChromiumOSUpdater(BaseUpdater):
     TODO (sanikak): Once this method is removed, remove corresponding tests in
     chromite.lib.auto_updater_unittest.
     """
-    self.stateful_update_bin = self._transfer_obj.TransferStatefulUpdate()
+    self._transfer_obj.TransferStatefulUpdate()
 
   def PreSetupCrOSUpdate(self):
     """Pre-setup for whole auto-update process for cros_host.
@@ -1130,7 +1106,7 @@ class ChromiumOSUpdater(BaseUpdater):
     """Restore stateful partition for device."""
     logging.warning('Restoring the stateful partition.')
     self.PreSetupStatefulUpdate()
-    self.stateful_update_bin = self._transfer_obj.TransferStatefulUpdate()
+    self._transfer_obj.TransferStatefulUpdate()
     self.ResetStatefulPartition()
     use_original_build = bool(self.original_payload_dir)
     self.UpdateStateful(use_original_build=use_original_build)
@@ -1142,6 +1118,19 @@ class ChromiumOSUpdater(BaseUpdater):
     except nebraska_wrapper.NebraskaStartupError as e:
       raise ChromiumOSUpdateError(
           'Unable to restore stateful partition: %s' % e)
+
+  def SetClearTpmOwnerRequest(self):
+    """Set clear_tpm_owner_request flag."""
+    # The issue is that certain AU tests leave the TPM in a bad state which
+    # most commonly shows up in provisioning.  Executing this 'crossystem'
+    # command before rebooting clears the problem state during the reboot.
+    # It's also worth mentioning that this isn't a complete fix:  The bad
+    # TPM state in theory might happen some time other than during
+    # provisioning.  Also, the bad TPM state isn't supposed to happen at
+    # all; this change is just papering over the real bug.
+    logging.info('Setting clear_tpm_owner_request to 1.')
+    self._RetryCommand('crossystem clear_tpm_owner_request=1',
+                       **self._cmd_kwargs_omit_error)
 
   def PostCheckRootfsUpdate(self):
     """Post-check for rootfs update for CrOS host."""
@@ -1157,15 +1146,7 @@ class ChromiumOSUpdater(BaseUpdater):
 
     self.inactive_kernel = inactive_kernel
     if not self.is_au_endtoendtest:
-      # The issue is that certain AU tests leave the TPM in a bad state which
-      # most commonly shows up in provisioning.  Executing this 'crossystem'
-      # command before rebooting clears the problem state during the reboot.
-      # It's also worth mentioning that this isn't a complete fix:  The bad
-      # TPM state in theory might happen some time other than during
-      # provisioning.  Also, the bad TPM state isn't supposed to happen at
-      # all; this change is just papering over the real bug.
-      self._RetryCommand('crossystem clear_tpm_owner_request=1',
-                         **self._cmd_kwargs_omit_error)
+      self.SetClearTpmOwnerRequest()
 
     # If the source image during an AU test is old, the device will powerwash
     # after applying rootfs. On older devices this is taking longer than the
@@ -1179,7 +1160,7 @@ class ChromiumOSUpdater(BaseUpdater):
     """Post check for the whole auto-update process."""
     logging.debug('Post check for the whole CrOS update...')
     start_time = time.time()
-    # Not use 'sh' here since current device.RunCommand cannot recognize
+    # Not use 'sh' here since current device.run cannot recognize
     # the content of $FILE.
     autoreboot_cmd = ('FILE="%s" ; [ -f "$FILE" ] || '
                       '( touch "$FILE" ; start autoreboot )')
@@ -1236,7 +1217,7 @@ class ChromiumOSUpdater(BaseUpdater):
       nebraska_url = nebraska.GetURL(critical_update=True, no_update=True)
       cmd = [self.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '--check_for_update',
              '--omaha_url="%s"' % nebraska_url]
-      self.device.RunCommand(cmd, **self._cmd_kwargs)
+      self.device.run(cmd, **self._cmd_kwargs)
       op = self.GetUpdateStatus(self.device)[0]
       logging.info('Post update check status: %s', op)
     except Exception as err:

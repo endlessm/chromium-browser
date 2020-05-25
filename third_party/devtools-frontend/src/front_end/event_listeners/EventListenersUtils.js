@@ -3,26 +3,30 @@
 // found in the LICENSE file.
 
 import * as SDK from '../sdk/sdk.js';
+import * as Common from '../common/common.js';
 
 /**
  * @param {!SDK.RemoteObject.RemoteObject} object
- * @return {!Promise<!EventListeners.FrameworkEventListenersObject>}
+ * @return {!Promise<!FrameworkEventListenersObject>}
  */
 export function frameworkEventListeners(object) {
   const domDebuggerModel = object.runtimeModel().target().model(SDK.DOMDebuggerModel.DOMDebuggerModel);
   if (!domDebuggerModel) {
     // TODO(kozyatinskiy): figure out how this should work for |window|.
     return Promise.resolve(
-        /** @type {!EventListeners.FrameworkEventListenersObject} */ ({eventListeners: [], internalHandlers: null}));
+        /** @type {!FrameworkEventListenersObject} */ ({eventListeners: [], internalHandlers: null}));
   }
 
-  const listenersResult = /** @type {!EventListeners.FrameworkEventListenersObject} */ ({eventListeners: []});
+  const listenersResult = /** @type {!FrameworkEventListenersObject} */ ({eventListeners: []});
   return object.callFunction(frameworkEventListenersImpl, undefined)
       .then(assertCallFunctionResult)
       .then(getOwnProperties)
       .then(createEventListeners)
       .then(returnResult)
-      .catchException(listenersResult);
+      .catch(error => {
+        console.error(error);
+        return listenersResult;
+      });
 
   /**
    * @param {!SDK.RemoteObject.RemoteObject} object
@@ -91,7 +95,7 @@ export function frameworkEventListeners(object) {
 
       /**
        * @suppressReceiverCheck
-       * @this {EventListeners.EventListenerObjectInInspectedPage}
+       * @this {EventListenerObjectInInspectedPage}
        * @return {!{type:string, useCapture:boolean, passive:boolean, once:boolean}}
        */
       function truncatePageEventListener() {
@@ -117,7 +121,7 @@ export function frameworkEventListeners(object) {
       /**
        * @suppressReceiverCheck
        * @return {function()}
-       * @this {EventListeners.EventListenerObjectInInspectedPage}
+       * @this {EventListenerObjectInInspectedPage}
        */
       function handlerFunction() {
         return this.handler;
@@ -155,7 +159,7 @@ export function frameworkEventListeners(object) {
       /**
        * @suppressReceiverCheck
        * @return {function()}
-       * @this {EventListeners.EventListenerObjectInInspectedPage}
+       * @this {EventListenerObjectInInspectedPage}
        */
       function getRemoveFunction() {
         return this.remove;
@@ -171,9 +175,10 @@ export function frameworkEventListeners(object) {
         removeFunctionObject = functionObject;
       }
 
-      return Promise.all(promises)
-          .then(createEventListener)
-          .catchException(/** @type {?SDK.DOMDebuggerModel.EventListener} */ (null));
+      return Promise.all(promises).then(createEventListener).catch(error => {
+        console.error(error);
+        return null;
+      });
 
       /**
        * @return {!SDK.DOMDebuggerModel.EventListener}
@@ -226,11 +231,11 @@ export function frameworkEventListeners(object) {
    * @param {!SDK.RemoteObject.RemoteObject} errorString
    */
   function printErrorString(errorString) {
-    self.Common.console.error(String(errorString.value));
+    Common.Console.Console.instance().error(String(errorString.value));
   }
 
   /**
-   * @return {!EventListeners.FrameworkEventListenersObject}
+   * @return {!FrameworkEventListenersObject}
    */
   function returnResult() {
     return listenersResult;
@@ -290,7 +295,7 @@ export function frameworkEventListeners(object) {
     */
   /**
    * @suppressReceiverCheck
-   * @return {!{eventListeners:!Array<!EventListeners.EventListenerObjectInInspectedPage>, internalHandlers:?Array<function()>}}
+   * @return {!{eventListeners:!Array<!EventListenerObjectInInspectedPage>, internalHandlers:?Array<function()>}}
    * @this {Object}
    */
   function frameworkEventListenersImpl() {
@@ -352,7 +357,7 @@ export function frameworkEventListeners(object) {
 
     /**
      * @param {*} eventListener
-     * @return {?EventListeners.EventListenerObjectInInspectedPage}
+     * @return {?EventListenerObjectInInspectedPage}
      */
     function checkEventListener(eventListener) {
       try {
@@ -386,12 +391,11 @@ export function frameworkEventListeners(object) {
         }
         if (!errorString) {
           return {type: type, useCapture: useCapture, passive: passive, once: once, handler: handler, remove: remove};
-        } else {
-          errorLines.push(errorString.substr(0, errorString.length - 2));
-          return null;
         }
-      } catch (e) {
-        errorLines.push(toString(e));
+        errorLines.push(errorString.substr(0, errorString.length - 2));
+        return null;
+      } catch (error) {
+        errorLines.push(toString(error));
         return null;
       }
     }
@@ -506,3 +510,9 @@ export function frameworkEventListeners(object) {
     }
   }
 }
+
+/** @typedef {{eventListeners:!Array<!SDK.DOMDebuggerModel.EventListener>, internalHandlers:?SDK.RemoteObject.RemoteArray}} */
+export let FrameworkEventListenersObject;
+
+/** @typedef {{type: string, useCapture: boolean, passive: boolean, once: boolean, handler: function()}} */
+export let EventListenerObjectInInspectedPage;

@@ -2,168 +2,193 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <getopt.h>
+
 #include <array>
 #include <chrono>  // NOLINT
-#include <thread>  // NOLINT
 
-#include "cast/standalone_receiver/simple_message_port.h"
-#include "cast/standalone_receiver/streaming_playback_controller.h"
-#include "cast/streaming/constants.h"
-#include "cast/streaming/environment.h"
-#include "cast/streaming/offer_messages.h"
-#include "cast/streaming/receiver_session.h"
+#include "cast/common/public/service_info.h"
+#include "cast/standalone_receiver/cast_agent.h"
 #include "cast/streaming/ssrc.h"
+#include "discovery/common/config.h"
+#include "discovery/common/reporting_client.h"
+#include "discovery/public/dns_sd_service_factory.h"
+#include "discovery/public/dns_sd_service_publisher.h"
 #include "platform/api/time.h"
 #include "platform/api/udp_socket.h"
 #include "platform/base/error.h"
 #include "platform/base/ip_address.h"
 #include "platform/impl/logging.h"
+#include "platform/impl/network_interface.h"
 #include "platform/impl/platform_client_posix.h"
 #include "platform/impl/task_runner.h"
+#include "platform/impl/text_trace_logging_platform.h"
+#include "util/stringprintf.h"
+#include "util/trace_logging.h"
 
 namespace openscreen {
 namespace cast {
 namespace {
 
-////////////////////////////////////////////////////////////////////////////////
-// Receiver Configuration
-//
-// The values defined here are constants that correspond to the Sender Demo app.
-// In a production environment, these should ABSOLUTELY NOT be fixed! Instead a
-// sender↔receiver OFFER/ANSWER exchange should establish them.
+class DiscoveryReportingClient : public discovery::ReportingClient {
+  void OnFatalError(Error error) override {
+    OSP_LOG_FATAL << "Encountered fatal discovery error: " << error;
+  }
 
-// In a production environment, this would start-out at some initial value
-// appropriate to the networking environment, and then be adjusted by the
-// application as: 1) the TYPE of the content changes (interactive, low-latency
-// versus smooth, higher-latency buffered video watching); and 2) the networking
-// environment reliability changes.
+  void OnRecoverableError(Error error) override {
+    OSP_LOG_ERROR << "Encountered recoverable discovery error: " << error;
+  }
+};
 
-constexpr std::chrono::milliseconds kDemoTargetPlayoutDelay{400};
+struct DiscoveryState {
+  SerialDeletePtr<discovery::DnsSdService> service;
+  std::unique_ptr<DiscoveryReportingClient> reporting_client;
+  std::unique_ptr<discovery::DnsSdServicePublisher<ServiceInfo>> publisher;
+};
 
-const Offer kDemoOffer{
-    /* .cast_mode = */ CastMode{},
-    /* .supports_wifi_status_reporting = */ false,
-    {AudioStream{Stream{/* .index = */ 0,
-                        /* .type = */ Stream::Type::kAudioSource,
-                        /* .channels = */ 2,
-                        /* .codec_name = */ "opus",
-                        /* .rtp_payload_type = */ RtpPayloadType::kAudioOpus,
-                        /* .ssrc = */ 1,
-                        /* .target_delay */ kDemoTargetPlayoutDelay,
-                        /* .aes_key = */
-                        {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                         0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f},
-                        /* .aes_iv_mask = */
-                        {0xf0, 0xe0, 0xd0, 0xc0, 0xb0, 0xa0, 0x90, 0x80, 0x70,
-                         0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00},
-                        /* .receiver_rtcp_event_log = */ false,
-                        /* .receiver_rtcp_dscp = */ "",
-                        // In a production environment, this would be set to the
-                        // sampling rate of the audio capture.
-                        /* .rtp_timebase = */ 48000},
-                 /* .bit_rate = */ 0}},
-    {VideoStream{
-        Stream{/* .index = */ 1,
-               /* .type = */ Stream::Type::kVideoSource,
-               /* .channels = */ 1,
-               /* .codec_name = */ "vp8",
-               /* .rtp_payload_type = */ RtpPayloadType::kVideoVp8,
-               /* .ssrc = */ 50001,
-               /* .target_delay */ kDemoTargetPlayoutDelay,
-               /* .aes_key = */
-               {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
-                0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f},
-               /* .aes_iv_mask = */
-               {0xf1, 0xe1, 0xd1, 0xc1, 0xb1, 0xa1, 0x91, 0x81, 0x71, 0x61,
-                0x51, 0x41, 0x31, 0x21, 0x11, 0x01},
-               /* .receiver_rtcp_event_log = */ false,
-               /* .receiver_rtcp_dscp = */ "",
-               // In a production environment, this would be set to the sampling
-               // rate of the audio capture.
-               /* .rtp_timebase = */ static_cast<int>(kVideoTimebase::den)},
-        /* .max_frame_rate = */ SimpleFraction{60, 1},
-        // Approximate highend bitrate for 1080p 60fps
-        /* .max_bit_rate = */ 6960000,
-        /* .protection = */ "",
-        /* .profile = */ "",
-        /* .level = */ "",
-        /* .resolutions = */ {},
-        /* .error_recovery_mode = */ ""}}};
+ErrorOr<std::unique_ptr<DiscoveryState>> StartDiscovery(
+    TaskRunner* task_runner,
+    const InterfaceInfo& interface) {
+  discovery::Config config;
 
-// The UDP socket port receiving packets from the Sender.
-constexpr int kCastStreamingPort = 2344;
+  config.interface = interface;
 
-// End of Receiver Configuration.
-////////////////////////////////////////////////////////////////////////////////
+  auto state = std::make_unique<DiscoveryState>();
+  state->reporting_client = std::make_unique<DiscoveryReportingClient>();
+  state->service = discovery::CreateDnsSdService(
+      task_runner, state->reporting_client.get(), config);
 
-void RunStandaloneReceiver(TaskRunnerImpl* task_runner) {
-  // Create the Environment that holds the required injected dependencies
-  // (clock, task runner) used throughout the system, and owns the UDP socket
-  // over which all communication occurs with the Sender.
-  const IPEndpoint receive_endpoint{IPAddress(), kCastStreamingPort};
+  // TODO(jophba): update after ServiceInfo update patch lands.
+  ServiceInfo info;
+  info.port = kDefaultCastPort;
+  if (interface.GetIpAddressV4()) {
+    info.v4_address = interface.GetIpAddressV4();
+  }
+  if (interface.GetIpAddressV6()) {
+    info.v6_address = interface.GetIpAddressV6();
+  }
 
-  auto env =
-      std::make_unique<Environment>(&Clock::now, task_runner, receive_endpoint);
-  auto port = std::make_unique<SimpleMessagePort>();
-  auto* raw_port = port.get();
-  const auto endpoint = env->GetBoundLocalEndpoint();
+  OSP_CHECK(std::any_of(interface.hardware_address.begin(),
+                        interface.hardware_address.end(),
+                        [](int e) { return e > 0; }));
+  info.unique_id = HexEncode(interface.hardware_address);
 
-  ReceiverSession::Preferences preferences{
-      {ReceiverSession::VideoCodec::kVp8},
-      {ReceiverSession::AudioCodec::kOpus}};
+  // TODO(jophba): add command line arguments to set these fields.
+  info.model_name = "cast_standalone_receiver";
+  info.friendly_name = "Cast Standalone Receiver";
 
-  StreamingPlaybackController client(task_runner);
-  ReceiverSession session(&client, std::move(env), std::move(port),
-                          std::move(preferences));
+  state->publisher =
+      std::make_unique<discovery::DnsSdServicePublisher<ServiceInfo>>(
+          state->service.get(), kCastV2ServiceId, ServiceInfoToDnsSdRecord);
 
-  OSP_LOG_INFO << "Injecting fake offer message...";
-  auto offer_json = kDemoOffer.ToJson();
-  OSP_DCHECK(offer_json.is_value());
-  Json::Value message;
-  message["seqNum"] = 0;
-  message["type"] = "OFFER";
-  message["offer"] = offer_json.value();
-  auto offer_message = json::Stringify(message);
-  OSP_DCHECK(offer_message.is_value());
-  raw_port->ReceiveMessage(offer_message.value());
+  auto error = state->publisher->Register(info);
+  if (!error.ok()) {
+    return error;
+  }
+  return state;
+}
 
-  OSP_LOG_INFO << "Awaiting first Cast Streaming packet at " << endpoint
-               << "...";
+void RunStandaloneReceiver(TaskRunnerImpl* task_runner,
+                           InterfaceInfo interface) {
+  CastAgent agent(task_runner, interface);
+  const auto error = agent.Start();
+  if (!error.ok()) {
+    OSP_LOG_ERROR << "Error occurred while starting agent: " << error;
+    return;
+  }
 
   // Run the event loop until an exit is requested (e.g., the video player GUI
-  // window is closed, a SIGTERM is intercepted, or whatever other appropriate
-  // user indication that shutdown is requested).
-  task_runner->RunUntilStopped();
+  // window is closed, a SIGINT or SIGTERM is received, or whatever other
+  // appropriate user indication that shutdown is requested).
+  task_runner->RunUntilSignaled();
 }
 
 }  // namespace
 }  // namespace cast
 }  // namespace openscreen
 
-int main(int argc, const char* argv[]) {
+namespace {
+
+void LogUsage(const char* argv0) {
+  constexpr char kExecutableTag[] = "argv[0]";
+  constexpr char kUsageMessage[] = R"(
+    usage: argv[0] <options> <interface>
+
+    options:
+      <interface>: Specify the network interface to bind to. The interface is
+          looked up from the system interface registry. This argument is
+          mandatory, as it must be known for publishing discovery.
+
+      -t, --tracing: Enable performance tracing logging.
+
+      -h, --help: Show this help message.
+  )";
+  std::string message = kUsageMessage;
+  message.replace(message.find(kExecutableTag), strlen(kExecutableTag), argv0);
+  OSP_LOG_INFO << message;
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+  // TODO(jophba): refactor into separate method and make main a one-liner.
   using openscreen::Clock;
-  using openscreen::TaskRunner;
+  using openscreen::ErrorOr;
+  using openscreen::InterfaceInfo;
+  using openscreen::IPAddress;
+  using openscreen::IPEndpoint;
+  using openscreen::PlatformClientPosix;
   using openscreen::TaskRunnerImpl;
 
-  class PlatformClientExposingTaskRunner
-      : public openscreen::PlatformClientPosix {
-   public:
-    explicit PlatformClientExposingTaskRunner(
-        std::unique_ptr<TaskRunner> task_runner)
-        : PlatformClientPosix(Clock::duration{50},
-                              Clock::duration{50},
-                              std::move(task_runner)) {
-      SetInstance(this);
-    }
-  };
-
   openscreen::SetLogLevel(openscreen::LogLevel::kInfo);
-  auto* const platform_client = new PlatformClientExposingTaskRunner(
-      std::make_unique<TaskRunnerImpl>(&Clock::now));
 
-  openscreen::cast::RunStandaloneReceiver(static_cast<TaskRunnerImpl*>(
-      openscreen::PlatformClientPosix::GetInstance()->GetTaskRunner()));
+  const struct option argument_options[] = {
+      {"tracing", no_argument, nullptr, 't'},
+      {"help", no_argument, nullptr, 'h'},
+      {nullptr, 0, nullptr, 0}};
 
-  platform_client->ShutDown();  // Deletes |platform_client|.
+  InterfaceInfo interface_info;
+  std::unique_ptr<openscreen::TextTraceLoggingPlatform> trace_logger;
+  int ch = -1;
+  while ((ch = getopt_long(argc, argv, "th", argument_options, nullptr)) !=
+         -1) {
+    switch (ch) {
+      case 't':
+        trace_logger = std::make_unique<openscreen::TextTraceLoggingPlatform>();
+        break;
+      case 'h':
+        LogUsage(argv[0]);
+        return 1;
+    }
+  }
+  char* interface_argument = argv[optind];
+  OSP_CHECK(interface_argument != nullptr)
+      << "Missing mandatory argument: interface.";
+  std::vector<InterfaceInfo> network_interfaces =
+      openscreen::GetNetworkInterfaces();
+  for (auto& interface : network_interfaces) {
+    if (interface.name == interface_argument) {
+      interface_info = std::move(interface);
+      break;
+    }
+  }
+  OSP_CHECK(!interface_info.name.empty()) << "Invalid interface specified.";
+
+  auto* const task_runner = new TaskRunnerImpl(&Clock::now);
+  PlatformClientPosix::Create(Clock::duration{50}, Clock::duration{50},
+                              std::unique_ptr<TaskRunnerImpl>(task_runner));
+
+  auto discovery_state =
+      openscreen::cast::StartDiscovery(task_runner, interface_info);
+  OSP_CHECK(discovery_state.is_value()) << "Failed to start discovery.";
+
+  // Runs until the process is interrupted.  Safe to pass |task_runner| as it
+  // will not be destroyed by ShutDown() until this exits.
+  openscreen::cast::RunStandaloneReceiver(task_runner, interface_info);
+
+  // The task runner must be deleted after all serial delete pointers, such
+  // as the one stored in the discovery state.
+  discovery_state.value().reset();
+  PlatformClientPosix::ShutDown();
   return 0;
 }

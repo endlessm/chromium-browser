@@ -323,14 +323,13 @@ class PublishUprevChangesStageTest(
   def testAndroidPush(self):
     """Test values for PublishUprevChanges with Android PFQ."""
     self._Prepare(
-        bot_id=constants.NYC_ANDROID_PFQ_MASTER,
+        bot_id=constants.PI_ANDROID_PFQ_MASTER,
         extra_config={'push_overlays': constants.PUBLIC_OVERLAYS},
         extra_cmd_args=['--android_rev', constants.ANDROID_REV_LATEST])
     self._run.options.prebuilts = True
     self.RunStage()
     self.push_mock.assert_called_once_with(
-        self.build_root, overlay_type='public', dryrun=False,
-        staging_branch=None)
+        self.build_root, overlay_type='public', dryrun=False)
     self.assertTrue(self._run.attrs.metadata.GetValue('UprevvedAndroid'))
     metadata_dict = self._run.attrs.metadata.GetDict()
     self.assertNotIn('UprevvedChrome', metadata_dict)
@@ -340,4 +339,4 @@ class PublishUprevChangesStageTest(
     stage = self.ConstructStage()
     stage.PerformStage()
     self.push_mock.assert_called_once_with(
-        self.build_root, overlay_type='both', dryrun=False, staging_branch=None)
+        self.build_root, overlay_type='both', dryrun=False)

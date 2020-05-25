@@ -76,8 +76,8 @@ class QpackSendStreamTest : public QuicTestWithParam<TestParams> {
     qpack_send_stream_ =
         QuicSpdySessionPeer::GetQpackDecoderSendStream(&session_);
 
-    ON_CALL(session_, WritevData(_, _, _, _, _))
-        .WillByDefault(Invoke(MockQuicSession::ConsumeData));
+    ON_CALL(session_, WritevData(_, _, _, _, _, _))
+        .WillByDefault(Invoke(&session_, &MockQuicSpdySession::ConsumeData));
   }
 
   Perspective perspective() const { return GetParam().perspective; }
@@ -96,21 +96,20 @@ INSTANTIATE_TEST_SUITE_P(Tests,
 
 TEST_P(QpackSendStreamTest, WriteStreamTypeOnlyFirstTime) {
   std::string data = "data";
-  EXPECT_CALL(session_, WritevData(_, _, 1, _, _));
-  EXPECT_CALL(session_, WritevData(_, _, data.length(), _, _));
+  EXPECT_CALL(session_, WritevData(_, 1, _, _, _, _));
+  EXPECT_CALL(session_, WritevData(_, data.length(), _, _, _, _));
   qpack_send_stream_->WriteStreamData(quiche::QuicheStringPiece(data));
 
-  EXPECT_CALL(session_, WritevData(_, _, data.length(), _, _));
+  EXPECT_CALL(session_, WritevData(_, data.length(), _, _, _, _));
   qpack_send_stream_->WriteStreamData(quiche::QuicheStringPiece(data));
-  EXPECT_CALL(session_, WritevData(_, _, _, _, _)).Times(0);
+  EXPECT_CALL(session_, WritevData(_, _, _, _, _, _)).Times(0);
   qpack_send_stream_->MaybeSendStreamType();
 }
 
-TEST_P(QpackSendStreamTest, ResetQpackStream) {
-  QuicRstStreamFrame rst_frame(kInvalidControlFrameId, qpack_send_stream_->id(),
-                               QUIC_STREAM_CANCELLED, 1234);
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_INVALID_STREAM_ID, _, _));
-  qpack_send_stream_->OnStreamReset(rst_frame);
+TEST_P(QpackSendStreamTest, StopSendingQpackStream) {
+  EXPECT_CALL(*connection_,
+              CloseConnection(QUIC_HTTP_CLOSED_CRITICAL_STREAM, _, _));
+  qpack_send_stream_->OnStopSending(QUIC_STREAM_CANCELLED);
 }
 
 TEST_P(QpackSendStreamTest, ReceiveDataOnSendStream) {

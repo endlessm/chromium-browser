@@ -46,15 +46,15 @@ SDKTestRunner.PageMock = class {
     self.Bindings.debuggerWorkspaceBinding._resetForTest(TestRunner.mainTarget);
     self.Bindings.resourceMapping._resetForTest(TestRunner.mainTarget);
     this._enabledDomains.clear();
-    self.SDK.targetManager._targets = [];
+    self.SDK.targetManager._targets.clear();
 
-    const oldFactory = Protocol.Connection.getFactory();
-    Protocol.Connection.setFactory(() => {
+    const oldFactory = ProtocolClient.Connection.getFactory();
+    ProtocolClient.Connection.setFactory(() => {
       this._connection = new MockPageConnection(this);
       return this._connection;
     });
     const target = self.SDK.targetManager.createTarget(nextId('mock-target-'), targetName, this._type, null);
-    Protocol.Connection.setFactory(oldFactory);
+    ProtocolClient.Connection.setFactory(oldFactory);
 
     this._target = target;
     return target;
@@ -234,7 +234,7 @@ SDKTestRunner.PageMock = class {
     }
 
     this._sendResponse(
-        id, undefined, {message: 'Can\'t handle command ' + methodName, code: Protocol.DevToolsStubErrorCode});
+        id, undefined, {message: 'Can\'t handle command ' + methodName, code: ProtocolClient.DevToolsStubErrorCode});
   }
 
   _sendResponse(id, result, error) {

@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (c) 2015-2019 Google, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (c) 2015-2020 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,6 @@
 #ifdef ANDROID
 #include "vulkan_wrapper.h"
 #else
-#define NOMINMAX
 #include <vulkan/vulkan.h>
 #endif
 
@@ -183,10 +182,6 @@ bool ImageFormatAndFeaturesSupported(VkPhysicalDevice phy, VkFormat format, VkIm
 bool ImageFormatAndFeaturesSupported(const VkInstance inst, const VkPhysicalDevice phy, const VkImageCreateInfo info,
                                      const VkFormatFeatureFlags features);
 
-// Validation report callback prototype
-VKAPI_ATTR VkBool32 VKAPI_CALL myDbgFunc(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject, size_t location,
-                                         int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData);
-
 // Simple sane SamplerCreateInfo boilerplate
 VkSamplerCreateInfo SafeSaneSamplerCreateInfo();
 
@@ -227,6 +222,7 @@ T NearestSmaller(const T from) {
 
 class VkLayerTest : public VkRenderFramework {
   public:
+    const char *kValidationLayerName = "VK_LAYER_KHRONOS_validation";
     void VKTriangleTest(BsoFailSelect failCase);
 
     void GenericDrawPreparation(VkCommandBufferObj *commandBuffer, VkPipelineObj &pipelineobj, VkDescriptorSetObj &descriptorSet,
@@ -263,6 +259,8 @@ class VkBestPracticesLayerTest : public VkLayerTest {
 
   protected:
 };
+
+class VkArmBestPracticesLayerTest : public VkBestPracticesLayerTest {};
 
 class VkWsiEnabledLayerTest : public VkLayerTest {
   public:
@@ -537,7 +535,7 @@ struct CreateNVRayTracingPipelineHelper {
     // flags, error can be any args accepted by "SetDesiredFailure".
     template <typename Test, typename OverrideFunc, typename Error>
     static void OneshotTest(Test &test, const OverrideFunc &info_override, const std::vector<Error> &errors,
-                            const VkFlags flags = VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+                            const VkFlags flags = kErrorBit) {
         CreateNVRayTracingPipelineHelper helper(test);
         helper.InitInfo();
         info_override(helper);
@@ -549,14 +547,12 @@ struct CreateNVRayTracingPipelineHelper {
     }
 
     template <typename Test, typename OverrideFunc, typename Error>
-    static void OneshotTest(Test &test, const OverrideFunc &info_override, Error error,
-                            const VkFlags flags = VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+    static void OneshotTest(Test &test, const OverrideFunc &info_override, Error error, const VkFlags flags = kErrorBit) {
         OneshotTest(test, info_override, std::vector<Error>(1, error), flags);
     }
 
     template <typename Test, typename OverrideFunc>
-    static void OneshotPositiveTest(Test &test, const OverrideFunc &info_override,
-                                    const VkDebugReportFlagsEXT message_flag_mask = VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+    static void OneshotPositiveTest(Test &test, const OverrideFunc &info_override, const VkFlags message_flag_mask = kErrorBit) {
         CreateNVRayTracingPipelineHelper helper(test);
         helper.InitInfo();
         info_override(helper);
@@ -608,6 +604,9 @@ VkPhysicalDevicePushDescriptorPropertiesKHR GetPushDescriptorProperties(VkInstan
 
 // Subgroup properties helper
 VkPhysicalDeviceSubgroupProperties GetSubgroupProperties(VkInstance instance, VkPhysicalDevice gpu);
+
+// Descriptor Indexing properties helper
+VkPhysicalDeviceDescriptorIndexingProperties GetDescriptorIndexingProperties(VkInstance instance, VkPhysicalDevice gpu);
 
 class BarrierQueueFamilyTestHelper {
   public:

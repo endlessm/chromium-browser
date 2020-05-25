@@ -70,6 +70,26 @@ class Table {
     std::vector<RowMap::Iterator> its_;
   };
 
+  // Helper class storing the schema of the table. This allows decisions to be
+  // made about operations on the table without materializing the table - this
+  // may be expensive for dynamically computed tables.
+  //
+  // Subclasses of Table usually provide a method (named Schema()) to statically
+  // generate an instance of this class.
+  struct Schema {
+    struct Column {
+      std::string name;
+      SqlValue::Type type;
+      bool is_id;
+      bool is_sorted;
+      bool is_hidden;
+    };
+    std::vector<Column> columns;
+  };
+
+  Table();
+  virtual ~Table();
+
   // We explicitly define the move constructor here because we need to update
   // the Table pointer in each column in the table.
   Table(Table&& other) noexcept { *this = std::move(other); }
@@ -128,6 +148,20 @@ class Table {
   //  * |left| is not allowed to have any nulls.
   //  * |left|'s values must exist in |right|
   Table LookupJoin(JoinKey left, const Table& other, JoinKey right);
+
+  template <typename T>
+  Table ExtendWithColumn(const char* name,
+                         std::unique_ptr<SparseVector<T>> sv,
+                         uint32_t flags) const {
+    PERFETTO_DCHECK(sv->size() == row_count_);
+    uint32_t size = sv->size();
+    uint32_t row_map_count = static_cast<uint32_t>(row_maps_.size());
+    Table ret = Copy();
+    ret.columns_.push_back(Column::WithOwnedStorage(
+        name, std::move(sv), flags, &ret, GetColumnCount(), row_map_count));
+    ret.row_maps_.emplace_back(RowMap(0, size));
+    return ret;
+  }
 
   // Returns the column at index |idx| in the Table.
   const Column& GetColumn(uint32_t idx) const { return columns_[idx]; }

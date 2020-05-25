@@ -13,10 +13,12 @@
 // limitations under the License.
 
 #include "Coroutine.hpp"
+#include "Print.hpp"
 #include "Reactor.hpp"
 
 #include "gtest/gtest.h"
 
+#include <array>
 #include <cmath>
 #include <thread>
 #include <tuple>
@@ -105,6 +107,238 @@ int reference(int *p, int y)
 	int sum = x + y + z;
 
 	return sum;
+}
+
+class StdOutCapture
+{
+public:
+	~StdOutCapture()
+	{
+		stopIfCapturing();
+	}
+
+	void start()
+	{
+		stopIfCapturing();
+		capturing = true;
+		testing::internal::CaptureStdout();
+	}
+
+	std::string stop()
+	{
+		assert(capturing);
+		capturing = false;
+		return testing::internal::GetCapturedStdout();
+	}
+
+private:
+	void stopIfCapturing()
+	{
+		if(capturing)
+		{
+			// This stops the capture
+			testing::internal::GetCapturedStdout();
+		}
+	}
+
+	bool capturing = false;
+};
+
+std::vector<std::string> split(const std::string &s)
+{
+	std::vector<std::string> result;
+	std::istringstream iss(s);
+	for(std::string line; std::getline(iss, line);)
+	{
+		result.push_back(line);
+	}
+	return result;
+}
+
+static const std::vector<int> fibonacci = {
+	0,
+	1,
+	1,
+	2,
+	3,
+	5,
+	8,
+	13,
+	21,
+	34,
+	55,
+	89,
+	144,
+	233,
+	377,
+	610,
+	987,
+	1597,
+	2584,
+	4181,
+	6765,
+	10946,
+	17711,
+	28657,
+	46368,
+	75025,
+	121393,
+	196418,
+	317811,
+};
+
+TEST(ReactorUnitTests, PrintPrimitiveTypes)
+{
+#if defined(ENABLE_RR_PRINT) && !defined(ENABLE_RR_EMIT_PRINT_LOCATION)
+	FunctionT<void()> function;
+	{
+		bool b(true);
+		int8_t i8(-1);
+		uint8_t ui8(1);
+		int16_t i16(-1);
+		uint16_t ui16(1);
+		int32_t i32(-1);
+		uint32_t ui32(1);
+		int64_t i64(-1);
+		uint64_t ui64(1);
+		float f(1);
+		double d(2);
+		const char *cstr = "const char*";
+		std::string str = "std::string";
+		int *p = nullptr;
+
+		RR_WATCH(b);
+		RR_WATCH(i8);
+		RR_WATCH(ui8);
+		RR_WATCH(i16);
+		RR_WATCH(ui16);
+		RR_WATCH(i32);
+		RR_WATCH(ui32);
+		RR_WATCH(i64);
+		RR_WATCH(ui64);
+		RR_WATCH(f);
+		RR_WATCH(d);
+		RR_WATCH(cstr);
+		RR_WATCH(str);
+		RR_WATCH(p);
+	}
+
+	auto routine = function("one");
+
+	char pNullptr[64];
+	snprintf(pNullptr, sizeof(pNullptr), "  p: %p", nullptr);
+
+	const char *expected[] = {
+		"  b: true",
+		"  i8: -1",
+		"  ui8: 1",
+		"  i16: -1",
+		"  ui16: 1",
+		"  i32: -1",
+		"  ui32: 1",
+		"  i64: -1",
+		"  ui64: 1",
+		"  f: 1.000000",
+		"  d: 2.000000",
+		"  cstr: const char*",
+		"  str: std::string",
+		pNullptr,
+	};
+	constexpr size_t expectedSize = sizeof(expected) / sizeof(expected[0]);
+
+	StdOutCapture capture;
+	capture.start();
+	routine();
+	auto output = split(capture.stop());
+	for(size_t i = 0, j = 1; i < expectedSize; ++i, j += 2)
+	{
+		ASSERT_EQ(expected[i], output[j]);
+	}
+
+#endif
+}
+
+TEST(ReactorUnitTests, PrintReactorTypes)
+{
+#if defined(ENABLE_RR_PRINT) && !defined(ENABLE_RR_EMIT_PRINT_LOCATION)
+	FunctionT<void()> function;
+	{
+		Bool b(true);
+		Int i(-1);
+		Int2 i2(-1, -2);
+		Int4 i4(-1, -2, -3, -4);
+		UInt ui(1);
+		UInt2 ui2(1, 2);
+		UInt4 ui4(1, 2, 3, 4);
+		Short s(-1);
+		Short4 s4(-1, -2, -3, -4);
+		UShort us(1);
+		UShort4 us4(1, 2, 3, 4);
+		Float f(1);
+		Float4 f4(1, 2, 3, 4);
+		Long l(i);
+		Pointer<Int> pi = nullptr;
+		RValue<Int> rvi = i;
+		Byte by('a');
+		Byte4 by4(i4);
+
+		RR_WATCH(b);
+		RR_WATCH(i);
+		RR_WATCH(i2);
+		RR_WATCH(i4);
+		RR_WATCH(ui);
+		RR_WATCH(ui2);
+		RR_WATCH(ui4);
+		RR_WATCH(s);
+		RR_WATCH(s4);
+		RR_WATCH(us);
+		RR_WATCH(us4);
+		RR_WATCH(f);
+		RR_WATCH(f4);
+		RR_WATCH(l);
+		RR_WATCH(pi);
+		RR_WATCH(rvi);
+		RR_WATCH(by);
+		RR_WATCH(by4);
+	}
+
+	auto routine = function("one");
+
+	char piNullptr[64];
+	snprintf(piNullptr, sizeof(piNullptr), "  pi: %p", nullptr);
+
+	const char *expected[] = {
+		"  b: true",
+		"  i: -1",
+		"  i2: [-1, -2]",
+		"  i4: [-1, -2, -3, -4]",
+		"  ui: 1",
+		"  ui2: [1, 2]",
+		"  ui4: [1, 2, 3, 4]",
+		"  s: -1",
+		"  s4: [-1, -2, -3, -4]",
+		"  us: 1",
+		"  us4: [1, 2, 3, 4]",
+		"  f: 1.000000",
+		"  f4: [1.000000, 2.000000, 3.000000, 4.000000]",
+		"  l: -1",
+		piNullptr,
+		"  rvi: -1",
+		"  by: 97",
+		"  by4: [255, 254, 253, 252]",
+	};
+	constexpr size_t expectedSize = sizeof(expected) / sizeof(expected[0]);
+
+	StdOutCapture capture;
+	capture.start();
+	routine();
+	auto output = split(capture.stop());
+	for(size_t i = 0, j = 1; i < expectedSize; ++i, j += 2)
+	{
+		ASSERT_EQ(expected[i], output[j]);
+	}
+
+#endif
 }
 
 TEST(ReactorUnitTests, Sample)
@@ -1300,6 +1534,53 @@ TEST(ReactorUnitTests, Args_GreaterThan5Mixed)
 	}
 }
 
+// This test was written because on Windows with Subzero, we would get a crash when executing a function
+// with a large number of local variables. The problem was that on Windows, 4K pages are allocated as
+// needed for the stack whenever an access is made in a "guard page", at which point the page is committed,
+// and the next 4K page becomes the guard page. If a stack access is made that's beyond the guard page,
+// a regular page fault occurs. To fix this, Subzero (and any compiler) now emits a call to __chkstk with
+// the stack size in EAX, so that it can probe the stack in 4K increments up to that size, committing the
+// required pages. See https://docs.microsoft.com/en-us/windows/win32/devnotes/-win32-chkstk.
+TEST(ReactorUnitTests, LargeStack)
+{
+#if defined(_WIN32)
+	// An empirically large enough value to access outside the guard pages
+	constexpr int ArrayByteSize = 24 * 1024;
+	constexpr int ArraySize = ArrayByteSize / sizeof(int32_t);
+
+	FunctionT<void(int32_t * v)> function;
+	{
+		// Allocate a stack array large enough that writing to the first element will reach beyond
+		// the guard page.
+		Array<Int, ArraySize> largeStackArray;
+		for(int i = 0; i < ArraySize; ++i)
+		{
+			largeStackArray[i] = i;
+		}
+
+		Pointer<Int> in = function.Arg<0>();
+		for(int i = 0; i < ArraySize; ++i)
+		{
+			in[i] = largeStackArray[i];
+		}
+	}
+
+	auto routine = function("one");
+	std::array<int32_t, ArraySize> v;
+
+	// Run this in a thread, so that we get the default reserved stack size (8K on Win64).
+	std::thread t([&] {
+		routine(v.data());
+	});
+	t.join();
+
+	for(int i = 0; i < ArraySize; ++i)
+	{
+		EXPECT_EQ(v[i], i);
+	}
+#endif
+}
+
 TEST(ReactorUnitTests, Call)
 {
 	struct Class
@@ -1416,6 +1697,35 @@ TEST(ReactorUnitTests, CallImplicitCast)
 	Class c;
 	routine(&c, "hello world");
 	EXPECT_EQ(c.str, "hello world");
+}
+
+TEST(ReactorUnitTests, CallBoolReturnFunction)
+{
+	struct Class
+	{
+		static bool IsEven(int a)
+		{
+			return a % 2 == 0;
+		}
+	};
+
+	FunctionT<int(int)> function;
+	{
+		Int a = function.Arg<0>();
+		Bool res = Call(Class::IsEven, a);
+		If(res)
+		{
+			Return(1);
+		}
+		Return(0);
+	}
+
+	auto routine = function("one");
+
+	for(int i = 0; i < 10; ++i)
+	{
+		EXPECT_EQ(routine(i), i % 2 == 0);
+	}
 }
 
 TEST(ReactorUnitTests, Call_Args4)
@@ -1792,6 +2102,30 @@ TYPED_TEST(GEPTest, PtrOffsets)
 	}
 }
 
+TEST(ReactorUnitTests, Fibonacci)
+{
+	FunctionT<int(int)> function;
+	{
+		Int n = function.Arg<0>();
+		Int current = 0;
+		Int next = 1;
+		For(Int i = 0, i < n, i++)
+		{
+			auto tmp = current + next;
+			current = next;
+			next = tmp;
+		}
+		Return(current);
+	}
+
+	auto routine = function("one");
+
+	for(size_t i = 0; i < fibonacci.size(); i++)
+	{
+		EXPECT_EQ(routine(i), fibonacci[i]);
+	}
+}
+
 TEST(ReactorUnitTests, Coroutines_Fibonacci)
 {
 	if(!rr::Caps.CoroutinesSupported)
@@ -1817,45 +2151,11 @@ TEST(ReactorUnitTests, Coroutines_Fibonacci)
 
 	auto coroutine = function();
 
-	int32_t expected[] = {
-		0,
-		1,
-		1,
-		2,
-		3,
-		5,
-		8,
-		13,
-		21,
-		34,
-		55,
-		89,
-		144,
-		233,
-		377,
-		610,
-		987,
-		1597,
-		2584,
-		4181,
-		6765,
-		10946,
-		17711,
-		28657,
-		46368,
-		75025,
-		121393,
-		196418,
-		317811,
-	};
-
-	auto count = sizeof(expected) / sizeof(expected[0]);
-
-	for(size_t i = 0; i < count; i++)
+	for(size_t i = 0; i < fibonacci.size(); i++)
 	{
 		int out = 0;
 		EXPECT_EQ(coroutine->await(out), true);
-		EXPECT_EQ(out, expected[i]);
+		EXPECT_EQ(out, fibonacci[i]);
 	}
 }
 
@@ -1984,40 +2284,6 @@ TEST(ReactorUnitTests, Coroutines_Parallel)
 	// Must call on same thread that creates the coroutine
 	function.finalize();
 
-	constexpr int32_t expected[] = {
-		0,
-		1,
-		1,
-		2,
-		3,
-		5,
-		8,
-		13,
-		21,
-		34,
-		55,
-		89,
-		144,
-		233,
-		377,
-		610,
-		987,
-		1597,
-		2584,
-		4181,
-		6765,
-		10946,
-		17711,
-		28657,
-		46368,
-		75025,
-		121393,
-		196418,
-		317811,
-	};
-
-	constexpr auto count = sizeof(expected) / sizeof(expected[0]);
-
 	std::vector<std::thread> threads;
 	const size_t numThreads = 100;
 
@@ -2026,11 +2292,11 @@ TEST(ReactorUnitTests, Coroutines_Parallel)
 		threads.emplace_back([&] {
 			auto coroutine = function();
 
-			for(size_t i = 0; i < count; i++)
+			for(size_t i = 0; i < fibonacci.size(); i++)
 			{
 				int out = 0;
 				EXPECT_EQ(coroutine->await(out), true);
-				EXPECT_EQ(out, expected[i]);
+				EXPECT_EQ(out, fibonacci[i]);
 			}
 		});
 	}
@@ -2125,11 +2391,52 @@ struct IntrinsicTest_Float4_Float4 : public testing::TestWithParam<IntrinsicTest
 	}
 };
 
-INSTANTIATE_TEST_SUITE_P(IntrinsicTestParams_Float, IntrinsicTest_Float, testing::Values(IntrinsicTestParams_Float{ [](Float v) { return rr::Exp2(v); }, exp2f, { 0.f, 1.f, 12345.f } }, IntrinsicTestParams_Float{ [](Float v) { return rr::Log2(v); }, log2f, { 0.f, 1.f, 12345.f } }, IntrinsicTestParams_Float{ [](Float v) { return rr::Sqrt(v); }, sqrtf, { 0.f, 1.f, 12345.f } }));
+// clang-format off
+INSTANTIATE_TEST_SUITE_P(IntrinsicTestParams_Float, IntrinsicTest_Float, testing::Values(
+	IntrinsicTestParams_Float{ [](Float v) { return rr::Exp2(v); }, exp2f, {0.f, 1.f, 12345.f} },
+	IntrinsicTestParams_Float{ [](Float v) { return rr::Log2(v); }, log2f, {0.f, 1.f, 12345.f} },
+	IntrinsicTestParams_Float{ [](Float v) { return rr::Sqrt(v); }, sqrtf, {0.f, 1.f, 12345.f} }
+));
+// clang-format on
 
-INSTANTIATE_TEST_SUITE_P(IntrinsicTestParams_Float4, IntrinsicTest_Float4, testing::Values(IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Sin(v); }, sinf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Cos(v); }, cosf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Tan(v); }, tanf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Asin(v); }, asinf, { 0.f, 1.f, -1.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Acos(v); }, acosf, { 0.f, 1.f, -1.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Atan(v); }, atanf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Sinh(v); }, sinhf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Cosh(v); }, coshf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Tanh(v); }, tanhf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Asinh(v); }, asinhf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Acosh(v); }, acoshf, { 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Atanh(v); }, atanhf, { 0.f, 1.f, -1.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Exp(v); }, expf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Log(v); }, logf, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Exp2(v); }, exp2f, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Log2(v); }, log2f, { 0.f, 1.f, PI, 12345.f } }, IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Sqrt(v); }, sqrtf, { 0.f, 1.f, PI, 12345.f } }));
+// TODO(b/149110874) Use coshf/sinhf when we've implemented SpirV versions at the SpirV level
+float vulkan_sinhf(float a)
+{
+	return ((expf(a) - expf(-a)) / 2);
+}
+float vulkan_coshf(float a)
+{
+	return ((expf(a) + expf(-a)) / 2);
+}
 
-INSTANTIATE_TEST_SUITE_P(IntrinsicTestParams_Float4_Float4, IntrinsicTest_Float4_Float4, testing::Values(IntrinsicTestParams_Float4_Float4{ [](RValue<Float4> v1, RValue<Float4> v2) { return Atan2(v1, v2); }, atan2f, { { 0.f, 0.f }, { 0.f, -1.f }, { -1.f, 0.f }, { 12345.f, 12345.f } } }, IntrinsicTestParams_Float4_Float4{ [](RValue<Float4> v1, RValue<Float4> v2) { return Pow(v1, v2); }, powf, { { 0.f, 0.f }, { 0.f, -1.f }, { -1.f, 0.f }, { 12345.f, 12345.f } } }));
+// clang-format off
+INSTANTIATE_TEST_SUITE_P(IntrinsicTestParams_Float4, IntrinsicTest_Float4, testing::Values(
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Sin(v); },   sinf,   {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Cos(v); },   cosf,   {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Tan(v); },   tanf,   {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Asin(v); },  asinf,  {0.f, 1.f, -1.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Acos(v); },  acosf,  {0.f, 1.f, -1.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Atan(v); },  atanf,  {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Sinh(v); },  vulkan_sinhf,  {0.f, 1.f, PI, 12345.f, 0x1.65a84ep6}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Cosh(v); },  vulkan_coshf,  {0.f, 1.f, PI, 12345.f, 0x1.65a84ep6} },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Tanh(v); },  tanhf,  {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Asinh(v); }, asinhf, {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Acosh(v); }, acoshf, {     1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Atanh(v); }, atanhf, {0.f, 1.f, -1.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Exp(v); },   expf,   {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Log(v); },   logf,   {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Exp2(v); },  exp2f,  {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Log2(v); },  log2f,  {0.f, 1.f, PI, 12345.f}  },
+	IntrinsicTestParams_Float4{ [](RValue<Float4> v) { return rr::Sqrt(v); },  sqrtf,  {0.f, 1.f, PI, 12345.f}  }
+));
+// clang-format on
+
+// clang-format off
+INSTANTIATE_TEST_SUITE_P(IntrinsicTestParams_Float4_Float4, IntrinsicTest_Float4_Float4, testing::Values(
+	IntrinsicTestParams_Float4_Float4{ [](RValue<Float4> v1, RValue<Float4> v2) { return Atan2(v1, v2); }, atan2f, { {0.f, 0.f}, {0.f, -1.f}, {-1.f, 0.f}, {12345.f, 12345.f} } },
+	IntrinsicTestParams_Float4_Float4{ [](RValue<Float4> v1, RValue<Float4> v2) { return Pow(v1, v2); },   powf,   { {0.f, 0.f}, {0.f, -1.f}, {-1.f, 0.f}, {12345.f, 12345.f} } }
+));
+// clang-format on
 
 TEST_P(IntrinsicTest_Float, Test)
 {

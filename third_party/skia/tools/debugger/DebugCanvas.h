@@ -157,23 +157,9 @@ protected:
     void onDrawArc(const SkRect&, SkScalar, SkScalar, bool, const SkPaint&) override;
     void onDrawRRect(const SkRRect&, const SkPaint&) override;
     void onDrawPoints(PointMode, size_t count, const SkPoint pts[], const SkPaint&) override;
-    void onDrawVerticesObject(const SkVertices*,
-                              const SkVertices::Bone bones[],
-                              int                    boneCount,
-                              SkBlendMode,
-                              const SkPaint&) override;
+    void onDrawVerticesObject(const SkVertices*, SkBlendMode, const SkPaint&) override;
     void onDrawPath(const SkPath&, const SkPaint&) override;
     void onDrawRegion(const SkRegion&, const SkPaint&) override;
-    void onDrawBitmap(const SkBitmap&, SkScalar left, SkScalar top, const SkPaint*) override;
-    void onDrawBitmapLattice(const SkBitmap&,
-                             const Lattice&,
-                             const SkRect&,
-                             const SkPaint*) override;
-    void onDrawBitmapRect(const SkBitmap&,
-                          const SkRect* src,
-                          const SkRect& dst,
-                          const SkPaint*,
-                          SrcRectConstraint) override;
     void onDrawImage(const SkImage*, SkScalar left, SkScalar top, const SkPaint*) override;
     void onDrawImageLattice(const SkImage* image,
                             const Lattice& lattice,
@@ -184,10 +170,6 @@ protected:
                          const SkRect& dst,
                          const SkPaint*,
                          SrcRectConstraint) override;
-    void onDrawBitmapNine(const SkBitmap&,
-                          const SkIRect& center,
-                          const SkRect&  dst,
-                          const SkPaint*) override;
     void onDrawImageNine(const SkImage*,
                          const SkIRect& center,
                          const SkRect&  dst,
@@ -203,6 +185,7 @@ protected:
     void onClipRect(const SkRect&, SkClipOp, ClipEdgeStyle) override;
     void onClipRRect(const SkRRect&, SkClipOp, ClipEdgeStyle) override;
     void onClipPath(const SkPath&, SkClipOp, ClipEdgeStyle) override;
+    void onClipShader(sk_sp<SkShader>, SkClipOp) override;
     void onClipRegion(const SkRegion& region, SkClipOp) override;
     void onDrawShadowRec(const SkPath&, const SkDrawShadowRec&) override;
 

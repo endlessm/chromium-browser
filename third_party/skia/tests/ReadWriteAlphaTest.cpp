@@ -31,8 +31,9 @@ static void validate_alpha_data(skiatest::Reporter* reporter, int w, int h, cons
         for (int x = 0; x < w; ++x) {
             uint8_t a = actual[y * actualRowBytes + x];
             uint8_t e = expected[y * w + x];
-            if (GrColorType::kRGBA_1010102 == colorType) {
-                // This config only preserves two bits of alpha
+            if (GrColorType::kRGBA_1010102 == colorType ||
+                GrColorType::kBGRA_1010102 == colorType) {
+                // These configs only preserves two bits of alpha
                 a >>= 6;
                 e >>= 6;
             }
@@ -56,10 +57,6 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadWriteAlpha, reporter, ctxInfo) {
     bool match;
     static const size_t kRowBytes[] = {0, X_SIZE, X_SIZE + 1, 2 * X_SIZE - 1};
     {
-        GrSurfaceDesc desc;
-        desc.fWidth     = X_SIZE;
-        desc.fHeight    = Y_SIZE;
-
         // We are initializing the texture with zeros here
         memset(alphaData, 0, X_SIZE * Y_SIZE);
         unsigned char alphaDataCopy[X_SIZE * Y_SIZE];
@@ -70,19 +67,15 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadWriteAlpha, reporter, ctxInfo) {
         SkBitmap bitmap;
         bitmap.installPixels(ii, alphaDataCopy, ii.minRowBytes());
         bitmap.setImmutable();
-        GrBitmapTextureMaker maker(context, bitmap);
-        auto [proxy, grCT] = maker.refTextureProxy(GrMipMapped::kNo);
-        if (!proxy) {
+        GrBitmapTextureMaker maker(context, bitmap, GrImageTexGenPolicy::kNew_Uncached_Budgeted);
+        auto view = maker.view(GrMipMapped::kNo);
+        if (!view.proxy()) {
             ERRORF(reporter, "Could not create alpha texture.");
             return;
         }
 
-        SkASSERT(proxy->origin() == kTopLeft_GrSurfaceOrigin);
-        GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(proxy->backendFormat(),
-                                                                   grCT);
-        GrSurfaceProxyView view(std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle);
-        auto sContext = GrSurfaceContext::Make(context, std::move(view), grCT, kPremul_SkAlphaType,
-                                               nullptr);
+        auto sContext = GrSurfaceContext::Make(context, std::move(view), maker.colorType(),
+                                               kPremul_SkAlphaType, nullptr);
 
         sk_sp<SkSurface> surf(SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, ii));
 

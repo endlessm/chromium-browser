@@ -17,7 +17,6 @@
 #include "VkCommandBuffer.hpp"
 #include "VkCommandPool.hpp"
 #include "VkConfig.h"
-#include "VkDebug.hpp"
 #include "VkDescriptorPool.hpp"
 #include "VkDescriptorSetLayout.hpp"
 #include "VkDescriptorUpdateTemplate.hpp"
@@ -42,6 +41,8 @@
 #include "VkSemaphore.hpp"
 #include "VkShaderModule.hpp"
 #include "VkStringify.hpp"
+
+#include "System/Debug.hpp"
 
 #if defined(VK_USE_PLATFORM_METAL_EXT) || defined(VK_USE_PLATFORM_MACOS_MVK)
 #	include "WSI/MetalSurface.h"
@@ -164,6 +165,92 @@ void initializeLibrary()
 	(void)doOnce;
 }
 
+template<class T>
+void ValidateRenderPassPNextChain(VkDevice device, const T *pCreateInfo)
+{
+	const VkBaseInStructure *extensionCreateInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
+
+	while(extensionCreateInfo)
+	{
+		switch(extensionCreateInfo->sType)
+		{
+			case VK_STRUCTURE_TYPE_RENDER_PASS_INPUT_ATTACHMENT_ASPECT_CREATE_INFO:
+			{
+				const VkRenderPassInputAttachmentAspectCreateInfo *inputAttachmentAspectCreateInfo = reinterpret_cast<const VkRenderPassInputAttachmentAspectCreateInfo *>(extensionCreateInfo);
+
+				for(uint32_t i = 0; i < inputAttachmentAspectCreateInfo->aspectReferenceCount; i++)
+				{
+					const auto &aspectReference = inputAttachmentAspectCreateInfo->pAspectReferences[i];
+					ASSERT(aspectReference.subpass < pCreateInfo->subpassCount);
+					const auto &subpassDescription = pCreateInfo->pSubpasses[aspectReference.subpass];
+					ASSERT(aspectReference.inputAttachmentIndex < subpassDescription.inputAttachmentCount);
+					const auto &attachmentReference = subpassDescription.pInputAttachments[aspectReference.inputAttachmentIndex];
+					if(attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
+					{
+						// If the pNext chain includes an instance of VkRenderPassInputAttachmentAspectCreateInfo, for any
+						// element of the pInputAttachments member of any element of pSubpasses where the attachment member
+						// is not VK_ATTACHMENT_UNUSED, the aspectMask member of the corresponding element of
+						// VkRenderPassInputAttachmentAspectCreateInfo::pAspectReferences must only include aspects that are
+						// present in images of the format specified by the element of pAttachments at attachment
+						vk::Format format(pCreateInfo->pAttachments[attachmentReference.attachment].format);
+						bool isDepth = format.isDepth();
+						bool isStencil = format.isStencil();
+						ASSERT(!(aspectReference.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) || (!isDepth && !isStencil));
+						ASSERT(!(aspectReference.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) || isDepth);
+						ASSERT(!(aspectReference.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) || isStencil);
+					}
+				}
+			}
+			break;
+			case VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO:
+			{
+				const VkRenderPassMultiviewCreateInfo *multiviewCreateInfo = reinterpret_cast<const VkRenderPassMultiviewCreateInfo *>(extensionCreateInfo);
+				ASSERT((multiviewCreateInfo->subpassCount == 0) || (multiviewCreateInfo->subpassCount == pCreateInfo->subpassCount));
+				ASSERT((multiviewCreateInfo->dependencyCount == 0) || (multiviewCreateInfo->dependencyCount == pCreateInfo->dependencyCount));
+
+				bool zeroMask = (multiviewCreateInfo->pViewMasks[0] == 0);
+				for(uint32_t i = 1; i < multiviewCreateInfo->subpassCount; i++)
+				{
+					ASSERT((multiviewCreateInfo->pViewMasks[i] == 0) == zeroMask);
+				}
+
+				if(zeroMask)
+				{
+					ASSERT(multiviewCreateInfo->correlationMaskCount == 0);
+				}
+
+				for(uint32_t i = 0; i < multiviewCreateInfo->dependencyCount; i++)
+				{
+					const auto &dependency = pCreateInfo->pDependencies[i];
+					if(multiviewCreateInfo->pViewOffsets[i] != 0)
+					{
+						ASSERT(dependency.srcSubpass != dependency.dstSubpass);
+						ASSERT(dependency.dependencyFlags & VK_DEPENDENCY_VIEW_LOCAL_BIT);
+					}
+					if(zeroMask)
+					{
+						ASSERT(!(dependency.dependencyFlags & VK_DEPENDENCY_VIEW_LOCAL_BIT));
+					}
+				}
+
+				// If the pNext chain includes an instance of VkRenderPassMultiviewCreateInfo,
+				// each element of its pViewMask member must not include a bit at a position
+				// greater than the value of VkPhysicalDeviceLimits::maxFramebufferLayers
+				// pViewMask is a 32 bit value. If maxFramebufferLayers > 32, it's impossible
+				// for pViewMask to contain a bit at an illegal position
+				// Note: Verify pViewMask values instead if we hit this assert
+				ASSERT(vk::Cast(device)->getPhysicalDevice()->getProperties().limits.maxFramebufferLayers >= 32);
+			}
+			break;
+			default:
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+				break;
+		}
+
+		extensionCreateInfo = extensionCreateInfo->pNext;
+	}
+}
+
 }  // namespace
 
 extern "C" {
@@ -211,6 +298,7 @@ static const VkExtensionProperties deviceExtensionProperties[] = {
 	// Vulkan 1.1 promoted extensions
 	{ VK_KHR_16BIT_STORAGE_EXTENSION_NAME, VK_KHR_16BIT_STORAGE_SPEC_VERSION },
 	{ VK_KHR_BIND_MEMORY_2_EXTENSION_NAME, VK_KHR_BIND_MEMORY_2_SPEC_VERSION },
+	{ VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, VK_KHR_CREATE_RENDERPASS_2_SPEC_VERSION },
 	{ VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_DEDICATED_ALLOCATION_SPEC_VERSION },
 	{ VK_KHR_DESCRIPTOR_UPDATE_TEMPLATE_EXTENSION_NAME, VK_KHR_DESCRIPTOR_UPDATE_TEMPLATE_SPEC_VERSION },
 	{ VK_KHR_DEVICE_GROUP_EXTENSION_NAME, VK_KHR_DEVICE_GROUP_SPEC_VERSION },
@@ -224,6 +312,7 @@ static const VkExtensionProperties deviceExtensionProperties[] = {
 	{ VK_KHR_MULTIVIEW_EXTENSION_NAME, VK_KHR_MULTIVIEW_SPEC_VERSION },
 	{ VK_KHR_RELAXED_BLOCK_LAYOUT_EXTENSION_NAME, VK_KHR_RELAXED_BLOCK_LAYOUT_SPEC_VERSION },
 	{ VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME, VK_KHR_SAMPLER_YCBCR_CONVERSION_SPEC_VERSION },
+	{ VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_EXTENSION_NAME, VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_SPEC_VERSION },
 	// Only 1.1 core version of this is supported. The extension has additional requirements
 	//{ VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME, VK_KHR_SHADER_DRAW_PARAMETERS_SPEC_VERSION },
 	{ VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME, VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_SPEC_VERSION },
@@ -232,6 +321,8 @@ static const VkExtensionProperties deviceExtensionProperties[] = {
 	{ VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, VK_EXT_QUEUE_FAMILY_FOREIGN_SPEC_VERSION },
 	// The following extension is only used to add support for Bresenham lines
 	{ VK_EXT_LINE_RASTERIZATION_EXTENSION_NAME, VK_EXT_LINE_RASTERIZATION_SPEC_VERSION },
+	// The following extension is used by ANGLE to emulate blitting the stencil buffer
+	{ VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME, VK_EXT_SHADER_STENCIL_EXPORT_SPEC_VERSION },
 #ifndef __ANDROID__
 	// We fully support the KHR_swapchain v70 additions, so just track the spec version.
 	{ VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION },
@@ -252,6 +343,9 @@ static const VkExtensionProperties deviceExtensionProperties[] = {
 #if SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
 	{ VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, VK_KHR_EXTERNAL_MEMORY_FD_SPEC_VERSION },
 #endif
+
+	{ VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME, VK_EXT_EXTERNAL_MEMORY_HOST_SPEC_VERSION },
+
 #if VK_USE_PLATFORM_FUCHSIA
 	{ VK_FUCHSIA_EXTERNAL_SEMAPHORE_EXTENSION_NAME, VK_FUCHSIA_EXTERNAL_SEMAPHORE_SPEC_VERSION },
 #endif
@@ -298,7 +392,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCre
 				//  Vulkan structures in this Specification."
 				break;
 			default:
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(createInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(createInfo->sType).c_str());
 				break;
 		}
 	}
@@ -625,6 +719,14 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 				}
 			}
 			break;
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR:
+			{
+				const VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR *shaderDrawParametersFeatures = reinterpret_cast<const VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR *>(extensionCreateInfo);
+
+				// Separate depth and stencil layouts is already supported
+				(void)(shaderDrawParametersFeatures->separateDepthStencilLayouts);
+			}
+			break;
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT:
 			{
 				const VkPhysicalDeviceLineRasterizationFeaturesEXT *lineRasterizationFeatures = reinterpret_cast<const VkPhysicalDeviceLineRasterizationFeaturesEXT *>(extensionCreateInfo);
@@ -650,7 +752,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 			break;
 			default:
 				// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 				break;
 		}
 
@@ -680,7 +782,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, c
 		auto extInfo = reinterpret_cast<VkBaseInStructure const *>(queueCreateInfo.pNext);
 		while(extInfo)
 		{
-			WARN("pCreateInfo->pQueueCreateInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
+			LOG_TRAP("pCreateInfo->pQueueCreateInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
 			extInfo = extInfo->pNext;
 		}
 
@@ -855,8 +957,18 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateMemory(VkDevice device, const VkMemoryA
 				// Ignore
 				break;
 #endif  // SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
+			case VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT:
+			{
+				auto *importInfo = reinterpret_cast<const VkImportMemoryHostPointerInfoEXT *>(allocationInfo);
+				if(importInfo->handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT && importInfo->handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT)
+				{
+					UNSUPPORTED("importInfo->handleType %u", importInfo->handleType);
+					return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+				}
+				break;
+			}
 			default:
-				WARN("pAllocateInfo->pNext sType = %s", vk::Stringify(allocationInfo->sType).c_str());
+				LOG_TRAP("pAllocateInfo->pNext sType = %s", vk::Stringify(allocationInfo->sType).c_str());
 				break;
 		}
 
@@ -927,6 +1039,21 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryFdPropertiesKHR(VkDevice device, VkExt
 	return VK_SUCCESS;
 }
 #endif  // SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
+
+VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryHostPointerPropertiesEXT(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, const void *pHostPointer, VkMemoryHostPointerPropertiesEXT *pMemoryHostPointerProperties)
+{
+	TRACE("(VkDevice device = %p, VkExternalMemoryHandleTypeFlagBits handleType = %x, const void *pHostPointer = %p, VkMemoryHostPointerPropertiesEXT *pMemoryHostPointerProperties = %p)",
+	      device, handleType, pHostPointer, pMemoryHostPointerProperties);
+
+	if(handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT && handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_MAPPED_FOREIGN_MEMORY_BIT_EXT)
+	{
+		UNSUPPORTED("handleType %u", handleType);
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+	pMemoryHostPointerProperties->memoryTypeBits = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+
+	return VK_SUCCESS;
+}
 
 #if SWIFTSHADER_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER
 VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryAndroidHardwareBufferANDROID(VkDevice device, const VkMemoryGetAndroidHardwareBufferInfoANDROID *pInfo, struct AHardwareBuffer **pBuffer)
@@ -1082,7 +1209,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateFence(VkDevice device, const VkFenceCreat
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -1225,7 +1352,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateEvent(VkDevice device, const VkEventCreat
 	while(extInfo)
 	{
 		// Vulkan 1.2: "pNext must be NULL"
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -1279,7 +1406,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateQueryPool(VkDevice device, const VkQueryP
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pCreateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -1316,7 +1443,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateBuffer(VkDevice device, const VkBufferCre
 				// Do nothing. Should be handled by vk::Buffer::Create().
 				break;
 			default:
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 				break;
 		}
 		nextInfo = nextInfo->pNext;
@@ -1347,7 +1474,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateBufferView(VkDevice device, const VkBuffe
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pCreateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -1402,7 +1529,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreat
 				break;
 			default:
 				// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 				break;
 		}
 
@@ -1506,7 +1633,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateImageView(VkDevice device, const VkImageV
 			}
 			break;
 			default:
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 				break;
 		}
 
@@ -1538,7 +1665,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateShaderModule(VkDevice device, const VkSha
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -1567,7 +1694,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreatePipelineCache(VkDevice device, const VkPi
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pCreateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -1684,7 +1811,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreatePipelineLayout(VkDevice device, const VkP
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -1723,14 +1850,25 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSampler(VkDevice device, const VkSamplerC
 			}
 			break;
 			default:
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 				break;
 		}
 
 		extensionCreateInfo = extensionCreateInfo->pNext;
 	}
 
-	return vk::Sampler::Create(pAllocator, pCreateInfo, pSampler, ycbcrConversion);
+	vk::SamplerState samplerState(pCreateInfo, ycbcrConversion);
+	uint32_t samplerID = vk::Cast(device)->indexSampler(samplerState);
+
+	VkResult result = vk::Sampler::Create(pAllocator, pCreateInfo, pSampler, samplerState, samplerID);
+
+	if(*pSampler == VK_NULL_HANDLE)
+	{
+		ASSERT(result != VK_SUCCESS);
+		vk::Cast(device)->removeSampler(samplerState);
+	}
+
+	return result;
 }
 
 VKAPI_ATTR void VKAPI_CALL vkDestroySampler(VkDevice device, VkSampler sampler, const VkAllocationCallbacks *pAllocator)
@@ -1738,7 +1876,12 @@ VKAPI_ATTR void VKAPI_CALL vkDestroySampler(VkDevice device, VkSampler sampler, 
 	TRACE("(VkDevice device = %p, VkSampler sampler = %p, const VkAllocationCallbacks* pAllocator = %p)",
 	      device, static_cast<void *>(sampler), pAllocator);
 
-	vk::destroy(sampler, pAllocator);
+	if(sampler != VK_NULL_HANDLE)
+	{
+		vk::Cast(device)->removeSampler(*vk::Cast(sampler));
+
+		vk::destroy(sampler, pAllocator);
+	}
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorSetLayout(VkDevice device, const VkDescriptorSetLayoutCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDescriptorSetLayout *pSetLayout)
@@ -1756,7 +1899,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorSetLayout(VkDevice device, cons
 				ASSERT(!vk::Cast(device)->hasExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME));
 				break;
 			default:
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
+				LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
 				break;
 		}
 
@@ -1782,7 +1925,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorPool(VkDevice device, const VkD
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pCreateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -1819,7 +1962,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateDescriptorSets(VkDevice device, const V
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pAllocateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pAllocateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pAllocateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -1857,7 +2000,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateFramebuffer(VkDevice device, const VkFram
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -1883,87 +2026,23 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateRenderPass(VkDevice device, const VkRende
 		UNSUPPORTED("pCreateInfo->flags %d", int(pCreateInfo->flags));
 	}
 
-	const VkBaseInStructure *extensionCreateInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
+	ValidateRenderPassPNextChain(device, pCreateInfo);
 
-	while(extensionCreateInfo)
+	return vk::RenderPass::Create(pAllocator, pCreateInfo, pRenderPass);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateRenderPass2KHR(VkDevice device, const VkRenderPassCreateInfo2KHR *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkRenderPass *pRenderPass)
+{
+	TRACE("(VkDevice device = %p, const VkRenderPassCreateInfo* pCreateInfo = %p, const VkAllocationCallbacks* pAllocator = %p, VkRenderPass* pRenderPass = %p)",
+	      device, pCreateInfo, pAllocator, pRenderPass);
+
+	if(pCreateInfo->flags != 0)
 	{
-		switch(extensionCreateInfo->sType)
-		{
-			case VK_STRUCTURE_TYPE_RENDER_PASS_INPUT_ATTACHMENT_ASPECT_CREATE_INFO:
-			{
-				const VkRenderPassInputAttachmentAspectCreateInfo *inputAttachmentAspectCreateInfo = reinterpret_cast<const VkRenderPassInputAttachmentAspectCreateInfo *>(extensionCreateInfo);
-
-				for(uint32_t i = 0; i < inputAttachmentAspectCreateInfo->aspectReferenceCount; i++)
-				{
-					const VkInputAttachmentAspectReference &aspectReference = inputAttachmentAspectCreateInfo->pAspectReferences[i];
-					ASSERT(aspectReference.subpass < pCreateInfo->subpassCount);
-					const VkSubpassDescription &subpassDescription = pCreateInfo->pSubpasses[aspectReference.subpass];
-					ASSERT(aspectReference.inputAttachmentIndex < subpassDescription.inputAttachmentCount);
-					const VkAttachmentReference &attachmentReference = subpassDescription.pInputAttachments[aspectReference.inputAttachmentIndex];
-					if(attachmentReference.attachment != VK_ATTACHMENT_UNUSED)
-					{
-						// If the pNext chain includes an instance of VkRenderPassInputAttachmentAspectCreateInfo, for any
-						// element of the pInputAttachments member of any element of pSubpasses where the attachment member
-						// is not VK_ATTACHMENT_UNUSED, the aspectMask member of the corresponding element of
-						// VkRenderPassInputAttachmentAspectCreateInfo::pAspectReferences must only include aspects that are
-						// present in images of the format specified by the element of pAttachments at attachment
-						vk::Format format(pCreateInfo->pAttachments[attachmentReference.attachment].format);
-						bool isDepth = format.isDepth();
-						bool isStencil = format.isStencil();
-						ASSERT(!(aspectReference.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) || (!isDepth && !isStencil));
-						ASSERT(!(aspectReference.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) || isDepth);
-						ASSERT(!(aspectReference.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) || isStencil);
-					}
-				}
-			}
-			break;
-			case VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO:
-			{
-				const VkRenderPassMultiviewCreateInfo *multiviewCreateInfo = reinterpret_cast<const VkRenderPassMultiviewCreateInfo *>(extensionCreateInfo);
-				ASSERT((multiviewCreateInfo->subpassCount == 0) || (multiviewCreateInfo->subpassCount == pCreateInfo->subpassCount));
-				ASSERT((multiviewCreateInfo->dependencyCount == 0) || (multiviewCreateInfo->dependencyCount == pCreateInfo->dependencyCount));
-
-				bool zeroMask = (multiviewCreateInfo->pViewMasks[0] == 0);
-				for(uint32_t i = 1; i < multiviewCreateInfo->subpassCount; i++)
-				{
-					ASSERT((multiviewCreateInfo->pViewMasks[i] == 0) == zeroMask);
-				}
-
-				if(zeroMask)
-				{
-					ASSERT(multiviewCreateInfo->correlationMaskCount == 0);
-				}
-
-				for(uint32_t i = 0; i < multiviewCreateInfo->dependencyCount; i++)
-				{
-					const VkSubpassDependency &dependency = pCreateInfo->pDependencies[i];
-					if(multiviewCreateInfo->pViewOffsets[i] != 0)
-					{
-						ASSERT(dependency.srcSubpass != dependency.dstSubpass);
-						ASSERT(dependency.dependencyFlags & VK_DEPENDENCY_VIEW_LOCAL_BIT);
-					}
-					if(zeroMask)
-					{
-						ASSERT(!(dependency.dependencyFlags & VK_DEPENDENCY_VIEW_LOCAL_BIT));
-					}
-				}
-
-				// If the pNext chain includes an instance of VkRenderPassMultiviewCreateInfo,
-				// each element of its pViewMask member must not include a bit at a position
-				// greater than the value of VkPhysicalDeviceLimits::maxFramebufferLayers
-				// pViewMask is a 32 bit value. If maxFramebufferLayers > 32, it's impossible
-				// for pViewMask to contain a bit at an illegal position
-				// Note: Verify pViewMask values instead if we hit this assert
-				ASSERT(vk::Cast(device)->getPhysicalDevice()->getProperties().limits.maxFramebufferLayers >= 32);
-			}
-			break;
-			default:
-				WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extensionCreateInfo->sType).c_str());
-				break;
-		}
-
-		extensionCreateInfo = extensionCreateInfo->pNext;
+		// Vulkan 1.2: "flags is reserved for future use." "flags must be 0"
+		UNSUPPORTED("pCreateInfo->flags %d", int(pCreateInfo->flags));
 	}
+
+	ValidateRenderPassPNextChain(device, pCreateInfo);
 
 	return vk::RenderPass::Create(pAllocator, pCreateInfo, pRenderPass);
 }
@@ -1992,7 +2071,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateCommandPool(VkDevice device, const VkComm
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -2023,7 +2102,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateCommandBuffers(VkDevice device, const V
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pAllocateInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pAllocateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pAllocateInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -2046,7 +2125,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBeginCommandBuffer(VkCommandBuffer commandBuffe
 	auto *nextInfo = reinterpret_cast<const VkBaseInStructure *>(pBeginInfo->pNext);
 	while(nextInfo)
 	{
-		WARN("pBeginInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
+		LOG_TRAP("pBeginInfo->pNext sType = %s", vk::Stringify(nextInfo->sType).c_str());
 		nextInfo = nextInfo->pNext;
 	}
 
@@ -2404,7 +2483,7 @@ VKAPI_ATTR void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, c
 				// SwiftShader only has a single physical device, so this extension does nothing in this case.
 				break;
 			default:
-				WARN("pRenderPassBegin->pNext sType = %s", vk::Stringify(renderPassBeginInfo->sType).c_str());
+				LOG_TRAP("pRenderPassBegin->pNext sType = %s", vk::Stringify(renderPassBeginInfo->sType).c_str());
 				break;
 		}
 
@@ -2412,6 +2491,14 @@ VKAPI_ATTR void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, c
 	}
 
 	vk::Cast(commandBuffer)->beginRenderPass(vk::Cast(pRenderPassBegin->renderPass), vk::Cast(pRenderPassBegin->framebuffer), pRenderPassBegin->renderArea, pRenderPassBegin->clearValueCount, pRenderPassBegin->pClearValues, contents);
+}
+
+VKAPI_ATTR void VKAPI_CALL vkCmdBeginRenderPass2KHR(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo *pRenderPassBegin, const VkSubpassBeginInfoKHR *pSubpassBeginInfo)
+{
+	TRACE("(VkCommandBuffer commandBuffer = %p, const VkRenderPassBeginInfo* pRenderPassBegin = %p, const VkSubpassBeginInfoKHR* pSubpassBeginInfo = %p)",
+	      commandBuffer, pRenderPassBegin, pSubpassBeginInfo);
+
+	vk::Cast(commandBuffer)->beginRenderPass(vk::Cast(pRenderPassBegin->renderPass), vk::Cast(pRenderPassBegin->framebuffer), pRenderPassBegin->renderArea, pRenderPassBegin->clearValueCount, pRenderPassBegin->pClearValues, pSubpassBeginInfo->contents);
 }
 
 VKAPI_ATTR void VKAPI_CALL vkCmdNextSubpass(VkCommandBuffer commandBuffer, VkSubpassContents contents)
@@ -2422,9 +2509,24 @@ VKAPI_ATTR void VKAPI_CALL vkCmdNextSubpass(VkCommandBuffer commandBuffer, VkSub
 	vk::Cast(commandBuffer)->nextSubpass(contents);
 }
 
+VKAPI_ATTR void VKAPI_CALL vkCmdNextSubpass2KHR(VkCommandBuffer commandBuffer, const VkSubpassBeginInfoKHR *pSubpassBeginInfo, const VkSubpassEndInfoKHR *pSubpassEndInfo)
+{
+	TRACE("(VkCommandBuffer commandBuffer = %p, const VkSubpassBeginInfoKHR* pSubpassBeginInfo = %p, const VkSubpassEndInfoKHR* pSubpassEndInfo = %p)",
+	      commandBuffer, pSubpassBeginInfo, pSubpassEndInfo);
+
+	vk::Cast(commandBuffer)->nextSubpass(pSubpassBeginInfo->contents);
+}
+
 VKAPI_ATTR void VKAPI_CALL vkCmdEndRenderPass(VkCommandBuffer commandBuffer)
 {
 	TRACE("(VkCommandBuffer commandBuffer = %p)", commandBuffer);
+
+	vk::Cast(commandBuffer)->endRenderPass();
+}
+
+VKAPI_ATTR void VKAPI_CALL vkCmdEndRenderPass2KHR(VkCommandBuffer commandBuffer, const VkSubpassEndInfoKHR *pSubpassEndInfo)
+{
+	TRACE("(VkCommandBuffer commandBuffer = %p, const VkSubpassEndInfoKHR* pSubpassEndInfo = %p)", commandBuffer, pSubpassEndInfo);
 
 	vk::Cast(commandBuffer)->endRenderPass();
 }
@@ -2454,7 +2556,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindBufferMemory2(VkDevice device, uint32_t bin
 		auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pBindInfos[i].pNext);
 		while(extInfo)
 		{
-			WARN("pBindInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
+			LOG_TRAP("pBindInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
 			extInfo = extInfo->pNext;
 		}
 
@@ -2512,7 +2614,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkBindImageMemory2(VkDevice device, uint32_t bind
 #endif
 
 				default:
-					WARN("pBindInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
+					LOG_TRAP("pBindInfos[%d].pNext sType = %s", i, vk::Stringify(extInfo->sType).c_str());
 					break;
 			}
 			extInfo = extInfo->pNext;
@@ -2564,7 +2666,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageMemoryRequirements2(VkDevice device, const 
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -2580,7 +2682,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageMemoryRequirements2(VkDevice device, const 
 			}
 			break;
 			default:
-				WARN("pMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
+				LOG_TRAP("pMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
 				break;
 		}
 
@@ -2598,7 +2700,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetBufferMemoryRequirements2(VkDevice device, const
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -2614,7 +2716,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetBufferMemoryRequirements2(VkDevice device, const
 			}
 			break;
 			default:
-				WARN("pMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
+				LOG_TRAP("pMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
 				break;
 		}
 
@@ -2632,14 +2734,14 @@ VKAPI_ATTR void VKAPI_CALL vkGetImageSparseMemoryRequirements2(VkDevice device, 
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
 	auto extensionRequirements = reinterpret_cast<VkBaseInStructure const *>(pSparseMemoryRequirements->pNext);
 	while(extensionRequirements)
 	{
-		WARN("pSparseMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
+		LOG_TRAP("pSparseMemoryRequirements->pNext sType = %s", vk::Stringify(extensionRequirements->sType).c_str());
 		extensionRequirements = extensionRequirements->pNext;
 	}
 
@@ -2699,6 +2801,12 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physica
 				vk::Cast(physicalDevice)->getFeatures(features);
 			}
 			break;
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SEPARATE_DEPTH_STENCIL_LAYOUTS_FEATURES_KHR:
+			{
+				auto features = reinterpret_cast<VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR *>(extensionFeatures);
+				vk::Cast(physicalDevice)->getFeatures(features);
+			}
+			break;
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT:
 			{
 				auto features = reinterpret_cast<VkPhysicalDeviceLineRasterizationFeaturesEXT *>(extensionFeatures);
@@ -2728,7 +2836,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physica
 				                             sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
 				break;
 			default:
-				WARN("pFeatures->pNext sType = %s", vk::Stringify(extensionFeatures->sType).c_str());
+				LOG_TRAP("pFeatures->pNext sType = %s", vk::Stringify(extensionFeatures->sType).c_str());
 				break;
 		}
 
@@ -2793,9 +2901,11 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties2(VkPhysicalDevice physi
 				                             sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
 				break;
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT:
-				ASSERT(!HasExtensionProperty(VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME, deviceExtensionProperties,
-				                             sizeof(deviceExtensionProperties) / sizeof(deviceExtensionProperties[0])));
-				break;
+			{
+				auto properties = reinterpret_cast<VkPhysicalDeviceExternalMemoryHostPropertiesEXT *>(extensionProperties);
+				vk::Cast(physicalDevice)->getProperties(properties);
+			}
+			break;
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES_KHR:
 			{
 				auto properties = reinterpret_cast<VkPhysicalDeviceDriverPropertiesKHR *>(extensionProperties);
@@ -2824,7 +2934,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties2(VkPhysicalDevice physi
 			break;
 			default:
 				// "the [driver] must skip over, without processing (other than reading the sType and pNext members) any structures in the chain with sType values not defined by [supported extenions]"
-				WARN("pProperties->pNext sType = %s", vk::Stringify(extensionProperties->sType).c_str());
+				LOG_TRAP("pProperties->pNext sType = %s", vk::Stringify(extensionProperties->sType).c_str());
 				break;
 		}
 
@@ -2842,7 +2952,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFormatProperties2(VkPhysicalDevice
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pFormatProperties->pNext);
 	while(extInfo)
 	{
-		WARN("pFormatProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pFormatProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -2889,7 +2999,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
 			}
 			break;
 			default:
-				WARN("pImageFormatInfo->pNext sType = %s", vk::Stringify(extensionFormatInfo->sType).c_str());
+				LOG_TRAP("pImageFormatInfo->pNext sType = %s", vk::Stringify(extensionFormatInfo->sType).c_str());
 				break;
 		}
 
@@ -2922,7 +3032,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties2(VkPhysi
 			}
 			break;
 			default:
-				WARN("pImageFormatProperties->pNext sType = %s", vk::Stringify(extensionProperties->sType).c_str());
+				LOG_TRAP("pImageFormatProperties->pNext sType = %s", vk::Stringify(extensionProperties->sType).c_str());
 				break;
 		}
 
@@ -2948,7 +3058,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceQueueFamilyProperties2(VkPhysicalD
 		auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pQueueFamilyProperties->pNext);
 		while(extInfo)
 		{
-			WARN("pQueueFamilyProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+			LOG_TRAP("pQueueFamilyProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 			extInfo = extInfo->pNext;
 		}
 	}
@@ -2970,7 +3080,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties2(VkPhysicalDevice
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pMemoryProperties->pNext);
 	while(extInfo)
 	{
-		WARN("pMemoryProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pMemoryProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -2987,7 +3097,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceSparseImageFormatProperties2(VkPhy
 		auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pProperties->pNext);
 		while(extInfo)
 		{
-			WARN("pProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+			LOG_TRAP("pProperties->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 			extInfo = extInfo->pNext;
 		}
 	}
@@ -3018,7 +3128,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue2(VkDevice device, const VkDeviceQueu
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pQueueInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pQueueInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pQueueInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -3043,7 +3153,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSamplerYcbcrConversion(VkDevice device, c
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pCreateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 
@@ -3077,7 +3187,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDescriptorUpdateTemplate(VkDevice device,
 	auto extInfo = reinterpret_cast<VkBaseInStructure const *>(pCreateInfo->pNext);
 	while(extInfo)
 	{
-		WARN("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
+		LOG_TRAP("pCreateInfo->pNext sType = %s", vk::Stringify(extInfo->sType).c_str());
 		extInfo = extInfo->pNext;
 	}
 

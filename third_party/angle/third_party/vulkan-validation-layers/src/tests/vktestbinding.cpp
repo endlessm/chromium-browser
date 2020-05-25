@@ -1,7 +1,7 @@
 /*
- * Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
+ * Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ namespace {
     } while (0)
 
 #define NON_DISPATCHABLE_HANDLE_DTOR(cls, destroy_func)            \
-    cls::~cls() {                                                  \
+    cls::~cls() NOEXCEPT {                                         \
         if (initialized()) destroy_func(device(), handle(), NULL); \
     }
 
@@ -239,7 +239,7 @@ QueueCreateInfoArray::QueueCreateInfoArray(const std::vector<VkQueueFamilyProper
     }
 }
 
-Device::~Device() {
+Device::~Device() NOEXCEPT {
     if (!initialized()) return;
 
     vk::DestroyDevice(handle(), NULL);
@@ -348,7 +348,8 @@ const Device::QueueFamilyQueues &Device::queue_family_queues(uint32_t queue_fami
 }
 
 void Device::init_formats() {
-    for (int f = VK_FORMAT_BEGIN_RANGE; f <= VK_FORMAT_END_RANGE; f++) {
+    // For each 1.0 core format, undefined = first, 12x12_SRGB_BLOCK = last
+    for (int f = VK_FORMAT_UNDEFINED; f <= VK_FORMAT_ASTC_12x12_SRGB_BLOCK; f++) {
         const VkFormat fmt = static_cast<VkFormat>(f);
         const VkFormatProperties props = format_properties(fmt);
 
@@ -426,7 +427,7 @@ VkResult Queue::wait() {
     return result;
 }
 
-DeviceMemory::~DeviceMemory() {
+DeviceMemory::~DeviceMemory() NOEXCEPT {
     if (initialized()) vk::FreeMemory(device(), handle(), NULL);
 }
 
@@ -811,7 +812,7 @@ DescriptorSet *DescriptorPool::alloc_sets(const Device &dev, const DescriptorSet
     return (set.empty()) ? NULL : set[0];
 }
 
-DescriptorSet::~DescriptorSet() {
+DescriptorSet::~DescriptorSet() NOEXCEPT {
     if (initialized()) {
         // Only call vk::Free* on sets allocated from pool with usage *_DYNAMIC
         if (containing_pool_->getDynamicUsage()) {
@@ -827,7 +828,7 @@ void CommandPool::init(const Device &dev, const VkCommandPoolCreateInfo &info) {
     NON_DISPATCHABLE_HANDLE_INIT(vk::CreateCommandPool, dev, &info);
 }
 
-CommandBuffer::~CommandBuffer() {
+CommandBuffer::~CommandBuffer() NOEXCEPT {
     if (initialized()) {
         VkCommandBuffer cmds[] = {handle()};
         vk::FreeCommandBuffers(dev_handle_, cmd_pool_, 1, cmds);

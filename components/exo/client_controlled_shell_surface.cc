@@ -595,6 +595,15 @@ void ClientControlledShellSurface::SetClientAccessibilityId(
   }
 }
 
+void ClientControlledShellSurface::DidReceiveCompositorFrameAck() {
+  orientation_ = pending_orientation_;
+  // Unlock the compositor after the frame is received by viz so that
+  // screenshot contain the correct frame.
+  if (expected_orientation_ == orientation_)
+    orientation_compositor_lock_.reset();
+  SurfaceTreeHost::DidReceiveCompositorFrameAck();
+}
+
 void ClientControlledShellSurface::OnBoundsChangeEvent(
     ash::WindowStateType current_state,
     ash::WindowStateType requested_state,
@@ -976,6 +985,8 @@ void ClientControlledShellSurface::InitializeWindowState(
   accelerator_target_ =
       std::make_unique<ClientControlledAcceleratorTarget>(this);
 
+  // These shortcuts are same as ones used in chrome.
+  // TODO: investigate if we need to reassign.
   for (const auto& entry : kAccelerators) {
     focus_manager->RegisterAccelerator(
         ui::Accelerator(entry.keycode, entry.modifiers),
@@ -1123,10 +1134,6 @@ void ClientControlledShellSurface::OnPostWidgetCommit() {
 
   // Update surface scale.
   CommitPendingScale();
-
-  orientation_ = pending_orientation_;
-  if (expected_orientation_ == orientation_)
-    orientation_compositor_lock_.reset();
 
   widget_->GetNativeWindow()->SetProperty(aura::client::kZOrderingKey,
                                           pending_always_on_top_

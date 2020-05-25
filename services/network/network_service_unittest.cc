@@ -32,6 +32,7 @@
 #include "net/dns/dns_test_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_manager.h"
+#include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/dns_protocol.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_auth_scheme.h"
@@ -532,7 +533,7 @@ TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
                                        net::DnsConfig::SecureDnsMode::AUTOMATIC,
                                        std::move(dns_over_https_servers_ptr));
   EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
-  std::vector<net::DnsConfig::DnsOverHttpsServerConfig> dns_over_https_servers =
+  std::vector<net::DnsOverHttpsServerConfig> dns_over_https_servers =
       dns_client_ptr->GetEffectiveConfig()->dns_over_https_servers;
   ASSERT_EQ(1u, dns_over_https_servers.size());
   EXPECT_EQ(kServer1, dns_over_https_servers[0].server_template);
@@ -604,7 +605,7 @@ TEST_F(NetworkServiceTest, DisableDohUpgradeProviders) {
   service()->host_resolver_manager()->SetDnsClientForTesting(
       std::move(dns_client));
 
-  std::vector<net::DnsConfig::DnsOverHttpsServerConfig> expected_doh_servers = {
+  std::vector<net::DnsOverHttpsServerConfig> expected_doh_servers = {
       {"https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
        false /* use_post */}};
   EXPECT_TRUE(dns_client_ptr->GetEffectiveConfig());
@@ -657,6 +658,43 @@ TEST_F(NetworkServiceTest, DohProbe_NoPrimaryContext) {
   EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
 
   task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_MultipleContexts) {
+  mojom::NetworkContextParamsPtr context_params1 = CreateContextParams();
+  context_params1->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context1;
+  service()->CreateNetworkContext(network_context1.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params1));
+
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  ASSERT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  mojom::NetworkContextParamsPtr context_params2 = CreateContextParams();
+  context_params2->primary_network_context = false;
+  mojo::Remote<mojom::NetworkContext> network_context2;
+  service()->CreateNetworkContext(network_context2.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params2));
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  network_context2.reset();
+  task_environment()->FastForwardUntilNoTasksRemain();
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  network_context1.reset();
+  task_environment()->FastForwardUntilNoTasksRemain();
   EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
 }
 
@@ -1185,6 +1223,38 @@ TEST_F(NetworkServiceTestWithService, SetNetworkConditions) {
   EXPECT_EQ(net::OK, client()->completion_status().error_code);
 }
 
+// Integration test confirming that the SetTrustTokenKeyCommitments IPC is wired
+// up correctly by verifying that it's possible to read a value previously
+// passed to the setter.
+TEST_F(NetworkServiceTestWithService, SetsTrustTokenKeyCommitments) {
+  ASSERT_TRUE(service_->trust_token_key_commitments());
+
+  auto expectation = mojom::TrustTokenKeyCommitmentResult::New();
+  expectation->batch_size = mojom::TrustTokenKeyCommitmentBatchSize::New(5);
+
+  url::Origin issuer_origin =
+      url::Origin::Create(GURL("https://issuer.example"));
+
+  base::flat_map<url::Origin, mojom::TrustTokenKeyCommitmentResultPtr> to_set;
+  to_set.insert_or_assign(issuer_origin, expectation.Clone());
+  network_service_->SetTrustTokenKeyCommitments(std::move(to_set));
+  network_service_.FlushForTesting();
+
+  mojom::TrustTokenKeyCommitmentResultPtr result;
+  bool ran = false;
+
+  service_->trust_token_key_commitments()->Get(
+      issuer_origin, base::BindLambdaForTesting(
+                         [&](mojom::TrustTokenKeyCommitmentResultPtr ptr) {
+                           result = std::move(ptr);
+                           ran = true;
+                         }));
+
+  ASSERT_TRUE(ran);
+
+  EXPECT_TRUE(result.Equals(expectation));
+}
+
 // CRLSets are not supported on iOS and Android system verifiers.
 #if !defined(OS_IOS) && !defined(OS_ANDROID)
 
@@ -1407,11 +1477,8 @@ TEST_F(NetworkServiceTestWithService, CRLSetDoesNotDowngrade) {
 
 #endif  // !defined(OS_IOS) && !defined(OS_ANDROID)
 
-// The SpawnedTestServer does not work on iOS.
-#if !defined(OS_IOS)
-
-// The test is flaky on Android. crbug.com/1045732.
-#if defined(OS_ANDROID)
+// TODO(crbug.com/860189): AIA tests fail on iOS
+#if defined(OS_IOS)
 #define MAYBE_AIAFetching DISABLED_AIAFetching
 #else
 #define MAYBE_AIAFetching AIAFetching
@@ -1425,16 +1492,15 @@ TEST_F(NetworkServiceTestWithService, MAYBE_AIAFetching) {
   network_service_->CreateNetworkContext(
       network_context_.BindNewPipeAndPassReceiver(), std::move(context_params));
 
-  net::SpawnedTestServer::SSLOptions ssl_options(
-      net::SpawnedTestServer::SSLOptions::CERT_AUTO_AIA_INTERMEDIATE);
-  net::SpawnedTestServer test_server(net::SpawnedTestServer::TYPE_HTTPS,
-                                     ssl_options,
-                                     base::FilePath(kServicesTestData));
+  net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  test_server.SetSSLConfig(net::EmbeddedTestServer::CERT_AUTO_AIA_INTERMEDIATE);
+  test_server.AddDefaultHandlers(base::FilePath(kServicesTestData));
   ASSERT_TRUE(test_server.Start());
 
   LoadURL(test_server.GetURL("/echo"),
           mojom::kURLLoadOptionSendSSLInfoWithResponse);
   EXPECT_EQ(net::OK, client()->completion_status().error_code);
+  ASSERT_TRUE(client()->response_head());
   EXPECT_EQ(
       0u, client()->response_head()->cert_status & net::CERT_STATUS_ALL_ERRORS);
   ASSERT_TRUE(client()->ssl_info());
@@ -1444,7 +1510,6 @@ TEST_F(NetworkServiceTestWithService, MAYBE_AIAFetching) {
   EXPECT_EQ(
       0u, client()->ssl_info()->unverified_cert->intermediate_buffers().size());
 }
-#endif  // !defined(OS_IOS)
 
 // Check that destroying a NetworkContext with |primary_network_context| set
 // destroys all other NetworkContexts.

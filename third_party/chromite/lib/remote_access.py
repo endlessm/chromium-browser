@@ -831,9 +831,9 @@ class RemoteDevice(object):
         chunks = '%s/%s*' % (dest, chunk_prefix)
         final_dest = '%s/%s' % (dest, src_filename)
         assemble_cmd = ['cat', chunks, '>', final_dest]
-        self.RunCommand(assemble_cmd)
+        self.run(assemble_cmd)
         cleanup_cmd = ['rm', '-f', chunks]
-        self.RunCommand(cleanup_cmd)
+        self.run(cleanup_cmd)
       except IOError:
         logging.err('Could not complete the payload transfer...')
         raise
@@ -910,11 +910,19 @@ class RemoteDevice(object):
     """Copy path to working directory on the device."""
     return self.CopyToDevice(src, os.path.join(self.work_dir, dest), **kwargs)
 
-  def IfFileExists(self, path, **kwargs):
-    """Check if the given path exists on the device."""
+  def _TestPath(self, path, option, **kwargs):
+    """Tests a given path for specific options."""
     kwargs.setdefault('check', False)
-    result = self.RunCommand(['test -f %s' % path], **kwargs)
+    result = self.run(['test', option, path], **kwargs)
     return result.returncode == 0
+
+  def IfFileExists(self, path, **kwargs):
+    """Check if the given file exists on the device."""
+    return self._TestPath(path, '-f', **kwargs)
+
+  def IfPathExists(self, path, **kwargs):
+    """Check if the given path exists on the device."""
+    return self._TestPath(path, '-e', **kwargs)
 
   def IsDirWritable(self, path):
     """Checks if the given directory is writable on the device.
@@ -1046,11 +1054,6 @@ class RemoteDevice(object):
     except SSHConnectionError:
       logging.error('Error connecting to device %s', self.hostname)
       raise
-
-  # TODO(vapier): Delete this shim once chromite & users migrate.
-  def RunCommand(self, cmd, **kwargs):
-    """Backwards compat API."""
-    return self.run(cmd, **kwargs)
 
   def run(self, cmd, **kwargs):
     """Executes a shell command on the device with output captured by default.
@@ -1213,12 +1216,11 @@ class ChromiumOSDevice(RemoteDevice):
   def _RemountRootfsAsWritable(self):
     """Attempts to Remount the root partition."""
     logging.info("Remounting '/' with rw...")
-    self.RunCommand(self.MOUNT_ROOTFS_RW_CMD, check=False,
-                    remote_sudo=True)
+    self.run(self.MOUNT_ROOTFS_RW_CMD, check=False, remote_sudo=True)
 
   def _RootfsIsReadOnly(self):
     """Returns True if rootfs on is mounted as read-only."""
-    r = self.RunCommand(self.LIST_MOUNTS_CMD, capture_output=True)
+    r = self.run(self.LIST_MOUNTS_CMD, capture_output=True)
     for line in r.output.splitlines():
       if not line:
         continue
@@ -1232,7 +1234,7 @@ class ChromiumOSDevice(RemoteDevice):
   def DisableRootfsVerification(self):
     """Disables device rootfs verification."""
     logging.info('Disabling rootfs verification on device...')
-    self.RunCommand(
+    self.run(
         [self.MAKE_DEV_SSD_BIN, '--remove_rootfs_verification', '--force'],
         check=False, remote_sudo=True)
     # TODO(yjhong): Make sure an update is not pending.
@@ -1262,11 +1264,6 @@ class ChromiumOSDevice(RemoteDevice):
     self.DisableRootfsVerification()
 
     return not self._RootfsIsReadOnly()
-
-  # TODO(vapier): Delete this shim once chromite & users migrate.
-  def RunCommand(self, cmd, **kwargs):
-    """Backwards compat API."""
-    return self.run(cmd, **kwargs)
 
   def run(self, cmd, **kwargs):
     """Executes a shell command on the device with output captured by default.

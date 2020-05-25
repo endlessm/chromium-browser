@@ -8,16 +8,21 @@
 from __future__ import print_function
 
 import os
+import sys
 
 import mock
 
 from chromite.lib import constants
-from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import partial_mock
 from chromite.lib import cros_test
 from chromite.utils import outcap
+
+pytestmark = cros_test_lib.pytestmark_inside_only
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # pylint: disable=protected-access
@@ -27,7 +32,11 @@ class CrOSTesterBase(cros_test_lib.RunCommandTempDirTestCase):
   def setUp(self):
     """Common set up method for all tests."""
     opts = cros_test.ParseCommandLine([])
-    self._tester = cros_test.CrOSTest(opts)
+    opts.enable_kvm = True
+    # We check if /dev/kvm is writeable to use sudo.
+    with mock.patch.object(os, 'access', return_value=True):
+      self._tester = cros_test.CrOSTest(opts)
+    self._tester._device.use_sudo = False
     self._tester._device.board = 'amd64-generic'
     self._tester._device.image_path = self.TempFilePath(
         'chromiumos_qemu_image.bin')
@@ -54,6 +63,21 @@ class CrOSTester(CrOSTesterBase):
     # Check if new VM is responsive.
     self.assertCommandContains(
         ['ssh', '-p', '9222', 'root@localhost', '--', 'true'])
+
+  def testFlash(self):
+    """Tests flash command."""
+    # Verify that specifying the board gets the latest canary.
+    self._tester.flash = True
+    self._tester._device.board = 'octopus'
+    self._tester.Run()
+    self.assertCommandContains(['cros', 'flash', 'localhost',
+                                'xbuddy://remote/octopus/latest'])
+
+    # Specify an xbuddy link.
+    self._tester.xbuddy = 'xbuddy://remote/octopus/R82-12901.0.0'
+    self._tester.Run()
+    self.assertCommandContains(['cros', 'flash', 'localhost',
+                                'xbuddy://remote/octopus/R82-12901.0.0'])
 
   def testDeployChrome(self):
     """Tests basic deploy chrome command."""
@@ -199,7 +223,7 @@ class CrOSTesterMiscTests(CrOSTesterBase):
     # exception is not raised if it fails.
     self.assertCommandCalled(
         ['tast', 'run', 'localhost:9222', 'ui.ChromeLogin'],
-        check=False,
+        check=False, dryrun=False,
         extra_env={'CHROMIUM_OUTPUT_DIR': '/some/chromium/dir'})
     # Ensure that --host-cmd does not invoke ssh since it runs on the host.
     self.assertCommandContains(['ssh', 'tast'], expected=False)
@@ -245,13 +269,14 @@ class CrOSTesterAutotest(CrOSTesterBase):
          test_results_dir, '--ssh_private_key', testing_rsa_dir, '--debug',
          '--whitelist-chrome-crashes', '--no-quickmerge', '--ssh_options',
          '-F /dev/null -i /dev/null', '100.90.29.199', 'accessibility_Sanity'],
-        enter_chroot=not cros_build_lib.IsInsideChroot())
+        dryrun=False, enter_chroot=True)
 
   @mock.patch('chromite.lib.cros_build_lib.IsInsideChroot', return_value=True)
   def testInsideChrootAutotest(self, check_inside_chroot_mock):
     """Tests running an autotest from within the chroot."""
     # Checks that mock version has been called.
-    check_inside_chroot_mock.assert_called()
+    # TODO(crbug/1065172): Invalid assertion that had previously been mocked.
+    # check_inside_chroot_mock.assert_called()
 
     self._tester.autotest = ['accessibility_Sanity']
     self._tester.results_dir = '/mnt/host/source/test_results'
@@ -263,11 +288,13 @@ class CrOSTesterAutotest(CrOSTesterBase):
         '--results_dir', '/mnt/host/source/test_results',
         '--ssh_private_key', '/mnt/host/source/.ssh/testing_rsa'])
 
+  @cros_test_lib.pytestmark_output_test
   @mock.patch('chromite.lib.cros_build_lib.IsInsideChroot', return_value=False)
   def testOutsideChrootAutotest(self, check_inside_chroot_mock):
     """Tests running an autotest from outside the chroot."""
     # Checks that mock version has been called.
-    check_inside_chroot_mock.assert_called()
+    # TODO(crbug/1065172): Invalid assertion that had previously been mocked.
+    # check_inside_chroot_mock.assert_called()
 
     self._tester.autotest = ['accessibility_Sanity']
     # Capture the run command. This is necessary beacuse the mock doesn't
@@ -331,16 +358,15 @@ class CrOSTesterTast(CrOSTesterBase):
     osutils.SafeMakedirs(tast_bin_dir)
     self._tester.Run()
     self.assertCommandContains([
-        os.path.join(tast_bin_dir, 'tast'), 'run', '-build=false',
-        '-waituntilready', '-remoterunner=%s'
-        % os.path.join(tast_bin_dir, 'remote_test_runner'),
+        os.path.join(tast_bin_dir,
+                     'tast'), 'run', '-build=false', '-waituntilready',
+        '-remoterunner=%s' % os.path.join(tast_bin_dir, 'remote_test_runner'),
         '-remotebundledir=%s' % os.path.join(tast_cache_dir,
                                              'tast-remote-tests-cros/usr',
                                              'libexec/tast/bundles/remote'),
-        '-remotedatadir=%s' % os.path.join(tast_cache_dir,
-                                           'tast-remote-tests-cros/usr',
-                                           'share/tast/data'),
-        '-ephemeraldevserver=false', '-keyfile', '/tmp/.ssh/testing_rsa',
+        '-remotedatadir=%s' % os.path.join(
+            tast_cache_dir, 'tast-remote-tests-cros/usr', 'share/tast/data'),
+        '-ephemeraldevserver=true', '-keyfile', '/tmp/.ssh/testing_rsa',
         '-extrauseflags=tast_vm', 'localhost:9222', 'ui.ChromeLogin'
     ])
 

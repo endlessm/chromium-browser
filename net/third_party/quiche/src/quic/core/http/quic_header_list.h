@@ -10,8 +10,8 @@
 #include <string>
 #include <utility>
 
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_header_block.h"
@@ -23,7 +23,7 @@ namespace quic {
 class QUIC_EXPORT_PRIVATE QuicHeaderList
     : public spdy::SpdyHeadersHandlerInterface {
  public:
-  using ListType = QuicDeque<std::pair<std::string, std::string>>;
+  using ListType = QuicCircularDeque<std::pair<std::string, std::string>>;
   using value_type = ListType::value_type;
   using const_iterator = ListType::const_iterator;
 
@@ -57,14 +57,10 @@ class QUIC_EXPORT_PRIVATE QuicHeaderList
     max_header_list_size_ = max_header_list_size;
   }
 
-  // Deprecated.  TODO(b/145909215): remove when deprecating
-  // FLAGS_gfe2_reloadable_flag_quic_use_session_max_inbound_header_list_size.
-  size_t max_header_list_size() const { return max_header_list_size_; }
-
   std::string DebugString() const;
 
  private:
-  QuicDeque<std::pair<std::string, std::string>> header_list_;
+  QuicCircularDeque<std::pair<std::string, std::string>> header_list_;
 
   // The limit on the size of the header list (defined by spec as name + value +
   // overhead for each header field). Headers over this limit will not be

@@ -25,6 +25,7 @@
 #include "perfetto/ext/base/optional.h"
 #include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
+#include "src/profiling/perf/common_types.h"
 #include "src/profiling/perf/event_config.h"
 
 namespace perfetto {
@@ -51,7 +52,6 @@ class PerfRingBuffer {
 
   bool valid() const { return metadata_page_ != nullptr; }
 
-  // TODO(rsavitski): volatile?
   // Points at the start of the mmap'd region.
   perf_event_mmap_page* metadata_page_ = nullptr;
 
@@ -69,14 +69,6 @@ class PerfRingBuffer {
   alignas(uint64_t) char reconstructed_record_[kMaxPerfRecordSize];
 };
 
-struct ParsedSample {
-  pid_t pid = 0;
-  pid_t tid = 0;
-  uint64_t timestamp = 0;
-  std::unique_ptr<unwindstack::Regs> regs;
-  std::vector<char> stack;
-};
-
 class EventReader {
  public:
   // Allow base::Optional<EventReader> without making the constructor public.
@@ -84,6 +76,7 @@ class EventReader {
   friend struct base::internal::OptionalStorageBase;
 
   static base::Optional<EventReader> ConfigureEvents(
+      uint32_t cpu,
       const EventConfig& event_cfg);
 
   // Consumes records from the ring buffer until either encountering a sample,
@@ -91,6 +84,10 @@ class EventReader {
   // (PERF_RECORD_LOST) is handled via the given callback.
   base::Optional<ParsedSample> ReadUntilSample(
       std::function<void(uint64_t)> lost_events_callback);
+
+  void PauseEvents();
+
+  uint32_t cpu() const { return cpu_; }
 
   ~EventReader() = default;
 
@@ -101,14 +98,16 @@ class EventReader {
   EventReader& operator=(EventReader&&) noexcept;
 
  private:
-  EventReader(const EventConfig& event_cfg,
+  EventReader(uint32_t cpu,
+              perf_event_attr event_attr,
               base::ScopedFile perf_fd,
               PerfRingBuffer ring_buffer);
 
-  ParsedSample ParseSampleRecord(const char* sample_payload,
-                                 size_t sample_size);
+  ParsedSample ParseSampleRecord(uint32_t cpu, const char* record_start);
 
-  const EventConfig event_cfg_;
+  // All events are cpu-bound (thread-scoped events not supported).
+  const uint32_t cpu_;
+  const perf_event_attr event_attr_;
   base::ScopedFile perf_fd_;
   PerfRingBuffer ring_buffer_;
 };

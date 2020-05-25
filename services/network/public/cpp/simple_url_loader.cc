@@ -23,6 +23,7 @@
 #include "base/strings/string_piece.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -46,8 +47,8 @@
 
 namespace network {
 
-const size_t SimpleURLLoader::kMaxBoundedStringDownloadSize = 5 * 1024 * 1024;
-const size_t SimpleURLLoader::kMaxUploadStringSizeToCopy = 256 * 1024;
+constexpr size_t SimpleURLLoader::kMaxBoundedStringDownloadSize;
+constexpr size_t SimpleURLLoader::kMaxUploadStringSizeToCopy;
 
 namespace {
 
@@ -853,8 +854,8 @@ class SaveToFileBodyHandler : public BodyHandler {
                base::TaskPriority priority,
                base::RepeatingCallback<void(int64_t)> progress_callback)
         : body_handler_task_runner_(base::SequencedTaskRunnerHandle::Get()),
-          file_writer_task_runner_(base::CreateSequencedTaskRunner(
-              {base::ThreadPool(), base::MayBlock(), priority,
+          file_writer_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+              {base::MayBlock(), priority,
                base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
           path_(path),
           create_temp_file_(create_temp_file),
@@ -1710,6 +1711,14 @@ void SimpleURLLoaderImpl::MaybeComplete() {
   // read more data.
   if (request_state_->body_started && !request_state_->body_completed)
     return;
+
+  // DNS errors can be transient, and due to other issues, especially with
+  // DoH. If required, retry.
+  if (request_state_->net_error == net::ERR_NAME_NOT_RESOLVED &&
+      remaining_retries_ > 0 && (retry_mode_ & RETRY_ON_NAME_NOT_RESOLVED)) {
+    Retry();
+    return;
+  }
 
   // Retry on network change errors. Waiting for body complete isn't strictly
   // necessary, but it guarantees a consistent situation, with no reads pending

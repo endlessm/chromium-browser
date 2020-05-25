@@ -68,6 +68,8 @@ if (!build_with_chromium) {
 
     sources = [
       "impl/logging.h",
+      "impl/network_interface.cc",
+      "impl/network_interface.h",
       "impl/socket_handle.h",
       "impl/socket_handle_waiter.cc",
       "impl/socket_handle_waiter.h",
@@ -79,11 +81,14 @@ if (!build_with_chromium) {
       "impl/time.cc",
       "impl/tls_write_buffer.cc",
       "impl/tls_write_buffer.h",
-      "impl/weak_ptr.h",
     ]
 
     if (is_linux) {
-      sources += [ "impl/network_interface_linux.cc" ]
+      sources += [
+        "impl/network_interface_linux.cc",
+        "impl/scoped_wake_lock_linux.cc",
+        "impl/scoped_wake_lock_linux.h",
+      ]
     } else if (is_mac) {
       defines += [
         # Required, to use the new IPv6 Sockets options introduced by RFC 3542.
@@ -164,6 +169,7 @@ source_set("test") {
     "test/fake_udp_socket.cc",
     "test/fake_udp_socket.h",
     "test/mock_tls_connection.h",
+    "test/mock_udp_socket.h",
     "test/trace_logging_helpers.h",
   ]
 
@@ -192,7 +198,6 @@ source_set("unittests") {
     sources += [
       "impl/task_runner_unittest.cc",
       "impl/time_unittest.cc",
-      "impl/weak_ptr_unittest.cc",
     ]
 
     if (is_posix) {

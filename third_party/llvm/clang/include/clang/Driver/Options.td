@@ -124,6 +124,9 @@ def pedantic_Group : OptionGroup<"<pedantic group>">, Group<f_Group>,
 def opencl_Group : OptionGroup<"<opencl group>">, Group<f_Group>,
                    DocName<"OpenCL flags">;
 
+def sycl_Group : OptionGroup<"<SYCL group>">, Group<f_Group>,
+                 DocName<"SYCL flags">;
+
 def m_Group : OptionGroup<"<m group>">, Group<CompileOnly_Group>,
               DocName<"Target-dependent compilation options">;
 
@@ -463,6 +466,10 @@ def Xanalyzer : Separate<["-"], "Xanalyzer">,
   HelpText<"Pass <arg> to the static analyzer">, MetaVarName<"<arg>">,
   Group<StaticAnalyzer_Group>;
 def Xarch__ : JoinedAndSeparate<["-"], "Xarch_">, Flags<[DriverOption]>;
+def Xarch_host : Separate<["-"], "Xarch_host">, Flags<[DriverOption]>,
+  HelpText<"Pass <arg> to the CUDA/HIP host compilation">, MetaVarName<"<arg>">;
+def Xarch_device : Separate<["-"], "Xarch_device">, Flags<[DriverOption]>,
+  HelpText<"Pass <arg> to the CUDA/HIP device compilation">, MetaVarName<"<arg>">;
 def Xassembler : Separate<["-"], "Xassembler">,
   HelpText<"Pass <arg> to the assembler">, MetaVarName<"<arg>">,
   Group<CompileOnly_Group>;
@@ -549,6 +556,9 @@ def c : Flag<["-"], "c">, Flags<[DriverOption]>, Group<Action_Group>,
 def fconvergent_functions : Flag<["-"], "fconvergent-functions">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Assume functions may be convergent">;
 
+def gpu_use_aux_triple_only : Flag<["--"], "gpu-use-aux-triple-only">,
+  InternalDriverOpt, HelpText<"Prepare '-aux-triple' only without populating "
+                              "'-aux-target-cpu' and '-aux-target-feature'.">;
 def cuda_device_only : Flag<["--"], "cuda-device-only">,
   HelpText<"Compile CUDA code for device only">;
 def cuda_host_only : Flag<["--"], "cuda-host-only">,
@@ -646,9 +656,8 @@ def emit_merged_ifs : Flag<["-"], "emit-merged-ifs">,
 def interface_stub_version_EQ : JoinedOrSeparate<["-"], "interface-stub-version=">, Flags<[CC1Option]>;
 def exported__symbols__list : Separate<["-"], "exported_symbols_list">;
 def e : JoinedOrSeparate<["-"], "e">, Group<Link_Group>;
-def fmax_tokens : Separate<["-"], "fmax-tokens">,
-  HelpText<"Max total number of preprocessed tokens for -Wmax-tokens.">,
-  Group<f_Group>, Flags<[CC1Option]>;
+def fmax_tokens_EQ : Joined<["-"], "fmax-tokens=">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Max total number of preprocessed tokens for -Wmax-tokens.">;
 def fPIC : Flag<["-"], "fPIC">, Group<f_Group>;
 def fno_PIC : Flag<["-"], "fno-PIC">, Group<f_Group>;
 def fPIE : Flag<["-"], "fPIE">, Group<f_Group>;
@@ -843,7 +852,8 @@ def fno_record_command_line : Flag<["-"], "fno-record-command-line">,
   Group<f_clang_Group>;
 def : Flag<["-"], "frecord-gcc-switches">, Alias<frecord_command_line>;
 def : Flag<["-"], "fno-record-gcc-switches">, Alias<fno_record_command_line>;
-def fcommon : Flag<["-"], "fcommon">, Group<f_Group>;
+def fcommon : Flag<["-"], "fcommon">, Group<f_Group>,
+  Flags<[CoreOption, CC1Option]>, HelpText<"Place uninitialized global variables in a common block">;
 def fcompile_resource_EQ : Joined<["-"], "fcompile-resource=">, Group<f_Group>;
 def fcomplete_member_pointers : Flag<["-"], "fcomplete-member-pointers">, Group<f_clang_Group>,
    Flags<[CoreOption, CC1Option]>,
@@ -927,6 +937,8 @@ def fseh_exceptions : Flag<["-"], "fseh-exceptions">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Use SEH style exceptions">;
 def fwasm_exceptions : Flag<["-"], "fwasm-exceptions">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Use WebAssembly style exceptions">;
+def fignore_exceptions : Flag<["-"], "fignore-exceptions">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Enable support for ignoring exception handling constructs">;
 def fexcess_precision_EQ : Joined<["-"], "fexcess-precision=">,
     Group<clang_ignored_gcc_optimization_f_Group>;
 def : Flag<["-"], "fexpensive-optimizations">, Group<clang_ignored_gcc_optimization_f_Group>;
@@ -1438,6 +1450,8 @@ def fmodule_name_EQ : Joined<["-"], "fmodule-name=">, Group<f_Group>,
 def fmodule_name : Separate<["-"], "fmodule-name">, Alias<fmodule_name_EQ>;
 def fmodule_implementation_of : Separate<["-"], "fmodule-implementation-of">,
   Flags<[CC1Option]>, Alias<fmodule_name_EQ>;
+def fsystem_module : Flag<["-"], "fsystem-module">, Flags<[CC1Option]>,
+  HelpText<"Build this module as a system module. Only used with -emit-module">;
 def fmodule_map_file : Joined<["-"], "fmodule-map-file=">,
   Group<f_Group>, Flags<[DriverOption,CC1Option]>, MetaVarName<"<file>">,
   HelpText<"Load this module map file">;
@@ -1768,6 +1782,10 @@ def fno_signed_char : Flag<["-"], "fno-signed-char">, Group<f_Group>,
 def fsplit_stack : Flag<["-"], "fsplit-stack">, Group<f_Group>;
 def fstack_protector_all : Flag<["-"], "fstack-protector-all">, Group<f_Group>,
   HelpText<"Enable stack protectors for all functions">;
+def fstack_clash_protection : Flag<["-"], "fstack-clash-protection">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Enable stack clash protection">;
+def fnostack_clash_protection : Flag<["-"], "fnostack-clash-protection">, Group<f_Group>,
+  HelpText<"Disable stack clash protection">;
 def fstack_protector_strong : Flag<["-"], "fstack-protector-strong">, Group<f_Group>,
   HelpText<"Enable stack protectors for some functions vulnerable to stack smashing. "
            "Compared to -fstack-protector, this uses a stronger heuristic "
@@ -1941,10 +1959,10 @@ def fwritable_strings : Flag<["-"], "fwritable-strings">, Group<f_Group>, Flags<
 def fzero_initialized_in_bss : Flag<["-"], "fzero-initialized-in-bss">, Group<f_Group>;
 def ffunction_sections : Flag<["-"], "ffunction-sections">, Group<f_Group>,
   Flags<[CC1Option]>,
-  HelpText<"Place each function in its own section (ELF Only)">;
+  HelpText<"Place each function in its own section">;
 def fno_function_sections : Flag<["-"], "fno-function-sections">, Group<f_Group>;
 def fdata_sections : Flag <["-"], "fdata-sections">, Group<f_Group>,
- Flags<[CC1Option]>, HelpText<"Place each data in its own section (ELF Only)">;
+ Flags<[CC1Option]>, HelpText<"Place each data in its own section">;
 def fno_data_sections : Flag <["-"], "fno-data-sections">, Group<f_Group>;
 def fstack_size_section : Flag<["-"], "fstack-size-section">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Emit section containing metadata on function stack sizes">;
@@ -1953,7 +1971,7 @@ def fno_stack_size_section : Flag<["-"], "fno-stack-size-section">, Group<f_Grou
 
 def funique_section_names : Flag <["-"], "funique-section-names">,
   Group<f_Group>,
-  HelpText<"Use unique names for text and data sections (ELF Only)">;
+  HelpText<"Use unique names for text and data sections">;
 def fno_unique_section_names : Flag <["-"], "fno-unique-section-names">,
   Group<f_Group>, Flags<[CC1Option]>;
 
@@ -2081,6 +2099,10 @@ def gno_embed_source : Flag<["-"], "gno-embed-source">, Group<g_flags_Group>,
 def headerpad__max__install__names : Joined<["-"], "headerpad_max_install_names">;
 def help : Flag<["-", "--"], "help">, Flags<[CC1Option,CC1AsOption]>,
   HelpText<"Display available options">;
+def ibuiltininc : Flag<["-"], "ibuiltininc">,
+  HelpText<"Enable builtin #include directories even when -nostdinc is used "
+           "before or after -ibuiltininc. "
+           "Using -nobuiltininc after the option disables it">;
 def index_header_map : Flag<["-"], "index-header-map">, Flags<[CC1Option]>,
   HelpText<"Make the next included directory (-I or -F) an indexer header map">;
 def idirafter : JoinedOrSeparate<["-"], "idirafter">, Group<clang_i_Group>, Flags<[CC1Option]>,
@@ -2151,13 +2173,18 @@ def mno_iamcu : Flag<["-"], "mno-iamcu">, Group<m_Group>, Flags<[DriverOption, C
 def malign_functions_EQ : Joined<["-"], "malign-functions=">, Group<clang_ignored_m_Group>;
 def malign_loops_EQ : Joined<["-"], "malign-loops=">, Group<clang_ignored_m_Group>;
 def malign_jumps_EQ : Joined<["-"], "malign-jumps=">, Group<clang_ignored_m_Group>;
-def malign_branch_EQ : CommaJoined<["-"], "malign-branch=">, Group<m_Group>;
-def malign_branch_boundary_EQ : Joined<["-"], "malign-branch-boundary=">, Group<m_Group>;
+def malign_branch_EQ : CommaJoined<["-"], "malign-branch=">, Group<m_Group>, Flags<[DriverOption]>,
+  HelpText<"Specify types of branches to align">;
+def malign_branch_boundary_EQ : Joined<["-"], "malign-branch-boundary=">, Group<m_Group>, Flags<[DriverOption]>,
+  HelpText<"Specify the boundary's size to align branches">;
 def malign_branch_prefix_size_EQ : Joined<["-"], "malign-branch-prefix-size=">, Group<m_Group>;
-def mbranches_within_32B_boundaries : Flag<["-"], "mbranches-within-32B-boundaries">, Flags<[DriverOption]>, Group<m_Group>;
+def mbranches_within_32B_boundaries : Flag<["-"], "mbranches-within-32B-boundaries">, Flags<[DriverOption]>, Group<m_Group>,
+  HelpText<"Align selected branches (fused, jcc, jmp) within 32-byte boundary">;
 def mfancy_math_387 : Flag<["-"], "mfancy-math-387">, Group<clang_ignored_m_Group>;
 def mlong_calls : Flag<["-"], "mlong-calls">, Group<m_Group>,
   HelpText<"Generate branches with extended addressability, usually via indirect jumps.">;
+def mdouble_EQ : Joined<["-"], "mdouble=">, Group<m_Group>, Values<"32,64">, Flags<[CC1Option]>,
+  HelpText<"Force double to be 32 bits or 64 bits">;
 def LongDouble_Group : OptionGroup<"<LongDouble group>">, Group<m_Group>,
   DocName<"Long double flags">,
   DocBrief<[{Selects the long double implementation}]>;
@@ -2186,7 +2213,7 @@ def mwatchos_simulator_version_min_EQ : Joined<["-"], "mwatchos-simulator-versio
 def mwatchsimulator_version_min_EQ : Joined<["-"], "mwatchsimulator-version-min=">, Alias<mwatchos_simulator_version_min_EQ>;
 def march_EQ : Joined<["-"], "march=">, Group<m_Group>, Flags<[CoreOption]>;
 def masm_EQ : Joined<["-"], "masm=">, Group<m_Group>, Flags<[DriverOption]>;
-def mcmodel_EQ : Joined<["-"], "mcmodel=">, Group<m_Group>;
+def mcmodel_EQ : Joined<["-"], "mcmodel=">, Group<m_Group>, Flags<[CC1Option]>;
 def mtls_size_EQ : Joined<["-"], "mtls-size=">, Group<m_Group>, Flags<[DriverOption, CC1Option]>,
   HelpText<"Specify bit size of immediate TLS offsets (AArch64 ELF only): "
            "12 (for 4KB) | 24 (for 16MB, default) | 32 (for 4GB) | 48 (for 256TB, needs -mcmodel=large)">;
@@ -2277,6 +2304,9 @@ def mrelax : Flag<["-"], "mrelax">, Group<m_riscv_Features_Group>,
   HelpText<"Enable linker relaxation">;
 def mno_relax : Flag<["-"], "mno-relax">, Group<m_riscv_Features_Group>,
   HelpText<"Disable linker relaxation">;
+def msmall_data_limit_EQ : Joined<["-"], "msmall-data-limit=">, Group<m_Group>,
+  Alias<G>,
+  HelpText<"Put global and static data smaller than the limit into a special section">;
 def msave_restore : Flag<["-"], "msave-restore">, Group<m_riscv_Features_Group>,
   HelpText<"Enable using library calls for save and restore">;
 def mno_save_restore : Flag<["-"], "mno-save-restore">, Group<m_riscv_Features_Group>,
@@ -2313,6 +2343,9 @@ def mno_neg_immediates: Flag<["-"], "mno-neg-immediates">, Group<m_arm_Features_
 def mcmse : Flag<["-"], "mcmse">, Group<m_arm_Features_Group>,
   Flags<[DriverOption,CC1Option]>,
   HelpText<"Allow use of CMSE (Armv8-M Security Extensions)">;
+def ForceAAPCSBitfieldLoad : Flag<["-"], "fAAPCSBitfieldLoad">, Group<m_arm_Features_Group>,
+  Flags<[DriverOption,CC1Option]>,
+  HelpText<"Follows the AAPCS standard that all volatile bit-field write generates at least one load. (ARM only).">;
 
 def mgeneral_regs_only : Flag<["-"], "mgeneral-regs-only">, Group<m_aarch64_Features_Group>,
   HelpText<"Generate code which only uses the general purpose registers (AArch64 only)">;
@@ -3279,7 +3312,8 @@ defm inline_small_functions : BooleanFFlag<"inline-small-functions">,
 defm ipa_cp : BooleanFFlag<"ipa-cp">,
     Group<clang_ignored_gcc_optimization_f_Group>;
 defm ivopts : BooleanFFlag<"ivopts">, Group<clang_ignored_gcc_optimization_f_Group>;
-def : Flag<["-"], "fno-semantic-interposition">, Group<clang_ignored_f_Group>;
+def fsemantic_interposition : Flag<["-"], "fsemantic-interposition">, Group<f_Group>, Flags<[CC1Option]>;
+def fno_semantic_interposition: Flag<["-"], "fno-semantic-interposition">, Group<f_Group>;
 defm non_call_exceptions : BooleanFFlag<"non-call-exceptions">, Group<clang_ignored_f_Group>;
 defm peel_loops : BooleanFFlag<"peel-loops">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm permissive : BooleanFFlag<"permissive">, Group<clang_ignored_f_Group>;
@@ -3306,9 +3340,6 @@ defm strength_reduce :
 defm tls_model : BooleanFFlag<"tls-model">, Group<clang_ignored_f_Group>;
 defm tracer : BooleanFFlag<"tracer">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm tree_dce : BooleanFFlag<"tree-dce">, Group<clang_ignored_gcc_optimization_f_Group>;
-defm tree_loop_im : BooleanFFlag<"tree_loop_im">,  Group<clang_ignored_gcc_optimization_f_Group>;
-defm tree_loop_ivcanon : BooleanFFlag<"tree_loop_ivcanon">,  Group<clang_ignored_gcc_optimization_f_Group>;
-defm tree_loop_linear : BooleanFFlag<"tree_loop_linear">,  Group<clang_ignored_gcc_optimization_f_Group>;
 defm tree_salias : BooleanFFlag<"tree-salias">, Group<clang_ignored_f_Group>;
 defm tree_ter : BooleanFFlag<"tree-ter">, Group<clang_ignored_gcc_optimization_f_Group>;
 defm tree_vectorizer_verbose : BooleanFFlag<"tree-vectorizer-verbose">, Group<clang_ignored_f_Group>;
@@ -3400,6 +3431,13 @@ defm stack_arrays : BooleanFFlag<"stack-arrays">, Group<gfortran_Group>;
 defm underscoring : BooleanFFlag<"underscoring">, Group<gfortran_Group>;
 defm whole_file : BooleanFFlag<"whole-file">, Group<gfortran_Group>;
 
+// C++ SYCL options
+def fsycl : Flag<["-"], "fsycl">, Group<sycl_Group>, Flags<[CC1Option, CoreOption]>,
+  HelpText<"Enable SYCL kernels compilation for device">;
+def fno_sycl : Flag<["-"], "fno-sycl">, Group<sycl_Group>, Flags<[CoreOption]>,
+  HelpText<"Disable SYCL kernels compilation for device">;
+def sycl_std_EQ : Joined<["-"], "sycl-std=">, Group<sycl_Group>, Flags<[CC1Option, NoArgumentUnused, CoreOption]>,
+  HelpText<"SYCL language standard to compile for.">, Values<"2017, 121, 1.2.1, sycl-1.2.1">;
 
 include "CC1Options.td"
 

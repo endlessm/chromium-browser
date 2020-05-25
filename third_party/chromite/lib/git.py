@@ -566,7 +566,9 @@ class ManifestCheckout(Manifest):
         path, manifest_path, search=search)
 
     self.manifest_path = os.path.realpath(manifest_path)
-    manifest_include_dir = os.path.dirname(self.manifest_path)
+    # The include dir is always the manifest repo, not where the manifest file
+    # happens to live.
+    manifest_include_dir = os.path.join(self.root, '.repo', 'manifests')
     self.manifest_branch = self._GetManifestsBranch(self.root)
     self._content_merging = {}
     Manifest.__init__(self, self.manifest_path,
@@ -1176,8 +1178,8 @@ def RevertPath(git_repo, filename, rev):
 # git. Disable the nags from pylint.
 # pylint: disable=redefined-builtin
 def Log(git_repo, format=None, after=None, until=None,
-        reverse=False, date=None, max_count=None, rev='HEAD',
-        paths=None):
+        reverse=False, date=None, max_count=None, grep=None,
+        rev='HEAD', paths=None):
   """Return git log output for the given arguments.
 
   For more detailed description of the parameters, run `git help log`.
@@ -1190,6 +1192,7 @@ def Log(git_repo, format=None, after=None, until=None,
     reverse: If true, set --reverse flag.
     date: Passed directly to --date flag.
     max_count: Passed directly to --max-count flag.
+    grep: Passed directly to --grep flag.
     rev: Commit (or revision range) to log.
     paths: List of paths to log commits for (enumerated after final -- ).
 
@@ -1209,12 +1212,34 @@ def Log(git_repo, format=None, after=None, until=None,
     cmd.append('--date=%s' % date)
   if max_count:
     cmd.append('--max-count=%s' % max_count)
+  if grep:
+    cmd.append('--grep=%s' % grep)
   cmd.append(rev)
   if paths:
     cmd.append('--')
     cmd.extend(paths)
   return RunGit(git_repo, cmd, errors='replace').stdout
 # pylint: enable=redefined-builtin
+
+
+def GetChangeId(git_repo, rev='HEAD'):
+  """Retrieve the Change-Id from the commit message
+
+  Args:
+    git_repo: Path to the git repository where the commit is
+    rev: Commit to inspect, defaults to HEAD
+
+  Returns:
+    The Gerrit Change-Id assigned to the commit if it exists.
+  """
+  log = Log(git_repo, max_count=1, format='format:%B', rev=rev)
+  m = re.findall(r'^Change-Id: (I[a-fA-F0-9]{40})$', log, flags=re.M)
+  if not m:
+    return None
+  elif len(m) > 1:
+    raise ValueError('Too many Change-Ids found')
+  else:
+    return m[0]
 
 
 def Commit(git_repo, message, amend=False, allow_empty=False,
@@ -1239,10 +1264,7 @@ def Commit(git_repo, message, amend=False, allow_empty=False,
   if reset_author:
     cmd.append('--reset-author')
   RunGit(git_repo, cmd)
-
-  log = Log(git_repo, max_count=1, format='format:%B')
-  match = re.search('Change-Id: (?P<ID>I[a-fA-F0-9]*)', log)
-  return match.group('ID') if match else None
+  return GetChangeId(git_repo)
 
 
 _raw_diff_components = ('src_mode', 'dst_mode', 'src_sha', 'dst_sha',

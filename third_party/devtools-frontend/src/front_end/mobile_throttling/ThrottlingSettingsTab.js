@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as SDK from '../sdk/sdk.js';  // eslint-disable-line no-unused-vars
 import * as UI from '../ui/ui.js';
 
 /**
@@ -27,7 +28,7 @@ export class ThrottlingSettingsTab extends UI.Widget.VBox {
     this._list.registerRequiredCSS('mobile_throttling/throttlingSettingsTab.css');
     this._list.show(this.contentElement);
 
-    this._customSetting = self.Common.settings.moduleSetting('customNetworkConditions');
+    this._customSetting = Common.Settings.Settings.instance().moduleSetting('customNetworkConditions');
     this._customSetting.addChangeListener(this._conditionsUpdated, this);
 
     this.setDefaultFocusedElement(addButton);

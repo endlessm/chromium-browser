@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrComposeLerpEffect.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -71,10 +71,16 @@ GrComposeLerpEffect::GrComposeLerpEffect(const GrComposeLerpEffect& src)
         , child2_index(src.child2_index)
         , weight(src.weight) {
     if (child1_index >= 0) {
-        this->registerChildProcessor(src.childProcessor(child1_index).clone());
+        auto clone = src.childProcessor(child1_index).clone();
+        clone->setSampledWithExplicitCoords(
+                src.childProcessor(child1_index).isSampledWithExplicitCoords());
+        this->registerChildProcessor(std::move(clone));
     }
     if (child2_index >= 0) {
-        this->registerChildProcessor(src.childProcessor(child2_index).clone());
+        auto clone = src.childProcessor(child2_index).clone();
+        clone->setSampledWithExplicitCoords(
+                src.childProcessor(child2_index).isSampledWithExplicitCoords());
+        this->registerChildProcessor(std::move(clone));
     }
 }
 std::unique_ptr<GrFragmentProcessor> GrComposeLerpEffect::clone() const {

@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import os
+import sys
 
 import mock
 
@@ -15,6 +16,9 @@ from chromite.lib import constants
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.scripts import run_tests
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class TestsExceptionsTest(cros_test_lib.TestCase):
@@ -37,6 +41,7 @@ class TestsExceptionsTest(cros_test_lib.TestCase):
 class RunTestsTest(cros_test_lib.MockTestCase):
   """Tests for the RunTests() func"""
 
+  @cros_test_lib.pytestmark_passes_when_run_alone
   def testDryrun(self):
     """Verify dryrun doesn't do anything crazy."""
     self.PatchObject(run_tests, 'RunTest', side_effect=Exception('do not run'))

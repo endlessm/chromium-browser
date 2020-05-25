@@ -76,10 +76,17 @@ struct hb_closure_context_t :
     nesting_level_left++;
   }
 
+  bool lookup_limit_exceeded ()
+  { return lookup_count > HB_MAX_LOOKUP_INDICES; }
+
   bool should_visit_lookup (unsigned int lookup_index)
   {
+    if (lookup_count++ > HB_MAX_LOOKUP_INDICES)
+      return false;
+
     if (is_lookup_done (lookup_index))
       return false;
+
     done_lookups->set (lookup_index, glyphs->get_population ());
     return true;
   }
@@ -106,7 +113,9 @@ struct hb_closure_context_t :
 			  recurse_func (nullptr),
 			  nesting_level_left (nesting_level_left_),
 			  debug_depth (0),
-			  done_lookups (done_lookups_) {}
+			  done_lookups (done_lookups_),
+                          lookup_count (0)
+  {}
 
   ~hb_closure_context_t () { flush (); }
 
@@ -114,12 +123,14 @@ struct hb_closure_context_t :
 
   void flush ()
   {
+    hb_set_del_range (output, face->get_num_glyphs (), hb_set_get_max (output));	/* Remove invalid glyphs. */
     hb_set_union (glyphs, output);
     hb_set_clear (output);
   }
 
   private:
   hb_map_t *done_lookups;
+  unsigned int lookup_count;
 };
 
 struct hb_closure_lookups_context_t :
@@ -151,8 +162,16 @@ struct hb_closure_lookups_context_t :
   void set_lookup_inactive (unsigned lookup_index)
   { inactive_lookups->add (lookup_index); }
 
+  bool lookup_limit_exceeded ()
+  { return lookup_count > HB_MAX_LOOKUP_INDICES; }
+
   bool is_lookup_visited (unsigned lookup_index)
-  { return visited_lookups->has (lookup_index); }
+  {
+    if (lookup_count++ > HB_MAX_LOOKUP_INDICES)
+      return true;
+
+    return visited_lookups->has (lookup_index);
+  }
 
   hb_face_t *face;
   const hb_set_t *glyphs;
@@ -171,13 +190,15 @@ struct hb_closure_lookups_context_t :
 				nesting_level_left (nesting_level_left_),
 				debug_depth (0),
 				visited_lookups (visited_lookups_),
-				inactive_lookups (inactive_lookups_) {}
+				inactive_lookups (inactive_lookups_),
+                                lookup_count (0) {}
 
   void set_recurse_func (recurse_func_t func) { recurse_func = func; }
 
   private:
   hb_set_t *visited_lookups;
   hb_set_t *inactive_lookups;
+  unsigned int lookup_count;
 };
 
 struct hb_would_apply_context_t :
@@ -1052,18 +1073,19 @@ static inline bool ligate_input (hb_ot_apply_context_t *c,
     buffer->idx++;
   }
 
-  if (!is_mark_ligature && last_lig_id) {
+  if (!is_mark_ligature && last_lig_id)
+  {
     /* Re-adjust components for any marks following. */
-    for (unsigned int i = buffer->idx; i < buffer->len; i++) {
-      if (last_lig_id == _hb_glyph_info_get_lig_id (&buffer->info[i])) {
-	unsigned int this_comp = _hb_glyph_info_get_lig_comp (&buffer->info[i]);
-	if (!this_comp)
-	  break;
-	unsigned int new_lig_comp = components_so_far - last_num_components +
-				    hb_min (this_comp, last_num_components);
-	_hb_glyph_info_set_lig_props_for_mark (&buffer->info[i], lig_id, new_lig_comp);
-      } else
-	break;
+    for (unsigned i = buffer->idx; i < buffer->len; ++i)
+    {
+      if (last_lig_id != _hb_glyph_info_get_lig_id (&buffer->info[i])) break;
+
+      unsigned this_comp = _hb_glyph_info_get_lig_comp (&buffer->info[i]);
+      if (!this_comp) break;
+
+      unsigned new_lig_comp = components_so_far - last_num_components +
+			      hb_min (this_comp, last_num_components);
+      _hb_glyph_info_set_lig_props_for_mark (&buffer->info[i], lig_id, new_lig_comp);
     }
   }
   return_trace (true);
@@ -1375,6 +1397,8 @@ struct Rule
 
   void closure (hb_closure_context_t *c, ContextClosureLookupContext &lookup_context) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     const UnsizedArrayOf<LookupRecord> &lookupRecord = StructAfter<UnsizedArrayOf<LookupRecord>>
 						       (inputZ.as_array ((inputCount ? inputCount - 1 : 0)));
     context_closure_lookup (c,
@@ -1385,6 +1409,8 @@ struct Rule
 
   void closure_lookups (hb_closure_lookups_context_t *c) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     const UnsizedArrayOf<LookupRecord> &lookupRecord = StructAfter<UnsizedArrayOf<LookupRecord>>
 						       (inputZ.as_array (inputCount ? inputCount - 1 : 0));
     recurse_lookups (c, lookupCount, lookupRecord.arrayZ);
@@ -1463,6 +1489,8 @@ struct RuleSet
   void closure (hb_closure_context_t *c,
 		ContextClosureLookupContext &lookup_context) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     return
     + hb_iter (rule)
     | hb_map (hb_add (this))
@@ -1472,6 +1500,8 @@ struct RuleSet
 
   void closure_lookups (hb_closure_lookups_context_t *c) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     return
     + hb_iter (rule)
     | hb_map (hb_add (this))
@@ -2059,6 +2089,8 @@ struct ChainRule
   void closure (hb_closure_context_t *c,
 		ChainContextClosureLookupContext &lookup_context) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     const HeadlessArrayOf<HBUINT16> &input = StructAfter<HeadlessArrayOf<HBUINT16>> (backtrack);
     const ArrayOf<HBUINT16> &lookahead = StructAfter<ArrayOf<HBUINT16>> (input);
     const ArrayOf<LookupRecord> &lookup = StructAfter<ArrayOf<LookupRecord>> (lookahead);
@@ -2072,6 +2104,8 @@ struct ChainRule
 
   void closure_lookups (hb_closure_lookups_context_t *c) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     const HeadlessArrayOf<HBUINT16> &input = StructAfter<HeadlessArrayOf<HBUINT16>> (backtrack);
     const ArrayOf<HBUINT16> &lookahead = StructAfter<ArrayOf<HBUINT16>> (input);
     const ArrayOf<LookupRecord> &lookup = StructAfter<ArrayOf<LookupRecord>> (lookahead);
@@ -2238,6 +2272,8 @@ struct ChainRuleSet
   }
   void closure (hb_closure_context_t *c, ChainContextClosureLookupContext &lookup_context) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     return
     + hb_iter (rule)
     | hb_map (hb_add (this))
@@ -2247,6 +2283,8 @@ struct ChainRuleSet
 
   void closure_lookups (hb_closure_lookups_context_t *c) const
   {
+    if (c->lookup_limit_exceeded ()) return;
+
     return
     + hb_iter (rule)
     | hb_map (hb_add (this))
@@ -2303,7 +2341,7 @@ struct ChainRuleSet
       if (unlikely (!o)) continue;
 
       auto o_snap = c->serializer->snapshot ();
-      if (!o->serialize_subset (c, _, this, out,
+      if (!o->serialize_subset (c, _, this,
                                 backtrack_klass_map,
                                 input_klass_map,
                                 lookahead_klass_map))
@@ -2429,7 +2467,7 @@ struct ChainContextFormat1
     hb_sorted_vector_t<hb_codepoint_t> new_coverage;
     + hb_zip (this+coverage, ruleSet)
     | hb_filter (glyphset, hb_first)
-    | hb_filter (subset_offset_array (c, out->ruleSet, this, out), hb_second)
+    | hb_filter (subset_offset_array (c, out->ruleSet, this), hb_second)
     | hb_map (hb_first)
     | hb_map (glyph_map)
     | hb_sink (new_coverage)
@@ -2586,17 +2624,17 @@ struct ChainContextFormat2
     auto *out = c->serializer->start_embed (*this);
     if (unlikely (!c->serializer->extend_min (out))) return_trace (false);
     out->format = format;
-    out->coverage.serialize_subset (c, coverage, this, out);
+    out->coverage.serialize_subset (c, coverage, this);
 
     hb_map_t backtrack_klass_map;
-    out->backtrackClassDef.serialize_subset (c, backtrackClassDef, this, out, &backtrack_klass_map);
+    out->backtrackClassDef.serialize_subset (c, backtrackClassDef, this, &backtrack_klass_map);
 
     // subset inputClassDef based on glyphs survived in Coverage subsetting
     hb_map_t input_klass_map;
-    out->inputClassDef.serialize_subset (c, inputClassDef, this, out, &input_klass_map);
+    out->inputClassDef.serialize_subset (c, inputClassDef, this, &input_klass_map);
 
     hb_map_t lookahead_klass_map;
-    out->lookaheadClassDef.serialize_subset (c, lookaheadClassDef, this, out, &lookahead_klass_map);
+    out->lookaheadClassDef.serialize_subset (c, lookaheadClassDef, this, &lookahead_klass_map);
 
     hb_vector_t<unsigned> rulesets;
     bool ret = true;
@@ -2610,7 +2648,7 @@ struct ChainContextFormat2
         ret = false;
         break;
       }
-      if (!o->serialize_subset (c, _, this, out,
+      if (!o->serialize_subset (c, _, this,
                                 &backtrack_klass_map,
                                 &input_klass_map,
                                 &lookahead_klass_map))
@@ -2782,10 +2820,7 @@ struct ChainContextFormat3
 
   template<typename Iterator,
 	   hb_requires (hb_is_iterator (Iterator))>
-  bool serialize_coverage_offsets (hb_subset_context_t *c,
-                                   Iterator it,
-				   const void* src_base,
-				   const void* dst_base) const
+  bool serialize_coverage_offsets (hb_subset_context_t *c, Iterator it, const void* base) const
   {
     TRACE_SERIALIZE (this);
     auto *out = c->serializer->start_embed<OffsetArrayOf<Coverage>> ();
@@ -2793,7 +2828,7 @@ struct ChainContextFormat3
     if (unlikely (!c->serializer->allocate_size<HBUINT16> (HBUINT16::static_size))) return_trace (false);
 
     + it
-    | hb_apply (subset_offset_array (c, *out, src_base, dst_base))
+    | hb_apply (subset_offset_array (c, *out, base))
     ;
 
     return_trace (out->len);
@@ -2807,15 +2842,15 @@ struct ChainContextFormat3
     if (unlikely (!out)) return_trace (false);
     if (unlikely (!c->serializer->embed (this->format))) return_trace (false);
 
-    if (!serialize_coverage_offsets (c, backtrack.iter (), this, out))
+    if (!serialize_coverage_offsets (c, backtrack.iter (), this))
       return_trace (false);
 
     const OffsetArrayOf<Coverage> &input = StructAfter<OffsetArrayOf<Coverage>> (backtrack);
-    if (!serialize_coverage_offsets (c, input.iter (), this, out))
+    if (!serialize_coverage_offsets (c, input.iter (), this))
       return_trace (false);
 
     const OffsetArrayOf<Coverage> &lookahead = StructAfter<OffsetArrayOf<Coverage>> (input);
-    if (!serialize_coverage_offsets (c, lookahead.iter (), this, out))
+    if (!serialize_coverage_offsets (c, lookahead.iter (), this))
       return_trace (false);
 
     const ArrayOf<LookupRecord> &lookup = StructAfter<ArrayOf<LookupRecord>> (lookahead);
@@ -3027,9 +3062,10 @@ struct GSUBGPOS
 			      unsigned int *index) const
   {
 #ifdef HB_NO_VAR
+    *index = FeatureVariations::NOT_FOUND_INDEX;
     return false;
 #endif
-    return (version.to_int () >= 0x00010001u ? this+featureVars : Null(FeatureVariations))
+    return (version.to_int () >= 0x00010001u ? this+featureVars : Null (FeatureVariations))
 	    .find_index (coords, num_coords, index);
   }
   const Feature& get_feature_variation (unsigned int feature_index,
@@ -3069,26 +3105,23 @@ struct GSUBGPOS
         .serialize_subset (c->subset_context,
 			   reinterpret_cast<const OffsetTo<TLookupList> &> (lookupList),
 			   this,
-			   out,
 			   c);
 
     reinterpret_cast<OffsetTo<RecordListOfFeature> &> (out->featureList)
         .serialize_subset (c->subset_context,
 			   reinterpret_cast<const OffsetTo<RecordListOfFeature> &> (featureList),
 			   this,
-			   out,
 			   c);
 
     out->scriptList.serialize_subset (c->subset_context,
 				      scriptList,
 				      this,
-				      out,
 				      c);
 
 #ifndef HB_NO_VAR
     if (version.to_int () >= 0x00010001u)
     {
-      bool ret = out->featureVars.serialize_subset (c->subset_context, featureVars, this, out, c);
+      bool ret = out->featureVars.serialize_subset (c->subset_context, featureVars, this, c);
       if (!ret)
       {
         out->version.major = 1;
@@ -3103,7 +3136,8 @@ struct GSUBGPOS
   void closure_features (const hb_map_t *lookup_indexes, /* IN */
 			 hb_set_t       *feature_indexes /* OUT */) const
   {
-    for (unsigned i = 0; i < get_feature_count (); i++)
+    unsigned int feature_count = hb_min (get_feature_count (), (unsigned) HB_MAX_FEATURES);
+    for (unsigned i = 0; i < feature_count; i++)
     {
       if (get_feature (i).intersects_lookup_indexes (lookup_indexes))
         feature_indexes->add (i);
@@ -3145,7 +3179,7 @@ struct GSUBGPOS
   {
     void init (hb_face_t *face)
     {
-      this->table = hb_sanitize_context_t().reference_table<T> (face);
+      this->table = hb_sanitize_context_t ().reference_table<T> (face);
       if (unlikely (this->table->is_blacklisted (this->table.get_blob (), face)))
       {
 	hb_blob_destroy (this->table.get_blob ());

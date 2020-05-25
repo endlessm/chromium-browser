@@ -58,7 +58,7 @@ void SplitDebugInfo(const ToolChain &TC, Compilation &C, const Tool &T,
                     const JobAction &JA, const llvm::opt::ArgList &Args,
                     const InputInfo &Output, const char *OutFile);
 
-void AddGoldPlugin(const ToolChain &ToolChain, const llvm::opt::ArgList &Args,
+void addLTOOptions(const ToolChain &ToolChain, const llvm::opt::ArgList &Args,
                    llvm::opt::ArgStringList &CmdArgs, const InputInfo &Output,
                    const InputInfo &Input, bool IsThinLTO);
 
@@ -88,7 +88,8 @@ llvm::opt::Arg *getLastProfileSampleUseArg(const llvm::opt::ArgList &Args);
 
 bool isObjCAutoRefCount(const llvm::opt::ArgList &Args);
 
-unsigned getLTOParallelism(const llvm::opt::ArgList &Args, const Driver &D);
+llvm::StringRef getLTOParallelism(const llvm::opt::ArgList &Args,
+                                  const Driver &D);
 
 bool areOptimizationsEnabled(const llvm::opt::ArgList &Args);
 

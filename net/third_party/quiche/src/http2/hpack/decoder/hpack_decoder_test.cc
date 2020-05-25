@@ -31,7 +31,7 @@ using ::testing::AssertionFailure;
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
 using ::testing::ElementsAreArray;
-using ::testing::HasSubstr;
+using ::testing::Eq;
 
 namespace http2 {
 namespace test {
@@ -127,15 +127,15 @@ class HpackDecoderTest : public ::testing::TestWithParam<bool>,
   AssertionResult DecodeBlock(quiche::QuicheStringPiece block) {
     HTTP2_VLOG(1) << "HpackDecoderTest::DecodeBlock";
 
-    VERIFY_FALSE(decoder_.error_detected());
+    VERIFY_FALSE(decoder_.DetectError());
     VERIFY_TRUE(error_messages_.empty());
     VERIFY_FALSE(saw_start_);
     VERIFY_FALSE(saw_end_);
     header_entries_.clear();
 
-    VERIFY_FALSE(decoder_.error_detected());
+    VERIFY_FALSE(decoder_.DetectError());
     VERIFY_TRUE(decoder_.StartDecodingBlock());
-    VERIFY_FALSE(decoder_.error_detected());
+    VERIFY_FALSE(decoder_.DetectError());
 
     if (fragment_the_hpack_block_) {
       // See note in ctor regarding RNG.
@@ -151,14 +151,14 @@ class HpackDecoderTest : public ::testing::TestWithParam<bool>,
       VERIFY_TRUE(decoder_.DecodeFragment(&db));
       VERIFY_EQ(0u, db.Remaining());
     }
-    VERIFY_FALSE(decoder_.error_detected());
+    VERIFY_FALSE(decoder_.DetectError());
 
     VERIFY_TRUE(decoder_.EndDecodingBlock());
     if (saw_end_) {
-      VERIFY_FALSE(decoder_.error_detected());
+      VERIFY_FALSE(decoder_.DetectError());
       VERIFY_TRUE(error_messages_.empty());
     } else {
-      VERIFY_TRUE(decoder_.error_detected());
+      VERIFY_TRUE(decoder_.DetectError());
       VERIFY_FALSE(error_messages_.empty());
     }
 
@@ -940,8 +940,11 @@ TEST_P(HpackDecoderTest, ProcessesOptionalTableSizeUpdates) {
     hbb.AppendDynamicTableSizeUpdate(1000);
     hbb.AppendDynamicTableSizeUpdate(500);
     EXPECT_FALSE(DecodeBlock(hbb.buffer()));
+    EXPECT_EQ(HpackDecodingError::kDynamicTableSizeUpdateNotAllowed,
+              decoder_.error());
     EXPECT_EQ(1u, error_messages_.size());
-    EXPECT_THAT(error_messages_[0], HasSubstr("size update not allowed"));
+    EXPECT_THAT(error_messages_[0],
+                Eq("Dynamic table size update not allowed"));
     EXPECT_EQ(1000u, header_table_size_limit());
     EXPECT_EQ(0u, current_header_table_size());
     EXPECT_TRUE(header_entries_.empty());
@@ -997,8 +1000,11 @@ TEST_P(HpackDecoderTest, ProcessesRequiredTableSizeUpdate) {
     hbb.AppendIndexedHeader(5);  // Not decoded.
     EXPECT_FALSE(DecodeBlock(hbb.buffer()));
     EXPECT_FALSE(saw_end_);
+    EXPECT_EQ(HpackDecodingError::kDynamicTableSizeUpdateNotAllowed,
+              decoder_.error());
     EXPECT_EQ(1u, error_messages_.size());
-    EXPECT_THAT(error_messages_[0], HasSubstr("size update not allowed"));
+    EXPECT_THAT(error_messages_[0],
+                Eq("Dynamic table size update not allowed"));
     EXPECT_EQ(700u, header_table_size_limit());
     EXPECT_EQ(0u, current_header_table_size());
     EXPECT_TRUE(header_entries_.empty());
@@ -1020,8 +1026,12 @@ TEST_P(HpackDecoderTest, InvalidRequiredSizeUpdate) {
   DecodeBuffer db(hbb.buffer());
   EXPECT_FALSE(decoder_.DecodeFragment(&db));
   EXPECT_FALSE(saw_end_);
+  EXPECT_EQ(
+      HpackDecodingError::kInitialDynamicTableSizeUpdateIsAboveLowWaterMark,
+      decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0], HasSubstr("above low water mark"));
+  EXPECT_THAT(error_messages_[0],
+              Eq("Initial dynamic table size update is above low water mark"));
   EXPECT_EQ(Http2SettingsInfo::DefaultHeaderTableSize(),
             header_table_size_limit());
 }
@@ -1030,9 +1040,10 @@ TEST_P(HpackDecoderTest, InvalidRequiredSizeUpdate) {
 TEST_P(HpackDecoderTest, RequiredTableSizeChangeBeforeEnd) {
   decoder_.ApplyHeaderTableSizeSetting(1024);
   EXPECT_FALSE(DecodeBlock(""));
+  EXPECT_EQ(HpackDecodingError::kMissingDynamicTableSizeUpdate,
+            decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0],
-              HasSubstr("Missing dynamic table size update"));
+  EXPECT_THAT(error_messages_[0], Eq("Missing dynamic table size update"));
   EXPECT_FALSE(saw_end_);
 }
 
@@ -1043,9 +1054,10 @@ TEST_P(HpackDecoderTest, RequiredTableSizeChangeBeforeIndexedHeader) {
   HpackBlockBuilder hbb;
   hbb.AppendIndexedHeader(1);
   EXPECT_FALSE(DecodeBlock(hbb.buffer()));
+  EXPECT_EQ(HpackDecodingError::kMissingDynamicTableSizeUpdate,
+            decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0],
-              HasSubstr("Missing dynamic table size update"));
+  EXPECT_THAT(error_messages_[0], Eq("Missing dynamic table size update"));
   EXPECT_FALSE(saw_end_);
   EXPECT_TRUE(header_entries_.empty());
 }
@@ -1059,9 +1071,10 @@ TEST_P(HpackDecoderTest, RequiredTableSizeChangeBeforeIndexedHeaderName) {
   hbb.AppendNameIndexAndLiteralValue(HpackEntryType::kIndexedLiteralHeader, 2,
                                      false, "PUT");
   EXPECT_FALSE(DecodeBlock(hbb.buffer()));
+  EXPECT_EQ(HpackDecodingError::kMissingDynamicTableSizeUpdate,
+            decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0],
-              HasSubstr("Missing dynamic table size update"));
+  EXPECT_THAT(error_messages_[0], Eq("Missing dynamic table size update"));
   EXPECT_FALSE(saw_end_);
   EXPECT_TRUE(header_entries_.empty());
 }
@@ -1074,9 +1087,10 @@ TEST_P(HpackDecoderTest, RequiredTableSizeChangeBeforeLiteralName) {
   hbb.AppendLiteralNameAndValue(HpackEntryType::kNeverIndexedLiteralHeader,
                                 false, "name", false, "some data.");
   EXPECT_FALSE(DecodeBlock(hbb.buffer()));
+  EXPECT_EQ(HpackDecodingError::kMissingDynamicTableSizeUpdate,
+            decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0],
-              HasSubstr("Missing dynamic table size update"));
+  EXPECT_THAT(error_messages_[0], Eq("Missing dynamic table size update"));
   EXPECT_FALSE(saw_end_);
   EXPECT_TRUE(header_entries_.empty());
 }
@@ -1088,10 +1102,12 @@ TEST_P(HpackDecoderTest, InvalidIndexedHeaderVarint) {
   EXPECT_TRUE(decoder_.StartDecodingBlock());
   DecodeBuffer db("\xff\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x00");
   EXPECT_FALSE(decoder_.DecodeFragment(&db));
-  EXPECT_TRUE(decoder_.error_detected());
+  EXPECT_TRUE(decoder_.DetectError());
   EXPECT_FALSE(saw_end_);
+  EXPECT_EQ(HpackDecodingError::kIndexVarintError, decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0], HasSubstr("malformed"));
+  EXPECT_THAT(error_messages_[0],
+              Eq("Index varint beyond implementation limit"));
   EXPECT_TRUE(header_entries_.empty());
   // Now that an error has been detected, EndDecodingBlock should not succeed.
   EXPECT_FALSE(decoder_.EndDecodingBlock());
@@ -1103,10 +1119,12 @@ TEST_P(HpackDecoderTest, InvalidIndex) {
   EXPECT_TRUE(decoder_.StartDecodingBlock());
   DecodeBuffer db("\x80");
   EXPECT_FALSE(decoder_.DecodeFragment(&db));
-  EXPECT_TRUE(decoder_.error_detected());
+  EXPECT_TRUE(decoder_.DetectError());
   EXPECT_FALSE(saw_end_);
+  EXPECT_EQ(HpackDecodingError::kInvalidIndex, decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0], HasSubstr("Invalid index"));
+  EXPECT_THAT(error_messages_[0],
+              Eq("Invalid index in indexed header field representation"));
   EXPECT_TRUE(header_entries_.empty());
   // Now that an error has been detected, EndDecodingBlock should not succeed.
   EXPECT_FALSE(decoder_.EndDecodingBlock());
@@ -1128,8 +1146,10 @@ TEST_P(HpackDecoderTest, TruncatedBlock) {
   // But not if the block is truncated.
   EXPECT_FALSE(DecodeBlock(hbb.buffer().substr(0, hbb.size() - 1)));
   EXPECT_FALSE(saw_end_);
+  EXPECT_EQ(HpackDecodingError::kTruncatedBlock, decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0], HasSubstr("truncated"));
+  EXPECT_THAT(error_messages_[0],
+              Eq("Block ends in the middle of an instruction"));
   // The first update was decoded.
   EXPECT_EQ(3000u, header_table_size_limit());
   EXPECT_EQ(0u, current_header_table_size());
@@ -1156,8 +1176,9 @@ TEST_P(HpackDecoderTest, OversizeStringDetected) {
   EXPECT_THAT(header_entries_,
               ElementsAreArray({HpackHeaderEntry{"name", "some data."}}));
   EXPECT_FALSE(saw_end_);
+  EXPECT_EQ(HpackDecodingError::kValueTooLong, decoder_.error());
   EXPECT_EQ(1u, error_messages_.size());
-  EXPECT_THAT(error_messages_[0], HasSubstr("too long"));
+  EXPECT_THAT(error_messages_[0], Eq("Value length exceeds buffer limit"));
 }
 
 }  // namespace

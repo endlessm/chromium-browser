@@ -14,51 +14,78 @@
 
 import * as m from 'mithril';
 
-import {AggregateCpuData} from '../common/aggregation_data';
+import {Actions} from '../common/actions';
+import {AggregateData, Column} from '../common/aggregation_data';
+import {translateState} from '../common/thread_state';
 
 import {globals} from './globals';
 import {Panel} from './panel';
 
-export class AggregationPanel extends Panel {
-  view() {
-    const data = globals.aggregateCpuData;
+export interface AggregationPanelAttrs {
+  data: AggregateData;
+  kind: string;
+}
+
+export class AggregationPanel extends Panel<AggregationPanelAttrs> {
+  view({attrs}: m.CVnode<AggregationPanelAttrs>) {
     return m(
         '.details-panel',
         m('.details-panel-heading.aggregation',
           m('table',
             m('tr',
-              m('th', 'Process'),
-              m('th', 'Thread'),
-              m('th', 'Wall duration (ms)'),
-              m('th', 'Avg. Wall duration (ms)'),
-              m('th', 'Occurrences')))),
+              attrs.data.columns.map(
+                  col => this.formatColumnHeading(col, attrs.kind))))),
         m(
             '.details-table.aggregation',
-            m('table', this.getRows(data)),
+            m('table', this.getRows(attrs.data)),
             ));
   }
 
-  getRows(data: AggregateCpuData) {
-    if (!data.strings || !data.procNameId || !data.threadNameId || !data.pid ||
-        !data.tid || !data.totalDur || !data.occurrences) {
-      return;
+  formatColumnHeading(col: Column, id: string) {
+    const pref = globals.state.aggregatePreferences[id];
+    let sortIcon = '';
+    if (pref && pref.sorting && pref.sorting.column === col.columnId) {
+      sortIcon = pref.sorting.direction === 'DESC' ? 'arrow_drop_down' :
+                                                     'arrow_drop_up';
     }
+    return m(
+        'th',
+        {
+          onclick: () => {
+            globals.dispatch(
+                Actions.updateAggregateSorting({id, column: col.columnId}));
+          }
+        },
+        col.title,
+        m('i.material-icons', sortIcon));
+  }
+
+  getRows(data: AggregateData) {
+    if (data.columns.length === 0) return;
     const rows = [];
-    for (let i = 0; i < data.pid.length; i++) {
-      const row =
-          [m('tr',
-             m('td', `${data.strings[data.procNameId[i]]} [${data.pid[i]}]`),
-             m('td', `${data.strings[data.threadNameId[i]]} [${data.tid[i]}]`),
-             m('td', `${data.totalDur[i] / 1000000}`),
-             m('td',
-               `${
-                   +
-                   (data.totalDur[i] / data.occurrences[i] / 1000000)
-                       .toFixed(6)}`),
-             m('td', `${data.occurrences[i]}`))];
-      rows.push(row);
+    for (let i = 0; i < data.columns[0].data.length; i++) {
+      const row = [];
+      for (let j = 0; j < data.columns.length; j++) {
+        row.push(m('td', this.getFormattedData(data, i, j)));
+      }
+      rows.push(m('tr', row));
     }
     return rows;
+  }
+
+  getFormattedData(data: AggregateData, rowIndex: number, columnIndex: number) {
+    switch (data.columns[columnIndex].kind) {
+      case 'STRING':
+        return `${data.strings[data.columns[columnIndex].data[rowIndex]]}`;
+      case 'TIMESTAMP_NS':
+        return `${data.columns[columnIndex].data[rowIndex] / 1000000}`;
+      case 'STATE':
+        return translateState(
+            `${data.strings[data.columns[columnIndex].data[rowIndex]]}`);
+      case 'NUMBER':
+      default:
+        return `${data.columns[columnIndex].data[rowIndex]}`;
+    }
   }
 
   renderCanvas() {}

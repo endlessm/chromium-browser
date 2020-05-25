@@ -16,7 +16,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <array>
+#include <chrono>
+
 #include "platform/api/time.h"
+#include "platform/base/ip_address.h"
+#include "util/logging.h"
 
 namespace openscreen {
 namespace discovery {
@@ -30,17 +35,25 @@ namespace discovery {
 // RFC 5771: https://www.ietf.org/rfc/rfc5771.txt
 // RFC 7346: https://www.ietf.org/rfc/rfc7346.txt
 
+// Default multicast port used by mDNS protocol. On some systems there may be
+// multiple processes binding to same port, so prefer to allow address re-use.
+// See RFC 6762, Section 2
+constexpr uint16_t kDefaultMulticastPort = 5353;
+
 // IPv4 group address for joining mDNS multicast group, given as byte array in
 // network-order. This is a link-local multicast address, so messages will not
 // be forwarded outside local network. See RFC 6762, section 3.
-constexpr uint8_t kDefaultMulticastGroupIPv4[4] = {224, 0, 0, 251};
+const IPAddress kDefaultMulticastGroupIPv4{224, 0, 0, 251};
+const IPEndpoint kDefaultMulticastGroupIPv4Endpoint{{}, kDefaultMulticastPort};
 
 // IPv6 group address for joining mDNS multicast group. This is a link-local
 // multicast address, so messages will not be forwarded outside local network.
 // See RFC 6762, section 3.
-constexpr uint16_t kDefaultMulticastGroupIPv6[8] = {
+const IPAddress kDefaultMulticastGroupIPv6{
     0xFF02, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x00FB,
 };
+const IPEndpoint kDefaultMulticastGroupIPv6Endpoint{{0, 0, 0, 0, 0, 0, 0, 0},
+                                                    kDefaultMulticastPort};
 
 // IPv4 group address for joining cast-specific site-local mDNS multicast group,
 // given as byte array in network-order. This is a site-local multicast address,
@@ -58,7 +71,9 @@ constexpr uint16_t kDefaultMulticastGroupIPv6[8] = {
 
 // NOTE: For now the group address is the same group address used for SSDP
 // discovery, albeit using the MDNS port rather than SSDP port.
-constexpr uint8_t kDefaultSiteLocalGroupIPv4[4] = {239, 255, 255, 250};
+const IPAddress kDefaultSiteLocalGroupIPv4{239, 255, 255, 250};
+const IPEndpoint kDefaultSiteLocalGroupIPv4Endpoint{kDefaultSiteLocalGroupIPv4,
+                                                    kDefaultMulticastPort};
 
 // IPv6 group address for joining cast-specific site-local mDNS multicast group,
 // give as byte array in network-order. See comments for IPv4 group address for
@@ -66,15 +81,11 @@ constexpr uint8_t kDefaultSiteLocalGroupIPv4[4] = {239, 255, 255, 250};
 // 0xFF05 is site-local. See RFC 7346.
 // FF0X:0:0:0:0:0:0:C is variable scope multicast addresses for SSDP. See
 // https://www.iana.org/assignments/ipv6-multicast-addresses
-constexpr uint8_t kDefaultSiteLocalGroupIPv6[16] = {
-    0xFF, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C,
+const IPAddress kDefaultSiteLocalGroupIPv6{
+    0xFF05, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x000C,
 };
-
-// Default multicast port used by mDNS protocol. On some systems there may be
-// multiple processes binding to same port, so prefer to allow address re-use.
-// See RFC 6762, Section 2
-constexpr uint16_t kDefaultMulticastPort = 5353;
+const IPEndpoint kDefaultSiteLocalGroupIPv6Endpoint{kDefaultSiteLocalGroupIPv6,
+                                                    kDefaultMulticastPort};
 
 // Maximum MTU size (1500) minus the UDP header size (8) and IP header size
 // (20). If any packets are larger than this size, the responder or sender
@@ -295,6 +306,32 @@ enum class DnsType : uint16_t {
   kNSEC = 47,
   kANY = 255,  // Only allowed for QTYPE
 };
+
+inline std::ostream& operator<<(std::ostream& output, DnsType type) {
+  switch (type) {
+    case DnsType::kA:
+      return output << "A";
+    case DnsType::kPTR:
+      return output << "PTR";
+    case DnsType::kTXT:
+      return output << "TXT";
+    case DnsType::kAAAA:
+      return output << "AAAA";
+    case DnsType::kSRV:
+      return output << "SRV";
+    case DnsType::kNSEC:
+      return output << "NSEC";
+    case DnsType::kANY:
+      return output << "ANY";
+  }
+
+  OSP_NOTREACHED();
+  return output;
+}
+
+constexpr std::array<DnsType, 7> kSupportedDnsTypes = {
+    DnsType::kA,   DnsType::kPTR,  DnsType::kTXT, DnsType::kAAAA,
+    DnsType::kSRV, DnsType::kNSEC, DnsType::kANY};
 
 enum class DnsClass : uint16_t {
   kIN = 1,

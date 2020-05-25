@@ -19,9 +19,6 @@
  *         John Zulauf <jzulauf@lunarg.com>
  */
 
-// Allow use of STL min and max functions in Windows
-#define NOMINMAX
-
 #include "chassis.h"
 #include "core_validation_error_enums.h"
 #include "core_validation.h"
@@ -344,7 +341,7 @@ cvdescriptorset::DescriptorSetLayout::DescriptorSetLayout(const VkDescriptorSetL
 
 // Validate descriptor set layout create info
 bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
-    const debug_report_data *report_data, const VkDescriptorSetLayoutCreateInfo *create_info, const bool push_descriptor_ext,
+    const ValidationObject *val_obj, const VkDescriptorSetLayoutCreateInfo *create_info, const bool push_descriptor_ext,
     const uint32_t max_push_descriptors, const bool descriptor_indexing_ext,
     const VkPhysicalDeviceVulkan12Features *core12_features,
     const VkPhysicalDeviceInlineUniformBlockFeaturesEXT *inline_uniform_block_features,
@@ -357,20 +354,18 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
 
     const bool push_descriptor_set = !!(create_info->flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
     if (push_descriptor_set && !push_descriptor_ext) {
-        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                        kVUID_Core_DrawState_ExtensionNotEnabled,
-                        "Attempted to use %s in %s but its required extension %s has not been enabled.\n",
-                        "VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR", "VkDescriptorSetLayoutCreateInfo::flags",
-                        VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+        skip |= val_obj->LogError(val_obj->device, kVUID_Core_DrawState_ExtensionNotEnabled,
+                                  "Attempted to use %s in %s but its required extension %s has not been enabled.\n",
+                                  "VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR",
+                                  "VkDescriptorSetLayoutCreateInfo::flags", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
     }
 
     const bool update_after_bind_set = !!(create_info->flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT);
     if (update_after_bind_set && !descriptor_indexing_ext) {
-        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                        kVUID_Core_DrawState_ExtensionNotEnabled,
-                        "Attemped to use %s in %s but its required extension %s has not been enabled.\n",
-                        "VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT", "VkDescriptorSetLayoutCreateInfo::flags",
-                        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+        skip |= val_obj->LogError(val_obj->device, kVUID_Core_DrawState_ExtensionNotEnabled,
+                                  "Attemped to use %s in %s but its required extension %s has not been enabled.\n",
+                                  "VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT",
+                                  "VkDescriptorSetLayoutCreateInfo::flags", VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
     }
 
     auto valid_type = [push_descriptor_set](const VkDescriptorType type) {
@@ -386,37 +381,36 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
         max_binding = std::max(max_binding, binding_info.binding);
 
         if (!bindings.insert(binding_info.binding).second) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                            "VUID-VkDescriptorSetLayoutCreateInfo-binding-00279",
-                            "duplicated binding number in VkDescriptorSetLayoutBinding.");
+            skip |= val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutCreateInfo-binding-00279",
+                                      "duplicated binding number in VkDescriptorSetLayoutBinding.");
         }
         if (!valid_type(binding_info.descriptorType)) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                            (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT)
-                                ? "VUID-VkDescriptorSetLayoutCreateInfo-flags-02208"
-                                : "VUID-VkDescriptorSetLayoutCreateInfo-flags-00280",
-                            "invalid type %s ,for push descriptors in VkDescriptorSetLayoutBinding entry %" PRIu32 ".",
-                            string_VkDescriptorType(binding_info.descriptorType), i);
+            skip |= val_obj->LogError(val_obj->device,
+                                      (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT)
+                                          ? "VUID-VkDescriptorSetLayoutCreateInfo-flags-02208"
+                                          : "VUID-VkDescriptorSetLayoutCreateInfo-flags-00280",
+                                      "invalid type %s ,for push descriptors in VkDescriptorSetLayoutBinding entry %" PRIu32 ".",
+                                      string_VkDescriptorType(binding_info.descriptorType), i);
         }
 
         if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT) {
             if (!device_extensions->vk_ext_inline_uniform_block) {
-                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT, 0,
-                                "UNASSIGNED-Extension not enabled",
-                                "Creating VkDescriptorSetLayout with descriptor type  VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT "
-                                "but extension %s is missing",
-                                VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
+                skip |= val_obj->LogError(
+                    val_obj->device, "UNASSIGNED-Extension not enabled",
+                    "Creating VkDescriptorSetLayout with descriptor type  VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT "
+                    "but extension %s is missing",
+                    VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
             } else {
                 if ((binding_info.descriptorCount % 4) != 0) {
-                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                    "VUID-VkDescriptorSetLayoutBinding-descriptorType-02209",
-                                    "descriptorCount =(%" PRIu32 ") must be a multiple of 4", binding_info.descriptorCount);
+                    skip |=
+                        val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutBinding-descriptorType-02209",
+                                          "descriptorCount =(%" PRIu32 ") must be a multiple of 4", binding_info.descriptorCount);
                 }
                 if (binding_info.descriptorCount > inline_uniform_block_props->maxInlineUniformBlockSize) {
-                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                    "VUID-VkDescriptorSetLayoutBinding-descriptorType-02210",
-                                    "descriptorCount =(%" PRIu32 ") must be less than or equal to maxInlineUniformBlockSize",
-                                    binding_info.descriptorCount);
+                    skip |=
+                        val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutBinding-descriptorType-02210",
+                                          "descriptorCount =(%" PRIu32 ") must be less than or equal to maxInlineUniformBlockSize",
+                                          binding_info.descriptorCount);
                 }
             }
         }
@@ -426,11 +420,10 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
 
     if (flags_create_info) {
         if (flags_create_info->bindingCount != 0 && flags_create_info->bindingCount != create_info->bindingCount) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-bindingCount-03002",
-                            "VkDescriptorSetLayoutCreateInfo::bindingCount (%d) != "
-                            "VkDescriptorSetLayoutBindingFlagsCreateInfoEXT::bindingCount (%d)",
-                            create_info->bindingCount, flags_create_info->bindingCount);
+            skip |= val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-bindingCount-03002",
+                                      "VkDescriptorSetLayoutCreateInfo::bindingCount (%d) != "
+                                      "VkDescriptorSetLayoutBindingFlagsCreateInfoEXT::bindingCount (%d)",
+                                      create_info->bindingCount, flags_create_info->bindingCount);
         }
 
         if (flags_create_info->bindingCount == create_info->bindingCount) {
@@ -439,79 +432,77 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
 
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT) {
                     if (!update_after_bind_set) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutCreateInfo-flags-03000",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutCreateInfo-flags-03000",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
 
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER &&
                         !core12_features->descriptorBindingUniformBufferUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingUniformBufferUpdateAfterBind-03005",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingUniformBufferUpdateAfterBind-03005",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if ((binding_info.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) &&
                         !core12_features->descriptorBindingSampledImageUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingSampledImageUpdateAfterBind-03006",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingSampledImageUpdateAfterBind-03006",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE &&
                         !core12_features->descriptorBindingStorageImageUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingStorageImageUpdateAfterBind-03007",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingStorageImageUpdateAfterBind-03007",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER &&
                         !core12_features->descriptorBindingStorageBufferUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingStorageBufferUpdateAfterBind-03008",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingStorageBufferUpdateAfterBind-03008",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER &&
                         !core12_features->descriptorBindingUniformTexelBufferUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingUniformTexelBufferUpdateAfterBind-03009",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingUniformTexelBufferUpdateAfterBind-03009",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER &&
                         !core12_features->descriptorBindingStorageTexelBufferUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingStorageTexelBufferUpdateAfterBind-03010",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingStorageTexelBufferUpdateAfterBind-03010",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if ((binding_info.descriptorType == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-None-03011",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-None-03011",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
 
                     if (binding_info.descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT &&
                         !inline_uniform_block_features->descriptorBindingInlineUniformBlockUpdateAfterBind) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
-                                        "descriptorBindingInlineUniformBlockUpdateAfterBind-02211",
-                                        "Invalid flags (VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT) for "
-                                        "VkDescriptorSetLayoutBinding entry %" PRIu32
-                                        " with descriptorBindingInlineUniformBlockUpdateAfterBind not enabled",
-                                        i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-"
+                                                  "descriptorBindingInlineUniformBlockUpdateAfterBind-02211",
+                                                  "Invalid flags (VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT) for "
+                                                  "VkDescriptorSetLayoutBinding entry %" PRIu32
+                                                  " with descriptorBindingInlineUniformBlockUpdateAfterBind not enabled",
+                                                  i);
                     }
                 }
 
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT) {
                     if (!core12_features->descriptorBindingUpdateUnusedWhilePending) {
-                        skip |= log_msg(
-                            report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                        skip |= val_obj->LogError(
+                            val_obj->device,
                             "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingUpdateUnusedWhilePending-03012",
                             "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
@@ -519,30 +510,31 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
 
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT) {
                     if (!core12_features->descriptorBindingPartiallyBound) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingPartiallyBound-03013",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(
+                            val_obj->device,
+                            "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingPartiallyBound-03013",
+                            "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                 }
 
                 if (flags_create_info->pBindingFlags[i] & VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT) {
                     if (binding_info.binding != max_binding) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03004",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03004",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
 
                     if (!core12_features->descriptorBindingVariableDescriptorCount) {
-                        skip |= log_msg(
-                            report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                        skip |= val_obj->LogError(
+                            val_obj->device,
                             "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-descriptorBindingVariableDescriptorCount-03014",
                             "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                     if ((binding_info.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC ||
                          binding_info.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) {
-                        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                        "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03015",
-                                        "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                        skip |= val_obj->LogError(val_obj->device,
+                                                  "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-pBindingFlags-03015",
+                                                  "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                     }
                 }
 
@@ -550,9 +542,8 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
                     (flags_create_info->pBindingFlags[i] &
                      (VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT |
                       VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT_EXT))) {
-                    skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                                    "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-flags-03003",
-                                    "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
+                    skip |= val_obj->LogError(val_obj->device, "VUID-VkDescriptorSetLayoutBindingFlagsCreateInfo-flags-03003",
+                                              "Invalid flags for VkDescriptorSetLayoutBinding entry %" PRIu32, i);
                 }
             }
         }
@@ -560,12 +551,11 @@ bool cvdescriptorset::ValidateDescriptorSetLayoutCreateInfo(
 
     if ((push_descriptor_set) && (total_descriptors > max_push_descriptors)) {
         const char *undefined = push_descriptor_ext ? "" : " -- undefined";
-        skip |=
-            log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                    "VUID-VkDescriptorSetLayoutCreateInfo-flags-00281",
-                    "for push descriptor, total descriptor count in layout (%" PRIu64
-                    ") must not be greater than VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors (%" PRIu32 "%s).",
-                    total_descriptors, max_push_descriptors, undefined);
+        skip |= val_obj->LogError(
+            val_obj->device, "VUID-VkDescriptorSetLayoutCreateInfo-flags-00281",
+            "for push descriptor, total descriptor count in layout (%" PRIu64
+            ") must not be greater than VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors (%" PRIu32 "%s).",
+            total_descriptors, max_push_descriptors, undefined);
     }
 
     return skip;
@@ -586,6 +576,8 @@ cvdescriptorset::DescriptorSet::DescriptorSet(const VkDescriptorSet set, DESCRIP
       change_count_(0) {
     // Foreach binding, create default descriptors of given type
     descriptors_.reserve(p_layout_->GetTotalDescriptorCount());
+    descriptor_store_.resize(p_layout_->GetTotalDescriptorCount());
+    auto free_descriptor = descriptor_store_.data();
     for (uint32_t i = 0; i < p_layout_->GetBindingCount(); ++i) {
         auto type = p_layout_->GetTypeFromIndex(i);
         switch (type) {
@@ -593,10 +585,11 @@ cvdescriptorset::DescriptorSet::DescriptorSet(const VkDescriptorSet set, DESCRIP
                 auto immut_sampler = p_layout_->GetImmutableSamplerPtrFromIndex(i);
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di) {
                     if (immut_sampler) {
-                        descriptors_.emplace_back(new SamplerDescriptor(state_data, immut_sampler + di));
+                        descriptors_.emplace_back(new ((free_descriptor++)->Sampler())
+                                                      SamplerDescriptor(state_data, immut_sampler + di));
                         some_update_ = true;  // Immutable samplers are updated at creation
                     } else
-                        descriptors_.emplace_back(new SamplerDescriptor(state_data, nullptr));
+                        descriptors_.emplace_back(new ((free_descriptor++)->Sampler()) SamplerDescriptor(state_data, nullptr));
                 }
                 break;
             }
@@ -604,10 +597,12 @@ cvdescriptorset::DescriptorSet::DescriptorSet(const VkDescriptorSet set, DESCRIP
                 auto immut = p_layout_->GetImmutableSamplerPtrFromIndex(i);
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di) {
                     if (immut) {
-                        descriptors_.emplace_back(new ImageSamplerDescriptor(state_data, immut + di));
+                        descriptors_.emplace_back(new ((free_descriptor++)->ImageSampler())
+                                                      ImageSamplerDescriptor(state_data, immut + di));
                         some_update_ = true;  // Immutable samplers are updated at creation
                     } else
-                        descriptors_.emplace_back(new ImageSamplerDescriptor(state_data, nullptr));
+                        descriptors_.emplace_back(new ((free_descriptor++)->ImageSampler())
+                                                      ImageSamplerDescriptor(state_data, nullptr));
                 }
                 break;
             }
@@ -616,27 +611,28 @@ cvdescriptorset::DescriptorSet::DescriptorSet(const VkDescriptorSet set, DESCRIP
             case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
             case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di)
-                    descriptors_.emplace_back(new ImageDescriptor(type));
+                    descriptors_.emplace_back(new ((free_descriptor++)->Image()) ImageDescriptor(type));
                 break;
             case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
             case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di)
-                    descriptors_.emplace_back(new TexelDescriptor(type));
+                    descriptors_.emplace_back(new ((free_descriptor++)->Texel()) TexelDescriptor(type));
                 break;
             case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
             case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
             case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
             case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di)
-                    descriptors_.emplace_back(new BufferDescriptor(type));
+                    descriptors_.emplace_back(new ((free_descriptor++)->Buffer()) BufferDescriptor(type));
                 break;
             case VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT:
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di)
-                    descriptors_.emplace_back(new InlineUniformDescriptor(type));
+                    descriptors_.emplace_back(new ((free_descriptor++)->InlineUniform()) InlineUniformDescriptor(type));
                 break;
             case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV:
                 for (uint32_t di = 0; di < p_layout_->GetDescriptorCountFromIndex(i); ++di)
-                    descriptors_.emplace_back(new AccelerationStructureDescriptor(type));
+                    descriptors_.emplace_back(new ((free_descriptor++)->AccelerationStructure())
+                                                  AccelerationStructureDescriptor(type));
                 break;
             default:
                 assert(0);  // Bad descriptor type specified
@@ -649,7 +645,7 @@ cvdescriptorset::DescriptorSet::~DescriptorSet() {}
 
 static std::string StringDescriptorReqViewType(descriptor_req req) {
     std::string result("");
-    for (unsigned i = 0; i <= VK_IMAGE_VIEW_TYPE_END_RANGE; i++) {
+    for (unsigned i = 0; i <= VK_IMAGE_VIEW_TYPE_CUBE_ARRAY; i++) {
         if (req & (1 << i)) {
             if (result.size()) result += ", ";
             result += string_VkImageViewType(VkImageViewType(i));
@@ -717,6 +713,7 @@ bool CoreChecks::ValidateDescriptorSetBindingData(const CMD_BUFFER_STATE *cb_nod
     using ImageSamplerDescriptor = cvdescriptorset::ImageSamplerDescriptor;
     using SamplerDescriptor = cvdescriptorset::SamplerDescriptor;
     using TexelDescriptor = cvdescriptorset::TexelDescriptor;
+    using AccelerationStructureDescriptor = cvdescriptorset::AccelerationStructureDescriptor;
     DescriptorSetLayout::ConstBindingIterator binding_it(descriptor_set->GetLayout().get(), binding);
     {
         // Copy the range, the end range is subject to update based on variable length descriptor arrays.
@@ -755,10 +752,10 @@ bool CoreChecks::ValidateDescriptorSetBindingData(const CMD_BUFFER_STATE *cb_nod
                         return false;
                     } else if (!buffer_node->sparse) {
                         for (auto mem_binding : buffer_node->GetBoundMemory()) {
-                            if (!GetDevMemState(mem_binding)) {
+                            if (mem_binding->destroyed) {
                                 std::stringstream error_str;
                                 error_str << "Descriptor in binding #" << binding << " index " << index << " uses buffer " << buffer
-                                          << " that references invalid memory " << mem_binding << ".";
+                                          << " that references invalid memory " << mem_binding->mem << ".";
                                 *error = error_str.str();
                                 return false;
                             }
@@ -905,6 +902,30 @@ bool CoreChecks::ValidateDescriptorSetBindingData(const CMD_BUFFER_STATE *cb_nod
                                   << string_VkFormat(buffer_view_state->create_info.format) << ".";
                         *error = error_str.str();
                         return false;
+                    }
+                } else if (descriptor_class == DescriptorClass::AccelerationStructure) {
+                    // Verify that acceleration structures are valid
+                    auto acc = static_cast<const AccelerationStructureDescriptor *>(descriptor)->GetAccelerationStructure();
+                    auto acc_node =
+                        static_cast<const AccelerationStructureDescriptor *>(descriptor)->GetAccelerationStructureState();
+                    if (!acc_node || acc_node->destroyed) {
+                        std::stringstream error_str;
+                        error_str << "Descriptor in binding #" << binding << " index " << index
+                                  << " is using acceleration structure " << report_data->FormatHandle(acc).c_str()
+                                  << " that is invalid or has been destroyed.";
+                        *error = error_str.str();
+                        return false;
+                    } else {
+                        for (auto mem_binding : acc_node->GetBoundMemory()) {
+                            if (mem_binding->destroyed) {
+                                std::stringstream error_str;
+                                error_str << "Descriptor in binding #" << binding << " index " << index
+                                          << " uses acceleration structure " << acc << " that references invalid memory "
+                                          << mem_binding->mem << ".";
+                                *error = error_str.str();
+                                return false;
+                            }
+                        }
                     }
                 }
                 if (descriptor_class == DescriptorClass::ImageSampler || descriptor_class == DescriptorClass::PlainSampler) {
@@ -1506,12 +1527,14 @@ bool CoreChecks::ValidateImageUpdate(VkImageView image_view, VkImageLayout image
         case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
             if (!(usage & VK_IMAGE_USAGE_SAMPLED_BIT)) {
                 error_usage_bit = "VK_IMAGE_USAGE_SAMPLED_BIT";
+                *error_code = "VUID-VkWriteDescriptorSet-descriptorType-00337";
             }
             break;
         }
         case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE: {
             if (!(usage & VK_IMAGE_USAGE_STORAGE_BIT)) {
                 error_usage_bit = "VK_IMAGE_USAGE_STORAGE_BIT";
+                *error_code = "VUID-VkWriteDescriptorSet-descriptorType-00339";
             } else if (VK_IMAGE_LAYOUT_GENERAL != image_layout) {
                 std::stringstream error_str;
                 // TODO : Need to create custom enum error codes for these cases
@@ -1542,6 +1565,7 @@ bool CoreChecks::ValidateImageUpdate(VkImageView image_view, VkImageLayout image
         case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT: {
             if (!(usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)) {
                 error_usage_bit = "VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT";
+                *error_code = "VUID-VkWriteDescriptorSet-descriptorType-00338";
             }
             break;
         }
@@ -1775,6 +1799,33 @@ void cvdescriptorset::TexelDescriptor::UpdateDrawState(ValidationStateTracker *d
     }
 }
 
+cvdescriptorset::AccelerationStructureDescriptor::AccelerationStructureDescriptor(const VkDescriptorType type)
+    : acc_(VK_NULL_HANDLE) {
+    updated = false;
+    descriptor_class = AccelerationStructure;
+}
+void cvdescriptorset::AccelerationStructureDescriptor::WriteUpdate(const ValidationStateTracker *dev_data,
+                                                                   const VkWriteDescriptorSet *update, const uint32_t index) {
+    const auto *accInfo = lvl_find_in_chain<VkWriteDescriptorSetAccelerationStructureKHR>(update->pNext);
+
+    updated = true;
+    acc_ = accInfo->pAccelerationStructures[index];
+    acc_state_ = dev_data->GetConstCastShared<ACCELERATION_STRUCTURE_STATE>(acc_);
+}
+
+void cvdescriptorset::AccelerationStructureDescriptor::CopyUpdate(const ValidationStateTracker *dev_data, const Descriptor *src) {
+    auto acc_desc = static_cast<const AccelerationStructureDescriptor *>(src);
+    updated = true;
+    acc_ = acc_desc->acc_;
+    acc_state_ = dev_data->GetConstCastShared<ACCELERATION_STRUCTURE_STATE>(acc_);
+}
+
+void cvdescriptorset::AccelerationStructureDescriptor::UpdateDrawState(ValidationStateTracker *dev_data,
+                                                                       CMD_BUFFER_STATE *cb_node) {
+    auto acc_node = GetAccelerationStructureState();
+    if (acc_node) dev_data->AddCommandBufferBindingAccelerationStructure(cb_node, acc_node);
+}
+
 // This is a helper function that iterates over a set of Write and Copy updates, pulls the DescriptorSet* for updated
 //  sets, and then calls their respective Validate[Write|Copy]Update functions.
 // If the update hits an issue for which the callback returns "true", meaning that the call down the chain should
@@ -1788,17 +1839,15 @@ bool CoreChecks::ValidateUpdateDescriptorSets(uint32_t write_count, const VkWrit
         auto dest_set = p_wds[i].dstSet;
         auto set_node = GetSetNode(dest_set);
         if (!set_node) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT,
-                            HandleToUint64(dest_set), kVUID_Core_DrawState_InvalidDescriptorSet,
-                            "Cannot call %s on %s that has not been allocated.", func_name,
-                            report_data->FormatHandle(dest_set).c_str());
+            skip |=
+                LogError(dest_set, kVUID_Core_DrawState_InvalidDescriptorSet, "Cannot call %s on %s that has not been allocated.",
+                         func_name, report_data->FormatHandle(dest_set).c_str());
         } else {
             std::string error_code;
             std::string error_str;
             if (!ValidateWriteUpdate(set_node, &p_wds[i], func_name, &error_code, &error_str)) {
-                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT,
-                                HandleToUint64(dest_set), error_code, "%s failed write update validation for %s with error: %s.",
-                                func_name, report_data->FormatHandle(dest_set).c_str(), error_str.c_str());
+                skip |= LogError(dest_set, error_code, "%s failed write update validation for %s with error: %s.", func_name,
+                                 report_data->FormatHandle(dest_set).c_str(), error_str.c_str());
             }
         }
     }
@@ -1814,10 +1863,11 @@ bool CoreChecks::ValidateUpdateDescriptorSets(uint32_t write_count, const VkWrit
         std::string error_code;
         std::string error_str;
         if (!ValidateCopyUpdate(&p_cds[i], dst_node, src_node, func_name, &error_code, &error_str)) {
+            LogObjectList objlist(dst_set);
+            objlist.add(src_set);
             skip |=
-                log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_EXT,
-                        HandleToUint64(dst_set), error_code, "%s failed copy update from %s to %s with error: %s.", func_name,
-                        report_data->FormatHandle(src_set).c_str(), report_data->FormatHandle(dst_set).c_str(), error_str.c_str());
+                LogError(objlist, error_code, "%s failed copy update from %s to %s with error: %s.", func_name,
+                         report_data->FormatHandle(src_set).c_str(), report_data->FormatHandle(dst_set).c_str(), error_str.c_str());
         }
     }
     return skip;
@@ -1964,9 +2014,8 @@ bool CoreChecks::ValidatePushDescriptorsUpdate(const DescriptorSet *push_set, ui
         std::string error_code;
         std::string error_str;
         if (!ValidateWriteUpdate(push_set, &p_wds[i], func_name, &error_code, &error_str)) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT,
-                            HandleToUint64(push_set->GetDescriptorSetLayout()), error_code, "%s failed update validation: %s.",
-                            func_name, error_str.c_str());
+            skip |= LogError(push_set->GetDescriptorSetLayout(), error_code, "%s failed update validation: %s.", func_name,
+                             error_str.c_str());
         }
     }
     return skip;
@@ -2111,6 +2160,21 @@ bool CoreChecks::ValidateBufferUpdate(VkDescriptorBufferInfo const *buffer_info,
     }
     return true;
 }
+
+bool CoreChecks::ValidateAccelerationStructureUpdate(VkAccelerationStructureKHR acc, const char *func_name, std::string *error_code,
+                                                     std::string *error_msg) const {
+    // First make sure that acceleration structure is valid
+    auto acc_node = GetAccelerationStructureState(acc);
+    // Any invalid acc struct should already be caught by object_tracker
+    assert(acc_node);
+    if (ValidateMemoryIsBoundToAccelerationStructure(acc_node, func_name, kVUIDUndefined)) {
+        *error_code = kVUIDUndefined;
+        *error_msg = "No memory bound to acceleration structure.";
+        return false;
+    }
+    return true;
+}
+
 // Verify that the contents of the update are ok, but don't perform actual update
 bool CoreChecks::VerifyCopyUpdateContents(const VkCopyDescriptorSet *update, const DescriptorSet *src_set,
                                           VkDescriptorType src_type, uint32_t src_index, const DescriptorSet *dst_set,
@@ -2264,30 +2328,27 @@ bool CoreChecks::ValidateAllocateDescriptorSets(const VkDescriptorSetAllocateInf
         auto layout = GetDescriptorSetLayoutShared(p_alloc_info->pSetLayouts[i]);
         if (layout) {  // nullptr layout indicates no valid layout handle for this device, validated/logged in object_tracker
             if (layout->IsPushDescriptor()) {
-                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT,
-                                HandleToUint64(p_alloc_info->pSetLayouts[i]), "VUID-VkDescriptorSetAllocateInfo-pSetLayouts-00308",
-                                "%s specified at pSetLayouts[%" PRIu32
-                                "] in vkAllocateDescriptorSets() was created with invalid flag %s set.",
-                                report_data->FormatHandle(p_alloc_info->pSetLayouts[i]).c_str(), i,
-                                "VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR");
+                skip |= LogError(p_alloc_info->pSetLayouts[i], "VUID-VkDescriptorSetAllocateInfo-pSetLayouts-00308",
+                                 "%s specified at pSetLayouts[%" PRIu32
+                                 "] in vkAllocateDescriptorSets() was created with invalid flag %s set.",
+                                 report_data->FormatHandle(p_alloc_info->pSetLayouts[i]).c_str(), i,
+                                 "VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR");
             }
             if (layout->GetCreateFlags() & VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT &&
                 !(pool_state->createInfo.flags & VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT)) {
-                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT,
-                                0, "VUID-VkDescriptorSetAllocateInfo-pSetLayouts-03044",
-                                "Descriptor set layout create flags and pool create flags mismatch for index (%d)", i);
+                skip |= LogError(device, "VUID-VkDescriptorSetAllocateInfo-pSetLayouts-03044",
+                                 "Descriptor set layout create flags and pool create flags mismatch for index (%d)", i);
             }
         }
     }
     if (!device_extensions.vk_khr_maintenance1) {
         // Track number of descriptorSets allowable in this pool
         if (pool_state->availableSets < p_alloc_info->descriptorSetCount) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_POOL_EXT,
-                            HandleToUint64(pool_state->pool), "VUID-VkDescriptorSetAllocateInfo-descriptorSetCount-00306",
-                            "Unable to allocate %u descriptorSets from %s"
-                            ". This pool only has %d descriptorSets remaining.",
-                            p_alloc_info->descriptorSetCount, report_data->FormatHandle(pool_state->pool).c_str(),
-                            pool_state->availableSets);
+            skip |= LogError(pool_state->pool, "VUID-VkDescriptorSetAllocateInfo-descriptorSetCount-00306",
+                             "Unable to allocate %u descriptorSets from %s"
+                             ". This pool only has %d descriptorSets remaining.",
+                             p_alloc_info->descriptorSetCount, report_data->FormatHandle(pool_state->pool).c_str(),
+                             pool_state->availableSets);
         }
         // Determine whether descriptor counts are satisfiable
         for (auto it = ds_data->required_descriptors_by_type.begin(); it != ds_data->required_descriptors_by_type.end(); ++it) {
@@ -2295,13 +2356,12 @@ bool CoreChecks::ValidateAllocateDescriptorSets(const VkDescriptorSetAllocateInf
             uint32_t availableCount = (count_iter != pool_state->availableDescriptorTypeCount.end()) ? count_iter->second : 0;
 
             if (ds_data->required_descriptors_by_type.at(it->first) > availableCount) {
-                skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_POOL_EXT,
-                                HandleToUint64(pool_state->pool), "VUID-VkDescriptorSetAllocateInfo-descriptorPool-00307",
-                                "Unable to allocate %u descriptors of type %s from %s"
-                                ". This pool only has %d descriptors of this type remaining.",
-                                ds_data->required_descriptors_by_type.at(it->first),
-                                string_VkDescriptorType(VkDescriptorType(it->first)),
-                                report_data->FormatHandle(pool_state->pool).c_str(), availableCount);
+                skip |= LogError(pool_state->pool, "VUID-VkDescriptorSetAllocateInfo-descriptorPool-00307",
+                                 "Unable to allocate %u descriptors of type %s from %s"
+                                 ". This pool only has %d descriptors of this type remaining.",
+                                 ds_data->required_descriptors_by_type.at(it->first),
+                                 string_VkDescriptorType(VkDescriptorType(it->first)),
+                                 report_data->FormatHandle(pool_state->pool).c_str(), availableCount);
             }
         }
     }
@@ -2311,21 +2371,19 @@ bool CoreChecks::ValidateAllocateDescriptorSets(const VkDescriptorSetAllocateInf
     if (count_allocate_info) {
         if (count_allocate_info->descriptorSetCount != 0 &&
             count_allocate_info->descriptorSetCount != p_alloc_info->descriptorSetCount) {
-            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT, 0,
-                            "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfo-descriptorSetCount-03045",
-                            "VkDescriptorSetAllocateInfo::descriptorSetCount (%d) != "
-                            "VkDescriptorSetVariableDescriptorCountAllocateInfoEXT::descriptorSetCount (%d)",
-                            p_alloc_info->descriptorSetCount, count_allocate_info->descriptorSetCount);
+            skip |= LogError(device, "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfo-descriptorSetCount-03045",
+                             "VkDescriptorSetAllocateInfo::descriptorSetCount (%d) != "
+                             "VkDescriptorSetVariableDescriptorCountAllocateInfoEXT::descriptorSetCount (%d)",
+                             p_alloc_info->descriptorSetCount, count_allocate_info->descriptorSetCount);
         }
         if (count_allocate_info->descriptorSetCount == p_alloc_info->descriptorSetCount) {
             for (uint32_t i = 0; i < p_alloc_info->descriptorSetCount; i++) {
                 auto layout = GetDescriptorSetLayoutShared(p_alloc_info->pSetLayouts[i]);
                 if (count_allocate_info->pDescriptorCounts[i] > layout->GetDescriptorCountFromBinding(layout->GetMaxBinding())) {
-                    skip |= log_msg(
-                        report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT, 0,
-                        "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfo-pSetLayouts-03046",
-                        "pDescriptorCounts[%d] = (%d), binding's descriptorCount = (%d)", i,
-                        count_allocate_info->pDescriptorCounts[i], layout->GetDescriptorCountFromBinding(layout->GetMaxBinding()));
+                    skip |= LogError(device, "VUID-VkDescriptorSetVariableDescriptorCountAllocateInfo-pSetLayouts-03046",
+                                     "pDescriptorCounts[%d] = (%d), binding's descriptorCount = (%d)", i,
+                                     count_allocate_info->pDescriptorCounts[i],
+                                     layout->GetDescriptorCountFromBinding(layout->GetMaxBinding()));
                 }
             }
         }
@@ -2508,6 +2566,50 @@ bool CoreChecks::ValidateWriteUpdate(const DescriptorSet *dest_set, const VkWrit
             return false;
         }
     }
+    // Verify all bindings update share identical properties across all items
+    if (update->descriptorCount > 0) {
+        // Save first binding information and error if something different is found
+        DescriptorSetLayout::ConstBindingIterator current_binding(dest_layout, update->dstBinding);
+        VkShaderStageFlags stageFlags = current_binding.GetStageFlags();
+        VkDescriptorType descriptorType = current_binding.GetType();
+        bool immutableSamplers = (current_binding.GetImmutableSamplerPtr() == nullptr);
+        uint32_t dstArrayElement = update->dstArrayElement;
+
+        for (uint32_t i = 0; i < update->descriptorCount;) {
+            if (current_binding.AtEnd() == true) {
+                break;  // prevents setting error here if bindings don't exist
+            }
+
+            // Check for consistent stageFlags and descriptorType
+            if ((current_binding.GetStageFlags() != stageFlags) || (current_binding.GetType() != descriptorType)) {
+                *error_code = "VUID-VkWriteDescriptorSet-descriptorCount-00317";
+                std::stringstream error_str;
+                error_str << "Attempting write update to " << dest_set->StringifySetAndLayout() << " binding index #"
+                          << current_binding.GetIndex() << " (" << i << " from dstBinding offset)"
+                          << " with a different stageFlag and/or descriptorType from previous bindings."
+                          << " All bindings must have consecutive stageFlag and/or descriptorType across a VkWriteDescriptorSet";
+                *error_msg = error_str.str();
+                return false;
+            }
+            // Check if all immutableSamplers or not
+            if ((current_binding.GetImmutableSamplerPtr() == nullptr) != immutableSamplers) {
+                *error_code = "VUID-VkWriteDescriptorSet-descriptorCount-00318";
+                std::stringstream error_str;
+                error_str << "Attempting write update to " << dest_set->StringifySetAndLayout() << " binding index #"
+                          << current_binding.GetIndex() << " (" << i << " from dstBinding offset)"
+                          << " with a different usage of immutable samplers from previous bindings."
+                          << " All bindings must have all or none usage of immutable samplers across a VkWriteDescriptorSet";
+                *error_msg = error_str.str();
+                return false;
+            }
+
+            // Skip the remaining descriptors for this binding, and move to the next binding
+            i += (current_binding.GetDescriptorCount() - dstArrayElement);
+            dstArrayElement = 0;
+            ++current_binding;
+        }
+    }
+
     // Verify consecutive bindings match (if needed)
     if (!VerifyUpdateConsistency(DescriptorSetLayout::ConstBindingIterator(dest_layout, update->dstBinding),
                                  update->dstArrayElement, update->descriptorCount, "write update to", dest_set->GetSet(),
@@ -2540,8 +2642,10 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                 // Validate image
                 auto image_view = update->pImageInfo[di].imageView;
                 auto image_layout = update->pImageInfo[di].imageLayout;
+                auto sampler = update->pImageInfo[di].sampler;
                 auto iv_state = GetImageViewState(image_view);
                 auto image_state = iv_state->image_state.get();
+                ImageSamplerDescriptor *desc = (ImageSamplerDescriptor *)dest_set->GetDescriptorFromGlobalIndex(index + di);
                 if (!ValidateImageUpdate(image_view, image_layout, update->descriptorType, func_name, error_code, error_msg)) {
                     std::stringstream error_str;
                     error_str << "Attempted write update to combined image sampler descriptor failed due to: "
@@ -2550,7 +2654,6 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                     return false;
                 }
                 if (device_extensions.vk_khr_sampler_ycbcr_conversion) {
-                    ImageSamplerDescriptor *desc = (ImageSamplerDescriptor *)dest_set->GetDescriptorFromGlobalIndex(index + di);
                     if (desc->IsImmutableSampler()) {
                         auto sampler_state = GetSamplerState(desc->GetSampler());
                         if (iv_state && sampler_state) {
@@ -2577,7 +2680,7 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
                         }
                     }
                 }
-                if (FormatIsMultiplane(image_state->createInfo.format)) {
+                if (sampler && !desc->IsImmutableSampler() && FormatIsMultiplane(image_state->createInfo.format)) {
                     // multiplane formats must be created with mutable format bit
                     if (0 == (image_state->createInfo.flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)) {
                         *error_code = "VUID-VkDescriptorImageInfo-sampler-01564";
@@ -2687,9 +2790,19 @@ bool CoreChecks::VerifyWriteUpdateContents(const DescriptorSet *dest_set, const 
         }
         case VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT:
             break;
-        case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV:
-            // XXX TODO
-            break;
+        case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_NV: {
+            const auto *accInfo = lvl_find_in_chain<VkWriteDescriptorSetAccelerationStructureKHR>(update->pNext);
+            for (uint32_t di = 0; di < update->descriptorCount; ++di) {
+                if (!ValidateAccelerationStructureUpdate(accInfo->pAccelerationStructures[di], func_name, error_code, error_msg)) {
+                    std::stringstream error_str;
+                    error_str << "Attempted write update to acceleration structure descriptor failed due to: "
+                              << error_msg->c_str();
+                    *error_msg = error_str.str();
+                    return false;
+                }
+            }
+
+        } break;
         default:
             assert(0);  // We've already verified update type so should never get here
             break;

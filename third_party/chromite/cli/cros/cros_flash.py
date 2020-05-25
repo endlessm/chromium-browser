@@ -7,11 +7,16 @@
 
 from __future__ import print_function
 
+import sys
+
 from chromite.cli import command
 from chromite.cli import flash
 from chromite.lib import commandline
 from chromite.lib import cros_logging as logging
 from chromite.lib import dev_server_wrapper
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 @command.CommandDecorator('flash')
@@ -69,11 +74,18 @@ Examples:
   def AddParser(cls, parser):
     """Add parser arguments."""
     super(FlashCommand, cls).AddParser(parser)
-    cls.AddDeviceArgument(parser, schemes=[commandline.DEVICE_SCHEME_FILE,
-                                           commandline.DEVICE_SCHEME_SSH,
-                                           commandline.DEVICE_SCHEME_USB])
+    cls.AddDeviceArgument(
+        parser,
+        positional=True,
+        schemes=[
+            commandline.DEVICE_SCHEME_FILE,
+            commandline.DEVICE_SCHEME_SSH,
+            commandline.DEVICE_SCHEME_USB,
+        ])
     parser.add_argument(
-        'image', nargs='?', default='latest',
+        'image',
+        nargs='?',
+        default='latest',
         help='A local path or an xbuddy path: '
         'xbuddy://{local|remote}/board/version/{image_type} image_type '
         "can be: 'test', 'dev', 'base', 'recovery', or 'signed'. Note any "
@@ -141,7 +153,7 @@ Examples:
         help='Install to the USB device using the base disk layout.')
 
   def Run(self):
-    """Perfrom the cros flash command."""
+    """Perform the cros flash command."""
     self.options.Freeze()
 
     try:

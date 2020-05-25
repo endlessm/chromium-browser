@@ -15,7 +15,6 @@
 #include "src/core/SkSpecialImage.h"
 #include "src/core/SkWriteBuffer.h"
 #if SK_SUPPORT_GPU
-#include "include/gpu/GrTexture.h"
 #include "include/private/GrRecordingContext.h"
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrClip.h"
@@ -23,6 +22,7 @@
 #include "src/gpu/GrCoordTransform.h"
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrRenderTargetContext.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTextureProxy.h"
 #include "src/gpu/SkGr.h"
 #include "src/gpu/effects/GrTextureDomain.h"
@@ -335,8 +335,8 @@ sk_sp<SkSpecialImage> SkDisplacementMapEffectImpl::onFilterImage(const Context& 
     if (ctx.gpuBacked()) {
         auto context = ctx.getContext();
 
-        GrSurfaceProxyView colorView = color->asSurfaceProxyViewRef(context);
-        GrSurfaceProxyView displView = displ->asSurfaceProxyViewRef(context);
+        GrSurfaceProxyView colorView = color->view(context);
+        GrSurfaceProxyView displView = displ->view(context);
         if (!colorView.proxy() || !displView.proxy()) {
             return nullptr;
         }
@@ -486,9 +486,10 @@ GrDisplacementMapEffect::GrDisplacementMapEffect(
         , fDisplacementTransform(
                 SkMatrix::Concat(SkMatrix::MakeTrans(displSubset.x(), displSubset.y()),
                                  offsetMatrix),
-                displacement.proxy())
+                displacement.proxy(), displacement.origin())
         , fDisplacementSampler(std::move(displacement))
-        , fColorTransform(SkMatrix::MakeTrans(colorSubset.x(), colorSubset.y()), color.proxy())
+        , fColorTransform(SkMatrix::MakeTrans(colorSubset.x(), colorSubset.y()), color.proxy(),
+                          color.origin())
         , fDomain(color.proxy(),
                   GrTextureDomain::MakeTexelDomain(colorSubset,
                                                    GrTextureDomain::kDecal_Mode),
@@ -536,8 +537,8 @@ GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrDisplacementMapEffect);
 
 #if GR_TEST_UTILS
 std::unique_ptr<GrFragmentProcessor> GrDisplacementMapEffect::TestCreate(GrProcessorTestData* d) {
-    auto [dispProxy,  ct1, at1] = d->randomProxy();
-    auto [colorProxy, ct2, at2] = d->randomProxy();
+    auto [dispView,  ct1, at1] = d->randomView();
+    auto [colorView, ct2, at2] = d->randomView();
     static const int kMaxComponent = static_cast<int>(SkColorChannel::kLastEnum);
     SkColorChannel xChannelSelector =
         static_cast<SkColorChannel>(d->fRandom->nextRangeU(1, kMaxComponent));
@@ -546,17 +547,9 @@ std::unique_ptr<GrFragmentProcessor> GrDisplacementMapEffect::TestCreate(GrProce
     SkVector scale = SkVector::Make(d->fRandom->nextRangeScalar(0, 100.0f),
                                     d->fRandom->nextRangeScalar(0, 100.0f));
     SkISize colorDimensions;
-    colorDimensions.fWidth = d->fRandom->nextRangeU(0, colorProxy->width());
-    colorDimensions.fHeight = d->fRandom->nextRangeU(0, colorProxy->height());
-    SkIRect dispRect = SkIRect::MakeSize(dispProxy->dimensions());
-
-    GrSurfaceOrigin origin = dispProxy->origin();
-    GrSwizzle swizzle = dispProxy->textureSwizzle();
-    GrSurfaceProxyView dispView(std::move(dispProxy), origin, swizzle);
-
-    origin = colorProxy->origin();
-    swizzle = colorProxy->textureSwizzle();
-    GrSurfaceProxyView colorView(std::move(colorProxy), origin, swizzle);
+    colorDimensions.fWidth = d->fRandom->nextRangeU(0, colorView.width());
+    colorDimensions.fHeight = d->fRandom->nextRangeU(0, colorView.height());
+    SkIRect dispRect = SkIRect::MakeSize(dispView.dimensions());
 
     return GrDisplacementMapEffect::Make(xChannelSelector, yChannelSelector, scale,
                                          std::move(dispView),

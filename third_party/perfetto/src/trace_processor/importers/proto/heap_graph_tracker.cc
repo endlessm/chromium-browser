@@ -19,6 +19,16 @@
 namespace perfetto {
 namespace trace_processor {
 
+base::Optional<base::StringView> GetStaticClassTypeName(base::StringView type) {
+  static const base::StringView kJavaClassTemplate("java.lang.Class<");
+  if (!type.empty() && type.at(type.size() - 1) == '>' &&
+      type.substr(0, kJavaClassTemplate.size()) == kJavaClassTemplate) {
+    return type.substr(kJavaClassTemplate.size(),
+                       type.size() - kJavaClassTemplate.size() - 1);
+  }
+  return {};
+}
+
 size_t NumberOfArrays(base::StringView type) {
   if (type.size() < 2)
     return 0;
@@ -32,8 +42,30 @@ size_t NumberOfArrays(base::StringView type) {
   return arrays;
 }
 
+NormalizedType GetNormalizedType(base::StringView type) {
+  auto static_class_type_name = GetStaticClassTypeName(type);
+  if (static_class_type_name.has_value()) {
+    type = static_class_type_name.value();
+  }
+  size_t number_of_arrays = NumberOfArrays(type);
+  return {base::StringView(type.data(), type.size() - number_of_arrays * 2),
+          static_class_type_name.has_value(), number_of_arrays};
+}
+
 base::StringView NormalizeTypeName(base::StringView type) {
-  return base::StringView(type.data(), type.size() - NumberOfArrays(type) * 2);
+  return GetNormalizedType(type).name;
+}
+
+std::string DenormalizeTypeName(NormalizedType normalized,
+                                base::StringView deobfuscated_type_name) {
+  std::string result = deobfuscated_type_name.ToStdString();
+  for (size_t i = 0; i < normalized.number_of_arrays; ++i) {
+    result += "[]";
+  }
+  if (normalized.is_static_class) {
+    result = "java.lang.Class<" + result + ">";
+  }
+  return result;
 }
 
 HeapGraphTracker::HeapGraphTracker(TraceProcessorContext* context)
@@ -88,18 +120,42 @@ void HeapGraphTracker::AddRoot(uint32_t seq_id,
   sequence_state.current_roots.emplace_back(std::move(root));
 }
 
+void HeapGraphTracker::AddInternedLocationName(uint32_t seq_id,
+                                               uint64_t intern_id,
+                                               StringPool::Id strid) {
+  SequenceState& sequence_state = GetOrCreateSequence(seq_id);
+  sequence_state.interned_location_names.emplace(intern_id, strid);
+}
+
 void HeapGraphTracker::AddInternedTypeName(uint32_t seq_id,
                                            uint64_t intern_id,
                                            StringPool::Id strid) {
   SequenceState& sequence_state = GetOrCreateSequence(seq_id);
-  sequence_state.interned_type_names.emplace(intern_id, strid);
+  sequence_state.interned_types[intern_id].name = strid;
+}
+
+void HeapGraphTracker::AddInternedType(uint32_t seq_id,
+                                       uint64_t intern_id,
+                                       StringPool::Id strid,
+                                       uint64_t location_id) {
+  SequenceState& sequence_state = GetOrCreateSequence(seq_id);
+  sequence_state.interned_types[intern_id].name = strid;
+  sequence_state.interned_types[intern_id].location_id = location_id;
 }
 
 void HeapGraphTracker::AddInternedFieldName(uint32_t seq_id,
                                             uint64_t intern_id,
-                                            StringPool::Id strid) {
+                                            base::StringView str) {
   SequenceState& sequence_state = GetOrCreateSequence(seq_id);
-  sequence_state.interned_field_names.emplace(intern_id, strid);
+  size_t space = str.find(' ');
+  base::StringView type_name;
+  if (space != base::StringView::npos) {
+    type_name = str.substr(0, space);
+    str = str.substr(space + 1);
+  }
+  sequence_state.interned_fields.emplace(
+      intern_id, InternedField{context_->storage->InternString(str),
+                               context_->storage->InternString(type_name)});
 }
 
 void HeapGraphTracker::SetPacketIndex(uint32_t seq_id, uint64_t index) {
@@ -132,14 +188,15 @@ void HeapGraphTracker::SetPacketIndex(uint32_t seq_id, uint64_t index) {
 void HeapGraphTracker::FinalizeProfile(uint32_t seq_id) {
   SequenceState& sequence_state = GetOrCreateSequence(seq_id);
   for (const SourceObject& obj : sequence_state.current_objects) {
-    auto it = sequence_state.interned_type_names.find(obj.type_id);
-    if (it == sequence_state.interned_type_names.end()) {
+    auto it = sequence_state.interned_types.find(obj.type_id);
+    if (it == sequence_state.interned_types.end()) {
       context_->storage->IncrementIndexedStats(
           stats::heap_graph_invalid_string_id,
           static_cast<int>(sequence_state.current_upid));
       continue;
     }
-    StringPool::Id type_name = it->second;
+    const InternedType& interned_type = it->second;
+    StringPool::Id type_name = interned_type.name;
     context_->storage->mutable_heap_graph_object_table()->Insert(
         {sequence_state.current_upid, sequence_state.current_ts,
          static_cast<int64_t>(obj.object_id),
@@ -154,8 +211,7 @@ void HeapGraphTracker::FinalizeProfile(uint32_t seq_id) {
         NormalizeTypeName(context_->storage->GetString(type_name));
     class_to_rows_[context_->storage->InternString(normalized_type)]
         .emplace_back(row);
-    sequence_state.walker.AddNode(row, obj.self_size,
-                                  static_cast<int32_t>(type_name.raw_id()));
+    sequence_state.walker.AddNode(row, obj.self_size, type_name.raw_id());
   }
 
   for (const SourceObject& obj : sequence_state.current_objects) {
@@ -184,17 +240,18 @@ void HeapGraphTracker::FinalizeProfile(uint32_t seq_id) {
       if (inserted)
         sequence_state.walker.AddEdge(owner_row, owned_row);
 
-      auto field_name_it =
-          sequence_state.interned_field_names.find(ref.field_name_id);
-      if (field_name_it == sequence_state.interned_field_names.end()) {
+      auto field_it = sequence_state.interned_fields.find(ref.field_name_id);
+      if (field_it == sequence_state.interned_fields.end()) {
         context_->storage->IncrementIndexedStats(
             stats::heap_graph_invalid_string_id,
             static_cast<int>(sequence_state.current_upid));
         continue;
       }
-      StringPool::Id field_name = field_name_it->second;
+      const InternedField& interned_field = field_it->second;
+      StringPool::Id field_name = interned_field.name;
       context_->storage->mutable_heap_graph_reference_table()->Insert(
-          {reference_set_id, owner_row, owned_row, field_name,
+          {reference_set_id, owner_row, owned_row, interned_field.name,
+           interned_field.type_name,
            /*deobfuscated_field_name=*/base::nullopt});
       uint32_t row =
           context_->storage->heap_graph_reference_table().row_count() - 1;
@@ -266,18 +323,20 @@ HeapGraphTracker::BuildFlamegraph(const int64_t current_ts,
       parent_id = node_to_id[node.parent_id];
     const uint32_t depth = node.depth;
 
-    tables::ExperimentalFlamegraphNodesTable::Row alloc_row{
-        current_ts, current_upid, profile_type, depth,
-        StringId::Raw(static_cast<uint32_t>(node.class_name)), java_mapping,
-        static_cast<int64_t>(node.count),
-        static_cast<int64_t>(node_to_cumulative_count[i]),
-        static_cast<int64_t>(node.size),
-        static_cast<int64_t>(node_to_cumulative_size[i]),
-        // For java dumps, set alloc_count == count, etc.
-        static_cast<int64_t>(node.count),
-        static_cast<int64_t>(node_to_cumulative_count[i]),
-        static_cast<int64_t>(node.size),
-        static_cast<int64_t>(node_to_cumulative_size[i]), parent_id};
+    tables::ExperimentalFlamegraphNodesTable::Row alloc_row{};
+    alloc_row.ts = current_ts;
+    alloc_row.upid = current_upid;
+    alloc_row.profile_type = profile_type;
+    alloc_row.depth = depth;
+    alloc_row.name = MaybeDeobfuscate(StringId::Raw(node.class_name));
+    alloc_row.map_name = java_mapping;
+    alloc_row.count = static_cast<int64_t>(node.count);
+    alloc_row.cumulative_count =
+        static_cast<int64_t>(node_to_cumulative_count[i]);
+    alloc_row.size = static_cast<int64_t>(node.size);
+    alloc_row.cumulative_size =
+        static_cast<int64_t>(node_to_cumulative_size[i]);
+    alloc_row.parent_id = parent_id;
     node_to_id[i] = tbl->Insert(alloc_row).id;
   }
   return tbl;
@@ -298,6 +357,33 @@ void HeapGraphTracker::SetRetained(int64_t row,
   context_->storage->mutable_heap_graph_object_table()
       ->mutable_unique_retained_size()
       ->Set(static_cast<uint32_t>(row), unique_retained);
+}
+
+void HeapGraphTracker::NotifyEndOfFile() {
+  if (!sequence_state_.empty()) {
+    context_->storage->IncrementStats(stats::heap_graph_non_finalized_graph);
+  }
+}
+
+StringPool::Id HeapGraphTracker::MaybeDeobfuscate(StringPool::Id id) {
+  base::StringView type_name = context_->storage->GetString(id);
+  auto normalized_type = GetNormalizedType(type_name);
+  auto it = deobfuscation_mapping_.find(
+      context_->storage->InternString(normalized_type.name));
+  if (it == deobfuscation_mapping_.end())
+    return id;
+
+  base::StringView normalized_deobfuscated_name =
+      context_->storage->GetString(it->second);
+  std::string result =
+      DenormalizeTypeName(normalized_type, normalized_deobfuscated_name);
+  return context_->storage->InternString(base::StringView(result));
+}
+
+void HeapGraphTracker::AddDeobfuscationMapping(
+    StringPool::Id obfuscated_name,
+    StringPool::Id deobfuscated_name) {
+  deobfuscation_mapping_.emplace(obfuscated_name, deobfuscated_name);
 }
 
 }  // namespace trace_processor

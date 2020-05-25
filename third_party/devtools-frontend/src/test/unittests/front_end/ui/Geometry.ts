@@ -4,7 +4,7 @@
 
 const {assert} = chai;
 
-import { Vector, Point, CubicBezier, EulerAngles, Size, Insets, Rect, Constraints, scalarProduct, crossProduct, subtract, multiplyVectorByMatrixAndNormalize, calculateAngle, boundsForTransformedPoints } from '/front_end/ui/Geometry.js';
+import {Vector, Point, CubicBezier, EulerAngles, Size, Insets, Rect, Constraints, scalarProduct, crossProduct, subtract, multiplyVectorByMatrixAndNormalize, calculateAngle, boundsForTransformedPoints} from '../../../../front_end/ui/Geometry.js';
 
 describe('Vector', () => {
   it('can be instantiated without issues', () => {
@@ -97,7 +97,7 @@ describe('CubicBezier', () => {
 
   it('is able to return a cubic bezier from a valid string', () => {
     const testText = 'linear';
-    const cubicBezier = CubicBezier.parse(testText);
+    const cubicBezier = CubicBezier.parse(testText)!;
     assert.equal(cubicBezier.controlPoints[0].x, 0, 'x value for the first point was not set correctly');
     assert.equal(cubicBezier.controlPoints[0].y, 0, 'y value for the first point was not set correctly');
     assert.equal(cubicBezier.controlPoints[1].x, 1, 'x value for the second point was not set correctly');

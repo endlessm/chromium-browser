@@ -19,6 +19,8 @@
 using namespace lldb;
 using namespace lldb_private;
 
+LLDB_PLUGIN_DEFINE(ScriptInterpreterLua)
+
 class IOHandlerLuaInterpreter : public IOHandlerDelegate,
                                 public IOHandlerEditline {
 public:
@@ -87,6 +89,7 @@ bool ScriptInterpreterLua::LoadScriptingModule(
     const char *filename, bool init_session, lldb_private::Status &error,
     StructuredData::ObjectSP *module_sp) {
 
+  FileSystem::Instance().Collect(filename);
   if (llvm::Error e = m_lua->LoadModule(filename)) {
     error.SetErrorStringWithFormatv("lua failed to import '{0}': {1}\n",
                                     filename, llvm::toString(std::move(e)));

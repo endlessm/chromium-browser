@@ -33,6 +33,7 @@ include "mlir/Dialect/SPIRV/SPIRVGroupOps.td"
 include "mlir/Dialect/SPIRV/SPIRVLogicalOps.td"
 include "mlir/Dialect/SPIRV/SPIRVNonUniformOps.td"
 include "mlir/Dialect/SPIRV/SPIRVStructureOps.td"
+include "mlir/Interfaces/SideEffects.td"
 
 // -----
 
@@ -162,6 +163,10 @@ def SPV_ControlBarrierOp : SPV_Op<"ControlBarrier", []> {
   let verifier = [{ return verifyMemorySemantics(*this); }];
 
   let autogenSerialization = 0;
+
+  let assemblyFormat = [{
+    $execution_scope `,` $memory_scope `,` $memory_semantics attr-dict
+  }];
 }
 
 // -----
@@ -210,7 +215,7 @@ def SPV_ExecutionModeOp : SPV_Op<"ExecutionMode", [InModuleScope]> {
   let autogenSerialization = 0;
 
   let builders = [OpBuilder<[{Builder *builder, OperationState &state,
-                              FuncOp function,
+                              spirv::FuncOp function,
                               spirv::ExecutionMode executionMode,
                               ArrayRef<int32_t> params}]>];
 }
@@ -319,6 +324,8 @@ def SPV_MemoryBarrierOp : SPV_Op<"MemoryBarrier", []> {
   let verifier = [{ return verifyMemorySemantics(*this); }];
 
   let autogenSerialization = 0;
+
+  let assemblyFormat = "$memory_scope `,` $memory_semantics attr-dict";
 }
 
 // -----
@@ -408,6 +415,8 @@ def SPV_UndefOp : SPV_Op<"undef", []> {
 
   let hasOpcode = 0;
   let autogenSerialization = 0;
+
+  let assemblyFormat = "attr-dict `:` type($result)";
 }
 
 // -----

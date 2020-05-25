@@ -20,15 +20,20 @@ from collections import namedtuple
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
+from chromite.lib import cros_test_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import portage_util
 
+pytestmark = cros_test_lib.pytestmark_requires_portage
+
 if cros_build_lib.IsInsideChroot():
-  # Only import portage after we've checked that we're inside the chroot.
   # pylint: disable=import-error
   import portage
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 INCLUDE_PATTERNS_FILENAME = 'autotest-quickmerge-includepatterns'
@@ -292,7 +297,7 @@ def RsyncQuickmerge(source_path, sysroot_autotest_path,
 
   command += [source_path, sysroot_autotest_path]
 
-  return cros_build_lib.sudo_run(command, stdout=True)
+  return cros_build_lib.sudo_run(command, stdout=True, encoding='utf-8')
 
 
 def ParseArguments(argv):

@@ -94,6 +94,9 @@ Resources.ResourcesPanel = ResourcesModule.ResourcesPanel.ResourcesPanel;
 Resources.ResourcesPanel.ResourceRevealer = ResourcesModule.ResourcesPanel.ResourceRevealer;
 
 /** @constructor */
+Resources.ResourcesPanel.CookieReferenceRevealer = ResourcesModule.ResourcesPanel.CookieReferenceRevealer;
+
+/** @constructor */
 Resources.FrameTreeElement = ResourcesModule.ApplicationPanelSidebar.FrameTreeElement;
 
 /** @constructor */
@@ -101,28 +104,3 @@ Resources.ServiceWorkerCacheView = ResourcesModule.ServiceWorkerCacheViews.Servi
 
 /** @constructor */
 Resources.ServiceWorkersView = ResourcesModule.ServiceWorkersView.ServiceWorkersView;
-
-/**
- * @typedef {!{isRecording: boolean, serviceName: !Protocol.BackgroundService.ServiceName}}
- */
-Resources.BackgroundServiceModel.RecordingState;
-
-/**
- * @typedef {{
-  *    id: number,
-  *    timestamp: string,
-  *    origin: string,
-  *    swScope: string,
-  *    eventName: string,
-  *    instanceId: string,
-  * }}
-  */
-Resources.BackgroundServiceView.EventData;
-
-/**
- * @typedef {{
-  *      entriesCount: number,
-  *      keyGeneratorValue: number
-  * }}
-  */
-Resources.IndexedDBModel.ObjectStoreMetadata;

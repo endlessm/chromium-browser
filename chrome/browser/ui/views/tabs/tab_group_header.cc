@@ -78,6 +78,7 @@ TabGroupHeader::TabGroupHeader(TabStrip* tab_strip,
   DCHECK(tab_strip);
 
   set_group(group);
+  set_context_menu_controller(this);
 
   // The size and color of the chip are set in VisualsChanged().
   title_chip_ = AddChildView(std::make_unique<views::View>());
@@ -88,8 +89,6 @@ TabGroupHeader::TabGroupHeader(TabStrip* tab_strip,
   title_->SetAutoColorReadabilityEnabled(false);
   title_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   title_->SetElideBehavior(gfx::FADE_TAIL);
-
-  VisualsChanged();
 
   // Enable keyboard focus.
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
@@ -105,8 +104,8 @@ bool TabGroupHeader::OnKeyPressed(const ui::KeyEvent& event) {
   if ((event.key_code() == ui::VKEY_SPACE ||
        event.key_code() == ui::VKEY_RETURN) &&
       !editor_bubble_tracker_.is_open()) {
-    editor_bubble_tracker_.Opened(
-        TabGroupEditorBubbleView::Show(this, tab_strip_, group().value()));
+    editor_bubble_tracker_.Opened(TabGroupEditorBubbleView::Show(
+        tab_strip_->controller()->GetBrowser(), group().value(), this));
     return true;
   }
 
@@ -153,9 +152,9 @@ bool TabGroupHeader::OnMouseDragged(const ui::MouseEvent& event) {
 }
 
 void TabGroupHeader::OnMouseReleased(const ui::MouseEvent& event) {
-  if (!dragging()) {
-    editor_bubble_tracker_.Opened(
-        TabGroupEditorBubbleView::Show(this, tab_strip_, group().value()));
+  if (!dragging() && !editor_bubble_tracker_.is_open()) {
+    editor_bubble_tracker_.Opened(TabGroupEditorBubbleView::Show(
+        tab_strip_->controller()->GetBrowser(), group().value(), this));
   }
   tab_strip_->EndDrag(END_DRAG_COMPLETE);
 }
@@ -167,6 +166,7 @@ void TabGroupHeader::OnMouseEntered(const ui::MouseEvent& event) {
 }
 
 void TabGroupHeader::OnThemeChanged() {
+  TabSlotView::OnThemeChanged();
   VisualsChanged();
 }
 
@@ -174,8 +174,8 @@ void TabGroupHeader::OnGestureEvent(ui::GestureEvent* event) {
   tab_strip_->UpdateHoverCard(nullptr);
   switch (event->type()) {
     case ui::ET_GESTURE_TAP: {
-      editor_bubble_tracker_.Opened(
-          TabGroupEditorBubbleView::Show(this, tab_strip_, group().value()));
+      editor_bubble_tracker_.Opened(TabGroupEditorBubbleView::Show(
+          tab_strip_->controller()->GetBrowser(), group().value(), this));
       break;
     }
 
@@ -225,6 +225,45 @@ TabSizeInfo TabGroupHeader::GetTabSizeInfo() const {
   size_info.min_inactive_width = width;
   size_info.standard_width = width;
   return size_info;
+}
+
+void TabGroupHeader::ShowContextMenuForViewImpl(
+    views::View* source,
+    const gfx::Point& point,
+    ui::MenuSourceType source_type) {
+  if (editor_bubble_tracker_.is_open())
+    return;
+
+  // When the context menu is triggered via keyboard, the keyboard event
+  // propagates to the textfield inside the Editor Bubble. In those cases, we
+  // want to tell the Editor Bubble to stop the event by setting
+  // stop_context_menu_propagation to true.
+  //
+  // However, when the context menu is triggered via mouse, the same event
+  // sequence doesn't happen. Stopping the context menu propagation in that case
+  // would artificially hide the textfield's context menu the first time the
+  // user tried to access it. So we don't want to stop the context menu
+  // propagation if this call is reached via mouse.
+  //
+  // Notably, event behavior with a mouse is inconsistent depending on
+  // OS. When not on Mac, the OnMouseReleased() event happens first and opens
+  // the Editor Bubble early, preempting the Show() call below. On Mac, the
+  // ShowContextMenu() event happens first and the Show() call is made here.
+  //
+  // So, because of the event order on non-Mac, and because there is no native
+  // way to open a context menu via keyboard on Mac, we assume that we've
+  // reached this function via mouse if and only if the current OS is Mac.
+  // Therefore, we don't stop the menu propagation in that case.
+  constexpr bool kStopContextMenuPropagation =
+#if defined(OS_MACOSX)
+      false;
+#else
+      true;
+#endif
+
+  editor_bubble_tracker_.Opened(TabGroupEditorBubbleView::Show(
+      tab_strip_->controller()->GetBrowser(), group().value(), this,
+      base::nullopt, nullptr, kStopContextMenuPropagation));
 }
 
 int TabGroupHeader::CalculateWidth() const {

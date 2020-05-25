@@ -77,18 +77,15 @@ void TestWritePixels(skiatest::Reporter* reporter,
 void TestCopyFromSurface(skiatest::Reporter* reporter,
                          GrContext* context,
                          GrSurfaceProxy* proxy,
+                         GrSurfaceOrigin origin,
                          GrColorType colorType,
                          uint32_t expectedPixelValues[],
                          const char* testName) {
-    sk_sp<GrTextureProxy> dstProxy = GrSurfaceProxy::Copy(context, proxy, colorType,
-                                                          GrMipMapped::kNo, SkBackingFit::kExact,
-                                                          SkBudgeted::kYes);
-    SkASSERT(dstProxy);
+    GrSurfaceProxyView view = GrSurfaceProxy::Copy(context, proxy, origin, colorType,
+                                                   GrMipMapped::kNo, SkBackingFit::kExact,
+                                                   SkBudgeted::kYes);
+    SkASSERT(view.asTextureProxy());
 
-    GrSurfaceOrigin origin = dstProxy->origin();
-    GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(dstProxy->backendFormat(),
-                                                               colorType);
-    GrSurfaceProxyView view(std::move(dstProxy), origin, swizzle);
     auto dstContext = GrSurfaceContext::Make(context, std::move(view), colorType,
                                              kPremul_SkAlphaType, nullptr);
     SkASSERT(dstContext);
@@ -297,7 +294,7 @@ bool CheckSolidPixels(const SkColor4f& col, const SkPixmap& pixmap,
 }
 
 void CheckSingleThreadedProxyRefs(skiatest::Reporter* reporter,
-                                  GrTextureProxy* proxy,
+                                  GrSurfaceProxy* proxy,
                                   int32_t expectedProxyRefs,
                                   int32_t expectedBackingRefs) {
     int32_t actualBackingRefs = proxy->testingOnly_getBackingRefCnt();

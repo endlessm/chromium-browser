@@ -28,7 +28,7 @@
 #include <cstring>           // memcpy()
 #include <initializer_list>  // std::initializer_list
 
-#if defined(__SSE__)
+#if defined(__SSE__) || defined(__AVX__) || defined(__AVX2__)
     #include <immintrin.h>
 #elif defined(__ARM_NEON)
     #include <arm_neon.h>
@@ -288,6 +288,8 @@ SIT Vec<1,T> round(const Vec<1,T>& x) { return std::round(x.val); }
 SIT Vec<1,T>  sqrt(const Vec<1,T>& x) { return std:: sqrt(x.val); }
 SIT Vec<1,T>   abs(const Vec<1,T>& x) { return std::  abs(x.val); }
 
+SIT Vec<1,int> lrint(const Vec<1,T>& x) { return (int)std::lrint(x.val); }
+
 SIT Vec<1,T>   rcp(const Vec<1,T>& x) { return 1 / x.val; }
 SIT Vec<1,T> rsqrt(const Vec<1,T>& x) { return rcp(sqrt(x)); }
 SIT Vec<1,T>   mad(const Vec<1,T>& f,
@@ -315,6 +317,8 @@ SINT Vec<N,T> trunc(const Vec<N,T>& x) { return join(trunc(x.lo), trunc(x.hi)); 
 SINT Vec<N,T> round(const Vec<N,T>& x) { return join(round(x.lo), round(x.hi)); }
 SINT Vec<N,T>  sqrt(const Vec<N,T>& x) { return join( sqrt(x.lo),  sqrt(x.hi)); }
 SINT Vec<N,T>   abs(const Vec<N,T>& x) { return join(  abs(x.lo),   abs(x.hi)); }
+
+SINT Vec<N,int> lrint(const Vec<N,T>& x) { return join(lrint(x.lo), lrint(x.hi)); }
 
 SINT Vec<N,T>   rcp(const Vec<N,T>& x) { return join(  rcp(x.lo),   rcp(x.hi)); }
 SINT Vec<N,T> rsqrt(const Vec<N,T>& x) { return join(rsqrt(x.lo), rsqrt(x.hi)); }
@@ -416,6 +420,20 @@ static inline Vec<sizeof...(Ix),T> shuffle(const Vec<N,T>& x) {
 #endif
 }
 
+// fma() delivers a fused mul-add, even if that's really expensive.  Call it when you know it's not.
+static inline Vec<1,float> fma(const Vec<1,float>& x,
+                               const Vec<1,float>& y,
+                               const Vec<1,float>& z) {
+    return std::fma(x.val, y.val, z.val);
+}
+template <int N>
+static inline Vec<N,float> fma(const Vec<N,float>& x,
+                               const Vec<N,float>& y,
+                               const Vec<N,float>& z) {
+    return join(fma(x.lo, y.lo, z.lo),
+                fma(x.hi, y.hi, z.hi));
+}
+
 // div255(x) = (x + 127) / 255 is a bit-exact rounding divide-by-255, packing down to 8-bit.
 template <int N>
 static inline Vec<N,uint8_t> div255(const Vec<N,uint16_t>& x) {
@@ -472,6 +490,21 @@ static inline Vec<N,uint8_t> approx_scale(const Vec<N,uint8_t>& x, const Vec<N,u
 
     // Platform-specific specializations and overloads can now drop in here.
 
+    #if defined(__AVX__)
+        static inline Vec<8,float> sqrt(const Vec<8,float>& x) {
+            return bit_pun<Vec<8,float>>(_mm256_sqrt_ps(bit_pun<__m256>(x)));
+        }
+        static inline Vec<8,float> rsqrt(const Vec<8,float>& x) {
+            return bit_pun<Vec<8,float>>(_mm256_rsqrt_ps(bit_pun<__m256>(x)));
+        }
+        static inline Vec<8,float> rcp(const Vec<8,float>& x) {
+            return bit_pun<Vec<8,float>>(_mm256_rcp_ps(bit_pun<__m256>(x)));
+        }
+        static inline Vec<8,int> lrint(const Vec<8,float>& x) {
+            return bit_pun<Vec<8,int>>(_mm256_cvtps_epi32(bit_pun<__m256>(x)));
+        }
+    #endif
+
     #if defined(__SSE__)
         static inline Vec<4,float> sqrt(const Vec<4,float>& x) {
             return bit_pun<Vec<4,float>>(_mm_sqrt_ps(bit_pun<__m128>(x)));
@@ -482,6 +515,9 @@ static inline Vec<N,uint8_t> approx_scale(const Vec<N,uint8_t>& x, const Vec<N,u
         static inline Vec<4,float> rcp(const Vec<4,float>& x) {
             return bit_pun<Vec<4,float>>(_mm_rcp_ps(bit_pun<__m128>(x)));
         }
+        static inline Vec<4,int> lrint(const Vec<4,float>& x) {
+            return bit_pun<Vec<4,int>>(_mm_cvtps_epi32(bit_pun<__m128>(x)));
+        }
 
         static inline Vec<2,float>  sqrt(const Vec<2,float>& x) {
             return shuffle<0,1>( sqrt(shuffle<0,1,0,1>(x)));
@@ -491,6 +527,9 @@ static inline Vec<N,uint8_t> approx_scale(const Vec<N,uint8_t>& x, const Vec<N,u
         }
         static inline Vec<2,float>   rcp(const Vec<2,float>& x) {
             return shuffle<0,1>(  rcp(shuffle<0,1,0,1>(x)));
+        }
+        static inline Vec<2,int> lrint(const Vec<2,float>& x) {
+            return shuffle<0,1>(lrint(shuffle<0,1,0,1>(x)));
         }
     #endif
 
@@ -518,6 +557,33 @@ static inline Vec<N,uint8_t> approx_scale(const Vec<N,uint8_t>& x, const Vec<N,u
             return bit_pun<Vec<4,float>>(vbslq_f32(bit_pun<uint32x4_t> (c),
                                                    bit_pun<float32x4_t>(t),
                                                    bit_pun<float32x4_t>(e)));
+        }
+    #endif
+
+    #if defined(__AVX2__)
+        static inline Vec<4,float> fma(const Vec<4,float>& x,
+                                       const Vec<4,float>& y,
+                                       const Vec<4,float>& z) {
+            return bit_pun<Vec<4,float>>(_mm_fmadd_ps(bit_pun<__m128>(x),
+                                                      bit_pun<__m128>(y),
+                                                      bit_pun<__m128>(z)));
+        }
+
+        static inline Vec<8,float> fma(const Vec<8,float>& x,
+                                       const Vec<8,float>& y,
+                                       const Vec<8,float>& z) {
+            return bit_pun<Vec<8,float>>(_mm256_fmadd_ps(bit_pun<__m256>(x),
+                                                         bit_pun<__m256>(y),
+                                                         bit_pun<__m256>(z)));
+        }
+    #elif defined(__aarch64__)
+        static inline Vec<4,float> fma(const Vec<4,float>& x,
+                                       const Vec<4,float>& y,
+                                       const Vec<4,float>& z) {
+            // These instructions tend to work like z += xy, so the order here is z,x,y.
+            return bit_pun<Vec<4,float>>(vfmaq_f32(bit_pun<float32x4_t>(z),
+                                                   bit_pun<float32x4_t>(x),
+                                                   bit_pun<float32x4_t>(y)));
         }
     #endif
 

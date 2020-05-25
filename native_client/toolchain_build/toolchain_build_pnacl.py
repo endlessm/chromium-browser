@@ -187,7 +187,8 @@ def MacSdkFlags():
       MAC_SDK_MIN,
       ]).splitlines()
   return ['-isysroot', mac_sdk_sysroot,
-          '-mmacosx-version-min=' + MAC_DEPLOYMENT_TARGET]
+          '-mmacosx-version-min=' + MAC_DEPLOYMENT_TARGET,
+          '-stdlib=libc++']
 
 MAC_SDK_FLAGS = MacSdkFlags()
 
@@ -989,6 +990,7 @@ def HostTools(host, options):
                    '--with-binutils-include=%(abs_binutils_src)s/include',
                    '--with-clang-srcdir=%(abs_clang_src)s',
                    'ac_cv_have_decl_strerror_s=no',
+                   'ac_cv_lib_xml2_xmlReadFile=no',
                   ] + shared,
                   path_dirs=GomaPathDirs(host, options))] +
               CopyHostLibcxxForLLVMBuild(

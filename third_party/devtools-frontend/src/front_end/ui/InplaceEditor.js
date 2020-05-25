@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as ARIAUtils from './ARIAUtils.js';
 import {Keys} from './KeyboardShortcut.js';
 import {ElementFocusRestorer, markBeingEdited} from './UIUtils.js';
 
@@ -11,8 +12,8 @@ import {ElementFocusRestorer, markBeingEdited} from './UIUtils.js';
 export class InplaceEditor {
   /**
    * @param {!Element} element
-   * @param {!InplaceEditor.Config=} config
-   * @return {?InplaceEditor.Controller}
+   * @param {!Config=} config
+   * @return {?Controller}
    */
   static startEditing(element, config) {
     if (!InplaceEditor._defaultInstance) {
@@ -39,7 +40,7 @@ export class InplaceEditor {
     element.setAttribute('contenteditable', 'plaintext-only');
 
     const oldRole = element.getAttribute('role');
-    UI.ARIAUtils.markAsTextBox(element);
+    ARIAUtils.markAsTextBox(element);
     editingContext.oldRole = oldRole;
 
     const oldTabIndex = element.getAttribute('tabIndex');
@@ -84,15 +85,15 @@ export class InplaceEditor {
 
   /**
    * @param {!Element} element
-   * @param {!InplaceEditor.Config=} config
-   * @return {?InplaceEditor.Controller}
+   * @param {!Config=} config
+   * @return {?Controller}
    */
   startEditing(element, config) {
     if (!markBeingEdited(element, true)) {
       return null;
     }
 
-    config = config || new InplaceEditor.Config(function() {}, function() {});
+    config = config || new Config(function() {}, function() {});
     const editingContext = {element: element, config: config};
     const committedCallback = config.commitHandler;
     const cancelledCallback = config.cancelHandler;
@@ -151,9 +152,11 @@ export class InplaceEditor {
     function defaultFinishHandler(event) {
       if (isEnterKey(event)) {
         return 'commit';
-      } else if (event.keyCode === Keys.Esc.code || event.key === 'Escape') {
+      }
+      if (event.keyCode === Keys.Esc.code || event.key === 'Escape') {
         return 'cancel';
-      } else if (event.key === 'Tab') {
+      }
+      if (event.key === 'Tab') {
         return 'move-' + (event.shiftKey ? 'backward' : 'forward');
       }
       return '';
@@ -246,3 +249,8 @@ export class Config {
     this.postKeydownFinishHandler = postKeydownFinishHandler;
   }
 }
+
+/**
+ * @typedef {{cancel: function(), commit: function()}}
+ */
+export let Controller;

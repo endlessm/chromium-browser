@@ -46,6 +46,7 @@
 #include "third_party/blink/renderer/platform/peerconnection/rtc_offer_options_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_rtp_sender_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_rtp_transceiver_platform.h"
+#include "third_party/blink/renderer/platform/peerconnection/rtc_scoped_refptr_cross_thread_copier.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_session_description_platform.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_session_description_request.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_stats.h"
@@ -94,13 +95,6 @@ struct CrossThreadCopier<
     : public CrossThreadCopierPassThrough<
           RetainedRefWrapper<webrtc::SetSessionDescriptionObserver>> {
   STATIC_ONLY(CrossThreadCopier);
-};
-
-template <typename T>
-struct CrossThreadCopier<rtc::scoped_refptr<T>> {
-  STATIC_ONLY(CrossThreadCopier);
-  using Type = rtc::scoped_refptr<T>;
-  static Type Copy(Type pointer) { return pointer; }
 };
 
 }  // namespace WTF
@@ -1063,15 +1057,22 @@ class RTCPeerConnectionHandler::Observer
 RTCPeerConnectionHandler::RTCPeerConnectionHandler(
     RTCPeerConnectionHandlerClient* client,
     blink::PeerConnectionDependencyFactory* dependency_factory,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+    bool force_encoded_audio_insertable_streams,
+    bool force_encoded_video_insertable_streams)
     : initialize_called_(false),
       client_(client),
       is_closed_(false),
+      is_unregistered_(false),
       dependency_factory_(dependency_factory),
       track_adapter_map_(
           base::MakeRefCounted<blink::WebRtcMediaStreamTrackAdapterMap>(
               dependency_factory_,
               task_runner)),
+      force_encoded_audio_insertable_streams_(
+          force_encoded_audio_insertable_streams),
+      force_encoded_video_insertable_streams_(
+          force_encoded_video_insertable_streams),
       task_runner_(std::move(task_runner)) {
   CHECK(client_);
 
@@ -1079,6 +1080,12 @@ RTCPeerConnectionHandler::RTCPeerConnectionHandler(
 }
 
 RTCPeerConnectionHandler::~RTCPeerConnectionHandler() {
+  if (!is_unregistered_) {
+    StopAndUnregister();
+  }
+}
+
+void RTCPeerConnectionHandler::StopAndUnregister() {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
   Stop();
@@ -1089,6 +1096,10 @@ RTCPeerConnectionHandler::~RTCPeerConnectionHandler() {
 
   UMA_HISTOGRAM_COUNTS_10000("WebRTC.NumDataChannelsPerPeerConnection",
                              num_data_channels_created_);
+  // Clear the pointer to client_ so that it does not interfere with
+  // garbage collection.
+  client_ = nullptr;
+  is_unregistered_ = true;
 }
 
 bool RTCPeerConnectionHandler::Initialize(
@@ -1871,7 +1882,9 @@ RTCPeerConnectionHandler::AddTrack(const WebMediaStreamTrack& track,
     blink::RtpSenderState sender_state = transceiver_state.MoveSenderState();
     DCHECK(sender_state.is_initialized());
     rtp_senders_.push_back(std::make_unique<blink::RTCRtpSenderImpl>(
-        native_peer_connection_, track_adapter_map_, std::move(sender_state)));
+        native_peer_connection_, track_adapter_map_, std::move(sender_state),
+        force_encoded_audio_insertable_streams_,
+        force_encoded_video_insertable_streams_));
     platform_transceiver = std::make_unique<blink::RTCRtpSenderOnlyTransceiver>(
         std::make_unique<blink::RTCRtpSenderImpl>(*rtp_senders_.back().get()));
   } else {
@@ -1956,9 +1969,11 @@ bool RTCPeerConnectionHandler::RemoveTrackPlanB(
     return false;
   if (!(*it)->RemoveFromPeerConnection(native_peer_connection_.get()))
     return false;
-  track_metrics_.RemoveTrack(MediaStreamTrackMetrics::Direction::kSend,
-                             MediaStreamTrackMetricsKind(web_track),
-                             web_track.Id().Utf8());
+  if (web_track) {
+    track_metrics_.RemoveTrack(MediaStreamTrackMetrics::Direction::kSend,
+                               MediaStreamTrackMetricsKind(web_track),
+                               web_track.Id().Utf8());
+  }
   if (peer_connection_tracker_) {
     auto sender_only_transceiver =
         std::make_unique<blink::RTCRtpSenderOnlyTransceiver>(
@@ -2186,6 +2201,10 @@ void RTCPeerConnectionHandler::OnSignalingChange(
       peer_connection_tracker_->TrackSignalingStateChange(this, stable_state);
     if (!is_closed_)
       client_->DidChangeSignalingState(stable_state);
+    // The callback may have closed the PC. If so, do not continue.
+    if (is_closed_ || !client_) {
+      return;
+    }
   }
   previous_signaling_state_ = new_state;
   if (peer_connection_tracker_)
@@ -2307,7 +2326,9 @@ void RTCPeerConnectionHandler::OnAddReceiverPlanB(
       blink::RTCRtpReceiverImpl::getId(receiver_state.webrtc_receiver().get());
   DCHECK(FindReceiver(receiver_id) == rtp_receivers_.end());
   auto rtp_receiver = std::make_unique<blink::RTCRtpReceiverImpl>(
-      native_peer_connection_, std::move(receiver_state));
+      native_peer_connection_, std::move(receiver_state),
+      force_encoded_audio_insertable_streams_,
+      force_encoded_video_insertable_streams_);
   rtp_receivers_.push_back(
       std::make_unique<blink::RTCRtpReceiverImpl>(*rtp_receiver));
   if (peer_connection_tracker_) {
@@ -2359,7 +2380,8 @@ void RTCPeerConnectionHandler::OnRemoveReceiverPlanB(uintptr_t receiver_id) {
 
 void RTCPeerConnectionHandler::OnModifySctpTransport(
     blink::WebRTCSctpTransportSnapshot state) {
-  client_->DidModifySctpTransport(state);
+  if (client_)
+    client_->DidModifySctpTransport(state);
 }
 
 void RTCPeerConnectionHandler::OnModifyTransceivers(
@@ -2494,7 +2516,8 @@ void RTCPeerConnectionHandler::OnIceCandidateError(
 }
 
 void RTCPeerConnectionHandler::OnInterestingUsage(int usage_pattern) {
-  client_->DidNoteInterestingUsage(usage_pattern);
+  if (client_)
+    client_->DidNoteInterestingUsage(usage_pattern);
 }
 
 webrtc::SessionDescriptionInterface*
@@ -2617,7 +2640,8 @@ RTCPeerConnectionHandler::CreateOrUpdateTransceiver(
     // Create a new transceiver, including a sender and a receiver.
     transceiver = std::make_unique<blink::RTCRtpTransceiverImpl>(
         native_peer_connection_, track_adapter_map_,
-        std::move(transceiver_state));
+        std::move(transceiver_state), force_encoded_audio_insertable_streams_,
+        force_encoded_video_insertable_streams_);
     rtp_transceivers_.push_back(transceiver->ShallowCopy());
     DCHECK(FindSender(blink::RTCRtpSenderImpl::getId(webrtc_sender.get())) ==
            rtp_senders_.end());

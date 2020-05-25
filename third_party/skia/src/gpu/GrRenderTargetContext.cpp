@@ -150,7 +150,7 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::Make(
 
     const GrBackendFormat& format = proxy->backendFormat();
     GrSwizzle readSwizzle = context->priv().caps()->getReadSwizzle(format, colorType);
-    GrSwizzle outSwizzle = context->priv().caps()->getOutputSwizzle(format, colorType);
+    GrSwizzle outSwizzle = context->priv().caps()->getWriteSwizzle(format, colorType);
 
     GrSurfaceProxyView readView(proxy, origin, readSwizzle);
     GrSurfaceProxyView outputView(std::move(proxy), origin, outSwizzle);
@@ -165,7 +165,7 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::Make(
         GrColorType colorType,
         sk_sp<SkColorSpace> colorSpace,
         SkBackingFit fit,
-        const SkISize& dimensions,
+        SkISize dimensions,
         const GrBackendFormat& format,
         int sampleCnt,
         GrMipMapped mipMapped,
@@ -180,14 +180,9 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::Make(
     if (context->priv().abandoned()) {
         return nullptr;
     }
-    GrSurfaceDesc desc;
-    desc.fWidth = dimensions.width();
-    desc.fHeight = dimensions.height();
-
-    GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(format, colorType);
 
     sk_sp<GrTextureProxy> proxy = context->priv().proxyProvider()->createProxy(
-            format, desc, swizzle, GrRenderable::kYes, sampleCnt, origin, mipMapped, fit, budgeted,
+            format, dimensions, GrRenderable::kYes, sampleCnt, mipMapped, fit, budgeted,
             isProtected);
     if (!proxy) {
         return nullptr;
@@ -207,7 +202,7 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::Make(
         GrColorType colorType,
         sk_sp<SkColorSpace> colorSpace,
         SkBackingFit fit,
-        const SkISize& dimensions,
+        SkISize dimensions,
         int sampleCnt,
         GrMipMapped mipMapped,
         GrProtected isProtected,
@@ -233,6 +228,7 @@ static inline GrColorType color_type_fallback(GrColorType ct) {
         case GrColorType::kABGR_4444:
         case GrColorType::kBGRA_8888:
         case GrColorType::kRGBA_1010102:
+        case GrColorType::kBGRA_1010102:
         case GrColorType::kRGBA_F16:
         case GrColorType::kRGBA_F16_Clamped:
             return GrColorType::kRGBA_8888;
@@ -250,7 +246,7 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::MakeWithFallback(
         GrColorType colorType,
         sk_sp<SkColorSpace> colorSpace,
         SkBackingFit fit,
-        const SkISize& dimensions,
+        SkISize dimensions,
         int sampleCnt,
         GrMipMapped mipMapped,
         GrProtected isProtected,
@@ -279,8 +275,8 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::MakeFromBackendTex
         ReleaseContext releaseCtx) {
     SkASSERT(sampleCnt > 0);
     sk_sp<GrTextureProxy> proxy(context->priv().proxyProvider()->wrapRenderableBackendTexture(
-            tex, origin, sampleCnt, colorType, kBorrow_GrWrapOwnership, GrWrapCacheable::kNo,
-            releaseProc, releaseCtx));
+            tex, sampleCnt, kBorrow_GrWrapOwnership, GrWrapCacheable::kNo, releaseProc,
+            releaseCtx));
     if (!proxy) {
         return nullptr;
     }
@@ -298,8 +294,8 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::MakeFromBackendTex
         GrSurfaceOrigin origin,
         const SkSurfaceProps* surfaceProps) {
     SkASSERT(sampleCnt > 0);
-    sk_sp<GrSurfaceProxy> proxy(context->priv().proxyProvider()->wrapBackendTextureAsRenderTarget(
-            tex, colorType, origin, sampleCnt));
+    sk_sp<GrSurfaceProxy> proxy(
+            context->priv().proxyProvider()->wrapBackendTextureAsRenderTarget(tex, sampleCnt));
     if (!proxy) {
         return nullptr;
     }
@@ -317,8 +313,8 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::MakeFromBackendRen
         const SkSurfaceProps* surfaceProps,
         ReleaseProc releaseProc,
         ReleaseContext releaseCtx) {
-    sk_sp<GrSurfaceProxy> proxy(context->priv().proxyProvider()->wrapBackendRenderTarget(
-            rt, colorType, origin, releaseProc, releaseCtx));
+    sk_sp<GrSurfaceProxy> proxy(
+            context->priv().proxyProvider()->wrapBackendRenderTarget(rt, releaseProc, releaseCtx));
     if (!proxy) {
         return nullptr;
     }
@@ -339,7 +335,6 @@ std::unique_ptr<GrRenderTargetContext> GrRenderTargetContext::MakeFromVulkanSeco
         return nullptr;
     }
 
-    SkASSERT(proxy->origin() == kTopLeft_GrSurfaceOrigin);
     return GrRenderTargetContext::Make(context, SkColorTypeToGrColorType(imageInfo.colorType()),
                                        imageInfo.refColorSpace(), std::move(proxy),
                                        kTopLeft_GrSurfaceOrigin, props);
@@ -605,17 +600,18 @@ static bool make_vertex_finite(float* value) {
 
 GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimization(
         const GrClip& clip, const SkPMColor4f* constColor,
-        const GrUserStencilSettings* stencilSettings, GrAA* aa, GrQuadAAFlags* edgeFlags,
-        GrQuad* deviceQuad, GrQuad* localQuad) {
+        const GrUserStencilSettings* stencilSettings, GrAA* aa, DrawQuad* quad) {
     // Optimization requirements:
     // 1. kDiscard applies when clip bounds and quad bounds do not intersect
-    // 2. kClear applies when constColor and final geom is pixel aligned rect;
-    //       pixel aligned rect requires rect clip and (rect quad or quad covers clip)
-    // 3. kRRect applies when constColor and rrect clip and quad covers clip
-    // 4. kExplicitClip applies when rect clip and (rect quad or quad covers clip)
-    // 5. kCropped applies when rect quad (currently)
-    // 6. kNone always applies
-    GrQuadAAFlags newFlags = *edgeFlags;
+    // 2a. kSubmitted applies when constColor and final geom is pixel aligned rect;
+    //       pixel aligned rect requires rect clip and (rect quad or quad covers clip) OR
+    // 2b. kSubmitted applies when constColor and rrect clip and quad covers clip
+    // 4. kClipApplied applies when rect clip and (rect quad or quad covers clip)
+    // 5. kCropped in all other scenarios (although a crop may be a no-op)
+
+    // Save the old AA flags since CropToRect will modify 'quad' and if kCropped is returned, it's
+    // better to just keep the old flags instead of introducing mixed edge flags.
+    GrQuadAAFlags oldFlags = quad->fEdgeFlags;
 
     SkRect rtRect;
     if (stencilSettings) {
@@ -628,27 +624,25 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
         rtRect = SkRect::MakeWH(this->width(), this->height());
     }
 
-    SkRect drawBounds = deviceQuad->bounds();
+    SkRect drawBounds = quad->fDevice.bounds();
     if (constColor) {
-        // Don't bother updating local coordinates when the paint will ignore them anyways
-        localQuad = nullptr;
         // If the device quad is not finite, coerce into a finite quad. This is acceptable since it
         // will be cropped to the finite 'clip' or render target and there is no local space mapping
-        if (!deviceQuad->isFinite()) {
+        if (!quad->fDevice.isFinite()) {
             for (int i = 0; i < 4; ++i) {
-                if (!make_vertex_finite(deviceQuad->xs() + i) ||
-                    !make_vertex_finite(deviceQuad->ys() + i) ||
-                    !make_vertex_finite(deviceQuad->ws() + i)) {
+                if (!make_vertex_finite(quad->fDevice.xs() + i) ||
+                    !make_vertex_finite(quad->fDevice.ys() + i) ||
+                    !make_vertex_finite(quad->fDevice.ws() + i)) {
                     // Discard if we see a nan
                     return QuadOptimization::kDiscarded;
                 }
             }
-            SkASSERT(deviceQuad->isFinite());
+            SkASSERT(quad->fDevice.isFinite());
         }
     } else {
         // CropToRect requires the quads to be finite. If they are not finite and we have local
         // coordinates, the mapping from local space to device space is poorly defined so drop it
-        if (!deviceQuad->isFinite()) {
+        if (!quad->fDevice.isFinite()) {
             return QuadOptimization::kDiscarded;
         }
     }
@@ -684,10 +678,11 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
 
         if (clipRRect.isRect()) {
             // No rounded corners, so the kClear and kExplicitClip optimizations are possible
-            if (GrQuadUtils::CropToRect(clipBounds, clipAA, &newFlags, deviceQuad, localQuad)) {
-                if (constColor && deviceQuad->quadType() == GrQuad::Type::kAxisAligned) {
+            if (GrQuadUtils::CropToRect(clipBounds, clipAA, quad, /*compute local*/ !constColor)) {
+                if (!stencilSettings && constColor &&
+                    quad->fDevice.quadType() == GrQuad::Type::kAxisAligned) {
                     // Clear optimization is possible
-                    drawBounds = deviceQuad->bounds();
+                    drawBounds = quad->fDevice.bounds();
                     if (drawBounds.contains(rtRect)) {
                         // Fullscreen clear
                         this->clear(nullptr, *constColor, CanClearFullscreen::kYes);
@@ -703,9 +698,8 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
                 }
 
                 // Update overall AA setting.
-                *edgeFlags = newFlags;
                 if (*aa == GrAA::kNo && clipAA == GrAA::kYes &&
-                    newFlags != GrQuadAAFlags::kNone) {
+                    quad->fEdgeFlags != GrQuadAAFlags::kNone) {
                     // The clip was anti-aliased and now the draw needs to be upgraded to AA to
                     // properly reflect the smooth edge of the clip.
                     *aa = GrAA::kYes;
@@ -720,14 +714,15 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
             } else {
                 // The quads have been updated to better fit the clip bounds, but can't get rid of
                 // the clip entirely
+                quad->fEdgeFlags = oldFlags;
                 return QuadOptimization::kCropped;
             }
-        } else if (constColor) {
+        } else if (!stencilSettings && constColor) {
             // Rounded corners and constant filled color (limit ourselves to solid colors because
             // there is no way to use custom local coordinates with drawRRect).
-            if (GrQuadUtils::CropToRect(clipBounds, clipAA, &newFlags, deviceQuad, localQuad) &&
-                deviceQuad->quadType() == GrQuad::Type::kAxisAligned &&
-                deviceQuad->bounds().contains(clipBounds)) {
+            if (GrQuadUtils::CropToRect(clipBounds, clipAA, quad, /* compute local */ false) &&
+                quad->fDevice.quadType() == GrQuad::Type::kAxisAligned &&
+                quad->fDevice.bounds().contains(clipBounds)) {
                 // Since the cropped quad became a rectangle which covered the bounds of the rrect,
                 // we can draw the rrect directly and ignore the edge flags
                 GrPaint paint;
@@ -737,6 +732,7 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
                 return QuadOptimization::kSubmitted;
             } else {
                 // The quad has been updated to better fit clip bounds, but can't remove the clip
+                quad->fEdgeFlags = oldFlags;
                 return QuadOptimization::kCropped;
             }
         }
@@ -754,7 +750,8 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
 
     // Even if this were to return true, the crop rect does not exactly match the clip, so can not
     // report explicit-clip. Since these edges aren't visible, don't update the final edge flags.
-    GrQuadUtils::CropToRect(clipBounds, clipAA, &newFlags, deviceQuad, localQuad);
+    GrQuadUtils::CropToRect(clipBounds, clipAA, quad, /* compute local */ !constColor);
+    quad->fEdgeFlags = oldFlags;
 
     return QuadOptimization::kCropped;
 }
@@ -762,9 +759,7 @@ GrRenderTargetContext::QuadOptimization GrRenderTargetContext::attemptQuadOptimi
 void GrRenderTargetContext::drawFilledQuad(const GrClip& clip,
                                            GrPaint&& paint,
                                            GrAA aa,
-                                           GrQuadAAFlags edgeFlags,
-                                           const GrQuad& deviceQuad,
-                                           const GrQuad& localQuad,
+                                           DrawQuad* quad,
                                            const GrUserStencilSettings* ss) {
     ASSERT_SINGLE_OWNER
     RETURN_IF_ABANDONED
@@ -781,18 +776,15 @@ void GrRenderTargetContext::drawFilledQuad(const GrClip& clip,
         constColor = &paintColor;
     }
 
-    GrQuad croppedDeviceQuad = deviceQuad;
-    GrQuad croppedLocalQuad = localQuad;
-    QuadOptimization opt = this->attemptQuadOptimization(clip, constColor, ss, &aa, &edgeFlags,
-                                                         &croppedDeviceQuad, &croppedLocalQuad);
+    QuadOptimization opt = this->attemptQuadOptimization(clip, constColor, ss, &aa, quad);
     if (opt >= QuadOptimization::kClipApplied) {
         // These optimizations require caller to add an op themselves
         const GrClip& finalClip = opt == QuadOptimization::kClipApplied ? GrFixedClip::Disabled()
                                                                         : clip;
         GrAAType aaType = ss ? (aa == GrAA::kYes ? GrAAType::kMSAA : GrAAType::kNone)
                              : this->chooseAAType(aa);
-        this->addDrawOp(finalClip, GrFillRectOp::Make(fContext, std::move(paint), aaType, edgeFlags,
-                                                      croppedDeviceQuad, croppedLocalQuad, ss));
+        this->addDrawOp(finalClip, GrFillRectOp::Make(fContext, std::move(paint), aaType,
+                                                      quad, ss));
     }
     // All other optimization levels were completely handled inside attempt(), so no extra op needed
 }
@@ -805,9 +797,7 @@ void GrRenderTargetContext::drawTexturedQuad(const GrClip& clip,
                                              const SkPMColor4f& color,
                                              SkBlendMode blendMode,
                                              GrAA aa,
-                                             GrQuadAAFlags edgeFlags,
-                                             const GrQuad& deviceQuad,
-                                             const GrQuad& localQuad,
+                                             DrawQuad* quad,
                                              const SkRect* domain) {
     ASSERT_SINGLE_OWNER
     RETURN_IF_ABANDONED
@@ -819,10 +809,7 @@ void GrRenderTargetContext::drawTexturedQuad(const GrClip& clip,
 
     // Functionally this is very similar to drawFilledQuad except that there's no constColor to
     // enable the kSubmitted optimizations, no stencil settings support, and its a GrTextureOp.
-    GrQuad croppedDeviceQuad = deviceQuad;
-    GrQuad croppedLocalQuad = localQuad;
-    QuadOptimization opt = this->attemptQuadOptimization(clip, nullptr, nullptr, &aa, &edgeFlags,
-                                                         &croppedDeviceQuad, &croppedLocalQuad);
+    QuadOptimization opt = this->attemptQuadOptimization(clip, nullptr, nullptr, &aa, quad);
 
     SkASSERT(opt != QuadOptimization::kSubmitted);
     if (opt != QuadOptimization::kDiscarded) {
@@ -835,11 +822,10 @@ void GrRenderTargetContext::drawTexturedQuad(const GrClip& clip,
                                                           : GrTextureOp::Saturate::kNo;
         // Use the provided domain, although hypothetically we could detect that the cropped local
         // quad is sufficiently inside the domain and the constraint could be dropped.
-        this->addDrawOp(
-                finalClip,
-                GrTextureOp::Make(fContext, std::move(proxyView), srcAlphaType,
-                                  std::move(textureXform), filter, color, saturate, blendMode,
-                                  aaType, edgeFlags, croppedDeviceQuad, croppedLocalQuad, domain));
+        this->addDrawOp(finalClip,
+                        GrTextureOp::Make(fContext, std::move(proxyView), srcAlphaType,
+                                          std::move(textureXform), filter, color, saturate,
+                                          blendMode, aaType, quad, domain));
     }
 }
 
@@ -1077,9 +1063,8 @@ void GrRenderTargetContext::drawVertices(const GrClip& clip,
                                          GrPaint&& paint,
                                          const SkMatrix& viewMatrix,
                                          sk_sp<SkVertices> vertices,
-                                         const SkVertices::Bone bones[],
-                                         int boneCount,
-                                         GrPrimitiveType* overridePrimType) {
+                                         GrPrimitiveType* overridePrimType,
+                                         const SkRuntimeEffect* effect) {
     ASSERT_SINGLE_OWNER
     RETURN_IF_ABANDONED
     SkDEBUGCODE(this->validate();)
@@ -1090,8 +1075,8 @@ void GrRenderTargetContext::drawVertices(const GrClip& clip,
     SkASSERT(vertices);
     GrAAType aaType = this->chooseAAType(GrAA::kNo);
     std::unique_ptr<GrDrawOp> op = GrDrawVerticesOp::Make(
-            fContext, std::move(paint), std::move(vertices), bones, boneCount, viewMatrix, aaType,
-            this->colorInfo().refColorSpaceXformFromSRGB(), overridePrimType);
+            fContext, std::move(paint), std::move(vertices), viewMatrix, aaType,
+            this->colorInfo().refColorSpaceXformFromSRGB(), overridePrimType, effect);
     this->addDrawOp(clip, std::move(op));
 }
 
@@ -1168,8 +1153,7 @@ void GrRenderTargetContext::drawRRect(const GrClip& origClip,
     }
     if (!op && style.isSimpleFill()) {
         assert_alive(paint);
-        op = GrFillRRectOp::Make(
-                fContext, aaType, viewMatrix, rrect, *this->caps(), std::move(paint));
+        op = GrFillRRectOp::Make(fContext, std::move(paint), viewMatrix, rrect, aaType);
     }
     if (!op && GrAAType::kCoverage == aaType) {
         assert_alive(paint);
@@ -1339,11 +1323,11 @@ bool GrRenderTargetContext::drawFastShadow(const GrClip& clip,
             SkScalar maxOffset;
             if (rrect.isRect()) {
                 // Manhattan distance works better for rects
-                maxOffset = SkTMax(SkTMax(SkTAbs(spotShadowRRect.rect().fLeft -
+                maxOffset = std::max(std::max(SkTAbs(spotShadowRRect.rect().fLeft -
                                                  rrect.rect().fLeft),
                                           SkTAbs(spotShadowRRect.rect().fTop -
                                                  rrect.rect().fTop)),
-                                   SkTMax(SkTAbs(spotShadowRRect.rect().fRight -
+                                   std::max(SkTAbs(spotShadowRRect.rect().fRight -
                                                  rrect.rect().fRight),
                                           SkTAbs(spotShadowRRect.rect().fBottom -
                                                  rrect.rect().fBottom)));
@@ -1357,10 +1341,10 @@ bool GrRenderTargetContext::drawFastShadow(const GrClip& clip,
                                                          rrect.rect().fRight - dr,
                                                          spotShadowRRect.rect().fBottom -
                                                          rrect.rect().fBottom - dr);
-                maxOffset = SkScalarSqrt(SkTMax(SkPointPriv::LengthSqd(upperLeftOffset),
+                maxOffset = SkScalarSqrt(std::max(SkPointPriv::LengthSqd(upperLeftOffset),
                                                 SkPointPriv::LengthSqd(lowerRightOffset))) + dr;
             }
-            insetWidth += SkTMax(blurOutset, maxOffset);
+            insetWidth += std::max(blurOutset, maxOffset);
         }
 
         // Outset the shadow rrect to the border of the penumbra
@@ -1588,8 +1572,8 @@ void GrRenderTargetContext::drawOval(const GrClip& clip,
         // inside the oval's inner diamond). Given these optimizations, it's a clear win to draw
         // ovals the exact same way we do round rects.
         assert_alive(paint);
-        op = GrFillRRectOp::Make(fContext, aaType, viewMatrix, SkRRect::MakeOval(oval),
-                                 *this->caps(), std::move(paint));
+        op = GrFillRRectOp::Make(fContext, std::move(paint), viewMatrix, SkRRect::MakeOval(oval),
+                                 aaType);
     }
     if (!op && GrAAType::kCoverage == aaType) {
         assert_alive(paint);
@@ -1713,10 +1697,10 @@ void GrRenderTargetContext::asyncRescaleAndReadPixels(
     }
     // Fail if read color type does not have all of dstCT's color channels and those missing color
     // channels are in the src.
-    uint32_t dstComponents = GrColorTypeComponentFlags(dstCT);
-    uint32_t legalReadComponents = GrColorTypeComponentFlags(readInfo.fColorType);
-    uint32_t srcComponents = GrColorTypeComponentFlags(this->colorInfo().colorType());
-    if ((~legalReadComponents & dstComponents) & srcComponents) {
+    uint32_t dstChannels = GrColorTypeChannelFlags(dstCT);
+    uint32_t legalReadChannels = GrColorTypeChannelFlags(readInfo.fColorType);
+    uint32_t srcChannels = GrColorTypeChannelFlags(this->colorInfo().colorType());
+    if ((~legalReadChannels & dstChannels) & srcChannels) {
         callback(context, nullptr);
         return;
     }
@@ -1746,14 +1730,15 @@ void GrRenderTargetContext::asyncRescaleAndReadPixels(
                 callback(context, nullptr);
                 return;
             }
-            sk_sp<GrTextureProxy> texProxy = this->asTextureProxyRef();
+            GrSurfaceProxyView texProxyView = this->readSurfaceView();
             SkRect srcRectToDraw = SkRect::Make(srcRect);
             // If the src is not texturable first try to make a copy to a texture.
-            if (!texProxy) {
-                texProxy = GrSurfaceProxy::Copy(fContext, this->asSurfaceProxy(),
-                                                this->colorInfo().colorType(), GrMipMapped::kNo,
-                                                srcRect, SkBackingFit::kApprox, SkBudgeted::kNo);
-                if (!texProxy) {
+            if (!texProxyView.asTextureProxy()) {
+                texProxyView = GrSurfaceProxy::Copy(fContext, this->asSurfaceProxy(),
+                                                    this->origin(), this->colorInfo().colorType(),
+                                                    GrMipMapped::kNo, srcRect,
+                                                    SkBackingFit::kApprox, SkBudgeted::kNo);
+                if (!texProxyView.asTextureProxy()) {
                     callback(context, nullptr);
                     return;
                 }
@@ -1767,9 +1752,9 @@ void GrRenderTargetContext::asyncRescaleAndReadPixels(
                 callback(context, nullptr);
                 return;
             }
-            tempRTC->drawTexture(GrNoClip(), std::move(texProxy), this->colorInfo().colorType(),
-                                 this->colorInfo().alphaType(), GrSamplerState::Filter::kNearest,
-                                 SkBlendMode::kSrc, SK_PMColor4fWHITE, srcRectToDraw,
+            tempRTC->drawTexture(GrNoClip(), std::move(texProxyView), this->colorInfo().alphaType(),
+                                 GrSamplerState::Filter::kNearest, SkBlendMode::kSrc,
+                                 SK_PMColor4fWHITE, srcRectToDraw,
                                  SkRect::MakeWH(srcRect.width(), srcRect.height()), GrAA::kNo,
                                  GrQuadAAFlags::kNone, SkCanvas::kFast_SrcRectConstraint,
                                  SkMatrix::I(), std::move(xform));
@@ -1918,7 +1903,7 @@ void GrRenderTargetContext::asyncReadPixels(const SkIRect& rect, SkColorType col
 void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvColorSpace,
                                                             sk_sp<SkColorSpace> dstColorSpace,
                                                             const SkIRect& srcRect,
-                                                            const SkISize& dstSize,
+                                                            SkISize dstSize,
                                                             RescaleGamma rescaleGamma,
                                                             SkFilterQuality rescaleQuality,
                                                             ReadPixelsCallback callback,
@@ -1948,7 +1933,7 @@ void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvC
     int x = srcRect.fLeft;
     int y = srcRect.fTop;
     bool needsRescale = srcRect.size() != dstSize;
-    sk_sp<GrTextureProxy> srcProxy;
+    GrSurfaceProxyView srcView;
     if (needsRescale) {
         // We assume the caller wants kPremul. There is no way to indicate a preference.
         auto info = SkImageInfo::Make(dstSize, kRGBA_8888_SkColorType, kPremul_SkAlphaType,
@@ -1962,14 +1947,14 @@ void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvC
         SkASSERT(SkColorSpace::Equals(tempRTC->colorInfo().colorSpace(), info.colorSpace()));
         SkASSERT(tempRTC->origin() == kTopLeft_GrSurfaceOrigin);
         x = y = 0;
-        srcProxy = tempRTC->asTextureProxyRef();
+        srcView = tempRTC->readSurfaceView();
     } else {
-        srcProxy = this->asTextureProxyRef();
-        if (!srcProxy) {
-            srcProxy = GrSurfaceProxy::Copy(fContext, fReadView.proxy(),
-                                            this->colorInfo().colorType(), GrMipMapped::kNo,
-                                            srcRect, SkBackingFit::kApprox, SkBudgeted::kYes);
-            if (!srcProxy) {
+        srcView = this->readSurfaceView();
+        if (!srcView.asTextureProxy()) {
+            srcView = GrSurfaceProxy::Copy(fContext, fReadView.proxy(), this->origin(),
+                                           this->colorInfo().colorType(), GrMipMapped::kNo,
+                                           srcRect, SkBackingFit::kApprox, SkBudgeted::kYes);
+            if (!srcView.asTextureProxy()) {
                 // If we can't get a texture copy of the contents then give up.
                 callback(context, nullptr);
                 return;
@@ -1989,14 +1974,13 @@ void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvC
                 callback(context, nullptr);
                 return;
             }
-            tempRTC->drawTexture(GrNoClip(), std::move(srcProxy), this->colorInfo().colorType(),
-                                 this->colorInfo().alphaType(), GrSamplerState::Filter::kNearest,
-                                 SkBlendMode::kSrc, SK_PMColor4fWHITE, srcRectToDraw,
-                                 SkRect::Make(srcRect.size()), GrAA::kNo, GrQuadAAFlags::kNone,
-                                 SkCanvas::kFast_SrcRectConstraint, SkMatrix::I(),
-                                 std::move(xform));
-            srcProxy = tempRTC->asTextureProxyRef();
-            SkASSERT(srcProxy);
+            tempRTC->drawTexture(GrNoClip(), std::move(srcView), this->colorInfo().alphaType(),
+                                 GrSamplerState::Filter::kNearest, SkBlendMode::kSrc,
+                                 SK_PMColor4fWHITE, srcRectToDraw, SkRect::Make(srcRect.size()),
+                                 GrAA::kNo, GrQuadAAFlags::kNone, SkCanvas::kFast_SrcRectConstraint,
+                                 SkMatrix::I(), std::move(xform));
+            srcView = tempRTC->readSurfaceView();
+            SkASSERT(srcView.asTextureProxy());
             x = y = 0;
         }
     }
@@ -2036,7 +2020,7 @@ void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvC
     std::copy_n(baseM + 0, 5, yM + 15);
     GrPaint yPaint;
     yPaint.addColorFragmentProcessor(
-            GrTextureEffect::Make(srcProxy, this->colorInfo().alphaType(), texMatrix));
+            GrTextureEffect::Make(srcView, this->colorInfo().alphaType(), texMatrix));
     auto yFP = GrColorMatrixFragmentProcessor::Make(yM, false, true, false);
     yPaint.addColorFragmentProcessor(std::move(yFP));
     yPaint.setPorterDuffXPFactory(SkBlendMode::kSrc);
@@ -2058,7 +2042,7 @@ void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvC
     std::copy_n(baseM + 5, 5, uM + 15);
     GrPaint uPaint;
     uPaint.addColorFragmentProcessor(GrTextureEffect::Make(
-            srcProxy, this->colorInfo().alphaType(), texMatrix, GrSamplerState::Filter::kBilerp));
+            srcView, this->colorInfo().alphaType(), texMatrix, GrSamplerState::Filter::kBilerp));
     auto uFP = GrColorMatrixFragmentProcessor::Make(uM, false, true, false);
     uPaint.addColorFragmentProcessor(std::move(uFP));
     uPaint.setPorterDuffXPFactory(SkBlendMode::kSrc);
@@ -2078,8 +2062,9 @@ void GrRenderTargetContext::asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvC
     std::fill_n(vM, 15, 0.f);
     std::copy_n(baseM + 10, 5, vM + 15);
     GrPaint vPaint;
-    vPaint.addColorFragmentProcessor(GrTextureEffect::Make(
-            srcProxy, this->colorInfo().alphaType(), texMatrix, GrSamplerState::Filter::kBilerp));
+    vPaint.addColorFragmentProcessor(GrTextureEffect::Make(std::move(srcView),
+                                                           this->colorInfo().alphaType(), texMatrix,
+                                                           GrSamplerState::Filter::kBilerp));
     auto vFP = GrColorMatrixFragmentProcessor::Make(vM, false, true, false);
     vPaint.addColorFragmentProcessor(std::move(vFP));
     vPaint.setPorterDuffXPFactory(SkBlendMode::kSrc);
@@ -2604,28 +2589,31 @@ bool GrRenderTargetContext::setupDstProxyView(const GrClip& clip, const GrOp& op
         dstOffset = {copyRect.fLeft, copyRect.fTop};
         fit = SkBackingFit::kApprox;
     }
-    sk_sp<GrTextureProxy> newProxy =
-            GrSurfaceProxy::Copy(fContext, this->asSurfaceProxy(), colorType, GrMipMapped::kNo,
-                                 copyRect, fit, SkBudgeted::kYes, restrictions.fRectsMustMatch);
-    SkASSERT(newProxy);
+    GrSurfaceProxyView newProxyView =
+            GrSurfaceProxy::Copy(fContext, this->asSurfaceProxy(), this->origin(), colorType,
+                                 GrMipMapped::kNo, copyRect, fit, SkBudgeted::kYes,
+                                 restrictions.fRectsMustMatch);
+    SkASSERT(newProxyView.proxy());
 
-    dstProxyView->setProxyView({std::move(newProxy), this->origin(), this->readSwizzle()});
+    dstProxyView->setProxyView(std::move(newProxyView));
     dstProxyView->setOffset(dstOffset);
     return true;
 }
 
-bool GrRenderTargetContext::blitTexture(GrTextureProxy* src, const SkIRect& srcRect,
+bool GrRenderTargetContext::blitTexture(GrSurfaceProxyView view, const SkIRect& srcRect,
                                         const SkIPoint& dstPoint) {
+    SkASSERT(view.asTextureProxy());
     SkIRect clippedSrcRect;
     SkIPoint clippedDstPoint;
-    if (!GrClipSrcRectAndDstPoint(this->asSurfaceProxy()->dimensions(), src->dimensions(), srcRect,
-                                  dstPoint, &clippedSrcRect, &clippedDstPoint)) {
+    if (!GrClipSrcRectAndDstPoint(this->asSurfaceProxy()->dimensions(), view.proxy()->dimensions(),
+                                  srcRect, dstPoint, &clippedSrcRect, &clippedDstPoint)) {
         return false;
     }
 
     GrPaint paint;
     paint.setPorterDuffXPFactory(SkBlendMode::kSrc);
-    auto fp = GrTextureEffect::Make(sk_ref_sp(src), kUnknown_SkAlphaType);
+
+    auto fp = GrTextureEffect::Make(std::move(view), kUnknown_SkAlphaType);
     if (!fp) {
         return false;
     }

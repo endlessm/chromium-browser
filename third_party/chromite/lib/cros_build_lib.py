@@ -26,6 +26,7 @@ import time
 
 import six
 
+from chromite.lib import build_target_lib
 from chromite.lib import constants
 from chromite.lib import cros_collections
 from chromite.lib import cros_logging as logging
@@ -498,16 +499,16 @@ def _KillChildProcess(proc, int_timeout, kill_timeout, cmd, original_handler,
   # the Popen instance was created, but no process was generated.
   if proc.returncode is None and proc.pid is not None:
     try:
-      while proc.poll() is None and int_timeout >= 0:
+      while proc.poll_lock_breaker() is None and int_timeout >= 0:
         time.sleep(0.1)
         int_timeout -= 0.1
 
       proc.terminate()
-      while proc.poll() is None and kill_timeout >= 0:
+      while proc.poll_lock_breaker() is None and kill_timeout >= 0:
         time.sleep(0.1)
         kill_timeout -= 0.1
 
-      if proc.poll() is None:
+      if proc.poll_lock_breaker() is None:
         # Still doesn't want to die.  Too bad, so sad, time to die.
         proc.kill()
     except EnvironmentError as e:
@@ -515,7 +516,11 @@ def _KillChildProcess(proc, int_timeout, kill_timeout, cmd, original_handler,
                       e)
 
     # Ensure our child process has been reaped.
-    proc.wait()
+    kwargs = {}
+    if sys.version_info.major >= 3:
+      # ... but don't wait forever.
+      kwargs['timeout'] = 60
+    proc.wait_lock_breaker(**kwargs)
 
   if not signals.RelaySignal(original_handler, signum, frame):
     # Mock up our own, matching exit code for signaling.
@@ -571,6 +576,31 @@ class _Popen(subprocess.Popen):
       else:
         raise
 
+  def _lock_breaker(self, func, *args, **kwargs):
+    """Helper to manage the waitpid lock.
+
+    Workaround https://bugs.python.org/issue25960.
+    """
+    # If the lock doesn't exist, or is not locked, call the func directly.
+    lock = getattr(self, '_waitpid_lock', None)
+    if lock is not None and lock.locked():
+      try:
+        lock.release()
+        return func(*args, **kwargs)
+      finally:
+        if not lock.locked():
+          lock.acquire()
+    else:
+      return func(*args, **kwargs)
+
+  def poll_lock_breaker(self, *args, **kwargs):
+    """Wrapper around poll() to break locks if needed."""
+    return self._lock_breaker(self.poll, *args, **kwargs)
+
+  def wait_lock_breaker(self, *args, **kwargs):
+    """Wrapper around wait() to break locks if needed."""
+    return self._lock_breaker(self.wait, *args, **kwargs)
+
 
 # pylint: disable=redefined-builtin
 def run(cmd, print_cmd=True, stdout=None, stderr=None,
@@ -579,7 +609,8 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
         chroot_args=None, debug_level=logging.INFO,
         check=True, int_timeout=1, kill_timeout=1,
         log_output=False, capture_output=False,
-        quiet=False, mute_output=None, encoding=None, errors=None, **kwargs):
+        quiet=False, mute_output=None, encoding=None, errors=None, dryrun=False,
+        **kwargs):
   """Runs a command.
 
   Args:
@@ -636,6 +667,7 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
       users want 'utf-8' here for string data.
     errors: How to handle errors when |encoding| is used.  Defaults to 'strict',
       but 'ignore' and 'replace' are common settings.
+    dryrun: Only log the command,and return a stub result.
 
   Returns:
     A CommandResult object.
@@ -644,20 +676,6 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
     RunCommandError: Raised on error.
   """
   # Handle backwards compatible settings.
-  if 'error_code_ok' in kwargs:
-    logging.warning('run: error_code_ok= is renamed/inverted to check=')
-    check = not kwargs.pop('error_code_ok')
-  if 'redirect_stdout' in kwargs:
-    logging.warning('run: redirect_stdout=True is now stdout=True')
-    stdout = True if kwargs.pop('redirect_stdout') else None
-  if 'redirect_stderr' in kwargs:
-    logging.warning('run: redirect_stderr=True is now stderr=True')
-    stderr = True if kwargs.pop('redirect_stderr') else None
-  if 'combine_stdout_stderr' in kwargs:
-    logging.warning('run: combine_stdout_stderr=True is now '
-                    'stderr=subprocess.STDOUT')
-    if kwargs.pop('combine_stdout_stderr'):
-      stderr = subprocess.STDOUT
   if 'log_stdout_to_file' in kwargs:
     logging.warning('run: log_stdout_to_file=X is now stdout=X')
     log_stdout_to_file = kwargs.pop('log_stdout_to_file')
@@ -822,13 +840,20 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
       env[var] = os.environ[var]
 
   # Print out the command before running.
-  if print_cmd or log_output:
+  if dryrun or print_cmd or log_output:
+    log = ''
+    if dryrun:
+      log += '(dryrun) '
+    log += 'run: %s' % (CmdToStr(cmd),)
     if cwd:
-      logging.log(debug_level, 'run: %s in %s', CmdToStr(cmd), cwd)
-    else:
-      logging.log(debug_level, 'run: %s', CmdToStr(cmd))
+      log += ' in %s' % (cwd,)
+    logging.log(debug_level, '%s', log)
 
   cmd_result.args = cmd
+
+  # We want to still something in dryrun mode so we process all the options
+  # and return appropriate values (e.g. output with correct encoding).
+  popen_cmd = ['true'] if dryrun else cmd
 
   proc = None
   # Verify that the signals modules is actually usable, and won't segfault
@@ -836,7 +861,7 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
   # details and upstream python bug.
   use_signals = signals.SignalModuleUsable()
   try:
-    proc = _Popen(cmd, cwd=cwd, stdin=stdin, stdout=popen_stdout,
+    proc = _Popen(popen_cmd, cwd=cwd, stdin=stdin, stdout=popen_stdout,
                   stderr=popen_stderr, shell=False, env=env,
                   close_fds=True)
 
@@ -913,12 +938,6 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
 
   return cmd_result
 # pylint: enable=redefined-builtin
-
-
-def RunCommand(cmd, **kwargs):
-  """Backwards compat API."""
-  logging.warning('RunCommand() has been renamed to run()')
-  return run(cmd, **kwargs)
 
 
 # Convenience run methods.
@@ -1703,8 +1722,12 @@ def GetBoard(device_board, override_board=None, force=False, strict=False):
 
 
 def GetSysroot(board=None):
-  """Returns the sysroot for |board| or '/' if |board| is None."""
-  return '/' if board is None else os.path.join('/build', board)
+  """Returns the sysroot for |board| or '/' if |board| is None.
+
+  Deprecated: Use chromite.lib.build_target_lib.get_default_sysroot_path().
+  TODO: Convert the usages of this function to the new one.
+  """
+  return build_target_lib.get_default_sysroot_path(board)
 
 
 # Structure to hold the values produced by TimedSection.

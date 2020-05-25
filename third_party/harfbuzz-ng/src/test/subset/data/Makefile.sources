@@ -8,9 +8,16 @@ TESTS = \
 	tests/layout.gpos.tests \
 	tests/layout.gpos2.tests \
 	tests/layout.gpos3.tests \
+	tests/layout.gpos4.tests \
+	tests/layout.gpos6.tests \
+	tests/layout.gsub3.tests \
 	tests/layout.gsub6.tests \
+	tests/layout.gdef.tests \
+	tests/cmap.tests \
 	tests/cmap14.tests \
 	tests/sbix.tests \
+	tests/colr.tests \
+	tests/cbdt.tests \
 	$(NULL)
 
 XFAIL_TESTS = \

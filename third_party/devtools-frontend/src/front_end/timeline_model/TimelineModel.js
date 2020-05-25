@@ -28,6 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
 import * as SDK from '../sdk/sdk.js';
 
 import {TimelineJSProfileProcessor} from './TimelineJSProfile.js';
@@ -123,6 +124,14 @@ export class TimelineModelImpl {
    * @param {!SDK.TracingModel.Event} event
    * @return {boolean}
    */
+  isLayoutShiftEvent(event) {
+    return event.name === RecordType.LayoutShift;
+  }
+
+  /**
+   * @param {!SDK.TracingModel.Event} event
+   * @return {boolean}
+   */
   isLCPCandidateEvent(event) {
     return event.name === RecordType.MarkLCPCandidate && !!event.args['data']['isMainFrame'];
   }
@@ -172,8 +181,8 @@ export class TimelineModelImpl {
   targetByEvent(event) {
     // FIXME: Consider returning null for loaded traces.
     const workerId = this._workerIdByThread.get(event.thread);
-    const mainTarget = self.SDK.targetManager.mainTarget();
-    return workerId ? self.SDK.targetManager.targetById(workerId) : mainTarget;
+    const mainTarget = SDK.SDKModel.TargetManager.instance().mainTarget();
+    return workerId ? SDK.SDKModel.TargetManager.instance().targetById(workerId) : mainTarget;
   }
 
   /**
@@ -186,6 +195,11 @@ export class TimelineModelImpl {
 
     this._minimumRecordTime = tracingModel.minimumRecordTime();
     this._maximumRecordTime = tracingModel.maximumRecordTime();
+
+    // Remove LayoutShift events from the main thread list of events because they are
+    // represented in the experience track. This is done prior to the main thread being processed for its own events.
+    const layoutShiftEvents =
+        tracingModel.extractEventsFromThreadByName('Renderer', 'CrRendererMain', RecordType.LayoutShift);
 
     this._processSyncBrowserEvents(tracingModel);
     if (this._browserFrameTracking) {
@@ -204,6 +218,7 @@ export class TimelineModelImpl {
     this._inspectedTargetEvents.sort(SDK.TracingModel.Event.compareStartTime);
     this._processAsyncBrowserEvents(tracingModel);
     this._buildGPUEvents(tracingModel);
+    this._buildLoadingEvents(tracingModel, layoutShiftEvents);
     this._resetProcessingState();
   }
 
@@ -225,7 +240,7 @@ export class TimelineModelImpl {
 
   /**
    * @param {!SDK.TracingModel.TracingModel} tracingModel
-   * @param {!TimelineModel.TimelineModel.MetadataEvents} metadataEvents
+   * @param {!MetadataEvents} metadataEvents
    */
   _processMetadataAndThreads(tracingModel, metadataEvents) {
     let startTime = 0;
@@ -351,7 +366,7 @@ export class TimelineModelImpl {
 
   /**
    * @param {!SDK.TracingModel.TracingModel} tracingModel
-   * @return {?TimelineModel.TimelineModel.MetadataEvents}
+   * @return {?MetadataEvents}
    */
   _processMetadataEvents(tracingModel) {
     const metadataEvents = tracingModel.devToolsMetadataEvents();
@@ -405,9 +420,9 @@ export class TimelineModelImpl {
       workers: workersDevToolsMetadataEvents.sort(SDK.TracingModel.Event.compareStartTime)
     };
     if (mismatchingIds.size) {
-      self.Common.console.error(
+      Common.Console.Console.instance().error(
           'Timeline recording was started in more than one page simultaneously. Session id mismatch: ' +
-          this._sessionId + ' and ' + mismatchingIds.valuesArray() + '.');
+          this._sessionId + ' and ' + [...mismatchingIds] + '.');
     }
     return result;
   }
@@ -444,6 +459,27 @@ export class TimelineModelImpl {
     const track = this._ensureNamedTrack(TrackType.GPU);
     track.thread = thread;
     track.events = thread.events().filter(event => event.name === gpuEventName);
+  }
+
+  /**
+   * @param {!SDK.TracingModel.TracingModel} tracingModel
+   * @param {!Array<!SDK.TracingModel.Event>} events
+   */
+  _buildLoadingEvents(tracingModel, events) {
+    const thread = tracingModel.threadByName('Renderer', 'CrRendererMain');
+    if (!thread) {
+      return;
+    }
+    const experienceCategory = 'experience';
+    const track = this._ensureNamedTrack(TrackType.Experience);
+    track.thread = thread;
+    track.events = events;
+
+    // Even though the event comes from 'loading', in order to color it differently we
+    // rename its category.
+    for (const trackEvent of track.events) {
+      trackEvent.categoriesString = experienceCategory;
+    }
   }
 
   _resetProcessingState() {
@@ -489,11 +525,19 @@ export class TimelineModelImpl {
       target = this.targetByEvent(cpuProfileEvent);
       const profileGroup = tracingModel.profileGroup(cpuProfileEvent);
       if (!profileGroup) {
-        self.Common.console.error('Invalid CPU profile format.');
+        Common.Console.Console.instance().error('Invalid CPU profile format.');
         return null;
       }
       cpuProfile = /** @type {!Protocol.Profiler.Profile} */ ({
-        startTime: cpuProfileEvent.args['data']['startTime'],
+        // Do not use |cpuProfileEvent.args['data']['startTime']| as it is in
+        // CLOCK_MONOTONIC domain, but use |profileEvent.startTime|
+        // (|ts| in the trace event) which has been translated to
+        // Perfetto's clock domain.
+        //
+        // |cpuProfileEvent.startTime| has been converted to milliseconds
+        // when the Event was loaded but |cpuProfile.timeDeltas| are
+        // expressed in microseconds.
+        startTime: cpuProfileEvent.startTime * 1000,
         endTime: 0,
         nodes: [],
         samples: [],
@@ -503,10 +547,23 @@ export class TimelineModelImpl {
       for (const profileEvent of profileGroup.children) {
         const eventData = profileEvent.args['data'];
         if ('startTime' in eventData) {
-          cpuProfile.startTime = eventData['startTime'];
+          // Do not use |eventData['startTime']| as it is in CLOCK_MONOTONIC domain,
+          // but use |profileEvent.startTime| (|ts| in the trace event) which has
+          // been translated to Perfetto's clock domain.
+          //
+          // Also convert from ms to us.
+          cpuProfile.startTime = profileEvent.startTime * 1000;
         }
         if ('endTime' in eventData) {
-          cpuProfile.endTime = eventData['endTime'];
+          // Do not use |eventData['endTime']| as it is in CLOCK_MONOTONIC domain,
+          // but use |profileEvent.startTime| (|ts| in the trace event) which has
+          // been translated to Perfetto's clock domain.
+          //
+          // Despite its name, |profileEvent.startTime| was recorded right after
+          // |eventData['endTime']| within v8 and is a reasonable substitute.
+          //
+          // Also convert from ms to us.
+          cpuProfile.endTime = profileEvent.startTime * 1000;
         }
         const nodesAndSamples = eventData['cpuProfile'] || {};
         const samples = nodesAndSamples['samples'] || [];
@@ -516,7 +573,7 @@ export class TimelineModelImpl {
         cpuProfile.samples.push(...samples);
         cpuProfile.timeDeltas.push(...(eventData['timeDeltas'] || []));
         if (cpuProfile.samples.length !== cpuProfile.timeDeltas.length) {
-          self.Common.console.error('Failed to parse CPU profile.');
+          Common.Console.Console.instance().error('Failed to parse CPU profile.');
           return null;
         }
       }
@@ -530,7 +587,7 @@ export class TimelineModelImpl {
       this._cpuProfiles.push(jsProfileModel);
       return jsProfileModel;
     } catch (e) {
-      self.Common.console.error('Failed to parse CPU profile.');
+      Common.Console.Console.instance().error('Failed to parse CPU profile.');
     }
     return null;
   }
@@ -776,17 +833,19 @@ export class TimelineModelImpl {
 
     switch (event.name) {
       case recordTypes.ResourceSendRequest:
-      case recordTypes.WebSocketCreate:
+      case recordTypes.WebSocketCreate: {
         timelineData.setInitiator(eventStack.peekLast() || null);
         timelineData.url = eventData['url'];
         break;
+      }
 
-      case recordTypes.ScheduleStyleRecalculation:
+      case recordTypes.ScheduleStyleRecalculation: {
         this._lastScheduleStyleRecalculation[eventData['frame']] = event;
         break;
+      }
 
       case recordTypes.UpdateLayoutTree:
-      case recordTypes.RecalculateStyles:
+      case recordTypes.RecalculateStyles: {
         this._invalidationTracker.didRecalcStyle(event);
         if (event.args['beginData']) {
           timelineData.setInitiator(this._lastScheduleStyleRecalculation[event.args['beginData']['frame']]);
@@ -796,13 +855,15 @@ export class TimelineModelImpl {
           this._currentTaskLayoutAndRecalcEvents.push(event);
         }
         break;
+      }
 
       case recordTypes.ScheduleStyleInvalidationTracking:
       case recordTypes.StyleRecalcInvalidationTracking:
       case recordTypes.StyleInvalidatorInvalidationTracking:
-      case recordTypes.LayoutInvalidationTracking:
+      case recordTypes.LayoutInvalidationTracking: {
         this._invalidationTracker.addInvalidation(new InvalidationTrackingEvent(event));
         break;
+      }
 
       case recordTypes.InvalidateLayout: {
         // Consider style recalculation as a reason for layout invalidation,
@@ -832,26 +893,29 @@ export class TimelineModelImpl {
         break;
       }
 
-      case recordTypes.Task:
+      case recordTypes.Task: {
         if (event.duration > TimelineModelImpl.Thresholds.LongTask) {
           timelineData.warning = TimelineModelImpl.WarningType.LongTask;
         }
         break;
+      }
 
-      case recordTypes.EventDispatch:
+      case recordTypes.EventDispatch: {
         if (event.duration > TimelineModelImpl.Thresholds.RecurringHandler) {
           timelineData.warning = TimelineModelImpl.WarningType.LongHandler;
         }
         break;
+      }
 
       case recordTypes.TimerFire:
-      case recordTypes.FireAnimationFrame:
+      case recordTypes.FireAnimationFrame: {
         if (event.duration > TimelineModelImpl.Thresholds.RecurringHandler) {
           timelineData.warning = TimelineModelImpl.WarningType.LongRecurringHandler;
         }
         break;
+      }
 
-      case recordTypes.FunctionCall:
+      case recordTypes.FunctionCall: {
         // Compatibility with old format.
         if (typeof eventData['scriptName'] === 'string') {
           eventData['url'] = eventData['scriptName'];
@@ -859,29 +923,30 @@ export class TimelineModelImpl {
         if (typeof eventData['scriptLine'] === 'number') {
           eventData['lineNumber'] = eventData['scriptLine'];
         }
-
-      // Fallthrough.
+        // Fallthrough intended.
+      }
 
       case recordTypes.EvaluateScript:
-      case recordTypes.CompileScript:
+      case recordTypes.CompileScript: {
         if (typeof eventData['lineNumber'] === 'number') {
           --eventData['lineNumber'];
         }
         if (typeof eventData['columnNumber'] === 'number') {
           --eventData['columnNumber'];
         }
+        // Fallthrough intended.
+      }
 
-      // Fallthrough intended.
-
-      case recordTypes.RunMicrotasks:
+      case recordTypes.RunMicrotasks: {
         // Microtasks technically are not necessarily scripts, but for purpose of
         // forced sync style recalc or layout detection they are.
         if (!this._currentScriptEvent) {
           this._currentScriptEvent = event;
         }
         break;
+      }
 
-      case recordTypes.SetLayerTreeId:
+      case recordTypes.SetLayerTreeId: {
         // This is to support old traces.
         if (this._sessionId && eventData['sessionId'] && this._sessionId === eventData['sessionId']) {
           this._mainFrameLayerTreeId = eventData['layerTreeId'];
@@ -896,6 +961,7 @@ export class TimelineModelImpl {
         }
         this._mainFrameLayerTreeId = eventData['layerTreeId'];
         break;
+      }
 
       case recordTypes.Paint: {
         this._invalidationTracker.didPaint(event);
@@ -923,14 +989,16 @@ export class TimelineModelImpl {
         break;
       }
 
-      case recordTypes.ScrollLayer:
+      case recordTypes.ScrollLayer: {
         timelineData.backendNodeId = eventData['nodeId'];
         break;
+      }
 
-      case recordTypes.PaintImage:
+      case recordTypes.PaintImage: {
         timelineData.backendNodeId = eventData['nodeId'];
         timelineData.url = eventData['url'];
         break;
+      }
 
       case recordTypes.DecodeImage:
       case recordTypes.ResizeImage: {
@@ -961,15 +1029,17 @@ export class TimelineModelImpl {
         break;
       }
 
-      case recordTypes.FrameStartedLoading:
+      case recordTypes.FrameStartedLoading: {
         if (timelineData.frameId !== event.args['frame']) {
           return false;
         }
         break;
+      }
 
-      case recordTypes.MarkLCPCandidate:
+      case recordTypes.MarkLCPCandidate: {
         timelineData.backendNodeId = eventData['nodeId'];
         break;
+      }
 
       case recordTypes.MarkDOMContent:
       case recordTypes.MarkLoad: {
@@ -1008,11 +1078,12 @@ export class TimelineModelImpl {
         break;
       }
 
-      case recordTypes.FireIdleCallback:
+      case recordTypes.FireIdleCallback: {
         if (event.duration > eventData['allottedMilliseconds'] + TimelineModelImpl.Thresholds.IdleCallbackAddon) {
           timelineData.warning = TimelineModelImpl.WarningType.IdleDeadlineExceeded;
         }
         break;
+      }
     }
     return true;
   }
@@ -1323,6 +1394,7 @@ export const RecordType = {
   UpdateLayoutTree: 'UpdateLayoutTree',
   InvalidateLayout: 'InvalidateLayout',
   Layout: 'Layout',
+  LayoutShift: 'LayoutShift',
   UpdateLayer: 'UpdateLayer',
   UpdateLayerTree: 'UpdateLayerTree',
   PaintSetup: 'PaintSetup',
@@ -1455,7 +1527,8 @@ export const RecordType = {
 TimelineModelImpl.Category = {
   Console: 'blink.console',
   UserTiming: 'blink.user_timing',
-  LatencyInfo: 'latencyInfo'
+  LatencyInfo: 'latencyInfo',
+  Loading: 'loading',
 };
 
 /**
@@ -1486,7 +1559,7 @@ TimelineModelImpl.DevToolsMetadataEvent = {
 };
 
 TimelineModelImpl.Thresholds = {
-  LongTask: 200,
+  LongTask: 50,
   Handler: 150,
   RecurringHandler: 50,
   ForcedLayout: 30,
@@ -1559,6 +1632,7 @@ export const TrackType = {
   Console: Symbol('Console'),
   Raster: Symbol('Raster'),
   GPU: Symbol('GPU'),
+  Experience: Symbol('Experience'),
   Other: Symbol('Other'),
 };
 
@@ -1830,7 +1904,7 @@ export class InvalidationTrackingEvent {
     this.extraData = eventData['extraData'];
     /** @type {?Array.<!Object.<string, number>>} */
     this.invalidationList = eventData['invalidationList'];
-    /** @type {!TimelineModel.InvalidationCause} */
+    /** @type {!InvalidationCause} */
     this.cause = {reason: eventData['reason'], stackTrace: eventData['stackTrace']};
 
     // FIXME: Move this to TimelineUIUtils.js.
@@ -2233,3 +2307,9 @@ export class TimelineData {
 }
 
 TimelineData._symbol = Symbol('timelineData');
+
+/** @typedef {{reason: string, stackTrace: ?Array<!Protocol.Runtime.CallFrame>}} */
+export let InvalidationCause;
+
+/** @typedef {!{page: !Array<!SDK.TracingModel.Event>, workers: !Array<!SDK.TracingModel.Event>}} */
+export let MetadataEvents;

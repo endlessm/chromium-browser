@@ -120,6 +120,8 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   bool UpdateAnimationState(bool start_ready_animations,
                             MutatorEvents* events) override;
   void TakeTimeUpdatedEvents(MutatorEvents* events) override;
+  // Should be called when the pending tree is promoted to active, as this may
+  // require updating the ElementId for the ScrollTimeline scroll source.
   void PromoteScrollTimelinesPendingToActive() override;
 
   std::unique_ptr<MutatorEvents> CreateEvents() override;
@@ -185,7 +187,7 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   void ScrollAnimationAbort() override;
 
-  bool IsImplOnlyScrollAnimating() const override;
+  ElementId ImplOnlyScrollAnimatingElement() const override;
 
   // This should only be called from the main thread.
   ScrollOffsetAnimations& scroll_offset_animations() const;

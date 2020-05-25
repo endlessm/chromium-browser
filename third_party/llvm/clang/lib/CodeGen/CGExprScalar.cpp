@@ -297,7 +297,7 @@ public:
 
     Value *AlignmentValue = CGF.EmitScalarExpr(AVAttr->getAlignment());
     llvm::ConstantInt *AlignmentCI = cast<llvm::ConstantInt>(AlignmentValue);
-    CGF.EmitAlignmentAssumption(V, E, AVAttr->getLocation(), AlignmentCI);
+    CGF.emitAlignmentAssumption(V, E, AVAttr->getLocation(), AlignmentCI);
   }
 
   /// EmitLoadOfLValue - Given an expression with complex type that represents a
@@ -556,6 +556,11 @@ public:
   Value *VisitMemberExpr(MemberExpr *E);
   Value *VisitExtVectorElementExpr(Expr *E) { return EmitLoadOfLValue(E); }
   Value *VisitCompoundLiteralExpr(CompoundLiteralExpr *E) {
+    // Strictly speaking, we shouldn't be calling EmitLoadOfLValue, which
+    // transitively calls EmitCompoundLiteralLValue, here in C++ since compound
+    // literals aren't l-values in C++. We do so simply because that's the
+    // cleanest way to handle compound literals in C++.
+    // See the discussion here: https://reviews.llvm.org/D64464
     return EmitLoadOfLValue(E);
   }
 
@@ -4683,7 +4688,7 @@ struct GEPOffsetAndOverflow {
 static GEPOffsetAndOverflow EmitGEPOffsetInBytes(Value *BasePtr, Value *GEPVal,
                                                  llvm::LLVMContext &VMContext,
                                                  CodeGenModule &CGM,
-                                                 CGBuilderTy Builder) {
+                                                 CGBuilderTy &Builder) {
   const auto &DL = CGM.getDataLayout();
 
   // The total (signed) byte offset for the GEP.

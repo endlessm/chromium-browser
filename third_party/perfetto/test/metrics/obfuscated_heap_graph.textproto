@@ -29,10 +29,17 @@ packet {
       self_size: 64
       reference_field_id: 1
       reference_object_id: 0x02
+      reference_field_id: 2
+      reference_object_id: 0x01
     }
     objects {
       id: 0x02
       type_id: 2
+      self_size: 32
+    }
+    objects {
+      id: 0x03
+      type_id: 3
       self_size: 32
     }
     continued: true
@@ -51,9 +58,17 @@ packet {
       iid: 2
       str: "a"
     }
+    type_names {
+      iid: 3
+      str: "java.lang.Class<abc[]>"
+    }
     field_names {
       iid: 1
       str: "FactoryProducerDelegateImplActor.a"
+    }
+    field_names {
+      iid: 2
+      str: "FactoryProducerDelegateImplActor FactoryProducerDelegateImplActor.b"
     }
     continued: false
     index: 2

@@ -24,16 +24,25 @@
 
 #include "protos/perfetto/trace/profiling/heap_graph.pbzero.h"
 #include "src/trace_processor/importers/proto/heap_graph_walker.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_processor_context.h"
-#include "src/trace_processor/trace_storage.h"
 
 namespace perfetto {
 namespace trace_processor {
 
 class TraceProcessorContext;
 
+struct NormalizedType {
+  base::StringView name;
+  bool is_static_class;
+  size_t number_of_arrays;
+};
+base::Optional<base::StringView> GetStaticClassTypeName(base::StringView type);
 size_t NumberOfArrays(base::StringView type);
+NormalizedType GetNormalizedType(base::StringView type);
 base::StringView NormalizeTypeName(base::StringView type);
+std::string DenormalizeTypeName(NormalizedType normalized,
+                                base::StringView deobfuscated_type_name);
 
 class HeapGraphTracker : public HeapGraphWalker::Delegate, public Destructible {
  public:
@@ -69,9 +78,16 @@ class HeapGraphTracker : public HeapGraphWalker::Delegate, public Destructible {
   void AddInternedTypeName(uint32_t seq_id,
                            uint64_t intern_id,
                            StringPool::Id strid);
+  void AddInternedType(uint32_t seq_id,
+                       uint64_t intern_id,
+                       StringPool::Id strid,
+                       uint64_t location_id);
   void AddInternedFieldName(uint32_t seq_id,
                             uint64_t intern_id,
-                            StringPool::Id strid);
+                            base::StringView str);
+  void AddInternedLocationName(uint32_t seq_id,
+                               uint64_t intern_id,
+                               StringPool::Id str);
   void FinalizeProfile(uint32_t seq);
   void SetPacketIndex(uint32_t seq_id, uint64_t index);
 
@@ -81,6 +97,11 @@ class HeapGraphTracker : public HeapGraphWalker::Delegate, public Destructible {
   void SetRetained(int64_t row,
                    int64_t retained,
                    int64_t unique_retained) override;
+  void NotifyEndOfFile();
+
+  void AddDeobfuscationMapping(StringPool::Id obfuscated_name,
+                               StringPool::Id deobfuscated_name);
+  StringPool::Id MaybeDeobfuscate(StringPool::Id);
 
   const std::vector<int64_t>* RowsForType(StringPool::Id type_name) const {
     auto it = class_to_rows_.find(type_name);
@@ -101,6 +122,14 @@ class HeapGraphTracker : public HeapGraphWalker::Delegate, public Destructible {
       const UniquePid current_upid);
 
  private:
+  struct InternedField {
+    StringPool::Id name;
+    StringPool::Id type_name;
+  };
+  struct InternedType {
+    StringPool::Id name;
+    base::Optional<uint64_t> location_id;
+  };
   struct SequenceState {
     SequenceState(HeapGraphTracker* tracker) : walker(tracker) {}
 
@@ -108,8 +137,9 @@ class HeapGraphTracker : public HeapGraphWalker::Delegate, public Destructible {
     int64_t current_ts = 0;
     std::vector<SourceObject> current_objects;
     std::vector<SourceRoot> current_roots;
-    std::map<uint64_t, StringPool::Id> interned_type_names;
-    std::map<uint64_t, StringPool::Id> interned_field_names;
+    std::map<uint64_t, InternedType> interned_types;
+    std::map<uint64_t, StringPool::Id> interned_location_names;
+    std::map<uint64_t, InternedField> interned_fields;
     std::map<uint64_t, uint32_t> object_id_to_row;
     base::Optional<uint64_t> prev_index;
     HeapGraphWalker walker;
@@ -118,13 +148,14 @@ class HeapGraphTracker : public HeapGraphWalker::Delegate, public Destructible {
   SequenceState& GetOrCreateSequence(uint32_t seq_id);
   bool SetPidAndTimestamp(SequenceState* seq, UniquePid upid, int64_t ts);
 
-
   TraceProcessorContext* const context_;
   std::map<uint32_t, SequenceState> sequence_state_;
   std::map<std::pair<UniquePid, int64_t /* ts */>, HeapGraphWalker> walkers_;
 
   std::map<StringPool::Id, std::vector<int64_t>> class_to_rows_;
   std::map<StringPool::Id, std::vector<int64_t>> field_to_rows_;
+
+  std::map<StringPool::Id, StringPool::Id> deobfuscation_mapping_;
 };
 
 }  // namespace trace_processor

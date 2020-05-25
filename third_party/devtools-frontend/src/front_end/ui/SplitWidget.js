@@ -29,11 +29,13 @@
  */
 
 import * as Common from '../common/common.js';
+import * as Platform from '../platform/platform.js';
+
 import {Constraints} from './Geometry.js';
 import {Events as ResizerWidgetEvents, SimpleResizerWidget} from './ResizerWidget.js';
 import {ToolbarButton} from './Toolbar.js';
 import {Widget} from './Widget.js';
-import {Events as ZoomManagerEvents} from './ZoomManager.js';
+import {Events as ZoomManagerEvents, ZoomManager} from './ZoomManager.js';
 
 /**
  * @unrestricted
@@ -73,7 +75,7 @@ export class SplitWidget extends Widget {
     this._constraintsInDip = !!constraintsInDip;
     this._resizeStartSizeDIP = 0;
     // Note: go via self.Common for globally-namespaced singletons.
-    this._setting = settingName ? self.self.Common.settings.createSetting(settingName, {}) : null;
+    this._setting = settingName ? Common.Settings.Settings.instance().createSetting(settingName, {}) : null;
 
     this._totalSizeCSS = 0;
     this._totalSizeOtherDimensionCSS = 0;
@@ -335,7 +337,7 @@ export class SplitWidget extends Widget {
 
   /**
    * @param {?Widget} sideToShow
-   * @param {?UI.Widget} sideToHide
+   * @param {?Widget} sideToHide
    * @param {!Element} shadowToShow
    * @param {!Element} shadowToHide
    * @param {boolean=} animate
@@ -453,7 +455,7 @@ export class SplitWidget extends Widget {
    * @param {number} size
    */
   setSidebarSize(size) {
-    const sizeDIP = self.UI.zoomManager.cssToDIP(size);
+    const sizeDIP = ZoomManager.instance().cssToDIP(size);
     this._savedSidebarSizeDIP = sizeDIP;
     this._saveSetting();
     this._innerSetSidebarSizeDIP(sizeDIP, false, true);
@@ -464,7 +466,7 @@ export class SplitWidget extends Widget {
    */
   sidebarSize() {
     const sizeDIP = Math.max(0, this._sidebarSizeDIP);
-    return self.UI.zoomManager.dipToCSS(sizeDIP);
+    return ZoomManager.instance().dipToCSS(sizeDIP);
   }
 
   /**
@@ -477,7 +479,7 @@ export class SplitWidget extends Widget {
       this._totalSizeOtherDimensionCSS =
           this._isVertical ? this.contentElement.offsetHeight : this.contentElement.offsetWidth;
     }
-    return self.UI.zoomManager.cssToDIP(this._totalSizeCSS);
+    return ZoomManager.instance().cssToDIP(this._totalSizeCSS);
   }
 
   /**
@@ -487,7 +489,7 @@ export class SplitWidget extends Widget {
     this._showMode = showMode;
     this._saveShowModeToSettings();
     this._updateShowHideSidebarButton();
-    this.dispatchEventToListeners(SplitWidget.Events.ShowModeChanged, showMode);
+    this.dispatchEventToListeners(Events.ShowModeChanged, showMode);
     this.invalidateConstraints();
   }
 
@@ -516,7 +518,7 @@ export class SplitWidget extends Widget {
     this._removeAllLayoutProperties();
 
     // this._totalSizeDIP is available below since we successfully applied constraints.
-    const roundSizeCSS = Math.round(self.UI.zoomManager.dipToCSS(sizeDIP));
+    const roundSizeCSS = Math.round(ZoomManager.instance().dipToCSS(sizeDIP));
     const sidebarSizeValue = roundSizeCSS + 'px';
     const mainSizeValue = (this._totalSizeCSS - roundSizeCSS) + 'px';
     this._sidebarElement.style.flexBasis = sidebarSizeValue;
@@ -562,7 +564,7 @@ export class SplitWidget extends Widget {
     } else {
       // No need to recalculate this._sidebarSizeDIP and this._totalSizeDIP again.
       this.doResize();
-      this.dispatchEventToListeners(SplitWidget.Events.SidebarSizeChanged, this.sidebarSize());
+      this.dispatchEventToListeners(Events.SidebarSizeChanged, this.sidebarSize());
     }
   }
 
@@ -581,8 +583,8 @@ export class SplitWidget extends Widget {
       animatedMarginPropertyName = this._secondIsSidebar ? 'margin-bottom' : 'margin-top';
     }
 
-    const marginFrom = reverse ? '0' : '-' + self.UI.zoomManager.dipToCSS(this._sidebarSizeDIP) + 'px';
-    const marginTo = reverse ? '-' + self.UI.zoomManager.dipToCSS(this._sidebarSizeDIP) + 'px' : '0';
+    const marginFrom = reverse ? '0' : '-' + ZoomManager.instance().dipToCSS(this._sidebarSizeDIP) + 'px';
+    const marginTo = reverse ? '-' + ZoomManager.instance().dipToCSS(this._sidebarSizeDIP) + 'px' : '0';
 
     // This order of things is important.
     // 1. Resize main element early and force layout.
@@ -623,7 +625,7 @@ export class SplitWidget extends Widget {
         if (this._mainWidget) {
           this._mainWidget.doResize();
         }
-        this.dispatchEventToListeners(SplitWidget.Events.SidebarSizeChanged, this.sidebarSize());
+        this.dispatchEventToListeners(Events.SidebarSizeChanged, this.sidebarSize());
         return;
       }
       this._animationFrameHandle = this.contentElement.window().requestAnimationFrame(boundAnimationFrame);
@@ -655,7 +657,7 @@ export class SplitWidget extends Widget {
    */
   _applyConstraints(sidebarSize, userAction) {
     const totalSize = this._totalSizeDIP();
-    const zoomFactor = this._constraintsInDip ? 1 : self.UI.zoomManager.zoomFactor();
+    const zoomFactor = this._constraintsInDip ? 1 : ZoomManager.instance().zoomFactor();
 
     let constraints = this._sidebarWidget ? this._sidebarWidget.constraints() : new Constraints();
     let minSidebarSize = this.isVertical() ? constraints.minimum.width : constraints.minimum.height;
@@ -701,7 +703,7 @@ export class SplitWidget extends Widget {
     // Enough space for preferred.
     const totalPreferred = preferredMainSize + preferredSidebarSize;
     if (totalPreferred <= totalSize) {
-      return Number.constrain(sidebarSize, preferredSidebarSize, totalSize - preferredMainSize);
+      return Platform.NumberUtilities.clamp(sidebarSize, preferredSidebarSize, totalSize - preferredMainSize);
     }
 
     // Enough space for minimum.
@@ -709,7 +711,7 @@ export class SplitWidget extends Widget {
       const delta = totalPreferred - totalSize;
       const sidebarDelta = delta * preferredSidebarSize / totalPreferred;
       sidebarSize = preferredSidebarSize - sidebarDelta;
-      return Number.constrain(sidebarSize, minSidebarSize, totalSize - minMainSize);
+      return Platform.NumberUtilities.clamp(sidebarSize, minSidebarSize, totalSize - minMainSize);
     }
 
     // Not enough space even for minimum sizes.
@@ -721,14 +723,14 @@ export class SplitWidget extends Widget {
    */
   wasShown() {
     this._forceUpdateLayout();
-    self.UI.zoomManager.addEventListener(ZoomManagerEvents.ZoomChanged, this._onZoomChanged, this);
+    ZoomManager.instance().addEventListener(ZoomManagerEvents.ZoomChanged, this._onZoomChanged, this);
   }
 
   /**
    * @override
    */
   willHide() {
-    self.UI.zoomManager.removeEventListener(ZoomManagerEvents.ZoomChanged, this._onZoomChanged, this);
+    ZoomManager.instance().removeEventListener(ZoomManagerEvents.ZoomChanged, this._onZoomChanged, this);
   }
 
   /**
@@ -764,26 +766,25 @@ export class SplitWidget extends Widget {
       mainConstraints = mainConstraints.widthToMax(min).addWidth(1);  // 1 for splitter
       sidebarConstraints = sidebarConstraints.widthToMax(min);
       return mainConstraints.addWidth(sidebarConstraints).heightToMax(sidebarConstraints);
-    } else {
+    }
       mainConstraints = mainConstraints.heightToMax(min).addHeight(1);  // 1 for splitter
       sidebarConstraints = sidebarConstraints.heightToMax(min);
       return mainConstraints.widthToMax(sidebarConstraints).addHeight(sidebarConstraints);
-    }
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onResizeStart(event) {
     this._resizeStartSizeDIP = this._sidebarSizeDIP;
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onResizeUpdate(event) {
     const offset = event.data.currentPosition - event.data.startPosition;
-    const offsetDIP = self.UI.zoomManager.cssToDIP(offset);
+    const offsetDIP = ZoomManager.instance().cssToDIP(offset);
     const newSizeDIP =
         this._secondIsSidebar ? this._resizeStartSizeDIP - offsetDIP : this._resizeStartSizeDIP + offsetDIP;
     const constrainedSizeDIP = this._applyConstraints(newSizeDIP, true);
@@ -798,7 +799,7 @@ export class SplitWidget extends Widget {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onResizeEnd(event) {
     this._resizeStartSizeDIP = 0;
@@ -847,7 +848,7 @@ export class SplitWidget extends Widget {
   }
 
   /**
-   * @return {?SplitWidget.SettingForOrientation}
+   * @return {?SettingForOrientation}
    */
   _settingForOrientation() {
     const state = this._setting ? this._setting.get() : {};
@@ -924,7 +925,7 @@ export class SplitWidget extends Widget {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onZoomChanged(event) {
     this._forceUpdateLayout();
@@ -941,7 +942,7 @@ export class SplitWidget extends Widget {
     this._updateShowHideSidebarButton();
 
     /**
-     * @param {!Common.Event} event
+     * @param {!Common.EventTarget.EventTargetEvent} event
      * @this {SplitWidget}
      */
     function buttonClicked(event) {
@@ -990,3 +991,6 @@ export const Events = {
 };
 
 const MinPadding = 20;
+
+/** @typedef {{showMode: string, size: number}} */
+export let SettingForOrientation;

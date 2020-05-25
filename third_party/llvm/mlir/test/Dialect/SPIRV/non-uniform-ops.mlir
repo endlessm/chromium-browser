@@ -20,6 +20,14 @@ func @group_non_uniform_ballot(%predicate: i1) -> vector<4xi32> {
 
 // -----
 
+func @group_non_uniform_ballot(%predicate: i1) -> vector<4xsi32> {
+  // expected-error @+1 {{op result #0 must be vector of 8/16/32/64-bit signless/unsigned integer values of length 4, but got 'vector<4xsi32>'}}
+  %0 = spv.GroupNonUniformBallot "Workgroup" %predicate : vector<4xsi32>
+  return %0: vector<4xsi32>
+}
+
+// -----
+
 //===----------------------------------------------------------------------===//
 // spv.GroupNonUniformElect
 //===----------------------------------------------------------------------===//
@@ -77,6 +85,32 @@ func @group_non_uniform_fmul_clustered_reduce(%val: vector<2xf32>) -> vector<2xf
   // CHECK: %{{.+}} = spv.GroupNonUniformFMul "Workgroup" "ClusteredReduce" %{{.+}} cluster_size(%{{.+}}) : vector<2xf32>
   %0 = spv.GroupNonUniformFMul "Workgroup" "ClusteredReduce" %val cluster_size(%four) : vector<2xf32>
   return %0: vector<2xf32>
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// spv.GroupNonUniformFMax
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: @group_non_uniform_fmax_reduce
+func @group_non_uniform_fmax_reduce(%val: f32) -> f32 {
+  // CHECK: %{{.+}} = spv.GroupNonUniformFMax "Workgroup" "Reduce" %{{.+}} : f32
+  %0 = spv.GroupNonUniformFMax "Workgroup" "Reduce" %val : f32
+  return %0: f32
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// spv.GroupNonUniformFMin
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: @group_non_uniform_fmin_reduce
+func @group_non_uniform_fmin_reduce(%val: f32) -> f32 {
+  // CHECK: %{{.+}} = spv.GroupNonUniformFMin "Workgroup" "Reduce" %{{.+}} : f32
+  %0 = spv.GroupNonUniformFMin "Workgroup" "Reduce" %val : f32
+  return %0: f32
 }
 
 // -----
@@ -152,4 +186,56 @@ func @group_non_uniform_imul_clustered_reduce(%val: vector<2xi32>) -> vector<2xi
   // CHECK: %{{.+}} = spv.GroupNonUniformIMul "Workgroup" "ClusteredReduce" %{{.+}} cluster_size(%{{.+}}) : vector<2xi32>
   %0 = spv.GroupNonUniformIMul "Workgroup" "ClusteredReduce" %val cluster_size(%four) : vector<2xi32>
   return %0: vector<2xi32>
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// spv.GroupNonUniformSMax
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: @group_non_uniform_smax_reduce
+func @group_non_uniform_smax_reduce(%val: i32) -> i32 {
+  // CHECK: %{{.+}} = spv.GroupNonUniformSMax "Workgroup" "Reduce" %{{.+}} : i32
+  %0 = spv.GroupNonUniformSMax "Workgroup" "Reduce" %val : i32
+  return %0: i32
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// spv.GroupNonUniformSMin
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: @group_non_uniform_smin_reduce
+func @group_non_uniform_smin_reduce(%val: i32) -> i32 {
+  // CHECK: %{{.+}} = spv.GroupNonUniformSMin "Workgroup" "Reduce" %{{.+}} : i32
+  %0 = spv.GroupNonUniformSMin "Workgroup" "Reduce" %val : i32
+  return %0: i32
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// spv.GroupNonUniformUMax
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: @group_non_uniform_umax_reduce
+func @group_non_uniform_umax_reduce(%val: i32) -> i32 {
+  // CHECK: %{{.+}} = spv.GroupNonUniformUMax "Workgroup" "Reduce" %{{.+}} : i32
+  %0 = spv.GroupNonUniformUMax "Workgroup" "Reduce" %val : i32
+  return %0: i32
+}
+
+// -----
+
+//===----------------------------------------------------------------------===//
+// spv.GroupNonUniformUMin
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: @group_non_uniform_umin_reduce
+func @group_non_uniform_umin_reduce(%val: i32) -> i32 {
+  // CHECK: %{{.+}} = spv.GroupNonUniformUMin "Workgroup" "Reduce" %{{.+}} : i32
+  %0 = spv.GroupNonUniformUMin "Workgroup" "Reduce" %val : i32
+  return %0: i32
 }

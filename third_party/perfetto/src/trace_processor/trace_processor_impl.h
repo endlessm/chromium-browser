@@ -77,8 +77,14 @@ class TraceProcessorImpl : public TraceProcessor,
 
   template <typename Table>
   void RegisterDbTable(const Table& table) {
-    DbSqliteTable::RegisterTable(*db_, query_cache_.get(), &table,
-                                 table.table_name());
+    DbSqliteTable::RegisterTable(*db_, query_cache_.get(), Table::Schema(),
+                                 &table, table.table_name());
+  }
+
+  void RegisterDynamicTable(
+      std::unique_ptr<DbSqliteTable::DynamicTableGenerator> generator) {
+    DbSqliteTable::RegisterTable(*db_, query_cache_.get(),
+                                 std::move(generator));
   }
 
   ScopedDb db_;

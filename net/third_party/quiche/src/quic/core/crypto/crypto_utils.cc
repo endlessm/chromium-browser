@@ -115,8 +115,8 @@ void CryptoUtils::SetKeyAndIV(const EVP_MD* prf,
 
 namespace {
 
-static_assert(kQuicIetfDraftVersion == 25, "Salts do not match draft version");
 // Salt from https://tools.ietf.org/html/draft-ietf-quic-tls-25#section-5.2
+// and https://tools.ietf.org/html/draft-ietf-quic-tls-27#section-5.2
 const uint8_t kDraft25InitialSalt[] = {0xc3, 0xee, 0xf7, 0x12, 0xc7, 0x2e, 0xbb,
                                        0x5a, 0x11, 0xa7, 0xd2, 0x43, 0x2b, 0xb4,
                                        0x63, 0x65, 0xbe, 0xf9, 0xf5, 0x02};
@@ -135,7 +135,7 @@ const uint8_t kT050Salt[] = {0x7f, 0xf5, 0x79, 0xe5, 0xac, 0xd0, 0x72,
 
 const uint8_t* InitialSaltForVersion(const ParsedQuicVersion& version,
                                      size_t* out_len) {
-  static_assert(QUICHE_ARRAYSIZE(kSupportedTransportVersions) == 6u,
+  static_assert(SupportedVersions().size() == 8u,
                 "Supported versions out of sync with initial encryption salts");
   switch (version.handshake_protocol) {
     case PROTOCOL_QUIC_CRYPTO:
@@ -159,9 +159,11 @@ const uint8_t* InitialSaltForVersion(const ParsedQuicVersion& version,
         case QUIC_VERSION_50:
           *out_len = QUICHE_ARRAYSIZE(kT050Salt);
           return kT050Salt;
-        case QUIC_VERSION_99:
-          // ParsedQuicVersion(PROTOCOL_TLS1_3, QUIC_VERSION_99) uses the IETF
-          // salt.
+        case QUIC_VERSION_IETF_DRAFT_25:
+          *out_len = QUICHE_ARRAYSIZE(kDraft25InitialSalt);
+          return kDraft25InitialSalt;
+        case QUIC_VERSION_IETF_DRAFT_27:
+          // draft-27 uses the same salt as draft-25.
           *out_len = QUICHE_ARRAYSIZE(kDraft25InitialSalt);
           return kDraft25InitialSalt;
         default:
@@ -180,7 +182,7 @@ const char kPreSharedKeyLabel[] = "QUIC PSK";
 
 // Retry Integrity Protection Keys and Nonces.
 // https://tools.ietf.org/html/draft-ietf-quic-tls-25#section-5.8
-static_assert(kQuicIetfDraftVersion == 25, "Keys do not match draft version");
+// https://tools.ietf.org/html/draft-ietf-quic-tls-27#section-5.8
 const uint8_t kDraft25RetryIntegrityKey[] = {0x4d, 0x32, 0xec, 0xdb, 0x2a, 0x21,
                                              0x33, 0xc8, 0x41, 0xe4, 0x04, 0x3d,
                                              0xf2, 0x7d, 0x44, 0x30};
@@ -213,7 +215,10 @@ bool RetryIntegrityKeysForVersion(const ParsedQuicVersion& version,
         QUICHE_ARRAYSIZE(kT050RetryIntegrityNonce));
     return true;
   }
-  if (version == ParsedQuicVersion(PROTOCOL_TLS1_3, QUIC_VERSION_99)) {
+  if (version ==
+          ParsedQuicVersion(PROTOCOL_TLS1_3, QUIC_VERSION_IETF_DRAFT_25) ||
+      version ==
+          ParsedQuicVersion(PROTOCOL_TLS1_3, QUIC_VERSION_IETF_DRAFT_27)) {
     *key = quiche::QuicheStringPiece(
         reinterpret_cast<const char*>(kDraft25RetryIntegrityKey),
         QUICHE_ARRAYSIZE(kDraft25RetryIntegrityKey));
@@ -617,8 +622,9 @@ QuicErrorCode CryptoUtils::ValidateClientHelloVersion(
       if (client_version == CreateQuicVersionLabel(supported_versions[i])) {
         *error_details = quiche::QuicheStrCat(
             "Downgrade attack detected: ClientVersion[",
-            QuicVersionLabelToString(client_version), "] SupportedVersions(",
-            supported_versions.size(), ")[",
+            QuicVersionLabelToString(client_version), "] ConnectionVersion[",
+            ParsedQuicVersionToString(connection_version),
+            "] SupportedVersions(", supported_versions.size(), ")[",
             ParsedQuicVersionVectorToString(supported_versions, ",", 30), "]");
         return QUIC_VERSION_NEGOTIATION_MISMATCH;
       }

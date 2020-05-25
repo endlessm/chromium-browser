@@ -307,7 +307,7 @@ std::string InputSectionBase::getLocation(uint64_t offset) {
 
   // File->sourceFile contains STT_FILE symbol that contains a
   // source file name. If it's missing, we use an object file name.
-  std::string srcFile = getFile<ELFT>()->sourceFile;
+  std::string srcFile = std::string(getFile<ELFT>()->sourceFile);
   if (srcFile.empty())
     srcFile = toString(file);
 
@@ -338,7 +338,7 @@ std::string InputSectionBase::getSrcMsg(const Symbol &sym, uint64_t offset) {
 //
 //   path/to/foo.o:(function bar) in archive path/to/bar.a
 std::string InputSectionBase::getObjMsg(uint64_t off) {
-  std::string filename = file->getName();
+  std::string filename = std::string(file->getName());
 
   std::string archive;
   if (!file->archiveName.empty())
@@ -438,12 +438,12 @@ void InputSection::copyRelocations(uint8_t *buf, ArrayRef<RelTy> rels) {
       // hopefully creates a frame that is ignored at runtime. Also, don't warn
       // on .gcc_except_table and debug sections.
       //
-      // See the comment in maybeReportUndefined for PPC64 .toc .
+      // See the comment in maybeReportUndefined for PPC32 .got2 and PPC64 .toc
       auto *d = dyn_cast<Defined>(&sym);
       if (!d) {
-        if (!sec->name.startswith(".debug") &&
-            !sec->name.startswith(".zdebug") && sec->name != ".eh_frame" &&
-            sec->name != ".gcc_except_table" && sec->name != ".toc") {
+        if (!isDebugSection(*sec) && sec->name != ".eh_frame" &&
+            sec->name != ".gcc_except_table" && sec->name != ".got2" &&
+            sec->name != ".toc") {
           uint32_t secIdx = cast<Undefined>(sym).discardedSecIdx;
           Elf_Shdr_Impl<ELFT> sec =
               CHECK(file->getObj().sections(), file)[secIdx];
@@ -465,7 +465,7 @@ void InputSection::copyRelocations(uint8_t *buf, ArrayRef<RelTy> rels) {
       if (!RelTy::IsRela)
         addend = target->getImplicitAddend(bufLoc, type);
 
-      if (config->emachine == EM_MIPS && config->relocatable &&
+      if (config->emachine == EM_MIPS &&
           target->getRelExpr(type, sym, bufLoc) == R_MIPS_GOTREL) {
         // Some MIPS relocations depend on "gp" value. By default,
         // this value has 0x7ff0 offset from a .got section. But
@@ -526,9 +526,14 @@ static uint32_t getARMUndefinedRelativeWeakVA(RelType type, uint32_t a,
   case R_ARM_MOVW_PREL_NC:
   case R_ARM_MOVT_PREL:
   case R_ARM_REL32:
+  case R_ARM_THM_ALU_PREL_11_0:
   case R_ARM_THM_MOVW_PREL_NC:
   case R_ARM_THM_MOVT_PREL:
+  case R_ARM_THM_PC12:
     return p + a;
+  // p + a is unrepresentable as negative immediates can't be encoded.
+  case R_ARM_THM_PC8:
+    return p;
   }
   llvm_unreachable("ARM pc-relative relocation expected\n");
 }
@@ -740,8 +745,12 @@ static uint64_t getRelocTargetVA(const InputFile *file, RelType type, int64_t a,
                               *hiRel->sym, hiRel->expr);
     return 0;
   }
-  case R_PC: {
+  case R_PC:
+  case R_ARM_PCA: {
     uint64_t dest;
+    if (expr == R_ARM_PCA)
+      // Some PC relative ARM (Thumb) relocations align down the place.
+      p = p & 0xfffffffc;
     if (sym.isUndefWeak()) {
       // On ARM and AArch64 a branch to an undefined weak resolves to the
       // next instruction, otherwise the place.
@@ -866,7 +875,7 @@ void InputSection::relocateNonAlloc(uint8_t *buf, ArrayRef<RelTy> rels) {
       std::string msg = getLocation<ELFT>(offset) +
                         ": has non-ABS relocation " + toString(type) +
                         " against symbol '" + toString(sym) + "'";
-      if (expr != R_PC) {
+      if (expr != R_PC && expr != R_ARM_PCA) {
         error(msg);
         return;
       }

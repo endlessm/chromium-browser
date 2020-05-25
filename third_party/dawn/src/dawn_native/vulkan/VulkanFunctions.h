@@ -84,32 +84,52 @@ namespace dawn_native { namespace vulkan {
         PFN_vkGetPhysicalDeviceSurfacePresentModesKHR GetPhysicalDeviceSurfacePresentModesKHR =
             nullptr;
 
-        // Core Vulkan 1.1 promoted extensions
+        // Core Vulkan 1.1 promoted extensions, set if either the core version or the extension is
+        // present.
 
         // VK_KHR_external_memory_capabilities
-        PFN_vkGetPhysicalDeviceExternalBufferPropertiesKHR
-            GetPhysicalDeviceExternalBufferPropertiesKHR = nullptr;
+        PFN_vkGetPhysicalDeviceExternalBufferProperties GetPhysicalDeviceExternalBufferProperties =
+            nullptr;
 
         // VK_KHR_external_semaphore_capabilities
-        PFN_vkGetPhysicalDeviceExternalSemaphorePropertiesKHR
-            GetPhysicalDeviceExternalSemaphorePropertiesKHR = nullptr;
+        PFN_vkGetPhysicalDeviceExternalSemaphoreProperties
+            GetPhysicalDeviceExternalSemaphoreProperties = nullptr;
 
         // VK_KHR_get_physical_device_properties2
-        PFN_vkGetPhysicalDeviceFeatures2KHR GetPhysicalDeviceFeatures2KHR = nullptr;
-        PFN_vkGetPhysicalDeviceProperties2KHR GetPhysicalDeviceProperties2KHR = nullptr;
-        PFN_vkGetPhysicalDeviceFormatProperties2KHR GetPhysicalDeviceFormatProperties2KHR = nullptr;
-        PFN_vkGetPhysicalDeviceImageFormatProperties2KHR
-            GetPhysicalDeviceImageFormatProperties2KHR = nullptr;
-        PFN_vkGetPhysicalDeviceQueueFamilyProperties2KHR
-            GetPhysicalDeviceQueueFamilyProperties2KHR = nullptr;
-        PFN_vkGetPhysicalDeviceMemoryProperties2KHR GetPhysicalDeviceMemoryProperties2KHR = nullptr;
-        PFN_vkGetPhysicalDeviceSparseImageFormatProperties2KHR
-            GetPhysicalDeviceSparseImageFormatProperties2KHR = nullptr;
+        PFN_vkGetPhysicalDeviceFeatures2 GetPhysicalDeviceFeatures2 = nullptr;
+        PFN_vkGetPhysicalDeviceProperties2 GetPhysicalDeviceProperties2 = nullptr;
+        PFN_vkGetPhysicalDeviceFormatProperties2 GetPhysicalDeviceFormatProperties2 = nullptr;
+        PFN_vkGetPhysicalDeviceImageFormatProperties2 GetPhysicalDeviceImageFormatProperties2 =
+            nullptr;
+        PFN_vkGetPhysicalDeviceQueueFamilyProperties2 GetPhysicalDeviceQueueFamilyProperties2 =
+            nullptr;
+        PFN_vkGetPhysicalDeviceMemoryProperties2 GetPhysicalDeviceMemoryProperties2 = nullptr;
+        PFN_vkGetPhysicalDeviceSparseImageFormatProperties2
+            GetPhysicalDeviceSparseImageFormatProperties2 = nullptr;
 
-#ifdef VK_USE_PLATFORM_FUCHSIA
+#if defined(VK_USE_PLATFORM_FUCHSIA)
         // FUCHSIA_image_pipe_surface
         PFN_vkCreateImagePipeSurfaceFUCHSIA CreateImagePipeSurfaceFUCHSIA = nullptr;
-#endif
+#endif  // defined(VK_USE_PLATFORM_FUCHSIA)
+
+#if defined(DAWN_ENABLE_BACKEND_METAL)
+        // EXT_metal_surface
+        PFN_vkCreateMetalSurfaceEXT CreateMetalSurfaceEXT = nullptr;
+#endif  // defined(DAWN_ENABLE_BACKEND_METAL)
+
+#if defined(DAWN_PLATFORM_WINDOWS)
+        // KHR_win32_surface
+        PFN_vkCreateWin32SurfaceKHR CreateWin32SurfaceKHR = nullptr;
+        PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR
+            GetPhysicalDeviceWin32PresentationSupportKHR = nullptr;
+#endif  // defined(DAWN_PLATFORM_WINDOWS)
+
+#if defined(DAWN_USE_X11)
+        // KHR_xlib_surface
+        PFN_vkCreateXlibSurfaceKHR CreateXlibSurfaceKHR = nullptr;
+        PFN_vkGetPhysicalDeviceXlibPresentationSupportKHR
+            GetPhysicalDeviceXlibPresentationSupportKHR = nullptr;
+#endif  // defined(DAWN_USE_X11)
 
         // ---------- Device procs
 

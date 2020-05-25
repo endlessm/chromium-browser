@@ -1180,7 +1180,13 @@ void LayoutBlockFlow::LayoutRunsAndFloatsInRange(
           resolver, bidi_runs, end_of_line, override,
           layout_state.GetLineInfo().PreviousLineBrokeCleanly(),
           is_new_uba_paragraph);
-      DCHECK(resolver.GetPosition() == end_of_line);
+      // |resolver| to be at |end_of_line| is critical, because
+      // |SetLineBreakInfo| below copies |end_of_line.current_| to
+      // |RootInlineBox::line_break_obj_|. When the object is destroyed,
+      // |RootInlineBox::ChildRemoved()| clears |line_break_obj_| to avoid
+      // use-after-free, but we cannot find the correct |RootInlineBox| if
+      // |end_of_line| is actually not in this |RootInlineBox|.
+      CHECK(resolver.GetPosition() == end_of_line);
 
       BidiRun* trailing_space_run = resolver.TrailingSpaceRun();
 
@@ -1691,7 +1697,7 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
           // did change or is going to change size. However, this is our only
           // opportunity to make sure that it gets its min/max widths
           // calculated.
-          child->SetPreferredLogicalWidthsDirty();
+          child->SetIntrinsicLogicalWidthsDirty();
         }
 
         // Case (1) and (2). Inline replaced and inline flow elements.
@@ -1700,13 +1706,14 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
                                     child_min, child_max);
           inline_min += child_min;
           inline_max += child_max;
-          child->ClearPreferredLogicalWidthsDirty();
+          child->ClearIntrinsicLogicalWidthsDirty();
         } else {
           AdjustMarginForInlineReplaced(child, child_min, child_max);
         }
       }
 
-      if (!child->IsLayoutInline() && !child->IsText()) {
+      if (!child->IsLayoutInline() && !child->IsText() &&
+          !child->IsOutsideListMarker()) {
         // Case (2). Inline replaced elements and floats.
         // Go ahead and terminate the current line as far as
         // minwidth is concerned.
@@ -1894,7 +1901,7 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
       }
 
       // Ignore spaces after a list marker.
-      if (child->IsListMarkerIncludingNG())
+      if (child->IsListMarkerIncludingNGOutside())
         strip_front_spaces = true;
     } else {
       min_logical_width = std::max(min_logical_width, inline_min);
@@ -2385,7 +2392,6 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
       IsRootEditableElement(*GetNode()) && StyleRef().IsLeftToRightDirection())
     end_padding = LayoutUnit(1);
 
-  bool added_inline_children = false;
   if (const NGPaintFragment* paint_fragment = PaintFragment()) {
     for (const NGPaintFragment* child : paint_fragment->Children()) {
       if (child->HasSelfPaintingLayer())
@@ -2396,7 +2402,6 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
         AddContentsVisualOverflow(child_rect);
       }
     }
-    added_inline_children = true;
   } else if (const NGPhysicalBoxFragment* fragment = CurrentFragment()) {
     if (const NGFragmentItems* items = fragment->Items()) {
       for (NGInlineCursor cursor(*items); cursor; cursor.MoveToNextSibling()) {
@@ -2410,12 +2415,10 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
           AddContentsVisualOverflow(child_rect);
         }
       }
-      if (fragment->HasFloatingDescendantsForPaint())
-        AddVisualOverflowFromFloats(*fragment);
-      added_inline_children = true;
+    } else if (fragment->HasFloatingDescendantsForPaint()) {
+      AddVisualOverflowFromFloats(*fragment);
     }
-  }
-  if (!added_inline_children) {
+  } else {
     for (RootInlineBox* curr = FirstRootBox(); curr;
          curr = curr->NextRootBox()) {
       LayoutRect visual_overflow =
@@ -2783,14 +2786,6 @@ void LayoutBlockFlow::SetShouldDoFullPaintInvalidationForFirstLine() {
 
   if (RootInlineBox* first_root_box = FirstRootBox())
     first_root_box->SetShouldDoFullPaintInvalidationForFirstLine();
-}
-
-bool LayoutBlockFlow::PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const {
-  // LayoutBlockFlow is in charge of paint invalidation of the first line.
-  if (FirstLineBox())
-    return false;
-
-  return LayoutBlock::PaintedOutputOfObjectHasNoEffectRegardlessOfSize();
 }
 
 }  // namespace blink

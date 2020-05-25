@@ -8,14 +8,13 @@
 #ifndef SkottieEffects_DEFINED
 #define SkottieEffects_DEFINED
 
-#include "modules/skottie/src/Animator.h"
 #include "modules/skottie/src/SkottiePriv.h"
+#include "modules/skottie/src/animator/Animator.h"
 
 class SkMaskFilter;
 
 namespace sksg {
-class MaskFilter;
-class MaskFilterEffect;
+class MaskShaderEffect;
 } // namespace sksg
 
 namespace skottie {
@@ -27,6 +26,9 @@ public:
 
     sk_sp<sksg::RenderNode> attachEffects(const skjson::ArrayValue&,
                                           sk_sp<sksg::RenderNode>) const;
+
+    sk_sp<sksg::RenderNode> attachStyles(const skjson::ArrayValue&,
+                                         sk_sp<sksg::RenderNode>) const;
 
     static const skjson::Value& GetPropValue(const skjson::ArrayValue& jprops, size_t prop_index);
 
@@ -46,11 +48,13 @@ private:
                                                        sk_sp<sksg::RenderNode>) const;
     sk_sp<sksg::RenderNode> attachInvertEffect        (const skjson::ArrayValue&,
                                                        sk_sp<sksg::RenderNode>) const;
-    sk_sp<sksg::RenderNode> attachLevelsEffect        (const skjson::ArrayValue&,
+    sk_sp<sksg::RenderNode> attachEasyLevelsEffect    (const skjson::ArrayValue&,
                                                        sk_sp<sksg::RenderNode>) const;
     sk_sp<sksg::RenderNode> attachLinearWipeEffect    (const skjson::ArrayValue&,
                                                        sk_sp<sksg::RenderNode>) const;
     sk_sp<sksg::RenderNode> attachMotionTileEffect    (const skjson::ArrayValue&,
+                                                       sk_sp<sksg::RenderNode>) const;
+    sk_sp<sksg::RenderNode> attachProLevelsEffect     (const skjson::ArrayValue&,
                                                        sk_sp<sksg::RenderNode>) const;
     sk_sp<sksg::RenderNode> attachRadialWipeEffect    (const skjson::ArrayValue&,
                                                        sk_sp<sksg::RenderNode>) const;
@@ -65,36 +69,60 @@ private:
     sk_sp<sksg::RenderNode> attachShiftChannelsEffect (const skjson::ArrayValue&,
                                                        sk_sp<sksg::RenderNode>) const;
 
+    sk_sp<sksg::RenderNode> attachDropShadowStyle(const skjson::ObjectValue&,
+                                                  sk_sp<sksg::RenderNode>) const;
+
     EffectBuilderT findBuilder(const skjson::ObjectValue&) const;
 
     const AnimationBuilder*   fBuilder;
     const SkSize              fLayerSize;
 };
 
+// Syntactic sugar/helper.
+class EffectBinder {
+public:
+    EffectBinder(const skjson::ArrayValue& jprops,
+                 const AnimationBuilder& abuilder,
+                 AnimatablePropertyContainer* acontainer)
+        : fProps(jprops)
+        , fBuilder(abuilder)
+        , fContainer(acontainer) {}
+
+    template <typename T>
+    const EffectBinder& bind(size_t prop_index, T& value) const {
+        fContainer->bind(fBuilder, EffectBuilder::GetPropValue(fProps, prop_index), value);
+
+        return *this;
+    }
+
+private:
+    const skjson::ArrayValue&    fProps;
+    const AnimationBuilder&      fBuilder;
+    AnimatablePropertyContainer* fContainer;
+};
 
 /**
- * Base class for mask-filter-related effects.
+ * Base class for mask-shader-related effects.
  */
-class MaskFilterEffectBase : public AnimatablePropertyContainer {
+class MaskShaderEffectBase : public AnimatablePropertyContainer {
 public:
-    const sk_sp<sksg::MaskFilterEffect>& node() const { return fMaskEffectNode; }
+    const sk_sp<sksg::MaskShaderEffect>& node() const { return fMaskEffectNode; }
 
 protected:
-    MaskFilterEffectBase(sk_sp<sksg::RenderNode>, const SkSize&);
+    MaskShaderEffectBase(sk_sp<sksg::RenderNode>, const SkSize&);
 
     const SkSize& layerSize() const { return  fLayerSize; }
 
     struct MaskInfo {
-        sk_sp<SkMaskFilter> fMask;
-        bool                fVisible;
+        sk_sp<SkShader> fMaskShader;
+        bool            fVisible;
     };
     virtual MaskInfo onMakeMask() const = 0;
 
 private:
     void onSync() final;
 
-    const sk_sp<sksg::MaskFilter>       fMaskNode;
-    const sk_sp<sksg::MaskFilterEffect> fMaskEffectNode;
+    const sk_sp<sksg::MaskShaderEffect> fMaskEffectNode;
     const SkSize                        fLayerSize;
 };
 

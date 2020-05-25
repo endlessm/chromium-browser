@@ -221,18 +221,7 @@ class BootstrapStage(PatchChangesStage):
 
   def HandleApplyFailures(self, failures):
     """Handle the case where patches fail to apply."""
-    if self._run.config.pre_cq:
-      # Let the PreCQSync stage handle this failure. The PreCQSync stage will
-      # comment on CLs with the appropriate message when they fail to apply.
-      #
-      # WARNING: For manifest patches, the Pre-CQ attempts to apply external
-      # patches to the internal manifest, and this means we may flag a conflict
-      # here even if the patch applies cleanly. TODO(davidjames): Fix this.
-      logging.PrintBuildbotStepWarnings()
-      logging.error('Failed applying patches: %s\n'.join(
-          str(x) for x in failures))
-    else:
-      PatchChangesStage.HandleApplyFailures(self, failures)
+    PatchChangesStage.HandleApplyFailures(self, failures)
 
   def _PerformStageInTempDir(self):
     # The plan for the builders is to use master branch to bootstrap other
@@ -246,22 +235,29 @@ class BootstrapStage(PatchChangesStage):
     # Filter all requested patches for the branch.
     branch_pool = self.patch_pool.FilterBranch(filter_branch)
 
-    # Checkout the new version of chromite, and patch it.
-    chromite_dir = os.path.join(self.tempdir, 'chromite')
-    reference_repo = os.path.join(constants.CHROMITE_DIR, '.git')
-    git.Clone(chromite_dir, constants.CHROMITE_URL, reference=reference_repo)
-    git.RunGit(chromite_dir, ['checkout', filter_branch])
+    def _clone_and_patch(subdir, project):
+      """Clone & patch a project."""
+      url = '%s/%s' % (constants.EXTERNAL_GOB_URL, project)
+      checkout = os.path.join(self.tempdir, subdir)
+      reference_repo = os.path.join(constants.SOURCE_ROOT, subdir, '.git')
+      git.Clone(checkout, url, reference=reference_repo)
+      git.RunGit(checkout, ['checkout', filter_branch])
 
-    chromite_pool = branch_pool.Filter(project=constants.CHROMITE_PROJECT)
-    if chromite_pool:
-      patches = patch_series.PatchSeries.WorkOnSingleRepo(
-          chromite_dir, filter_branch)
-      self._ApplyPatchSeries(patches, chromite_pool)
+      pool = branch_pool.Filter(project=project)
+      if pool:
+        patches = patch_series.PatchSeries.WorkOnSingleRepo(
+            checkout, filter_branch)
+        self._ApplyPatchSeries(patches, pool)
+
+    # Checkout the new version of infra_virtualenv, and patch it.
+    _clone_and_patch('infra_virtualenv', 'chromiumos/infra_virtualenv')
+    # Checkout the new version of chromite, and patch it.
+    _clone_and_patch('chromite', constants.CHROMITE_PROJECT)
 
     # Re-exec into new instance of cbuildbot, with proper command line args.
     cbuildbot_path = constants.PATH_TO_CBUILDBOT
     if not os.path.exists(os.path.join(self.tempdir, cbuildbot_path)):
-      cbuildbot_path = 'chromite/cbuildbot/cbuildbot'
+      cbuildbot_path = 'chromite/bin/cbuildbot'
     cmd = self.FilterArgsForTargetCbuildbot(self.tempdir, cbuildbot_path,
                                             self._run.options)
 

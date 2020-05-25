@@ -60,15 +60,6 @@ bool QuicDataReader::ReadUFloat16(uint64_t* result) {
 
 bool QuicDataReader::ReadConnectionId(QuicConnectionId* connection_id,
                                       uint8_t length) {
-  if (!GetQuicRestartFlag(quic_allow_very_long_connection_ids)) {
-    if (length > kQuicMaxConnectionIdAllVersionsLength) {
-      QUIC_BUG << "Attempted to read connection ID with length too high "
-               << static_cast<int>(length);
-      return false;
-    }
-  } else {
-    QUIC_RESTART_FLAG_COUNT_N(quic_allow_very_long_connection_ids, 1, 5);
-  }
   if (length == 0) {
     connection_id->set_length(0);
     return true;
@@ -90,13 +81,6 @@ bool QuicDataReader::ReadLengthPrefixedConnectionId(
   uint8_t connection_id_length;
   if (!ReadUInt8(&connection_id_length)) {
     return false;
-  }
-  if (!GetQuicRestartFlag(quic_allow_very_long_connection_ids)) {
-    if (connection_id_length > kQuicMaxConnectionIdAllVersionsLength) {
-      return false;
-    }
-  } else {
-    QUIC_RESTART_FLAG_COUNT_N(quic_allow_very_long_connection_ids, 2, 5);
   }
   return ReadConnectionId(connection_id, connection_id_length);
 }
@@ -181,18 +165,13 @@ bool QuicDataReader::ReadVarInt62(uint64_t* result) {
   return false;
 }
 
-bool QuicDataReader::ReadVarIntU32(uint32_t* result) {
-  uint64_t temp_uint64;
-  // TODO(fkastenholz): We should disambiguate read-errors from
-  // value errors.
-  if (!this->ReadVarInt62(&temp_uint64)) {
+bool QuicDataReader::ReadStringPieceVarInt62(
+    quiche::QuicheStringPiece* result) {
+  uint64_t result_length;
+  if (!ReadVarInt62(&result_length)) {
     return false;
   }
-  if (temp_uint64 > kMaxQuicStreamId) {
-    return false;
-  }
-  *result = static_cast<uint32_t>(temp_uint64);
-  return true;
+  return ReadStringPiece(result, result_length);
 }
 
 #undef ENDPOINT  // undef for jumbo builds

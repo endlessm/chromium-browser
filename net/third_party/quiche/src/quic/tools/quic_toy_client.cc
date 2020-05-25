@@ -184,21 +184,29 @@ int QuicToyClient::SendRequestsAndPrintResponses(
 
   quic::ParsedQuicVersionVector versions = quic::CurrentSupportedVersions();
 
-  std::string quic_version_string = GetQuicFlag(FLAGS_quic_version);
   if (GetQuicFlag(FLAGS_quic_ietf_draft)) {
     quic::QuicVersionInitializeSupportForIetfDraft();
-    versions = {{quic::PROTOCOL_TLS1_3, quic::QUIC_VERSION_99}};
-    quic::QuicEnableVersion(versions[0]);
-
-  } else if (!quic_version_string.empty()) {
-    quic::ParsedQuicVersion parsed_quic_version =
-        quic::ParseQuicVersionString(quic_version_string);
-    if (parsed_quic_version.transport_version ==
-        quic::QUIC_VERSION_UNSUPPORTED) {
-      return 1;
+    versions = {};
+    for (const ParsedQuicVersion& version : AllSupportedVersions()) {
+      if (version.HasIetfQuicFrames() &&
+          version.handshake_protocol == quic::PROTOCOL_TLS1_3) {
+        versions.push_back(version);
+      }
     }
-    versions = {parsed_quic_version};
-    quic::QuicEnableVersion(parsed_quic_version);
+  }
+
+  std::string quic_version_string = GetQuicFlag(FLAGS_quic_version);
+  if (!quic_version_string.empty()) {
+    versions = quic::ParseQuicVersionVectorString(quic_version_string);
+  }
+
+  if (versions.empty()) {
+    std::cerr << "No known version selected." << std::endl;
+    return 1;
+  }
+
+  for (const quic::ParsedQuicVersion& version : versions) {
+    quic::QuicEnableVersion(version);
   }
 
   if (GetQuicFlag(FLAGS_force_version_negotiation)) {
@@ -234,15 +242,15 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   if (!client->Connect()) {
     quic::QuicErrorCode error = client->session()->error();
     if (error == quic::QUIC_INVALID_VERSION) {
-      std::cerr << "Server talks QUIC, but none of the versions supported by "
-                << "this client: " << ParsedQuicVersionVectorToString(versions)
-                << std::endl;
+      std::cerr << "Failed to negotiate version with " << host << ":" << port
+                << ". " << client->session()->error_details() << std::endl;
       // 0: No error.
       // 20: Failed to connect due to QUIC_INVALID_VERSION.
       return GetQuicFlag(FLAGS_version_mismatch_ok) ? 0 : 20;
     }
-    std::cerr << "Failed to connect to " << host << ":" << port
-              << ". Error: " << quic::QuicErrorCodeToString(error) << std::endl;
+    std::cerr << "Failed to connect to " << host << ":" << port << ". "
+              << quic::QuicErrorCodeToString(error) << " "
+              << client->session()->error_details() << std::endl;
     return 1;
   }
   std::cerr << "Connected to " << host << ":" << port << std::endl;

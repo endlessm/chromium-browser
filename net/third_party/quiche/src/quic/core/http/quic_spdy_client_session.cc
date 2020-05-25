@@ -110,6 +110,14 @@ int QuicSpdyClientSession::GetNumSentClientHellos() const {
   return crypto_stream_->num_sent_client_hellos();
 }
 
+bool QuicSpdyClientSession::EarlyDataAccepted() const {
+  return crypto_stream_->EarlyDataAccepted();
+}
+
+bool QuicSpdyClientSession::ReceivedInchoateReject() const {
+  return crypto_stream_->ReceivedInchoateReject();
+}
+
 int QuicSpdyClientSession::GetNumReceivedServerConfigUpdates() const {
   return crypto_stream_->num_scup_messages_received();
 }
@@ -127,9 +135,19 @@ bool QuicSpdyClientSession::ShouldCreateIncomingStream(QuicStreamId id) {
                     << "Already received goaway.";
     return false;
   }
-  if (QuicUtils::IsClientInitiatedStreamId(transport_version(), id) ||
-      (VersionHasIetfQuicFrames(transport_version()) &&
-       QuicUtils::IsBidirectionalStreamId(id))) {
+
+  if (GetQuicReloadableFlag(quic_create_incoming_stream_bug)) {
+    if (QuicUtils::IsClientInitiatedStreamId(transport_version(), id)) {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_create_incoming_stream_bug, 1, 2);
+      QUIC_BUG << "ShouldCreateIncomingStream called with client initiated "
+                  "stream ID.";
+      return false;
+    } else {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_create_incoming_stream_bug, 2, 2);
+    }
+  }
+
+  if (QuicUtils::IsClientInitiatedStreamId(transport_version(), id)) {
     QUIC_LOG(WARNING) << "Received invalid push stream id " << id;
     connection()->CloseConnection(
         QUIC_INVALID_STREAM_ID,
@@ -137,6 +155,16 @@ bool QuicSpdyClientSession::ShouldCreateIncomingStream(QuicStreamId id) {
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
     return false;
   }
+
+  if (VersionHasIetfQuicFrames(transport_version()) &&
+      QuicUtils::IsBidirectionalStreamId(id)) {
+    connection()->CloseConnection(
+        QUIC_HTTP_SERVER_INITIATED_BIDIRECTIONAL_STREAM,
+        "Server created bidirectional stream.",
+        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    return false;
+  }
+
   return true;
 }
 

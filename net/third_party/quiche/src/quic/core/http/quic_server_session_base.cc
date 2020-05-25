@@ -22,7 +22,7 @@ QuicServerSessionBase::QuicServerSessionBase(
     const ParsedQuicVersionVector& supported_versions,
     QuicConnection* connection,
     Visitor* visitor,
-    QuicCryptoServerStream::Helper* helper,
+    QuicCryptoServerStreamBase::Helper* helper,
     const QuicCryptoServerConfig* crypto_config,
     QuicCompressedCertsCache* compressed_certs_cache)
     : QuicSpdySession(connection, visitor, config, supported_versions),
@@ -199,6 +199,17 @@ bool QuicServerSessionBase::ShouldCreateIncomingStream(QuicStreamId id) {
   if (!connection()->connected()) {
     QUIC_BUG << "ShouldCreateIncomingStream called when disconnected";
     return false;
+  }
+
+  if (GetQuicReloadableFlag(quic_create_incoming_stream_bug)) {
+    if (QuicUtils::IsServerInitiatedStreamId(transport_version(), id)) {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_create_incoming_stream_bug, 1, 2);
+      QUIC_BUG << "ShouldCreateIncomingStream called with server initiated "
+                  "stream ID.";
+      return false;
+    } else {
+      QUIC_RELOADABLE_FLAG_COUNT_N(quic_create_incoming_stream_bug, 2, 2);
+    }
   }
 
   if (QuicUtils::IsServerInitiatedStreamId(transport_version(), id)) {

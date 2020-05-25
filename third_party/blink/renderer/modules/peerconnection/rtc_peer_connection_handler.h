@@ -90,7 +90,9 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   RTCPeerConnectionHandler(
       RTCPeerConnectionHandlerClient* client,
       blink::PeerConnectionDependencyFactory* dependency_factory,
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      bool force_encoded_audio_insertable_streams,
+      bool force_encoded_video_insertable_streams);
   ~RTCPeerConnectionHandler() override;
 
   // Initialize method only used for unit test.
@@ -105,6 +107,9 @@ class MODULES_EXPORT RTCPeerConnectionHandler
                       server_configuration,
                   const MediaConstraints& options,
                   WebLocalFrame* web_frame) override;
+
+  void Stop() override;
+  void StopAndUnregister() override;
 
   Vector<std::unique_ptr<RTCRtpTransceiverPlatform>> CreateOffer(
       RTCSessionDescriptionRequest* request,
@@ -160,7 +165,6 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   scoped_refptr<webrtc::DataChannelInterface> CreateDataChannel(
       const String& label,
       const webrtc::DataChannelInit& init) override;
-  void Stop() override;
   webrtc::PeerConnectionInterface* NativePeerConnection() override;
   void RunSynchronousOnceClosureOnSignalingThread(
       CrossThreadOnceClosure closure,
@@ -196,6 +200,14 @@ class MODULES_EXPORT RTCPeerConnectionHandler
 
   // WebRTC event log fragments sent back from PeerConnection land here.
   void OnWebRtcEventLogWrite(const WTF::Vector<uint8_t>& output);
+
+  bool force_encoded_audio_insertable_streams() {
+    return force_encoded_audio_insertable_streams_;
+  }
+
+  bool force_encoded_video_insertable_streams() {
+    return force_encoded_video_insertable_streams_;
+  }
 
  protected:
   webrtc::PeerConnectionInterface* native_peer_connection() {
@@ -339,14 +351,18 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   // first call fails.
   bool initialize_called_;
 
-  // |client_| is a weak pointer to the blink object (blink::RTCPeerConnection)
+  // |client_| is a raw pointer to the blink object (blink::RTCPeerConnection)
   // that owns this object.
-  // It is valid for the lifetime of this object.
-  RTCPeerConnectionHandlerClient* const client_;
+  // It is valid for the lifetime of this object, but is cleared when
+  // StopAndUnregister() is called, in order to make sure it doesn't
+  // interfere with garbage collection of the owner object.
+  RTCPeerConnectionHandlerClient* client_;
   // True if this PeerConnection has been closed.
   // After the PeerConnection has been closed, this object may no longer
   // forward callbacks to blink.
   bool is_closed_;
+  // True if StopAndUnregister has been called.
+  bool is_unregistered_;
 
   // Transition from kHaveLocalOffer to kHaveRemoteOffer indicates implicit
   // rollback in which case we need to also make visiting of kStable observable.
@@ -403,6 +419,8 @@ class MODULES_EXPORT RTCPeerConnectionHandler
   // used when constructing the PeerConnection carry over when
   // SetConfiguration is called.
   webrtc::PeerConnectionInterface::RTCConfiguration configuration_;
+  bool force_encoded_audio_insertable_streams_;
+  bool force_encoded_video_insertable_streams_;
 
   // Record info about the first SessionDescription from the local and
   // remote side to record UMA stats once both are set.  We only check

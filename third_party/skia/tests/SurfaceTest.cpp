@@ -453,7 +453,6 @@ static void test_copy_on_write(skiatest::Reporter* reporter, SkSurface* surface)
     EXPECT_COPY_ON_WRITE(drawPath(testPath, testPaint))
     EXPECT_COPY_ON_WRITE(drawBitmap(testBitmap, 0, 0))
     EXPECT_COPY_ON_WRITE(drawBitmapRect(testBitmap, testRect, nullptr))
-    EXPECT_COPY_ON_WRITE(drawBitmapNine(testBitmap, testIRect, testRect, nullptr))
     EXPECT_COPY_ON_WRITE(drawString(testText, 0, 1, SkFont(), testPaint))
 }
 DEF_TEST(SurfaceCopyOnWrite, reporter) {
@@ -510,13 +509,19 @@ static void test_crbug263329(skiatest::Reporter* reporter,
     // be recycling a texture that is held by an existing image.
     canvas2->clear(5);
     sk_sp<SkImage> image4(surface2->makeImageSnapshot());
-    REPORTER_ASSERT(reporter, as_IB(image4)->getTexture() != as_IB(image3)->getTexture());
+
+    SkImage_GpuBase* gpuImage1 = static_cast<SkImage_GpuBase*>(as_IB(image1));
+    SkImage_GpuBase* gpuImage2 = static_cast<SkImage_GpuBase*>(as_IB(image2));
+    SkImage_GpuBase* gpuImage3 = static_cast<SkImage_GpuBase*>(as_IB(image3));
+    SkImage_GpuBase* gpuImage4 = static_cast<SkImage_GpuBase*>(as_IB(image4));
+
+    REPORTER_ASSERT(reporter, gpuImage4->getTexture() != gpuImage3->getTexture());
     // The following assertion checks crbug.com/263329
-    REPORTER_ASSERT(reporter, as_IB(image4)->getTexture() != as_IB(image2)->getTexture());
-    REPORTER_ASSERT(reporter, as_IB(image4)->getTexture() != as_IB(image1)->getTexture());
-    REPORTER_ASSERT(reporter, as_IB(image3)->getTexture() != as_IB(image2)->getTexture());
-    REPORTER_ASSERT(reporter, as_IB(image3)->getTexture() != as_IB(image1)->getTexture());
-    REPORTER_ASSERT(reporter, as_IB(image2)->getTexture() != as_IB(image1)->getTexture());
+    REPORTER_ASSERT(reporter, gpuImage4->getTexture() != gpuImage2->getTexture());
+    REPORTER_ASSERT(reporter, gpuImage4->getTexture() != gpuImage1->getTexture());
+    REPORTER_ASSERT(reporter, gpuImage3->getTexture() != gpuImage2->getTexture());
+    REPORTER_ASSERT(reporter, gpuImage3->getTexture() != gpuImage1->getTexture());
+    REPORTER_ASSERT(reporter, gpuImage2->getTexture() != gpuImage1->getTexture());
 }
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SurfaceCRBug263329_Gpu, reporter, ctxInfo) {
     for (auto& surface_func : { &create_gpu_surface, &create_gpu_scratch_surface }) {
@@ -782,7 +787,7 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SurfaceClear_Gpu, reporter, ctxInfo) {
     auto makeImageSurfaceContext = [context](SkSurface* surface) {
         sk_sp<SkImage> i(surface->makeImageSnapshot());
         SkImage_Gpu* gpuImage = (SkImage_Gpu*)as_IB(i);
-        return GrSurfaceContext::Make(context, gpuImage->asSurfaceProxyViewRef(context),
+        return GrSurfaceContext::Make(context, *gpuImage->view(context),
                                       SkColorTypeToGrColorType(i->colorType()), kPremul_SkAlphaType,
                                       gpuImage->refColorSpace());
     };

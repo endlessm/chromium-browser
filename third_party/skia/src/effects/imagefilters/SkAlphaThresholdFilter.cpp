@@ -45,9 +45,9 @@ protected:
     sk_sp<SkSpecialImage> onFilterImage(const Context&, SkIPoint* offset) const override;
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrTextureProxy> createMaskTexture(GrRecordingContext*,
-                                            const SkMatrix&,
-                                            const SkIRect& bounds) const;
+    GrSurfaceProxyView createMaskTexture(GrRecordingContext*,
+                                         const SkMatrix&,
+                                         const SkIRect& bounds) const;
 #endif
 
 private:
@@ -67,8 +67,8 @@ sk_sp<SkImageFilter> SkAlphaThresholdFilter::Make(const SkRegion& region, SkScal
                                                   SkScalar outerThreshold,
                                                   sk_sp<SkImageFilter> input,
                                                   const SkImageFilter::CropRect* cropRect) {
-    innerThreshold = SkScalarPin(innerThreshold, 0.f, 1.f);
-    outerThreshold = SkScalarPin(outerThreshold, 0.f, 1.f);
+    innerThreshold = SkTPin(innerThreshold, 0.f, 1.f);
+    outerThreshold = SkTPin(outerThreshold, 0.f, 1.f);
     if (!SkScalarIsFinite(innerThreshold) || !SkScalarIsFinite(outerThreshold)) {
         return nullptr;
     }
@@ -100,13 +100,13 @@ void SkAlphaThresholdFilterImpl::flatten(SkWriteBuffer& buffer) const {
 }
 
 #if SK_SUPPORT_GPU
-sk_sp<GrTextureProxy> SkAlphaThresholdFilterImpl::createMaskTexture(GrRecordingContext* context,
-                                                                    const SkMatrix& inMatrix,
-                                                                    const SkIRect& bounds) const {
+GrSurfaceProxyView SkAlphaThresholdFilterImpl::createMaskTexture(GrRecordingContext* context,
+                                                                 const SkMatrix& inMatrix,
+                                                                 const SkIRect& bounds) const {
     auto rtContext = GrRenderTargetContext::MakeWithFallback(
             context, GrColorType::kAlpha_8, nullptr, SkBackingFit::kApprox, bounds.size());
     if (!rtContext) {
-        return nullptr;
+        return {};
     }
 
     SkRegion::Iterator iter(fRegion);
@@ -125,7 +125,7 @@ sk_sp<GrTextureProxy> SkAlphaThresholdFilterImpl::createMaskTexture(GrRecordingC
         iter.next();
     }
 
-    return rtContext->asTextureProxyRef();
+    return rtContext->readSurfaceView();
 }
 #endif
 
@@ -149,7 +149,7 @@ sk_sp<SkSpecialImage> SkAlphaThresholdFilterImpl::onFilterImage(const Context& c
     if (ctx.gpuBacked()) {
         auto context = ctx.getContext();
 
-        GrSurfaceProxyView inputView = (input->asSurfaceProxyViewRef(context));
+        GrSurfaceProxyView inputView = (input->view(context));
         SkASSERT(inputView.asTextureProxy());
         const GrProtected isProtected = inputView.proxy()->isProtected();
 
@@ -161,13 +161,13 @@ sk_sp<SkSpecialImage> SkAlphaThresholdFilterImpl::onFilterImage(const Context& c
         SkMatrix matrix(ctx.ctm());
         matrix.postTranslate(SkIntToScalar(-offset->fX), SkIntToScalar(-offset->fY));
 
-        sk_sp<GrTextureProxy> maskProxy(this->createMaskTexture(context, matrix, bounds));
-        if (!maskProxy) {
+        GrSurfaceProxyView maskView = this->createMaskTexture(context, matrix, bounds);
+        if (!maskView) {
             return nullptr;
         }
 
         auto textureFP = GrTextureEffect::Make(
-                inputView.detachProxy(), input->alphaType(),
+                std::move(inputView), input->alphaType(),
                 SkMatrix::MakeTrans(input->subset().x(), input->subset().y()));
         textureFP = GrColorSpaceXformEffect::Make(std::move(textureFP), input->getColorSpace(),
                                                   input->alphaType(), ctx.colorSpace());
@@ -175,10 +175,8 @@ sk_sp<SkSpecialImage> SkAlphaThresholdFilterImpl::onFilterImage(const Context& c
             return nullptr;
         }
 
-        auto thresholdFP = GrAlphaThresholdFragmentProcessor::Make(std::move(maskProxy),
-                                                                   fInnerThreshold,
-                                                                   fOuterThreshold,
-                                                                   bounds);
+        auto thresholdFP = GrAlphaThresholdFragmentProcessor::Make(
+                std::move(maskView), fInnerThreshold, fOuterThreshold, bounds);
         if (!thresholdFP) {
             return nullptr;
         }

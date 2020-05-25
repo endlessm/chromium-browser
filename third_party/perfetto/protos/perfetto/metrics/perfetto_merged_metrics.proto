@@ -166,6 +166,10 @@ message AndroidIonMetric {
     optional double avg_size_bytes = 2;
     optional double min_size_bytes = 3;
     optional double max_size_bytes = 4;
+
+    // Total allocation size.
+    // Essentially the sum of positive allocs (-> new buffers).
+    optional double total_alloc_size_bytes = 5;
   }
 
   repeated Buffer buffer = 1;
@@ -288,13 +292,17 @@ message AndroidStartupMetric {
     optional int64 interruptible_sleep_dur_ns = 4;
   }
 
-  message Slice { optional int64 dur_ns = 1; }
+  message Slice {
+    optional int64 dur_ns = 1;
+    optional double dur_ms = 2;
+  }
 
   // Timing information spanning the intent received by the
   // activity manager to the first frame drawn.
-  // All times and durations in nanoseconds (ns).
+  // Next id: 21.
   message ToFirstFrame {
     optional int64 dur_ns = 1;
+    optional double dur_ms = 17;
     optional TaskStateBreakdown main_thread_by_task_state = 2;
 
     // In this timespan, how many processes (apart from the main activity) were
@@ -319,9 +327,18 @@ message AndroidStartupMetric {
     // The actual duration of the process start (based on the zygote slice).
     optional Slice time_during_start_process = 11;
 
-    // The ratio between the cpu time of the activity process
-    // to all other processes in the system.
-    optional double other_process_to_activity_cpu_ratio = 12;
+    optional Slice to_post_fork = 18;
+    optional Slice to_activity_thread_main = 19;
+    optional Slice to_bind_application = 20;
+
+    optional Slice time_post_fork = 16;
+
+    // Deprecated was other_process_to_activity_cpu_ratio
+    reserved 12;
+
+    // Removed: was uint32 versions of to_post_fork, to_activity_thread_main and
+    // to_bind_application.
+    reserved 13, 14, 15;
   }
 
   // Next id: 7
@@ -345,6 +362,9 @@ message AndroidStartupMetric {
     optional uint32 activity_hosting_process_count = 6;
 
     optional ToFirstFrame to_first_frame = 5;
+
+    // Details about the process (uid, version, etc)
+    optional AndroidProcessMetadata process = 7;
   }
 
   repeated Startup startup = 1;
@@ -511,10 +531,17 @@ message AndroidPackageList {
 // Begin of protos/perfetto/metrics/android/unmapped_java_symbols.proto
 
 message UnmappedJavaSymbols {
+  message Field {
+    optional string field_name = 1;
+    optional string field_type_name = 2;
+  }
+
   message ProcessSymbols {
+    reserved 3;
+
     optional AndroidProcessMetadata process_metadata = 1;
     repeated string type_name = 2;
-    repeated string field_name = 3;
+    repeated Field field = 4;
   }
 
   repeated ProcessSymbols process_symbols = 1;
@@ -536,13 +563,47 @@ message UnsymbolizedFrames {
 
 // End of protos/perfetto/metrics/android/unsymbolized_frames.proto
 
+// Begin of protos/perfetto/metrics/android/java_heap_histogram.proto
+
+message JavaHeapHistogram {
+  message TypeCount {
+    optional string type_name = 1;
+    optional uint32 obj_count = 2;
+    optional uint32 reachable_obj_count = 3;
+  }
+
+  message Sample {
+    optional int64 ts = 1;
+    repeated TypeCount type_count = 2;
+  }
+
+  // Heap stats per process. One sample per dump (with continuous dump you can
+  // have more samples differentiated by ts).
+  message InstanceStats {
+    optional uint32 upid = 1;
+    optional AndroidProcessMetadata process = 2;
+    repeated Sample samples = 3;
+  }
+
+  repeated InstanceStats instance_stats = 1;
+}
+
+// End of protos/perfetto/metrics/android/java_heap_histogram.proto
+
 // Begin of protos/perfetto/metrics/android/java_heap_stats.proto
 
 message JavaHeapStats {
+  // Next id: 7
   message Sample {
     optional int64 ts = 1;
+    // Size of the Java heap in bytes
     optional int64 heap_size = 2;
+    optional int64 obj_count = 4;
+    // Size of the reachable objects in bytes.
     optional int64 reachable_heap_size = 3;
+    optional int64 reachable_obj_count = 5;
+    // Sum of anonymous RSS + swap pages in bytes.
+    optional int64 anon_rss_and_swap_size = 6;
   }
 
   // Heap stats per process. One sample per dump (can be > 1 if continuous
@@ -557,6 +618,44 @@ message JavaHeapStats {
 }
 
 // End of protos/perfetto/metrics/android/java_heap_stats.proto
+
+// Begin of protos/perfetto/metrics/android/display_metrics.proto
+
+message AndroidDisplayMetrics {
+  // Stat that reports the number of duplicate frames submitted
+  // to the display for rendering. That is frames that have the same
+  // pixels values but where still submitted. It is tracked based on
+  // comparing the MISR of the current frame vs previous frame.
+  optional uint32 total_duplicate_frames = 1;
+
+  // Stat reports whether there is any duplicate_frames tracked
+  optional uint32 duplicate_frames_logged = 2;
+}
+// End of protos/perfetto/metrics/android/display_metrics.proto
+
+// Begin of protos/perfetto/metrics/android/task_names.proto
+
+message AndroidTaskNames {
+  message Process {
+    optional int64 pid = 1;
+
+    // Process name.
+    optional string process_name = 2;
+
+    // Names of all threads for this process.
+    repeated string thread_name = 3;
+
+    // User id under which this process runs.
+    optional int64 uid = 4;
+
+    // Packages matching the process uid.
+    repeated string uid_package_name = 5;
+  }
+
+  repeated Process process = 1;
+}
+
+// End of protos/perfetto/metrics/android/task_names.proto
 
 // Begin of protos/perfetto/metrics/metrics.proto
 
@@ -578,7 +677,7 @@ message TraceMetadata {
 
 // Root message for all Perfetto-based metrics.
 //
-// Next id: 21
+// Next id: 24
 message TraceMetrics {
   reserved 4, 10, 13, 14;
 
@@ -624,6 +723,9 @@ message TraceMetrics {
   // If the trace contains a heap graph, output allocation statistics.
   optional JavaHeapStats java_heap_stats = 17;
 
+  // If the trace contains a heap graph, output histogram.
+  optional JavaHeapHistogram java_heap_histogram = 21;
+
   // Metrics used to find potential culprits of low-memory kills.
   optional AndroidLmkReasonMetric android_lmk_reason = 18;
 
@@ -631,6 +733,10 @@ message TraceMetrics {
   optional UnmappedJavaSymbols unmapped_java_symbols = 19;
 
   optional AndroidHwuiMetric android_hwui_metric = 20;
+
+  optional AndroidDisplayMetrics display_metrics = 22;
+
+  optional AndroidTaskNames android_task_names = 23;
 
   // Demo extensions.
   extensions 450 to 499;

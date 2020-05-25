@@ -199,25 +199,18 @@ DEF_TEST(ImageFilterCache_ImageBackedRaster, reporter) {
 }
 
 #include "include/gpu/GrContext.h"
-#include "include/gpu/GrTexture.h"
 #include "src/gpu/GrBitmapTextureMaker.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/GrResourceProvider.h"
 #include "src/gpu/GrSurfaceProxyPriv.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTextureProxy.h"
 
 static GrSurfaceProxyView create_proxy_view(GrRecordingContext* context) {
     SkBitmap srcBM = create_bm();
-    GrBitmapTextureMaker maker(context, srcBM);
-    auto [proxy, grCT] = maker.refTextureProxy(GrMipMapped::kNo);
-
-    if (!proxy) {
-        return {};
-    }
-    GrSurfaceOrigin origin = proxy->origin();
-    GrSwizzle swizzle = proxy->textureSwizzle();
-    return {std::move(proxy), origin, swizzle};
+    GrBitmapTextureMaker maker(context, srcBM, GrImageTexGenPolicy::kNew_Uncached_Budgeted);
+    return maker.view(GrMipMapped::kNo);
 }
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ImageFilterCache_ImageBackedGPU, reporter, ctxInfo) {

@@ -24,7 +24,6 @@ samples_sources = [
   "$_samplecode/SampleAtlas.cpp",
   "$_samplecode/SampleBackdropBounds.cpp",
   "$_samplecode/SampleBitmapRect.cpp",
-  "$_samplecode/SampleCCPRGeometry.cpp",
   "$_samplecode/SampleCamera.cpp",
   "$_samplecode/SampleChart.cpp",
   "$_samplecode/SampleChineseFling.cpp",
@@ -56,8 +55,6 @@ samples_sources = [
   "$_samplecode/SampleLayerMask.cpp",
   "$_samplecode/SampleLayers.cpp",
   "$_samplecode/SampleLCD.cpp",
-  "$_samplecode/SampleLighting.cpp",
-  "$_samplecode/SampleLitAtlas.cpp",
   "$_samplecode/SampleManyRects.cpp",
   "$_samplecode/SampleMegaStroke.cpp",
   "$_samplecode/SampleMixer.cpp",
@@ -97,3 +94,5 @@ samples_sources = [
   "$_samplecode/SampleXfermodesBlur.cpp",
   "$_samplecode/vertexdump.cpp",
 ]
+
+samples_sources_ccpr = [ "$_samplecode/SampleCCPRGeometry.cpp" ]

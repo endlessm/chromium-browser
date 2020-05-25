@@ -33,12 +33,6 @@ namespace sk_gpu_test {
 
 bool LoadVkLibraryAndGetProcAddrFuncs(PFN_vkGetInstanceProcAddr* instProc,
                                       PFN_vkGetDeviceProcAddr* devProc) {
-#ifdef SK_MOLTENVK
-    // MoltenVK is a statically linked framework, so there is no Vulkan library to load.
-    *instProc = &vkGetInstanceProcAddr;
-    *devProc = &vkGetDeviceProcAddr;
-    return true;
-#else
     static void* vkLib = nullptr;
     static PFN_vkGetInstanceProcAddr localInstProc = nullptr;
     static PFN_vkGetDeviceProcAddr localDevProc = nullptr;
@@ -58,7 +52,6 @@ bool LoadVkLibraryAndGetProcAddrFuncs(PFN_vkGetInstanceProcAddr* instProc,
     *instProc = localInstProc;
     *devProc = localDevProc;
     return true;
-#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -447,7 +440,7 @@ bool CreateVkBackendContext(GrVkGetProc getProc,
         apiVersion = VK_MAKE_VERSION(1, 1, 0);
     }
 
-    instanceVersion = SkTMin(instanceVersion, apiVersion);
+    instanceVersion = std::min(instanceVersion, apiVersion);
 
     VkPhysicalDevice physDev;
     VkDevice device;
@@ -563,7 +556,7 @@ bool CreateVkBackendContext(GrVkGetProc getProc,
 
     VkPhysicalDeviceProperties physDeviceProperties;
     grVkGetPhysicalDeviceProperties(physDev, &physDeviceProperties);
-    int physDeviceVersion = SkTMin(physDeviceProperties.apiVersion, apiVersion);
+    int physDeviceVersion = std::min(physDeviceProperties.apiVersion, apiVersion);
 
     if (isProtected && physDeviceVersion < VK_MAKE_VERSION(1, 1, 0)) {
         SkDebugf("protected requires vk physical device version 1.1\n");

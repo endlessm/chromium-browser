@@ -41,9 +41,7 @@ class QuicSpdyStream::HttpDecoderVisitor : public HttpDecoder::Visitor {
   HttpDecoderVisitor& operator=(const HttpDecoderVisitor&) = delete;
 
   void OnError(HttpDecoder* decoder) override {
-    stream_->session()->connection()->CloseConnection(
-        decoder->error(), decoder->error_detail(),
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    stream_->OnUnrecoverableError(decoder->error(), decoder->error_detail());
   }
 
   bool OnCancelPushFrame(const CancelPushFrame& /*frame*/) override {
@@ -71,14 +69,9 @@ class QuicSpdyStream::HttpDecoderVisitor : public HttpDecoder::Visitor {
     return false;
   }
 
-  bool OnDuplicatePushFrame(const DuplicatePushFrame& /*frame*/) override {
-    // TODO(b/137554973): Consume frame.
-    CloseConnectionOnWrongFrame("Duplicate Push");
-    return false;
-  }
-
-  bool OnDataFrameStart(QuicByteCount header_length) override {
-    return stream_->OnDataFrameStart(header_length);
+  bool OnDataFrameStart(QuicByteCount header_length,
+                        QuicByteCount payload_length) override {
+    return stream_->OnDataFrameStart(header_length, payload_length);
   }
 
   bool OnDataFramePayload(quiche::QuicheStringPiece payload) override {
@@ -88,12 +81,13 @@ class QuicSpdyStream::HttpDecoderVisitor : public HttpDecoder::Visitor {
 
   bool OnDataFrameEnd() override { return stream_->OnDataFrameEnd(); }
 
-  bool OnHeadersFrameStart(QuicByteCount header_length) override {
+  bool OnHeadersFrameStart(QuicByteCount header_length,
+                           QuicByteCount payload_length) override {
     if (!VersionUsesHttp3(stream_->transport_version())) {
       CloseConnectionOnWrongFrame("Headers");
       return false;
     }
-    return stream_->OnHeadersFrameStart(header_length);
+    return stream_->OnHeadersFrameStart(header_length, payload_length);
   }
 
   bool OnHeadersFramePayload(quiche::QuicheStringPiece payload) override {
@@ -122,12 +116,14 @@ class QuicSpdyStream::HttpDecoderVisitor : public HttpDecoder::Visitor {
   }
 
   bool OnPushPromiseFramePushId(PushId push_id,
-                                QuicByteCount push_id_length) override {
+                                QuicByteCount push_id_length,
+                                QuicByteCount header_block_length) override {
     if (!VersionUsesHttp3(stream_->transport_version())) {
       CloseConnectionOnWrongFrame("Push Promise");
       return false;
     }
-    return stream_->OnPushPromiseFramePushId(push_id, push_id_length);
+    return stream_->OnPushPromiseFramePushId(push_id, push_id_length,
+                                             header_block_length);
   }
 
   bool OnPushPromiseFramePayload(quiche::QuicheStringPiece payload) override {
@@ -158,8 +154,10 @@ class QuicSpdyStream::HttpDecoderVisitor : public HttpDecoder::Visitor {
   }
 
   bool OnUnknownFrameStart(uint64_t frame_type,
-                           QuicByteCount header_length) override {
-    return stream_->OnUnknownFrameStart(frame_type, header_length);
+                           QuicByteCount header_length,
+                           QuicByteCount payload_length) override {
+    return stream_->OnUnknownFrameStart(frame_type, header_length,
+                                        payload_length);
   }
 
   bool OnUnknownFramePayload(quiche::QuicheStringPiece payload) override {
@@ -170,10 +168,9 @@ class QuicSpdyStream::HttpDecoderVisitor : public HttpDecoder::Visitor {
 
  private:
   void CloseConnectionOnWrongFrame(quiche::QuicheStringPiece frame_type) {
-    stream_->session()->connection()->CloseConnection(
+    stream_->OnUnrecoverableError(
         QUIC_HTTP_FRAME_UNEXPECTED_ON_SPDY_STREAM,
-        quiche::QuicheStrCat(frame_type, " frame received on data stream"),
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+        quiche::QuicheStrCat(frame_type, " frame received on data stream"));
   }
 
   QuicSpdyStream* stream_;
@@ -198,12 +195,12 @@ QuicSpdyStream::QuicSpdyStream(QuicStreamId id,
       trailers_payload_length_(0),
       trailers_decompressed_(false),
       trailers_consumed_(false),
-      priority_sent_(false),
       http_decoder_visitor_(std::make_unique<HttpDecoderVisitor>(this)),
       decoder_(http_decoder_visitor_.get()),
       sequencer_offset_(0),
       is_decoder_processing_input_(false),
-      ack_listener_(nullptr) {
+      ack_listener_(nullptr),
+      last_sent_urgency_(kDefaultUrgency) {
   DCHECK_EQ(session()->connection(), spdy_session->connection());
   DCHECK_EQ(transport_version(), spdy_session->transport_version());
   DCHECK(!QuicUtils::IsCryptoStreamId(transport_version(), id));
@@ -235,12 +232,12 @@ QuicSpdyStream::QuicSpdyStream(PendingStream* pending,
       trailers_payload_length_(0),
       trailers_decompressed_(false),
       trailers_consumed_(false),
-      priority_sent_(false),
       http_decoder_visitor_(std::make_unique<HttpDecoderVisitor>(this)),
       decoder_(http_decoder_visitor_.get()),
       sequencer_offset_(sequencer()->NumBytesConsumed()),
       is_decoder_processing_input_(false),
-      ack_listener_(nullptr) {
+      ack_listener_(nullptr),
+      last_sent_urgency_(kDefaultUrgency) {
   DCHECK_EQ(session()->connection(), spdy_session->connection());
   DCHECK_EQ(transport_version(), spdy_session->transport_version());
   DCHECK(!QuicUtils::IsCryptoStreamId(transport_version(), id()));
@@ -280,6 +277,7 @@ size_t QuicSpdyStream::WriteHeaders(
     WriteOrBufferData(quiche::QuicheStringPiece(writer.data(), writer.length()),
                       false, nullptr);
   }
+
   size_t bytes_written =
       WriteHeadersImpl(std::move(header_block), fin, std::move(ack_listener));
   if (!VersionUsesHttp3(transport_version()) && fin) {
@@ -300,6 +298,10 @@ void QuicSpdyStream::WriteOrBufferBody(quiche::QuicheStringPiece data,
     return;
   }
   QuicConnection::ScopedPacketFlusher flusher(spdy_session_->connection());
+
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnDataFrameSent(id(), data.length());
+  }
 
   // Write frame header.
   std::unique_ptr<char[]> buffer;
@@ -412,6 +414,11 @@ QuicConsumedData QuicSpdyStream::WriteBodySlices(QuicMemSliceSpan slices,
       HttpEncoder::SerializeDataFrameHeader(slices.total_length(), &buffer);
   if (!CanWriteNewDataAfterData(header_length)) {
     return {0, false};
+  }
+
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnDataFrameSent(id(),
+                                                    slices.total_length());
   }
 
   QuicConnection::ScopedPacketFlusher flusher(spdy_session_->connection());
@@ -554,13 +561,23 @@ void QuicSpdyStream::OnHeadersDecoded(QuicHeaderList headers,
       /* is_sent = */ false, headers.compressed_header_bytes(),
       headers.uncompressed_header_bytes());
 
-  if (spdy_session_->promised_stream_id() ==
-      QuicUtils::GetInvalidStreamId(session()->transport_version())) {
+  const QuicStreamId promised_stream_id = spdy_session()->promised_stream_id();
+  Http3DebugVisitor* const debug_visitor = spdy_session()->debug_visitor();
+  if (promised_stream_id ==
+      QuicUtils::GetInvalidStreamId(transport_version())) {
+    if (debug_visitor) {
+      debug_visitor->OnHeadersDecoded(id(), headers);
+    }
+
     const QuicByteCount frame_length = headers_decompressed_
                                            ? trailers_payload_length_
                                            : headers_payload_length_;
     OnStreamHeaderList(/* fin = */ false, frame_length, headers);
   } else {
+    if (debug_visitor) {
+      debug_visitor->OnPushPromiseDecoded(id(), promised_stream_id, headers);
+    }
+
     spdy_session_->OnHeaderList(headers);
   }
 
@@ -578,8 +595,28 @@ void QuicSpdyStream::OnHeaderDecodingError(
   std::string connection_close_error_message = quiche::QuicheStrCat(
       "Error decoding ", headers_decompressed_ ? "trailers" : "headers",
       " on stream ", id(), ": ", error_message);
-  CloseConnectionWithDetails(QUIC_QPACK_DECOMPRESSION_FAILED,
-                             connection_close_error_message);
+  OnUnrecoverableError(QUIC_QPACK_DECOMPRESSION_FAILED,
+                       connection_close_error_message);
+}
+
+void QuicSpdyStream::MaybeSendPriorityUpdateFrame() {
+  if (!VersionUsesHttp3(transport_version()) ||
+      session()->perspective() != Perspective::IS_CLIENT) {
+    return;
+  }
+
+  // Value between 0 and 7, inclusive.  Lower value means higher priority.
+  int urgency = precedence().spdy3_priority();
+  if (last_sent_urgency_ == urgency) {
+    return;
+  }
+  last_sent_urgency_ = urgency;
+
+  PriorityUpdateFrame priority_update;
+  priority_update.prioritized_element_type = REQUEST_STREAM;
+  priority_update.prioritized_element_id = id();
+  priority_update.priority_field_value = quiche::QuicheStrCat("u=", urgency);
+  spdy_session_->WriteHttp3PriorityUpdate(priority_update);
 }
 
 void QuicSpdyStream::OnHeadersTooLarge() {
@@ -588,8 +625,8 @@ void QuicSpdyStream::OnHeadersTooLarge() {
     // or with H3_REQUEST_REJECTED (if server).
     std::string error_message =
         quiche::QuicheStrCat("Too large headers received on stream ", id());
-    CloseConnectionWithDetails(QUIC_HEADERS_STREAM_DATA_DECOMPRESS_FAILURE,
-                               error_message);
+    OnUnrecoverableError(QUIC_HEADERS_STREAM_DATA_DECOMPRESS_FAILURE,
+                         error_message);
   } else {
     Reset(QUIC_HEADERS_TOO_LARGE);
   }
@@ -628,9 +665,8 @@ void QuicSpdyStream::OnPromiseHeaderList(
     const QuicHeaderList& /*header_list */) {
   // To be overridden in QuicSpdyClientStream.  Not supported on
   // server side.
-  session()->connection()->CloseConnection(
-      QUIC_INVALID_HEADERS_STREAM_DATA, "Promise headers received by server",
-      ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+  stream_delegate()->OnStreamError(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                   "Promise headers received by server");
 }
 
 void QuicSpdyStream::OnTrailingHeadersComplete(
@@ -642,18 +678,16 @@ void QuicSpdyStream::OnTrailingHeadersComplete(
   if (!VersionUsesHttp3(transport_version()) && fin_received()) {
     QUIC_DLOG(INFO) << ENDPOINT
                     << "Received Trailers after FIN, on stream: " << id();
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Trailers after fin",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    stream_delegate()->OnStreamError(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                     "Trailers after fin");
     return;
   }
 
   if (!VersionUsesHttp3(transport_version()) && !fin) {
     QUIC_DLOG(INFO) << ENDPOINT
                     << "Trailers must have FIN set, on stream: " << id();
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Fin missing from trailers",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    stream_delegate()->OnStreamError(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                     "Fin missing from trailers");
     return;
   }
 
@@ -664,9 +698,8 @@ void QuicSpdyStream::OnTrailingHeadersComplete(
                                           &received_trailers_)) {
     QUIC_DLOG(ERROR) << ENDPOINT << "Trailers for stream " << id()
                      << " are malformed.";
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Trailers are malformed",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    stream_delegate()->OnStreamError(QUIC_INVALID_HEADERS_STREAM_DATA,
+                                     "Trailers are malformed");
     return;
   }
   trailers_decompressed_ = true;
@@ -833,13 +866,18 @@ void QuicSpdyStream::ClearSession() {
   spdy_session_ = nullptr;
 }
 
-bool QuicSpdyStream::OnDataFrameStart(QuicByteCount header_length) {
+bool QuicSpdyStream::OnDataFrameStart(QuicByteCount header_length,
+                                      QuicByteCount payload_length) {
   DCHECK(VersionUsesHttp3(transport_version()));
+
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnDataFrameReceived(id(), payload_length);
+  }
+
   if (!headers_decompressed_ || trailers_decompressed_) {
-    // TODO(b/124216424): Change error code to HTTP_UNEXPECTED_FRAME.
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Unexpected DATA frame received.",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    stream_delegate()->OnStreamError(
+        QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM,
+        "Unexpected DATA frame received.");
     return false;
   }
 
@@ -858,6 +896,7 @@ bool QuicSpdyStream::OnDataFramePayload(quiche::QuicheStringPiece payload) {
 
 bool QuicSpdyStream::OnDataFrameEnd() {
   DCHECK(VersionUsesHttp3(transport_version()));
+
   QUIC_DVLOG(1) << ENDPOINT
                 << "Reaches the end of a data frame. Total bytes received are "
                 << body_manager_.total_body_bytes_received();
@@ -868,9 +907,11 @@ bool QuicSpdyStream::OnStreamFrameAcked(QuicStreamOffset offset,
                                         QuicByteCount data_length,
                                         bool fin_acked,
                                         QuicTime::Delta ack_delay_time,
+                                        QuicTime receive_timestamp,
                                         QuicByteCount* newly_acked_length) {
   const bool new_data_acked = QuicStream::OnStreamFrameAcked(
-      offset, data_length, fin_acked, ack_delay_time, newly_acked_length);
+      offset, data_length, fin_acked, ack_delay_time, receive_timestamp,
+      newly_acked_length);
 
   const QuicByteCount newly_acked_header_length =
       GetNumFrameHeadersInInterval(offset, data_length);
@@ -911,16 +952,20 @@ QuicByteCount QuicSpdyStream::GetNumFrameHeadersInInterval(
   return header_acked_length;
 }
 
-bool QuicSpdyStream::OnHeadersFrameStart(QuicByteCount header_length) {
+bool QuicSpdyStream::OnHeadersFrameStart(QuicByteCount header_length,
+                                         QuicByteCount payload_length) {
   DCHECK(VersionUsesHttp3(transport_version()));
   DCHECK(!qpack_decoded_headers_accumulator_);
 
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnHeadersFrameReceived(id(),
+                                                           payload_length);
+  }
+
   if (trailers_decompressed_) {
-    // TODO(b/124216424): Change error code to HTTP_UNEXPECTED_FRAME.
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA,
-        "HEADERS frame received after trailing HEADERS.",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    stream_delegate()->OnStreamError(
+        QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM,
+        "HEADERS frame received after trailing HEADERS.");
     return false;
   }
 
@@ -938,6 +983,9 @@ bool QuicSpdyStream::OnHeadersFramePayload(quiche::QuicheStringPiece payload) {
   DCHECK(VersionUsesHttp3(transport_version()));
   DCHECK(qpack_decoded_headers_accumulator_);
 
+  // TODO(b/152518220): Save |payload_length| argument of OnHeadersFrameStart()
+  // instead of accumulating payload length in |headers_payload_length_| or
+  // |trailers_payload_length_|.
   if (headers_decompressed_) {
     trailers_payload_length_ += payload.length();
   } else {
@@ -980,10 +1028,17 @@ bool QuicSpdyStream::OnPushPromiseFrameStart(QuicByteCount header_length) {
   return true;
 }
 
-bool QuicSpdyStream::OnPushPromiseFramePushId(PushId push_id,
-                                              QuicByteCount push_id_length) {
+bool QuicSpdyStream::OnPushPromiseFramePushId(
+    PushId push_id,
+    QuicByteCount push_id_length,
+    QuicByteCount header_block_length) {
   DCHECK(VersionUsesHttp3(transport_version()));
   DCHECK(!qpack_decoded_headers_accumulator_);
+
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnPushPromiseFrameReceived(
+        id(), push_id, header_block_length);
+  }
 
   // TODO(renjietang): Check max push id and handle errors.
   spdy_session_->OnPushPromise(id(), push_id);
@@ -1010,7 +1065,13 @@ bool QuicSpdyStream::OnPushPromiseFrameEnd() {
 }
 
 bool QuicSpdyStream::OnUnknownFrameStart(uint64_t frame_type,
-                                         QuicByteCount header_length) {
+                                         QuicByteCount header_length,
+                                         QuicByteCount payload_length) {
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnUnknownFrameReceived(id(), frame_type,
+                                                           payload_length);
+  }
+
   // Ignore unknown frames, but consume frame header.
   QUIC_DVLOG(1) << ENDPOINT << "Discarding " << header_length
                 << " byte long frame header of frame of unknown type "
@@ -1041,22 +1102,15 @@ size_t QuicSpdyStream::WriteHeadersImpl(
         std::move(ack_listener));
   }
 
-  if (!priority_sent_) {
-    PriorityUpdateFrame priority_update;
-    priority_update.prioritized_element_type = REQUEST_STREAM;
-    priority_update.prioritized_element_id = id();
-    // Value between 0 and 7, inclusive.  Lower value means higher priority.
-    int urgency = precedence().spdy3_priority();
-    priority_update.priority_field_value = quiche::QuicheStrCat("u=", urgency);
-    spdy_session_->WriteHttp3PriorityUpdate(priority_update);
-    priority_sent_ = true;
-  }
-
   // Encode header list.
   QuicByteCount encoder_stream_sent_byte_count;
   std::string encoded_headers =
       spdy_session_->qpack_encoder()->EncodeHeaderList(
           id(), header_block, &encoder_stream_sent_byte_count);
+
+  if (spdy_session_->debug_visitor()) {
+    spdy_session_->debug_visitor()->OnHeadersFrameSent(id(), header_block);
+  }
 
   // Write HEADERS frame.
   std::unique_ptr<char[]> headers_frame_header;

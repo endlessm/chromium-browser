@@ -22,12 +22,11 @@ class IPAddress {
     kV6,
   };
 
+  static const IPAddress kV4LoopbackAddress;
+  static const IPAddress kV6LoopbackAddress;
+
   static constexpr size_t kV4Size = 4;
   static constexpr size_t kV6Size = 16;
-
-  // Parses a text representation of an IPv4 address (e.g. "192.168.0.1") or an
-  // IPv6 address (e.g. "abcd::1234") and puts the result into |address|.
-  static ErrorOr<IPAddress> Parse(const std::string& s);
 
   IPAddress();
 
@@ -61,6 +60,11 @@ class IPAddress {
 
   bool operator==(const IPAddress& o) const;
   bool operator!=(const IPAddress& o) const;
+
+  bool operator<(const IPAddress& other) const;
+  bool operator>(const IPAddress& other) const { return other < *this; }
+  bool operator<=(const IPAddress& other) const { return !(other < *this); }
+  bool operator>=(const IPAddress& other) const { return !(*this < other); }
   explicit operator bool() const;
 
   Version version() const { return version_; }
@@ -77,12 +81,11 @@ class IPAddress {
   // in order to avoid making multiple copies.
   const uint8_t* bytes() const { return bytes_.data(); }
 
+  // Parses a text representation of an IPv4 address (e.g. "192.168.0.1") or an
+  // IPv6 address (e.g. "abcd::1234").
+  static ErrorOr<IPAddress> Parse(const std::string& s);
+
  private:
-  static ErrorOr<IPAddress> ParseV4(const std::string& s);
-  static ErrorOr<IPAddress> ParseV6(const std::string& s);
-
-  friend class IPEndpointComparator;
-
   Version version_;
   std::array<uint8_t, 16> bytes_;
 };
@@ -93,14 +96,27 @@ struct IPEndpoint {
   uint16_t port = 0;
 
   explicit operator bool() const;
+
+  // Parses a text representation of an IPv4/IPv6 address and port (e.g.
+  // "192.168.0.1:8080" or "[abcd::1234]:8080").
+  static ErrorOr<IPEndpoint> Parse(const std::string& s);
+
+  std::string ToString() const;
 };
+
 bool operator==(const IPEndpoint& a, const IPEndpoint& b);
 bool operator!=(const IPEndpoint& a, const IPEndpoint& b);
 
-class IPEndpointComparator {
- public:
-  bool operator()(const IPEndpoint& a, const IPEndpoint& b) const;
-};
+bool operator<(const IPEndpoint& a, const IPEndpoint& b);
+inline bool operator>(const IPEndpoint& a, const IPEndpoint& b) {
+  return b < a;
+}
+inline bool operator<=(const IPEndpoint& a, const IPEndpoint& b) {
+  return !(b > a);
+}
+inline bool operator>=(const IPEndpoint& a, const IPEndpoint& b) {
+  return !(a > b);
+}
 
 // Outputs a string of the form:
 //      123.234.34.56

@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import distutils.version  # pylint: disable=import-error,no-name-in-module
 import os
+import sys
 
 from chromite.cbuildbot import manifest_version
 from chromite.lib import chrome_committer
@@ -17,6 +18,9 @@ from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import gerrit
 from chromite.lib import osutils
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class LKGMNotValid(chrome_committer.CommitError):
@@ -34,7 +38,6 @@ class ChromeLKGMCommitter(object):
   # landing. Since they're internal trybots, the CQ won't automatically trigger
   # them, so we have to explicitly tell it to.
   _PRESUBMIT_BOTS = [
-      'chromeos-betty-chrome',
       'chromeos-betty-pi-arc-chrome',
       'chromeos-eve-compile-chrome',
       'chromeos-kevin-compile-chrome',

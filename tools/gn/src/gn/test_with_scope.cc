@@ -40,8 +40,8 @@ TestWithScope::~TestWithScope() = default;
 
 Label TestWithScope::ParseLabel(const std::string& str) const {
   Err err;
-  Label result = Label::Resolve(SourceDir("//"), toolchain_.label(),
-                                Value(nullptr, str), &err);
+  Label result = Label::Resolve(SourceDir("//"), std::string_view(),
+                                toolchain_.label(), Value(nullptr, str), &err);
   CHECK(!err.has_error());
   return result;
 }
@@ -66,6 +66,22 @@ bool TestWithScope::ExecuteSnippet(const std::string& str, Err* err) {
       return false;
   }
   return true;
+}
+
+Value TestWithScope::ExecuteExpression(const std::string& expr, Err* err) {
+  InputFile input_file(SourceFile("//test"));
+  input_file.SetContents(expr);
+
+  std::vector<Token> tokens = Tokenizer::Tokenize(&input_file, err);
+  if (err->has_error()) {
+    return Value();
+  }
+  std::unique_ptr<ParseNode> node = Parser::ParseExpression(tokens, err);
+  if (err->has_error()) {
+    return Value();
+  }
+
+  return node->Execute(&scope_, err);
 }
 
 // static

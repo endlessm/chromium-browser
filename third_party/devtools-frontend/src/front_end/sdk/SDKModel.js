@@ -4,7 +4,8 @@
 
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
-import * as ProtocolModule from '../protocol/protocol.js';
+import * as Platform from '../platform/platform.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
 
 /** @type {!Map<function(new:SDKModel, !Target), !{capabilities: number, autostart: boolean}>} */
 const _registeredModels = new Map();
@@ -32,7 +33,7 @@ export class SDKModel extends Common.ObjectWrapper.ObjectWrapper {
    * Override this method to perform tasks that are required to suspend the
    * model and that still need other models in an unsuspended state.
    * @param {string=} reason - optionally provide a reason, the model can respond accordingly
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   preSuspendModel(reason) {
     return Promise.resolve();
@@ -40,14 +41,14 @@ export class SDKModel extends Common.ObjectWrapper.ObjectWrapper {
 
   /**
    * @param {string=} reason - optionally provide a reason, the model can respond accordingly
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   suspendModel(reason) {
     return Promise.resolve();
   }
 
   /**
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   resumeModel() {
     return Promise.resolve();
@@ -56,7 +57,7 @@ export class SDKModel extends Common.ObjectWrapper.ObjectWrapper {
   /**
    * Override this method to perform tasks that are required to after resuming
    * the model and that require all models already in an unsuspended state.
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   postResumeModel() {
     return Promise.resolve();
@@ -82,7 +83,7 @@ export class SDKModel extends Common.ObjectWrapper.ObjectWrapper {
 /**
  * @unrestricted
  */
-export class Target extends ProtocolModule.InspectorBackend.TargetBase {
+export class Target extends ProtocolClient.InspectorBackend.TargetBase {
   /**
    * @param {!TargetManager} targetManager
    * @param {string} id
@@ -91,7 +92,7 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
    * @param {?Target} parentTarget
    * @param {string} sessionId
    * @param {boolean} suspended
-   * @param {?ProtocolModule.InspectorBackend.Connection} connection
+   * @param {?ProtocolClient.InspectorBackend.Connection} connection
    */
   constructor(targetManager, id, name, type, parentTarget, sessionId, suspended, connection) {
     const needsNodeJSPatching = type === Type.Node;
@@ -105,7 +106,7 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
       case Type.Frame:
         this._capabilitiesMask = Capability.Browser | Capability.Storage | Capability.DOM | Capability.JS |
             Capability.Log | Capability.Network | Capability.Target | Capability.Tracing | Capability.Emulation |
-            Capability.Input | Capability.Inspector;
+            Capability.Input | Capability.Inspector | Capability.Audits;
         if (!parentTarget) {
           // This matches backend exposing certain capabilities only for the main frame.
           this._capabilitiesMask |=
@@ -138,13 +139,19 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
     this._isSuspended = suspended;
   }
 
+  /**
+   * TODO(1011811): Replace type with !Set<function(new:SDKModel, !Target)> once we no longer type-check with closure.
+   * @param {*} required
+   */
   createModels(required) {
     this._creatingModels = true;
     // TODO(dgozman): fix this in bindings layer.
+    // @ts-ignore ResourceTreeModel inherits from SDKModel introducing a cyclic dependency. Use the global for now.
     this.model(SDK.ResourceTreeModel);
     const registered = Array.from(SDKModel.registeredModels.keys());
     for (const modelClass of registered) {
-      const info = SDKModel.registeredModels.get(modelClass);
+      const info =
+          /** @type {!{capabilities: number, autostart: boolean}} */ (SDKModel.registeredModels.get(modelClass));
       if (info.autostart || required.has(modelClass)) {
         this.model(modelClass);
       }
@@ -220,13 +227,13 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
   dispose(reason) {
     super.dispose(reason);
     this._targetManager.removeTarget(this);
-    for (const model of this._modelByConstructor.valuesArray()) {
+    for (const model of this._modelByConstructor.values()) {
       model.dispose();
     }
   }
 
   /**
-   * @param {function(new:T, !Target)} modelClass
+   * @param {function(new:SDKModel, !Target)} modelClass
    * @return {?T}
    * @template T
    */
@@ -248,7 +255,7 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
   }
 
   /**
-   * @return {!Map<function(new:SDKModel, !Target), !SDK.SDKModel>}
+   * @return {!Map<function(new:SDKModel, !Target), !SDKModel>}
    */
   models() {
     return this._modelByConstructor;
@@ -279,7 +286,7 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
 
   /**
    * @param {string=} reason - optionally provide a reason, so models can respond accordingly
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async suspend(reason) {
     if (this._isSuspended) {
@@ -292,7 +299,7 @@ export class Target extends ProtocolModule.InspectorBackend.TargetBase {
   }
 
   /**
-   * @return {!Promise}
+   * @return {!Promise<void>}
    */
   async resume() {
     if (!this._isSuspended) {
@@ -331,6 +338,7 @@ export const Capability = {
   DeviceEmulation: 1 << 12,
   Storage: 1 << 13,
   ServiceWorker: 1 << 14,
+  Audits: 1 << 15,
 
   None: 0,
 };
@@ -346,43 +354,64 @@ export const Type = {
   Browser: 'browser',
 };
 
+/**
+ * @type {!TargetManager}
+ */
+let targetManagerInstance;
+
 export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
+  /**
+   * @private
+   */
   constructor() {
     super();
-    /** @type {!Array.<!Target>} */
-    this._targets = [];
-    /** @type {!Array.<!Observer>} */
-    this._observers = [];
-    /** @type {!Platform.Multimap<symbol, !{modelClass: !Function, thisObject: (!Object|undefined), listener: function(!Common.Event)}>} */
+    /** @type {!Set.<!Target>} */
+    this._targets = new Set();
+    /** @type {!Set.<!Observer>} */
+    this._observers = new Set();
+    /** @type {!Platform.Multimap<symbol, !{modelClass: function(new:SDKModel, !Target), thisObject: (!Object|undefined), listener: function(!Common.EventTarget.EventTargetEvent):void}>} */
     this._modelListeners = new Platform.Multimap();
-    /** @type {!Platform.Multimap<function(new:SDKModel, !Target), !SDKModelObserver>} */
+    /** @type {!Platform.Multimap<function(new:SDKModel, !Target), !SDKModelObserver<*>>} */
     this._modelObservers = new Platform.Multimap();
     this._isSuspended = false;
   }
 
   /**
-   * @param {string=} reason - optionally provide a reason, so targets can respond accordingly
-   * @return {!Promise}
+   * @param {{forceNew: boolean}} opts
    */
-  suspendAllTargets(reason) {
-    if (this._isSuspended) {
-      return Promise.resolve();
+  static instance({forceNew} = {forceNew: false}) {
+    if (!targetManagerInstance || forceNew) {
+      targetManagerInstance = new TargetManager();
     }
-    this._isSuspended = true;
-    this.dispatchEventToListeners(Events.SuspendStateChanged);
-    return Promise.all(this._targets.map(target => target.suspend(reason)));
+
+    return targetManagerInstance;
   }
 
   /**
-   * @return {!Promise}
+   * @param {string=} reason - optionally provide a reason, so targets can respond accordingly
+   * @return {!Promise<void>}
    */
-  resumeAllTargets() {
+  async suspendAllTargets(reason) {
+    if (this._isSuspended) {
+      return;
+    }
+    this._isSuspended = true;
+    this.dispatchEventToListeners(Events.SuspendStateChanged);
+    const suspendPromises = Array.from(this._targets.values(), target => target.suspend(reason));
+    await Promise.all(suspendPromises);
+  }
+
+  /**
+   * @return {!Promise<void>}
+   */
+  async resumeAllTargets() {
     if (!this._isSuspended) {
-      return Promise.resolve();
+      return;
     }
     this._isSuspended = false;
     this.dispatchEventToListeners(Events.SuspendStateChanged);
-    return Promise.all(this._targets.map(target => target.resume()));
+    const resumePromises = Array.from(this._targets.values(), target => target.resume());
+    await Promise.all(resumePromises);
   }
 
   /**
@@ -393,14 +422,14 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   /**
-   * @param {function(new:T,!Target)} modelClass
+   * @param {function(new:SDKModel,!Target)} modelClass
    * @return {!Array<!T>}
    * @template T
    */
   models(modelClass) {
     const result = [];
-    for (let i = 0; i < this._targets.length; ++i) {
-      const model = this._targets[i].model(modelClass);
+    for (const target of this._targets) {
+      const model = target.model(modelClass);
       if (model) {
         result.push(model);
       }
@@ -412,11 +441,12 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
    * @return {string}
    */
   inspectedURL() {
-    return this._targets[0] ? this._targets[0].inspectedURL() : '';
+    const mainTarget = this.mainTarget();
+    return mainTarget ? mainTarget.inspectedURL() : '';
   }
 
   /**
-   * @param {function(new:T,!Target)} modelClass
+   * @param {function(new:SDKModel,!Target)} modelClass
    * @param {!SDKModelObserver<T>} observer
    * @template T
    */
@@ -429,7 +459,7 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   /**
-   * @param {function(new:T,!Target)} modelClass
+   * @param {function(new:SDKModel,!Target)} modelClass
    * @param {!SDKModelObserver<T>} observer
    * @template T
    */
@@ -439,46 +469,43 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
 
   /**
    * @param {!Target} target
-   * @param {function(new:SDKModel,!SDK.Target)} modelClass
-   * @param {!SDK.SDKModel} model
+   * @param {function(new:SDKModel,!Target)} modelClass
+   * @param {!SDKModel} model
    */
   modelAdded(target, modelClass, model) {
-    for (const observer of this._modelObservers.get(modelClass).valuesArray()) {
+    for (const observer of this._modelObservers.get(modelClass).values()) {
       observer.modelAdded(model);
     }
   }
 
   /**
    * @param {!Target} target
-   * @param {function(new:SDKModel,!SDK.Target)} modelClass
-   * @param {!SDK.SDKModel} model
+   * @param {function(new:SDKModel,!Target)} modelClass
+   * @param {!SDKModel} model
    */
   _modelRemoved(target, modelClass, model) {
-    for (const observer of this._modelObservers.get(modelClass).valuesArray()) {
+    for (const observer of this._modelObservers.get(modelClass).values()) {
       observer.modelRemoved(model);
     }
   }
 
   /**
-   * @param {!Function} modelClass
+   * @param {function(new:SDKModel,!Target)} modelClass
    * @param {symbol} eventType
-   * @param {function(!Common.Event)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent):void} listener
    * @param {!Object=} thisObject
    */
   addModelListener(modelClass, eventType, listener, thisObject) {
-    for (let i = 0; i < this._targets.length; ++i) {
-      const model = this._targets[i].model(modelClass);
-      if (model) {
-        model.addEventListener(eventType, listener, thisObject);
-      }
+    for (const model of this.models(modelClass)) {
+      model.addEventListener(eventType, listener, thisObject);
     }
     this._modelListeners.set(eventType, {modelClass: modelClass, thisObject: thisObject, listener: listener});
   }
 
   /**
-   * @param {!Function} modelClass
+   * @param {function(new:SDKModel,!Target)} modelClass
    * @param {symbol} eventType
-   * @param {function(!Common.Event)} listener
+   * @param {function(!Common.EventTarget.EventTargetEvent):void} listener
    * @param {!Object=} thisObject
    */
   removeModelListener(modelClass, eventType, listener, thisObject) {
@@ -486,11 +513,8 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
       return;
     }
 
-    for (let i = 0; i < this._targets.length; ++i) {
-      const model = this._targets[i].model(modelClass);
-      if (model) {
-        model.removeEventListener(eventType, listener, thisObject);
-      }
+    for (const model of this.models(modelClass)) {
+      model.removeEventListener(eventType, listener, thisObject);
     }
 
     for (const info of this._modelListeners.get(eventType)) {
@@ -504,20 +528,20 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
    * @param {!Observer} targetObserver
    */
   observeTargets(targetObserver) {
-    if (this._observers.indexOf(targetObserver) !== -1) {
+    if (this._observers.has(targetObserver)) {
       throw new Error('Observer can only be registered once');
     }
     for (const target of this._targets) {
       targetObserver.targetAdded(target);
     }
-    this._observers.push(targetObserver);
+    this._observers.add(targetObserver);
   }
 
   /**
    * @param {!Observer} targetObserver
    */
   unobserveTargets(targetObserver) {
-    this._observers.remove(targetObserver);
+    this._observers.delete(targetObserver);
   }
 
   /**
@@ -527,25 +551,27 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
    * @param {?Target} parentTarget
    * @param {string=} sessionId
    * @param {boolean=} waitForDebuggerInPage
-   * @param {!ProtocolModule.InspectorBackend.Connection=} connection
-   * @return {!SDK.Target}
+   * @param {!ProtocolClient.InspectorBackend.Connection=} connection
+   * @return {!Target}
    */
   createTarget(id, name, type, parentTarget, sessionId, waitForDebuggerInPage, connection) {
     const target =
         new Target(this, id, name, type, parentTarget, sessionId || '', this._isSuspended, connection || null);
     if (waitForDebuggerInPage) {
+      // @ts-ignore TODO(1063322): Find out where pageAgent() is set on Target/TargetBase.
       target.pageAgent().waitForDebugger();
     }
     target.createModels(new Set(this._modelObservers.keysArray()));
-    this._targets.push(target);
+    this._targets.add(target);
 
-    const copy = this._observers.slice(0);
-    for (const observer of copy) {
+    // Iterate over a copy. _observers might be modified during iteration.
+    for (const observer of [...this._observers]) {
       observer.targetAdded(target);
     }
 
     for (const modelClass of target.models().keys()) {
-      this.modelAdded(target, modelClass, target.models().get(modelClass));
+      const model = /** @type {!SDKModel} */ (target.models().get(modelClass));
+      this.modelAdded(target, modelClass, model);
     }
 
     for (const key of this._modelListeners.keysArray()) {
@@ -564,17 +590,18 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
    * @param {!Target} target
    */
   removeTarget(target) {
-    if (!this._targets.includes(target)) {
+    if (!this._targets.has(target)) {
       return;
     }
 
-    this._targets.remove(target);
+    this._targets.delete(target);
     for (const modelClass of target.models().keys()) {
-      this._modelRemoved(target, modelClass, target.models().get(modelClass));
+      const model = /** @type {!SDKModel} */ (target.models().get(modelClass));
+      this._modelRemoved(target, modelClass, model);
     }
 
-    const copy = this._observers.slice(0);
-    for (const observer of copy) {
+    // Iterate over a copy. _observers might be modified during iteration.
+    for (const observer of [...this._observers]) {
       observer.targetRemoved(target);
     }
 
@@ -592,7 +619,7 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
    * @return {!Array.<!Target>}
    */
   targets() {
-    return this._targets.slice();
+    return [...this._targets];
   }
 
   /**
@@ -601,19 +628,14 @@ export class TargetManager extends Common.ObjectWrapper.ObjectWrapper {
    */
   targetById(id) {
     // TODO(dgozman): add a map id -> target.
-    for (let i = 0; i < this._targets.length; ++i) {
-      if (this._targets[i].id() === id) {
-        return this._targets[i];
-      }
-    }
-    return null;
+    return this.targets().find(target => target.id() === id) || null;
   }
 
   /**
    * @return {?Target}
    */
   mainTarget() {
-    return this._targets[0] || null;
+    return this._targets.size ? this._targets.values().next().value : null;
   }
 }
 

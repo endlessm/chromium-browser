@@ -24,6 +24,10 @@ from telemetry.internal.util import binary_manager
 from telemetry.util import wpr_modes
 
 
+def _IsWin():
+  return sys.platform == 'win32'
+
+
 class BrowserFinderOptions(optparse.Values):
   """Options to be used for discovering a browser."""
 
@@ -40,6 +44,7 @@ class BrowserFinderOptions(optparse.Values):
     self.cros_ssh_identity = None
 
     self.cros_remote = None
+    self.cros_remote_ssh_port = None
 
     self.verbosity = 0
 
@@ -57,6 +62,7 @@ class BrowserFinderOptions(optparse.Values):
     self.interval_profiling_periods = []
     self.interval_profiling_frequency = 1000
     self.interval_profiler_options = ''
+    self.capture_screen_video = False
 
   def __repr__(self):
     return str(sorted(self.__dict__.items()))
@@ -112,7 +118,8 @@ class BrowserFinderOptions(optparse.Values):
     group.add_option(
         '--remote-ssh-port',
         type=int,
-        default=socket.getservbyname('ssh'),
+        # This is set in ParseArgs if necessary.
+        default=-1,
         dest='cros_remote_ssh_port',
         help='The SSH port of the remote ChromeOS device (requires --remote).')
     compat_mode_options_list = [
@@ -165,6 +172,11 @@ class BrowserFinderOptions(optparse.Values):
         '--enable-systrace', dest='enable_systrace', action='store_true',
         help='Enable collection of systrace. (Useful on ChromeOS where'
              ' atrace is not supported; collects scheduling information.)')
+    group.add_option(
+        '--capture-screen-video',
+        dest='capture_screen_video', action='store_true',
+        help='Capture the screen during the test and save it to a video file '
+             '(note that it is supported only on some platforms)')
     parser.add_option_group(group)
 
     # Platform options
@@ -206,10 +218,9 @@ class BrowserFinderOptions(optparse.Values):
 
     group = optparse.OptionGroup(parser, 'Fuchsia platform options')
     group.add_option(
-        '--fuchsia-output-dir',
+        '--fuchsia-ssh-config-dir',
         default='out/Release',
-        help='Specify the build directory for the Fuchsia OS installed on '
-        'the device.')
+        help='Specify directory of the ssh_config file for the Fuchsia OS.')
     group.add_option(
         '--fuchsia-ssh-port',
         default=None,
@@ -316,6 +327,16 @@ class BrowserFinderOptions(optparse.Values):
             print '     No browsers found for this device'
         sys.exit(0)
 
+      if self.browser_type == 'cros-chrome' and self.cros_remote and (
+          self.cros_remote_ssh_port < 0):
+        try:
+          self.cros_remote_ssh_port = socket.getservbyname('ssh')
+        except OSError as e:
+          raise RuntimeError(
+              'Running a CrOS test in remote mode, but failed to retrieve port '
+              'used by SSH service. This likely means SSH is not installed on '
+              'the system. Original error: %s' % e)
+
       # Profiling other periods along with the story_run period leads to running
       # multiple profiling processes at the same time. The effects of performing
       # muliple CPU profiling at the same time is unclear and may generate
@@ -326,7 +347,7 @@ class BrowserFinderOptions(optparse.Values):
         sys.exit(1)
 
       self.interval_profiler_options = shlex.split(
-          self.interval_profiler_options)
+          self.interval_profiler_options, posix=(not _IsWin()))
 
       # Parse browser options.
       self.browser_options.UpdateFromParseResults(self)
@@ -552,13 +573,11 @@ class BrowserOptions(object):
     self.browser_type = finder_options.browser_type
 
     if hasattr(self, 'extra_browser_args_as_string'):
-      tmp = shlex.split(
-          self.extra_browser_args_as_string)
+      tmp = shlex.split(self.extra_browser_args_as_string, posix=(not _IsWin()))
       self.AppendExtraBrowserArgs(tmp)
       delattr(self, 'extra_browser_args_as_string')
     if hasattr(self, 'extra_wpr_args_as_string'):
-      tmp = shlex.split(
-          self.extra_wpr_args_as_string)
+      tmp = shlex.split(self.extra_wpr_args_as_string, posix=(not _IsWin()))
       self.extra_wpr_args.extend(tmp)
       delattr(self, 'extra_wpr_args_as_string')
     if self.profile_type == 'default':

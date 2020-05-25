@@ -53,12 +53,12 @@ if (perfetto_build_with_android) {
   source_set("malloc_hooks") {
     deps = [
       ":client",
-      ":proc_utils",
       ":scoped_spinlock",
       ":wire_protocol",
       "../../../gn:default_deps",
       "../../base",
       "../../base:unix_socket",
+      "../common:proc_utils",
     ]
     cflags = [
       "-isystem",
@@ -79,18 +79,6 @@ source_set("wire_protocol") {
   sources = [
     "wire_protocol.cc",
     "wire_protocol.h",
-  ]
-}
-
-source_set("proc_utils") {
-  deps = [
-    "../../../gn:default_deps",
-    "../../../include/perfetto/profiling:normalize",
-    "../../base",
-  ]
-  sources = [
-    "proc_utils.cc",
-    "proc_utils.h",
   ]
 }
 
@@ -130,7 +118,6 @@ source_set("ring_buffer_unittests") {
 
 source_set("daemon") {
   deps = [
-    ":proc_utils",
     ":ring_buffer",
     ":scoped_spinlock",
     ":wire_protocol",
@@ -140,6 +127,10 @@ source_set("daemon") {
     "../../base:unix_socket",
     "../../tracing/core",
     "../../tracing/ipc/producer",
+    "../common:callstack_trie",
+    "../common:interner",
+    "../common:interning_output",
+    "../common:proc_utils",
     "../common:unwind_support",
   ]
   public_deps = [
@@ -156,7 +147,6 @@ source_set("daemon") {
     "bookkeeping_dump.h",
     "heapprofd_producer.cc",
     "heapprofd_producer.h",
-    "interner.h",
     "java_hprof_producer.cc",
     "java_hprof_producer.h",
     "page_idle_checker.cc",
@@ -171,13 +161,13 @@ source_set("daemon") {
 
 source_set("client") {
   deps = [
-    ":proc_utils",
     ":ring_buffer",
     ":scoped_spinlock",
     ":wire_protocol",
     "../../../gn:default_deps",
     "../../base",
     "../../base:unix_socket",
+    "../common:proc_utils",
   ]
   public_deps = [ "../../../gn:libunwindstack" ]
   sources = [
@@ -192,24 +182,22 @@ perfetto_unittest_source_set("unittests") {
   deps = [
     ":client",
     ":daemon",
-    ":proc_utils",
     ":wire_protocol",
     "../../../gn:default_deps",
     "../../../gn:gtest_and_gmock",
     "../../../gn:libunwindstack",
-    "../../../include/perfetto/profiling:normalize",
     "../../base",
     "../../base:test_support",
     "../../tracing/core",
+    "../common:proc_utils",
     "../common:unwind_support",
   ]
   sources = [
     "bookkeeping_unittest.cc",
     "client_unittest.cc",
     "heapprofd_producer_unittest.cc",
-    "interner_unittest.cc",
     "page_idle_checker_unittest.cc",
-    "proc_utils_unittest.cc",
+    "parse_smaps_unittest.cc",
     "sampler_unittest.cc",
     "system_property_unittest.cc",
     "unwinding_unittest.cc",

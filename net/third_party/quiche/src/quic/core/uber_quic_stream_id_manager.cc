@@ -31,13 +31,15 @@ UberQuicStreamIdManager::UberQuicStreamIdManager(
           max_open_outgoing_unidirectional_streams,
           max_open_incoming_unidirectional_streams) {}
 
-void UberQuicStreamIdManager::SetMaxOpenOutgoingBidirectionalStreams(
+bool UberQuicStreamIdManager::MaybeAllowNewOutgoingBidirectionalStreams(
     QuicStreamCount max_open_streams) {
-  bidirectional_stream_id_manager_.SetMaxOpenOutgoingStreams(max_open_streams);
+  return bidirectional_stream_id_manager_.MaybeAllowNewOutgoingStreams(
+      max_open_streams);
 }
-void UberQuicStreamIdManager::SetMaxOpenOutgoingUnidirectionalStreams(
+bool UberQuicStreamIdManager::MaybeAllowNewOutgoingUnidirectionalStreams(
     QuicStreamCount max_open_streams) {
-  unidirectional_stream_id_manager_.SetMaxOpenOutgoingStreams(max_open_streams);
+  return unidirectional_stream_id_manager_.MaybeAllowNewOutgoingStreams(
+      max_open_streams);
 }
 void UberQuicStreamIdManager::SetMaxOpenIncomingBidirectionalStreams(
     QuicStreamCount max_open_streams) {
@@ -48,11 +50,11 @@ void UberQuicStreamIdManager::SetMaxOpenIncomingUnidirectionalStreams(
   unidirectional_stream_id_manager_.SetMaxOpenIncomingStreams(max_open_streams);
 }
 
-bool UberQuicStreamIdManager::CanOpenNextOutgoingBidirectionalStream() {
+bool UberQuicStreamIdManager::CanOpenNextOutgoingBidirectionalStream() const {
   return bidirectional_stream_id_manager_.CanOpenNextOutgoingStream();
 }
 
-bool UberQuicStreamIdManager::CanOpenNextOutgoingUnidirectionalStream() {
+bool UberQuicStreamIdManager::CanOpenNextOutgoingUnidirectionalStream() const {
   return unidirectional_stream_id_manager_.CanOpenNextOutgoingStream();
 }
 
@@ -65,12 +67,14 @@ QuicStreamId UberQuicStreamIdManager::GetNextOutgoingUnidirectionalStreamId() {
 }
 
 bool UberQuicStreamIdManager::MaybeIncreaseLargestPeerStreamId(
-    QuicStreamId id) {
+    QuicStreamId id,
+    std::string* error_details) {
   if (QuicUtils::IsBidirectionalStreamId(id)) {
     return bidirectional_stream_id_manager_.MaybeIncreaseLargestPeerStreamId(
-        id);
+        id, error_details);
   }
-  return unidirectional_stream_id_manager_.MaybeIncreaseLargestPeerStreamId(id);
+  return unidirectional_stream_id_manager_.MaybeIncreaseLargestPeerStreamId(
+      id, error_details);
 }
 
 void UberQuicStreamIdManager::OnStreamClosed(QuicStreamId id) {
@@ -81,20 +85,15 @@ void UberQuicStreamIdManager::OnStreamClosed(QuicStreamId id) {
   unidirectional_stream_id_manager_.OnStreamClosed(id);
 }
 
-bool UberQuicStreamIdManager::OnMaxStreamsFrame(
-    const QuicMaxStreamsFrame& frame) {
-  if (frame.unidirectional) {
-    return unidirectional_stream_id_manager_.OnMaxStreamsFrame(frame);
-  }
-  return bidirectional_stream_id_manager_.OnMaxStreamsFrame(frame);
-}
-
 bool UberQuicStreamIdManager::OnStreamsBlockedFrame(
-    const QuicStreamsBlockedFrame& frame) {
+    const QuicStreamsBlockedFrame& frame,
+    std::string* error_details) {
   if (frame.unidirectional) {
-    return unidirectional_stream_id_manager_.OnStreamsBlockedFrame(frame);
+    return unidirectional_stream_id_manager_.OnStreamsBlockedFrame(
+        frame, error_details);
   }
-  return bidirectional_stream_id_manager_.OnStreamsBlockedFrame(frame);
+  return bidirectional_stream_id_manager_.OnStreamsBlockedFrame(frame,
+                                                                error_details);
 }
 
 bool UberQuicStreamIdManager::IsIncomingStream(QuicStreamId id) const {
@@ -119,17 +118,6 @@ UberQuicStreamIdManager::GetMaxAllowdIncomingBidirectionalStreams() const {
 QuicStreamCount
 UberQuicStreamIdManager::GetMaxAllowdIncomingUnidirectionalStreams() const {
   return unidirectional_stream_id_manager_.incoming_initial_max_open_streams();
-}
-
-void UberQuicStreamIdManager::SetLargestPeerCreatedStreamId(
-    QuicStreamId largest_peer_created_stream_id) {
-  if (QuicUtils::IsBidirectionalStreamId(largest_peer_created_stream_id)) {
-    bidirectional_stream_id_manager_.set_largest_peer_created_stream_id(
-        largest_peer_created_stream_id);
-    return;
-  }
-  unidirectional_stream_id_manager_.set_largest_peer_created_stream_id(
-      largest_peer_created_stream_id);
 }
 
 QuicStreamId UberQuicStreamIdManager::GetLargestPeerCreatedStreamId(

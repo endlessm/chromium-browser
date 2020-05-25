@@ -16,6 +16,7 @@ from __future__ import print_function
 import errno
 import glob
 import json
+import math
 import multiprocessing
 import os
 import signal
@@ -35,6 +36,9 @@ from chromite.lib import osutils
 from chromite.lib import path_util
 from chromite.lib import proctitle
 from chromite.lib import timeout_util
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # How long (in minutes) to let a test run before we kill it.
@@ -91,7 +95,6 @@ SPECIAL_TESTS = {
     'scripts/cros_mark_android_as_stable_unittest': INSIDE,
     'scripts/cros_oobe_autoconfig_unittest': SKIP, # https://crbug.com/1000761
     'scripts/cros_install_debug_syms_unittest': INSIDE,
-    'scripts/cros_list_modified_packages_unittest': INSIDE,
     'scripts/cros_mark_as_stable_unittest': INSIDE,
     'scripts/cros_mark_chrome_as_stable_unittest': INSIDE,
     'scripts/cros_portage_upgrade_unittest': INSIDE,
@@ -251,7 +254,7 @@ def SortTests(tests, jobs=1, timing_cache_file=None):
   # (2) If there is common code that is broken, we get quicker feedback if we
   #     churn through the fast tests.
   # Worse case, this interleaving doesn't slow things down overall.
-  fast = ret[:int(round(len(ret) / 2.0)) - 1:-1]
+  fast = ret[:int(math.ceil(len(ret) / 2.0)) - 1:-1]
   slow = ret[:-len(fast)]
   ret[::2] = slow
   ret[1::2] = fast
@@ -281,7 +284,9 @@ def BuildTestSets(tests, chroot_available, network, config_skew, jobs=1,
   def PythonWrappers(tests):
     for test in tests:
       if pyver is None or pyver == 'py2':
-        yield (test, 'python2')
+        if (os.path.basename(os.path.realpath(test)) not in
+            {'virtualenv_wrapper.py', 'wrapper3.py'}):
+          yield (test, 'python2')
       if pyver is None or pyver == 'py3':
         yield (test, 'python3')
 
@@ -493,6 +498,32 @@ def FindTests(search_paths=('.',)):
           yield test
 
 
+def CheckStaleSettings():
+  """Check various things to make sure they don't get stale."""
+  die = False
+
+  for test in SPECIAL_TESTS:
+    if not os.path.exists(test):
+      die = True
+      logging.error('SPECIAL_TESTS is stale: delete old %s', test)
+
+  for test in SLOW_TESTS:
+    if not os.path.exists(test):
+      die = True
+      logging.error('SLOW_TESTS is stale: delete old %s', test)
+
+  # Sanity check wrapper scripts.
+  for path in glob.glob('bin/*'):
+    if os.path.islink(path):
+      src = os.path.join('scripts', os.path.basename(path) + '.py')
+      if not os.path.exists(src):
+        die = True
+        logging.error('Stale symlink should be removed: %s', path)
+
+  if die:
+    cros_build_lib.Die('Please fix the above problems first')
+
+
 def ClearPythonCacheFiles():
   """Clear cache files in the chromite repo.
 
@@ -615,12 +646,7 @@ def main(argv):
                        (st.st_uid, st.st_gid))
 
   # Sanity check the settings to avoid bitrot.
-  for test in SPECIAL_TESTS:
-    if not os.path.exists(test):
-      cros_build_lib.Die('SPECIAL_TESTS is stale: delete old %s' % test)
-  for test in SLOW_TESTS:
-    if not os.path.exists(test):
-      cros_build_lib.Die('SLOW_TESTS is stale: delete old %s' % test)
+  CheckStaleSettings()
 
   if opts.quick:
     SPECIAL_TESTS.update(SLOW_TESTS)

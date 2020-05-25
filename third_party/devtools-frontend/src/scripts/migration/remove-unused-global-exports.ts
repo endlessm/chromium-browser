@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CommentKind, ExpressionKind, IdentifierKind, MemberExpressionKind} from 'ast-types/gen/kinds';
+import {MemberExpressionKind} from 'ast-types/gen/kinds';
 import child_process from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -64,18 +64,14 @@ function rewriteSource(refactoringNamespace: string, source: string) {
           const fullName = `${computeNamespaceName(refactoringNamespace)}.${getFullTypeName(topLevelAssignment)}`;
 
           try {
-            let usages = child_process.execSync(`grep -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'});
+            const usedInModuleJson = !!child_process.execSync(
+                `grep --include=\*module.json -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'});
+            const usedInLayoutTests =
+                !!child_process.execSync(`grep -r ${fullName} ${TEST_FOLDER} || true`, {encoding: 'utf8'});
+            const usedInLayoutTestRunners = !!child_process.execSync(
+                `grep --include=\*test_runner\*.js -r ${fullName} ${FRONT_END_FOLDER} || true`, {encoding: 'utf8'});
 
-            let usagesCount = usages.split('\n').length;
-
-            usages = child_process.execSync(`grep -r ${fullName} ${TEST_FOLDER} || true`, {encoding: 'utf8'});
-
-            usagesCount += usages.split('\n').length;
-
-            // It is only used once, in its assignment
-            // Grep returns an empty line for every search, so it is
-            // 2 empty lines for the 2 invocations + 1 line for the assignment itself
-            if (usagesCount == 3) {
+            if (!usedInModuleJson && !usedInLayoutTests && !usedInLayoutTestRunners) {
               removedExports.push(assignment.right.name);
               return b.emptyStatement();
             }
@@ -116,11 +112,11 @@ function rewriteSource(refactoringNamespace: string, source: string) {
               return b.functionDeclaration.from({
                 ...statement.declaration,
                 comments: statement.comments || [],
-              })
+              });
             }
             break;
           default:
-            throw new Error(`Unknown type: ${statement.declaration.type}`)
+            throw new Error(`Unknown type: ${statement.declaration.type}`);
         }
       }
     }
@@ -147,7 +143,7 @@ async function main(refactoringNamespace: string) {
 }
 
 if (!process.argv[2]) {
-  console.error(`No arguments specified. Run this script with "<folder-name>". For example: "common"`);
+  console.error('No arguments specified. Run this script with "<folder-name>". For example: "common"');
   process.exit(1);
 }
 

@@ -291,10 +291,8 @@ MachineBasicBlock::iterator AArch64FrameLowering::eliminateCallFramePseudoInstr(
   uint64_t CalleePopAmount = IsDestroy ? I->getOperand(1).getImm() : 0;
 
   if (!hasReservedCallFrame(MF)) {
-    unsigned Align = getStackAlignment();
-
     int64_t Amount = I->getOperand(0).getImm();
-    Amount = alignTo(Amount, Align);
+    Amount = alignTo(Amount, getStackAlign());
     if (!IsDestroy)
       Amount = -Amount;
 
@@ -1217,8 +1215,7 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
                       false, NeedsWinCFI, &HasWinCFI);
 
     if (NeedsRealignment) {
-      const unsigned Alignment = MFI.getMaxAlignment();
-      const unsigned NrBitsToZero = countTrailingZeros(Alignment);
+      const unsigned NrBitsToZero = Log2(MFI.getMaxAlign());
       assert(NrBitsToZero > 1);
       assert(scratchSPReg != AArch64::SP);
 
@@ -1971,7 +1968,7 @@ struct RegPairInfo {
 } // end anonymous namespace
 
 static void computeCalleeSaveRegisterPairs(
-    MachineFunction &MF, const std::vector<CalleeSavedInfo> &CSI,
+    MachineFunction &MF, ArrayRef<CalleeSavedInfo> CSI,
     const TargetRegisterInfo *TRI, SmallVectorImpl<RegPairInfo> &RegPairs,
     bool &NeedShadowCallStackProlog, bool NeedsFrameRecord) {
 
@@ -2116,8 +2113,7 @@ static void computeCalleeSaveRegisterPairs(
 
 bool AArch64FrameLowering::spillCalleeSavedRegisters(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
-    const std::vector<CalleeSavedInfo> &CSI,
-    const TargetRegisterInfo *TRI) const {
+    ArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   bool NeedsWinCFI = needsWinCFI(MF);
@@ -2258,8 +2254,7 @@ bool AArch64FrameLowering::spillCalleeSavedRegisters(
 
 bool AArch64FrameLowering::restoreCalleeSavedRegisters(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
-    std::vector<CalleeSavedInfo> &CSI,
-    const TargetRegisterInfo *TRI) const {
+    MutableArrayRef<CalleeSavedInfo> CSI, const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
   const TargetInstrInfo &TII = *MF.getSubtarget().getInstrInfo();
   DebugLoc DL;
@@ -3106,5 +3101,5 @@ unsigned AArch64FrameLowering::getWinEHFuncletFrameSize(
       MF.getInfo<AArch64FunctionInfo>()->getCalleeSavedStackSize();
   // This is the amount of stack a funclet needs to allocate.
   return alignTo(CSSize + MF.getFrameInfo().getMaxCallFrameSize(),
-                 getStackAlignment());
+                 getStackAlign());
 }

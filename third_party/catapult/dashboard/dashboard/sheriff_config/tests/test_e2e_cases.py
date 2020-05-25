@@ -20,7 +20,9 @@ from google.auth import credentials
 from google.cloud import datastore
 import base64
 import service
+import time
 import unittest
+from unittest import mock
 
 
 class LuciPollingTest(unittest.TestCase):
@@ -72,7 +74,7 @@ class LuciPollingTest(unittest.TestCase):
                 'revision': '0123456789abcdff',
                 'subscription': {
                     'name': 'Expected 1',
-                    'notification_email': 'expected-1@example.com',
+                    'contact_email': 'expected-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
                     'patterns': [{
@@ -110,7 +112,7 @@ class LuciPollingTest(unittest.TestCase):
                 'revision': '0123456789abcdef',
                 'subscription': {
                     'name': 'Config 1',
-                    'notification_email': 'config-1@example.com',
+                    'contact_email': 'config-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
                     'patterns': [{
@@ -122,7 +124,7 @@ class LuciPollingTest(unittest.TestCase):
                 'revision': '0123456789abcdef',
                 'subscription': {
                     'name': 'Config 2',
-                    'notification_email': 'config-2@example.com',
+                    'contact_email': 'config-2@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
                     'patterns': [{
@@ -208,7 +210,7 @@ class LuciPollingTest(unittest.TestCase):
             'revision': '0123456789abcdef',
             'subscription': {
                 'name': 'Config 1',
-                'notification_email': 'config-1@example.com',
+                'contact_email': 'config-1@example.com',
                 'bug_labels': ['Some-Label'],
                 'bug_components': ['Some>Component'],
             }
@@ -217,7 +219,7 @@ class LuciPollingTest(unittest.TestCase):
             'revision': '0123456789abcdef',
             'subscription': {
                 'name': 'Config 2',
-                'notification_email': 'config-2@example.com',
+                'contact_email': 'config-2@example.com',
                 'bug_labels': ['Some-Label'],
                 'bug_components': ['Some>Component'],
             }
@@ -226,7 +228,7 @@ class LuciPollingTest(unittest.TestCase):
             'revision': '0123456789abcdff',
             'subscription': {
                 'name': 'Expected 1',
-                'notification_email': 'expected-1@example.com',
+                'contact_email': 'expected-1@example.com',
                 'bug_labels': ['Some-Label'],
                 'bug_components': ['Some>Component'],
             }
@@ -240,6 +242,15 @@ class LuciPollingTest(unittest.TestCase):
         headers={'X-Forwarded-Proto': 'https'})
     self.assertEqual(response.status_code, 200)
     self.assertDictEqual(response.get_json(), {})
+
+  def testPollAndWarmup(self):
+    client = self.app.test_client()
+    response = client.get(
+        '/configs/update', headers={'X-Forwarded-Proto': 'https'})
+    self.assertEqual(response.status_code, 200)
+    response = client.get(
+        '/warmup', headers={'X-Forwarded-Proto': 'https'})
+    self.assertEqual(response.status_code, 200)
 
 
 class LuciContentChangesTest(unittest.TestCase):
@@ -275,7 +286,7 @@ class LuciContentChangesTest(unittest.TestCase):
                 'revision': '0123456789abcdff',
                 'subscription': {
                     'name': 'Expected 1',
-                    'notification_email': 'expected-1@example.com',
+                    'contact_email': 'expected-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
                     'patterns': [{
@@ -311,7 +322,7 @@ class LuciContentChangesTest(unittest.TestCase):
                 'revision': '0123456789abcdef',
                 'subscription': {
                     'name': 'Config 1',
-                    'notification_email': 'config-1@example.com',
+                    'contact_email': 'config-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
                     'patterns': [{
@@ -323,7 +334,7 @@ class LuciContentChangesTest(unittest.TestCase):
                 'revision': '0123456789abcdef',
                 'subscription': {
                     'name': 'Config 2',
-                    'notification_email': 'config-2@example.com',
+                    'contact_email': 'config-2@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
                     'patterns': [{
@@ -388,8 +399,15 @@ class LuciContentChangesTest(unittest.TestCase):
         '/configs/update', headers={'X-Forwarded-Proto': 'https'})
     self.assertEqual(response.status_code, 200)
 
-    self.AssertProjectConfigSet1Holds(client, 404)
+    # Update doesn't take effect because of caching
+    self.AssertProjectConfigSet1Holds(client, 200)
     self.AssertProjectConfigSet2Holds(client, 200)
+
+    # mocking utils.Time to invalid caching
+    with mock.patch('utils.Time') as mock_time:
+      mock_time.method.return_value = (time.time() + 60)
+      self.AssertProjectConfigSet1Holds(client, 404)
+      self.AssertProjectConfigSet2Holds(client, 200)
 
   def testInvalidContentPulled(self):
     invalid_content = """

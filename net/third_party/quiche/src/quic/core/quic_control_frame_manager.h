@@ -8,7 +8,7 @@
 #include <string>
 
 #include "net/third_party/quiche/src/quic/core/frames/quic_frame.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 namespace quic {
@@ -87,7 +87,7 @@ class QUIC_EXPORT_PRIVATE QuicControlFrameManager {
   // Retransmit |frame| if it is still outstanding. Returns false if the frame
   // does not get retransmitted because the connection is blocked. Otherwise,
   // returns true.
-  bool RetransmitControlFrame(const QuicFrame& frame);
+  bool RetransmitControlFrame(const QuicFrame& frame, TransmissionType type);
 
   // Returns true if |frame| is outstanding and waiting to be acked. Returns
   // false otherwise.
@@ -130,7 +130,7 @@ class QUIC_EXPORT_PRIVATE QuicControlFrameManager {
   // frame.
   void WriteOrBufferQuicFrame(QuicFrame frame);
 
-  QuicDeque<QuicFrame> control_frames_;
+  QuicCircularDeque<QuicFrame> control_frames_;
 
   // Id of latest saved control frame. 0 if no control frame has been saved.
   QuicControlFrameId last_control_frame_id_;

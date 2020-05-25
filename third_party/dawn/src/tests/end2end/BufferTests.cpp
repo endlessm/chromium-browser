@@ -108,7 +108,7 @@ TEST_P(BufferMapReadTests, LargeRead) {
     UnmapBuffer(buffer);
 }
 
-DAWN_INSTANTIATE_TEST(BufferMapReadTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
+DAWN_INSTANTIATE_TEST(BufferMapReadTests, D3D12Backend(), MetalBackend(), OpenGLBackend(), VulkanBackend());
 
 class BufferMapWriteTests : public DawnTest {
     protected:
@@ -231,7 +231,7 @@ TEST_P(BufferMapWriteTests, ManyWrites) {
     }
 }
 
-DAWN_INSTANTIATE_TEST(BufferMapWriteTests, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
+DAWN_INSTANTIATE_TEST(BufferMapWriteTests, D3D12Backend(), MetalBackend(), OpenGLBackend(), VulkanBackend());
 
 class BufferSetSubDataTests : public DawnTest {
 };
@@ -350,10 +350,10 @@ TEST_P(BufferSetSubDataTests, SuperLargeSetSubData) {
 }
 
 DAWN_INSTANTIATE_TEST(BufferSetSubDataTests,
-                     D3D12Backend,
-                     MetalBackend,
-                     OpenGLBackend,
-                     VulkanBackend);
+                     D3D12Backend(),
+                     MetalBackend(),
+                     OpenGLBackend(),
+                     VulkanBackend());
 
 // TODO(enga): These tests should use the testing toggle to initialize resources to 1.
 class CreateBufferMappedTests : public DawnTest {
@@ -392,8 +392,7 @@ class CreateBufferMappedTests : public DawnTest {
       }
 
       wgpu::CreateBufferMappedResult CreateBufferMapped(wgpu::BufferUsage usage, uint64_t size) {
-          wgpu::BufferDescriptor descriptor;
-          descriptor.nextInChain = nullptr;
+          wgpu::BufferDescriptor descriptor = {};
           descriptor.size = size;
           descriptor.usage = usage;
 
@@ -414,8 +413,7 @@ class CreateBufferMappedTests : public DawnTest {
       template <WGPUBufferMapAsyncStatus expectedStatus = WGPUBufferMapAsyncStatus_Success>
       wgpu::CreateBufferMappedResult CreateBufferMappedAsyncAndWait(wgpu::BufferUsage usage,
                                                                     uint64_t size) {
-          wgpu::BufferDescriptor descriptor;
-          descriptor.nextInChain = nullptr;
+          wgpu::BufferDescriptor descriptor = {};
           descriptor.size = size;
           descriptor.usage = usage;
 
@@ -740,8 +738,8 @@ TEST_P(CreateBufferMappedTests, LargeBufferFails) {
 }
 
 DAWN_INSTANTIATE_TEST(CreateBufferMappedTests,
-                      D3D12Backend,
-                      ForceToggles(D3D12Backend, {}, {"use_d3d12_resource_heap_tier2"}),
-                      MetalBackend,
-                      OpenGLBackend,
-                      VulkanBackend);
+                      D3D12Backend(),
+                      D3D12Backend({}, {"use_d3d12_resource_heap_tier2"}),
+                      MetalBackend(),
+                      OpenGLBackend(),
+                      VulkanBackend());

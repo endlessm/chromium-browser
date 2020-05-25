@@ -21,6 +21,7 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
 from chromite.lib import portage_util
+from chromite.cbuildbot import manifest_version
 
 # We are imported by src/repohooks/pre-upload.py in a non chroot environment
 # where yaml may not be there, so we don't error on that since it's not needed
@@ -31,10 +32,8 @@ try:
 except ImportError:
   yaml = None
 
-debug = True
-
 # See https://crbug.com/207004 for discussion.
-PER_PKG_LICENSE_DIR = 'var/db/pkg'
+PER_PKG_LICENSE_DIR = portage_util.VDB_PATH
 
 STOCK_LICENSE_DIRS = [
     'src/third_party/portage-stable/licenses',
@@ -179,6 +178,7 @@ LICENCES_IGNORE = [
 # The full names of packages which we want to generate license information for
 # even though they have an empty installation size.
 SIZE_EXEMPT_PACKAGES = [
+    'net-print/konica-minolta-printing-license',
     'net-print/xerox-printing-license',
 ]
 
@@ -285,11 +285,8 @@ class PackageInfo(object):
     try:
       cpv = portage_util.SplitCPV(fullnamerev)
     except ValueError:
-      cpv = None
-
-    # A bad package can either raise a TypeError exception or return None.
-    if not cpv:
-      raise AssertionError(
+      # A bad package can either raise a TypeError exception or return None.
+      raise ValueError(
           "portage couldn't find %s, missing version number?" % fullnamerev)
 
     #
@@ -360,7 +357,7 @@ class PackageInfo(object):
     ebuild_cmd = cros_build_lib.GetSysrootToolPath(
         cros_build_lib.GetSysroot(self.board), 'ebuild')
     return cros_build_lib.run(
-        [ebuild_cmd, ebuild_path] + phases, print_cmd=debug,
+        [ebuild_cmd, ebuild_path] + phases,
         stdout=True, encoding='utf-8')
 
   def _GetOverrideLicense(self):
@@ -467,8 +464,7 @@ class PackageInfo(object):
     # to find the MIT license:
     # dev-libs/libatomic_ops-7.2d/work/gc-7.2/libatomic_ops/doc/LICENSING.txt
     args = ['find', src_dir, '-type', 'f']
-    result = cros_build_lib.run(args, print_cmd=debug, stdout=True,
-                                encoding='utf-8')
+    result = cros_build_lib.run(args, stdout=True, encoding='utf-8')
     # Truncate results to look like this: swig-2.0.4/COPYRIGHT
     files = [x[len(src_dir):].lstrip('/') for x in result.stdout.splitlines()]
     license_files = []
@@ -957,7 +953,6 @@ class Licensing(object):
           'chromeos-base/houdini-pi',
           'chromeos-base/houdini-qt',
           'chromeos-base/intel-hdcp',
-          'chromeos-base/intel-wifi-fw-dump',
           'chromeos-base/monotype-fonts',
           'chromeos-base/rialto-cellular-autoconnect',
           'chromeos-base/rialto-modem-watchdog',
@@ -990,12 +985,10 @@ class Licensing(object):
           'media-libs/mfc-fw-v8',
           'media-libs/rk3399-hotword-support',
           'media-libs/skl-hotword-support',
-          'media-libs/vpu-fw',
           'sys-apps/accelerator-bootstrap',
           'sys-apps/eid',
           'sys-apps/loonix-hydrogen',
           'sys-boot/chromeos-firmware-ps8751',
-          'sys-boot/chromeos-firmware-ps8805',
           'sys-boot/chromeos-vendor-strings-wilco',
           'sys-boot/coreboot-private-files-amenia',
           'sys-boot/coreboot-private-files-aplrvp',
@@ -1056,6 +1049,11 @@ class Licensing(object):
           'sys-firmware/sis-firmware',
           'www-servers/spacecast',
       }
+      # TODO(b/148306737), only allow this package prior to R84. To be removed
+      # once the proper license is in place.
+      version = manifest_version.VersionInfo.from_repo(constants.SOURCE_ROOT)
+      if int(version.chrome_branch) <= 83:
+        LEGACY_PKGS.add('sys-firmware/parade-ps8815a0-firmware')
       if not any(fullnamerev.startswith(x) for x in LEGACY_PKGS):
         raise AssertionError('Google-TOS is not a valid license.')
 
@@ -1282,7 +1280,7 @@ def ListInstalledPackages(board, all_packages=False):
     equery_cmd = cros_build_lib.GetSysrootToolPath(
         cros_build_lib.GetSysroot(board), 'equery')
     args = [equery_cmd, 'list', '*']
-    packages = cros_build_lib.run(args, print_cmd=debug, encoding='utf-8',
+    packages = cros_build_lib.run(args, encoding='utf-8',
                                   stdout=True).output.splitlines()
   else:
     # The following returns all packages that were part of the build tree
@@ -1293,7 +1291,7 @@ def ListInstalledPackages(board, all_packages=False):
         cros_build_lib.GetSysroot(board), 'emerge')
     args = [emerge_cmd, '--with-bdeps=y', '--usepkgonly',
             '--emptytree', '--pretend', '--color=n', 'virtual/target-os']
-    emerge = cros_build_lib.run(args, print_cmd=debug, encoding='utf-8',
+    emerge = cros_build_lib.run(args, encoding='utf-8',
                                 stdout=True).output.splitlines()
     # Another option which we've decided not to use, is bdeps=n.  This outputs
     # just the packages we ship, but does not packages that were used to build

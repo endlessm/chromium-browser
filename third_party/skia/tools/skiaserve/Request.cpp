@@ -49,6 +49,7 @@ sk_sp<SkData> Request::writeCanvasToPng(SkCanvas* canvas) {
 }
 
 SkCanvas* Request::getCanvas() {
+#ifdef SK_GL
     GrContextFactory* factory = fContextFactory;
     GLTestContext* gl = factory->getContextInfo(GrContextFactory::kGL_ContextType,
             GrContextFactory::ContextOverrides::kNone).glContext();
@@ -59,6 +60,7 @@ SkCanvas* Request::getCanvas() {
     if (gl) {
         gl->makeCurrent();
     }
+#endif
     SkASSERT(fDebugCanvas);
 
     // create the appropriate surface if necessary
@@ -106,8 +108,8 @@ SkIRect Request::getBounds() {
         bounds = fPicture->cullRect().roundOut();
         if (fGPUEnabled) {
             int maxRTSize = this->getContext()->maxRenderTargetSize();
-            bounds = SkIRect::MakeWH(SkTMin(bounds.width(), maxRTSize),
-                                     SkTMin(bounds.height(), maxRTSize));
+            bounds = SkIRect::MakeWH(std::min(bounds.width(), maxRTSize),
+                                     std::min(bounds.height(), maxRTSize));
         }
     } else {
         bounds = SkIRect::MakeWH(kDefaultWidth, kDefaultHeight);
@@ -115,8 +117,8 @@ SkIRect Request::getBounds() {
 
     // We clip to kMaxWidth / kMaxHeight for performance reasons.
     // TODO make this configurable
-    bounds = SkIRect::MakeWH(SkTMin(bounds.width(), kMaxWidth),
-                             SkTMin(bounds.height(), kMaxHeight));
+    bounds = SkIRect::MakeWH(std::min(bounds.width(), kMaxWidth),
+                             std::min(bounds.height(), kMaxHeight));
     return bounds;
 }
 

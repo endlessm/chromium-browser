@@ -24,8 +24,7 @@
 #include "src/protozero/test/example_proto/test_messages.descriptor.h"
 #include "src/protozero/test/example_proto/test_messages.pbzero.h"
 #include "src/trace_processor/args_tracker.h"
-#include "src/trace_processor/importers/proto/chrome_compositor_scheduler_state.descriptor.h"
-#include "src/trace_processor/trace_storage.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "test/gtest_and_gmock.h"
 
 namespace perfetto {
@@ -49,16 +48,25 @@ class ArgsTableUtilsTest : public ::testing::Test {
     sequence_state_.reset(new PacketSequenceState(&context_));
   }
 
-  bool HasArg(ArgSetId set_id, const base::StringView& key, Variadic value) {
+  /**
+   * Check whether the argument set contains the value with given flat_key and
+   * key and is equal to the given value.
+   */
+  bool HasArg(ArgSetId set_id,
+              const base::StringView& flat_key,
+              const base::StringView& key,
+              Variadic value) {
     const auto& args = storage_->arg_table();
     auto key_id = storage_->string_pool().GetId(key);
     EXPECT_TRUE(key_id);
+    auto flat_key_id = storage_->string_pool().GetId(flat_key);
+    EXPECT_TRUE(flat_key_id);
 
     RowMap rm = args.FilterToRowMap({args.arg_set_id().eq(set_id)});
     bool found = false;
     for (auto it = rm.IterateRows(); it; it.Next()) {
       if (args.key()[it.row()] == key_id) {
-        EXPECT_EQ(args.flat_key()[it.row()], key_id);
+        EXPECT_EQ(args.flat_key()[it.row()], flat_key_id);
         if (storage_->GetArgValue(it.row()) == value) {
           found = true;
           break;
@@ -68,26 +76,22 @@ class ArgsTableUtilsTest : public ::testing::Test {
     return found;
   }
 
+  /**
+   * Implementation of HasArg for a simple case when flat_key is equals to key,
+   * so that two won't have to be repeated for each assertion.
+   */
+  bool HasArg(ArgSetId set_id, const base::StringView& key, Variadic value) {
+    return HasArg(set_id, key, key, value);
+  }
+
   uint32_t arg_set_id_ = 1;
   std::unique_ptr<PacketSequenceState> sequence_state_;
   TraceProcessorContext context_;
   TraceStorage* storage_;
 };
 
-TEST_F(ArgsTableUtilsTest, EnsureChromeCompositorStateDescriptorParses) {
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
-  auto status = helper.AddProtoFileDescriptor(
-      kChromeCompositorSchedulerStateDescriptor.data(),
-      kChromeCompositorSchedulerStateDescriptor.size());
-  EXPECT_TRUE(status.ok())
-      << "Failed to parse kChromeCompositorSchedulerStateDescriptor: "
-      << status.message();
-}
-
 TEST_F(ArgsTableUtilsTest, EnsureTestMessageProtoParses) {
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
                                               kTestMessagesDescriptor.size());
   EXPECT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
@@ -123,8 +127,7 @@ TEST_F(ArgsTableUtilsTest, BasicSingleLayerProto) {
   auto binary_proto = msg.SerializeAsArray();
 
   storage_->mutable_track_table()->Insert({});
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
                                               kTestMessagesDescriptor.size());
   ASSERT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
@@ -133,7 +136,8 @@ TEST_F(ArgsTableUtilsTest, BasicSingleLayerProto) {
   auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
   status = helper.InternProtoIntoArgsTable(
       protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
-      ".protozero.test.protos.EveryField", &inserter);
+      ".protozero.test.protos.EveryField", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "");
 
   EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
                            << status.message();
@@ -181,10 +185,14 @@ TEST_F(ArgsTableUtilsTest, BasicSingleLayerProto) {
   EXPECT_TRUE(HasArg(
       ArgSetId(arg_set_id_), "field_string",
       Variadic::String(*context_.storage->string_pool().GetId("FizzBuzz"))));
-  EXPECT_TRUE(
-      HasArg(ArgSetId(arg_set_id_), "repeated_int32", Variadic::Integer(1)));
-  EXPECT_TRUE(
-      HasArg(ArgSetId(arg_set_id_), "repeated_int32", Variadic::Integer(-1)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "repeated_int32",
+                     "repeated_int32[0]", Variadic::Integer(1)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "repeated_int32",
+                     "repeated_int32[1]", Variadic::Integer(-1)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "repeated_int32",
+                     "repeated_int32[2]", Variadic::Integer(100)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "repeated_int32",
+                     "repeated_int32[3]", Variadic::Integer(2000000)));
 }
 
 TEST_F(ArgsTableUtilsTest, NestedProto) {
@@ -195,8 +203,7 @@ TEST_F(ArgsTableUtilsTest, NestedProto) {
   auto binary_proto = msg.SerializeAsArray();
 
   storage_->mutable_track_table()->Insert({});
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
                                               kTestMessagesDescriptor.size());
   ASSERT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
@@ -205,7 +212,8 @@ TEST_F(ArgsTableUtilsTest, NestedProto) {
   auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
   status = helper.InternProtoIntoArgsTable(
       protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
-      ".protozero.test.protos.NestedA", &inserter);
+      ".protozero.test.protos.NestedA", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "");
   EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
                            << status.message();
   context_.args_tracker->Flush();
@@ -223,8 +231,7 @@ TEST_F(ArgsTableUtilsTest, CamelCaseFieldsProto) {
   auto binary_proto = msg.SerializeAsArray();
 
   storage_->mutable_track_table()->Insert({});
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
                                               kTestMessagesDescriptor.size());
   ASSERT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
@@ -233,7 +240,8 @@ TEST_F(ArgsTableUtilsTest, CamelCaseFieldsProto) {
   auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
   status = helper.InternProtoIntoArgsTable(
       protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
-      ".protozero.test.protos.CamelCaseFields", &inserter);
+      ".protozero.test.protos.CamelCaseFields", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "");
   EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
                            << status.message();
   context_.args_tracker->Flush();
@@ -251,8 +259,7 @@ TEST_F(ArgsTableUtilsTest, NestedProtoParsingOverrideHandled) {
   auto binary_proto = msg.SerializeAsArray();
 
   storage_->mutable_track_table()->Insert({});
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
                                               kTestMessagesDescriptor.size());
   ASSERT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
@@ -276,7 +283,8 @@ TEST_F(ArgsTableUtilsTest, NestedProtoParsingOverrideHandled) {
   auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
   status = helper.InternProtoIntoArgsTable(
       protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
-      ".protozero.test.protos.NestedA", &inserter);
+      ".protozero.test.protos.NestedA", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "");
   EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
                            << status.message();
   context_.args_tracker->Flush();
@@ -292,8 +300,7 @@ TEST_F(ArgsTableUtilsTest, NestedProtoParsingOverrideSkipped) {
   auto binary_proto = msg.SerializeAsArray();
 
   storage_->mutable_track_table()->Insert({});
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
                                               kTestMessagesDescriptor.size());
   ASSERT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
@@ -316,7 +323,8 @@ TEST_F(ArgsTableUtilsTest, NestedProtoParsingOverrideSkipped) {
   auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
   status = helper.InternProtoIntoArgsTable(
       protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
-      ".protozero.test.protos.NestedA", &inserter);
+      ".protozero.test.protos.NestedA", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "");
   EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
                            << status.message();
   context_.args_tracker->Flush();
@@ -347,8 +355,7 @@ TEST_F(ArgsTableUtilsTest, LookingUpInternedStateParsingOverride) {
       protos::pbzero::InternedData::kSourceLocationsFieldNumber,
       std::move(blob));
 
-  ProtoToArgsTable helper(sequence_state_->current_generation(), &context_, "",
-                          0);
+  ProtoToArgsTable helper(&context_);
   // Now we override the behaviour of |value_c| so we can expand the iid into
   // multiple args rows.
   helper.AddParsingOverride(
@@ -381,7 +388,8 @@ TEST_F(ArgsTableUtilsTest, LookingUpInternedStateParsingOverride) {
   auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
   status = helper.InternProtoIntoArgsTable(
       protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
-      ".protozero.test.protos.NestedA", &inserter);
+      ".protozero.test.protos.NestedA", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "");
   EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
                            << status.message();
   auto file_name_id = storage_->string_pool().GetId("test_file_name");
@@ -391,6 +399,43 @@ TEST_F(ArgsTableUtilsTest, LookingUpInternedStateParsingOverride) {
                      Variadic::String(*file_name_id)));
   EXPECT_TRUE(
       HasArg(ArgSetId(arg_set_id_), "line_number", Variadic::Integer(2)));
+}
+
+TEST_F(ArgsTableUtilsTest, NonEmptyPrefix) {
+  using namespace protozero::test::protos::pbzero;
+  protozero::HeapBuffered<EveryField> msg{kChunkSize, kChunkSize};
+  msg->add_repeated_int32(1);
+  msg->add_repeated_int32(-1);
+  msg->add_repeated_int32(100);
+  msg->add_repeated_int32(2000000);
+
+  auto binary_proto = msg.SerializeAsArray();
+
+  storage_->mutable_track_table()->Insert({});
+  ProtoToArgsTable helper(&context_);
+  auto status = helper.AddProtoFileDescriptor(kTestMessagesDescriptor.data(),
+                                              kTestMessagesDescriptor.size());
+  ASSERT_TRUE(status.ok()) << "Failed to parse kTestMessagesDescriptor: "
+                           << status.message();
+
+  auto inserter = context_.args_tracker->AddArgsTo(TrackId(0));
+  status = helper.InternProtoIntoArgsTable(
+      protozero::ConstBytes{binary_proto.data(), binary_proto.size()},
+      ".protozero.test.protos.EveryField", &inserter,
+      sequence_state_->current_generation(), /* key_prefix= */ "prefix");
+
+  EXPECT_TRUE(status.ok()) << "InternProtoIntoArgsTable failed with error: "
+                           << status.message();
+
+  context_.args_tracker->Flush();
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "prefix.repeated_int32",
+                     "prefix.repeated_int32[0]", Variadic::Integer(1)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "prefix.repeated_int32",
+                     "prefix.repeated_int32[1]", Variadic::Integer(-1)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "prefix.repeated_int32",
+                     "prefix.repeated_int32[2]", Variadic::Integer(100)));
+  EXPECT_TRUE(HasArg(ArgSetId(arg_set_id_), "prefix.repeated_int32",
+                     "prefix.repeated_int32[3]", Variadic::Integer(2000000)));
 }
 
 }  // namespace

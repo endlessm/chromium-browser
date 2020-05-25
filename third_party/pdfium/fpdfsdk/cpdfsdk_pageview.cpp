@@ -183,12 +183,13 @@ CPDFSDK_Annot* CPDFSDK_PageView::GetAnnotByDict(CPDF_Dictionary* pDict) {
 }
 
 #ifdef PDF_ENABLE_XFA
-CPDFSDK_Annot* CPDFSDK_PageView::GetAnnotByXFAWidget(CXFA_FFWidget* hWidget) {
-  if (!hWidget)
+CPDFSDK_Annot* CPDFSDK_PageView::GetAnnotByXFAWidget(CXFA_FFWidget* pWidget) {
+  if (!pWidget)
     return nullptr;
 
   for (CPDFSDK_Annot* pAnnot : m_SDKAnnotArray) {
-    if (ToXFAWidget(pAnnot)->GetXFAFFWidget() == hWidget)
+    CPDFXFA_Widget* pCurrentWidget = ToXFAWidget(pAnnot);
+    if (pCurrentWidget && pCurrentWidget->GetXFAFFWidget() == pWidget)
       return pAnnot;
   }
   return nullptr;
@@ -403,12 +404,19 @@ void CPDFSDK_PageView::ExitWidget(CPDFSDK_AnnotHandlerMgr* pAnnotHandlerMgr,
                                   bool callExitCallback,
                                   uint32_t nFlag) {
   m_bOnWidget = false;
-  if (m_pCaptureWidget) {
-    if (callExitCallback)
-      pAnnotHandlerMgr->Annot_OnMouseExit(this, &m_pCaptureWidget, nFlag);
+  if (!m_pCaptureWidget)
+    return;
 
-    m_pCaptureWidget.Reset();
+  if (callExitCallback) {
+    ObservedPtr<CPDFSDK_PageView> pThis(this);
+    pAnnotHandlerMgr->Annot_OnMouseExit(this, &m_pCaptureWidget, nFlag);
+
+    // Annot_OnMouseExit() may have invalidated |this|.
+    if (!pThis)
+      return;
   }
+
+  m_pCaptureWidget.Reset();
 }
 
 bool CPDFSDK_PageView::OnMouseWheel(double deltaX,
@@ -512,11 +520,12 @@ void CPDFSDK_PageView::LoadFXAnnots() {
   for (size_t i = 0; i < nCount; ++i) {
     CPDF_Annot* pPDFAnnot = m_pAnnotList->GetAt(i);
     CheckForUnsupportedAnnot(pPDFAnnot);
-    CPDFSDK_Annot* pAnnot = pAnnotHandlerMgr->NewAnnot(pPDFAnnot, this);
+    std::unique_ptr<CPDFSDK_Annot> pAnnot =
+        pAnnotHandlerMgr->NewAnnot(pPDFAnnot, this);
     if (!pAnnot)
       continue;
-    m_SDKAnnotArray.push_back(pAnnot);
-    pAnnotHandlerMgr->Annot_OnLoad(pAnnot);
+    m_SDKAnnotArray.push_back(pAnnot.release());
+    pAnnotHandlerMgr->Annot_OnLoad(m_SDKAnnotArray.back());
   }
 }
 

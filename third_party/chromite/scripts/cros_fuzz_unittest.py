@@ -8,10 +8,15 @@
 from __future__ import print_function
 
 import os
+import sys
 
 from chromite.lib import cros_logging as logging
 from chromite.lib import cros_test_lib
 from chromite.scripts import cros_fuzz
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
 
 DEFAULT_MAX_TOTAL_TIME_OPTION = cros_fuzz.GetLibFuzzerOption(
     cros_fuzz.MAX_TOTAL_TIME_OPTION_NAME,
@@ -273,8 +278,8 @@ class RunSysrootCommandTest(cros_test_lib.RunCommandTestCase):
   def testRunSysrootCommand(self):
     """Tests RunSysrootCommand creates a proper command to run in sysroot."""
     command = ['./fuzz', '-rss_limit_mb=4096']
-    cros_fuzz.RunSysrootCommand(command)
     sysroot_path = _SetPathToSysroot()
+    cros_fuzz.RunSysrootCommand(command)
     expected_command = ['sudo', '--', 'chroot', sysroot_path]
     expected_command.extend(command)
     self.assertCommandCalled(expected_command, debug_level=logging.DEBUG)

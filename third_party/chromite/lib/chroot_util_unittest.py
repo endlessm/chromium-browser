@@ -15,6 +15,8 @@ from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import path_util
 
+pytestmark = cros_test_lib.pytestmark_inside_only
+
 if cros_build_lib.IsInsideChroot():
   from chromite.scripts import cros_list_modified_packages
 

@@ -8,6 +8,7 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_constants.h"
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
@@ -22,6 +23,9 @@ namespace {
 const size_t kMaxNumControlFrames = 1000;
 
 }  // namespace
+
+#define ENDPOINT \
+  (session_->perspective() == Perspective::IS_SERVER ? "Server: " : "Client: ")
 
 QuicControlFrameManager::QuicControlFrameManager(QuicSession* session)
     : last_control_frame_id_(kInvalidControlFrameId),
@@ -251,7 +255,10 @@ void QuicControlFrameManager::OnCanWrite() {
   WriteBufferedFrames();
 }
 
-bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
+bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame,
+                                                     TransmissionType type) {
+  DCHECK(type == PTO_RETRANSMISSION || type == RTO_RETRANSMISSION ||
+         type == TLP_RETRANSMISSION || type == PROBING_RETRANSMISSION);
   QuicControlFrameId id = GetControlFrameId(frame);
   if (id == kInvalidControlFrameId) {
     // Frame does not have a valid control frame ID, ignore it. Returns true
@@ -274,7 +281,7 @@ bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
   QuicFrame copy = CopyRetransmittableControlFrame(frame);
   QUIC_DVLOG(1) << "control frame manager is forced to retransmit frame: "
                 << frame;
-  if (session_->WriteControlFrame(copy)) {
+  if (session_->WriteControlFrame(copy, type)) {
     return true;
   }
   DeleteFrame(&copy);
@@ -282,12 +289,16 @@ bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
 }
 
 void QuicControlFrameManager::WriteBufferedFrames() {
+  DCHECK(session_->connection()->connected())
+      << ENDPOINT << "Try to write control frames when connection is closed.";
   while (HasBufferedFrames()) {
-    session_->SetTransmissionType(NOT_RETRANSMISSION);
+    if (!session_->write_with_transmission()) {
+      session_->SetTransmissionType(NOT_RETRANSMISSION);
+    }
     QuicFrame frame_to_send =
         control_frames_.at(least_unsent_ - least_unacked_);
     QuicFrame copy = CopyRetransmittableControlFrame(frame_to_send);
-    if (!session_->WriteControlFrame(copy)) {
+    if (!session_->WriteControlFrame(copy, NOT_RETRANSMISSION)) {
       // Connection is write blocked.
       DeleteFrame(&copy);
       break;
@@ -300,7 +311,7 @@ void QuicControlFrameManager::WritePendingRetransmission() {
   while (HasPendingRetransmission()) {
     QuicFrame pending = NextPendingRetransmission();
     QuicFrame copy = CopyRetransmittableControlFrame(pending);
-    if (!session_->WriteControlFrame(copy)) {
+    if (!session_->WriteControlFrame(copy, LOSS_RETRANSMISSION)) {
       // Connection is write blocked.
       DeleteFrame(&copy);
       break;

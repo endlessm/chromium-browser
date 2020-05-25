@@ -35,8 +35,8 @@ size_t QuicTransportStream::Read(char* buffer, size_t buffer_size) {
   iov.iov_base = buffer;
   iov.iov_len = buffer_size;
   const size_t result = sequencer()->Readv(&iov, 1);
-  if (sequencer()->IsClosed() && visitor_ != nullptr) {
-    visitor_->OnFinRead();
+  if (sequencer()->IsClosed()) {
+    MaybeNotifyFinRead();
   }
   return result;
 }
@@ -78,7 +78,7 @@ bool QuicTransportStream::Write(quiche::QuicheStringPiece data) {
   QUIC_BUG << "WriteMemSlices() unexpectedly partially consumed the input "
               "data, provided: "
            << data.size() << ", written: " << consumed.bytes_consumed;
-  CloseConnectionWithDetails(
+  OnUnrecoverableError(
       QUIC_INTERNAL_ERROR,
       "WriteMemSlices() unexpectedly partially consumed the input data");
   return false;
@@ -111,10 +111,7 @@ size_t QuicTransportStream::ReadableBytes() const {
 
 void QuicTransportStream::OnDataAvailable() {
   if (sequencer()->IsClosed()) {
-    if (visitor_ != nullptr) {
-      visitor_->OnFinRead();
-    }
-    OnFinRead();
+    MaybeNotifyFinRead();
     return;
   }
 
@@ -136,6 +133,15 @@ void QuicTransportStream::OnCanWriteNewData() {
   if (visitor_ != nullptr) {
     visitor_->OnCanWrite();
   }
+}
+
+void QuicTransportStream::MaybeNotifyFinRead() {
+  if (visitor_ == nullptr || fin_read_notified_) {
+    return;
+  }
+  fin_read_notified_ = true;
+  visitor_->OnFinRead();
+  OnFinRead();
 }
 
 }  // namespace quic

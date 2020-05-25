@@ -14,6 +14,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_config.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
@@ -55,6 +56,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // Called when a CRYPTO frame is ACKed.
   bool OnCryptoFrameAcked(const QuicCryptoFrame& frame,
                           QuicTime::Delta ack_delay_time);
+
+  void OnStreamReset(const QuicRstStreamFrame& frame) override;
 
   // Performs key extraction to derive a new secret of |result_len| bytes
   // dependent on |label|, |context|, and the stream's negotiated subkey secret.
@@ -98,10 +101,6 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // encryption level |level|.
   virtual size_t BufferSizeLimitForLevel(EncryptionLevel level) const;
 
-  // Called when the underlying QuicConnection has agreed upon a QUIC version to
-  // use.
-  virtual void OnSuccessfulVersionNegotiation(const ParsedQuicVersion& version);
-
   // Called to cancel retransmission of unencrypted crypto stream data.
   void NeuterUnencryptedStreamData();
 
@@ -122,7 +121,15 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // Override to send unacked crypto data with the appropriate encryption level.
   bool RetransmitStreamData(QuicStreamOffset offset,
                             QuicByteCount data_length,
-                            bool fin) override;
+                            bool fin,
+                            TransmissionType type) override;
+
+  // Sends stream retransmission data at |encryption_level|.
+  QuicConsumedData RetransmitStreamDataAtLevel(
+      QuicStreamOffset retransmission_offset,
+      QuicByteCount retransmission_length,
+      EncryptionLevel encryption_level,
+      TransmissionType type);
 
   // Returns the number of bytes of handshake data that have been received from
   // the peer in either CRYPTO or STREAM frames.
@@ -146,7 +153,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
 
   // Called to retransmit any outstanding data in the range indicated by the
   // encryption level, offset, and length in |crypto_frame|.
-  void RetransmitData(QuicCryptoFrame* crypto_frame);
+  void RetransmitData(QuicCryptoFrame* crypto_frame, TransmissionType type);
 
   // Called to write buffered crypto frames.
   void WriteBufferedCryptoFrames();
@@ -190,6 +197,9 @@ class QUIC_EXPORT_PRIVATE QuicCryptoStream : public QuicStream {
   // Keeps state for data sent/received in CRYPTO frames at each encryption
   // level.
   std::array<CryptoSubstream, NUM_ENCRYPTION_LEVELS> substreams_;
+
+  // Latched value of gfe2_reloadable_flag_quic_writevdata_at_level.
+  const bool writevdata_at_level_;
 };
 
 }  // namespace quic

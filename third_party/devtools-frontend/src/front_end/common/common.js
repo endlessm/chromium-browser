@@ -9,7 +9,6 @@ import * as AppProvider from './AppProvider.js';
 import * as CharacterIdMap from './CharacterIdMap.js';
 import * as Color from './Color.js';
 import * as Console from './Console.js';
-import * as ContentProvider from './ContentProvider.js';
 import * as EventTarget from './EventTarget.js';
 import * as JavaScriptMetaData from './JavaScriptMetaData.js';
 import * as Linkifier from './Linkifier.js';
@@ -22,7 +21,6 @@ import * as Revealer from './Revealer.js';
 import * as Runnable from './Runnable.js';
 import * as SegmentedRange from './SegmentedRange.js';
 import * as Settings from './Settings.js';
-import * as StaticContentProvider from './StaticContentProvider.js';
 import * as StringOutputStream from './StringOutputStream.js';
 import * as TextDictionary from './TextDictionary.js';
 import * as Throttler from './Throttler.js';
@@ -30,22 +28,7 @@ import * as Trie from './Trie.js';
 import * as UIString from './UIString.js';
 import * as Worker from './Worker.js';
 
-
-/**
- * @typedef {{
-  *    content: string,
-  *    isEncoded: boolean,
-  * }|{
-  *    error: string,
-  *    isEncoded: boolean,
-  * }}
-  */
-export let DeferredContent;
-
-/**
- * @typedef {!{data: *}}
- */
-export let Event;
+export const ls = UIString.ls;
 
 /**
  * @type {!Settings.Settings}
@@ -58,7 +41,6 @@ export {
   CharacterIdMap,
   Color,
   Console,
-  ContentProvider,
   EventTarget,
   JavaScriptMetaData,
   Linkifier,
@@ -71,7 +53,6 @@ export {
   Runnable,
   SegmentedRange,
   Settings,
-  StaticContentProvider,
   StringOutputStream,
   TextDictionary,
   Throttler,

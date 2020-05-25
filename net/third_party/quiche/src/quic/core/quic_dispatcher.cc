@@ -143,22 +143,6 @@ class StatelessConnectionTerminator {
     framer_.set_data_producer(nullptr);
   }
 
-  // Serializes a packet containing CONNECTION_CLOSE frame and send it (without
-  // adding connection to the time wait).
-  void StatelesslyCloseConnection(const QuicSocketAddress& self_address,
-                                  const QuicSocketAddress& peer_address,
-                                  QuicErrorCode error_code,
-                                  const std::string& error_details) {
-    // TODO(rch): Remove this method when quic_drop_small_initial_packets is
-    // deprecated.
-    DCHECK(!GetQuicReloadableFlag(quic_drop_small_initial_packets));
-    SerializeConnectionClosePacket(error_code, error_details);
-
-    for (const auto& packet : *collector_.packets()) {
-      time_wait_list_manager_->SendPacket(self_address, peer_address, *packet);
-    }
-  }
-
   // Generates a packet containing a CONNECTION_CLOSE frame specifying
   // |error_code| and |error_details| and add the connection to time wait.
   void CloseConnection(QuicErrorCode error_code,
@@ -221,7 +205,7 @@ QuicDispatcher::QuicDispatcher(
     const QuicCryptoServerConfig* crypto_config,
     QuicVersionManager* version_manager,
     std::unique_ptr<QuicConnectionHelperInterface> helper,
-    std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
+    std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper,
     std::unique_ptr<QuicAlarmFactory> alarm_factory,
     uint8_t expected_server_connection_id_length)
     : config_(config),
@@ -430,6 +414,26 @@ bool QuicDispatcher::MaybeDispatchPacket(
   }
 
   // The packet has an unknown connection ID.
+  if (!accept_new_connections_ && packet_info.version_flag) {
+    // If not accepting new connections, reject packets with version which can
+    // potentially result in new connection creation. But if the packet doesn't
+    // have version flag, leave it to ValidityChecks() to reset it.
+    // By adding the connection to time wait list, following packets on this
+    // connection will not reach ShouldAcceptNewConnections().
+    StatelesslyTerminateConnection(
+        packet_info.destination_connection_id, packet_info.form,
+        packet_info.version_flag, packet_info.use_length_prefix,
+        packet_info.version, QUIC_HANDSHAKE_FAILED,
+        "Stop accepting new connections",
+        quic::QuicTimeWaitListManager::SEND_STATELESS_RESET);
+    // Time wait list will reject the packet correspondingly..
+    time_wait_list_manager()->ProcessPacket(
+        packet_info.self_address, packet_info.peer_address,
+        packet_info.destination_connection_id, packet_info.form,
+        GetPerPacketContext());
+    OnNewConnectionRejected();
+    return true;
+  }
 
   // Unless the packet provides a version, assume that we can continue
   // processing using our preferred version.
@@ -458,21 +462,9 @@ bool QuicDispatcher::MaybeDispatchPacket(
         packet_info.form == IETF_QUIC_LONG_HEADER_PACKET &&
         packet_info.long_packet_type == INITIAL &&
         packet_info.packet.length() < kMinClientInitialPacketLength) {
-      if (GetQuicReloadableFlag(quic_drop_small_initial_packets)) {
-        QUIC_DVLOG(1) << "Dropping initial packet which is too short, length: "
-                      << packet_info.packet.length();
-        QUIC_CODE_COUNT(quic_drop_small_initial_packets);
-        QUIC_RELOADABLE_FLAG_COUNT(quic_drop_small_initial_packets);
-        return true;
-      }
-      StatelessConnectionTerminator terminator(
-          packet_info.destination_connection_id, packet_info.version,
-          helper_.get(), time_wait_list_manager_.get());
-      QUIC_DVLOG(1) << "Initial packet too small: "
+      QUIC_DVLOG(1) << "Dropping initial packet which is too short, length: "
                     << packet_info.packet.length();
-      terminator.StatelesslyCloseConnection(
-          packet_info.self_address, packet_info.peer_address,
-          IETF_QUIC_PROTOCOL_VIOLATION, "Initial packet too small");
+      QUIC_CODE_COUNT(quic_drop_small_initial_packets);
       return true;
     }
   }
@@ -618,8 +610,15 @@ void QuicDispatcher::CleanUpSession(SessionMap::iterator it,
   session_map_.erase(it);
 }
 
+void QuicDispatcher::StartAcceptingNewConnections() {
+  accept_new_connections_ = true;
+}
+
 void QuicDispatcher::StopAcceptingNewConnections() {
   accept_new_connections_ = false;
+  // No more CHLO will arrive and buffered CHLOs shouldn't be able to create
+  // connections.
+  buffered_packets_.DiscardAllPackets();
 }
 
 std::unique_ptr<QuicPerPacketContext> QuicDispatcher::GetPerPacketContext()
@@ -631,7 +630,8 @@ void QuicDispatcher::DeleteSessions() {
   if (!write_blocked_list_.empty()) {
     for (const std::unique_ptr<QuicSession>& session : closed_session_list_) {
       if (write_blocked_list_.erase(session->connection()) != 0) {
-        QUIC_BUG << "QuicConnection was in WriteBlockedList before destruction";
+        QUIC_BUG << "QuicConnection was in WriteBlockedList before destruction "
+                 << session->connection()->connection_id();
       }
     }
   }
@@ -897,22 +897,6 @@ void QuicDispatcher::BufferEarlyPacket(const ReceivedPacketInfo& packet_info) {
 
 void QuicDispatcher::ProcessChlo(const std::string& alpn,
                                  ReceivedPacketInfo* packet_info) {
-  if (!accept_new_connections_) {
-    // Don't any create new connection.
-    QUIC_CODE_COUNT(quic_reject_stop_accepting_new_connections);
-    StatelesslyTerminateConnection(
-        packet_info->destination_connection_id, packet_info->form,
-        /*version_flag=*/true, packet_info->use_length_prefix,
-        packet_info->version, QUIC_HANDSHAKE_FAILED,
-        "Stop accepting new connections",
-        quic::QuicTimeWaitListManager::SEND_STATELESS_RESET);
-    // Time wait list will reject the packet correspondingly.
-    time_wait_list_manager()->ProcessPacket(
-        packet_info->self_address, packet_info->peer_address,
-        packet_info->destination_connection_id, packet_info->form,
-        GetPerPacketContext());
-    return;
-  }
   if (!buffered_packets_.HasBufferedPackets(
           packet_info->destination_connection_id) &&
       !ShouldCreateOrBufferPacketForConnection(*packet_info)) {
@@ -942,6 +926,7 @@ void QuicDispatcher::ProcessChlo(const std::string& alpn,
   std::unique_ptr<QuicSession> session =
       CreateQuicSession(packet_info->destination_connection_id,
                         packet_info->peer_address, alpn, packet_info->version);
+  DCHECK(session);
   if (original_connection_id != packet_info->destination_connection_id) {
     session->connection()->AddIncomingConnectionId(original_connection_id);
     session->connection()->InstallInitialCrypters(original_connection_id);

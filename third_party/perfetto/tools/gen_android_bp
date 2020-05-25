@@ -63,6 +63,7 @@ default_targets = [
     '//src/traced/service:traced',
     '//test/cts:perfetto_cts_deps',
     '//test/cts:perfetto_cts_jni_deps',
+    '//test:perfetto_gtest_logcat_printer',
 ]
 
 # Host targets
@@ -84,6 +85,7 @@ default_targets += [
 target_initrc = {
     '//src/traced/service:traced': {'perfetto.rc'},
     '//src/profiling/memory:heapprofd': {'heapprofd.rc'},
+    '//src/profiling/perf:traced_perf': {'traced_perf.rc'},
 }
 
 target_host_supported = [
@@ -168,11 +170,12 @@ additional_args = {
         ('include_dirs', {'bionic/libc/kernel'}),
     ],
     'traced_probes': [
-        ('required', {'libperfetto_android_internal', 'trigger_perfetto'}),
+        ('required', {'libperfetto_android_internal',
+                      'trigger_perfetto',
+                      'traced_perf'}),
     ],
     'libperfetto_android_internal': [('static_libs', {'libhealthhalutils'}),],
     'trace_processor_shell': [
-      ('dist', {'targets': ['sdk_repo']}),
       ('stl', 'libc++_static'),
     ],
 }
@@ -181,6 +184,8 @@ additional_args = {
 def enable_gtest_and_gmock(module):
   module.static_libs.add('libgmock')
   module.static_libs.add('libgtest')
+  if module.name != 'perfetto_gtest_logcat_printer':
+    module.whole_static_libs.add('perfetto_gtest_logcat_printer')
 
 
 def enable_protobuf_full(module):
@@ -307,12 +312,14 @@ class Target(object):
     self.name = name
     self.shared_libs = set()
     self.static_libs = set()
+    self.whole_static_libs = set()
     self.cflags = set()
 
   def to_string(self, output):
     nested_out = []
     self._output_field(nested_out, 'shared_libs')
     self._output_field(nested_out, 'static_libs')
+    self._output_field(nested_out, 'whole_static_libs')
     self._output_field(nested_out, 'cflags')
 
     if nested_out:
@@ -337,6 +344,7 @@ class Module(object):
     self.comment = 'GN: ' + gn_utils.label_without_toolchain(gn_target)
     self.shared_libs = set()
     self.static_libs = set()
+    self.whole_static_libs = set()
     self.tools = set()
     self.cmd = None
     self.host_supported = False
@@ -357,6 +365,7 @@ class Module(object):
     self.lto = None
     self.stl = None
     self.dist = dict()
+    self.strip = dict()
     self.data = set()
     # The genrule_XXX below are properties that must to be propagated back
     # on the module(s) that depend on the genrule.
@@ -372,6 +381,7 @@ class Module(object):
     self._output_field(output, 'srcs')
     self._output_field(output, 'shared_libs')
     self._output_field(output, 'static_libs')
+    self._output_field(output, 'whole_static_libs')
     self._output_field(output, 'tools')
     self._output_field(output, 'cmd', sort=False)
     self._output_field(output, 'host_supported')
@@ -386,6 +396,7 @@ class Module(object):
     self._output_field(output, 'header_libs')
     self._output_field(output, 'required')
     self._output_field(output, 'dist')
+    self._output_field(output, 'strip')
     self._output_field(output, 'tool_files')
     self._output_field(output, 'data')
     self._output_field(output, 'stl')
@@ -714,6 +725,8 @@ def create_modules_from_target(blueprint, gn, gn_target_name):
       module.generated_headers.update(dep_module.genrule_headers)
       module.srcs.update(dep_module.genrule_srcs)
       module.shared_libs.update(dep_module.genrule_shared_libs)
+    elif dep_module.type == 'cc_binary':
+      continue  # Ignore executables deps (used by cmdline integration tests).
     else:
       raise Error('Unknown dep %s (%s) for target %s' %
                   (dep_module.name, dep_module.type, module.name))

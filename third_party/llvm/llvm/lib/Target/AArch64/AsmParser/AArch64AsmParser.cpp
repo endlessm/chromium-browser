@@ -260,6 +260,8 @@ public:
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                         SMLoc NameLoc, OperandVector &Operands) override;
   bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc) override;
+  OperandMatchResultTy tryParseRegister(unsigned &RegNo, SMLoc &StartLoc,
+                                        SMLoc &EndLoc) override;
   bool ParseDirective(AsmToken DirectiveID) override;
   unsigned validateTargetOperandClass(MCParsedAsmOperand &Op,
                                       unsigned Kind) override;
@@ -755,8 +757,8 @@ public:
       return false;
 
     int64_t Val = MCE->getValue();
-    int64_t SVal = typename std::make_signed<T>::type(Val);
-    int64_t UVal = typename std::make_unsigned<T>::type(Val);
+    int64_t SVal = std::make_signed_t<T>(Val);
+    int64_t UVal = std::make_unsigned_t<T>(Val);
     if (Val != SVal && Val != UVal)
       return false;
 
@@ -852,8 +854,7 @@ public:
     if (!isShiftedImm() && (!isImm() || !isa<MCConstantExpr>(getImm())))
       return DiagnosticPredicateTy::NoMatch;
 
-    bool IsByte =
-        std::is_same<int8_t, typename std::make_signed<T>::type>::value;
+    bool IsByte = std::is_same<int8_t, std::make_signed_t<T>>::value;
     if (auto ShiftedImm = getShiftedVal<8>())
       if (!(IsByte && ShiftedImm->second) &&
           AArch64_AM::isSVECpyImm<T>(uint64_t(ShiftedImm->first)
@@ -870,8 +871,7 @@ public:
     if (!isShiftedImm() && (!isImm() || !isa<MCConstantExpr>(getImm())))
       return DiagnosticPredicateTy::NoMatch;
 
-    bool IsByte =
-        std::is_same<int8_t, typename std::make_signed<T>::type>::value;
+    bool IsByte = std::is_same<int8_t, std::make_signed_t<T>>::value;
     if (auto ShiftedImm = getShiftedVal<8>())
       if (!(IsByte && ShiftedImm->second) &&
           AArch64_AM::isSVEAddSubImm<T>(ShiftedImm->first
@@ -1033,8 +1033,10 @@ public:
 
   bool isNeonVectorRegLo() const {
     return Kind == k_Register && Reg.Kind == RegKind::NeonVector &&
-           AArch64MCRegisterClasses[AArch64::FPR128_loRegClassID].contains(
-               Reg.RegNum);
+           (AArch64MCRegisterClasses[AArch64::FPR128_loRegClassID].contains(
+                Reg.RegNum) ||
+            AArch64MCRegisterClasses[AArch64::FPR64_loRegClassID].contains(
+                Reg.RegNum));
   }
 
   template <unsigned Class> bool isSVEVectorReg() const {
@@ -1606,7 +1608,7 @@ public:
   void addLogicalImmOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     const MCConstantExpr *MCE = cast<MCConstantExpr>(getImm());
-    typename std::make_unsigned<T>::type Val = MCE->getValue();
+    std::make_unsigned_t<T> Val = MCE->getValue();
     uint64_t encoding = AArch64_AM::encodeLogicalImmediate(Val, sizeof(T) * 8);
     Inst.addOperand(MCOperand::createImm(encoding));
   }
@@ -1615,7 +1617,7 @@ public:
   void addLogicalImmNotOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
     const MCConstantExpr *MCE = cast<MCConstantExpr>(getImm());
-    typename std::make_unsigned<T>::type Val = ~MCE->getValue();
+    std::make_unsigned_t<T> Val = ~MCE->getValue();
     uint64_t encoding = AArch64_AM::encodeLogicalImmediate(Val, sizeof(T) * 8);
     Inst.addOperand(MCOperand::createImm(encoding));
   }
@@ -2243,10 +2245,16 @@ static unsigned matchSVEPredicateVectorRegName(StringRef Name) {
 
 bool AArch64AsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc,
                                      SMLoc &EndLoc) {
+  return tryParseRegister(RegNo, StartLoc, EndLoc) != MatchOperand_Success;
+}
+
+OperandMatchResultTy AArch64AsmParser::tryParseRegister(unsigned &RegNo,
+                                                        SMLoc &StartLoc,
+                                                        SMLoc &EndLoc) {
   StartLoc = getLoc();
   auto Res = tryParseScalarRegister(RegNo);
   EndLoc = SMLoc::getFromPointer(getLoc().getPointer() - 1);
-  return Res != MatchOperand_Success;
+  return Res;
 }
 
 // Matches a register name or register alias previously defined by '.req'
@@ -2851,6 +2859,8 @@ static void setRequiredFeatureString(FeatureBitset FBS, std::string &Str) {
     Str += "ARMv8.4a";
   else if (FBS[AArch64::HasV8_5aOps])
     Str += "ARMv8.5a";
+  else if (FBS[AArch64::HasV8_6aOps])
+    Str += "ARMv8.6a";
   else {
     auto ext = std::find_if(std::begin(ExtensionMap),
       std::end(ExtensionMap),
@@ -4106,6 +4116,16 @@ bool AArch64AsmParser::validateInstruction(MCInst &Inst, SMLoc &IDLoc,
                    "unpredictable STXP instruction, status is also a source");
     break;
   }
+  case AArch64::LDRABwriteback:
+  case AArch64::LDRAAwriteback: {
+    unsigned Xt = Inst.getOperand(0).getReg();
+    unsigned Xn = Inst.getOperand(1).getReg();
+    if (Xt == Xn)
+      return Error(Loc[0],
+          "unpredictable LDRA instruction, writeback base"
+          " is also a destination");
+    break;
+  }
   }
 
 
@@ -4824,7 +4844,7 @@ bool AArch64AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       return true;
 
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst, getSTI());
+    Out.emitInstruction(Inst, getSTI());
     return false;
   }
   case Match_MissingFeature: {
@@ -5076,6 +5096,7 @@ static void ExpandCryptoAEK(AArch64::ArchKind ArchKind,
       break;
     case AArch64::ArchKind::ARMV8_4A:
     case AArch64::ArchKind::ARMV8_5A:
+    case AArch64::ArchKind::ARMV8_6A:
       RequestedExtensions.push_back("sm4");
       RequestedExtensions.push_back("sha3");
       RequestedExtensions.push_back("sha2");
@@ -5095,6 +5116,7 @@ static void ExpandCryptoAEK(AArch64::ArchKind ArchKind,
       break;
     case AArch64::ArchKind::ARMV8_4A:
     case AArch64::ArchKind::ARMV8_5A:
+    case AArch64::ArchKind::ARMV8_6A:
       RequestedExtensions.push_back("nosm4");
       RequestedExtensions.push_back("nosha3");
       RequestedExtensions.push_back("nosha2");
@@ -5314,7 +5336,7 @@ bool AArch64AsmParser::parseDirectiveTLSDescCall(SMLoc L) {
   Inst.setOpcode(AArch64::TLSDESCCALL);
   Inst.addOperand(MCOperand::createExpr(Expr));
 
-  getParser().getStreamer().EmitInstruction(Inst, getSTI());
+  getParser().getStreamer().emitInstruction(Inst, getSTI());
   return false;
 }
 
@@ -5365,7 +5387,7 @@ bool AArch64AsmParser::parseDirectiveLOH(StringRef IDVal, SMLoc Loc) {
                  "unexpected token in '" + Twine(IDVal) + "' directive"))
     return true;
 
-  getStreamer().EmitLOHDirective((MCLOHType)Kind, Args);
+  getStreamer().emitLOHDirective((MCLOHType)Kind, Args);
   return false;
 }
 
@@ -5458,7 +5480,7 @@ bool AArch64AsmParser::parseDirectiveUnreq(SMLoc L) {
 bool AArch64AsmParser::parseDirectiveCFINegateRAState() {
   if (parseToken(AsmToken::EndOfStatement, "unexpected token in directive"))
     return true;
-  getStreamer().EmitCFINegateRAState();
+  getStreamer().emitCFINegateRAState();
   return false;
 }
 
@@ -5468,7 +5490,7 @@ bool AArch64AsmParser::parseDirectiveCFIBKeyFrame() {
   if (parseToken(AsmToken::EndOfStatement,
                  "unexpected token in '.cfi_b_key_frame'"))
     return true;
-  getStreamer().EmitCFIBKeyFrame();
+  getStreamer().emitCFIBKeyFrame();
   return false;
 }
 

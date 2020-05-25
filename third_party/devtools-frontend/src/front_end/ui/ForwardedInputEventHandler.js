@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
 import * as Host from '../host/host.js';
+
 import {KeyboardShortcut} from './KeyboardShortcut.js';
 import {ForwardedShortcut} from './ShortcutRegistry.js';
 
@@ -16,7 +18,7 @@ export class ForwardedInputEventHandler {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onKeyEventUnhandled(event) {
     const data = event.data;
@@ -34,3 +36,5 @@ export class ForwardedInputEventHandler {
     self.UI.context.setFlavor(ForwardedShortcut, null);
   }
 }
+
+new ForwardedInputEventHandler();

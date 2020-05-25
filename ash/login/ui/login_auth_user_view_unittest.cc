@@ -144,8 +144,7 @@ TEST_F(LoginAuthUserViewUnittest, OnlineSignInMessage) {
   // Clicking the message triggers |ShowGaiaSignin|.
   EXPECT_CALL(
       *client,
-      ShowGaiaSignin(true /*can_close*/,
-                     user_view->current_user().basic_user_info.account_id));
+      ShowGaiaSignin(user_view->current_user().basic_user_info.account_id));
   const ui::MouseEvent event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
                              ui::EventTimeForNow(), 0, 0);
   view_->ButtonPressed(online_sign_in_message, event);
@@ -229,6 +228,14 @@ TEST_F(LoginAuthUserViewUnittest, PasswordFieldChangeOnUpdateUser) {
   auto another_user = CreateUser("user2@domain.com");
   view_->UpdateForUser(another_user);
   EXPECT_TRUE(password_test.textfield()->GetText().empty());
+  password_test.textfield()->SetTextInputType(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_EQ(password_test.textfield()->GetTextInputType(),
+            ui::TEXT_INPUT_TYPE_TEXT);
+
+  // Updating user should make the textfield as a password again.
+  view_->UpdateForUser(user_);
+  EXPECT_EQ(password_test.textfield()->GetTextInputType(),
+            ui::TEXT_INPUT_TYPE_PASSWORD);
 }
 
 }  // namespace ash

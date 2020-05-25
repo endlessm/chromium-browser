@@ -7,9 +7,9 @@
 
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrContextOptions.h"
-#include "include/gpu/GrSurface.h"
 #include "include/private/GrTypesPriv.h"
 #include "src/gpu/GrCaps.h"
+#include "src/gpu/GrSurface.h"
 #include "src/gpu/GrSurfaceProxy.h"
 #include "src/gpu/GrWindowRectangles.h"
 #include "src/utils/SkJSONWriter.h"
@@ -120,7 +120,7 @@ void GrCaps::applyOptionsOverrides(const GrContextOptions& options) {
 
     fAllowCoverageCounting = !options.fDisableCoverageCountingPaths;
 
-    fMaxTextureSize = SkTMin(fMaxTextureSize, options.fMaxTextureSizeOverride);
+    fMaxTextureSize = std::min(fMaxTextureSize, options.fMaxTextureSizeOverride);
     fMaxTileSize = fMaxTextureSize;
 #if GR_TEST_UTILS
     // If the max tile override is zero, it means we should use the max texture size.
@@ -333,11 +333,9 @@ GrCaps::SupportedRead GrCaps::supportedReadPixelsColorType(GrColorType srcColorT
     }
     // It's very convenient to access 1 byte-per-channel 32 bit color types as uint32_t on the CPU.
     // Make those aligned reads out of the buffer even if the underlying API doesn't require it.
-    auto componentFlags = GrColorTypeComponentFlags(read.fColorType);
-    if ((componentFlags == kRGBA_SkColorTypeComponentFlags ||
-         componentFlags == kRGB_SkColorTypeComponentFlags  ||
-         componentFlags == kAlpha_SkColorTypeComponentFlag ||
-         componentFlags == kGray_SkColorTypeComponentFlag) &&
+    auto channelFlags = GrColorTypeChannelFlags(read.fColorType);
+    if ((channelFlags == kRGBA_SkColorChannelFlags || channelFlags == kRGB_SkColorChannelFlags ||
+         channelFlags == kAlpha_SkColorChannelFlag || channelFlags == kGray_SkColorChannelFlag) &&
         GrColorTypeBytesPerPixel(read.fColorType) == 4) {
         switch (read.fOffsetAlignmentForTransferBuffer & 0b11) {
             // offset alignment already a multiple of 4
@@ -354,19 +352,25 @@ GrCaps::SupportedRead GrCaps::supportedReadPixelsColorType(GrColorType srcColorT
     return read;
 }
 
-GrBackendFormat GrCaps::getDefaultBackendFormat(GrColorType grColorType,
+GrBackendFormat GrCaps::getDefaultBackendFormat(GrColorType colorType,
                                                 GrRenderable renderable) const {
-    GrBackendFormat format = this->onGetDefaultBackendFormat(grColorType, renderable);
-    if (!this->isFormatTexturableAndUploadable(grColorType, format)) {
+    auto format = this->onGetDefaultBackendFormat(colorType);
+    if (!this->isFormatTexturable(format)) {
         return {};
     }
-
-    if (renderable == GrRenderable::kYes) {
-        if (!this->isFormatAsColorTypeRenderable(grColorType, format)) {
-            return {};
-        }
+    if (!this->areColorTypeAndFormatCompatible(colorType, format)) {
+        return {};
     }
-
+    // Currently we require that it be possible to write pixels into the "default" format. Perhaps,
+    // that could be a separate requirement from the caller. It seems less necessary if
+    // renderability was requested.
+    if (this->supportedWritePixelsColorType(colorType, format, colorType).fColorType ==
+        GrColorType::kUnknown) {
+        return {};
+    }
+    if (renderable == GrRenderable::kYes &&
+        !this->isFormatAsColorTypeRenderable(colorType, format)) {
+        return {};
+    }
     return format;
 }
-

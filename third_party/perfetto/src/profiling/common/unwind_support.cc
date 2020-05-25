@@ -29,7 +29,7 @@ namespace profiling {
 
 StackOverlayMemory::StackOverlayMemory(std::shared_ptr<unwindstack::Memory> mem,
                                        uint64_t sp,
-                                       uint8_t* stack,
+                                       const uint8_t* stack,
                                        size_t size)
     : mem_(std::move(mem)), sp_(sp), stack_end_(sp + size), stack_(stack) {}
 
@@ -87,6 +87,66 @@ bool FDMaps::Parse() {
 
 void FDMaps::Reset() {
   maps_.clear();
+}
+
+UnwindingMetadata::UnwindingMetadata(base::ScopedFile maps_fd,
+                                     base::ScopedFile mem_fd)
+    : fd_maps(std::move(maps_fd)),
+      fd_mem(std::make_shared<FDMemory>(std::move(mem_fd)))
+#if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
+      ,
+      jit_debug(std::unique_ptr<unwindstack::JitDebug>(
+          new unwindstack::JitDebug(fd_mem))),
+      dex_files(std::unique_ptr<unwindstack::DexFiles>(
+          new unwindstack::DexFiles(fd_mem)))
+#endif
+{
+  if (!fd_maps.Parse())
+    PERFETTO_DLOG("Failed initial maps parse");
+}
+
+void UnwindingMetadata::ReparseMaps() {
+  reparses++;
+  fd_maps.Reset();
+  fd_maps.Parse();
+#if PERFETTO_BUILDFLAG(PERFETTO_ANDROID_BUILD)
+  jit_debug =
+      std::unique_ptr<unwindstack::JitDebug>(new unwindstack::JitDebug(fd_mem));
+  dex_files =
+      std::unique_ptr<unwindstack::DexFiles>(new unwindstack::DexFiles(fd_mem));
+#endif
+}
+
+FrameData UnwindingMetadata::AnnotateFrame(unwindstack::FrameData frame) {
+  std::string build_id;
+  if (!frame.map_name.empty()) {
+    unwindstack::MapInfo* map_info = fd_maps.Find(frame.pc);
+    if (map_info)
+      build_id = map_info->GetBuildID();
+  }
+
+  return FrameData{std::move(frame), std::move(build_id)};
+}
+
+std::string StringifyLibUnwindstackError(unwindstack::ErrorCode e) {
+  switch (e) {
+    case unwindstack::ERROR_NONE:
+      return "NONE";
+    case unwindstack::ERROR_MEMORY_INVALID:
+      return "MEMORY_INVALID";
+    case unwindstack::ERROR_UNWIND_INFO:
+      return "UNWIND_INFO";
+    case unwindstack::ERROR_UNSUPPORTED:
+      return "UNSUPPORTED";
+    case unwindstack::ERROR_INVALID_MAP:
+      return "INVALID_MAP";
+    case unwindstack::ERROR_MAX_FRAMES_EXCEEDED:
+      return "MAX_FRAME_EXCEEDED";
+    case unwindstack::ERROR_REPEATED_FRAME:
+      return "REPEATED_FRAME";
+    case unwindstack::ERROR_INVALID_ELF:
+      return "INVALID_ELF";
+  }
 }
 
 }  // namespace profiling

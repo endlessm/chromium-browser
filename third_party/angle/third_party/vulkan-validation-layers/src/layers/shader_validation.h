@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2019 The Khronos Group Inc.
- * Copyright (c) 2015-2019 Valve Corporation
- * Copyright (c) 2015-2019 LunarG, Inc.
- * Copyright (C) 2015-2019 Google Inc.
+/* Copyright (c) 2015-2020 The Khronos Group Inc.
+ * Copyright (c) 2015-2020 Valve Corporation
+ * Copyright (c) 2015-2020 LunarG, Inc.
+ * Copyright (C) 2015-2020 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -78,6 +78,13 @@ struct spirv_inst_iter {
     spirv_inst_iter const &operator*() const { return *this; }
 };
 
+struct shader_stage_attributes {
+    char const *const name;
+    bool arrayed_input;
+    bool arrayed_output;
+    VkShaderStageFlags stage;
+};
+
 struct decoration_set {
     enum {
         location_bit = 1 << 0,
@@ -126,7 +133,7 @@ struct SHADER_MODULE_STATE : public BASE_NODE {
     };
     std::unordered_multimap<std::string, EntryPoint> entry_points;
     bool has_valid_spirv;
-    bool has_specialization_constants;
+    bool has_specialization_constants{false};
     VkShaderModule vk_shader_module;
     uint32_t gpu_validation_shader_id;
 
@@ -183,11 +190,8 @@ struct SHADER_MODULE_STATE : public BASE_NODE {
 
     SHADER_MODULE_STATE(VkShaderModuleCreateInfo const *pCreateInfo, VkShaderModule shaderModule, spv_target_env env,
                         uint32_t unique_shader_id)
-        : words(PreprocessShaderBinary((uint32_t *)pCreateInfo->pCode, pCreateInfo->codeSize, env)),
-          def_index(),
-          has_valid_spirv(true),
-          vk_shader_module(shaderModule),
-          gpu_validation_shader_id(unique_shader_id) {
+        : words(), def_index(), has_valid_spirv(true), vk_shader_module(shaderModule), gpu_validation_shader_id(unique_shader_id) {
+        words = PreprocessShaderBinary((uint32_t *)pCreateInfo->pCode, pCreateInfo->codeSize, env);
         BuildDefIndex();
     }
 
@@ -321,8 +325,7 @@ std::unordered_set<uint32_t> MarkAccessibleIds(SHADER_MODULE_STATE const *src, s
 void ProcessExecutionModes(SHADER_MODULE_STATE const *src, const spirv_inst_iter &entrypoint, PIPELINE_STATE *pipeline);
 
 std::vector<std::pair<descriptor_slot_t, interface_var>> CollectInterfaceByDescriptorSlot(
-    debug_report_data const *report_data, SHADER_MODULE_STATE const *src, std::unordered_set<uint32_t> const &accessible_ids,
-    bool *has_writable_descriptor);
+    SHADER_MODULE_STATE const *src, std::unordered_set<uint32_t> const &accessible_ids, bool *has_writable_descriptor);
 
 uint32_t DescriptorTypeToReqs(SHADER_MODULE_STATE const *module, uint32_t type_id);
 

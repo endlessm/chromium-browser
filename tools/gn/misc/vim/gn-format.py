@@ -8,12 +8,13 @@
 # - Change 'binary' if gn is not on the path (see below).
 # - Add to your .vimrc:
 #
-#   map <F1> :pyf <path-to-this-file>/gn-format.py<CR>
+#   map <F1> :pyxf <path-to-this-file>/gn-format.py<CR>
 #
 # gn format currently formats only a complete file so visual ranges, etc. won't
 # be used. It operates on the current, potentially unsaved buffer and does not
 # create or save any files. To revert a formatting, just undo.
 
+from __future__ import print_function
 import difflib
 import subprocess
 import sys
@@ -44,8 +45,8 @@ def main():
                        shell=is_win, universal_newlines=True)
   stdout, stderr = p.communicate(input=text)
   if p.returncode != 0:
-    print 'Formatting failed, please report to gn-dev@chromium.org.'
-    print stdout, stderr
+    print('Formatting failed, please report to gn-dev@chromium.org.')
+    print(stdout, stderr)
   else:
     # Otherwise, replace current buffer.
     lines = stdout.split('\n')

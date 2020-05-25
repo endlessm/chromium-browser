@@ -33,6 +33,10 @@ from chromite.lib import uprev_lib
 if cros_build_lib.IsInsideChroot():
   from chromite.service import dependency
 
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
+
 # Registered handlers for uprevving versioned packages.
 _UPREV_FUNCS = {}
 
@@ -181,9 +185,13 @@ def uprev_android(tracking_branch,
       command,
       stdout=True,
       enter_chroot=True,
+      encoding='utf-8',
       chroot_args=chroot.get_enter_args())
 
-  android_atom = _parse_android_atom(result)
+  portage_atom_string = result.stdout.strip()
+  android_atom = None
+  if portage_atom_string:
+    android_atom = portage_atom_string.splitlines()[-1].partition('=')[-1]
   if not android_atom:
     logging.info('Found nothing to rev.')
     return None
@@ -204,24 +212,6 @@ def uprev_android(tracking_branch,
   return android_atom
 
 
-def _parse_android_atom(result):
-  """Helper to parse the atom from the cros_mark_android_as_stable output.
-
-  This function is largely just intended to make testing easier.
-
-  Args:
-    result (cros_build_lib.CommandResult): The cros_mark_android_as_stable
-      command result.
-  """
-  portage_atom_string = result.output.strip()
-
-  android_atom = None
-  if portage_atom_string:
-    android_atom = portage_atom_string.splitlines()[-1].partition('=')[-1]
-
-  return android_atom
-
-
 def uprev_build_targets(build_targets,
                         overlay_type,
                         chroot=None,
@@ -229,7 +219,7 @@ def uprev_build_targets(build_targets,
   """Uprev the set provided build targets, or all if not specified.
 
   Args:
-    build_targets (list[build_target_util.BuildTarget]|None): The build targets
+    build_targets (list[build_target_lib.BuildTarget]|None): The build targets
       whose overlays should be uprevved, empty or None for all.
     overlay_type (str): One of the valid overlay types except None (see
       constants.VALID_OVERLAYS).
@@ -257,7 +247,7 @@ def uprev_overlays(overlays, build_targets=None, chroot=None, output_dir=None):
 
   Args:
     overlays (list[str]): The list of overlay paths.
-    build_targets (list[build_target_util.BuildTarget]|None): The build targets
+    build_targets (list[build_target_lib.BuildTarget]|None): The build targets
       to clean in |chroot|, if desired. No effect unless |chroot| is provided.
     chroot (chroot_lib.Chroot|None): The chroot to clean, if desired.
     output_dir (str|None): The path to optionally dump result files.
@@ -287,7 +277,7 @@ def uprev_versioned_package(package, build_targets, refs, chroot):
 
   Args:
     package (portage_util.CPV): The package being uprevved.
-    build_targets (list[build_target_util.BuildTarget]): The build targets to
+    build_targets (list[build_target_lib.BuildTarget]): The build targets to
         clean on a successful uprev.
     refs (list[uprev_lib.GitRef]):
     chroot (chroot_lib.Chroot): The chroot to enter for cleaning.
@@ -302,21 +292,6 @@ def uprev_versioned_package(package, build_targets, refs, chroot):
         'Package "%s" does not have a registered handler.' % package.cp)
 
   return _UPREV_FUNCS[package.cp](build_targets, refs, chroot)
-
-
-# TODO(evanhernandez): Remove this. Only a quick hack for testing.
-@uprevs_versioned_package('sample/sample')
-def uprev_sample(*_args, **_kwargs):
-  """Mimics an uprev by changing files in sandbox repos.
-
-  See: uprev_versioned_package.
-  """
-  paths = [
-      os.path.join(constants.SOURCE_ROOT, 'infra/dummies', repo, 'sample.txt')
-      for repo in ('general-sandbox', 'merge-sandbox')
-  ]
-
-  return UprevVersionedPackageResult().add_result('1.2.3', paths)
 
 
 @uprevs_versioned_package('afdo/kernel-profiles')
@@ -361,36 +336,72 @@ def uprev_kernel_afdo(*_args, **_kwargs):
   return result
 
 
+@uprevs_versioned_package('chromeos-base/termina-image-amd64')
+def uprev_termina_amd64(_build_targets, _refs, chroot):
+  """Updates termina amd64 VM - chromeos-base/termina-image-amd64.
+
+  See: uprev_versioned_package.
+  """
+  return uprev_termina('termina-image-amd64', chroot)
+
+
+@uprevs_versioned_package('chromeos-base/termina-image-arm')
+def uprev_termina_arm(_build_targets, _refs, chroot):
+  """Updates termina arm VM - chromeos-base/termina-image-arm.
+
+  See: uprev_versioned_package.
+  """
+  return uprev_termina('termina-image-arm', chroot)
+
+
+def uprev_termina(package, chroot):
+  """Helper function to uprev termina VM.
+
+  Args:
+    package (string): name of the package
+    chroot (chroot_lib.Chroot): specify a chroot to enter.
+
+  Returns:
+    UprevVersionedPackageResult: The result.
+  """
+  package_path = os.path.join(constants.CHROMIUMOS_OVERLAY_DIR, 'chromeos-base',
+                              package)
+  version_pin_path = os.path.join(package_path, 'VERSION-PIN')
+  return uprev_ebuild_from_pin(package_path, version_pin_path, chroot)
+
+
 @uprevs_versioned_package('chromeos-base/chromeos-dtc-vm')
-def uprev_sludge(*_args, **_kwargs):
+def uprev_sludge(_build_targets, _refs, chroot):
   """Updates sludge VM - chromeos-base/chromeos-dtc-vm.
 
   See: uprev_versioned_package.
   """
   package = 'chromeos-dtc-vm'
-  path = os.path.join('src', 'private-overlays', 'project-wilco-private',
-                      'chromeos-base', package)
-  package_path = os.path.join(constants.SOURCE_ROOT, path)
-  version_pin_path = os.path.join(constants.SOURCE_ROOT, path, 'VERSION-PIN')
+  package_path = os.path.join('src', 'private-overlays',
+                              'project-wilco-private', 'chromeos-base', package)
+  version_pin_path = os.path.join(package_path, 'VERSION-PIN')
 
-  return uprev_ebuild_from_pin(package_path, version_pin_path)
+  return uprev_ebuild_from_pin(package_path, version_pin_path, chroot)
 
 
-def uprev_ebuild_from_pin(package_path, version_pin_path):
+def uprev_ebuild_from_pin(package_path, version_pin_path, chroot):
   """Changes the package ebuild's version to match the version pin file.
 
   Args:
     package_path: The path of the package relative to the src root. This path
       should contain a single ebuild with the same name as the package.
-    version_pin_path: The path of the version_pin file that contains only only
-      a version string. The ebuild's version will be directly set to this
+    version_pin_path: The path of the version_pin file that contains only a
+      version string. The ebuild's version will be directly set to this
       number.
+    chroot (chroot_lib.Chroot): specify a chroot to enter.
 
   Returns:
     UprevVersionedPackageResult: The result.
   """
   package = os.path.basename(package_path)
-  ebuild_paths = list(portage_util.EBuild.List(package_path))
+
+  package_src_path = os.path.join(constants.SOURCE_ROOT, package_path)
+  ebuild_paths = list(portage_util.EBuild.List(package_src_path))
   if not ebuild_paths:
     raise UprevError('No ebuilds found for %s' % package)
   elif len(ebuild_paths) > 1:
@@ -398,13 +409,25 @@ def uprev_ebuild_from_pin(package_path, version_pin_path):
   else:
     ebuild_path = ebuild_paths[0]
 
-  version = osutils.ReadFile(version_pin_path).strip()
+  version_pin_src_path = os.path.join(constants.SOURCE_ROOT, version_pin_path)
+  version = osutils.ReadFile(version_pin_src_path).strip()
   new_ebuild_path = os.path.join(package_path,
                                  '%s-%s-r1.ebuild' % (package, version))
-  os.rename(ebuild_path, new_ebuild_path)
+  new_ebuild_src_path = os.path.join(constants.SOURCE_ROOT, new_ebuild_path)
+  os.rename(ebuild_path, new_ebuild_src_path)
+  manifest_src_path = os.path.join(package_src_path, 'Manifest')
+  new_ebuild_chroot_path = os.path.join(constants.CHROOT_SOURCE_ROOT,
+                                        new_ebuild_path)
+
+  try:
+    portage_util.UpdateEbuildManifest(new_ebuild_chroot_path, chroot=chroot)
+  except cros_build_lib.RunCommandError as e:
+    raise EbuildManifestError(
+        'Unable to update manifest for %s: %s' % (package, e.stderr))
 
   result = UprevVersionedPackageResult()
-  result.add_result(version, [new_ebuild_path, ebuild_path])
+  result.add_result(version,
+                    [new_ebuild_src_path, ebuild_path, manifest_src_path])
   return result
 
 
@@ -577,7 +600,7 @@ def get_best_visible(atom, build_target=None):
 
   Args:
     atom (str): The atom to look up.
-    build_target (build_target_util.BuildTarget): The build target whose
+    build_target (build_target_lib.BuildTarget): The build target whose
         sysroot should be searched, or the SDK if not provided.
 
   Returns:
@@ -594,7 +617,7 @@ def has_prebuilt(atom, build_target=None, useflags=None):
 
   Args:
     atom (str): The package whose prebuilt is being queried.
-    build_target (build_target_util.BuildTarget): The build target whose
+    build_target (build_target_lib.BuildTarget): The build target whose
         sysroot should be searched, or the SDK if not provided.
     useflags: Any additional USE flags that should be set. May be a string
         of properly formatted USE flags, or an iterable of individual flags.
@@ -629,7 +652,7 @@ def determine_chrome_version(build_target):
   """Returns the current Chrome version for the board (or in buildroot).
 
   Args:
-    build_target (build_target_util.BuildTarget): The board build target.
+    build_target (build_target_lib.BuildTarget): The board build target.
 
   Returns:
     str|None: The chrome version if available.

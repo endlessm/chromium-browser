@@ -387,8 +387,12 @@ class FullInterfaceTest(cros_test_lib.MockTempDirTestCase):
   def assertMain(self, args, common_options=True):
     if common_options:
       args.extend(['--sourceroot', self.sourceroot, '--notee'])
-    return cbuildbot.main(args)
+    try:
+      return cbuildbot.main(args)
+    finally:
+      cros_build_lib.STRICT_SUDO = False
 
+  @cros_test_lib.pytestmark_redirected_stdin_error
   def testNullArgsStripped(self):
     """Test that null args are stripped out and don't cause error."""
     self.assertMain(['-r', self.buildroot, '', '',

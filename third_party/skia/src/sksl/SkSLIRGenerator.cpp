@@ -108,7 +108,6 @@ IRGenerator::IRGenerator(const Context* context, std::shared_ptr<SymbolTable> sy
 , fSymbolTable(symbolTable)
 , fLoopLevel(0)
 , fSwitchLevel(0)
-, fTmpCount(0)
 , fErrors(errorReporter) {}
 
 void IRGenerator::pushSymbolTable() {
@@ -143,9 +142,6 @@ static void fill_caps(const SKSL_CAPS_CLASS& caps,
 
 void IRGenerator::start(const Program::Settings* settings,
                         std::vector<std::unique_ptr<ProgramElement>>* inherited) {
-    if (fStarted) {
-        this->popSymbolTable();
-    }
     fSettings = settings;
     fCapsMap.clear();
     if (settings->fCaps) {
@@ -291,6 +287,15 @@ std::unique_ptr<VarDeclarations> IRGenerator::convertVarDeclarations(const ASTNo
     }
     if (modifiers.fLayout.fKey && (modifiers.fFlags & Modifiers::kUniform_Flag)) {
         fErrors.error(decls.fOffset, "'key' is not permitted on 'uniform' variables");
+    }
+    if (modifiers.fFlags & Modifiers::kVarying_Flag) {
+        if (fKind != Program::kPipelineStage_Kind) {
+            fErrors.error(decls.fOffset, "'varying' is only permitted in runtime effects");
+        }
+        if (!baseType->isFloat() &&
+            !(baseType->kind() == Type::kVector_Kind && baseType->componentType().isFloat())) {
+            fErrors.error(decls.fOffset, "'varying' must be float scalar or vector");
+        }
     }
     for (; iter != decls.end(); ++iter) {
         const ASTNode& varDecl = *iter;
@@ -773,13 +778,11 @@ void IRGenerator::convertFunction(const ASTNode& f) {
             case Program::kPipelineStage_Kind: {
                 bool valid;
                 switch (parameters.size()) {
-                    case 3:
-                        valid = parameters[0]->fType == *fContext.fFloat_Type &&
+                    case 2:
+                        valid = parameters[0]->fType == *fContext.fFloat2_Type &&
                                 parameters[0]->fModifiers.fFlags == 0 &&
-                                parameters[1]->fType == *fContext.fFloat_Type &&
-                                parameters[1]->fModifiers.fFlags == 0 &&
-                                parameters[2]->fType == *fContext.fHalf4_Type &&
-                                parameters[2]->fModifiers.fFlags == (Modifiers::kIn_Flag |
+                                parameters[1]->fType == *fContext.fHalf4_Type &&
+                                parameters[1]->fModifiers.fFlags == (Modifiers::kIn_Flag |
                                                                      Modifiers::kOut_Flag);
                         break;
                     case 1:
@@ -791,8 +794,8 @@ void IRGenerator::convertFunction(const ASTNode& f) {
                         valid = false;
                 }
                 if (!valid) {
-                    fErrors.error(f.fOffset, "pipeline stage 'main' must be declared main(float, "
-                                             "float, inout half4) or main(inout half4)");
+                    fErrors.error(f.fOffset, "pipeline stage 'main' must be declared main(float2, "
+                                             "inout half4) or main(inout half4)");
                     return;
                 }
                 break;
@@ -878,10 +881,9 @@ void IRGenerator::convertFunction(const ASTNode& f) {
         std::shared_ptr<SymbolTable> old = fSymbolTable;
         AutoSymbolTable table(this);
         if (fd.fName == "main" && fKind == Program::kPipelineStage_Kind) {
-            if (parameters.size() == 3) {
-                parameters[0]->fModifiers.fLayout.fBuiltin = SK_MAIN_X_BUILTIN;
-                parameters[1]->fModifiers.fLayout.fBuiltin = SK_MAIN_Y_BUILTIN;
-                parameters[2]->fModifiers.fLayout.fBuiltin = SK_OUTCOLOR_BUILTIN;
+            if (parameters.size() == 2) {
+                parameters[0]->fModifiers.fLayout.fBuiltin = SK_MAIN_COORDS_BUILTIN;
+                parameters[1]->fModifiers.fLayout.fBuiltin = SK_OUTCOLOR_BUILTIN;
             } else {
                 SkASSERT(parameters.size() == 1);
                 parameters[0]->fModifiers.fLayout.fBuiltin = SK_OUTCOLOR_BUILTIN;
@@ -893,12 +895,7 @@ void IRGenerator::convertFunction(const ASTNode& f) {
         bool needInvocationIDWorkaround = fInvocations != -1 && fd.fName == "main" &&
                                           fSettings->fCaps &&
                                           !fSettings->fCaps->gsInvocationsSupport();
-        SkASSERT(!fExtraVars.size());
         std::unique_ptr<Block> body = this->convertBlock(*iter);
-        for (auto& v : fExtraVars) {
-            body->fStatements.insert(body->fStatements.begin(), std::move(v));
-        }
-        fExtraVars.clear();
         fCurrentFunction = nullptr;
         if (!body) {
             return;
@@ -1796,6 +1793,11 @@ std::unique_ptr<Expression> IRGenerator::call(int offset,
         fErrors.error(offset, msg);
         return nullptr;
     }
+    if (fKind == Program::kPipelineStage_Kind && !function.fDefined && !function.fBuiltin) {
+        String msg = "call to undefined function '" + function.fName + "'";
+        fErrors.error(offset, msg);
+        return nullptr;
+    }
     std::vector<const Type*> types;
     const Type* returnType;
     if (!function.determineFinalTypes(arguments, &types, &returnType)) {
@@ -2433,9 +2435,9 @@ void IRGenerator::setRefKind(const Expression& expr, VariableReference::RefKind 
     switch (expr.fKind) {
         case Expression::kVariableReference_Kind: {
             const Variable& var = ((VariableReference&) expr).fVariable;
-            if (var.fModifiers.fFlags & (Modifiers::kConst_Flag | Modifiers::kUniform_Flag)) {
-                fErrors.error(expr.fOffset,
-                              "cannot modify immutable variable '" + var.fName + "'");
+            if (var.fModifiers.fFlags &
+                (Modifiers::kConst_Flag | Modifiers::kUniform_Flag | Modifiers::kVarying_Flag)) {
+                fErrors.error(expr.fOffset, "cannot modify immutable variable '" + var.fName + "'");
             }
             ((VariableReference&) expr).setRefKind(kind);
             break;

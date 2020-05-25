@@ -28,29 +28,27 @@ void GrAtlasManager::freeAll() {
     }
 }
 
-bool GrAtlasManager::hasGlyph(GrGlyph* glyph) {
+bool GrAtlasManager::hasGlyph(GrMaskFormat format, GrGlyph* glyph) {
     SkASSERT(glyph);
-    return this->getAtlas(glyph->fMaskFormat)->hasID(glyph->fPlotLocator);
+    return this->getAtlas(format)->hasID(glyph->fPlotLocator);
 }
 
 // add to texture atlas that matches this format
 GrDrawOpAtlas::ErrorCode GrAtlasManager::addToAtlas(
                                 GrResourceProvider* resourceProvider,
-                                GrStrikeCache* glyphCache,
-                                GrTextStrike* strike, GrDrawOpAtlas::PlotLocator* plotLocator,
+                                GrDrawOpAtlas::PlotLocator* plotLocator,
                                 GrDeferredUploadTarget* target, GrMaskFormat format,
                                 int width, int height, const void* image, SkIPoint16* loc) {
-    glyphCache->setStrikeToPreserve(strike);
     return this->getAtlas(format)->addToAtlas(
             resourceProvider, plotLocator, target, width, height, image, loc);
 }
 
 void GrAtlasManager::addGlyphToBulkAndSetUseToken(GrDrawOpAtlas::BulkUseTokenUpdater* updater,
-                                                  GrGlyph* glyph,
+                                                  GrMaskFormat format, GrGlyph* glyph,
                                                   GrDeferredUploadToken token) {
     SkASSERT(glyph);
     if (updater->add(glyph->fPlotLocator)) {
-        this->getAtlas(glyph->fMaskFormat)->setLastUseToken(glyph->fPlotLocator, token);
+        this->getAtlas(format)->setLastUseToken(glyph->fPlotLocator, token);
     }
 }
 
@@ -161,7 +159,7 @@ bool GrAtlasManager::initAtlas(GrMaskFormat format) {
                 fProxyProvider, format, grColorType,
                 atlasDimensions.width(), atlasDimensions.height(),
                 plotDimensions.width(), plotDimensions.height(),
-                this, fAllowMultitexturing, fGlyphCache);
+                this, fAllowMultitexturing, nullptr);
         if (!fAtlases[index]) {
             return false;
         }

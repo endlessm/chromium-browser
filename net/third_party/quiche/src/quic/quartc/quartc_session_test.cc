@@ -6,11 +6,11 @@
 
 #include <utility>
 
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_simple_buffer_allocator.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/tls_client_handshaker.h"
 #include "net/third_party/quiche/src/quic/core/tls_server_handshaker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test_mem_slice_vector.h"
@@ -54,8 +54,11 @@ class QuartcSessionTest : public QuicTest {
   ~QuartcSessionTest() override {}
 
   void Init(bool create_client_endpoint = true) {
-    // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-    SetQuicReloadableFlag(quic_enable_version_t099, false);
+    // TODO(b/150224094): Re-enable TLS handshake.
+    // TODO(b/150236522): Parametrize by QUIC version.
+    SetQuicReloadableFlag(quic_enable_version_draft_27, false);
+    SetQuicReloadableFlag(quic_enable_version_draft_25_v3, false);
+    SetQuicReloadableFlag(quic_enable_version_t050, false);
 
     client_transport_ =
         std::make_unique<simulator::SimulatedQuartcPacketTransport>(
@@ -172,6 +175,11 @@ class QuartcSessionTest : public QuicTest {
   void TestSendReceiveMessage() {
     ASSERT_TRUE(server_peer_->CanSendMessage());
     ASSERT_TRUE(client_peer_->CanSendMessage());
+
+    // Disable probing retransmissions such that the first message from either
+    // side can be sent without being queued.
+    client_peer_->connection()->set_fill_up_link_during_probing(false);
+    server_peer_->connection()->set_fill_up_link_during_probing(false);
 
     int64_t server_datagram_id = 111;
     int64_t client_datagram_id = 222;
@@ -341,18 +349,12 @@ TEST_F(QuartcSessionTest, SendReceiveStreams) {
 }
 
 TEST_F(QuartcSessionTest, SendReceiveMessages) {
-  // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_t099, false);
-
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
   TestSendReceiveMessage();
 }
 
 TEST_F(QuartcSessionTest, SendReceiveQueuedMessages) {
-  // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_t099, false);
-
   CreateClientAndServerSessions(QuartcSessionConfig());
   AwaitHandshake();
   TestSendReceiveQueuedMessages(/*direction_from_server=*/true);
@@ -411,9 +413,6 @@ TEST_F(QuartcSessionTest, TestCryptoHandshakeCanWriteTriggers) {
 }
 
 TEST_F(QuartcSessionTest, PreSharedKeyHandshake) {
-  // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_t099, false);
-
   QuartcSessionConfig config;
   config.pre_shared_key = "foo";
   CreateClientAndServerSessions(config);
@@ -557,9 +556,6 @@ TEST_F(QuartcSessionTest, StreamRetransmissionDisabled) {
 }
 
 TEST_F(QuartcSessionTest, LostDatagramNotifications) {
-  // TODO(b/134175506): Remove when IETF QUIC supports receive timestamps.
-  SetQuicReloadableFlag(quic_enable_version_t099, false);
-
   // Disable tail loss probe, otherwise test maybe flaky because dropped
   // message will be retransmitted to detect tail loss.
   QuartcSessionConfig session_config;

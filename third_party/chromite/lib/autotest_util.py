@@ -35,6 +35,7 @@ class AutotestTarballBuilder(object):
       '/usr/bin/remote_test_runner',  # Runs remote tests.
       '/usr/libexec/tast/bundles',  # Dir containing test bundles.
       '/usr/share/tast/data',  # Dir containing test data.
+      '/etc/tast/vars',  # Secret variables.
   ]
   # Tast files and directories stored in the source code.
   _TAST_SSP_SOURCE_FILES = [

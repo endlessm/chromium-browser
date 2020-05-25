@@ -18,6 +18,7 @@ android_test_helper_app {
     test_suites: [
         "cts",
         "vts",
+        "vts10",
         "general-tests",
     ],
 
@@ -28,4 +29,5 @@ android_test_helper_app {
         "libperfettocts_jni",
         "libnativehelper_compat_libc++",
     ],
+    jni_uses_platform_apis: true,
 }

@@ -7,11 +7,11 @@
 
 #include "src/gpu/effects/GrTextureDomain.h"
 
-#include "include/gpu/GrTexture.h"
 #include "include/private/SkFloatingPoint.h"
 #include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/GrSurfaceProxyPriv.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/effects/GrTextureEffect.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
@@ -38,10 +38,10 @@ GrTextureDomain::GrTextureDomain(GrSurfaceProxy* proxy, const SkRect& domain, Mo
     // It is OK if the domain rect is a line or point, but it should not be inverted. We do not
     // handle rects that do not intersect the [0..1]x[0..1] rect.
     SkASSERT(domain.isSorted());
-    fDomain.fLeft = SkScalarPin(domain.fLeft, 0.0f, kFullRect.fRight);
-    fDomain.fRight = SkScalarPin(domain.fRight, fDomain.fLeft, kFullRect.fRight);
-    fDomain.fTop = SkScalarPin(domain.fTop, 0.0f, kFullRect.fBottom);
-    fDomain.fBottom = SkScalarPin(domain.fBottom, fDomain.fTop, kFullRect.fBottom);
+    fDomain.fLeft = SkTPin(domain.fLeft, 0.0f, kFullRect.fRight);
+    fDomain.fRight = SkTPin(domain.fRight, fDomain.fLeft, kFullRect.fRight);
+    fDomain.fTop = SkTPin(domain.fTop, 0.0f, kFullRect.fBottom);
+    fDomain.fBottom = SkTPin(domain.fBottom, fDomain.fTop, kFullRect.fBottom);
     SkASSERT(fDomain.fLeft <= fDomain.fRight);
     SkASSERT(fDomain.fTop <= fDomain.fBottom);
 }
@@ -314,122 +314,3 @@ void GrTextureDomain::GLDomain::setData(const GrGLSLProgramDataManager& pdman,
         std::copy_n(decalFilterWeights, 3, fPrevDeclFilterWeights);
     }
 }
-
-///////////////////////////////////////////////////////////////////////////////
-
-std::unique_ptr<GrFragmentProcessor> GrDeviceSpaceTextureDecalFragmentProcessor::Make(
-        sk_sp<GrSurfaceProxy> proxy, const SkIRect& subset, const SkIPoint& deviceSpaceOffset) {
-    return std::unique_ptr<GrFragmentProcessor>(new GrDeviceSpaceTextureDecalFragmentProcessor(
-            std::move(proxy), subset, deviceSpaceOffset));
-}
-
-GrDeviceSpaceTextureDecalFragmentProcessor::GrDeviceSpaceTextureDecalFragmentProcessor(
-        sk_sp<GrSurfaceProxy> proxy, const SkIRect& subset, const SkIPoint& deviceSpaceOffset)
-        : INHERITED(kGrDeviceSpaceTextureDecalFragmentProcessor_ClassID,
-                    kCompatibleWithCoverageAsAlpha_OptimizationFlag)
-        , fTextureSampler(proxy, GrSamplerState::Filter::kNearest)
-        , fTextureDomain(proxy.get(),
-                         GrTextureDomain::MakeTexelDomain(subset, GrTextureDomain::kDecal_Mode),
-                         GrTextureDomain::kDecal_Mode, GrTextureDomain::kDecal_Mode) {
-    this->setTextureSamplerCnt(1);
-    fDeviceSpaceOffset.fX = deviceSpaceOffset.fX - subset.fLeft;
-    fDeviceSpaceOffset.fY = deviceSpaceOffset.fY - subset.fTop;
-}
-
-GrDeviceSpaceTextureDecalFragmentProcessor::GrDeviceSpaceTextureDecalFragmentProcessor(
-        const GrDeviceSpaceTextureDecalFragmentProcessor& that)
-        : INHERITED(kGrDeviceSpaceTextureDecalFragmentProcessor_ClassID,
-                    kCompatibleWithCoverageAsAlpha_OptimizationFlag)
-        , fTextureSampler(that.fTextureSampler)
-        , fTextureDomain(that.fTextureDomain)
-        , fDeviceSpaceOffset(that.fDeviceSpaceOffset) {
-    this->setTextureSamplerCnt(1);
-}
-
-std::unique_ptr<GrFragmentProcessor> GrDeviceSpaceTextureDecalFragmentProcessor::clone() const {
-    return std::unique_ptr<GrFragmentProcessor>(
-            new GrDeviceSpaceTextureDecalFragmentProcessor(*this));
-}
-
-GrGLSLFragmentProcessor* GrDeviceSpaceTextureDecalFragmentProcessor::onCreateGLSLInstance() const  {
-    class GLSLProcessor : public GrGLSLFragmentProcessor {
-    public:
-        void emitCode(EmitArgs& args) override {
-            const GrDeviceSpaceTextureDecalFragmentProcessor& dstdfp =
-                    args.fFp.cast<GrDeviceSpaceTextureDecalFragmentProcessor>();
-            const char* scaleAndTranslateName;
-            fScaleAndTranslateUni = args.fUniformHandler->addUniform(kFragment_GrShaderFlag,
-                                                                     kHalf4_GrSLType,
-                                                                     "scaleAndTranslate",
-                                                                     &scaleAndTranslateName);
-            args.fFragBuilder->codeAppendf("half2 coords = half2(sk_FragCoord.xy * %s.xy + %s.zw);",
-                                           scaleAndTranslateName, scaleAndTranslateName);
-            fGLDomain.sampleTexture(args.fFragBuilder,
-                                    args.fUniformHandler,
-                                    args.fShaderCaps,
-                                    dstdfp.fTextureDomain,
-                                    args.fOutputColor,
-                                    SkString("coords"),
-                                    args.fTexSamplers[0],
-                                    args.fInputColor);
-        }
-
-    protected:
-        void onSetData(const GrGLSLProgramDataManager& pdman,
-                       const GrFragmentProcessor& fp) override {
-            const GrDeviceSpaceTextureDecalFragmentProcessor& dstdfp =
-                    fp.cast<GrDeviceSpaceTextureDecalFragmentProcessor>();
-            const auto& view = dstdfp.textureSampler(0).view();
-            SkISize textureDims = view.proxy()->backingStoreDimensions();
-
-            fGLDomain.setData(pdman, dstdfp.fTextureDomain, view,
-                              dstdfp.textureSampler(0).samplerState());
-            float iw = 1.f / textureDims.width();
-            float ih = 1.f / textureDims.height();
-            float scaleAndTransData[4] = {
-                iw, ih,
-                -dstdfp.fDeviceSpaceOffset.fX * iw, -dstdfp.fDeviceSpaceOffset.fY * ih
-            };
-            if (view.origin() == kBottomLeft_GrSurfaceOrigin) {
-                scaleAndTransData[1] = -scaleAndTransData[1];
-                scaleAndTransData[3] = 1 - scaleAndTransData[3];
-            }
-            pdman.set4fv(fScaleAndTranslateUni, 1, scaleAndTransData);
-        }
-
-    private:
-        GrTextureDomain::GLDomain   fGLDomain;
-        UniformHandle               fScaleAndTranslateUni;
-    };
-
-    return new GLSLProcessor;
-}
-
-bool GrDeviceSpaceTextureDecalFragmentProcessor::onIsEqual(const GrFragmentProcessor& fp) const {
-    const GrDeviceSpaceTextureDecalFragmentProcessor& dstdfp =
-            fp.cast<GrDeviceSpaceTextureDecalFragmentProcessor>();
-    return dstdfp.fTextureSampler.view().proxy()->underlyingUniqueID() ==
-                   fTextureSampler.view().proxy()->underlyingUniqueID() &&
-           dstdfp.fDeviceSpaceOffset == fDeviceSpaceOffset &&
-           dstdfp.fTextureDomain == fTextureDomain;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrDeviceSpaceTextureDecalFragmentProcessor);
-
-#if GR_TEST_UTILS
-std::unique_ptr<GrFragmentProcessor> GrDeviceSpaceTextureDecalFragmentProcessor::TestCreate(
-        GrProcessorTestData* d) {
-    auto [proxy, at, ct] = d->randomProxy();
-    SkIRect subset;
-    subset.fLeft = d->fRandom->nextULessThan(proxy->width() - 1);
-    subset.fRight = d->fRandom->nextRangeU(subset.fLeft, proxy->width());
-    subset.fTop = d->fRandom->nextULessThan(proxy->height() - 1);
-    subset.fBottom = d->fRandom->nextRangeU(subset.fTop, proxy->height());
-    SkIPoint pt;
-    pt.fX = d->fRandom->nextULessThan(2048);
-    pt.fY = d->fRandom->nextULessThan(2048);
-    return GrDeviceSpaceTextureDecalFragmentProcessor::Make(std::move(proxy), subset, pt);
-}
-#endif

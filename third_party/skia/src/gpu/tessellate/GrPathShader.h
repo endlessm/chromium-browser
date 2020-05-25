@@ -28,30 +28,22 @@ public:
     }
 
     const SkMatrix& viewMatrix() const { return fViewMatrix; }
-    GrPrimitiveType primitiveType() const { return fPrimitiveType; }
-    int tessellationPatchVertexCount() const { return fTessellationPatchVertexCount; }
 
-    void issueDraw(GrOpFlushState* state, const GrPipeline* pipeline,
-                   const GrPipeline::FixedDynamicState* fixedDynamicState,
-                   sk_sp<const GrBuffer> vertexBuffer, int vertexCount, int baseVertex,
-                   const SkRect& bounds) {
-        GrMesh mesh(fPrimitiveType, fTessellationPatchVertexCount);
-        mesh.setNonIndexedNonInstanced(vertexCount);
-        mesh.setVertexData(std::move(vertexBuffer), baseVertex);
-        this->issueDraw(state, pipeline, fixedDynamicState, mesh, bounds);
-    }
-
-    void issueDraw(GrOpFlushState* state, const GrPipeline* pipeline,
-                   const GrPipeline::FixedDynamicState* fixedDynamicState, const GrMesh& mesh,
-                   const SkRect& bounds) {
-        SkASSERT(mesh.primitiveType() == fPrimitiveType);
-        SkASSERT(mesh.tessellationPatchVertexCount() == fTessellationPatchVertexCount);
-        GrProgramInfo programInfo(state->proxy()->numSamples(), state->proxy()->numStencilSamples(),
-                                  state->proxy()->backendFormat(), state->view()->origin(),
-                                  pipeline, this, fixedDynamicState, nullptr, 0,
-                                  fPrimitiveType, fTessellationPatchVertexCount);
-        state->opsRenderPass()->draw(programInfo, &mesh, 1, bounds);
-    }
+    // This subclass is used to simplify the argument list for constructing GrProgramInfo from a
+    // GrPathShader.
+    class ProgramInfo : public GrProgramInfo {
+    public:
+        ProgramInfo(const GrSurfaceProxyView* view, const GrPipeline* pipeline,
+                    const GrPathShader* shader)
+                : ProgramInfo(view->asRenderTargetProxy(), view->origin(), pipeline, shader) {
+        }
+        ProgramInfo(const GrRenderTargetProxy* proxy, GrSurfaceOrigin origin,
+                    const GrPipeline* pipeline, const GrPathShader* shader)
+                : GrProgramInfo(proxy->numSamples(), proxy->numStencilSamples(),
+                                proxy->backendFormat(), origin, pipeline, shader,
+                                shader->fPrimitiveType, shader->fTessellationPatchVertexCount) {
+        }
+    };
 
 private:
     const SkMatrix fViewMatrix;

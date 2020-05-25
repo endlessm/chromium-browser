@@ -34,6 +34,7 @@
 #include "perfetto/ext/base/file_utils.h"
 #include "perfetto/ext/base/scoped_file.h"
 #include "perfetto/ext/base/string_splitter.h"
+#include "perfetto/ext/base/string_utils.h"
 #include "perfetto/trace_processor/read_trace.h"
 #include "perfetto/trace_processor/trace_processor.h"
 #include "src/trace_processor/metrics/custom_options.descriptor.h"
@@ -245,6 +246,7 @@ int ExportTraceToDatabase(const std::string& output_name) {
     return 1;
   }
 
+  // Export real and virtual tables.
   auto tables_it = g_tp->ExecuteQuery(
       "SELECT name FROM perfetto_tables UNION "
       "SELECT name FROM sqlite_master WHERE type='table'");
@@ -265,6 +267,34 @@ int ExportTraceToDatabase(const std::string& output_name) {
     }
   }
   status = tables_it.Status();
+  if (!status.ok()) {
+    PERFETTO_ELOG("SQLite error: %s", status.c_message());
+    return 1;
+  }
+
+  // Export views.
+  auto views_it =
+      g_tp->ExecuteQuery("SELECT sql FROM sqlite_master WHERE type='view'");
+  for (uint32_t rows = 0; views_it.Next(); rows++) {
+    std::string sql = views_it.Get(0).string_value;
+    // View statements are of the form "CREATE VIEW name AS stmt". We need to
+    // rewrite name to point to the exported db.
+    const std::string kPrefix = "CREATE VIEW ";
+    PERFETTO_CHECK(sql.find(kPrefix) == 0);
+    sql = sql.substr(0, kPrefix.size()) + "perfetto_export." +
+          sql.substr(kPrefix.size());
+
+    auto export_it = g_tp->ExecuteQuery(sql);
+    bool export_has_more = export_it.Next();
+    PERFETTO_DCHECK(!export_has_more);
+
+    status = export_it.Status();
+    if (!status.ok()) {
+      PERFETTO_ELOG("SQLite error: %s", status.c_message());
+      return 1;
+    }
+  }
+  status = views_it.Status();
   if (!status.ok()) {
     PERFETTO_ELOG("SQLite error: %s", status.c_message());
     return 1;
@@ -552,20 +582,17 @@ util::Status PrintQueryResultAsCsv(TraceProcessor::Iterator* it, FILE* output) {
   return it->Status();
 }
 
-bool IsBlankLine(char* buffer) {
-  size_t buf_size = strlen(buffer);
-  for (size_t i = 0; i < buf_size; ++i) {
-    // We can index into buffer[i+1], because strlen does not include the
-    // trailing \0, so even if \r is the last character, this is not out
-    // of bound.
-    if (buffer[i] == '\r') {
-      if (buffer[i + 1] != '\n')
-        return false;
-    } else if (buffer[i] != ' ' && buffer[i] != '\t' && buffer[i] != '\n') {
-      return false;
-    }
-  }
-  return true;
+bool IsBlankLine(const std::string& buffer) {
+  return buffer == "\n" || buffer == "\r\n";
+}
+
+bool IsCommentLine(const std::string& buffer) {
+  return base::StartsWith(buffer, "--");
+}
+
+bool HasEndOfQueryDelimiter(const std::string& buffer) {
+  return base::EndsWith(buffer, ";\n") || base::EndsWith(buffer, ";") ||
+         base::EndsWith(buffer, ";\r\n");
 }
 
 bool LoadQueries(FILE* input, std::vector<std::string>* output) {
@@ -573,11 +600,19 @@ bool LoadQueries(FILE* input, std::vector<std::string>* output) {
   while (!feof(input) && !ferror(input)) {
     std::string sql_query;
     while (fgets(buffer, sizeof(buffer), input)) {
-      if (IsBlankLine(buffer))
+      std::string line = buffer;
+      if (IsBlankLine(line))
         break;
-      sql_query.append(buffer);
+
+      if (IsCommentLine(line))
+        continue;
+
+      sql_query.append(line);
+
+      if (HasEndOfQueryDelimiter(line))
+        break;
     }
-    if (sql_query.back() == '\n')
+    if (!sql_query.empty() && sql_query.back() == '\n')
       sql_query.resize(sql_query.size() - 1);
 
     // If we have a new line at the end of the file or an extra new line
@@ -954,6 +989,11 @@ int TraceProcessorMain(int argc, char** argv) {
                   size_mb / t_load_s);
   }  // if (!trace_file_path.empty())
 
+  // Print out the stats to stderr for the trace.
+  if (!PrintStats()) {
+    return 1;
+  }
+
 #if PERFETTO_BUILDFLAG(PERFETTO_TP_HTTPD)
   if (options.enable_httpd) {
     RunHttpRPCServer(std::move(tp));
@@ -964,11 +1004,6 @@ int TraceProcessorMain(int argc, char** argv) {
 #if PERFETTO_HAS_SIGNAL_H()
   signal(SIGINT, [](int) { g_tp->InterruptQuery(); });
 #endif
-
-  // Print out the stats to stderr for the trace.
-  if (!PrintStats()) {
-    return 1;
-  }
 
   auto t_run_start = base::GetWallTimeNs();
 

@@ -43,11 +43,12 @@ namespace dawn_native { namespace vulkan {
         DawnSwapChainError error = im.GetNextTexture(im.userData, &next);
 
         if (error) {
-            GetDevice()->HandleError(wgpu::ErrorType::Unknown, error);
+            GetDevice()->HandleError(InternalErrorType::Internal, error);
             return nullptr;
         }
 
-        VkImage nativeTexture = VkImage::CreateFromU64(next.texture.u64);
+        VkImage nativeTexture =
+            VkImage::CreateFromHandle(reinterpret_cast<::VkImage>(next.texture.u64));
         return new Texture(ToBackend(GetDevice()), descriptor, nativeTexture);
     }
 

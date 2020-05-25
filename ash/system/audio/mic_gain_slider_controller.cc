@@ -37,7 +37,7 @@ void MicGainSliderController::SliderValueChanged(
     float value,
     float old_value,
     views::SliderChangeReason reason) {
-  if (reason != views::VALUE_CHANGED_BY_USER)
+  if (reason != views::SliderChangeReason::kByUser)
     return;
 
   CrasAudioHandler::Get()->SetInputGainPercent(value * 100);

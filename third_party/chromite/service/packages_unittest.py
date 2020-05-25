@@ -10,6 +10,7 @@ from __future__ import print_function
 import json
 import os
 import re
+import sys
 
 from google.protobuf import json_format
 from google.protobuf.field_mask_pb2 import FieldMask
@@ -19,15 +20,20 @@ from chromite.api.gen.config.replication_config_pb2 import (
     REPLICATION_TYPE_FILTER
 )
 from chromite.cbuildbot import manifest_version
-from chromite.lib import build_target_util
+from chromite.lib import build_target_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
+from chromite.lib import partial_mock
 from chromite.lib import portage_util
 from chromite.lib.chroot_lib import Chroot
 from chromite.lib.uprev_lib import GitRef
 from chromite.service import packages
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
 
 D = cros_test_lib.Directory
 
@@ -37,10 +43,9 @@ class UprevAndroidTest(cros_test_lib.RunCommandTestCase):
 
   def test_success(self):
     """Test successful run handling."""
-    self.PatchObject(packages, '_parse_android_atom',
-                     return_value='ANDROID_ATOM=android/android-1.0')
-
-    build_targets = [build_target_util.BuildTarget(t) for t in ['foo', 'bar']]
+    self.rc.AddCmdResult(partial_mock.In('cros_mark_android_as_stable'),
+                         stdout='ANDROID_ATOM=android/android-1.0\n')
+    build_targets = [build_target_lib.BuildTarget(t) for t in ['foo', 'bar']]
 
     packages.uprev_android('refs/tracking-branch', 'android/package',
                            'refs/android-build-branch', Chroot(),
@@ -52,8 +57,9 @@ class UprevAndroidTest(cros_test_lib.RunCommandTestCase):
 
   def test_no_uprev(self):
     """Test no uprev handling."""
-    self.PatchObject(packages, '_parse_android_atom', return_value=None)
-    build_targets = [build_target_util.BuildTarget(t) for t in ['foo', 'bar']]
+    self.rc.AddCmdResult(partial_mock.In('cros_mark_android_as_stable'),
+                         stdout='')
+    build_targets = [build_target_lib.BuildTarget(t) for t in ['foo', 'bar']]
     packages.uprev_android('refs/tracking-branch', 'android/package',
                            'refs/android-build-branch', Chroot(),
                            build_targets=build_targets)
@@ -70,13 +76,13 @@ class UprevBuildTargetsTest(cros_test_lib.RunCommandTestCase):
   def test_invalid_type_fails(self):
     """Test invalid type fails."""
     with self.assertRaises(AssertionError):
-      packages.uprev_build_targets([build_target_util.BuildTarget('foo')],
+      packages.uprev_build_targets([build_target_lib.BuildTarget('foo')],
                                    'invalid')
 
   def test_none_type_fails(self):
     """Test None type fails."""
     with self.assertRaises(AssertionError):
-      packages.uprev_build_targets([build_target_util.BuildTarget('foo')],
+      packages.uprev_build_targets([build_target_lib.BuildTarget('foo')],
                                    None)
 
 
@@ -94,7 +100,8 @@ class UprevsVersionedPackageTest(cros_test_lib.MockTestCase):
     cpv = portage_util.SplitCPV('category/package', strict=False)
     packages.uprev_versioned_package(cpv, [], [], Chroot())
 
-    patch.assert_called()
+    # TODO(crbug/1065172): Invalid assertion that had previously been mocked.
+    # patch.assert_called()
 
   def test_unregistered_package(self):
     """Test calling with an unregistered package."""
@@ -104,7 +111,7 @@ class UprevsVersionedPackageTest(cros_test_lib.MockTestCase):
       packages.uprev_versioned_package(cpv, [], [], Chroot())
 
 
-class UprevEbuildFromPinTest(cros_test_lib.TempDirTestCase):
+class UprevEbuildFromPinTest(cros_test_lib.RunCommandTempDirTestCase):
   """Tests uprev_ebuild_from_pin function"""
 
   package = 'category/package'
@@ -113,11 +120,12 @@ class UprevEbuildFromPinTest(cros_test_lib.TempDirTestCase):
   ebuild_template = 'package-%s-r1.ebuild'
   ebuild = ebuild_template % version
   version_pin = 'VERSION-PIN'
+  manifest = 'Manifest'
 
   def test_uprev_ebuild(self):
     """Tests uprev of ebuild with version path"""
     file_layout = (
-        D(self.package, [self.ebuild, self.version_pin]),
+        D(self.package, [self.ebuild, self.version_pin, self.manifest]),
     )
     cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
 
@@ -125,30 +133,30 @@ class UprevEbuildFromPinTest(cros_test_lib.TempDirTestCase):
     version_pin_path = os.path.join(package_path, self.version_pin)
     self.WriteTempFile(version_pin_path, self.new_version)
 
-    result = packages.uprev_ebuild_from_pin(package_path, version_pin_path)
+    result = packages.uprev_ebuild_from_pin(package_path, version_pin_path,
+                                            chroot=Chroot())
     self.assertEqual(len(result.modified), 1,
                      'unexpected number of results: %s' % len(result.modified))
 
     mod = result.modified[0]
     self.assertEqual(mod.new_version, self.new_version,
                      'unexpected version number: %s' % mod.new_version)
-    self.assertEqual(len(mod.files), 2,
-                     'unexpected number of modified files: %s' % len(mod.files))
 
     old_ebuild_path = os.path.join(package_path,
                                    self.ebuild_template % self.version)
-    self.assertEqual(mod.files[1], old_ebuild_path,
-                     'unexpected deleted ebuild file: %s' % mod.files[0])
-
     new_ebuild_path = os.path.join(package_path,
                                    self.ebuild_template % self.new_version)
-    self.assertEqual(mod.files[0], new_ebuild_path,
-                     'unexpected updated ebuild file: %s' % mod.files[1])
+    manifest_path = os.path.join(package_path, 'Manifest')
+
+    expected_modified_files = [old_ebuild_path, new_ebuild_path, manifest_path]
+    self.assertCountEqual(mod.files, expected_modified_files)
+
+    self.assertCommandContains(['ebuild', 'manifest'])
 
   def test_no_ebuild(self):
     """Tests assertion is raised if package has no ebuilds"""
     file_layout = (
-        D(self.package, [self.version_pin]),
+        D(self.package, [self.version_pin, self.manifest]),
     )
     cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
 
@@ -157,13 +165,15 @@ class UprevEbuildFromPinTest(cros_test_lib.TempDirTestCase):
     self.WriteTempFile(version_pin_path, self.new_version)
 
     with self.assertRaises(packages.UprevError):
-      packages.uprev_ebuild_from_pin(package_path, version_pin_path)
+      packages.uprev_ebuild_from_pin(package_path, version_pin_path,
+                                     chroot=Chroot())
 
   def test_multiple_ebuilds(self):
     """Tests assertion is raised if multiple ebuilds are present for package"""
     file_layout = (
         D(self.package, [self.version_pin, self.ebuild,
-                         self.ebuild_template % '1.2.1']),
+                         self.ebuild_template % '1.2.1',
+                         self.manifest]),
     )
     cros_test_lib.CreateOnDiskHierarchy(self.tempdir, file_layout)
 
@@ -172,7 +182,8 @@ class UprevEbuildFromPinTest(cros_test_lib.TempDirTestCase):
     self.WriteTempFile(version_pin_path, self.new_version)
 
     with self.assertRaises(packages.UprevError):
-      packages.uprev_ebuild_from_pin(package_path, version_pin_path)
+      packages.uprev_ebuild_from_pin(package_path, version_pin_path,
+                                     chroot=Chroot())
 
 
 class ReplicatePrivateConfigTest(cros_test_lib.RunCommandTempDirTestCase):
@@ -565,7 +576,7 @@ class ChromeVersionsTest(cros_test_lib.MockTestCase):
   """Tests getting chrome version."""
 
   def setUp(self):
-    self.build_target = build_target_util.BuildTarget('board')
+    self.build_target = build_target_lib.BuildTarget('board')
 
   def test_determine_chrome_version(self):
     """Tests that a valid chrome version is returned."""

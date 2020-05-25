@@ -18,6 +18,8 @@
 
 #define DEBUG_TYPE "clang-tidy"
 
+// FixItHint
+
 using namespace clang::ast_matchers;
 
 namespace clang {
@@ -256,7 +258,7 @@ static std::string fixupWithCase(StringRef Name,
   }
 
   if (Words.empty())
-    return Name;
+    return std::string(Name);
 
   std::string Fixup;
   switch (Case) {

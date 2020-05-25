@@ -13,6 +13,20 @@ Polymer({
   behaviors: [OobeI18nBehavior, OobeDialogHostBehavior],
 
   properties: {
+    /** Object mapping step strings to step indices */
+    setupSteps_: {
+      type: Object,
+      value() {
+        return /** @type {!Object} */ (loadTimeData.getValue('demoSetupSteps'));
+      }
+    },
+
+    /** Which step index is currently running in Demo Mode setup. */
+    currentStepIndex_: {
+      type: Number,
+      value: -1,
+    },
+
     /** Error message displayed on demoSetupErrorDialog screen. */
     errorMessage_: {
       type: String,
@@ -33,6 +47,15 @@ Polymer({
         return ['demoSetupProgressDialog', 'demoSetupErrorDialog'];
       },
     },
+
+    /** Feature flag to display progress bar instead of spinner during setup. */
+    showStepsInDemoModeSetup_: {
+      type: Boolean,
+      readonly: true,
+      value() {
+        return loadTimeData.getBoolean('showStepsInDemoModeSetup');
+      }
+    }
   },
 
   /** Resets demo setup flow to the initial screen and starts setup. */
@@ -44,6 +67,17 @@ Polymer({
   /** Called after resources are updated. */
   updateLocalizedContent() {
     this.i18nUpdateLocale();
+  },
+
+  /**
+   * Called at the beginning of a setup step.
+   * @param {string} currentStep The new step name.
+   */
+  setCurrentSetupStep(currentStep) {
+    // If new step index not specified, remain unchanged.
+    if (this.setupSteps_.hasOwnProperty(currentStep)) {
+      this.currentStepIndex_ = this.setupSteps_[currentStep];
+    }
   },
 
   /** Called when demo mode setup succeeded. */
@@ -122,5 +156,37 @@ Polymer({
     if (this.isPowerwashRequired_)
       return;
     chrome.send('login.DemoSetupScreen.userActed', ['close-setup']);
+  },
+
+  /**
+   * Whether a given step should be rendered on the UI.
+   * @param {string} stepName The name of the step (from the enum).
+   * @param {!Object} setupSteps
+   * @private
+   */
+  shouldShowStep_(stepName, setupSteps) {
+    return setupSteps.hasOwnProperty(stepName);
+  },
+
+  /**
+   * Whether a given step is active.
+   * @param {string} stepName The name of the step (from the enum).
+   * @param {!Object} setupSteps
+   * @param {number} currentStepIndex
+   * @private
+   */
+  stepIsActive_(stepName, setupSteps, currentStepIndex) {
+    return currentStepIndex == setupSteps[stepName];
+  },
+
+  /**
+   * Whether a given step is completed.
+   * @param {string} stepName The name of the step (from the enum).
+   * @param {!Object} setupSteps
+   * @param {number} currentStepIndex
+   * @private
+   */
+  stepIsCompleted_(stepName, setupSteps, currentStepIndex) {
+    return currentStepIndex > setupSteps[stepName];
   },
 });

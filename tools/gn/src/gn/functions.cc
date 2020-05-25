@@ -259,8 +259,8 @@ Value RunAssert(Scope* scope,
 
   // Assertion failed; try to make a useful message and report it.
   if (args.size() == 2) {
-    *err = Err(function->function(), "Assertion failed.",
-               args[1].string_value());
+    *err =
+        Err(function->function(), "Assertion failed.", args[1].string_value());
   } else {
     *err = Err(function->function(), "Assertion failed.");
   }
@@ -383,7 +383,8 @@ Value RunConfig(const FunctionCallNode* function,
   // Read sub-configs.
   const Value* configs_value = scope->GetValue(variables::kConfigs, true);
   if (configs_value) {
-    ExtractListOfUniqueLabels(*configs_value, scope->GetSourceDir(),
+    ExtractListOfUniqueLabels(scope->settings()->build_settings(),
+                              *configs_value, scope->GetSourceDir(),
                               ToolchainLabelForScope(scope), &config->configs(),
                               err);
   }
@@ -794,7 +795,7 @@ Value RunNotNeeded(Scope* scope,
       // We don't need the return value, we invoke scope::GetValue only to mark
       // the value as used. Note that we cannot use Scope::MarkUsed because we
       // want to also search in the parent scope.
-      (void) source->GetValue(cur.string_value(), true);
+      (void)source->GetValue(cur.string_value(), true);
     }
     return Value();
   }
@@ -827,38 +828,9 @@ const char kSetSourcesAssignmentFilter_Help[] =
 
   If you want to bypass the filter and add a file even if it might be filtered
   out, call set_sources_assignment_filter([]) to clear the list of filters.
-  This will apply until the current scope exits
+  This will apply until the current scope exits.
 
-How to use patterns
-
-  File patterns are VERY limited regular expressions. They must match the
-  entire input string to be counted as a match. In regular expression parlance,
-  there is an implicit "^...$" surrounding your input. If you want to match a
-  substring, you need to use wildcards at the beginning and end.
-
-  There are only two special tokens understood by the pattern matcher.
-  Everything else is a literal.
-
-   - "*" Matches zero or more of any character. It does not depend on the
-     preceding character (in regular expression parlance it is equivalent to
-     ".*").
-
-   - "\b" Matches a path boundary. This will match the beginning or end of a
-     string, or a slash.
-
-Pattern examples
-
-  "*asdf*"
-      Matches a string containing "asdf" anywhere.
-
-  "asdf"
-      Matches only the exact string "asdf".
-
-  "*.cc"
-      Matches strings ending in the literal ".cc".
-
-  "\bwin/*"
-      Matches "win/foo" and "foo/win/bar.cc" but not "iwin/foo".
+  See "gn help file_pattern" for more information on file pattern.
 
 Sources assignment example
 
@@ -1162,16 +1134,20 @@ Value RunStringJoin(Scope* scope,
 
   // Check usage: separator is a string.
   if (!args[0].VerifyTypeIs(Value::STRING, err)) {
-    *err = Err(function, "separator in string_join(separator, strings) is not "
-               "a string", "Expecting separator argument to be a string.");
+    *err = Err(function,
+               "separator in string_join(separator, strings) is not "
+               "a string",
+               "Expecting separator argument to be a string.");
     return Value();
   }
   const std::string separator = args[0].string_value();
 
   // Check usage: strings is a list.
   if (!args[1].VerifyTypeIs(Value::LIST, err)) {
-    *err = Err(function, "strings in string_join(separator, strings) "
-               "is not a list", "Expecting strings argument to be a list.");
+    *err = Err(function,
+               "strings in string_join(separator, strings) "
+               "is not a list",
+               "Expecting strings argument to be a list.");
     return Value();
   }
   const std::vector<Value> strings = args[1].list_value();
@@ -1313,8 +1289,10 @@ Value RunStringSplit(Scope* scope,
     }
     separator = args[1].string_value();
     if (separator.empty()) {
-      *err = Err(function, "Separator argument to string_split() "
-                 "cannot be empty string", "Usage: string_split(str[, sep])");
+      *err = Err(function,
+                 "Separator argument to string_split() "
+                 "cannot be empty string",
+                 "Usage: string_split(str[, sep])");
       return Value();
     }
   }
@@ -1452,6 +1430,8 @@ struct FunctionInfoInitializer {
     INSERT_FUNCTION(DeclareArgs, false)
     INSERT_FUNCTION(Defined, false)
     INSERT_FUNCTION(ExecScript, false)
+    INSERT_FUNCTION(FilterExclude, false)
+    INSERT_FUNCTION(FilterInclude, false)
     INSERT_FUNCTION(ForEach, false)
     INSERT_FUNCTION(ForwardVariablesFrom, false)
     INSERT_FUNCTION(GetEnv, false)

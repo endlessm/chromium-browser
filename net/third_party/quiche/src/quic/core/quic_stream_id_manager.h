@@ -33,25 +33,9 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
    public:
     virtual ~DelegateInterface() = default;
 
-    // Called when new outgoing streams are available to be opened. This occurs
-    // when an extant, open, stream is moved to draining or closed.
-    // |unidirectional| indicates whether unidirectional or bidirectional
-    // streams are now available. If both become available at the same time then
-    // there will be two calls to this method, one with unidirectional==true,
-    // the other with it ==false.
-    virtual void OnCanCreateNewOutgoingStream(bool unidirectional) = 0;
-
-    // Closes the connection when an error is encountered.
-    virtual void OnError(QuicErrorCode error_code,
-                         std::string error_details) = 0;
-
     // Send a MAX_STREAMS frame.
     virtual void SendMaxStreams(QuicStreamCount stream_count,
                                 bool unidirectional) = 0;
-
-    // Send a STREAMS_BLOCKED frame.
-    virtual void SendStreamsBlocked(QuicStreamCount stream_count,
-                                    bool unidirectional) = 0;
   };
 
   QuicStreamIdManager(DelegateInterface* delegate,
@@ -81,20 +65,13 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
         ", max_streams_window_: ", max_streams_window_, " }");
   }
 
-  // Processes the MAX_STREAMS frame, invoked from
-  // QuicSession::OnMaxStreamsFrame. It has the same semantics as the
-  // QuicFramerVisitorInterface, returning true if the framer should continue
-  // processing the packet, false if not.
-  bool OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame);
-
-  // Processes the STREAMS_BLOCKED frame, invoked from
-  // QuicSession::OnStreamsBlockedFrame. It has the same semantics as the
-  // QuicFramerVisitorInterface, returning true if the framer should continue
-  // processing the packet, false if not.
-  bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame);
+  // Processes the STREAMS_BLOCKED frame. If error is encountered, populates
+  // |error_details| and returns false.
+  bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame,
+                             std::string* error_details);
 
   // Indicates whether the next outgoing stream ID can be allocated or not.
-  bool CanOpenNextOutgoingStream();
+  bool CanOpenNextOutgoingStream() const;
 
   // Generate and send a MAX_STREAMS frame.
   void SendMaxStreamsFrame();
@@ -112,20 +89,19 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
 
   void SetMaxOpenIncomingStreams(QuicStreamCount max_open_streams);
 
-  // Sets the maximum number of outgoing streams to max_open_streams.
-  // Used when configuration has been done and we have an initial
-  // maximum stream count from the peer. Note that if the stream count is such
-  // that it would result in stream ID values that are greater than the
-  // implementation limit, it pegs the count at the implementation limit.
-  bool SetMaxOpenOutgoingStreams(QuicStreamCount max_open_streams);
+  // Called on |max_open_streams| outgoing streams can be created because of 1)
+  // config negotiated or 2) MAX_STREAMS received. Returns true if new
+  // streams can be created.
+  bool MaybeAllowNewOutgoingStreams(QuicStreamCount max_open_streams);
 
   // Checks if the incoming stream ID exceeds the MAX_STREAMS limit.  If the
-  // limit is exceeded, closes the connection and returns false.  Uses the
+  // limit is exceeded, populates |error_detials| and returns false.  Uses the
   // actual maximium, not the most recently advertised value, in order to
   // enforce the Google-QUIC number of open streams behavior.
   // This method should be called exactly once for each incoming stream
   // creation.
-  bool MaybeIncreaseLargestPeerStreamId(const QuicStreamId stream_id);
+  bool MaybeIncreaseLargestPeerStreamId(const QuicStreamId stream_id,
+                                        std::string* error_details);
 
   // Returns true if |id| is still available.
   bool IsAvailableStream(QuicStreamId id) const;
@@ -145,11 +121,6 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
 
   // Number of streams that the peer believes that it can still create.
   QuicStreamCount available_incoming_streams();
-
-  void set_largest_peer_created_stream_id(
-      QuicStreamId largest_peer_created_stream_id) {
-    largest_peer_created_stream_id_ = largest_peer_created_stream_id;
-  }
 
   QuicStreamId largest_peer_created_stream_id() const {
     return largest_peer_created_stream_id_;
@@ -174,10 +145,6 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
   // Perspective (CLIENT/SERVER) of this node and the peer, respectively.
   Perspective perspective() const;
   Perspective peer_perspective() const;
-
-  // Called when session has been configured. Causes the Stream ID manager to
-  // send out any pending MAX_STREAMS and STREAMS_BLOCKED frames.
-  void OnConfigNegotiated();
 
  private:
   friend class test::QuicSessionPeer;
@@ -208,9 +175,6 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
 
   // Transport version used for this manager.
   const QuicTransportVersion transport_version_;
-
-  // True if the config has been negotiated_;
-  bool is_config_negotiated_;
 
   // This is the number of streams that this node can initiate.
   // This limit is:
@@ -254,13 +218,6 @@ class QUIC_EXPORT_PRIVATE QuicStreamIdManager {
   // max_streams_window_ is set to 1/2 of the initial number of incoming streams
   // that are allowed (as set in the constructor).
   QuicStreamId max_streams_window_;
-
-  // MAX_STREAMS and STREAMS_BLOCKED frames are not sent before the session has
-  // been configured. Instead, the relevant information is stored in
-  // |pending_max_streams_| and |pending_streams_blocked_| and sent when
-  // OnConfigNegotiated() is invoked.
-  bool pending_max_streams_;
-  QuicStreamId pending_streams_blocked_;
 };
 }  // namespace quic
 

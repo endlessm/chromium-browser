@@ -135,7 +135,7 @@ TEST_P(OpArrayLengthTest, Compute) {
     pass.SetPipeline(pipeline);
     pass.SetBindGroup(0, mBindGroup);
     pass.SetBindGroup(1, resultBindGroup);
-    pass.Dispatch(1, 1, 1);
+    pass.Dispatch(1);
     pass.EndPass();
 
     wgpu::CommandBuffer commands = encoder.Finish();
@@ -190,7 +190,7 @@ TEST_P(OpArrayLengthTest, Fragment) {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, mBindGroup);
-        pass.Draw(1, 1, 0, 0);
+        pass.Draw(1);
         pass.EndPass();
     }
 
@@ -251,7 +251,7 @@ TEST_P(OpArrayLengthTest, Vertex) {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(pipeline);
         pass.SetBindGroup(0, mBindGroup);
-        pass.Draw(1, 1, 0, 0);
+        pass.Draw(1);
         pass.EndPass();
     }
 
@@ -262,4 +262,4 @@ TEST_P(OpArrayLengthTest, Vertex) {
     EXPECT_PIXEL_RGBA8_EQ(expectedColor, renderPass.color, 0, 0);
 }
 
-DAWN_INSTANTIATE_TEST(OpArrayLengthTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
+DAWN_INSTANTIATE_TEST(OpArrayLengthTest, D3D12Backend(), MetalBackend(), OpenGLBackend(), VulkanBackend());

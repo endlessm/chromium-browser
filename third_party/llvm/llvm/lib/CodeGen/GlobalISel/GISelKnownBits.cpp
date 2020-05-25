@@ -65,11 +65,20 @@ KnownBits GISelKnownBits::getKnownBits(MachineInstr &MI) {
 }
 
 KnownBits GISelKnownBits::getKnownBits(Register R) {
-  KnownBits Known;
-  LLT Ty = MRI.getType(R);
+  const LLT Ty = MRI.getType(R);
   APInt DemandedElts =
       Ty.isVector() ? APInt::getAllOnesValue(Ty.getNumElements()) : APInt(1, 1);
+  return getKnownBits(R, DemandedElts);
+}
+
+KnownBits GISelKnownBits::getKnownBits(Register R, const APInt &DemandedElts,
+                                       unsigned Depth) {
+  // For now, we only maintain the cache during one request.
+  assert(ComputeKnownBitsCache.empty() && "Cache should have been cleared");
+
+  KnownBits Known;
   computeKnownBitsImpl(R, Known, DemandedElts);
+  ComputeKnownBitsCache.clear();
   return Known;
 }
 
@@ -84,6 +93,17 @@ APInt GISelKnownBits::getKnownZeroes(Register R) {
 }
 
 APInt GISelKnownBits::getKnownOnes(Register R) { return getKnownBits(R).One; }
+
+LLVM_ATTRIBUTE_UNUSED static void
+dumpResult(const MachineInstr &MI, const KnownBits &Known, unsigned Depth) {
+  dbgs() << "[" << Depth << "] Compute known bits: " << MI << "[" << Depth
+         << "] Computed for: " << MI << "[" << Depth << "] Known: 0x"
+         << (Known.Zero | Known.One).toString(16, false) << "\n"
+         << "[" << Depth << "] Zero: 0x" << Known.Zero.toString(16, false)
+         << "\n"
+         << "[" << Depth << "] One:  0x" << Known.One.toString(16, false)
+         << "\n";
+}
 
 void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
                                           const APInt &DemandedElts,
@@ -102,12 +122,28 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
   }
 
   unsigned BitWidth = DstTy.getSizeInBits();
+  auto CacheEntry = ComputeKnownBitsCache.find(R);
+  if (CacheEntry != ComputeKnownBitsCache.end()) {
+    Known = CacheEntry->second;
+    LLVM_DEBUG(dbgs() << "Cache hit at ");
+    LLVM_DEBUG(dumpResult(MI, Known, Depth));
+    assert(Known.getBitWidth() == BitWidth && "Cache entry size doesn't match");
+    return;
+  }
   Known = KnownBits(BitWidth); // Don't know anything
 
   if (DstTy.isVector())
     return; // TODO: Handle vectors.
 
-  if (Depth == getMaxDepth())
+  // Depth may get bigger than max depth if it gets passed to a different
+  // GISelKnownBits object.
+  // This may happen when say a generic part uses a GISelKnownBits object
+  // with some max depth, but then we hit TL.computeKnownBitsForTargetInstr
+  // which creates a new GISelKnownBits object with a different and smaller
+  // depth. If we just check for equality, we would never exit if the depth
+  // that is passed down to the target specific GISelKnownBits object is
+  // already bigger than its max depth.
+  if (Depth >= getMaxDepth())
     return;
 
   if (!DemandedElts)
@@ -129,6 +165,16 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
     // point of the pipeline, otherwise the main live-range will be
     // defined more than once, which is against SSA.
     assert(MI.getOperand(0).getSubReg() == 0 && "Is this code in SSA?");
+    // Record in the cache that we know nothing for MI.
+    // This will get updated later and in the meantime, if we reach that
+    // phi again, because of a loop, we will cut the search thanks to this
+    // cache entry.
+    // We could actually build up more information on the phi by not cutting
+    // the search, but that additional information is more a side effect
+    // than an intended choice.
+    // Therefore, for now, save on compile time until we derive a proper way
+    // to derive known bits for PHIs within loops.
+    ComputeKnownBitsCache[R] = KnownBits(BitWidth);
     // PHI's operand are a mix of registers and basic blocks interleaved.
     // We only care about the register ones.
     for (unsigned Idx = 1; Idx < MI.getNumOperands(); Idx += 2) {
@@ -148,6 +194,10 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
                              Depth + (Opcode != TargetOpcode::COPY));
         Known.One &= Known2.One;
         Known.Zero &= Known2.Zero;
+        // If we reach a point where we don't know anything
+        // just stop looking through the operands.
+        if (Known.One == 0 && Known.Zero == 0)
+          break;
       } else {
         // We know nothing.
         Known = KnownBits(BitWidth);
@@ -286,7 +336,7 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
   case TargetOpcode::G_ANYEXT: {
     computeKnownBitsImpl(MI.getOperand(1).getReg(), Known, DemandedElts,
                          Depth + 1);
-    Known = Known.zext(BitWidth, true /* ExtendedBitsAreKnownZero */);
+    Known = Known.zext(BitWidth);
     break;
   }
   case TargetOpcode::G_LOAD: {
@@ -352,9 +402,9 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
                                ? DL.getIndexSizeInBits(SrcTy.getAddressSpace())
                                : SrcTy.getSizeInBits();
     assert(SrcBitWidth && "SrcBitWidth can't be zero");
-    Known = Known.zextOrTrunc(SrcBitWidth, true);
+    Known = Known.zextOrTrunc(SrcBitWidth);
     computeKnownBitsImpl(SrcReg, Known, DemandedElts, Depth + 1);
-    Known = Known.zextOrTrunc(BitWidth, true);
+    Known = Known.zextOrTrunc(BitWidth);
     if (BitWidth > SrcBitWidth)
       Known.Zero.setBitsFrom(SrcBitWidth);
     break;
@@ -362,14 +412,10 @@ void GISelKnownBits::computeKnownBitsImpl(Register R, KnownBits &Known,
   }
 
   assert(!Known.hasConflict() && "Bits known to be one AND zero?");
-  LLVM_DEBUG(dbgs() << "[" << Depth << "] Compute known bits: " << MI << "["
-                    << Depth << "] Computed for: " << MI << "[" << Depth
-                    << "] Known: 0x"
-                    << (Known.Zero | Known.One).toString(16, false) << "\n"
-                    << "[" << Depth << "] Zero: 0x"
-                    << Known.Zero.toString(16, false) << "\n"
-                    << "[" << Depth << "] One:  0x"
-                    << Known.One.toString(16, false) << "\n");
+  LLVM_DEBUG(dumpResult(MI, Known, Depth));
+
+  // Update the cache.
+  ComputeKnownBitsCache[R] = Known;
 }
 
 unsigned GISelKnownBits::computeNumSignBits(Register R,
@@ -388,6 +434,7 @@ unsigned GISelKnownBits::computeNumSignBits(Register R,
     return 1; // No demanded elts, better to assume we don't know anything.
 
   LLT DstTy = MRI.getType(R);
+  const unsigned TyBits = DstTy.getScalarSizeInBits();
 
   // Handle the case where this is called on a register that does not have a
   // type constraint. This is unlikely to occur except by looking through copies
@@ -396,6 +443,7 @@ unsigned GISelKnownBits::computeNumSignBits(Register R,
   if (!DstTy.isValid())
     return 1;
 
+  unsigned FirstAnswer = 1;
   switch (Opcode) {
   case TargetOpcode::COPY: {
     MachineOperand &Src = MI.getOperand(1);
@@ -425,13 +473,34 @@ unsigned GISelKnownBits::computeNumSignBits(Register R,
       return NumSrcSignBits - (NumSrcBits - DstTyBits);
     break;
   }
-  default:
+  case TargetOpcode::G_INTRINSIC:
+  case TargetOpcode::G_INTRINSIC_W_SIDE_EFFECTS:
+  default: {
+    unsigned NumBits =
+      TL.computeNumSignBitsForTargetInstr(*this, R, DemandedElts, MRI, Depth);
+    if (NumBits > 1)
+      FirstAnswer = std::max(FirstAnswer, NumBits);
     break;
   }
+  }
 
-  // TODO: Handle target instructions
-  // TODO: Fall back to known bits
-  return 1;
+  // Finally, if we can prove that the top bits of the result are 0's or 1's,
+  // use this information.
+  KnownBits Known = getKnownBits(R, DemandedElts, Depth);
+  APInt Mask;
+  if (Known.isNonNegative()) {        // sign bit is 0
+    Mask = Known.Zero;
+  } else if (Known.isNegative()) {  // sign bit is 1;
+    Mask = Known.One;
+  } else {
+    // Nothing known.
+    return FirstAnswer;
+  }
+
+  // Okay, we know that the sign bit in Mask is set.  Use CLO to determine
+  // the number of identical bits in the top of the input value.
+  Mask <<= Mask.getBitWidth() - TyBits;
+  return std::max(FirstAnswer, Mask.countLeadingOnes());
 }
 
 unsigned GISelKnownBits::computeNumSignBits(Register R, unsigned Depth) {

@@ -102,7 +102,7 @@ void MemoryPressureListenerRegistry::UnregisterClient(
 void MemoryPressureListenerRegistry::OnMemoryPressure(
     WebMemoryPressureLevel level) {
   TRACE_EVENT1("blink", "MemoryPressureListenerRegistry::onMemoryPressure",
-               "Level", level);
+               "level", level);
   CHECK(IsMainThread());
   for (auto& client : clients_)
     client->OnMemoryPressure(level);
@@ -133,7 +133,7 @@ void MemoryPressureListenerRegistry::ClearThreadSpecificMemory() {
   FontGlobalContext::ClearMemory();
 }
 
-void MemoryPressureListenerRegistry::Trace(blink::Visitor* visitor) {
+void MemoryPressureListenerRegistry::Trace(Visitor* visitor) {
   visitor->Trace(clients_);
 }
 

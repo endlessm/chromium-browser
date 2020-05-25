@@ -4,6 +4,8 @@
 
 #include "discovery/mdns/mdns_probe_manager.h"
 
+#include <utility>
+
 #include "discovery/mdns/mdns_probe.h"
 #include "discovery/mdns/mdns_querier.h"
 #include "discovery/mdns/mdns_random.h"
@@ -30,10 +32,10 @@ class MockDomainConfirmedProvider : public MdnsDomainConfirmedProvider {
 
 class MockMdnsSender : public MdnsSender {
  public:
-  MockMdnsSender(UdpSocket* socket) : MdnsSender(socket) {}
+  explicit MockMdnsSender(UdpSocket* socket) : MdnsSender(socket) {}
 
   MOCK_METHOD1(SendMulticast, Error(const MdnsMessage& message));
-  MOCK_METHOD2(SendUnicast,
+  MOCK_METHOD2(SendMessage,
                Error(const MdnsMessage& message, const IPEndpoint& endpoint));
 };
 
@@ -96,11 +98,10 @@ class TestMdnsProbeManager : public MdnsProbeManagerImpl {
 class MdnsProbeManagerTests : public testing::Test {
  public:
   MdnsProbeManagerTests()
-      : socket_(FakeUdpSocket::CreateDefault()),
-        clock_(Clock::now()),
+      : clock_(Clock::now()),
         task_runner_(&clock_),
-        sender_(socket_.get()),
-        receiver_(socket_.get()),
+        socket_(&task_runner_),
+        sender_(&socket_),
         manager_(&sender_,
                  &receiver_,
                  &random_,
@@ -167,9 +168,9 @@ class MdnsProbeManagerTests : public testing::Test {
     return ongoing_probe;
   }
 
-  std::unique_ptr<FakeUdpSocket> socket_;
   FakeClock clock_;
   FakeTaskRunner task_runner_;
+  FakeUdpSocket socket_;
   StrictMock<MockMdnsSender> sender_;
   MdnsReceiver receiver_;
   MdnsRandom random_;
@@ -236,7 +237,7 @@ TEST_F(MdnsProbeManagerTests, RespondToProbeQueryWorksForCompletedProbes) {
   SetUpCompletedProbe(name_, address_a_);
 
   const MdnsMessage query = CreateProbeQueryMessage(name_, address_c_);
-  EXPECT_CALL(sender_, SendUnicast(_, endpoint_))
+  EXPECT_CALL(sender_, SendMessage(_, endpoint_))
       .WillOnce([this](const MdnsMessage& message,
                        const IPEndpoint& endpoint) -> Error {
         EXPECT_EQ(message.answers().size(), size_t{1});

@@ -29,7 +29,9 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <condition_variable>
+#include <functional>
 #include <mutex>
+#include <vector>
 
 namespace clang {
 namespace clangd {
@@ -481,7 +483,7 @@ TEST(CompletionTest, Kinds) {
               AllOf(Has("function", CompletionItemKind::Function),
                     Has("variable", CompletionItemKind::Variable),
                     Has("int", CompletionItemKind::Keyword),
-                    Has("Struct", CompletionItemKind::Class),
+                    Has("Struct", CompletionItemKind::Struct),
                     Has("MACRO", CompletionItemKind::Text),
                     Has("indexFunction", CompletionItemKind::Function),
                     Has("indexVariable", CompletionItemKind::Variable),
@@ -529,6 +531,17 @@ TEST(CompletionTest, Kinds) {
           AllOf(Named("complete_variable"), Kind(CompletionItemKind::Variable)),
           AllOf(Named("complete_static_member"),
                 Kind(CompletionItemKind::Property))));
+
+   Results = completions(
+      R"cpp(
+        enum Color {
+          Red
+        };
+        Color u = ^
+      )cpp");
+   EXPECT_THAT(Results.Completions,
+               Contains(
+                   AllOf(Named("Red"), Kind(CompletionItemKind::EnumMember))));
 }
 
 TEST(CompletionTest, NoDuplicates) {
@@ -1030,6 +1043,21 @@ template <template <class> class TT> int foo() {
   EXPECT_THAT(Completions, Contains(Named("TT")));
 }
 
+TEST(CompletionTest, RecordCCResultCallback) {
+  std::vector<CodeCompletion> RecordedCompletions;
+  CodeCompleteOptions Opts;
+  Opts.RecordCCResult = [&RecordedCompletions](const CodeCompletion &CC,
+                                               const SymbolQualitySignals &,
+                                               const SymbolRelevanceSignals &,
+                                               float Score) {
+    RecordedCompletions.push_back(CC);
+  };
+
+  completions("int xy1, xy2; int a = xy^", /*IndexSymbols=*/{}, Opts);
+  EXPECT_THAT(RecordedCompletions,
+              UnorderedElementsAre(Named("xy1"), Named("xy2")));
+}
+
 SignatureHelp signatures(llvm::StringRef Text, Position Point,
                          std::vector<Symbol> IndexSymbols = {}) {
   std::unique_ptr<SymbolIndex> Index;
@@ -1073,7 +1101,7 @@ MATCHER_P(SigDoc, Doc, "") { return arg.documentation == Doc; }
 ///    foo([[int p1]], [[double p2]]) -> void
 Matcher<SignatureInformation> Sig(llvm::StringRef AnnotatedLabel) {
   llvm::Annotations A(AnnotatedLabel);
-  std::string Label = A.code();
+  std::string Label = std::string(A.code());
   std::vector<ExpectedParameter> Parameters;
   for (auto Range : A.ranges()) {
     Parameters.emplace_back();
@@ -1498,7 +1526,7 @@ TEST(CompletionTest, DocumentationFromChangedFileCrash) {
     }
     int a = fun^
   )cpp");
-  Server.addDocument(FooCpp, Source.code(), WantDiagnostics::Yes);
+  Server.addDocument(FooCpp, Source.code(), "null", WantDiagnostics::Yes);
   // We need to wait for preamble to build.
   ASSERT_TRUE(Server.blockUntilIdleForTest());
 
@@ -1564,7 +1592,7 @@ TEST(CompletionTest, NonDocComments) {
   // FIXME: Auto-completion in a template requires disabling delayed template
   // parsing.
   CDB.ExtraClangFlags.push_back("-fno-delayed-template-parsing");
-  runAddDocument(Server, FooCpp, Source.code(), WantDiagnostics::Yes);
+  runAddDocument(Server, FooCpp, Source.code(), "null", WantDiagnostics::Yes);
   CodeCompleteResult Completions = cantFail(runCodeComplete(
       Server, FooCpp, Source.point(), clangd::CodeCompleteOptions()));
 
@@ -1627,6 +1655,7 @@ TEST(CompletionTest, Render) {
   Include.Header = "\"foo.h\"";
   C.Kind = CompletionItemKind::Method;
   C.Score.Total = 1.0;
+  C.Score.ExcludingName = .5;
   C.Origin = SymbolOrigin::AST | SymbolOrigin::Static;
 
   CodeCompleteOptions Opts;
@@ -1644,6 +1673,7 @@ TEST(CompletionTest, Render) {
   EXPECT_THAT(R.additionalTextEdits, IsEmpty());
   EXPECT_EQ(R.sortText, sortText(1.0, "x"));
   EXPECT_FALSE(R.deprecated);
+  EXPECT_EQ(R.score, .5f);
 
   Opts.EnableSnippets = true;
   R = C.render(Opts);
@@ -1828,6 +1858,7 @@ TEST(CompletionTest, RenderWithFixItNonMerged) {
 TEST(CompletionTest, CompletionTokenRange) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
+  FS.Files["foo/abc/foo.h"] = "";
   ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   constexpr const char *TestCodes[] = {
@@ -1850,7 +1881,14 @@ TEST(CompletionTest, CompletionTokenRange) {
           Auxilary x;
           x.[[]]^;
         }
-      )cpp"};
+      )cpp",
+      R"cpp(
+        #include "foo/[[a^/]]foo.h"
+      )cpp",
+      R"cpp(
+        #include "foo/abc/[[fo^o.h"]]
+      )cpp",
+      };
   for (const auto &Text : TestCodes) {
     Annotations TestCode(Text);
     auto Results = completions(Server, TestCode.code(), TestCode.point());
@@ -2134,6 +2172,7 @@ TEST(GuessCompletionPrefix, Filters) {
            "some text [[scope::more::]][[identif]]^ier",
            "some text [[scope::]][[mor]]^e::identifier",
            "weird case foo::[[::bar::]][[baz]]^",
+           "/* [[]][[]]^ */",
        }) {
     Annotations F(Case);
     auto Offset = cantFail(positionToOffset(F.code(), F.point()));
@@ -2662,6 +2701,39 @@ TEST(CompletionTest, DerivedMethodsAreAlwaysVisible) {
                          .Completions;
   EXPECT_THAT(Completions,
               ElementsAre(AllOf(ReturnType("int"), Named("size"))));
+}
+
+TEST(CompletionTest, NoCrashWithIncompleteLambda) {
+  auto Completions = completions("auto&& x = []{^").Completions;
+  // The completion of x itself can cause a problem: in the code completion
+  // callback, its type is not known, which affects the linkage calculation.
+  // A bad linkage value gets cached, and subsequently updated.
+  EXPECT_THAT(Completions, Contains(Named("x")));
+
+  auto Signatures = signatures("auto x() { x(^").signatures;
+  EXPECT_THAT(Signatures, Contains(Sig("x() -> auto")));
+}
+
+TEST(CompletionTest, CompletionRange) {
+  const char *WithRange = "auto x = [[abc]]^";
+  auto Completions = completions(WithRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(WithRange).range());
+  Completions = completionsNoCompile(WithRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(WithRange).range());
+
+  const char *EmptyRange = "auto x = [[]]^";
+  Completions = completions(EmptyRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(EmptyRange).range());
+  Completions = completionsNoCompile(EmptyRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(EmptyRange).range());
+
+  // Sema doesn't trigger at all here, while the no-sema completion runs
+  // heuristics as normal and reports a range. It'd be nice to be consistent.
+  const char *NoCompletion = "/* [[]]^ */";
+  Completions = completions(NoCompletion);
+  EXPECT_EQ(Completions.CompletionRange, llvm::None);
+  Completions = completionsNoCompile(NoCompletion);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(NoCompletion).range());
 }
 
 TEST(NoCompileCompletionTest, Basic) {

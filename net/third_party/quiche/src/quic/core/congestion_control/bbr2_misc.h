@@ -161,6 +161,22 @@ struct QUIC_EXPORT_PRIVATE Bbr2Params {
   float beta = 0.3;
 
   Limits<QuicByteCount> cwnd_limits;
+
+  /*
+   * Experimental flags from QuicConfig.
+   */
+
+  // Indicates app-limited calls should be ignored as long as there's
+  // enough data inflight to see more bandwidth when necessary.
+  bool flexible_app_limited = false;
+
+  // Can be disabled by connection option 'B2NA'.
+  bool add_ack_height_to_queueing_threshold =
+      GetQuicReloadableFlag(quic_bbr2_add_ack_height_to_queueing_threshold);
+
+  // Can be disabled by connection option 'B2RP'.
+  bool avoid_unnecessary_probe_rtt =
+      GetQuicReloadableFlag(quic_bbr2_avoid_unnecessary_probe_rtt);
 };
 
 class QUIC_EXPORT_PRIVATE RoundTripCounter {
@@ -272,27 +288,7 @@ struct QUIC_EXPORT_PRIVATE Bbr2CongestionEvent {
   // If acked_packets is empty, it's the send state of the largest packet in
   // lost_packets.
   SendTimeState last_packet_send_state;
-
-  // TODO(wub): Remove |last_acked_sample| and |last_lost_sample| when
-  // deprecating --quic_one_bw_sample_per_ack_event.
-  // Send time state of the largest-numbered packet in this event.
-  // SendTimeState send_time_state;
-  struct {
-    QuicPacketNumber packet_number;
-    BandwidthSample bandwidth_sample;
-    // Total bytes acked while |packet| is inflight.
-    QuicByteCount inflight_sample;
-  } last_acked_sample;
-
-  struct {
-    QuicPacketNumber packet_number;
-    SendTimeState send_time_state;
-  } last_lost_sample;
 };
-
-// TODO(wub): Remove this when deprecating --quic_one_bw_sample_per_ack_event.
-QUIC_EXPORT_PRIVATE const SendTimeState& SendStateOfLargestPacket(
-    const Bbr2CongestionEvent& congestion_event);
 
 // Bbr2NetworkModel takes low level congestion signals(packets sent/acked/lost)
 // as input and produces BBRv2 model parameters like inflight_(hi|lo),
@@ -303,7 +299,8 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
                    QuicTime::Delta initial_rtt,
                    QuicTime initial_rtt_timestamp,
                    float cwnd_gain,
-                   float pacing_gain);
+                   float pacing_gain,
+                   const BandwidthSampler* old_sampler);
 
   void OnPacketSent(QuicTime sent_time,
                     QuicByteCount bytes_in_flight,
@@ -315,12 +312,6 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
                               const AckedPacketVector& acked_packets,
                               const LostPacketVector& lost_packets,
                               Bbr2CongestionEvent* congestion_event);
-  // The new version of OnCongestionEventStart.
-  // Called only when --quic_one_bw_sample_per_ack_event=true.
-  void OnCongestionEventStartNew(QuicTime event_time,
-                                 const AckedPacketVector& acked_packets,
-                                 const LostPacketVector& lost_packets,
-                                 Bbr2CongestionEvent* congestion_event);
 
   void OnCongestionEventFinish(QuicPacketNumber least_unacked_packet,
                                const Bbr2CongestionEvent& congestion_event);
@@ -353,10 +344,24 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
 
   QuicTime MinRttTimestamp() const { return min_rtt_filter_.GetTimestamp(); }
 
+  // TODO(wub): If we do this too frequently, we can potentailly postpone
+  // PROBE_RTT indefinitely. Observe how it works in production and improve it.
+  void PostponeMinRttTimestamp(QuicTime::Delta duration) {
+    min_rtt_filter_.ForceUpdate(MinRtt(), MinRttTimestamp() + duration);
+  }
+
   QuicBandwidth MaxBandwidth() const { return max_bandwidth_filter_.Get(); }
 
   QuicByteCount MaxAckHeight() const {
     return bandwidth_sampler_.max_ack_height();
+  }
+
+  void EnableOverestimateAvoidance() {
+    bandwidth_sampler_.EnableOverestimateAvoidance();
+  }
+
+  void OnPacketNeutered(QuicPacketNumber packet_number) {
+    bandwidth_sampler_.OnPacketNeutered(packet_number);
   }
 
   uint64_t num_ack_aggregation_epochs() const {
@@ -396,14 +401,7 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
     return bandwidth_sampler_.total_bytes_sent();
   }
 
-  QuicByteCount bytes_in_flight() const {
-    DCHECK(!bandwidth_sampler_.remove_packets_once_per_congestion_event());
-    return total_bytes_sent() - total_bytes_acked() - total_bytes_lost();
-  }
-
   int64_t loss_events_in_round() const { return loss_events_in_round_; }
-
-  bool always_count_loss_events() const { return always_count_loss_events_; }
 
   QuicPacketNumber end_of_app_limited_phase() const {
     return bandwidth_sampler_.end_of_app_limited_phase();
@@ -443,10 +441,6 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
   float pacing_gain() const { return pacing_gain_; }
   void set_pacing_gain(float pacing_gain) { pacing_gain_ = pacing_gain; }
 
-  bool one_bw_sample_per_ack_event() const {
-    return bandwidth_sampler_.one_bw_sample_per_ack_event();
-  }
-
  private:
   const Bbr2Params& Params() const { return *params_; }
   const Bbr2Params* const params_;
@@ -464,9 +458,6 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
   QuicByteCount bytes_lost_in_round_ = 0;
   // Number of loss marking events in the current round.
   int64_t loss_events_in_round_ = 0;
-  // Latched value of --quic_bbr2_always_count_loss_events.
-  const bool always_count_loss_events_ =
-      GetQuicReloadableFlag(quic_bbr2_always_count_loss_events);
 
   // Max bandwidth in the current round. Updated once per congestion event.
   QuicBandwidth bandwidth_latest_ = QuicBandwidth::Zero();
@@ -481,6 +472,9 @@ class QUIC_EXPORT_PRIVATE Bbr2NetworkModel {
 
   float cwnd_gain_;
   float pacing_gain_;
+
+  const bool fix_zero_bw_on_loss_only_event_ =
+      GetQuicReloadableFlag(quic_bbr_fix_zero_bw_on_loss_only_event);
 };
 
 enum class Bbr2Mode : uint8_t {
@@ -522,8 +516,12 @@ class QUIC_EXPORT_PRIVATE Bbr2ModeBase {
   virtual ~Bbr2ModeBase() = default;
 
   // Called when entering/leaving this mode.
-  virtual void Enter(const Bbr2CongestionEvent& congestion_event) = 0;
-  virtual void Leave(const Bbr2CongestionEvent& congestion_event) = 0;
+  // congestion_event != nullptr means BBRv2 is switching modes in the context
+  // of a ack and/or loss.
+  virtual void Enter(QuicTime now,
+                     const Bbr2CongestionEvent* congestion_event) = 0;
+  virtual void Leave(QuicTime now,
+                     const Bbr2CongestionEvent* congestion_event) = 0;
 
   virtual Bbr2Mode OnCongestionEvent(
       QuicByteCount prior_in_flight,
@@ -535,6 +533,9 @@ class QUIC_EXPORT_PRIVATE Bbr2ModeBase {
   virtual Limits<QuicByteCount> GetCwndLimits() const = 0;
 
   virtual bool IsProbingForBandwidth() const = 0;
+
+  virtual Bbr2Mode OnExitQuiescence(QuicTime now,
+                                    QuicTime quiescence_start_time) = 0;
 
  protected:
   const Bbr2Sender* const sender_;

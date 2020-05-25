@@ -15,10 +15,11 @@
 #include "dawn_native/opengl/DeviceGL.h"
 
 #include "dawn_native/BackendConnection.h"
-#include "dawn_native/BindGroup.h"
 #include "dawn_native/BindGroupLayout.h"
 #include "dawn_native/DynamicUploader.h"
 #include "dawn_native/ErrorData.h"
+#include "dawn_native/opengl/BindGroupGL.h"
+#include "dawn_native/opengl/BindGroupLayoutGL.h"
 #include "dawn_native/opengl/BufferGL.h"
 #include "dawn_native/opengl/CommandBufferGL.h"
 #include "dawn_native/opengl/ComputePipelineGL.h"
@@ -36,6 +37,7 @@ namespace dawn_native { namespace opengl {
                    const DeviceDescriptor* descriptor,
                    const OpenGLFunctions& functions)
         : DeviceBase(adapter, descriptor), gl(functions) {
+        InitTogglesFromDriver();
         if (descriptor != nullptr) {
             ApplyToggleOverrides(descriptor);
         }
@@ -44,6 +46,30 @@ namespace dawn_native { namespace opengl {
 
     Device::~Device() {
         BaseDestructor();
+    }
+
+    void Device::InitTogglesFromDriver() {
+        bool supportsBaseVertex = gl.IsAtLeastGLES(3, 2) || gl.IsAtLeastGL(3, 2);
+
+        bool supportsBaseInstance = gl.IsAtLeastGLES(3, 2) || gl.IsAtLeastGL(4, 2);
+
+        // TODO(crbug.com/dawn/343): We can support the extension variants, but need to load the EXT
+        // procs without the extension suffix.
+        // We'll also need emulation of shader builtins gl_BaseVertex and gl_BaseInstance.
+
+        // supportsBaseVertex |=
+        //     (gl.IsAtLeastGLES(2, 0) &&
+        //      (gl.IsGLExtensionSupported("OES_draw_elements_base_vertex") ||
+        //       gl.IsGLExtensionSupported("EXT_draw_elements_base_vertex"))) ||
+        //     (gl.IsAtLeastGL(3, 1) && gl.IsGLExtensionSupported("ARB_draw_elements_base_vertex"));
+
+        // supportsBaseInstance |=
+        //     (gl.IsAtLeastGLES(3, 1) && gl.IsGLExtensionSupported("EXT_base_instance")) ||
+        //     (gl.IsAtLeastGL(3, 1) && gl.IsGLExtensionSupported("ARB_base_instance"));
+
+        // TODO(crbug.com/dawn/343): Investigate emulation.
+        SetToggle(Toggle::DisableBaseVertex, !supportsBaseVertex);
+        SetToggle(Toggle::DisableBaseInstance, !supportsBaseInstance);
     }
 
     const GLFormat& Device::GetGLFormat(const Format& format) {
@@ -57,7 +83,7 @@ namespace dawn_native { namespace opengl {
 
     ResultOrError<BindGroupBase*> Device::CreateBindGroupImpl(
         const BindGroupDescriptor* descriptor) {
-        return new BindGroup(this, descriptor);
+        return BindGroup::Create(this, descriptor);
     }
     ResultOrError<BindGroupLayoutBase*> Device::CreateBindGroupLayoutImpl(
         const BindGroupLayoutDescriptor* descriptor) {

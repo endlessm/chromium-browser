@@ -27,13 +27,14 @@ EffectBuilder::EffectBuilderT EffectBuilder::findBuilder(const skjson::ObjectVal
         EffectBuilderT fBuilder;
     } gBuilderInfo[] = {
         { "ADBE Drop Shadow"    , &EffectBuilder::attachDropShadowEffect     },
-        { "ADBE Easy Levels2"   , &EffectBuilder::attachLevelsEffect         },
+        { "ADBE Easy Levels2"   , &EffectBuilder::attachEasyLevelsEffect     },
         { "ADBE Fill"           , &EffectBuilder::attachFillEffect           },
         { "ADBE Gaussian Blur 2", &EffectBuilder::attachGaussianBlurEffect   },
         { "ADBE Geometry2"      , &EffectBuilder::attachTransformEffect      },
         { "ADBE HUE SATURATION" , &EffectBuilder::attachHueSaturationEffect  },
         { "ADBE Invert"         , &EffectBuilder::attachInvertEffect         },
         { "ADBE Linear Wipe"    , &EffectBuilder::attachLinearWipeEffect     },
+        { "ADBE Pro Levels2"    , &EffectBuilder::attachProLevelsEffect      },
         { "ADBE Radial Wipe"    , &EffectBuilder::attachRadialWipeEffect     },
         { "ADBE Ramp"           , &EffectBuilder::attachGradientEffect       },
         { "ADBE Shift Channels" , &EffectBuilder::attachShiftChannelsEffect  },
@@ -114,6 +115,43 @@ sk_sp<sksg::RenderNode> EffectBuilder::attachEffects(const skjson::ArrayValue& j
     return layer;
 }
 
+sk_sp<sksg::RenderNode> EffectBuilder::attachStyles(const skjson::ArrayValue& jstyles,
+                                                     sk_sp<sksg::RenderNode> layer) const {
+#if !defined(SKOTTIE_DISABLE_STYLES)
+    if (!layer) {
+        return nullptr;
+    }
+
+    using StyleBuilder =
+        sk_sp<sksg::RenderNode> (EffectBuilder::*)(const skjson::ObjectValue&,
+                                                   sk_sp<sksg::RenderNode>) const;
+    static constexpr StyleBuilder gStyleBuilders[] = {
+        nullptr,                                 // 'ty': 0 -> stroke
+        &EffectBuilder::attachDropShadowStyle,   // 'ty': 1 -> drop shadow
+    };
+
+    for (const skjson::ObjectValue* jstyle : jstyles) {
+        if (!jstyle) {
+            continue;
+        }
+
+        const auto style_type =
+                ParseDefault<size_t>((*jstyle)["ty"], std::numeric_limits<size_t>::max());
+        auto builder = style_type < SK_ARRAY_COUNT(gStyleBuilders) ? gStyleBuilders[style_type]
+                                                                   : nullptr;
+
+        if (!builder) {
+            fBuilder->log(Logger::Level::kWarning, jstyle, "Unsupported layer style.");
+            continue;
+        }
+
+        layer = (this->*builder)(*jstyle, std::move(layer));
+    }
+#endif // !defined(SKOTTIE_DISABLE_STYLES)
+
+    return layer;
+}
+
 const skjson::Value& EffectBuilder::GetPropValue(const skjson::ArrayValue& jprops,
                                                  size_t prop_index) {
     static skjson::NullValue kNull;
@@ -127,16 +165,15 @@ const skjson::Value& EffectBuilder::GetPropValue(const skjson::ArrayValue& jprop
     return jprop ? (*jprop)["v"] : kNull;
 }
 
-MaskFilterEffectBase::MaskFilterEffectBase(sk_sp<sksg::RenderNode> child, const SkSize& ls)
-    : fMaskNode(sksg::MaskFilter::Make(nullptr))
-    , fMaskEffectNode(sksg::MaskFilterEffect::Make(std::move(child), fMaskNode))
+MaskShaderEffectBase::MaskShaderEffectBase(sk_sp<sksg::RenderNode> child, const SkSize& ls)
+    : fMaskEffectNode(sksg::MaskShaderEffect::Make(std::move(child)))
     , fLayerSize(ls) {}
 
-void MaskFilterEffectBase::onSync() {
+void MaskShaderEffectBase::onSync() {
     const auto minfo = this->onMakeMask();
 
     fMaskEffectNode->setVisible(minfo.fVisible);
-    fMaskNode->setMaskFilter(std::move(minfo.fMask));
+    fMaskEffectNode->setShader(std::move(minfo.fMaskShader));
 }
 
 } // namespace internal

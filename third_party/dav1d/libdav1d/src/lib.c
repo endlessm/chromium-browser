@@ -148,10 +148,8 @@ COLD int dav1d_open(Dav1dContext **const c_out, const Dav1dSettings *const s) {
     memset(c->fc, 0, sizeof(*c->fc) * s->n_frame_threads);
     if (c->n_fc > 1) {
         c->frame_thread.out_delayed =
-            malloc(sizeof(*c->frame_thread.out_delayed) * c->n_fc);
+            calloc(c->n_fc, sizeof(*c->frame_thread.out_delayed));
         if (!c->frame_thread.out_delayed) goto error;
-        memset(c->frame_thread.out_delayed, 0,
-               sizeof(*c->frame_thread.out_delayed) * c->n_fc);
     }
     for (int n = 0; n < s->n_frame_threads; n++) {
         Dav1dFrameContext *const f = &c->fc[n];
@@ -193,8 +191,7 @@ COLD int dav1d_open(Dav1dContext **const c_out, const Dav1dSettings *const s) {
                 t->tile_thread.td.inited = 1;
             }
         }
-        f->libaom_cm = dav1d_alloc_ref_mv_common();
-        if (!f->libaom_cm) goto error;
+        dav1d_refmvs_init(&f->rf);
         if (c->n_fc > 1) {
             if (pthread_mutex_init(&f->frame_thread.td.lock, NULL)) goto error;
             if (pthread_cond_init(&f->frame_thread.td.cond, NULL)) {
@@ -273,21 +270,6 @@ error:
     dav1d_close(&c);
 
     return res;
-}
-
-int dav1d_send_data(Dav1dContext *const c, Dav1dData *const in)
-{
-    validate_input_or_ret(c != NULL, DAV1D_ERR(EINVAL));
-    validate_input_or_ret(in != NULL, DAV1D_ERR(EINVAL));
-    validate_input_or_ret(in->data == NULL || in->sz, DAV1D_ERR(EINVAL));
-
-    c->drain = 0;
-
-    if (c->in.data)
-        return DAV1D_ERR(EAGAIN);
-    dav1d_data_move_ref(&c->in, in);
-
-    return 0;
 }
 
 static int output_image(Dav1dContext *const c, Dav1dPicture *const out,
@@ -376,21 +358,13 @@ static int drain_picture(Dav1dContext *const c, Dav1dPicture *const out) {
     return DAV1D_ERR(EAGAIN);
 }
 
-int dav1d_get_picture(Dav1dContext *const c, Dav1dPicture *const out)
+static int gen_picture(Dav1dContext *const c)
 {
     int res;
-
-    validate_input_or_ret(c != NULL, DAV1D_ERR(EINVAL));
-    validate_input_or_ret(out != NULL, DAV1D_ERR(EINVAL));
-
-    const int drain = c->drain;
-    c->drain = 1;
-
     Dav1dData *const in = &c->in;
-    if (!in->data) {
-        if (c->n_fc == 1) return DAV1D_ERR(EAGAIN);
-        return drain_picture(c, out);
-    }
+
+    if (output_picture_ready(c))
+        return 0;
 
     while (in->sz > 0) {
         res = dav1d_parse_obus(c, in, 0);
@@ -407,6 +381,40 @@ int dav1d_get_picture(Dav1dContext *const c, Dav1dPicture *const out)
         if (res < 0)
             return res;
     }
+
+    return 0;
+}
+
+int dav1d_send_data(Dav1dContext *const c, Dav1dData *const in)
+{
+    validate_input_or_ret(c != NULL, DAV1D_ERR(EINVAL));
+    validate_input_or_ret(in != NULL, DAV1D_ERR(EINVAL));
+    validate_input_or_ret(in->data == NULL || in->sz, DAV1D_ERR(EINVAL));
+
+    if (in->data)
+        c->drain = 0;
+    if (c->in.data)
+        return DAV1D_ERR(EAGAIN);
+    dav1d_data_ref(&c->in, in);
+
+    int res = gen_picture(c);
+    if (!res)
+        dav1d_data_unref_internal(in);
+
+    return res;
+}
+
+int dav1d_get_picture(Dav1dContext *const c, Dav1dPicture *const out)
+{
+    validate_input_or_ret(c != NULL, DAV1D_ERR(EINVAL));
+    validate_input_or_ret(out != NULL, DAV1D_ERR(EINVAL));
+
+    const int drain = c->drain;
+    c->drain = 1;
+
+    int res = gen_picture(c);
+    if (res < 0)
+        return res;
 
     if (output_picture_ready(c))
         return output_image(c, out, &c->out);
@@ -535,8 +543,8 @@ static COLD void close_internal(Dav1dContext **const c_out, int flush) {
         free(f->lf.lr_mask);
         free(f->lf.level);
         free(f->lf.tx_lpf_right_edge[0]);
-        if (f->libaom_cm) dav1d_free_ref_mv_common(f->libaom_cm);
-        dav1d_free_aligned(f->lf.cdef_line[0][0][0]);
+        dav1d_refmvs_clear(&f->rf);
+        dav1d_free_aligned(f->lf.cdef_line_buf);
         dav1d_free_aligned(f->lf.lr_lpf_line[0]);
     }
     dav1d_free_aligned(c->fc);

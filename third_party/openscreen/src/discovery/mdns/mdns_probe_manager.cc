@@ -68,6 +68,9 @@ Error MdnsProbeManagerImpl::StartProbe(MdnsDomainConfirmedProvider* callback,
     return Error::Code::kItemAlreadyExists;
   }
 
+  OSP_DVLOG << "Starting new mDNS Probe for domain '"
+            << requested_name.ToString() << "'";
+
   // Begin a new probe.
   auto probe = CreateProbe(requested_name, std::move(address));
   ongoing_probes_.emplace_back(std::move(probe), std::move(requested_name),
@@ -111,7 +114,7 @@ void MdnsProbeManagerImpl::RespondToProbeQuery(const MdnsMessage& message,
   }
 
   if (!send_message.answers().empty()) {
-    sender_->SendUnicast(send_message, src);
+    sender_->SendMessage(send_message, src);
   } else {
     // If the name isn't already claimed, check to see if a probe is ongoing. If
     // so, compare the address record for that probe with the one in the
@@ -190,6 +193,12 @@ void MdnsProbeManagerImpl::OnProbeFailure(MdnsProbe* probe) {
     // This means that the probe was canceled.
     return;
   }
+
+  OSP_DVLOG << "Probe for domain '"
+            << CreateRetryDomainName(ongoing_it->requested_name,
+                                     ongoing_it->num_probes_failed)
+                   .ToString()
+            << "' failed. Trying new domain...";
 
   // Create a new probe with a modified domain name.
   DomainName new_name = CreateRetryDomainName(ongoing_it->requested_name,

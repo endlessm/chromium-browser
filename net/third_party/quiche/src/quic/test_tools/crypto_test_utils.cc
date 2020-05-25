@@ -4,6 +4,7 @@
 
 #include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -21,14 +22,14 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
 #include "net/third_party/quiche/src/quic/core/proto/crypto_server_config_proto.h"
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_client_stream.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/quic_server_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
@@ -107,6 +108,7 @@ class FullChloGenerator {
       QuicSocketAddress server_addr,
       QuicSocketAddress client_addr,
       const QuicClock* clock,
+      ParsedQuicVersion version,
       QuicReferenceCountedPointer<QuicSignedServerConfig> signed_config,
       QuicCompressedCertsCache* compressed_certs_cache,
       CryptoHandshakeMessage* out)
@@ -114,6 +116,7 @@ class FullChloGenerator {
         server_addr_(server_addr),
         client_addr_(client_addr),
         clock_(clock),
+        version_(version),
         signed_config_(signed_config),
         compressed_certs_cache_(compressed_certs_cache),
         out_(out),
@@ -145,9 +148,9 @@ class FullChloGenerator {
     result_ = result;
     crypto_config_->ProcessClientHello(
         result_, /*reject_only=*/false, TestConnectionId(1), server_addr_,
-        client_addr_, AllSupportedVersions().front(), AllSupportedVersions(),
-        clock_, QuicRandom::GetInstance(), compressed_certs_cache_, params_,
-        signed_config_, /*total_framing_overhead=*/50, kDefaultMaxPacketSize,
+        client_addr_, version_, {version_}, clock_, QuicRandom::GetInstance(),
+        compressed_certs_cache_, params_, signed_config_,
+        /*total_framing_overhead=*/50, kDefaultMaxPacketSize,
         GetProcessClientHelloCallback());
   }
 
@@ -155,12 +158,14 @@ class FullChloGenerator {
    public:
     explicit ProcessClientHelloCallback(FullChloGenerator* generator)
         : generator_(generator) {}
-    void Run(QuicErrorCode /*error*/,
-             const std::string& /*error_details*/,
+    void Run(QuicErrorCode error,
+             const std::string& error_details,
              std::unique_ptr<CryptoHandshakeMessage> message,
              std::unique_ptr<DiversificationNonce> /*diversification_nonce*/,
              std::unique_ptr<ProofSource::Details> /*proof_source_details*/)
         override {
+      ASSERT_TRUE(message) << QuicErrorCodeToString(error) << " "
+                           << error_details;
       generator_->ProcessClientHelloDone(std::move(message));
     }
 
@@ -200,6 +205,7 @@ class FullChloGenerator {
   QuicSocketAddress server_addr_;
   QuicSocketAddress client_addr_;
   const QuicClock* clock_;
+  ParsedQuicVersion version_;
   QuicReferenceCountedPointer<QuicSignedServerConfig> signed_config_;
   QuicCompressedCertsCache* compressed_certs_cache_;
   CryptoHandshakeMessage* out_;
@@ -266,15 +272,26 @@ int HandshakeWithFakeClient(MockQuicConnectionHelper* helper,
                             const QuicServerId& server_id,
                             const FakeClientOptions& options,
                             std::string alpn) {
-  ParsedQuicVersionVector supported_versions = AllSupportedVersions();
+  // This function does not do version negotiation; read the supported versions
+  // directly from the server connection instead.
+  ParsedQuicVersionVector supported_versions =
+      server_conn->supported_versions();
   if (options.only_tls_versions) {
-    supported_versions.clear();
-    for (ParsedQuicVersion version : AllSupportedVersions()) {
-      if (version.handshake_protocol != PROTOCOL_TLS1_3) {
-        continue;
-      }
-      supported_versions.push_back(version);
-    }
+    supported_versions.erase(
+        std::remove_if(supported_versions.begin(), supported_versions.end(),
+                       [](const ParsedQuicVersion& version) {
+                         return version.handshake_protocol != PROTOCOL_TLS1_3;
+                       }),
+        supported_versions.end());
+    CHECK(!options.only_quic_crypto_versions);
+  } else if (options.only_quic_crypto_versions) {
+    supported_versions.erase(
+        std::remove_if(supported_versions.begin(), supported_versions.end(),
+                       [](const ParsedQuicVersion& version) {
+                         return version.handshake_protocol !=
+                                PROTOCOL_QUIC_CRYPTO;
+                       }),
+        supported_versions.end());
   }
   PacketSavingConnection* client_conn = new PacketSavingConnection(
       helper, alarm_factory, Perspective::IS_CLIENT, supported_versions);
@@ -813,21 +830,24 @@ std::string GenerateClientPublicValuesHex() {
                                                    sizeof(public_value)));
 }
 
-void GenerateFullCHLO(const CryptoHandshakeMessage& inchoate_chlo,
-                      QuicCryptoServerConfig* crypto_config,
-                      QuicSocketAddress server_addr,
-                      QuicSocketAddress client_addr,
-                      QuicTransportVersion version,
-                      const QuicClock* clock,
-                      QuicReferenceCountedPointer<QuicSignedServerConfig> proof,
-                      QuicCompressedCertsCache* compressed_certs_cache,
-                      CryptoHandshakeMessage* out) {
+void GenerateFullCHLO(
+    const CryptoHandshakeMessage& inchoate_chlo,
+    QuicCryptoServerConfig* crypto_config,
+    QuicSocketAddress server_addr,
+    QuicSocketAddress client_addr,
+    QuicTransportVersion transport_version,
+    const QuicClock* clock,
+    QuicReferenceCountedPointer<QuicSignedServerConfig> signed_config,
+    QuicCompressedCertsCache* compressed_certs_cache,
+    CryptoHandshakeMessage* out) {
   // Pass a inchoate CHLO.
-  FullChloGenerator generator(crypto_config, server_addr, client_addr, clock,
-                              proof, compressed_certs_cache, out);
+  FullChloGenerator generator(
+      crypto_config, server_addr, client_addr, clock,
+      ParsedQuicVersion(PROTOCOL_QUIC_CRYPTO, transport_version), signed_config,
+      compressed_certs_cache, out);
   crypto_config->ValidateClientHello(
-      inchoate_chlo, client_addr.host(), server_addr, version, clock, proof,
-      generator.GetValidateClientHelloCallback());
+      inchoate_chlo, client_addr.host(), server_addr, transport_version, clock,
+      signed_config, generator.GetValidateClientHelloCallback());
 }
 
 }  // namespace crypto_test_utils

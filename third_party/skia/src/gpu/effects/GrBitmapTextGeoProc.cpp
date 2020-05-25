@@ -7,9 +7,9 @@
 
 #include "src/gpu/effects/GrBitmapTextGeoProc.h"
 
-#include "include/gpu/GrTexture.h"
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrShaderCaps.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/effects/GrAtlasedShaderHelpers.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
@@ -39,8 +39,8 @@ public:
         GrGLSLVarying uv(kFloat2_GrSLType);
         GrSLType texIdxType = args.fShaderCaps->integerSupport() ? kInt_GrSLType : kFloat_GrSLType;
         GrGLSLVarying texIdx(texIdxType);
-        append_index_uv_varyings(args, btgp.inTextureCoords().name(), atlasDimensionsInvName, &uv,
-                                 &texIdx, nullptr);
+        append_index_uv_varyings(args, btgp.numTextureSamplers(), btgp.inTextureCoords().name(),
+                                 atlasDimensionsInvName, &uv, &texIdx, nullptr);
 
         GrGLSLFPFragmentBuilder* fragBuilder = args.fFragBuilder;
         // Setup pass through color
@@ -167,7 +167,7 @@ void GrBitmapTextGeoProc::addNewViews(const GrSurfaceProxyView* views,
                                       GrSamplerState params) {
     SkASSERT(numActiveViews <= kMaxTextures);
     // Just to make sure we don't try to add too many proxies
-    numActiveViews = SkTMin(numActiveViews, kMaxTextures);
+    numActiveViews = std::min(numActiveViews, kMaxTextures);
 
     if (!fTextureSamplers[0].isInitialized()) {
         fAtlasDimensions = views[0].proxy()->dimensions();
@@ -201,7 +201,7 @@ GR_DEFINE_GEOMETRY_PROCESSOR_TEST(GrBitmapTextGeoProc);
 #if GR_TEST_UTILS
 
 GrGeometryProcessor* GrBitmapTextGeoProc::TestCreate(GrProcessorTestData* d) {
-    auto [proxy, ct, at] = d->randomProxy();
+    auto [view, ct, at] = d->randomView();
 
     GrSamplerState::WrapMode wrapModes[2];
     GrTest::TestWrapModes(d->fRandom, wrapModes);
@@ -222,9 +222,6 @@ GrGeometryProcessor* GrBitmapTextGeoProc::TestCreate(GrProcessorTestData* d) {
             format = kARGB_GrMaskFormat;
             break;
     }
-    GrSurfaceOrigin origin = proxy->origin();
-    const GrSwizzle& swizzle = proxy->textureSwizzle();
-    GrSurfaceProxyView view(std::move(proxy), origin, swizzle);
 
     return GrBitmapTextGeoProc::Make(d->allocator(), *d->caps()->shaderCaps(),
                                      SkPMColor4f::FromBytes_RGBA(GrRandomColor(d->fRandom)),

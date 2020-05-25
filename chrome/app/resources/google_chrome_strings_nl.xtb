@@ -58,6 +58,7 @@ Sommige functies zijn wellicht niet beschikbaar en wijzigingen in voorkeuren wor
 <translation id="2580411288591421699">Kan dezelfde Google Chrome-versie die momenteel actief is, niet installeren. Sluit Google Chrome en probeer het opnieuw.</translation>
 <translation id="2586406160782125153">Hiermee worden je browsergegevens verwijderd van dit apparaat. Als je je gegevens later wilt terughalen, log je in bij Chrome als <ph name="USER_EMAIL" />.</translation>
 <translation id="2588322182880276190">Chrome-logo</translation>
+<translation id="2622559029861875898">Chrome kan niet checken op updates. Check de internetverbinding.</translation>
 <translation id="2644798301485385923">Chrome OS-systeem</translation>
 <translation id="2652691236519827073">Link openen op een nieuw Chrome-&amp;tabblad</translation>
 <translation id="2665296953892887393">Help ons Google Chrome te verbeteren door crashrapporten en <ph name="UMA_LINK" /> naar Google te verzenden</translation>
@@ -69,7 +70,10 @@ Sommige functies zijn wellicht niet beschikbaar en wijzigingen in voorkeuren wor
 <translation id="2857540653560290388">Chrome starten…</translation>
 <translation id="2871893339301912279">Je bent ingelogd bij Chrome.</translation>
 <translation id="2888126860611144412">Over Chrome</translation>
+<translation id="2929907241665500097">Chrome is niet geüpdatet. Er is een fout opgetreden. <ph name="BEGIN_LINK" />Updateproblemen en mislukte updates voor Chrome verhelpen<ph name="END_LINK" /></translation>
+<translation id="2969728957078202736"><ph name="PAGE_TITLE" /> - Inloggen bij netwerk - Chrome</translation>
 <translation id="3037838751736561277">Google Chrome bevindt zich in de achtergrondmodus.</translation>
+<translation id="3059710691562604940">Safe Browsing is uitgeschakeld. Chrome raadt je aan deze functie in te schakelen.</translation>
 <translation id="3065168410429928842">Chrome-tabblad</translation>
 <translation id="3080151273017101988">Achtergrondapps blijven uitvoeren wanneer Google Chrome is gesloten</translation>
 <translation id="3089968997497233615">Er is een nieuwere, veiligere versie van Google Chrome beschikbaar.</translation>
@@ -105,8 +109,11 @@ Sommige functies zijn wellicht niet beschikbaar en wijzigingen in voorkeuren wor
 <translation id="4293420128516039005">Log in om Chrome op al je apparaten te synchroniseren en te personaliseren</translation>
 <translation id="4328355335528187361">Google Chrome Dev (mDNS-In)</translation>
 <translation id="4331809312908958774">Besturingssysteem Chrome</translation>
+<translation id="4335235004908507846">Chrome kan je beschermen tegen gegevenslekken, schadelijke extensies en meer</translation>
 <translation id="4343195214584226067"><ph name="EXTENSION_NAME" /> is toegevoegd aan Chrome</translation>
+<translation id="4384570495110188418">Chrome kan je wachtwoorden niet checken omdat je niet bent ingelogd.</translation>
 <translation id="4407807842708586359">Google Chrome OS</translation>
+<translation id="4450664632294415862">Chrome - Inloggen op netwerk - <ph name="PAGE_TITLE" /></translation>
 <translation id="4458462641685292929">Er wordt een andere bewerking in Google Chrome uitgevoerd. Probeer het later opnieuw.</translation>
 <translation id="4480040274068703980">Chrome OS kan je gegevens niet synchroniseren door een fout tijdens het inloggen.</translation>
 <translation id="4561051373932531560">Met Google Chrome kun je klikken op een telefoonnummer op internet om dit via Skype te bellen!</translation>
@@ -149,7 +156,9 @@ Sommige functies zijn wellicht niet beschikbaar. Geef een andere profieldirector
 <translation id="573759479754913123">Over Chrome OS</translation>
 <translation id="5795887333006832406"><ph name="PAGE_TITLE" /> - Google Chrome Canary</translation>
 <translation id="5804318322022881572">Kan Chrome niet starten. Probeer het opnieuw.</translation>
+<translation id="5867197326698922595">Google Chrome probeert wachtwoorden te bewerken.</translation>
 <translation id="5895138241574237353">Opnieuw starten</translation>
+<translation id="5903106910045431592"><ph name="PAGE_TITLE" /> - Inloggen bij netwerk</translation>
 <translation id="5940385492829620908">Hier vind je internet, bladwijzers en andere Chrome-instellingen.</translation>
 <translation id="5941830788786076944">Google Chrome instellen als mijn standaardbrowser</translation>
 <translation id="6070348360322141662">Je gegevens worden voor extra beveiliging door Google Chrome versleuteld</translation>
@@ -199,12 +208,15 @@ Sommige functies zijn wellicht niet beschikbaar. Geef een andere profieldirector
 <translation id="7777080907402804672">Als een afbeelding geen nuttige beschrijving bevat, probeert Chrome je er een te geven. Afbeeldingen worden naar Google verzonden om beschrijvingen te maken. Je kunt dit op elk gewenst moment uitschakelen in Instellingen.</translation>
 <translation id="7781002470561365167">Er is een nieuwe versie van Google Chrome beschikbaar.</translation>
 <translation id="7787950393032327779">Het profiel lijkt te worden gebruikt door een ander proces in Google Chrome (<ph name="PROCESS_ID" />) op een andere computer (<ph name="HOST_NAME" />). Het profiel is vergrendeld zodat het niet wordt beschadigd. Als je zeker weet dat dit profiel niet door andere processen wordt gebruikt, kun je het profiel ontgrendelen en Chrome opnieuw starten.</translation>
+<translation id="7801699035218095297">Google Chrome probeert wachtwoorden te kopiëren. Geef je Windows-wachtwoord op om dit toe te staan.</translation>
 <translation id="7808348361785373670">Verwijderen uit Chrome…</translation>
 <translation id="7825851276765848807">De installatie is mislukt vanwege een onbekende fout. Download Google Chrome opnieuw.</translation>
 <translation id="7855730255114109580">Google Chrome is up-to-date</translation>
 <translation id="7890208801193284374">Als je een computer deelt, kunnen vrienden en familie afzonderlijk surfen en Chrome configureren zoals zij dat willen.</translation>
 <translation id="7896673875602241923">Iemand heeft eerder bij Chrome op deze computer ingelogd als <ph name="ACCOUNT_EMAIL_LAST" />. Maak een nieuwe Chrome-gebruiker om je informatie gescheiden te houden.</translation>
+<translation id="7905891027772979035">Chrome kan je extensies niet checken. Probeer het later opnieuw.</translation>
 <translation id="7916016681687251387">Chrome OS kan je gegevens niet synchroniseren. Los dit nu op.</translation>
+<translation id="7930071585467473040">Google Chrome probeert wachtwoorden te kopiëren.</translation>
 <translation id="7962410387636238736">Deze computer ontvangt geen Google Chrome-updates meer, omdat Windows XP en Windows Vista niet meer worden ondersteund</translation>
 <translation id="8008534537613507642">Chrome opnieuw installeren</translation>
 <translation id="8013993649590906847">Als een afbeelding geen nuttige beschrijving bevat, probeert Chrome je er een te geven. Afbeeldingen worden naar Google verzonden om beschrijvingen te maken.</translation>
@@ -227,6 +239,7 @@ Sommige functies zijn wellicht niet beschikbaar. Geef een andere profieldirector
 <translation id="870251953148363156">&amp;Google Chrome updaten</translation>
 <translation id="873133009373065397">Google Chrome kan de standaardbrowser niet bepalen of instellen</translation>
 <translation id="8823341990149967727">Chrome is verouderd</translation>
+<translation id="8834965163890861871">Google Chrome probeert wachtwoorden te bewerken. Geef je Windows-wachtwoord op om dit toe te staan.</translation>
 <translation id="884296878221830158">Hiermee wordt ook gecontroleerd welke pagina wordt weergegeven wanneer je Chrome start of op de knop 'Homepage' klikt.</translation>
 <translation id="8862326446509486874">Je hebt geen rechten om op systeemniveau te installeren. Meld je aan als beheerder en voer het installatieprogramma opnieuw uit.</translation>
 <translation id="8914504000324227558">Chrome opnieuw starten</translation>

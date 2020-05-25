@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import os
+import sys
 
 from chromite.lib import constants
 from chromite.lib import commandline
@@ -19,6 +20,10 @@ from chromite.lib import parallel
 from chromite.lib import portage_util
 
 from chromite.cbuildbot import manifest_version
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
 
 # Commit message subject for uprevving Portage packages.
 GIT_COMMIT_SUBJECT = 'Marking set of ebuilds as stable'
@@ -257,6 +262,10 @@ def _WorkOnEbuild(overlay, ebuild, manifest, new_ebuild_files,
   try:
     result = ebuild.RevWorkOnEBuild(os.path.join(constants.SOURCE_ROOT, 'src'),
                                     manifest)
+  except portage_util.InvalidUprevSourceError as e:
+    logging.error('An error occurred while uprevving %s: %s',
+                  ebuild.package, e)
+    raise
   except (OSError, IOError):
     logging.warning(
         'Cannot rev %s\n'

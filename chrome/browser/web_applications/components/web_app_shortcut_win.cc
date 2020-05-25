@@ -44,9 +44,6 @@ constexpr base::FilePath::CharType kIconChecksumFileExt[] =
 constexpr base::FilePath::CharType kChromeProxyExecutable[] =
     FILE_PATH_LITERAL("chrome_proxy.exe");
 
-constexpr base::FilePath::CharType kChromePwaLauncherExecutable[] =
-    FILE_PATH_LITERAL("chrome_pwa_launcher.exe");
-
 // Calculates checksum of an icon family using MD5.
 // The checksum is derived from all of the icons in the family.
 void GetImageCheckSum(const gfx::ImageFamily& image, base::MD5Digest* digest) {
@@ -360,12 +357,6 @@ base::FilePath GetChromeProxyPath() {
   return chrome_dir.Append(kChromeProxyExecutable);
 }
 
-base::FilePath GetChromePwaLauncherPath() {
-  base::FilePath chrome_dir;
-  CHECK(base::PathService::Get(base::DIR_EXE, &chrome_dir));
-  return chrome_dir.Append(kChromePwaLauncherExecutable);
-}
-
 namespace internals {
 
 void OnShortcutInfoLoadedForSetRelaunchDetails(
@@ -375,9 +366,9 @@ void OnShortcutInfoLoadedForSetRelaunchDetails(
 
   // Set window's icon to the one we're about to create/update in the web app
   // path. The icon cache will refresh on icon creation.
-  base::FilePath web_app_path =
-      GetWebAppDataDirectory(shortcut_info->profile_path,
-                             shortcut_info->extension_id, shortcut_info->url);
+  base::FilePath web_app_path = GetOsIntegrationResourcesDirectoryForApp(
+      shortcut_info->profile_path, shortcut_info->extension_id,
+      shortcut_info->url);
   base::FilePath icon_file =
       web_app::internals::GetIconFilePath(web_app_path, shortcut_info->title);
 

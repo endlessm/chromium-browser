@@ -18,6 +18,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/dns_probe_runner.h"
 #include "chrome/browser/net/dns_probe_service.h"
+#include "chrome/browser/net/stub_resolver_config_reader.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -28,6 +29,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
+#include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/dns_protocol.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 
@@ -222,11 +224,11 @@ void DnsProbeServiceImpl::OnDnsConfigChanged() {
 
 void DnsProbeServiceImpl::SetUpCurrentConfigRunner() {
   bool insecure_stub_resolver_enabled;
-  base::Optional<std::vector<network::mojom::DnsOverHttpsServerPtr>>
-      dns_over_https_servers;
-  SystemNetworkContextManager::GetStubResolverConfig(
-      g_browser_process->local_state(), &insecure_stub_resolver_enabled,
-      &current_config_secure_dns_mode_, &dns_over_https_servers);
+  std::vector<net::DnsOverHttpsServerConfig> dns_over_https_servers;
+  SystemNetworkContextManager::GetStubResolverConfigReader()->GetConfiguration(
+      false /* force_check_parental_controls_for_automatic_mode */,
+      &insecure_stub_resolver_enabled, &current_config_secure_dns_mode_,
+      &dns_over_https_servers);
 
   net::DnsConfigOverrides current_config_overrides;
   current_config_overrides.search = std::vector<std::string>();
@@ -235,11 +237,11 @@ void DnsProbeServiceImpl::SetUpCurrentConfigRunner() {
 
   if (current_config_secure_dns_mode_ ==
       net::DnsConfig::SecureDnsMode::SECURE) {
-    if (dns_over_https_servers && !dns_over_https_servers.value().empty()) {
+    if (!dns_over_https_servers.empty()) {
       current_config_overrides.dns_over_https_servers.emplace();
-      for (const auto& doh_server : *dns_over_https_servers) {
-        current_config_overrides.dns_over_https_servers.value().emplace_back(
-            doh_server->server_template, doh_server->use_post);
+      for (auto& doh_server : dns_over_https_servers) {
+        current_config_overrides.dns_over_https_servers.value().push_back(
+            std::move(doh_server));
       }
     }
     current_config_overrides.secure_dns_mode =

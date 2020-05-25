@@ -1569,16 +1569,20 @@ void GenerateCaps(ID3D11Device *device,
     // Explicitly disable GL_OES_compressed_ETC1_RGB8_texture because it's emulated and never
     // becomes core. WebGL doesn't want to expose it unless there is native support.
     extensions->compressedETC1RGB8TextureOES = false;
+    extensions->compressedETC1RGB8SubTexture = false;
 
-    extensions->elementIndexUintOES         = true;
-    extensions->getProgramBinaryOES         = true;
-    extensions->rgb8rgba8OES                = true;
-    extensions->readFormatBGRA              = true;
-    extensions->pixelBufferObjectNV         = true;
-    extensions->mapBufferOES                = true;
-    extensions->mapBufferRange              = true;
-    extensions->textureNPOTOES              = GetNPOTTextureSupport(featureLevel);
-    extensions->drawBuffers                 = GetMaximumSimultaneousRenderTargets(featureLevel) > 1;
+    extensions->elementIndexUintOES = true;
+    extensions->getProgramBinaryOES = true;
+    extensions->rgb8rgba8OES        = true;
+    extensions->readFormatBGRA      = true;
+    extensions->pixelBufferObjectNV = true;
+    extensions->mapBufferOES        = true;
+    extensions->mapBufferRange      = true;
+    extensions->textureNPOTOES      = GetNPOTTextureSupport(featureLevel);
+    extensions->drawBuffers         = GetMaximumSimultaneousRenderTargets(featureLevel) > 1;
+    extensions->drawBuffersIndexedEXT =
+        (renderer11DeviceCaps.featureLevel >= D3D_FEATURE_LEVEL_10_1);
+    extensions->drawBuffersIndexedOES       = extensions->drawBuffersIndexedEXT;
     extensions->textureStorage              = true;
     extensions->textureFilterAnisotropic    = true;
     extensions->maxTextureAnisotropy        = GetMaximumAnisotropy(featureLevel);
@@ -1620,6 +1624,7 @@ void GenerateCaps(ID3D11Device *device,
     extensions->debugMarker                         = true;
     extensions->eglImageOES                         = true;
     extensions->eglImageExternalOES                 = true;
+    extensions->eglImageExternalWrapModesEXT        = true;
     extensions->eglImageExternalEssl3OES            = true;
     extensions->eglStreamConsumerExternalNV         = true;
     extensions->unpackSubimage                      = true;
@@ -1648,6 +1653,11 @@ void GenerateCaps(ID3D11Device *device,
     // D3D11 cannot support reading depth texture as a luminance texture.
     // It treats it as a red-channel-only texture.
     extensions->depthTextureOES = false;
+
+    // readPixels on depth & stencil not working with D3D11 backend.
+    extensions->readDepthNV         = false;
+    extensions->readStencilNV       = false;
+    extensions->depthBufferFloat2NV = false;
 
     // D3D11 Feature Level 10_0+ uses SV_IsFrontFace in HLSL to emulate gl_FrontFacing.
     // D3D11 Feature Level 9_3 doesn't support SV_IsFrontFace, and has no equivalent, so can't
@@ -2213,6 +2223,11 @@ BlendStateKey::BlendStateKey()
     memset(this, 0, sizeof(BlendStateKey));
 }
 
+BlendStateKey::BlendStateKey(const BlendStateKey &other)
+{
+    memcpy(this, &other, sizeof(BlendStateKey));
+}
+
 bool operator==(const BlendStateKey &a, const BlendStateKey &b)
 {
     return memcmp(&a, &b, sizeof(BlendStateKey)) == 0;
@@ -2448,8 +2463,9 @@ void InitializeFeatures(const Renderer11DeviceCaps &deviceCaps,
     ANGLE_FEATURE_CONDITION(features, selectViewInGeometryShader,
                             !deviceCaps.supportsVpRtIndexWriteFromVertexShader);
 
-    // Never clear for robust resource init.  This matches Chrome's texture clearning behaviour.
-    ANGLE_FEATURE_CONDITION(features, allowClearForRobustResourceInit, false);
+    // Intel and AMD drivers have trouble clearing textures without causing corruption. NVidia,
+    // on the other hand, can handle.
+    ANGLE_FEATURE_CONDITION(features, allowClearForRobustResourceInit, isNvidia);
 
     // Don't translate uniform block to StructuredBuffer on Windows 7 and earlier. This is targeted
     // to work around a bug that fails to allocate ShaderResourceView for StructuredBuffer.

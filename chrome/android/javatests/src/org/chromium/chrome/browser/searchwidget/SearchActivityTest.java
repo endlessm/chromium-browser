@@ -33,17 +33,17 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.locale.DefaultSearchEngineDialogHelperUtils;
 import org.chromium.chrome.browser.locale.DefaultSearchEnginePromoDialog;
 import org.chromium.chrome.browser.locale.DefaultSearchEnginePromoDialog.DefaultSearchEnginePromoDialogObserver;
 import org.chromium.chrome.browser.locale.LocaleManager;
-import org.chromium.chrome.browser.omnibox.LocationBarVoiceRecognitionHandler;
 import org.chromium.chrome.browser.omnibox.MatchClassificationStyle;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestion;
 import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestion.MatchClassification;
+import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.searchwidget.SearchActivity.SearchActivityDelegate;
 import org.chromium.chrome.browser.tab.Tab;
@@ -145,7 +145,7 @@ public class SearchActivityTest {
     public MultiActivityTestRule mTestRule = new MultiActivityTestRule();
 
     @Mock
-    LocationBarVoiceRecognitionHandler mHandler;
+    VoiceRecognitionHandler mHandler;
 
     private TestDelegate mTestDelegate;
 
@@ -230,7 +230,7 @@ public class SearchActivityTest {
         locationBar.beginQuery(/* isVoiceSearchIntent= */ true, /* optionalText= */ null);
         verify(mHandler, times(0))
                 .startVoiceRecognition(
-                        LocationBarVoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
+                        VoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
 
         mTestDelegate.shouldDelayNativeInitializationCallback.waitForCallback(0);
         Assert.assertEquals(0, mTestDelegate.showSearchEngineDialogIfNeededCallback.getCallCount());
@@ -246,7 +246,7 @@ public class SearchActivityTest {
         mTestDelegate.onFinishDeferredInitializationCallback.waitForCallback(0);
 
         verify(mHandler).startVoiceRecognition(
-                LocationBarVoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
+                VoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
     }
 
     @Test
@@ -448,7 +448,7 @@ public class SearchActivityTest {
     public void testRealPromoDialogDismissWithoutSelection() throws Exception {
         // Start the Activity.  It should pause when the promo dialog appears.
         mTestDelegate.shouldShowRealSearchDialog = true;
-        startSearchActivity();
+        SearchActivity activity = startSearchActivity();
         mTestDelegate.shouldDelayNativeInitializationCallback.waitForCallback(0);
         mTestDelegate.showSearchEngineDialogIfNeededCallback.waitForCallback(0);
         mTestDelegate.onPromoDialogShownCallback.waitForCallback(0);
@@ -458,12 +458,24 @@ public class SearchActivityTest {
         mTestDelegate.shownPromoDialog.dismiss();
 
         // SearchActivity should realize the failure case and prevent the user from using it.
-        CriteriaHelper.pollInstrumentationThread(Criteria.equals(0, new Callable<Integer>() {
+        CriteriaHelper.pollUiThread(new Criteria() {
             @Override
-            public Integer call() {
-                return ApplicationStatus.getRunningActivities().size();
+            public boolean isSatisfied() {
+                List<Activity> activities = ApplicationStatus.getRunningActivities();
+                if (activities.isEmpty()) return true;
+
+                if (activities.size() != 1) {
+                    updateFailureReason("Multiple non-destroyed activities: " + activities);
+                    return false;
+                }
+                if (activities.get(0) != activity) {
+                    updateFailureReason("Remaining activity is not the search activity under test: "
+                            + activities.get(0));
+                }
+                updateFailureReason("Search activity has not called finish()");
+                return activity.isFinishing();
             }
-        }));
+        });
         Assert.assertEquals(
                 1, mTestDelegate.shouldDelayNativeInitializationCallback.getCallCount());
         Assert.assertEquals(1, mTestDelegate.showSearchEngineDialogIfNeededCallback.getCallCount());
@@ -534,7 +546,7 @@ public class SearchActivityTest {
                 Tab tab = cta.getActivityTab();
                 if (tab == null) return null;
 
-                return tab.getUrl();
+                return tab.getUrlString();
             }
         }));
     }

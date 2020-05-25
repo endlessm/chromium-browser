@@ -19,6 +19,7 @@
 #include "src/core/SkPictureRecord.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkSafeMath.h"
+#include "src/core/SkVerticesPriv.h"
 #include "src/utils/SkPatchUtils.h"
 
 // matches old SkCanvas::SaveFlags
@@ -164,6 +165,12 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
                 reader->skip(offsetToRestore - reader->offset());
             }
         } break;
+        case CLIP_SHADER_IN_PAINT: {
+            const SkPaint* paint = fPictureData->getPaint(reader);
+            SkClipOp clipOp = reader->checkRange(SkClipOp::kDifference, SkClipOp::kIntersect);
+            BREAK_ON_READ_ERROR(reader);
+            canvas->clipShader(paint->refShader(), clipOp);
+        } break;
         case PUSH_CULL: break;  // Deprecated, safe to ignore both push and pop.
         case POP_CULL:  break;
         case CONCAT: {
@@ -177,7 +184,7 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
         case CONCAT44: {
             const SkScalar* colMaj = reader->skipT<SkScalar>(16);
             BREAK_ON_READ_ERROR(reader);
-            canvas->experimental_concat44(colMaj);
+            canvas->concat44(colMaj);
             break;
         }
         case DRAW_ANNOTATION: {
@@ -550,14 +557,12 @@ void SkPicturePlayback::handleOp(SkReadBuffer* reader,
             const SkPaint* paint = fPictureData->getPaint(reader);
             const SkVertices* vertices = fPictureData->getVertices(reader);
             const int boneCount = reader->readInt();
-            const SkVertices::Bone* bones = boneCount ?
-                    (const SkVertices::Bone*) reader->skip(boneCount, sizeof(SkVertices::Bone)) :
-                    nullptr;
+            (void)reader->skip(boneCount, sizeof(SkVertices_DeprecatedBone));
             SkBlendMode bmode = reader->read32LE(SkBlendMode::kLastMode);
             BREAK_ON_READ_ERROR(reader);
 
             if (paint && vertices) {
-                canvas->drawVertices(vertices, bones, boneCount, bmode, *paint);
+                canvas->drawVertices(vertices, bmode, *paint);
             }
         } break;
         case RESTORE:

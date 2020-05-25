@@ -4,17 +4,26 @@
 
 import * as Common from '../common/common.js';
 import * as SDK from '../sdk/sdk.js';
+import * as TextUtils from '../text_utils/text_utils.js';
 import * as Workspace from '../workspace/workspace.js';
 
 import {ContentProviderBasedProject} from './ContentProviderBasedProject.js';
+import {CSSWorkspaceBinding} from './CSSWorkspaceBinding.js';
+import {DebuggerWorkspaceBinding} from './DebuggerWorkspaceBinding.js';
 import {NetworkProject} from './NetworkProject.js';
 import {resourceMetadata} from './ResourceUtils.js';
+
+/**
+ * @type {!ResourceMapping}
+ */
+let resourceMappingInstance;
 
 /**
  * @implements {SDK.SDKModel.SDKModelObserver<!SDK.ResourceTreeModel.ResourceTreeModel>}
  */
 export class ResourceMapping {
   /**
+   * @private
    * @param {!SDK.SDKModel.TargetManager} targetManager
    * @param {!Workspace.Workspace.WorkspaceImpl} workspace
    */
@@ -23,6 +32,23 @@ export class ResourceMapping {
     /** @type {!Map<!SDK.ResourceTreeModel.ResourceTreeModel, !ModelInfo>} */
     this._modelToInfo = new Map();
     targetManager.observeModels(SDK.ResourceTreeModel.ResourceTreeModel, this);
+  }
+
+  /**
+   * @param {{forceNew: ?boolean, targetManager: ?SDK.SDKModel.TargetManager, workspace: ?Workspace.Workspace.WorkspaceImpl}} opts
+   */
+  static instance(opts = {forceNew: null, targetManager: null, workspace: null}) {
+    const {forceNew, targetManager, workspace} = opts;
+    if (!resourceMappingInstance || forceNew) {
+      if (!targetManager || !workspace) {
+        throw new Error(
+            `Unable to create settings: targetManager and workspace must be provided: ${new Error().stack}`);
+      }
+
+      resourceMappingInstance = new ResourceMapping(targetManager, workspace);
+    }
+
+    return resourceMappingInstance;
   }
 
   /**
@@ -70,7 +96,8 @@ export class ResourceMapping {
     if (!uiSourceCode) {
       return null;
     }
-    const offset = header[offsetSymbol] || TextUtils.TextRange.createFromLocation(header.startLine, header.startColumn);
+    const offset =
+        header[offsetSymbol] || TextUtils.TextRange.TextRange.createFromLocation(header.startLine, header.startColumn);
     const lineNumber = cssLocation.lineNumber + offset.startLine - header.startLine;
     let columnNumber = cssLocation.columnNumber;
     if (cssLocation.lineNumber === header.startLine) {
@@ -96,8 +123,8 @@ export class ResourceMapping {
     if (!uiSourceCode) {
       return null;
     }
-    const offset =
-        script[offsetSymbol] || TextUtils.TextRange.createFromLocation(script.lineOffset, script.columnOffset);
+    const offset = script[offsetSymbol] ||
+        TextUtils.TextRange.TextRange.createFromLocation(script.lineOffset, script.columnOffset);
     const lineNumber = jsLocation.lineNumber + offset.startLine - script.lineOffset;
     let columnNumber = jsLocation.columnNumber;
     if (jsLocation.lineNumber === script.lineOffset) {
@@ -184,14 +211,19 @@ class ModelInfo {
       resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.ResourceAdded, this._resourceAdded, this),
       resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.FrameWillNavigate, this._frameWillNavigate, this),
       resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.FrameDetached, this._frameDetached, this),
-      cssModel.addEventListener(SDK.CSSModel.Events.StyleSheetChanged, this._styleSheetChanged, this)
+      cssModel.addEventListener(
+          SDK.CSSModel.Events.StyleSheetChanged,
+          event => {
+            this._styleSheetChanged(event);
+          },
+          this)
     ];
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
-  _styleSheetChanged(event) {
+  async _styleSheetChanged(event) {
     const header = this._cssModel.styleSheetHeaderForId(event.data.styleSheetId);
     if (!header || !header.isInline) {
       return;
@@ -200,7 +232,7 @@ class ModelInfo {
     if (!binding) {
       return;
     }
-    binding._styleSheetChanged(header, event.data.edit);
+    await binding._styleSheetChanged(header, event.data.edit);
   }
 
   /**
@@ -234,7 +266,7 @@ class ModelInfo {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _resourceAdded(event) {
     const resource = /** @type {!SDK.Resource.Resource} */ (event.data);
@@ -270,7 +302,7 @@ class ModelInfo {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _frameWillNavigate(event) {
     const frame = /** @type {!SDK.ResourceTreeModel.ResourceTreeFrame} */ (event.data);
@@ -278,7 +310,7 @@ class ModelInfo {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _frameDetached(event) {
     const frame = /** @type {!SDK.ResourceTreeModel.ResourceTreeFrame} */ (event.data);
@@ -286,7 +318,7 @@ class ModelInfo {
   }
 
   _resetForTest() {
-    for (const binding of this._bindings.valuesArray()) {
+    for (const binding of this._bindings.values()) {
       binding.dispose();
     }
     this._bindings.clear();
@@ -294,7 +326,7 @@ class ModelInfo {
 
   dispose() {
     Common.EventTarget.EventTarget.removeEventListeners(this._eventListeners);
-    for (const binding of this._bindings.valuesArray()) {
+    for (const binding of this._bindings.values()) {
       binding.dispose();
     }
     this._bindings.clear();
@@ -303,7 +335,7 @@ class ModelInfo {
 }
 
 /**
- * @implements {Common.ContentProvider.ContentProvider}
+ * @implements {TextUtils.ContentProvider.ContentProvider}
  */
 class Binding {
   /**
@@ -363,7 +395,7 @@ class Binding {
 
     const {content} = await this._uiSourceCode.requestContent();
     if (content !== null) {
-      this._innerStyleSheetChanged(content);
+      await this._innerStyleSheetChanged(content);
     }
     this._edits = [];
   }
@@ -371,10 +403,10 @@ class Binding {
   /**
    * @param {string} content
    */
-  _innerStyleSheetChanged(content) {
+  async _innerStyleSheetChanged(content) {
     const scripts = this._inlineScripts();
     const styles = this._inlineStyles();
-    let text = new TextUtils.Text(content);
+    let text = new TextUtils.Text.Text(content);
     for (const data of this._edits) {
       const edit = data.edit;
       if (!edit) {
@@ -382,29 +414,31 @@ class Binding {
       }
       const stylesheet = data.stylesheet;
       const startLocation = stylesheet[offsetSymbol] ||
-          TextUtils.TextRange.createFromLocation(stylesheet.startLine, stylesheet.startColumn);
+          TextUtils.TextRange.TextRange.createFromLocation(stylesheet.startLine, stylesheet.startColumn);
 
       const oldRange = edit.oldRange.relativeFrom(startLocation.startLine, startLocation.startColumn);
       const newRange = edit.newRange.relativeFrom(startLocation.startLine, startLocation.startColumn);
-      text = new TextUtils.Text(text.replaceRange(oldRange, edit.newText));
+      text = new TextUtils.Text.Text(text.replaceRange(oldRange, edit.newText));
+      const updatePromises = [];
       for (const script of scripts) {
-        const scriptOffset =
-            script[offsetSymbol] || TextUtils.TextRange.createFromLocation(script.lineOffset, script.columnOffset);
+        const scriptOffset = script[offsetSymbol] ||
+            TextUtils.TextRange.TextRange.createFromLocation(script.lineOffset, script.columnOffset);
         if (!scriptOffset.follows(oldRange)) {
           continue;
         }
         script[offsetSymbol] = scriptOffset.rebaseAfterTextEdit(oldRange, newRange);
-        self.Bindings.debuggerWorkspaceBinding.updateLocations(script);
+        updatePromises.push(DebuggerWorkspaceBinding.instance().updateLocations(script));
       }
       for (const style of styles) {
         const styleOffset =
-            style[offsetSymbol] || TextUtils.TextRange.createFromLocation(style.startLine, style.startColumn);
+            style[offsetSymbol] || TextUtils.TextRange.TextRange.createFromLocation(style.startLine, style.startColumn);
         if (!styleOffset.follows(oldRange)) {
           continue;
         }
         style[offsetSymbol] = styleOffset.rebaseAfterTextEdit(oldRange, newRange);
-        self.Bindings.cssWorkspaceBinding.updateLocations(style);
+        updatePromises.push(CSSWorkspaceBinding.instance().updateLocations(style));
       }
+      await Promise.all(updatePromises);
     }
     this._uiSourceCode.addRevision(text.value());
   }
@@ -455,7 +489,7 @@ class Binding {
 
   /**
    * @override
-   * @return {!Promise<!Common.DeferredContent>}
+   * @return {!Promise<!TextUtils.ContentProvider.DeferredContent>}
    */
   requestContent() {
     return this._resources.firstValue().requestContent();
@@ -466,7 +500,7 @@ class Binding {
    * @param {string} query
    * @param {boolean} caseSensitive
    * @param {boolean} isRegex
-   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   * @return {!Promise<!Array<!TextUtils.ContentProvider.SearchMatch>>}
    */
   searchInContent(query, caseSensitive, isRegex) {
     return this._resources.firstValue().searchInContent(query, caseSensitive, isRegex);

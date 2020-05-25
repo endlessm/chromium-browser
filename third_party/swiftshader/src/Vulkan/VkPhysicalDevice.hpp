@@ -43,6 +43,7 @@ public:
 	void getFeatures(VkPhysicalDeviceProtectedMemoryFeatures *features) const;
 	void getFeatures(VkPhysicalDeviceShaderDrawParameterFeatures *features) const;
 	void getFeatures(VkPhysicalDeviceLineRasterizationFeaturesEXT *features) const;
+	void getFeatures(VkPhysicalDeviceSeparateDepthStencilLayoutsFeaturesKHR *features) const;
 	void getFeatures(VkPhysicalDeviceProvokingVertexFeaturesEXT *features) const;
 	bool hasFeatures(const VkPhysicalDeviceFeatures &requestedFeatures) const;
 
@@ -61,6 +62,7 @@ public:
 	void getProperties(const VkPhysicalDeviceExternalBufferInfo *pExternalBufferInfo, VkExternalBufferProperties *pExternalBufferProperties) const;
 	void getProperties(const VkPhysicalDeviceExternalFenceInfo *pExternalFenceInfo, VkExternalFenceProperties *pExternalFenceProperties) const;
 	void getProperties(const VkPhysicalDeviceExternalSemaphoreInfo *pExternalSemaphoreInfo, VkExternalSemaphoreProperties *pExternalSemaphoreProperties) const;
+	void getProperties(VkPhysicalDeviceExternalMemoryHostPropertiesEXT *properties) const;
 	void getProperties(VkPhysicalDeviceDriverPropertiesKHR *properties) const;
 	void getProperties(VkPhysicalDeviceLineRasterizationPropertiesEXT *properties) const;
 	void getProperties(VkPhysicalDeviceProvokingVertexPropertiesEXT *properties) const;

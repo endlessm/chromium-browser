@@ -14,6 +14,7 @@
 #include "net/third_party/quiche/src/quic/core/proto/cached_network_parameters_proto.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/tls_server_handshaker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
@@ -54,7 +55,7 @@ class TestServerSession : public QuicServerSessionBase {
   TestServerSession(const QuicConfig& config,
                     QuicConnection* connection,
                     QuicSession::Visitor* visitor,
-                    QuicCryptoServerStream::Helper* helper,
+                    QuicCryptoServerStreamBase::Helper* helper,
                     const QuicCryptoServerConfig* crypto_config,
                     QuicCompressedCertsCache* compressed_certs_cache,
                     QuicSimpleServerBackend* quic_simple_server_backend)
@@ -437,7 +438,11 @@ TEST_P(QuicServerSessionBaseTest, MaxAvailableBidirectionalStreams) {
 
 TEST_P(QuicServerSessionBaseTest, GetEvenIncomingError) {
   // Incoming streams on the server session must be odd.
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_INVALID_STREAM_ID, _, _));
+  const QuicErrorCode expected_error =
+      VersionHasIetfQuicFrames(transport_version())
+          ? QUIC_HTTP_STREAM_WRONG_DIRECTION
+          : QUIC_INVALID_STREAM_ID;
+  EXPECT_CALL(*connection_, CloseConnection(expected_error, _, _));
   EXPECT_EQ(nullptr, QuicServerSessionBasePeer::GetOrCreateStream(
                          session_.get(),
                          session_->next_outgoing_unidirectional_stream_id()));
@@ -462,7 +467,7 @@ class MockQuicCryptoServerStream : public QuicCryptoServerStream {
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache,
       QuicServerSessionBase* session,
-      QuicCryptoServerStream::Helper* helper)
+      QuicCryptoServerStreamBase::Helper* helper)
       : QuicCryptoServerStream(crypto_config,
                                compressed_certs_cache,
                                session,
@@ -651,8 +656,9 @@ TEST_P(QuicServerSessionBaseTest, BandwidthResumptionExperiment) {
   connection_->AdvanceTime(
       QuicTime::Delta::FromSeconds(kNumSecondsPerHour + 1));
 
-  QuicCryptoServerStream* crypto_stream = static_cast<QuicCryptoServerStream*>(
-      QuicSessionPeer::GetMutableCryptoStream(session_.get()));
+  QuicCryptoServerStreamBase* crypto_stream =
+      static_cast<QuicCryptoServerStreamBase*>(
+          QuicSessionPeer::GetMutableCryptoStream(session_.get()));
 
   // No effect if no CachedNetworkParameters provided.
   EXPECT_CALL(*connection_, ResumeConnectionState(_, _)).Times(0);

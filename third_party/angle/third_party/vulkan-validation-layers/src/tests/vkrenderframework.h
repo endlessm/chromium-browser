@@ -45,9 +45,24 @@ class VkImageObj;
 #include <vector>
 #include <unordered_set>
 
+// Validation debug report callback prototype
+extern VKAPI_ATTR VkBool32 VKAPI_CALL LvtDebugReportFunc(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject,
+                                                         size_t location, int32_t msgCode, const char *pLayerPrefix,
+                                                         const char *pMsg, void *pUserData);
+
+// Validation debug utils callback prototype
+extern VKAPI_ATTR VkBool32 VKAPI_CALL LvtDebugUtilsFunc(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                        VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+                                                        const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData);
+
 using namespace std;
 
 using vk_testing::MakeVkHandles;
+
+typedef struct {
+    PFN_vkDebugReportCallbackEXT LvtDebugReportFunction;
+    PFN_vkDebugUtilsMessengerCallbackEXT LvtDebugUtilsFunction;
+} DebugCallbackFunctions;
 
 template <class Dst, class Src>
 std::vector<Dst *> MakeTestbindingHandles(const std::vector<Src *> &v) {
@@ -134,7 +149,7 @@ class ErrorMonitor {
     // Helpers
 
     // ExpectSuccess now takes an optional argument allowing a custom combination of debug flags
-    void ExpectSuccess(VkDebugReportFlagsEXT const message_flag_mask = VK_DEBUG_REPORT_ERROR_BIT_EXT);
+    void ExpectSuccess(VkDebugReportFlagsEXT const message_flag_mask = kErrorBit);
 
     void VerifyFound();
     void VerifyNotFound();
@@ -184,7 +199,12 @@ class VkRenderFramework : public VkTestFramework {
     void InitRenderTarget(VkImageView *dsBinding);
     void InitRenderTarget(uint32_t targets, VkImageView *dsBinding);
     void DestroyRenderTarget();
-    void InitFramework(PFN_vkDebugReportCallbackEXT = NULL, void *userData = NULL, void *instance_pnext = NULL);
+
+    void InitFrameworkDebugReport(PFN_vkDebugReportCallbackEXT = NULL, void *userData = NULL, void *instance_pnext = NULL);
+
+    void InitFrameworkDebugUtils(PFN_vkDebugUtilsMessengerCallbackEXT = NULL, void *userData = NULL, void *instance_pnext = NULL);
+
+    void InitFramework(void *userData = NULL, void *instance_pnext = NULL);
 
     void ShutdownFramework();
     void GetPhysicalDeviceFeatures(VkPhysicalDeviceFeatures *features);
@@ -244,9 +264,16 @@ class VkRenderFramework : public VkTestFramework {
     float m_depth_clear_color;
     uint32_t m_stencil_clear_color;
     VkDepthStencilObj *m_depthStencil;
+
+    // Debug Report Data
     PFN_vkCreateDebugReportCallbackEXT m_CreateDebugReportCallback;
     PFN_vkDestroyDebugReportCallbackEXT m_DestroyDebugReportCallback;
     VkDebugReportCallbackEXT m_globalMsgCallback;
+
+    // Debug Utils Data
+    PFN_vkCreateDebugUtilsMessengerEXT m_CreateDebugUtilsCallback;
+    PFN_vkDestroyDebugUtilsMessengerEXT m_DestroyDebugUtilsCallback;
+    VkDebugUtilsMessengerEXT m_global_message_callback;
 
     std::vector<const char *> m_instance_layer_names;
     std::vector<const char *> m_instance_extension_names;
@@ -256,7 +283,6 @@ class VkRenderFramework : public VkTestFramework {
 class VkDescriptorSetObj;
 class VkConstantBufferObj;
 class VkPipelineObj;
-class VkDescriptorSetObj;
 typedef vk_testing::Fence VkFenceObj;
 typedef vk_testing::Buffer VkBufferObj;
 typedef vk_testing::AccelerationStructure VkAccelerationStructureObj;

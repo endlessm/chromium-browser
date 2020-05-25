@@ -9,15 +9,29 @@
 
 namespace content {
 
+namespace {
+bool g_initialized = false;
+}  // namespace
+
 // static
 GpuDataManager* GpuDataManager::GetInstance() {
   return GpuDataManagerImpl::GetInstance();
 }
 
 // static
+bool GpuDataManager::Initialized() {
+  return GpuDataManagerImpl::Initialized();
+}
+
+// static
 GpuDataManagerImpl* GpuDataManagerImpl::GetInstance() {
   static base::NoDestructor<GpuDataManagerImpl> instance;
   return instance.get();
+}
+
+// static
+bool GpuDataManagerImpl::Initialized() {
+  return g_initialized;
 }
 
 void GpuDataManagerImpl::BlacklistWebGLForTesting() {
@@ -120,6 +134,18 @@ void GpuDataManagerImpl::UpdateDx12VulkanInfo(
   private_->UpdateDx12VulkanInfo(dx12_vulkan_version_info);
 }
 
+void GpuDataManagerImpl::UpdateDevicePerfInfo(
+    const gpu::DevicePerfInfo& device_perf_info) {
+  base::AutoLock auto_lock(lock_);
+  private_->UpdateDevicePerfInfo(device_perf_info);
+}
+
+void GpuDataManagerImpl::UpdateOverlayInfo(
+    const gpu::OverlayInfo& overlay_info) {
+  base::AutoLock auto_lock(lock_);
+  private_->UpdateOverlayInfo(overlay_info);
+}
+
 void GpuDataManagerImpl::UpdateDxDiagNodeRequestStatus(bool request_continues) {
   base::AutoLock auto_lock(lock_);
   private_->UpdateDxDiagNodeRequestStatus(request_continues);
@@ -133,6 +159,16 @@ void GpuDataManagerImpl::UpdateDx12VulkanRequestStatus(bool request_continues) {
 bool GpuDataManagerImpl::Dx12VulkanRequested() const {
   base::AutoLock auto_lock(lock_);
   return private_->Dx12VulkanRequested();
+}
+
+void GpuDataManagerImpl::OnBrowserThreadsStarted() {
+  base::AutoLock auto_lock(lock_);
+  private_->OnBrowserThreadsStarted();
+}
+
+void GpuDataManagerImpl::TerminateInfoCollectionGpuProcess() {
+  base::AutoLock auto_lock(lock_);
+  private_->TerminateInfoCollectionGpuProcess();
 }
 #endif
 
@@ -273,7 +309,9 @@ void GpuDataManagerImpl::OnDisplayRemoved(const display::Display& old_display) {
 }
 
 GpuDataManagerImpl::GpuDataManagerImpl()
-    : private_(std::make_unique<GpuDataManagerImplPrivate>(this)) {}
+    : private_(std::make_unique<GpuDataManagerImplPrivate>(this)) {
+  g_initialized = true;
+}
 
 GpuDataManagerImpl::~GpuDataManagerImpl() = default;
 

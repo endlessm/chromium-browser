@@ -8,12 +8,123 @@
 
 import * as Host from '../host/host.js';
 
+import {ReleaseNote} from './HelpImpl.js';  // eslint-disable-line no-unused-vars
+
 const continueToHereShortcut = Host.Platform.isMac() ? 'Command' : 'Control';
 const networkSearchShortcut = Host.Platform.isMac() ? 'Command+F' : 'Control+F';
 const commandMenuShortcut = Host.Platform.isMac() ? 'Command+Shift+P' : 'Control+Shift+P';
 
-/** @type {!Array<!Help.ReleaseNote>} */
+/** @type {!Array<!ReleaseNote>} */
 export const releaseNoteText = [
+  {
+    version: 25,
+    header: 'Highlights from the Chrome 83 update',
+    highlights: [
+      {
+        title: 'Emulate vision deficiencies from the Rendering tab',
+        subtitle: 'Get a visual approximation of how people with vision deficiencies might experience your site.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#vision-deficiences',
+      },
+      {
+        title: 'Emulate locales from the Sensors tab or Console',
+        subtitle:
+            'Emulating locales enables you to change the Accept-Language HTTP header that\'s sent with network requests.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#locales',
+      },
+      {
+        title: 'Cross-Origin Opener Policy (COOP) and Cross-Origin Embedder Policy (COEP) debugging',
+        subtitle:
+            'Use the Status column and Response Headers section in the Network panel to debug COOP and COEP issues.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#COOP-COEP',
+      },
+      {
+        title: 'New icons for breakpoints, conditional breakpoints, and logpoints',
+        subtitle:
+            'The new icons are more consistent with other GUI debugging tools and make it easier to distinguish between the 3 features at a glance.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#debugging-icons',
+      },
+      {
+        title: 'View network requests that set a specific cookie path',
+        subtitle:
+            'Use the new "cookie-path" filter keyword to focus on the network requests that set a specific cookie path.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#cookie-path',
+      },
+      {
+        title: 'Dock to left from the Command Menu',
+        subtitle: 'Run the "Dock to left" command to quickly move DevTools to the left of your viewport.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#dock-to-left',
+      },
+      {
+        title: 'The Settings option in the Main Menu has moved',
+        subtitle: 'The option for opening Settings can now be found under "More Tools".',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#settings',
+      },
+      {
+        title: 'The Audits panel is now the Lighthouse panel',
+        subtitle: 'Same features. New name.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#lighthouse',
+      },
+      {
+        title: 'Delete all Local Overrides in a folder',
+        subtitle: 'Right-click a folder from the Overrides tab and select "Delete all overrides".',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#overrides',
+      },
+      {
+        title: 'Updated Long Tasks UI',
+        subtitle: 'In the Performance panel Long Tasks now have a striped red background.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#long-tasks',
+      },
+      {
+        title: 'Maskable icon support in the Manifest pane',
+        subtitle: 'Enable the "Show only the minimum safe area for maskable icons" checkbox.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#maskable-icons',
+      },
+    ],
+    link: 'https://developers.google.com/web/updates/2020/03/devtools',
+  },
+  {
+    version: 24,
+    header: 'Highlights from the Chrome 82 update',
+    highlights: [
+      {
+        title: 'Emulate vision deficiencies from the Rendering tab',
+        subtitle: 'Get a visual approximation of how people with vision deficiencies might experience your site.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#vision-deficiences',
+      },
+      {
+        title: 'Cross-Origin Opener Policy (COOP) and Cross-Origin Embedder Policy (COEP) debugging',
+        subtitle:
+            'Use the Status column and Response Headers section in the Network panel to debug COOP and COEP issues.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#COOP-COEP',
+      },
+      {
+        title: 'Dock to left from the Command Menu',
+        subtitle: 'Run the "Dock to left" command to quickly move DevTools to the left of your viewport.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#dock-to-left',
+      },
+      {
+        title: 'The Audits panel is now the Lighthouse panel',
+        subtitle: 'Same features. New name.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#lighthouse',
+      },
+      {
+        title: 'Delete all Local Overrides in a folder',
+        subtitle: 'Right-click a folder from the Overrides tab and select "Delete all overrides".',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#overrides',
+      },
+      {
+        title: 'Updated Long Tasks UI',
+        subtitle: 'In the Performance panel Long Tasks now have a striped red background.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#long-tasks',
+      },
+      {
+        title: 'Maskable icon support in the Manifest pane',
+        subtitle: 'Enable the "Show only the minimum safe area for maskable icons" checkbox.',
+        link: 'https://developers.google.com/web/updates/2020/03/devtools#maskable-icons',
+      },
+    ],
+    link: 'https://developers.google.com/web/updates/2020/03/devtools',
+  },
   {
     version: 23,
     header: 'Highlights from the Chrome 81 update',
@@ -96,7 +207,7 @@ export const releaseNoteText = [
       },
       {
         title: 'View cookie values',
-        subtitle: 'Click a row in the Cookies pane in the Application panel to see the cookie\'s value.',
+        subtitle: 'Click a row in the Cookies pane in the Application panel to see the cookie’s value.',
         link: 'https://developers.google.com/web/updates/2019/10/devtools#cookiepreviews',
       },
       {
@@ -259,14 +370,14 @@ export const releaseNoteText = [
         link: 'https://developers.google.com/web/updates/2019/04/devtools#indexeddb',
       },
       {
-        title: 'View a resource\'s uncompressed size on hover',
-        subtitle: 'Hover over the Size column in the Network panel to view a resource\'s full size.',
+        title: 'View a resource’s uncompressed size on hover',
+        subtitle: 'Hover over the Size column in the Network panel to view a resource’s full size.',
         link: 'https://developers.google.com/web/updates/2019/04/devtools#uncompressed',
       },
       {
         title: 'Inline breakpoints in the Breakpoints pane',
         subtitle:
-            'When you\'ve got multiple breakpoints on a single line of code, the Breakpoints pane now lets you manage each one independently.',
+            'When you’ve got multiple breakpoints on a single line of code, the Breakpoints pane now lets you manage each one independently.',
         link: 'https://developers.google.com/web/updates/2019/04/devtools#inline',
       },
     ],
@@ -336,8 +447,8 @@ export const releaseNoteText = [
         link: 'https://developers.google.com/web/updates/2019/01/devtools#keyboard',
       },
       {
-        title: 'Save custom geolocation overrides',
-        subtitle: 'Click Manage in the Sensors tab or open Settings > Geolocations.',
+        title: 'Save custom location overrides',
+        subtitle: 'Click Manage in the Sensors tab or open Settings > Locations.',
         link: 'https://developers.google.com/web/updates/2019/01/devtools#geolocation',
       },
       {
@@ -456,7 +567,7 @@ export const releaseNoteText = [
       },
       {
         title: 'Argument hints',
-        subtitle: `View a function's expected arguments in the Console.`,
+        subtitle: 'View a function’s expected arguments in the Console.',
         link: 'https://developers.google.com/web/updates/2018/05/devtools#hints',
       },
       {
@@ -645,7 +756,7 @@ export const releaseNoteText = [
       },
       {
         title: 'CSS Grid highlighting',
-        subtitle: 'Hover over an element to see the CSS Grid that\'s affecting it.',
+        subtitle: 'Hover over an element to see the CSS Grid that’s affecting it.',
         link: 'https://developers.google.com/web/updates/2017/08/devtools-release-notes#css-grid-highlighting',
       },
       {
@@ -677,7 +788,7 @@ export const releaseNoteText = [
     highlights: [
       {
         title: 'Mobile device throttling',
-        subtitle: 'Simulate a mobile device\'s CPU and network throttling from Device Mode.',
+        subtitle: 'Simulate a mobile device’s CPU and network throttling from Device Mode.',
         link: 'https://developers.google.com/web/updates/2017/07/devtools-release-notes#throttling',
       },
       {

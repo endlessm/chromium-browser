@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+
+import * as ARIAUtils from './ARIAUtils.js';
 import {Toolbar, ToolbarButton} from './Toolbar.js';
 import {createInput, createTextButton, ElementFocusRestorer} from './UIUtils.js';
 import {VBox} from './Widget.js';
@@ -20,6 +22,7 @@ export class ListWidget extends VBox {
     this._delegate = delegate;
 
     this._list = this.contentElement.createChild('div', 'list');
+    this._list.addEventListener('keydown', event => this._onKeyDown(event));
 
     this._lastSeparator = false;
     /** @type {?ElementFocusRestorer} */
@@ -36,6 +39,7 @@ export class ListWidget extends VBox {
     this._editItem = null;
     /** @type {?Element} */
     this._editElement = null;
+    this._selectedIndex = -1;
 
     /** @type {?Element} */
     this._emptyPlaceholder = null;
@@ -72,7 +76,15 @@ export class ListWidget extends VBox {
       element.classList.add('editable');
       element.appendChild(this._createControls(item, element));
     }
+    const index = this._items.length - 1;
+    element.addEventListener('click', () => {
+      this._select(index, /* takeFocus */ true);
+    });
     this._elements.push(element);
+    if (this._selectedIndex === -1 || this._selectedIndex === index) {
+      this._select(index, /* takeFocus */ false);
+    }
+
     this._updatePlaceholder();
   }
 
@@ -104,6 +116,10 @@ export class ListWidget extends VBox {
     }
     element.remove();
 
+    if (this._selectedIndex === index) {
+      this._selectNext();
+    }
+
     this._elements.splice(index, 1);
     this._items.splice(index, 1);
     this._editable.splice(index, 1);
@@ -125,6 +141,65 @@ export class ListWidget extends VBox {
     this._emptyPlaceholder = element;
     this._updatePlaceholder();
   }
+
+  /**
+   * @param {!Event} event
+   */
+  _onKeyDown(event) {
+    if (this._editor || this._elements.length < 1) {
+      return;
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      if (this._selectedIndex < 0) {
+        return;
+      }
+
+      const offset = event.key === 'ArrowUp' ? -1 : 1;
+      const newIndex = this._selectedIndex + offset;
+      if (newIndex < 0 || newIndex >= this._elements.length) {
+        return;
+      }
+
+      this._select(newIndex, /* takeFocus */ true);
+      event.consume(true);
+    }
+  }
+
+  /**
+   * @param {number} index
+   * @param {boolean} takeFocus
+   */
+  _select(index, takeFocus) {
+    if (index < 0 || index >= this._elements.length) {
+      return;
+    }
+
+    if (this._selectedIndex >= 0) {
+      const oldSelectedElement = this._elements[this._selectedIndex].firstElementChild;
+      oldSelectedElement.tabIndex = -1;
+    }
+
+    const newSelectedElement = this._elements[index].firstElementChild;
+    newSelectedElement.tabIndex = 0;
+    this._selectedIndex = index;
+
+    if (takeFocus) {
+      newSelectedElement.focus();
+    }
+  }
+
+  _selectNext() {
+    if (this._selectedIndex < 0 || this._list.length === 0) {
+      return;
+    }
+
+    const offset = this._selectedIndex < this._list.length ? 1 : -1;
+    const nextIndex = this._selectedIndex + offset;
+
+    this._select(nextIndex, /* takeFocus */ false);
+  }
+
 
   /**
    * @param {!T} item
@@ -299,7 +374,7 @@ export class Editor {
     buttonsRow.appendChild(this._cancelButton);
 
     this._errorMessageContainer = this.element.createChild('div', 'list-widget-input-validation-error');
-    UI.ARIAUtils.markAsAlert(this._errorMessageContainer);
+    ARIAUtils.markAsAlert(this._errorMessageContainer);
 
     /**
      * @param {function(!Event):boolean} predicate
@@ -317,7 +392,7 @@ export class Editor {
     this._controls = [];
     /** @type {!Map<string, !HTMLInputElement|!HTMLSelectElement>} */
     this._controlByName = new Map();
-    /** @type {!Array<function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !UI.ListWidget.ValidatorResult>} */
+    /** @type {!Array<function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !ValidatorResult>} */
     this._validators = [];
 
     /** @type {?function()} */
@@ -341,7 +416,7 @@ export class Editor {
    * @param {string} name
    * @param {string} type
    * @param {string} title
-   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !UI.ListWidget.ValidatorResult} validator
+   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !ValidatorResult} validator
    * @return {!HTMLInputElement}
    */
   createInput(name, type, title, validator) {
@@ -349,7 +424,7 @@ export class Editor {
     input.placeholder = title;
     input.addEventListener('input', this._validateControls.bind(this, false), false);
     input.addEventListener('blur', this._validateControls.bind(this, false), false);
-    UI.ARIAUtils.setAccessibleName(input, title);
+    ARIAUtils.setAccessibleName(input, title);
     this._controlByName.set(name, input);
     this._controls.push(input);
     this._validators.push(validator);
@@ -359,7 +434,7 @@ export class Editor {
   /**
    * @param {string} name
    * @param {!Array<string>} options
-   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !UI.ListWidget.ValidatorResult} validator
+   * @param {function(!T, number, (!HTMLInputElement|!HTMLSelectElement)): !ValidatorResult} validator
    * @param {string=} title
    * @return {!HTMLSelectElement}
    */
@@ -372,7 +447,7 @@ export class Editor {
     }
     if (title) {
       select.title = title;
-      UI.ARIAUtils.setAccessibleName(select, title);
+      ARIAUtils.setAccessibleName(select, title);
     }
     select.addEventListener('input', this._validateControls.bind(this, false), false);
     select.addEventListener('blur', this._validateControls.bind(this, false), false);
@@ -402,9 +477,9 @@ export class Editor {
 
       input.classList.toggle('error-input', !valid && !forceValid);
       if (valid || forceValid) {
-        UI.ARIAUtils.setInvalid(input, false);
+        ARIAUtils.setInvalid(input, false);
       } else {
-        UI.ARIAUtils.setInvalid(input, true);
+        ARIAUtils.setInvalid(input, true);
       }
 
       if (!forceValid && errorMessage && !this._errorMessageContainer.textContent) {

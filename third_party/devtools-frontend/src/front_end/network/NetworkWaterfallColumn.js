@@ -2,11 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as Common from '../common/common.js';
+import * as PerfUI from '../perf_ui/perf_ui.js';
+import * as SDK from '../sdk/sdk.js';  // eslint-disable-line no-unused-vars
+import * as UI from '../ui/ui.js';
+
 import {NetworkNode} from './NetworkDataGridNode.js';              // eslint-disable-line no-unused-vars
 import {NetworkTimeCalculator} from './NetworkTimeCalculator.js';  // eslint-disable-line no-unused-vars
 import {RequestTimeRangeNames, RequestTimingView} from './RequestTimingView.js';
 
-export class NetworkWaterfallColumn extends UI.VBox {
+export class NetworkWaterfallColumn extends UI.Widget.VBox {
   /**
    * @param {!NetworkTimeCalculator} calculator
    */
@@ -41,7 +46,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
     this._startTime = this._calculator.minimumBoundary();
     this._endTime = this._calculator.maximumBoundary();
 
-    this._popoverHelper = new UI.PopoverHelper(this.element, this._getPopoverRequest.bind(this));
+    this._popoverHelper = new UI.PopoverHelper.PopoverHelper(this.element, this._getPopoverRequest.bind(this));
     this._popoverHelper.setHasPadding(true);
     this._popoverHelper.setTimeout(300, 300);
 
@@ -64,20 +69,20 @@ export class NetworkWaterfallColumn extends UI.VBox {
     this._styleForTimeRangeName = NetworkWaterfallColumn._buildRequestTimeRangeStyle();
 
     const resourceStyleTuple = NetworkWaterfallColumn._buildResourceTypeStyle();
-    /** @type {!Map<!Common.ResourceType, !NetworkWaterfallColumn._LayerStyle>} */
+    /** @type {!Map<!Common.ResourceType.ResourceType, !_LayerStyle>} */
     this._styleForWaitingResourceType = resourceStyleTuple[0];
-    /** @type {!Map<!Common.ResourceType, !NetworkWaterfallColumn._LayerStyle>} */
+    /** @type {!Map<!Common.ResourceType.ResourceType, !_LayerStyle>} */
     this._styleForDownloadingResourceType = resourceStyleTuple[1];
 
-    const baseLineColor = self.UI.themeSupport.patchColorText('#a5a5a5', UI.ThemeSupport.ColorUsage.Foreground);
-    /** @type {!NetworkWaterfallColumn._LayerStyle} */
+    const baseLineColor = self.UI.themeSupport.patchColorText('#a5a5a5', UI.UIUtils.ThemeSupport.ColorUsage.Foreground);
+    /** @type {!_LayerStyle} */
     this._wiskerStyle = {borderColor: baseLineColor, lineWidth: 1};
-    /** @type {!NetworkWaterfallColumn._LayerStyle} */
+    /** @type {!_LayerStyle} */
     this._hoverDetailsStyle = {fillStyle: baseLineColor, lineWidth: 1, borderColor: baseLineColor};
 
-    /** @type {!Map<!NetworkWaterfallColumn._LayerStyle, !Path2D>} */
+    /** @type {!Map<!_LayerStyle, !Path2D>} */
     this._pathForStyle = new Map();
-    /** @type {!Array<!NetworkWaterfallColumn._TextLayer>} */
+    /** @type {!Array<!_TextLayer>} */
     this._textLayers = [];
 
     /** @type {?CSSStyleDeclaration} */
@@ -85,7 +90,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
   }
 
   /**
-   * @return {!Map<!RequestTimeRangeNames, !NetworkWaterfallColumn._LayerStyle>}
+   * @return {!Map<!RequestTimeRangeNames, !_LayerStyle>}
    */
   static _buildRequestTimeRangeStyle() {
     const types = RequestTimeRangeNames;
@@ -107,7 +112,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
   }
 
   /**
-   * @return {!Array<!Map<!Common.ResourceType, !NetworkWaterfallColumn._LayerStyle>>}
+   * @return {!Array<!Map<!Common.ResourceType.ResourceType, !_LayerStyle>>}
    */
   static _buildResourceTypeStyle() {
     const baseResourceTypeColors = new Map([
@@ -126,7 +131,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
     const waitingStyleMap = new Map();
     const downloadingStyleMap = new Map();
 
-    for (const resourceType of Object.values(Common.resourceTypes)) {
+    for (const resourceType of Object.values(Common.ResourceType.resourceTypes)) {
       let color = baseResourceTypeColors.get(resourceType.name());
       if (!color) {
         color = baseResourceTypeColors.get('other');
@@ -142,7 +147,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
      * @param {string} color
      */
     function toBorderColor(color) {
-      const parsedColor = Common.Color.parse(color);
+      const parsedColor = Common.Color.Color.parse(color);
       const hsla = parsedColor.hsla();
       hsla[1] /= 2;
       hsla[2] -= Math.min(hsla[2], 0.2);
@@ -153,7 +158,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
      * @param {string} color
      */
     function toWaitingColor(color) {
-      const parsedColor = Common.Color.parse(color);
+      const parsedColor = Common.Color.Color.parse(color);
       const hsla = parsedColor.hsla();
       hsla[2] *= 1.1;
       return parsedColor.asString(null);
@@ -212,8 +217,8 @@ export class NetworkWaterfallColumn extends UI.VBox {
     if (!request) {
       return null;
     }
-    const useTimingBars =
-        !self.Common.settings.moduleSetting('networkColorCodeResourceTypes').get() && !this._calculator.startAtZero;
+    const useTimingBars = !Common.Settings.Settings.instance().moduleSetting('networkColorCodeResourceTypes').get() &&
+        !this._calculator.startAtZero;
     let range;
     let start;
     let end;
@@ -255,8 +260,8 @@ export class NetworkWaterfallColumn extends UI.VBox {
     return {
       box: anchorBox,
       show: popover => {
-        const content =
-            RequestTimingView.createTimingTable(/** @type {!SDK.NetworkRequest} */ (request), this._calculator);
+        const content = RequestTimingView.createTimingTable(
+            /** @type {!SDK.NetworkRequest.NetworkRequest} */ (request), this._calculator);
         popover.contentElement.appendChild(content);
         return Promise.resolve(true);
       }
@@ -412,8 +417,8 @@ export class NetworkWaterfallColumn extends UI.VBox {
   }
 
   _draw() {
-    const useTimingBars =
-        !self.Common.settings.moduleSetting('networkColorCodeResourceTypes').get() && !this._calculator.startAtZero;
+    const useTimingBars = !Common.Settings.Settings.instance().moduleSetting('networkColorCodeResourceTypes').get() &&
+        !this._calculator.startAtZero;
     const nodes = this._nodes;
     const context = this._canvas.getContext('2d');
     context.save();
@@ -444,7 +449,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
     this._drawLayers(context);
 
     context.save();
-    context.fillStyle = self.UI.themeSupport.patchColorText('#888', UI.ThemeSupport.ColorUsage.Foreground);
+    context.fillStyle = self.UI.themeSupport.patchColorText('#888', UI.UIUtils.ThemeSupport.ColorUsage.Foreground);
     for (const textData of this._textLayers) {
       context.fillText(textData.text, textData.x, textData.y);
     }
@@ -455,9 +460,9 @@ export class NetworkWaterfallColumn extends UI.VBox {
 
     const freeZoneAtLeft = 75;
     const freeZoneAtRight = 18;
-    const dividersData = PerfUI.TimelineGrid.calculateGridOffsets(this._calculator);
-    PerfUI.TimelineGrid.drawCanvasGrid(context, dividersData);
-    PerfUI.TimelineGrid.drawCanvasHeaders(
+    const dividersData = PerfUI.TimelineGrid.TimelineGrid.calculateGridOffsets(this._calculator);
+    PerfUI.TimelineGrid.TimelineGrid.drawCanvasGrid(context, dividersData);
+    PerfUI.TimelineGrid.TimelineGrid.drawCanvasHeaders(
         context, dividersData, time => this._calculator.formatValue(time, dividersData.precision), this._fontSize,
         this._headerHeight, freeZoneAtLeft);
     context.clearRect(this._offsetWidth - freeZoneAtRight, 0, freeZoneAtRight, this._headerHeight);
@@ -469,7 +474,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
    */
   _drawLayers(context) {
     for (const entry of this._pathForStyle) {
-      const style = /** @type {!NetworkWaterfallColumn._LayerStyle} */ (entry[0]);
+      const style = /** @type {!_LayerStyle} */ (entry[0]);
       const path = /** @type {!Path2D} */ (entry[1]);
       context.save();
       context.beginPath();
@@ -526,7 +531,7 @@ export class NetworkWaterfallColumn extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @param {number} borderOffset
    * @return {!{start: number, mid: number, end: number}}
    */
@@ -671,3 +676,9 @@ export class NetworkWaterfallColumn extends UI.VBox {
     context.restore();
   }
 }
+
+/** @typedef {!{x: number, y: number, text: string}} */
+export let _TextLayer;
+
+/** @typedef {!{fillStyle: (string|undefined), lineWidth: (number|undefined), borderColor: (string|undefined)}} */
+export let _LayerStyle;

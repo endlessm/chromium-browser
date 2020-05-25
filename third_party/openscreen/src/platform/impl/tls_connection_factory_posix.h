@@ -14,7 +14,7 @@
 #include "platform/base/error.h"
 #include "platform/impl/platform_client_posix.h"
 #include "platform/impl/tls_data_router_posix.h"
-#include "platform/impl/weak_ptr.h"
+#include "util/weak_ptr.h"
 
 namespace openscreen {
 
@@ -60,6 +60,11 @@ class TlsConnectionFactoryPosix : public TlsConnectionFactory,
   // Create the shared context used for all SSL connections created by this
   // factory.
   void Initialize();
+
+  // Handles their respective SSL handshake calls.  These will continue to be
+  // scheduled on |task_runner_| until the handshake completes.
+  void Connect(std::unique_ptr<TlsConnectionPosix> connection);
+  void Accept(std::unique_ptr<TlsConnectionPosix> connection);
 
   // Called on any thread, to post a task to notify the Client that a connection
   // failure or other error has occurred.

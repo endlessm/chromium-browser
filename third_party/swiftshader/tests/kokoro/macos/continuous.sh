@@ -7,12 +7,15 @@ set -x
 
 cd git/SwiftShader
 
-git submodule update --init
-
 mkdir -p build && cd build
 
 if [[ -z "${REACTOR_BACKEND}" ]]; then
   REACTOR_BACKEND="LLVM"
+fi
+
+if [[ "${LLVM_VERSION}" == "10.0" ]]; then
+  echo "TODO(b/152339534): LLVM 10 migration is still in progress"
+  exit 0
 fi
 
 # Lower the amount of debug info, to reduce Kokoro build times.
@@ -25,8 +28,14 @@ if [[ "${BUILD_TYPE}" == "Debug" ]]; then
   ASAN="OFF"
 fi
 
-cmake .. "-DSWIFTSHADER_ASAN=${ASAN}" "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}" "-DREACTOR_BACKEND=${REACTOR_BACKEND}" "-DREACTOR_VERIFY_LLVM_IR=1" "-DLESS_DEBUG_INFO=${LESS_DEBUG_INFO}"
-make -j$(sysctl -n hw.logicalcpu)
+cmake .. \
+    "-DSWIFTSHADER_ASAN=${ASAN}" \
+    "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}" \
+    "-DREACTOR_BACKEND=${REACTOR_BACKEND}" \
+    "-DSWIFTSHADER_LLVM_VERSION=${LLVM_VERSION}" \
+    "-DREACTOR_VERIFY_LLVM_IR=1" \
+    "-DLESS_DEBUG_INFO=${LESS_DEBUG_INFO}"
+cmake --build . -- -j$(sysctl -n hw.logicalcpu)
 
 # Run unit tests
 
@@ -35,3 +44,10 @@ cd .. # Some tests must be run from project root
 build/ReactorUnitTests
 build/gles-unittests
 build/vk-unittests
+
+# Incrementally build and run rr::Print unit tests
+cd build
+cmake .. "-DREACTOR_ENABLE_PRINT=1"
+cmake --build . --target ReactorUnitTests -- -j$(sysctl -n hw.logicalcpu)
+cd ..
+build/ReactorUnitTests --gtest_filter=ReactorUnitTests.Print*

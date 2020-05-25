@@ -12,6 +12,7 @@
 #include "src/gpu/GrNonAtomicRef.h"
 #include "src/gpu/GrProcessor.h"
 #include "src/gpu/GrShaderVar.h"
+#include "src/gpu/GrSwizzle.h"
 
 class GrCoordTransform;
 
@@ -70,7 +71,7 @@ public:
         constexpr size_t sizeAlign4() const { return SkAlign4(this->size()); }
 
         GrShaderVar asShaderVar() const {
-            return {fName, fGPUType, GrShaderVar::kIn_TypeModifier};
+            return {fName, fGPUType, GrShaderVar::TypeModifier::In};
         }
 
     private:
@@ -322,8 +323,6 @@ static constexpr inline size_t GrVertexAttribTypeSize(GrVertexAttribType type) {
             return sizeof(uint16_t);
         case kHalf2_GrVertexAttribType:
             return 2 * sizeof(uint16_t);
-        case kHalf3_GrVertexAttribType:
-            return 3 * sizeof(uint16_t);
         case kHalf4_GrVertexAttribType:
             return 4 * sizeof(uint16_t);
         case kInt2_GrVertexAttribType:
@@ -336,16 +335,12 @@ static constexpr inline size_t GrVertexAttribTypeSize(GrVertexAttribType type) {
             return 1 * sizeof(char);
         case kByte2_GrVertexAttribType:
             return 2 * sizeof(char);
-        case kByte3_GrVertexAttribType:
-            return 3 * sizeof(char);
         case kByte4_GrVertexAttribType:
             return 4 * sizeof(char);
         case kUByte_GrVertexAttribType:
             return 1 * sizeof(char);
         case kUByte2_GrVertexAttribType:
             return 2 * sizeof(char);
-        case kUByte3_GrVertexAttribType:
-            return 3 * sizeof(char);
         case kUByte4_GrVertexAttribType:
             return 4 * sizeof(char);
         case kUByte_norm_GrVertexAttribType:

@@ -112,14 +112,14 @@ public class AssistantCollectUserDataCoordinator {
                 new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        AssistantInfoSection infoSection =
+                new AssistantInfoSection(mActivity, paymentRequestExpanderAccordion);
+
         AssistantTermsSection termsSection = new AssistantTermsSection(
                 mActivity, paymentRequestExpanderAccordion, /* showAsSingleCheckbox= */ false);
         AssistantTermsSection termsAsCheckboxSection =
                 new AssistantTermsSection(mActivity, paymentRequestExpanderAccordion,
                         /* showAsSingleCheckbox= */ true);
-
-        AssistantInfoSection infoSection =
-                new AssistantInfoSection(mActivity, paymentRequestExpanderAccordion);
 
         paymentRequestExpanderAccordion.setTag(
                 AssistantTagsForTesting.COLLECT_USER_DATA_ACCORDION_TAG);
@@ -147,7 +147,7 @@ public class AssistantCollectUserDataCoordinator {
                 paymentMethodSection, shippingAddressSection, termsSection, termsAsCheckboxSection,
                 infoSection, prependedSections, appendedSections,
                 genericUserInterfaceContainerPrepended, genericUserInterfaceContainerAppended,
-                DIVIDER_TAG, activity);
+                DIVIDER_TAG, mActivity);
         AssistantCollectUserDataBinder binder = new AssistantCollectUserDataBinder();
         PropertyModelChangeProcessor.create(model, mViewHolder, binder);
 

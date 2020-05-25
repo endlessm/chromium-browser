@@ -101,6 +101,8 @@ PRINTING_EXPORT extern const char kRGBA[];
 PRINTING_EXPORT extern const char kRGB16[];
 PRINTING_EXPORT extern const char kSharpCMColor[];
 PRINTING_EXPORT extern const char kSharpCMBW[];
+PRINTING_EXPORT extern const char kXeroxAutomatic[];
+PRINTING_EXPORT extern const char kXeroxBW[];
 #endif
 
 // Print job duplex mode values.
@@ -148,6 +150,9 @@ enum ColorModel {
   EPSON_INK_MONO,               // Used in Epson printer PPDs.
   SHARP_ARCMODE_CMCOLOR,        // Used in Sharp printer PPDs.
   SHARP_ARCMODE_CMBW,           // Used in Sharp printer PPDs.
+  XEROX_XRXCOLOR_AUTOMATIC,     // Used in Xerox printer PPDs.
+  XEROX_XRXCOLOR_BW,            // Used in Xerox printer PPDs.
+  COLOR_MODEL_LAST = XEROX_XRXCOLOR_BW
 };
 
 // What kind of margins to use.

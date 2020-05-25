@@ -26,6 +26,9 @@ from chromite.lib import cros_test_lib
 from chromite.lib import fake_cidb
 from chromite.lib.buildstore import FakeBuildStore
 
+pytestmark = cros_test_lib.pytestmark_inside_only
+
+
 # It's normal for unittests to access protected members.
 # pylint: disable=protected-access
 
@@ -75,7 +78,7 @@ class BootstrapStageTest(generic_stages_unittest.AbstractStageTestCase,
     #   '--nobootstrap'
     #   '--manifest-repo-url'
     self.assertCommandContains([
-        'chromite/cbuildbot/cbuildbot',
+        'chromite/bin/cbuildbot',
         'sync-test-cbuildbot',
         '-r',
         os.path.join(self.tempdir, 'buildroot'),

@@ -4,6 +4,7 @@
 
 #include "chrome/installer/util/lzma_util.h"
 
+#include <ntstatus.h>
 #include <windows.h>
 
 #include <stddef.h>
@@ -26,6 +27,9 @@ extern "C" {
 }
 
 namespace {
+
+// define NTSTATUS to avoid including winternl.h
+using NTSTATUS = LONG;
 
 SRes LzmaReadFile(HANDLE file, void* data, size_t* size) {
   if (*size == 0)
@@ -111,9 +115,7 @@ DWORD FilterPageError(const base::MemoryMappedFile& mapped_file,
 
 UnPackStatus UnPackArchive(const base::FilePath& archive,
                            const base::FilePath& output_dir,
-                           base::FilePath* output_file,
-                           base::Optional<DWORD>* error_code,
-                           base::Optional<int32_t>* ntstatus) {
+                           base::FilePath* output_file) {
   VLOG(1) << "Opening archive " << archive.value();
   LzmaUtilImpl lzma_util;
   UnPackStatus status;
@@ -124,10 +126,15 @@ UnPackStatus UnPackArchive(const base::FilePath& archive,
     if ((status = lzma_util.UnPack(output_dir, output_file)) != UNPACK_NO_ERROR)
       PLOG(ERROR) << "Unable to uncompress archive: " << archive.value();
   }
-  if (error_code)
-    *error_code = lzma_util.GetErrorCode();
-  if (ntstatus)
-    *ntstatus = lzma_util.GetNTSTATUSCode();
+
+  if (status != UNPACK_NO_ERROR) {
+    base::Optional<DWORD> error_code = lzma_util.GetErrorCode();
+    if (error_code.value_or(ERROR_SUCCESS) == ERROR_DISK_FULL)
+      return UNPACK_DISK_FULL;
+    if (error_code.value_or(ERROR_SUCCESS) == ERROR_IO_DEVICE)
+      return UNPACK_IO_DEVICE_ERROR;
+  }
+
   return status;
 }
 
@@ -311,8 +318,25 @@ UnPackStatus LzmaUtilImpl::UnPack(const base::FilePath& location,
               << "EXCEPTION_IN_PAGE_ERROR while accessing mapped memory; "
                  "NTSTATUS = "
               << ntstatus;
-          ntstatus_ = ntstatus;
-          return UNPACK_EXTRACT_EXCEPTION;
+          // Return IO_DEVICE_ERROR for all known error except DISK_FULL,
+          // IN_PAGE_ERROR and ACCESS_DENIED.
+          switch (ntstatus) {
+            case STATUS_DEVICE_DATA_ERROR:
+            case STATUS_DEVICE_HARDWARE_ERROR:
+            case STATUS_DEVICE_NOT_CONNECTED:
+            case STATUS_INVALID_DEVICE_REQUEST:
+            case STATUS_INVALID_LEVEL:
+            case STATUS_IO_DEVICE_ERROR:
+            case STATUS_IO_TIMEOUT:
+            case STATUS_NO_SUCH_DEVICE:
+              return UNPACK_IO_DEVICE_ERROR;
+            case STATUS_DISK_FULL:
+              return UNPACK_DISK_FULL;
+            default:
+              // This error indicates an unexpected error. Spikes in this are
+              // worth investigation.
+              return UNPACK_EXTRACT_EXCEPTION;
+          }
         }
       }
 
@@ -342,6 +366,12 @@ UnPackStatus LzmaUtilImpl::UnPack(const base::FilePath& location,
           total_written += written;
         }
       } else {
+        // Modified pages are not written to disk until they're evicted from the
+        // working set. Explicitly kick off the write to disk now
+        // (asynchronously) to improve the odds that the file's contents are
+        // on-disk when another process (such as chrome.exe) would like to use
+        // them.
+        ::FlushViewOfFile(mapped_file->data(), 0);
         // Unmap the target file from the process's address space.
         mapped_file.reset();
         last_folder_index = -1;
@@ -372,7 +402,6 @@ UnPackStatus LzmaUtilImpl::UnPack(const base::FilePath& location,
 void LzmaUtilImpl::CloseArchive() {
   archive_file_.Close();
   error_code_ = base::nullopt;
-  ntstatus_ = base::nullopt;
 }
 
 bool LzmaUtilImpl::CreateDirectory(const base::FilePath& dir) {

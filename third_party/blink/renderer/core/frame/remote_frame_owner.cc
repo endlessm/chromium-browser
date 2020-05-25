@@ -22,8 +22,7 @@ RemoteFrameOwner::RemoteFrameOwner(
     : frame_policy_(frame_policy),
       browsing_context_container_name_(
           static_cast<String>(frame_owner_properties.name)),
-      scrolling_(
-          static_cast<ScrollbarMode>(frame_owner_properties.scrolling_mode)),
+      scrollbar_(frame_owner_properties.scrollbar_mode),
       margin_width_(frame_owner_properties.margin_width),
       margin_height_(frame_owner_properties.margin_height),
       allow_fullscreen_(frame_owner_properties.allow_fullscreen),
@@ -33,14 +32,13 @@ RemoteFrameOwner::RemoteFrameOwner(
       required_csp_(frame_owner_properties.required_csp),
       frame_owner_element_type_(frame_owner_element_type) {}
 
-void RemoteFrameOwner::Trace(blink::Visitor* visitor) {
+void RemoteFrameOwner::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   FrameOwner::Trace(visitor);
 }
 
-void RemoteFrameOwner::SetScrollingMode(
-    WebFrameOwnerProperties::ScrollingMode mode) {
-  scrolling_ = static_cast<ScrollbarMode>(mode);
+void RemoteFrameOwner::SetScrollbarMode(mojom::blink::ScrollbarMode mode) {
+  scrollbar_ = mode;
 }
 
 void RemoteFrameOwner::SetContentFrame(Frame& frame) {
@@ -57,7 +55,7 @@ void RemoteFrameOwner::AddResourceTiming(const ResourceTimingInfo& info) {
   mojom::blink::ResourceTimingInfoPtr resource_timing =
       Performance::GenerateResourceTiming(
           *frame->Tree().Parent()->GetSecurityContext()->GetSecurityOrigin(),
-          info, *frame->GetDocument());
+          info, *frame->GetDocument()->ToExecutionContext());
   frame->GetLocalFrameHostRemote().ForwardResourceTimingToParent(
       std::move(resource_timing));
 }

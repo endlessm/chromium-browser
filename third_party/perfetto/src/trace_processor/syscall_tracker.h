@@ -23,8 +23,8 @@
 #include "perfetto/ext/base/string_view.h"
 #include "src/trace_processor/destructible.h"
 #include "src/trace_processor/slice_tracker.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_processor_context.h"
-#include "src/trace_processor/trace_storage.h"
 #include "src/trace_processor/track_tracker.h"
 
 namespace perfetto {
@@ -38,6 +38,7 @@ enum Architecture {
   kAarch32,  // 64-bit kernel running a 32-bit process (should be rare).
   kAarch64,  // 64-bit kernel running a 64-bit process (most new devices).
   kX86_64,
+  kX86,
 };
 
 class SyscallTracker : public Destructible {

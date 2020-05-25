@@ -27,7 +27,4 @@ const base::FeatureParam<int> kSyncSharingMessageNudgeDelayMilliseconds{
     &kSyncCustomSharingMessageNudgeDelay,
     "SyncSharingMessageNudgeDelayMilliseconds", 50};
 
-const base::Feature kDoNotSyncFaviconDataTypes{
-    "DoNotSyncFaviconDataTypes", base::FEATURE_ENABLED_BY_DEFAULT};
-
 }  // namespace switches

@@ -193,7 +193,7 @@ base::Optional<std::vector<uint8_t>> PublicKeyEncrypt(
             base::StringPiece(reinterpret_cast<const char*>(
                                   &session_key_with_nonce[kSessionKeyLength]),
                               kNonceLength),
-            /*ad=*/nullptr, &sealed_secret);
+            /*ad=*/"", &sealed_secret);
 
   ciphertext.insert(ciphertext.end(), sealed_secret.data(),
                     sealed_secret.data() + sealed_secret.size());
@@ -248,7 +248,7 @@ base::Optional<std::string> PrivateKeyDecrypt(
       base::StringPiece(reinterpret_cast<const char*>(
                             &session_key_with_nonce[kSessionKeyLength]),
                         kNonceLength),
-      /*ad=*/nullptr, &plaintext);
+      /*ad=*/"", &plaintext);
 
   return plaintext;
 }

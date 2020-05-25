@@ -29,14 +29,14 @@
  */
 
 import * as Common from '../common/common.js';
-import * as ProtocolModule from '../protocol/protocol.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
 
 import {DOMModel} from './DOMModel.js';
 import {Events as NetworkManagerEvents, NetworkManager} from './NetworkManager.js';
 import {NetworkRequest} from './NetworkRequest.js';  // eslint-disable-line no-unused-vars
 import {Resource} from './Resource.js';
 import {ExecutionContext, RuntimeModel} from './RuntimeModel.js';
-import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+import {Capability, SDKModel, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 import {SecurityOriginManager} from './SecurityOriginManager.js';
 
 export class ResourceTreeModel extends SDKModel {
@@ -86,9 +86,9 @@ export class ResourceTreeModel extends SDKModel {
    * @return {!Array.<!ResourceTreeFrame>}
    */
   static frames() {
-    let result = [];
-    for (const resourceTreeModel of self.SDK.targetManager.models(ResourceTreeModel)) {
-      result = result.concat(resourceTreeModel._frames.valuesArray());
+    const result = [];
+    for (const resourceTreeModel of TargetManager.instance().models(ResourceTreeModel)) {
+      result.push(...resourceTreeModel._frames.values());
     }
     return result;
   }
@@ -98,7 +98,7 @@ export class ResourceTreeModel extends SDKModel {
    * @return {?Resource}
    */
   static resourceForURL(url) {
-    for (const resourceTreeModel of self.SDK.targetManager.models(ResourceTreeModel)) {
+    for (const resourceTreeModel of TargetManager.instance().models(ResourceTreeModel)) {
       const mainFrame = resourceTreeModel.mainFrame;
       const result = mainFrame ? mainFrame.resourceForURL(url) : null;
       if (result) {
@@ -113,7 +113,7 @@ export class ResourceTreeModel extends SDKModel {
    * @param {string=} scriptToEvaluateOnLoad
    */
   static reloadAllPages(bypassCache, scriptToEvaluateOnLoad) {
-    for (const resourceTreeModel of self.SDK.targetManager.models(ResourceTreeModel)) {
+    for (const resourceTreeModel of TargetManager.instance().models(ResourceTreeModel)) {
       if (!resourceTreeModel.target().parentTarget()) {
         resourceTreeModel.reloadPage(bypassCache, scriptToEvaluateOnLoad);
       }
@@ -131,7 +131,12 @@ export class ResourceTreeModel extends SDKModel {
    * @param {?Protocol.Page.FrameResourceTree} mainFramePayload
    */
   _processCachedResources(mainFramePayload) {
-    if (mainFramePayload) {
+    // TODO(caseq): the url check below is a mergeable, conservative
+    // workaround for a problem caused by us requesting resources from a
+    // subtarget frame before it has committed. The proper fix is likely
+    // to be too complicated to be safely merged.
+    // See https://crbug.com/1081270 for details.
+    if (mainFramePayload && mainFramePayload.frame.url !== ':') {
       this.dispatchEventToListeners(Events.WillLoadCachedResources);
       this._addFramesRecursively(null, mainFramePayload);
       this.target().setInspectedURL(mainFramePayload.frame.url);
@@ -259,7 +264,7 @@ export class ResourceTreeModel extends SDKModel {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onRequestFinished(event) {
     if (!this._cachedResourcesProcessed) {
@@ -278,7 +283,7 @@ export class ResourceTreeModel extends SDKModel {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onRequestUpdateDropped(event) {
     if (!this._cachedResourcesProcessed) {
@@ -325,7 +330,7 @@ export class ResourceTreeModel extends SDKModel {
    * @return {!Array<!ResourceTreeFrame>}
    */
   frames() {
-    return this._frames.valuesArray();
+    return [...this._frames.values()];
   }
 
   /**
@@ -349,8 +354,8 @@ export class ResourceTreeModel extends SDKModel {
     }
     this._addFrame(frame);
 
-    for (let i = 0; frameTreePayload.childFrames && i < frameTreePayload.childFrames.length; ++i) {
-      this._addFramesRecursively(frame, frameTreePayload.childFrames[i]);
+    for (const childFrame of frameTreePayload.childFrames || []) {
+      this._addFramesRecursively(frame, childFrame);
     }
 
     for (let i = 0; i < frameTreePayload.resources.length; ++i) {
@@ -427,7 +432,7 @@ export class ResourceTreeModel extends SDKModel {
    */
   async navigationHistory() {
     const response = await this._agent.invoke_getNavigationHistory({});
-    if (response[ProtocolModule.InspectorBackend.ProtocolError]) {
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
       return null;
     }
     return {currentIndex: response.currentIndex, entries: response.entries};
@@ -445,7 +450,7 @@ export class ResourceTreeModel extends SDKModel {
    */
   async fetchAppManifest() {
     const response = await this._agent.invoke_getAppManifest({});
-    if (response[ProtocolModule.InspectorBackend.ProtocolError]) {
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
       return {url: response.url, data: null, errors: []};
     }
     return {url: response.url, data: response.data || null, errors: response.errors};
@@ -469,7 +474,7 @@ export class ResourceTreeModel extends SDKModel {
 
   /**
    * @param {!ExecutionContext} a
-   * @param {!SDK.ExecutionContext} b
+   * @param {!ExecutionContext} b
    * @return {number}
    */
   _executionContextComparator(a, b) {
@@ -518,7 +523,7 @@ export class ResourceTreeModel extends SDKModel {
   }
 
   /**
-   * @return {!SDK.ResourceTreeModel.SecurityOriginData}
+   * @return {!SecurityOriginData}
    */
   _getSecurityOriginData() {
     /** @type {!Set<string>} */
@@ -614,9 +619,9 @@ export class ResourceTreeFrame {
     this._creationStackTrace = creationStackTrace;
 
     /**
-     * @type {!Array.<!ResourceTreeFrame>}
+     * @type {!Set.<!ResourceTreeFrame>}
      */
-    this._childFrames = [];
+    this._childFrames = new Set();
 
     /**
      * @type {!Object.<string, !Resource>}
@@ -624,7 +629,7 @@ export class ResourceTreeFrame {
     this._resourcesMap = {};
 
     if (this._parentFrame) {
-      this._parentFrame._childFrames.push(this);
+      this._parentFrame._childFrames.add(this);
     }
   }
 
@@ -707,7 +712,7 @@ export class ResourceTreeFrame {
    * @return {!Array.<!ResourceTreeFrame>}
    */
   get childFrames() {
-    return this._childFrames;
+    return [...this._childFrames];
   }
 
   /**
@@ -771,15 +776,15 @@ export class ResourceTreeFrame {
    * @param {!ResourceTreeFrame} frame
    */
   _removeChildFrame(frame) {
-    this._childFrames.remove(frame);
+    this._childFrames.delete(frame);
     frame._remove();
   }
 
   _removeChildFrames() {
     const frames = this._childFrames;
-    this._childFrames = [];
-    for (let i = 0; i < frames.length; ++i) {
-      frames[i]._remove();
+    this._childFrames = new Set();
+    for (const frame of frames) {
+      frame._remove();
     }
   }
 
@@ -833,14 +838,17 @@ export class ResourceTreeFrame {
    * @return {?Resource}
    */
   resourceForURL(url) {
-    let resource = this._resourcesMap[url] || null;
+    const resource = this._resourcesMap[url];
     if (resource) {
       return resource;
     }
-    for (let i = 0; !resource && i < this._childFrames.length; ++i) {
-      resource = this._childFrames[i].resourceForURL(url);
+    for (const frame of this._childFrames) {
+      const resource = frame.resourceForURL(url);
+      if (resource) {
+        return resource;
+      }
     }
-    return resource;
+    return null;
   }
 
   /**
@@ -854,8 +862,8 @@ export class ResourceTreeFrame {
       }
     }
 
-    for (let i = 0; i < this._childFrames.length; ++i) {
-      if (this._childFrames[i]._callForFrameResources(callback)) {
+    for (const frame of this._childFrames) {
+      if (frame._callForFrameResources(callback)) {
         return true;
       }
     }
@@ -935,6 +943,14 @@ export class PageDispatcher {
    * @param {!Protocol.Page.Frame} frame
    */
   frameNavigated(frame) {
+    const url = new URL(frame.url);
+    if (url.protocol === 'chrome-error:') {
+      // Skip navigation to chrome-error interstitials to
+      // allow developers to see resources of the origin they
+      // originally intended to see.
+      return;
+    }
+
     this._resourceTreeModel._frameNavigated(frame);
   }
 
@@ -1086,3 +1102,12 @@ export class PageDispatcher {
 }
 
 SDKModel.register(ResourceTreeModel, Capability.DOM, true);
+
+/**
+ * @typedef {{
+  *      securityOrigins: !Set<string>,
+  *      mainSecurityOrigin: ?string,
+  *      unreachableMainSecurityOrigin: ?string
+  * }}
+  */
+export let SecurityOriginData;

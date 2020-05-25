@@ -83,6 +83,12 @@ namespace dawn_native {
               "versions of Windows prior to build 1809, or when this toggle is turned off, Dawn "
               "will emulate a render pass.",
               "https://crbug.com/dawn/36"}},
+            {Toggle::UseD3D12ResidencyManagement,
+             {"use_d3d12_residency_management",
+              "Enable residency management. This allows page-in and page-out of resource heaps in "
+              "GPU memory. This component improves overcommitted performance by keeping the most "
+              "recently used resources local to the GPU. Turning this component off can cause "
+              "allocation failures when application memory exceeds physical device memory."}},
             {Toggle::SkipValidation,
              {"skip_validation", "Skip expensive validation of Dawn commands.",
               "https://crbug.com/dawn/271"}},
@@ -91,8 +97,8 @@ namespace dawn_native {
               "Enable use of spvc for shader compilation, instead of accessing spirv_cross "
               "directly.",
               "https://crbug.com/dawn/288"}},
-            {Toggle::UseSpvcIRGen,
-             {"use_spvc_ir_gen",
+            {Toggle::UseSpvcParser,
+             {"use_spvc_parser",
               "Enable usage of spvc's internal parsing and IR generation code, instead of "
               "spirv_cross's.",
               "https://crbug.com/dawn/288"}},
@@ -102,6 +108,21 @@ namespace dawn_native {
               "backend will use D32S8 (toggle to on) but setting the toggle to off will make it"
               "use the D24S8 format when possible.",
               "https://crbug.com/dawn/286"}},
+            {Toggle::MetalDisableSamplerCompare,
+             {"metal_disable_sampler_compare",
+              "Disables the use of sampler compare on Metal. This is unsupported before A9 "
+              "processors."}},
+            {Toggle::DisableBaseVertex,
+             {"disable_base_vertex",
+              "Disables the use of non-zero base vertex which is unsupported on some platforms."}},
+            {Toggle::DisableBaseInstance,
+             {"disable_base_instance",
+              "Disables the use of non-zero base instance which is unsupported on some "
+              "platforms."}},
+            {Toggle::UseD3D12SmallShaderVisibleHeapForTesting,
+             {"use_d3d12_small_shader_visible_heap",
+              "Enable use of a small D3D12 shader visible heap, instead of using a large one by "
+              "default. This setting is used to test bindgroup encoding."}},
         }};
 
     }  // anonymous namespace

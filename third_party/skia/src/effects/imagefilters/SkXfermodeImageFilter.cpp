@@ -249,11 +249,11 @@ sk_sp<SkSpecialImage> SkXfermodeImageFilterImpl::filterImageGPU(
     GrSurfaceProxyView backgroundView, foregroundView;
 
     if (background) {
-        backgroundView = background->asSurfaceProxyViewRef(context);
+        backgroundView = background->view(context);
     }
 
     if (foreground) {
-        foregroundView = foreground->asSurfaceProxyViewRef(context);
+        foregroundView = foreground->view(context);
     }
 
     GrPaint paint;
@@ -263,13 +263,12 @@ sk_sp<SkSpecialImage> SkXfermodeImageFilterImpl::filterImageGPU(
                            GrSamplerState::Filter::kNearest);
 
     if (backgroundView.asTextureProxy()) {
-        SkIRect bgSubset = background->subset();
+        SkRect bgSubset = SkRect::Make(background->subset());
         SkMatrix bgMatrix = SkMatrix::MakeTrans(
                 SkIntToScalar(bgSubset.left() - backgroundOffset.fX),
                 SkIntToScalar(bgSubset.top()  - backgroundOffset.fY));
-        bgFP = GrTextureEffect::MakeTexelSubset(backgroundView.detachProxy(),
-                                                background->alphaType(), bgMatrix, sampler,
-                                                bgSubset, caps);
+        bgFP = GrTextureEffect::MakeSubset(std::move(backgroundView), background->alphaType(),
+                                           bgMatrix, sampler, bgSubset, caps);
         bgFP = GrColorSpaceXformEffect::Make(std::move(bgFP), background->getColorSpace(),
                                              background->alphaType(),
                                              ctx.colorSpace());
@@ -279,13 +278,12 @@ sk_sp<SkSpecialImage> SkXfermodeImageFilterImpl::filterImageGPU(
     }
 
     if (foregroundView.asTextureProxy()) {
-        SkIRect fgSubset = foreground->subset();
+        SkRect fgSubset = SkRect::Make(foreground->subset());
         SkMatrix fgMatrix = SkMatrix::MakeTrans(
                 SkIntToScalar(fgSubset.left() - foregroundOffset.fX),
                 SkIntToScalar(fgSubset.top()  - foregroundOffset.fY));
-        auto fgFP = GrTextureEffect::MakeTexelSubset(foregroundView.detachProxy(),
-                                                     foreground->alphaType(), fgMatrix, sampler,
-                                                     fgSubset, caps);
+        auto fgFP = GrTextureEffect::MakeSubset(std::move(foregroundView), foreground->alphaType(),
+                                                fgMatrix, sampler, fgSubset, caps);
         fgFP = GrColorSpaceXformEffect::Make(std::move(fgFP),
                                              foreground->getColorSpace(),
                                              foreground->alphaType(),

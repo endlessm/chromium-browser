@@ -42,9 +42,8 @@
 #include "chrome/common/buildflags.h"
 #include "components/infobars/core/infobar_container.h"
 #include "ui/base/accelerators/accelerator.h"
-#include "ui/base/material_design/material_design_controller.h"
-#include "ui/base/material_design/material_design_controller_observer.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
@@ -107,7 +106,6 @@ class BrowserView : public BrowserWindow,
                     public ExclusiveAccessBubbleViewsContext,
                     public extensions::ExtensionKeybindingRegistry::Delegate,
                     public ImmersiveModeController::Observer,
-                    public ui::MaterialDesignControllerObserver,
                     public banners::AppBannerManager::Observer {
  public:
   // The browser view's class name.
@@ -476,6 +474,8 @@ class BrowserView : public BrowserWindow,
   void OnWindowBeginUserBoundsChange() override;
   void OnWindowEndUserBoundsChange() override;
   void OnWidgetMove() override;
+  views::Widget* GetWidget() override;
+  const views::Widget* GetWidget() const override;
   void GetAccessiblePanes(std::vector<View*>* panes) override;
 
   // views::WidgetObserver:
@@ -501,6 +501,11 @@ class BrowserView : public BrowserWindow,
   void ChildPreferredSizeChanged(View* child) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnThemeChanged() override;
+  bool GetDropFormats(int* formats,
+                      std::set<ui::ClipboardFormatType>* format_types) override;
+  bool AreDropTypesRequired() override;
+  bool CanDrop(const ui::OSExchangeData& data) override;
+  void OnDragEntered(const ui::DropTargetEvent& event) override;
 
   // ui::AcceleratorTarget:
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
@@ -535,12 +540,7 @@ class BrowserView : public BrowserWindow,
   void OnImmersiveFullscreenExited() override;
   void OnImmersiveModeControllerDestroyed() override;
 
-  // ui::MaterialDesignControllerObserver:
-  void OnTouchUiChanged() override;
-
   // banners::AppBannerManager::Observer:
-  void OnAppBannerManagerChanged(
-      banners::AppBannerManager* new_manager) override;
   void OnInstallableWebAppStatusUpdated() override;
 
   // Creates an accessible tab label for screen readers that includes the tab
@@ -672,6 +672,9 @@ class BrowserView : public BrowserWindow,
   bool FindCommandIdForAccelerator(const ui::Accelerator& accelerator,
                                    int* command_id) const;
 
+  // Updates AppBannerManager::Observer to observe |new_manager| exclusively.
+  void ObserveAppBannerManager(banners::AppBannerManager* new_manager);
+
   // Called by GetAccessibleWindowTitle, split out to make it testable.
   base::string16 GetAccessibleWindowTitleForChannelAndProfile(
       version_info::Channel,
@@ -689,6 +692,11 @@ class BrowserView : public BrowserWindow,
   // on the context. GetWindowIcon() method should return the same image if
   // this returns false.
   bool CanChangeWindowIcon() const;
+
+  // Searches for inactive bubbles anchored to elements in this browser view
+  // and activates them. It returns true if it succeeded activating a bubble or
+  // false otherwise.
+  bool ActivateFirstInactiveBubbleForAccessibility();
 
   // The BrowserFrame that hosts this view.
   BrowserFrame* frame_ = nullptr;
@@ -797,23 +805,10 @@ class BrowserView : public BrowserWindow,
   // True if (as of the last time it was checked) the frame type is native.
   bool using_native_frame_ = true;
 
-#if defined(OS_WIN)
-  // True if (as of the last time it was checked) we're using a custom drawn
-  // title bar.
-  bool using_custom_titlebar_ = true;
-#endif
-
   // True when in ProcessFullscreen(). The flag is used to avoid reentrance and
   // to ignore requests to layout while in ProcessFullscreen() to reduce
   // jankiness.
   bool in_process_fullscreen_ = false;
-
-  // True if we're participating in a tab dragging process. The value can be
-  // true if the accociated browser is the dragged browser or the source browser
-  // that the drag tab(s) originates from. During tab dragging process, the
-  // dragged browser or the source browser's bounds may change, the fast resize
-  // strategy will be used to resize its web contents for smoother dragging.
-  bool in_tab_dragging_ = false;
 
   std::unique_ptr<ExclusiveAccessBubbleViews> exclusive_access_bubble_;
 
@@ -851,9 +846,10 @@ class BrowserView : public BrowserWindow,
 
   std::unique_ptr<ImmersiveModeController> immersive_mode_controller_;
 
-  ScopedObserver<ui::MaterialDesignController,
-                 ui::MaterialDesignControllerObserver>
-      md_observer_{this};
+  std::unique_ptr<ui::TouchUiController::Subscription> subscription_ =
+      ui::TouchUiController::Get()->RegisterCallback(
+          base::BindRepeating(&BrowserView::MaybeInitializeWebUITabStrip,
+                              base::Unretained(this)));
 
   std::unique_ptr<WebContentsCloseHandler> web_contents_close_handler_;
 
@@ -874,6 +870,8 @@ class BrowserView : public BrowserWindow,
 
   ScopedObserver<banners::AppBannerManager, banners::AppBannerManager::Observer>
       app_banner_manager_observer_{this};
+
+  ScopedObserver<views::Widget, views::WidgetObserver> widget_observer_{this};
 
   bool interactive_resize_in_progress_ = false;
 

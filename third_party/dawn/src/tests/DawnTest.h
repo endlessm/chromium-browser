@@ -32,30 +32,30 @@
 // them.
 #define EXPECT_BUFFER_U32_EQ(expected, buffer, offset)                         \
     AddBufferExpectation(__FILE__, __LINE__, buffer, offset, sizeof(uint32_t), \
-                         new detail::ExpectEq<uint32_t>(expected))
+                         new ::detail::ExpectEq<uint32_t>(expected))
 
 #define EXPECT_BUFFER_U32_RANGE_EQ(expected, buffer, offset, count)                    \
     AddBufferExpectation(__FILE__, __LINE__, buffer, offset, sizeof(uint32_t) * count, \
-                         new detail::ExpectEq<uint32_t>(expected, count))
+                         new ::detail::ExpectEq<uint32_t>(expected, count))
 
 // Test a pixel of the mip level 0 of a 2D texture.
 #define EXPECT_PIXEL_RGBA8_EQ(expected, texture, x, y)                                  \
     AddTextureExpectation(__FILE__, __LINE__, texture, x, y, 1, 1, 0, 0, sizeof(RGBA8), \
-                          new detail::ExpectEq<RGBA8>(expected))
+                          new ::detail::ExpectEq<RGBA8>(expected))
 
 #define EXPECT_TEXTURE_RGBA8_EQ(expected, texture, x, y, width, height, level, slice)     \
     AddTextureExpectation(__FILE__, __LINE__, texture, x, y, width, height, level, slice, \
                           sizeof(RGBA8),                                                  \
-                          new detail::ExpectEq<RGBA8>(expected, (width) * (height)))
+                          new ::detail::ExpectEq<RGBA8>(expected, (width) * (height)))
 
 #define EXPECT_PIXEL_FLOAT_EQ(expected, texture, x, y)                                  \
     AddTextureExpectation(__FILE__, __LINE__, texture, x, y, 1, 1, 0, 0, sizeof(float), \
-                          new detail::ExpectEq<float>(expected))
+                          new ::detail::ExpectEq<float>(expected))
 
 #define EXPECT_TEXTURE_FLOAT_EQ(expected, texture, x, y, width, height, level, slice)     \
     AddTextureExpectation(__FILE__, __LINE__, texture, x, y, width, height, level, slice, \
                           sizeof(float),                                                  \
-                          new detail::ExpectEq<float>(expected, (width) * (height)))
+                          new ::detail::ExpectEq<float>(expected, (width) * (height)))
 
 // Should only be used to test validation of function that can't be tested by regular validation
 // tests;
@@ -86,8 +86,9 @@ struct RGBA8 {
 std::ostream& operator<<(std::ostream& stream, const RGBA8& color);
 
 struct DawnTestParam {
-    explicit DawnTestParam(wgpu::BackendType backendType) : backendType(backendType) {
-    }
+    DawnTestParam(wgpu::BackendType backendType,
+                  std::initializer_list<const char*> forceEnabledWorkarounds = {},
+                  std::initializer_list<const char*> forceDisabledWorkarounds = {});
 
     wgpu::BackendType backendType;
 
@@ -97,15 +98,20 @@ struct DawnTestParam {
 
 std::ostream& operator<<(std::ostream& os, const DawnTestParam& param);
 
-// Shorthands for backend types used in the DAWN_INSTANTIATE_TEST
-extern const DawnTestParam D3D12Backend;
-extern const DawnTestParam MetalBackend;
-extern const DawnTestParam OpenGLBackend;
-extern const DawnTestParam VulkanBackend;
-
-DawnTestParam ForceToggles(const DawnTestParam& originParam,
-                           std::initializer_list<const char*> forceEnabledWorkarounds,
+DawnTestParam D3D12Backend(std::initializer_list<const char*> forceEnabledWorkarounds = {},
                            std::initializer_list<const char*> forceDisabledWorkarounds = {});
+
+DawnTestParam MetalBackend(std::initializer_list<const char*> forceEnabledWorkarounds = {},
+                           std::initializer_list<const char*> forceDisabledWorkarounds = {});
+
+DawnTestParam NullBackend(std::initializer_list<const char*> forceEnabledWorkarounds = {},
+                          std::initializer_list<const char*> forceDisabledWorkarounds = {});
+
+DawnTestParam OpenGLBackend(std::initializer_list<const char*> forceEnabledWorkarounds = {},
+                            std::initializer_list<const char*> forceDisabledWorkarounds = {});
+
+DawnTestParam VulkanBackend(std::initializer_list<const char*> forceEnabledWorkarounds = {},
+                            std::initializer_list<const char*> forceDisabledWorkarounds = {});
 
 namespace utils {
     class TerribleCommandBuffer;
@@ -137,6 +143,7 @@ class DawnTestEnvironment : public testing::Environment {
     bool IsBackendValidationEnabled() const;
     bool IsDawnValidationSkipped() const;
     bool IsSpvcBeingUsed() const;
+    bool IsSpvcParserBeingUsed() const;
     dawn_native::Instance* GetInstance() const;
     bool HasVendorIdFilter() const;
     uint32_t GetVendorIdFilter() const;
@@ -152,6 +159,9 @@ class DawnTestEnvironment : public testing::Environment {
     bool mEnableBackendValidation = false;
     bool mSkipDawnValidation = false;
     bool mUseSpvc = false;
+    bool mSpvcFlagSeen = false;
+    bool mUseSpvcParser = false;
+    bool mSpvcParserFlagSeen = false;
     bool mBeginCaptureOnStartup = false;
     bool mHasVendorIdFilter = false;
     uint32_t mVendorIdFilter = 0;
@@ -170,6 +180,7 @@ class DawnTestBase {
 
     bool IsD3D12() const;
     bool IsMetal() const;
+    bool IsNull() const;
     bool IsOpenGL() const;
     bool IsVulkan() const;
 
@@ -194,6 +205,9 @@ class DawnTestBase {
 
     bool HasVendorIdFilter() const;
     uint32_t GetVendorIdFilter() const;
+
+    wgpu::Instance GetInstance() const;
+    dawn_native::Adapter GetAdapter() const;
 
   protected:
     wgpu::Device device;

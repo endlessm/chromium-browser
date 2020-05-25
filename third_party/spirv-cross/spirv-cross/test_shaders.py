@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
- # Copyright 2015-2019 Arm Limited
- #
- # Licensed under the Apache License, Version 2.0 (the "License");
- # you may not use this file except in compliance with the License.
- # You may obtain a copy of the License at
- #
- #     http://www.apache.org/licenses/LICENSE-2.0
- #
- # Unless required by applicable law or agreed to in writing, software
- # distributed under the License is distributed on an "AS IS" BASIS,
- # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- # See the License for the specific language governing permissions and
- # limitations under the License.
+# Copyright 2015-2020 Arm Limited
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import sys
 import os
@@ -226,6 +226,8 @@ def cross_compile_msl(shader, spirv, opt, iterations, paths):
         msl_args.append('2')
         msl_args.append('--msl-discrete-descriptor-set')
         msl_args.append('3')
+    if '.force-active.' in shader:
+        msl_args.append('--msl-force-active-argument-buffer-resources')
     if '.line.' in shader:
         msl_args.append('--emit-line-directives')
     if '.multiview.' in shader:
@@ -242,11 +244,20 @@ def cross_compile_msl(shader, spirv, opt, iterations, paths):
         msl_args.append('--msl-dynamic-buffer')
         msl_args.append('1')
         msl_args.append('2')
+    if '.inline-block.' in shader:
+        # Arbitrary for testing purposes.
+        msl_args.append('--msl-inline-uniform-block')
+        msl_args.append('0')
+        msl_args.append('0')
     if '.device-argument-buffer.' in shader:
         msl_args.append('--msl-device-argument-buffer')
         msl_args.append('0')
         msl_args.append('--msl-device-argument-buffer')
         msl_args.append('1')
+    if '.force-native-array.' in shader:
+        msl_args.append('--msl-force-native-arrays')
+    if '.zero-initialize.' in shader:
+        msl_args.append('--force-zero-initialized-variables')
 
     subprocess.check_call(msl_args)
 
@@ -349,6 +360,11 @@ def cross_compile_hlsl(shader, spirv, opt, force_no_external_validation, iterati
     hlsl_args = [spirv_cross_path, '--entry', 'main', '--output', hlsl_path, spirv_path, '--hlsl-enable-compat', '--hlsl', '--shader-model', sm, '--iterations', str(iterations)]
     if '.line.' in shader:
         hlsl_args.append('--emit-line-directives')
+    if '.force-uav.' in shader:
+        hlsl_args.append('--hlsl-force-storage-buffer-as-uav')
+    if '.zero-initialize.' in shader:
+        hlsl_args.append('--force-zero-initialized-variables')
+
     subprocess.check_call(hlsl_args)
 
     if not shader_is_invalid_spirv(hlsl_path):
@@ -427,13 +443,23 @@ def cross_compile(shader, vulkan, spirv, invalid_spirv, eliminate, is_legacy, fl
         extra_args += ['--emit-line-directives']
     if '.no-samplerless.' in shader:
         extra_args += ['--vulkan-glsl-disable-ext-samplerless-texture-functions']
+    if '.no-qualifier-deduction.' in shader:
+        extra_args += ['--disable-storage-image-qualifier-deduction']
+    if '.framebuffer-fetch.' in shader:
+        extra_args += ['--glsl-remap-ext-framebuffer-fetch', '0', '0']
+        extra_args += ['--glsl-remap-ext-framebuffer-fetch', '1', '1']
+        extra_args += ['--glsl-remap-ext-framebuffer-fetch', '2', '2']
+        extra_args += ['--glsl-remap-ext-framebuffer-fetch', '3', '3']
+    if '.zero-initialize.' in shader:
+        extra_args += ['--force-zero-initialized-variables']
 
     spirv_cross_path = paths.spirv_cross
 
     # A shader might not be possible to make valid GLSL from, skip validation for this case.
-    if not ('nocompat' in glsl_path):
+    if (not ('nocompat' in glsl_path)) or (not vulkan):
         subprocess.check_call([spirv_cross_path, '--entry', 'main', '--output', glsl_path, spirv_path] + extra_args)
-        validate_shader(glsl_path, False, paths)
+        if not 'nocompat' in glsl_path:
+            validate_shader(glsl_path, False, paths)
     else:
         remove_file(glsl_path)
         glsl_path = None

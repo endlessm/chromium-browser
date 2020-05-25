@@ -28,13 +28,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// @ts-nocheck
+
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
-import * as ProtocolModule from '../protocol/protocol.js';
+import * as Platform from '../platform/platform.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
 
 import {Cookie} from './Cookie.js';
-import {Events as NetworkRequestEvents, NetworkRequest} from './NetworkRequest.js';
-import {Capability, SDKModel, SDKModelObserver, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+import {ContentData, Events as NetworkRequestEvents, ExtraRequestInfo, ExtraResponseInfo, NameValue, NetworkRequest} from './NetworkRequest.js';  // eslint-disable-line no-unused-vars
+import {Capability, SDKModel, SDKModelObserver, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
 /**
  * @unrestricted
@@ -48,19 +51,21 @@ export class NetworkManager extends SDKModel {
     this._dispatcher = new NetworkDispatcher(this);
     this._networkAgent = target.networkAgent();
     target.registerNetworkDispatcher(this._dispatcher);
-    if (self.Common.settings.moduleSetting('cacheDisabled').get()) {
+    if (Common.Settings.Settings.instance().moduleSetting('cacheDisabled').get()) {
       this._networkAgent.setCacheDisabled(true);
     }
 
     this._networkAgent.enable(undefined, undefined, MAX_EAGER_POST_REQUEST_BODY_LENGTH);
 
-    this._bypassServiceWorkerSetting = self.Common.settings.createSetting('bypassServiceWorker', false);
+    this._bypassServiceWorkerSetting = Common.Settings.Settings.instance().createSetting('bypassServiceWorker', false);
     if (this._bypassServiceWorkerSetting.get()) {
       this._bypassServiceWorkerChanged();
     }
     this._bypassServiceWorkerSetting.addChangeListener(this._bypassServiceWorkerChanged, this);
 
-    self.Common.settings.moduleSetting('cacheDisabled').addChangeListener(this._cacheDisabledSettingChanged, this);
+    Common.Settings.Settings.instance()
+        .moduleSetting('cacheDisabled')
+        .addChangeListener(this._cacheDisabledSettingChanged, this);
   }
 
   /**
@@ -96,7 +101,7 @@ export class NetworkManager extends SDKModel {
    * @param {string} query
    * @param {boolean} caseSensitive
    * @param {boolean} isRegex
-   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   * @return {!Promise<!Array<!TextUtils.ContentProvider.SearchMatch>>}
    */
   static async searchInRequest(request, query, caseSensitive, isRegex) {
     const manager = NetworkManager.forRequest(request);
@@ -110,7 +115,7 @@ export class NetworkManager extends SDKModel {
 
   /**
    * @param {!NetworkRequest} request
-   * @return {!Promise<!SDK.NetworkRequest.ContentData>}
+   * @return {!Promise<!ContentData>}
    */
   static async requestContentData(request) {
     if (request.resourceType() === Common.ResourceType.resourceTypes.WebSocket) {
@@ -124,7 +129,7 @@ export class NetworkManager extends SDKModel {
       return {error: 'No network manager for request', content: null, encoded: false};
     }
     const response = await manager._networkAgent.invoke_getResponseBody({requestId: request.requestId()});
-    const error = response[ProtocolModule.InspectorBackend.ProtocolError] || null;
+    const error = response[ProtocolClient.InspectorBackend.ProtocolError] || null;
     return {error: error, content: error ? null : response.body, encoded: response.base64Encoded};
   }
 
@@ -142,7 +147,7 @@ export class NetworkManager extends SDKModel {
   }
 
   /**
-   * @param {!SDK.NetworkManager.Conditions} conditions
+   * @param {!Conditions} conditions
    * @return {!Protocol.Network.ConnectionType}
    * TODO(allada): this belongs to NetworkConditionsSelector, which should hardcode/guess it.
    */
@@ -190,7 +195,7 @@ export class NetworkManager extends SDKModel {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _cacheDisabledSettingChanged(event) {
     const enabled = /** @type {boolean} */ (event.data);
@@ -201,7 +206,9 @@ export class NetworkManager extends SDKModel {
    * @override
    */
   dispose() {
-    self.Common.settings.moduleSetting('cacheDisabled').removeChangeListener(this._cacheDisabledSettingChanged, this);
+    Common.Settings.Settings.instance()
+        .moduleSetting('cacheDisabled')
+        .removeChangeListener(this._cacheDisabledSettingChanged, this);
   }
 
   _bypassServiceWorkerChanged() {
@@ -233,15 +240,15 @@ const _MIMETypes = {
   'application/pdf': {'document': true},
 };
 
-/** @type {!SDK.NetworkManager.Conditions} */
+/** @type {!Conditions} */
 export const NoThrottlingConditions = {
-  title: ls`Online`,
+  title: Common.UIString.UIString('Online'),
   download: -1,
   upload: -1,
   latency: 0
 };
 
-/** @type {!SDK.NetworkManager.Conditions} */
+/** @type {!Conditions} */
 export const OfflineConditions = {
   title: Common.UIString.UIString('Offline'),
   download: 0,
@@ -249,7 +256,7 @@ export const OfflineConditions = {
   latency: 0,
 };
 
-/** @type {!SDK.NetworkManager.Conditions} */
+/** @type {!Conditions} */
 export const Slow3GConditions = {
   title: Common.UIString.UIString('Slow 3G'),
   download: 500 * 1024 / 8 * .8,
@@ -257,7 +264,7 @@ export const Slow3GConditions = {
   latency: 400 * 5,
 };
 
-/** @type {!SDK.NetworkManager.Conditions} */
+/** @type {!Conditions} */
 export const Fast3GConditions = {
   title: Common.UIString.UIString('Fast 3G'),
   download: 1.6 * 1024 * 1024 / 8 * .9,
@@ -288,7 +295,7 @@ export class NetworkDispatcher {
 
   /**
    * @param {!Protocol.Network.Headers} headersMap
-   * @return {!Array.<!SDK.NetworkRequest.NameValue>}
+   * @return {!Array.<!NameValue>}
    */
   _headersMapToHeadersArray(headersMap) {
     const result = [];
@@ -819,7 +826,7 @@ export class NetworkDispatcher {
    * @param {!Protocol.Network.Headers} headers
    */
   requestWillBeSentExtraInfo(requestId, blockedCookies, headers) {
-    /** @type {!SDK.NetworkRequest.ExtraRequestInfo} */
+    /** @type {!ExtraRequestInfo} */
     const extraRequestInfo = {
       blockedRequestCookies: blockedCookies.map(blockedCookie => {
         return {blockedReasons: blockedCookie.blockedReasons, cookie: Cookie.fromProtocolCookie(blockedCookie.cookie)};
@@ -837,7 +844,7 @@ export class NetworkDispatcher {
    * @param {string=} headersText
    */
   responseReceivedExtraInfo(requestId, blockedCookies, headers, headersText) {
-    /** @type {!SDK.NetworkRequest.ExtraResponseInfo} */
+    /** @type {!ExtraResponseInfo} */
     const extraResponseInfo = {
       blockedResponseCookies: blockedCookies.map(blockedCookie => {
         return {
@@ -965,13 +972,13 @@ export class NetworkDispatcher {
 
     if (shouldReportCorbBlocking) {
       const message = Common.UIString.UIString(
-          `Cross-Origin Read Blocking (CORB) blocked cross-origin response %s with MIME type %s. See https://www.chromestatus.com/feature/5629709824032768 for more details.`,
+          'Cross-Origin Read Blocking (CORB) blocked cross-origin response %s with MIME type %s. See https://www.chromestatus.com/feature/5629709824032768 for more details.',
           networkRequest.url(), networkRequest.mimeType);
       this._manager.dispatchEventToListeners(
           Events.MessageGenerated, {message: message, requestId: networkRequest.requestId(), warning: true});
     }
 
-    if (self.Common.settings.moduleSetting('monitoringXHREnabled').get() &&
+    if (Common.Settings.Settings.instance().moduleSetting('monitoringXHREnabled').get() &&
         networkRequest.resourceType().category() === Common.ResourceType.resourceCategories.XHR) {
       let message;
       const failedToLoad = networkRequest.failed || networkRequest.hasErrorStatusCode();
@@ -1017,21 +1024,21 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
     this._agents = new Set();
     /** @type {!Map<string, !NetworkRequest>} */
     this._inflightMainResourceRequests = new Map();
-    /** @type {!SDK.NetworkManager.Conditions} */
+    /** @type {!Conditions} */
     this._networkConditions = NoThrottlingConditions;
     /** @type {?Promise} */
     this._updatingInterceptionPatternsPromise = null;
 
     // TODO(allada) Remove these and merge it with request interception.
-    this._blockingEnabledSetting = self.Common.settings.moduleSetting('requestBlockingEnabled');
-    this._blockedPatternsSetting = self.Common.settings.createSetting('networkBlockedPatterns', []);
+    this._blockingEnabledSetting = Common.Settings.Settings.instance().moduleSetting('requestBlockingEnabled');
+    this._blockedPatternsSetting = Common.Settings.Settings.instance().createSetting('networkBlockedPatterns', []);
     this._effectiveBlockedURLs = [];
     this._updateBlockedPatterns();
 
-    /** @type {!Platform.Multimap<!SDK.MultitargetNetworkManager.RequestInterceptor, !SDK.MultitargetNetworkManager.InterceptionPattern>} */
+    /** @type {!Platform.Multimap<!RequestInterceptor, !InterceptionPattern>} */
     this._urlsForRequestInterceptor = new Platform.Multimap();
 
-    self.SDK.targetManager.observeModels(NetworkManager, this);
+    TargetManager.instance().observeModels(NetworkManager, this);
   }
 
   /**
@@ -1047,7 +1054,7 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
     if (chromeMatch && chromeMatch.length > 1) {
       // "1.2.3.4" becomes "1.0.100.0"
       const additionalAppVersion = chromeMatch[1].split('.', 1)[0] + '.0.100.0';
-      return String.sprintf(uaString, chromeMatch[1], additionalAppVersion);
+      return Platform.StringUtilities.sprintf(uaString, chromeMatch[1], additionalAppVersion);
     }
     return uaString;
   }
@@ -1061,8 +1068,8 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
     if (this._extraHeaders) {
       networkAgent.setExtraHTTPHeaders(this._extraHeaders);
     }
-    if (this._currentUserAgent()) {
-      networkAgent.setUserAgentOverride(this._currentUserAgent());
+    if (this.currentUserAgent()) {
+      networkAgent.setUserAgentOverride(this.currentUserAgent());
     }
     if (this._effectiveBlockedURLs.length) {
       networkAgent.setBlockedURLs(this._effectiveBlockedURLs);
@@ -1107,7 +1114,7 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!SDK.NetworkManager.Conditions} conditions
+   * @param {!Conditions} conditions
    */
   setNetworkConditions(conditions) {
     this._networkConditions = conditions;
@@ -1118,7 +1125,7 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @return {!SDK.NetworkManager.Conditions}
+   * @return {!Conditions}
    */
   networkConditions() {
     return this._networkConditions;
@@ -1151,12 +1158,12 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
   /**
    * @return {string}
    */
-  _currentUserAgent() {
+  currentUserAgent() {
     return this._customUserAgent ? this._customUserAgent : this._userAgentOverride;
   }
 
   _updateUserAgentOverride() {
-    const userAgent = this._currentUserAgent();
+    const userAgent = this.currentUserAgent();
     for (const agent of this._agents) {
       agent.setUserAgentOverride(userAgent);
     }
@@ -1193,7 +1200,7 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
 
   // TODO(allada) Move all request blocking into interception and let view manage blocking.
   /**
-   * @return {!Array<!SDK.NetworkManager.BlockedPattern>}
+   * @return {!Array<!BlockedPattern>}
    */
   blockedPatterns() {
     return this._blockedPatternsSetting.get().slice();
@@ -1214,7 +1221,7 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Array<!SDK.NetworkManager.BlockedPattern>} patterns
+   * @param {!Array<!BlockedPattern>} patterns
    */
   setBlockedPatterns(patterns) {
     this._blockedPatternsSetting.set(patterns);
@@ -1261,8 +1268,8 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
   }
 
   /**
-   * @param {!Array<!SDK.MultitargetNetworkManager.InterceptionPattern>} patterns
-   * @param {!SDK.MultitargetNetworkManager.RequestInterceptor} requestInterceptor
+   * @param {!Array<!InterceptionPattern>} patterns
+   * @param {!RequestInterceptor} requestInterceptor
    * @return {!Promise}
    */
   setInterceptionHandlerForPatterns(patterns, requestInterceptor) {
@@ -1289,8 +1296,8 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
    * @return {!Promise}
    */
   _updateInterceptionPatterns() {
-    if (!self.Common.settings.moduleSetting('cacheDisabled').get()) {
-      self.Common.settings.moduleSetting('cacheDisabled').set(true);
+    if (!Common.Settings.Settings.instance().moduleSetting('cacheDisabled').get()) {
+      Common.Settings.Settings.instance().moduleSetting('cacheDisabled').set(true);
     }
     this._updatingInterceptionPatternsPromise = null;
     const promises = /** @type {!Array<!Promise>} */ ([]);
@@ -1333,7 +1340,7 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
    * @return {!Promise<!Array<string>>}
    */
   getCertificate(origin) {
-    const target = self.SDK.targetManager.mainTarget();
+    const target = TargetManager.instance().mainTarget();
     return target.networkAgent().getCertificate(origin).then(certificate => certificate || []);
   }
 
@@ -1344,12 +1351,12 @@ export class MultitargetNetworkManager extends Common.ObjectWrapper.ObjectWrappe
   loadResource(url, callback) {
     const headers = {};
 
-    const currentUserAgent = this._currentUserAgent();
+    const currentUserAgent = this.currentUserAgent();
     if (currentUserAgent) {
       headers['User-Agent'] = currentUserAgent;
     }
 
-    if (self.Common.settings.moduleSetting('cacheDisabled').get()) {
+    if (Common.Settings.Settings.instance().moduleSetting('cacheDisabled').get()) {
       headers['Cache-Control'] = 'no-cache';
     }
 
@@ -1461,12 +1468,12 @@ export class InterceptedRequest {
   }
 
   /**
-   * @return {!Promise<!SDK.NetworkRequest.ContentData>}
+   * @return {!Promise<!ContentData>}
    */
   async responseBody() {
     const response =
         await this._networkAgent.invoke_getResponseBodyForInterception({interceptionId: this._interceptionId});
-    const error = response[ProtocolModule.InspectorBackend.ProtocolError] || null;
+    const error = response[ProtocolClient.InspectorBackend.ProtocolError] || null;
     return {error: error, content: error ? null : response.body, encoded: response.base64Encoded};
   }
 }
@@ -1483,9 +1490,9 @@ class RedirectExtraInfoBuilder {
   constructor(deleteCallback) {
     /** @type {!Array<!NetworkRequest>} */
     this._requests = [];
-    /** @type {!Array<?SDK.NetworkRequest.ExtraRequestInfo>} */
+    /** @type {!Array<?ExtraRequestInfo>} */
     this._requestExtraInfos = [];
-    /** @type {!Array<?SDK.NetworkRequest.ExtraResponseInfo>} */
+    /** @type {!Array<?ExtraResponseInfo>} */
     this._responseExtraInfos = [];
     /** @type {boolean} */
     this._finished = false;
@@ -1504,7 +1511,7 @@ class RedirectExtraInfoBuilder {
   }
 
   /**
-   * @param {!SDK.NetworkRequest.ExtraRequestInfo} info
+   * @param {!ExtraRequestInfo} info
    */
   addRequestExtraInfo(info) {
     this._hasExtraInfo = true;
@@ -1513,7 +1520,7 @@ class RedirectExtraInfoBuilder {
   }
 
   /**
-   * @param {!SDK.NetworkRequest.ExtraResponseInfo} info
+   * @param {!ExtraResponseInfo} info
    */
   addResponseExtraInfo(info) {
     this._responseExtraInfos.push(info);
@@ -1576,3 +1583,15 @@ SDKModel.register(NetworkManager, Capability.Network, true);
   * }}
   */
 export let Conditions;
+
+/** @typedef {{url: string, enabled: boolean}} */
+export let BlockedPattern;
+
+/** @typedef {{message: string, requestId: string, warning: boolean}} */
+export let Message;
+
+/** @typedef {!{urlPattern: string, interceptionStage: !Protocol.Network.InterceptionStage}} */
+export let InterceptionPattern;
+
+/** @typedef {!function(!InterceptedRequest):!Promise} */
+export let RequestInterceptor;

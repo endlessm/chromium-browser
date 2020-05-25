@@ -97,6 +97,7 @@
 <translation id="2149973817440762519">ແກ້​ໄຂບຸກມາກສ໌</translation>
 <translation id="2179182049312275900">ທ່ານສາມາດເປີດການຊິ້ງຂໍ້ມູນໄດ້ທຸກເວລາໃນການຕັ້ງຄ່າ.</translation>
 <translation id="2198757192731523470">Google ອາດຈະໃຊ້ປະຫວັດຂອງທ່ານເພື່ອປັບແຕ່ງການຊອກຫາ, ໂຄສະນາ ແລະ ການບໍລິການອື່ນຂອງ Google.</translation>
+<translation id="2218443599109088993">ຊູມອອກ</translation>
 <translation id="2230173723195178503">ໂຫຼດໜ້າເວັບແລ້ວ</translation>
 <translation id="2239626343334228536">ກຳລັງລຶບລ້າງຂໍ້ມູນທ່ອງເວັບ...</translation>
 <translation id="2257567812274161158">ການຊິ້ງຂໍ້ມູນໃຊ້ບໍ່ໄດ້.</translation>
@@ -159,6 +160,7 @@
 <translation id="2923448633003185837">ວາງໃສ່ ແລະ ຊອກຫາ</translation>
 <translation id="292639812446257861">ໝາຍວ່າຍັງບໍ່ໄດ້ອ່ານ</translation>
 <translation id="2958718410589002129">ລະຫັດຜ່ານ</translation>
+<translation id="2964349545761222050">ບລັອກຄຸກກີ້ພາກສ່ວນທີສາມ</translation>
 <translation id="2969979262385602596">ເຂົ້າ​ສູ່​ລະ​ບົບບໍ່ໄດ້, ກະລຸນາລອງໃໝ່ພາຍຫຼັງ.</translation>
 <translation id="298306318844797842">ເພີ່ມວິທີການຈ່າຍເງິນ...</translation>
 <translation id="2989805286512600854">ເປີດຢູ່ໃນແຖບໃໝ່</translation>
@@ -166,6 +168,7 @@
 <translation id="3112556859945124369">ໝາຍ...</translation>
 <translation id="3153862085237805241">ບັນທຶກບັດ</translation>
 <translation id="3157684681743766797">ໝາຍທັງໝົດ…</translation>
+<translation id="3161291298470460782">ນີ້ຈະນຳທ່ານອອກຈາກລະບົບ, ປິດການຊິ້ງຂໍ້ມູນ ແລະ ລຶບລ້າງຂໍ້ມູນ Chrome ອອກຈາກອຸປະກອນນີ້. ຂໍ້ມູນທີ່ຊິ້ງແລ້ວຂອງທ່ານຈະຍັງຄົງຢູ່ໃນບັນຊີ Google ຂອງທ່ານ.</translation>
 <translation id="3175081911749765310">ການ​ບໍ​ລິ​ການ​ເວັບ</translation>
 <translation id="3178650076442119961">ນຳໃຊ້ມື້ນີ້</translation>
 <translation id="3207960819495026254">ໃສ່ບຸກ​ມາກ​໌​ແລ້ວ</translation>
@@ -178,6 +181,7 @@
 <translation id="3290875554372353449">ເລືອກບັນຊີ</translation>
 <translation id="3311748811247479259">ປິດ</translation>
 <translation id="3324193307694657476">ທີ່ຢູ່ 2</translation>
+<translation id="3328801116991980348">ຂໍ້​ມູນ​ເວັບ​ໄຊທ໌</translation>
 <translation id="3329904751041170572">ບໍ່​ສາ​ມາດ​ເຊື່ອມ​ຕໍ່​ກັບ​ເຊີບ​ເວີ​ໄດ້.</translation>
 <translation id="3335947283844343239">ເປີດ​ແຖບ​ທີ່ປິດແລ້ວຄືນໃໝ່</translation>
 <translation id="3371831930909698441">ມີບໍລິການແປພາສາ. ມີຕົວເລືອກໃຫ້ນຳໃຊ້ຢູ່ໃກ້ລຸ່ມສຸດຂອງໜ້າຈໍ.</translation>
@@ -197,6 +201,7 @@
 <translation id="3494788280727468875">ຢືນຢັນລຶບລ້າງຂໍ້ມູນການທ່ອງເວັບ</translation>
 <translation id="35083190962747987">ເປີດ ${url}</translation>
 <translation id="3519193562722059437">ເປີດ​ແຖບ​ເພື່ອ​ທ່ອງ​ເວັບ.</translation>
+<translation id="3523473570015918798">ໂດຍການນຳອອກຈາກລະບົບ, ບຸກມາກ, ປະຫວັດ, ລະຫັດຜ່ານ ແລະ ຂໍ້ມູນອື່ນໆໃນ Chrome ຂອງທ່ານຈະບໍ່ຊິ້ງຂໍ້ມູນກັບບັນຊີ Google ຂອງທ່ານອີກຕໍ່ໄປ.</translation>
 <translation id="3527085408025491307">ໂຟລເດີ</translation>
 <translation id="3529024052484145543">ບໍ່ປອດໄພ</translation>
 <translation id="3533202363250687977">ປິດແຖບທີ່ບໍ່ເຜີຍຕົວຕົນທັງໝົດ</translation>
@@ -300,6 +305,7 @@
 <translation id="4979397965658815378">ເຂົ້າສູ່ລະບົບດ້ວຍບັນຊີ Google ຂອງທ່ານເພື່ອໃຊ້ບຸກມາກ, ລະຫັດຜ່ານ, ປະຫວັດ ແລະ ການຕັ້ງຄ່າອື່ນຢູ່ໃນທຸກອຸປະກອນຂອງທ່ານ</translation>
 <translation id="5005498671520578047">ອັດ​ສຳ​ເນົາ​ລະ​ຫັດ​ຜ່ານ</translation>
 <translation id="5010803260590204777">ເປີດ​ແຖບ​ບໍ່​ເຜີຍ​​ຕົນ​ຕົວ ເພື່ອ​ທ່ອງ​ເວັບ​ເປັນ​ສ່ວນ​ຕົວ.</translation>
+<translation id="5039020240289137291">ການບລັອກຄຸກກີ້ພາກສ່ວນທີສາມ</translation>
 <translation id="5039804452771397117">ອະ​ນຸ​ຍາດ​</translation>
 <translation id="5059136629401106827">ຕົກລົງ</translation>
 <translation id="5062321486222145940">ຕິດ​ຕັ້ງ Google Drive</translation>
@@ -329,6 +335,7 @@
 <translation id="54401264925851789">ຂໍ້ມູນຄວາມປອດໄພໜ້າ</translation>
 <translation id="5443952882982198570">ບັດເຄຣດິດ</translation>
 <translation id="5457907402803865181">ເກີດຄວາມຜິດພາດໃນການຊິ້ງຂໍ້ມູນລະຫັດຜ່ານ.</translation>
+<translation id="5508435575041083207">ອອກຈາກລະບົບ ແລະ ລຶບລ້າງຂໍ້ມູນອອກຈາກອຸປະກອນນີ້</translation>
 <translation id="5525269841082836315">ສ້າງວະ​ລີ​ຜ່ານ</translation>
 <translation id="5548760955356983418">Handoff ໃຫ້​ທ່ານ​ເລີ່ມ​ທ່ອງ​ເວັບ​ໄຊ​ທ໌​ຢູ່​ໃນ​ອຸ​ປະ​ກອນ​ນີ້ ແລະ​ຈາກ​ນັ້ນ​ສືບ​ຕໍ່​ຢູ່​ໃນ Mac ຂອງ​ທ່ານ​ໄດ້​ຢ່າງ​ງ່າຍ​ດາຍ. ເວັບ​ໄຊ​ທ໌​ເປີດ​ປະ​ຈຸ​ບັນ​ຈະ​ປະ​ກົດ​ຂຶ້ນ​ຢູ່​ໃນ Dock ຂອງ Mac ຂອງ​ທ່ານ.
 
@@ -414,9 +421,11 @@ Handoff ຍັງ​ຕ້ອງ​ໄດ້​ເປີດ​ໃຊ້​ງາ
 <translation id="6434591244308415567">ເກີດຄວາມຜິດພາດຂຶ້ນ. ກະລຸນາລອງໃໝ່ໃນພາຍຫຼັງ.</translation>
 <translation id="6445051938772793705">ປະ​ເທດ</translation>
 <translation id="6445981559479772097">ສົ່ງ​ຂໍ້​ຄວາມ​ແລ້ວ.</translation>
+<translation id="6447842834002726250">ຄຸກກີ້</translation>
 <translation id="6464071786529933911">ເປີດ​ຢູ່​ໃນ​ແຖບ​ທີ່ບໍ່​ເຜີຍ​ຕົວ​ຕົນ​ໃໝ່</translation>
 <translation id="6476800141292307438">ກຳລັງແປໜ້າເວັບເປັນ <ph name="LANGUAGE" />. ມີຕົວເລືອກໃຫ້ນຳໃຊ້ຢູ່ໃກ້ລຸ່ມສຸດຂອງໜ້າຈໍ.</translation>
 <translation id="6482629121755362506"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> ລາຍ​ການ​ຖືກ​ລຶບ​ແລ້ວ</translation>
+<translation id="6561262006871132942">ຊຸມເຂົ້າ</translation>
 <translation id="6610002944194042868">ຕົວເລືອກແປພາສາ</translation>
 <translation id="6628106477656132239">ວັນທີໝົດອາຍຸບໍ່ຖືກຕ້ອງ</translation>
 <translation id="6638511529934826365">ຊູມຂໍ້ຄວາມ…</translation>
@@ -479,7 +488,6 @@ Handoff ຍັງ​ຕ້ອງ​ໄດ້​ເປີດ​ໃຊ້​ງາ
 <translation id="734758817008927353">ຕົວເລືອກໃນການບັນທຶກບັດ</translation>
 <translation id="7348502496356775519">ບຸກມາກ</translation>
 <translation id="7383797227493018512">ລາຍການທີ່ຈະອ່ານ</translation>
-<translation id="7392048574806661116">ອອກຈາກລະບົບ ແລະ ລຶບລ້າງຂໍ້ມູນທີ່ຊິ້ງ</translation>
 <translation id="7400418766976504921">URL</translation>
 <translation id="7409985198648820906"><ph name="UNREAD_COUNT" /> ບົດຄວາມທີ່ຍັງບໍ່ໄດ້ອ່ານ.</translation>
 <translation id="7425346204213733349">ການປ່ຽນແປງຕໍ່ກັບບຸກມາກ, ປະຫວັດ, ລະຫັດຜ່ານ ແລະ ການຕັ້ງຄ່າອື່ນຂອງທ່ານຈະບໍ່ຖືກຊິ້ງກັບບັນຊີ Google ຂອງທ່ານອີກຕໍ່ໄປ. ແນວໃດກໍຕາມ, ຂໍ້ມູນທີ່ມີຢູ່ຂອງທ່ານຈະຍັງຄົງເກັບຮັກສາໄວ້ໃນບັນຊີ Google ຂອງທ່ານ.</translation>
@@ -501,6 +509,9 @@ Handoff ຍັງ​ຕ້ອງ​ໄດ້​ເປີດ​ໃຊ້​ງາ
 <translation id="766891008101699113">ເພື່ອທ່ອງເວັບແບບເປັນສ່ວນຕົວ, ກະລຸນາເພີ່ມແຖບໃໝ່.</translation>
 <translation id="7671141431838911305">​ຕິດ​ຕັ້ງ</translation>
 <translation id="7765158879357617694">ຍ້າຍ</translation>
+<translation id="7771470029643830783">ໂດຍການນຳອອກຈາກລະບົບ, ບຸກມາກ, ປະຫວັດ, ລະຫັດຜ່ານ ແລະ ຂໍ້ມູນອື່ນໆໃນ Chrome ຂອງທ່ານຈະບໍ່ຊິ້ງຂໍ້ມູນກັບບັນຊີ Google ຂອງທ່ານອີກຕໍ່ໄປ.
+
+ເນື່ອງຈາກບັນຊີຂອງທ່ານຖືກຈັດການໂດຍ <ph name="HOSTED_DOMAIN" />, ຂໍ້ມູນ Chrome ຈະຖືກລຶບອອກຈາກອຸປະກອນນີ້ໃນເວລາອອກຈາກລະບົບ. ຂໍ້ມູນທີ່ຊິ້ງແລ້ວຂອງທ່ານຈະຍັງຄົງຢູ່ໃນບັນຊີ Google ຂອງທ່ານ.</translation>
 <translation id="7772032839648071052">ຢືນ​ຢັນວະລີຜ່ານ</translation>
 <translation id="7781011649027948662">ແປໜ້າບໍ?</translation>
 <translation id="7781829728241885113">ມື້​ວານ​ນີ້</translation>
@@ -550,6 +561,7 @@ Handoff ຍັງ​ຕ້ອງ​ໄດ້​ເປີດ​ໃຊ້​ງາ
 <translation id="8490978609246021741">ບັນທຶກການປ່ຽນແປງ</translation>
 <translation id="8503813439785031346">ຊື່​ຜູ້​ໃຊ້</translation>
 <translation id="850600235656508448">ເປີດໃນໂໝດບໍ່ເຜີຍຕົວຕົນ</translation>
+<translation id="8510057420705599706">ນີ້ຈະນຳທ່ານອອກຈາກລະບົບ ແລະ ປິດການຊິ້ງຂໍ້ມູນ, ແຕ່ບຸກມາກ, ປະຫວັດ, ລະຫັດຜ່ານ ແລະ ຂໍ້ມູນ Chrome ອື່ນໆຂອງທ່ານຈະຍັງຄົງຢູ່ໃນອຸປະກອນນີ້.</translation>
 <translation id="8517375800490286174">ໃບ​ອະ​ນຸ​ຍາດ Open source</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" /> ແຖບ <ph name="FIRST_VISIBLE_TAB" /> ຜ່ານ <ph name="LAST_VISIBLE_TAB" /> ໃນ <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8529767659511976195">ໃໝ່</translation>
@@ -592,12 +604,14 @@ Handoff ຍັງ​ຕ້ອງ​ໄດ້​ເປີດ​ໃຊ້​ງາ
 <translation id="9094033019050270033">ອັບ​ເດດ​ລະ​ຫັດ​ຜ່ານ</translation>
 <translation id="9100610230175265781">ຕ້ອງມີລະຫັດຜ່ານ</translation>
 <translation id="9148126808321036104">ລົງຊື່ເຂົ້າ​ໃຊ້ອີກ</translation>
+<translation id="9152539721251340337">ສ້າງລະຫັດ QR</translation>
 <translation id="9157836665414082580">ປິດກ່ອງໂຕ້ຕອບ</translation>
 <translation id="9188680907066685419">ອອກຈາກລະບົບບັນຊີທີ່ຖືກຈັດການ</translation>
 <translation id="9203116392574189331">Handoff</translation>
 <translation id="9223358826628549784">​ສົ່ງລາຍງານການຂັດຂ້ອງແລ້ວ.</translation>
 <translation id="952704832371081537">ຍົກເລີກ</translation>
 <translation id="988141524645182168">ອຸ​ປະ​ກອນ​ອື່ນໆ</translation>
+<translation id="989697783705943787">ຄວາມປອດໄພເວັບໄຊ</translation>
 <translation id="989988560359834682">ແກ້ໄຂທີ່ຢູ່</translation>
 <translation id="994757059139821576">ການແນະນຳບົດຄວາມ</translation>
 </translationbundle>

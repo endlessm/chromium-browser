@@ -741,12 +741,12 @@ vk::Move<vk::VkSemaphore> createExportableSemaphore (const vk::DeviceInterface&	
 
 vk::Move<vk::VkSemaphore> createExportableSemaphoreType (const vk::DeviceInterface&					vkd,
 														 vk::VkDevice								device,
-														 vk::VkSemaphoreTypeKHR						semaphoreType,
+														 vk::VkSemaphoreType						semaphoreType,
 														 vk::VkExternalSemaphoreHandleTypeFlagBits	externalType)
 {
-	const vk::VkSemaphoreTypeCreateInfoKHR		semaphoreTypeCreateInfo	=
+	const vk::VkSemaphoreTypeCreateInfo		semaphoreTypeCreateInfo	=
 	{
-		vk::VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR,
+		vk::VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
 		DE_NULL,
 		semaphoreType,
 		0,
@@ -1086,42 +1086,6 @@ static vk::Move<vk::VkDeviceMemory> importMemory (const vk::DeviceInterface&				
 		// The handle's owned reference must also be released. Do not discard the handle below.
 		if (externalType != vk::VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT)
 			handle.disown();
-
-		return memory;
-	}
-	else if (externalType == vk::VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID)
-	{
-		AndroidHardwareBufferExternalApi* ahbApi = AndroidHardwareBufferExternalApi::getInstance();
-		if (!ahbApi)
-		{
-			TCU_THROW(NotSupportedError, "Platform doesn't support Android Hardware Buffer handles");
-		}
-
-		deUint32 ahbFormat = 0;
-		ahbApi->describe(handle.getAndroidHardwareBuffer(), DE_NULL, DE_NULL, DE_NULL, &ahbFormat, DE_NULL, DE_NULL);
-		DE_ASSERT(ahbApi->ahbFormatIsBlob(ahbFormat) || image != 0);
-
-		vk::VkImportAndroidHardwareBufferInfoANDROID	importInfo =
-		{
-			vk::VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
-			DE_NULL,
-			handle.getAndroidHardwareBuffer()
-		};
-		const vk::VkMemoryDedicatedAllocateInfo		dedicatedInfo =
-		{
-			vk::VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR,
-			&importInfo,
-			image,
-			buffer,
-		};
-		const vk::VkMemoryAllocateInfo					info =
-		{
-			vk::VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			(isDedicated ? (const void*)&dedicatedInfo : (const void*)&importInfo),
-			requirements.size,
-			(memoryTypeIndex == ~0U) ? chooseMemoryType(requirements.memoryTypeBits)  : memoryTypeIndex
-		};
-		vk::Move<vk::VkDeviceMemory> memory (vk::allocateMemory(vkd, device, &info));
 
 		return memory;
 	}

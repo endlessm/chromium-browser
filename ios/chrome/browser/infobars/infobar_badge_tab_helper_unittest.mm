@@ -12,6 +12,7 @@
 #import "ios/chrome/browser/infobars/test/fake_infobar_ios.h"
 #import "ios/chrome/browser/ui/badges/badge_item.h"
 #include "ios/chrome/browser/ui/badges/badge_type_util.h"
+#import "ios/chrome/browser/ui/infobars/infobar_feature.h"
 #import "ios/chrome/browser/ui/infobars/test/fake_infobar_ui_delegate.h"
 #import "ios/web/public/test/fakes/test_navigation_manager.h"
 #import "ios/web/public/test/fakes/test_web_state.h"
@@ -33,7 +34,8 @@ class InfobarBadgeTabHelperTest : public PlatformTest {
   InfobarBadgeTabHelperTest()
       : delegate_([[FakeInfobarTabHelperDelegate alloc] init]) {
     // Enable kIOSInfobarUIReboot flag.
-    feature_list_.InitAndEnableFeature(kIOSInfobarUIReboot);
+    feature_list_.InitWithFeatures({kIOSInfobarUIReboot},
+                                   {kInfobarUIRebootOnlyiOS13});
 
     // Setup navigation manager. Needed for InfobarManager.
     web_state_.SetNavigationManager(
@@ -48,8 +50,10 @@ class InfobarBadgeTabHelperTest : public PlatformTest {
   }
 
   // Adds a FakeInfobarIOS with specified badge support to the WebState's
-  // InfoBarManagerImpl.  Returns the added infobar.
-  FakeInfobarIOS* AddInfobar(bool has_badge) {
+  // InfoBarManagerImpl.  Set replace_existing to true, if a matching infobar
+  // (same message_text) should be replaced with new one instead of being
+  // ignored. Returns the added infobar.
+  FakeInfobarIOS* AddInfobar(bool has_badge, bool replace_existing = false) {
     std::unique_ptr<FakeInfobarIOS> added_infobar =
         std::make_unique<FakeInfobarIOS>();
     added_infobar->fake_ui_delegate().infobarType =
@@ -57,7 +61,7 @@ class InfobarBadgeTabHelperTest : public PlatformTest {
     added_infobar->fake_ui_delegate().hasBadge = has_badge;
     FakeInfobarIOS* infobar = added_infobar.get();
     InfoBarManagerImpl::FromWebState(&web_state_)
-        ->AddInfoBar(std::move(added_infobar));
+        ->AddInfoBar(std::move(added_infobar), replace_existing);
     return infobar;
   }
 
@@ -194,4 +198,25 @@ TEST_F(InfobarBadgeTabHelperTest, TestInfobarBadgeOnInfobarDestruction) {
   InfoBarManagerImpl::FromWebState(&web_state_)->RemoveInfoBar(added_infobar);
   EXPECT_FALSE(
       [delegate_ itemForBadgeType:BadgeTypeForInfobarType(added_type)]);
+}
+
+// Test that replacing infobar, doesn't crash.
+TEST_F(InfobarBadgeTabHelperTest, TestInfobarReplacing) {
+  // Test tab helper by driving it through InfoBarManager.
+  AddInfobar(/*has_badge=*/true);
+  // Check first one added correctly.
+  EXPECT_TRUE(InfoBarManagerImpl::FromWebState(&web_state_)->infobar_count() ==
+              1);
+  // Replace with second one.
+  FakeInfobarIOS* infobar2 =
+      AddInfobar(/*has_badge=*/true, /*replace_existing=*/true);
+  // Should be only one.
+  EXPECT_TRUE(InfoBarManagerImpl::FromWebState(&web_state_)->infobar_count() ==
+              1);
+  // If first one wasn't replaced this will fail.
+  InfoBarManagerImpl::FromWebState(&web_state_)->RemoveInfoBar(infobar2);
+  // Left with none.
+  EXPECT_TRUE(InfoBarManagerImpl::FromWebState(&web_state_)->infobar_count() ==
+              0);
+  // No crash.
 }

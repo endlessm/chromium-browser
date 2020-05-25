@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/fpdfapi/page/cpdf_annotcontext.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfdoc/cpdf_nametree.h"
@@ -73,12 +74,12 @@ void CPDFSDK_FormFillEnvironment::InvalidateRect(PerWindowData* pWidgetData,
   if (!widget)
     return;
 
-  CPDFSDK_PageView* pPageView = widget->GetPageView();
   IPDF_Page* pPage = widget->GetPage();
-  if (!pPage || !pPageView)
+  if (!pPage)
     return;
 
-  CFX_Matrix device2page = pPageView->GetCurrentMatrix().GetInverse();
+  CFX_Matrix device2page =
+      widget->GetPageView()->GetCurrentMatrix().GetInverse();
   CFX_PointF left_top = device2page.Transform(CFX_PointF(rect.left, rect.top));
   CFX_PointF right_bottom =
       device2page.Transform(CFX_PointF(rect.right, rect.bottom));
@@ -458,11 +459,10 @@ FS_RECTF CPDFSDK_FormFillEnvironment::GetPageViewRect(IPDF_Page* page) {
 }
 
 bool CPDFSDK_FormFillEnvironment::PopupMenu(IPDF_Page* page,
-                                            FPDF_WIDGET hWidget,
                                             int menuFlag,
                                             const CFX_PointF& pt) {
   return m_pInfo && m_pInfo->version >= 2 && m_pInfo->FFI_PopupMenu &&
-         m_pInfo->FFI_PopupMenu(m_pInfo, FPDFPageFromIPDFPage(page), hWidget,
+         m_pInfo->FFI_PopupMenu(m_pInfo, FPDFPageFromIPDFPage(page), nullptr,
                                 menuFlag, pt.x, pt.y);
 }
 
@@ -582,7 +582,7 @@ CPDFSDK_PageView* CPDFSDK_FormFillEnvironment::GetPageView(
   return pPageView;
 }
 
-CPDFSDK_PageView* CPDFSDK_FormFillEnvironment::GetPageView(int nIndex) {
+CPDFSDK_PageView* CPDFSDK_FormFillEnvironment::GetPageViewAtIndex(int nIndex) {
   IPDF_Page* pTempPage = GetPage(nIndex);
   if (!pTempPage)
     return nullptr;
@@ -683,8 +683,7 @@ bool CPDFSDK_FormFillEnvironment::SetFocusAnnot(
   if (!pAnnot->HasObservable())
     return false;
 
-  CPDFSDK_PageView* pPageView = (*pAnnot)->GetPageView();
-  if (!pPageView || !pPageView->IsValid())
+  if (!(*pAnnot)->GetPageView()->IsValid())
     return false;
 
   CPDFSDK_AnnotHandlerMgr* pAnnotHandler = GetAnnotHandlerMgr();
@@ -706,6 +705,10 @@ bool CPDFSDK_FormFillEnvironment::SetFocusAnnot(
     return false;
 
   m_pFocusAnnot.Reset(pAnnot->Get());
+
+  // If we are not able to inform the client about the focus change, it
+  // shouldn't be considered as failure.
+  SendOnFocusChange(pAnnot);
   return true;
 }
 
@@ -744,6 +747,34 @@ int CPDFSDK_FormFillEnvironment::GetPageCount() const {
   return pExtension ? pExtension->GetPageCount() : m_pCPDFDoc->GetPageCount();
 }
 
-bool CPDFSDK_FormFillEnvironment::GetPermissions(int nFlag) const {
-  return !!(m_pCPDFDoc->GetUserPermissions() & nFlag);
+bool CPDFSDK_FormFillEnvironment::HasPermissions(uint32_t flags) const {
+  return !!(m_pCPDFDoc->GetUserPermissions() & flags);
+}
+
+void CPDFSDK_FormFillEnvironment::SendOnFocusChange(
+    ObservedPtr<CPDFSDK_Annot>* pAnnot) {
+  if (!m_pInfo || m_pInfo->version < 2 || !m_pInfo->FFI_OnFocusChange)
+    return;
+
+  if ((*pAnnot)->AsXFAWidget()) {
+    // TODO(crbug.com/pdfium/1482): Handle XFA case.
+    return;
+  }
+
+  CPDFSDK_PageView* pPageView = (*pAnnot)->GetPageView();
+  if (!pPageView->IsValid())
+    return;
+
+  CPDF_Page* cpdf_page = (*pAnnot)->GetPDFPage();
+  if (!cpdf_page)
+    return;
+
+  CPDF_Dictionary* annot_dict = (*pAnnot)->GetPDFAnnot()->GetAnnotDict();
+
+  auto focused_annot =
+      pdfium::MakeUnique<CPDF_AnnotContext>(annot_dict, cpdf_page);
+  FPDF_ANNOTATION fpdf_annot =
+      FPDFAnnotationFromCPDFAnnotContext(focused_annot.get());
+
+  m_pInfo->FFI_OnFocusChange(m_pInfo, fpdf_annot, pPageView->GetPageIndex());
 }

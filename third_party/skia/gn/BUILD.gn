@@ -59,6 +59,15 @@ config("default") {
     }
   }
 
+  # Disable warnings about unknown attributes.
+  # (These unknown attribute warnings are on by default, so we don't make
+  # disabling them part of :warnings, as some targets remove :warnings.)
+  if (is_win && !is_clang) {
+    cflags += [ "/wd5030" ]
+  } else {
+    cflags += [ "-Wno-attributes" ]
+  }
+
   if (is_fuchsia && using_fuchsia_sdk) {
     ldflags += [
       "-v",
@@ -217,9 +226,6 @@ config("default") {
 
   if (is_linux) {
     libs += [ "pthread" ]
-    if (is_debug && sanitize == "") {
-      defines += [ "_GLIBCXX_DEBUG" ]
-    }
   }
 
   if (is_mac) {
@@ -275,12 +281,6 @@ config("default") {
       "-fsanitize-blacklist=$_blacklist",
     ]
 
-    # TODO(mtklein): we need to fix "nullptr + k" issues
-    # where k != 0 in C++, or in C, k == anything at all.
-    # We have failures in Skia and libjpeg-turbo, at least.
-    # See skia:9731.
-    cflags += [ "-fsanitize-recover=pointer-overflow" ]
-
     if (is_win) {
       cflags += [
         "/FI$_blacklist",
@@ -314,6 +314,11 @@ config("default") {
   }
 }
 
+# See skia:9731.
+config("recover_pointer_overflow") {
+  cflags = [ "-fsanitize-recover=pointer-overflow" ]
+}
+
 config("no_exceptions") {
   # Exceptions are disabled by default on Windows.  (Use /EHsc to enable them.)
   if (!is_win) {
@@ -333,18 +338,23 @@ config("warnings") {
       # Disable a bunch of warnings:
       "/wd4244",  # conversion from 'float' to 'int', possible loss of data
       "/wd4267",  # conversion from 'size_t' to 'int', possible loss of data
-      "/wd4800",  # forcing value to bool 'true' or 'false' (performance warning)
+      "/wd4800",  # forcing value to bool 'true' or 'false' (performance
+                  # warning)
 
       # Probably only triggers when /EHsc is enabled.
       "/wd4291",  # no matching operator delete found;
-                  # memory will not be freed if initialization throws an exception
+                  # memory will not be freed if initialization throws an
+                  # exception
 
       # These only show up in shared builds:
-      "/wd4251",  # class 'type' needs to have dll-interface to be used by clients of class 'type2'
-      "/wd4275",  # non dll-interface class 'base' used as base for dll-interface class 'derived'
+      "/wd4251",  # class 'type' needs to have dll-interface to be used by
+                  # clients of class 'type2'
+      "/wd4275",  # non dll-interface class 'base' used as base for
+                  # dll-interface class 'derived'
 
       # It'd be nice to fix these and turn this on:
-      "/wd5041",  # out-of-line definition for constexpr static data member is not needed and is deprecated in C++17
+      "/wd5041",  # out-of-line definition for constexpr static data member is
+                  # not needed and is deprecated in C++17
     ]
   } else {
     cflags += [
@@ -361,6 +371,7 @@ config("warnings") {
     cflags_cc += [
       "-Wnon-virtual-dtor",
       "-Wno-noexcept-type",
+      "-Wno-redundant-move",  #TODO: gcc conflict with return-std-move-in-c++11
     ]
   }
 
@@ -368,7 +379,8 @@ config("warnings") {
     cflags += [
       "-fcolor-diagnostics",
       "-Weverything",
-      "-Wno-unknown-warning-option",  # Let older Clangs ignore newer Clangs' warnings.
+      "-Wno-unknown-warning-option",  # Let older Clangs ignore newer Clangs'
+                                      # warnings.
     ]
 
     if (target_cpu == "arm" && is_ios) {
@@ -427,7 +439,6 @@ config("warnings") {
 
     # We are unlikely to want to fix these.
     cflags += [
-      "-Wno-bad-function-cast",
       "-Wno-covered-switch-default",
       "-Wno-deprecated",
       "-Wno-missing-noreturn",
@@ -439,7 +450,6 @@ config("warnings") {
       "-Wno-c++98-compat",
       "-Wno-c++98-compat-pedantic",
       "-Wno-undefined-func-template",
-      "-Wno-return-std-move-in-c++11",
     ]
     cflags_objc += [
       "-Wno-direct-ivar-access",
@@ -448,6 +458,30 @@ config("warnings") {
     cflags_objcc += [
       "-Wno-direct-ivar-access",
       "-Wno-objcc-interface-ivars",
+    ]
+
+    # Wno-deprecated turns off the whole group, but also has its own warnings like
+    # out-of-line definition of constexpr static data member is redundant in C++17 and is deprecated [-Werror,-Wdeprecated]
+    # but we would like others. Created from clang/include/clang/Basic/DiagnosticGroups.td
+    cflags += [
+      "-Wdeprecated-anon-enum-enum-conversion",
+      "-Wdeprecated-array-compare",
+      "-Wdeprecated-attributes",
+      "-Wdeprecated-comma-subscript",
+      "-Wdeprecated-copy",
+
+      #"-Wdeprecated-copy-dtor",
+      #"-Wdeprecated-declarations",
+      "-Wdeprecated-dynamic-exception-spec",
+      "-Wdeprecated-enum-compare",
+      "-Wdeprecated-enum-compare-conditional",
+      "-Wdeprecated-enum-enum-conversion",
+      "-Wdeprecated-enum-float-conversion",
+      "-Wdeprecated-increment-bool",
+      "-Wdeprecated-register",
+      "-Wdeprecated-this-capture",
+      "-Wdeprecated-volatile",
+      "-Wdeprecated-writable-str",
     ]
   }
   if (!is_win || is_clang) {
@@ -550,7 +584,8 @@ config("executable") {
   } else if (is_win) {
     ldflags = [
       "/SUBSYSTEM:CONSOLE",  # Quiet "no subsystem specified; CONSOLE assumed".
-      "/INCREMENTAL:NO",  # Quiet warnings about failing to incrementally link by never trying to.
+      "/INCREMENTAL:NO",  # Quiet warnings about failing to incrementally link
+                          # by never trying to.
     ]
   }
 }

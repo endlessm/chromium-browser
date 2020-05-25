@@ -24,13 +24,11 @@
 namespace perfetto {
 namespace trace_processor {
 
-ProtoToArgsTable::ProtoToArgsTable(
-    PacketSequenceStateGeneration* sequence_state,
-    TraceProcessorContext* context,
-    std::string starting_prefix,
-    size_t prefix_size_hint)
-    : state_{context, sequence_state}, prefix_(std::move(starting_prefix)) {
-  prefix_.reserve(prefix_size_hint);
+ProtoToArgsTable::ProtoToArgsTable(TraceProcessorContext* context)
+    : context_(context) {
+  constexpr int kDefaultSize = 64;
+  key_prefix_.reserve(kDefaultSize);
+  flat_key_prefix_.reserve(kDefaultSize);
 }
 
 util::Status ProtoToArgsTable::AddProtoFileDescriptor(
@@ -43,21 +41,31 @@ util::Status ProtoToArgsTable::AddProtoFileDescriptor(
 util::Status ProtoToArgsTable::InternProtoIntoArgsTable(
     const protozero::ConstBytes& cb,
     const std::string& type,
-    ArgsTracker::BoundInserter* inserter) {
-  return InternProtoIntoArgsTableInternal(cb, type, inserter, &prefix_);
+    ArgsTracker::BoundInserter* inserter,
+    PacketSequenceStateGeneration* sequence_state,
+    const std::string& key_prefix) {
+  key_prefix_.assign(key_prefix);
+  flat_key_prefix_.assign(key_prefix);
+
+  ParsingOverrideState state{context_, sequence_state};
+  return InternProtoIntoArgsTableInternal(cb, type, inserter, state);
 }
 
 util::Status ProtoToArgsTable::InternProtoIntoArgsTableInternal(
     const protozero::ConstBytes& cb,
     const std::string& type,
     ArgsTracker::BoundInserter* inserter,
-    std::string* prefix) {
+    ParsingOverrideState state) {
   // Given |type| field the proto descriptor for this proto message.
   auto opt_proto_descriptor_idx = pool_.FindDescriptorIdx(type);
   if (!opt_proto_descriptor_idx) {
     return util::Status("Failed to find proto descriptor");
   }
   auto proto_descriptor = pool_.descriptors()[*opt_proto_descriptor_idx];
+
+  // For repeated fields, contains mapping from field descriptor index to
+  // current count of how many fields have been serialized with this field.
+  std::unordered_map<size_t, int> repeated_field_index;
 
   // Parse this message field by field until there are no bytes left.
   protozero::ProtoDecoder decoder(cb.data, cb.size);
@@ -73,16 +81,29 @@ util::Status ProtoToArgsTable::InternProtoIntoArgsTableInternal(
     const auto& field_descriptor =
         proto_descriptor.fields()[*opt_field_descriptor_idx];
 
+    std::string prefix_part = field_descriptor.name();
+    if (field_descriptor.is_repeated()) {
+      std::string number =
+          std::to_string(repeated_field_index[*opt_field_descriptor_idx]);
+      prefix_part.reserve(prefix_part.length() + number.length() + 2);
+      prefix_part.append("[");
+      prefix_part.append(number);
+      prefix_part.append("]");
+      repeated_field_index[*opt_field_descriptor_idx]++;
+    }
+
     // In the args table we build up message1.message2.field1 as the column
-    // name. This will append the ".field1" suffix to |prefix| and then remove
-    // it when it goes out of scope.
-    ScopedStringAppender scoped_prefix(field_descriptor.name(), prefix);
+    // name. This will append the ".field1" suffix to |key_prefix| and then
+    // remove it when it goes out of scope.
+    ScopedStringAppender scoped_prefix(prefix_part, &key_prefix_);
+    ScopedStringAppender scoped_flat_key_prefix(field_descriptor.name(),
+                                                &flat_key_prefix_);
 
     // If we have an override parser then use that instead and move onto the
     // next loop.
-    auto it = FindOverride(*prefix);
+    auto it = FindOverride(key_prefix_);
     if (it != overrides_.end()) {
-      if (it->second(state_, field, inserter)) {
+      if (it->second(state, field, inserter)) {
         continue;
       }
     }
@@ -94,14 +115,18 @@ util::Status ProtoToArgsTable::InternProtoIntoArgsTableInternal(
         protos::pbzero::FieldDescriptorProto::TYPE_MESSAGE) {
       auto status = InternProtoIntoArgsTableInternal(
           field.as_bytes(), field_descriptor.resolved_type_name(), inserter,
-          prefix);
+          state);
       if (!status.ok()) {
         return status;
       }
     } else {
-      const StringId id =
-          state_.context->storage->InternString(base::StringView(*prefix));
-      inserter->AddArg(id, ConvertProtoTypeToVariadic(field_descriptor, field));
+      const StringId key_id =
+          state.context->storage->InternString(base::StringView(key_prefix_));
+      const StringId flat_key_id = state.context->storage->InternString(
+          base::StringView(flat_key_prefix_));
+      inserter->AddArg(
+          flat_key_id, key_id,
+          ConvertProtoTypeToVariadic(field_descriptor, field, state));
     }
   }
   PERFETTO_DCHECK(decoder.bytes_left() == 0);
@@ -124,7 +149,8 @@ ProtoToArgsTable::OverrideIterator ProtoToArgsTable::FindOverride(
 
 Variadic ProtoToArgsTable::ConvertProtoTypeToVariadic(
     const FieldDescriptor& descriptor,
-    const protozero::Field& field) {
+    const protozero::Field& field,
+    ParsingOverrideState state) {
   using FieldDescriptorProto = protos::pbzero::FieldDescriptorProto;
   switch (descriptor.type()) {
     case FieldDescriptorProto::TYPE_INT32:
@@ -151,7 +177,7 @@ Variadic ProtoToArgsTable::ConvertProtoTypeToVariadic(
       return Variadic::Real(static_cast<double>(field.as_float()));
     case FieldDescriptorProto::TYPE_STRING:
       return Variadic::String(
-          state_.context->storage->InternString(field.as_string()));
+          state.context->storage->InternString(field.as_string()));
     case FieldDescriptorProto::TYPE_ENUM: {
       auto opt_enum_descriptor_idx =
           pool_.FindDescriptorIdx(descriptor.resolved_type_name());
@@ -166,7 +192,7 @@ Variadic ProtoToArgsTable::ConvertProtoTypeToVariadic(
         // Fall back to the integer representation of the field.
         return Variadic::Integer(field.as_int32());
       }
-      return Variadic::String(state_.context->storage->InternString(
+      return Variadic::String(state.context->storage->InternString(
           base::StringView(*opt_enum_string)));
     }
     default: {

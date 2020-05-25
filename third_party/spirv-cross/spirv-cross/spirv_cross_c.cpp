@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Hans-Kristian Arntzen
+ * Copyright 2019-2020 Hans-Kristian Arntzen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -420,6 +420,12 @@ spvc_result spvc_compiler_options_set_uint(spvc_compiler_options options, spvc_c
 	case SPVC_COMPILER_OPTION_EMIT_LINE_DIRECTIVES:
 		options->glsl.emit_line_directives = value != 0;
 		break;
+	case SPVC_COMPILER_OPTION_ENABLE_STORAGE_IMAGE_QUALIFIER_DEDUCTION:
+		options->glsl.enable_storage_image_qualifier_deduction = value != 0;
+		break;
+	case SPVC_COMPILER_OPTION_FORCE_ZERO_INITIALIZED_VARIABLES:
+		options->glsl.force_zero_initialized_variables = value != 0;
+		break;
 
 	case SPVC_COMPILER_OPTION_GLSL_SUPPORT_NONZERO_BASE_INSTANCE:
 		options->glsl.vertex.support_nonzero_base_instance = value != 0;
@@ -470,6 +476,10 @@ spvc_result spvc_compiler_options_set_uint(spvc_compiler_options options, spvc_c
 
 	case SPVC_COMPILER_OPTION_HLSL_SUPPORT_NONZERO_BASE_VERTEX_BASE_INSTANCE:
 		options->hlsl.support_nonzero_base_vertex_base_instance = value != 0;
+		break;
+
+	case SPVC_COMPILER_OPTION_HLSL_FORCE_STORAGE_BUFFER_AS_UAV:
+		options->hlsl.force_storage_buffer_as_uav = value != 0;
 		break;
 #endif
 
@@ -592,6 +602,14 @@ spvc_result spvc_compiler_options_set_uint(spvc_compiler_options options, spvc_c
 
 	case SPVC_COMPILER_OPTION_MSL_ENABLE_DECORATION_BINDING:
 		options->msl.enable_decoration_binding = value != 0;
+		break;
+
+	case SPVC_COMPILER_OPTION_MSL_FORCE_ACTIVE_ARGUMENT_BUFFER_RESOURCES:
+		options->msl.force_active_argument_buffer_resources = value != 0;
+		break;
+
+	case SPVC_COMPILER_OPTION_MSL_FORCE_NATIVE_ARRAYS:
+		options->msl.force_native_arrays = value != 0;
 		break;
 #endif
 
@@ -1020,6 +1038,26 @@ spvc_result spvc_compiler_msl_add_dynamic_buffer(spvc_compiler compiler, unsigne
 	(void)binding;
 	(void)desc_set;
 	(void)index;
+	compiler->context->report_error("MSL function used on a non-MSL backend.");
+	return SPVC_ERROR_INVALID_ARGUMENT;
+#endif
+}
+
+spvc_result spvc_compiler_msl_add_inline_uniform_block(spvc_compiler compiler, unsigned desc_set, unsigned binding)
+{
+#if SPIRV_CROSS_C_API_MSL
+	if (compiler->backend != SPVC_BACKEND_MSL)
+	{
+		compiler->context->report_error("MSL function used on a non-MSL backend.");
+		return SPVC_ERROR_INVALID_ARGUMENT;
+	}
+
+	auto &msl = *static_cast<CompilerMSL *>(compiler->compiler.get());
+	msl.add_inline_uniform_block(desc_set, binding);
+	return SPVC_SUCCESS;
+#else
+	(void)binding;
+	(void)desc_set;
 	compiler->context->report_error("MSL function used on a non-MSL backend.");
 	return SPVC_ERROR_INVALID_ARGUMENT;
 #endif

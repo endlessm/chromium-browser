@@ -29,7 +29,6 @@ public:
     bool isFormatSRGB(const GrBackendFormat&) const override;
     SkImage::CompressionType compressionType(const GrBackendFormat&) const override;
 
-    bool isFormatTexturableAndUploadable(GrColorType, const GrBackendFormat&) const override;
     bool isFormatTexturable(const GrBackendFormat&) const override;
     bool isFormatTexturable(MTLPixelFormat) const;
 
@@ -87,7 +86,7 @@ public:
     }
 
     GrSwizzle getReadSwizzle(const GrBackendFormat&, GrColorType) const override;
-    GrSwizzle getOutputSwizzle(const GrBackendFormat&, GrColorType) const override;
+    GrSwizzle getWriteSwizzle(const GrBackendFormat&, GrColorType) const override;
 
     uint64_t computeFormatKey(const GrBackendFormat&) const override;
 
@@ -96,6 +95,7 @@ public:
 #if GR_TEST_UTILS
     std::vector<TestFormatColorTypeCombination> getTestingCombinations() const override;
 #endif
+    void onDumpJSON(SkJSONWriter*) const override;
 
 private:
     void initFeatureSet(MTLFeatureSet featureSet);
@@ -110,7 +110,7 @@ private:
     bool onSurfaceSupportsWritePixels(const GrSurface*) const override;
     bool onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
                           const SkIRect& srcRect, const SkIPoint& dstPoint) const override;
-    GrBackendFormat onGetDefaultBackendFormat(GrColorType, GrRenderable) const override;
+    GrBackendFormat onGetDefaultBackendFormat(GrColorType) const override;
     bool onAreColorTypeAndFormatCompatible(GrColorType, const GrBackendFormat&) const override;
 
     SupportedRead onSupportedReadPixelsColorType(GrColorType, const GrBackendFormat&,
@@ -128,7 +128,7 @@ private:
         uint32_t fFlags = 0;
 
         GrSwizzle fReadSwizzle;
-        GrSwizzle fOutputSwizzle;
+        GrSwizzle fWriteSwizzle;
     };
 
     struct FormatInfo {
@@ -161,7 +161,7 @@ private:
 #ifdef SK_BUILD_FOR_IOS
     static constexpr size_t kNumMtlFormats = 17;
 #else
-    static constexpr size_t kNumMtlFormats = 15;
+    static constexpr size_t kNumMtlFormats = 16;
 #endif
     static size_t GetFormatIndex(MTLPixelFormat);
     FormatInfo fFormatTable[kNumMtlFormats];

@@ -195,6 +195,14 @@ sk_sp<const GrGLInterface> GrGLMakeAssembledGLESInterface(void *ctx, GrGLGetProc
         GET_PROC_SUFFIX(DrawElementsInstanced, EXT);
     }
 
+    if (extensions.has("GL_EXT_base_instance")) {
+        GET_PROC_SUFFIX(DrawArraysInstancedBaseInstance, EXT);
+        GET_PROC_SUFFIX(DrawElementsInstancedBaseVertexBaseInstance, EXT);
+    } else if (extensions.has("GL_ANGLE_base_vertex_base_instance")) {
+        GET_PROC_SUFFIX(DrawArraysInstancedBaseInstance, ANGLE);
+        GET_PROC_SUFFIX(DrawElementsInstancedBaseVertexBaseInstance, ANGLE);
+    }
+
     if (glVer >= GR_GL_VER(3,0)) {
         GET_PROC(DrawBuffers);
         GET_PROC(ReadBuffer);
@@ -522,6 +530,6 @@ sk_sp<const GrGLInterface> GrGLMakeAssembledGLESInterface(void *ctx, GrGLGetProc
     interface->fStandard = kGLES_GrGLStandard;
     interface->fExtensions.swap(&extensions);
 
-    return interface;
+    return std::move(interface);
 }
 #endif

@@ -16,6 +16,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/browser/apps/app_service/app_service_test.h"
+#include "chrome/browser/chromeos/child_accounts/time_limits/app_time_test_utils.h"
 #include "chrome/browser/chromeos/child_accounts/time_limits/app_types.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -53,52 +54,6 @@ constexpr char kWebAppUrl1[] = "https://webappone.com/";
 constexpr char kWebAppName1[] = "WebApp1";
 constexpr char kWebAppUrl2[] = "https://webapptwo.com/";
 constexpr char kWebAppName2[] = "WebApp2";
-
-arc::mojom::ArcPackageInfoPtr CreateArcAppPackage(
-    const std::string& package_name) {
-  auto package = arc::mojom::ArcPackageInfo::New();
-  package->package_name = package_name;
-  package->package_version = 1;
-  package->last_backup_android_id = 1;
-  package->last_backup_time = 1;
-  package->sync = false;
-  package->system = false;
-  package->permissions = base::flat_map<::arc::mojom::AppPermission, bool>();
-  return package;
-}
-
-arc::mojom::AppInfo CreateArcAppInfo(const std::string& package_name,
-                                     const std::string& name) {
-  arc::mojom::AppInfo app;
-  app.package_name = package_name;
-  app.name = name;
-  app.activity = base::StrCat({name, "Activity"});
-  app.sticky = true;
-  return app;
-}
-
-scoped_refptr<extensions::Extension> CreateExtension(
-    const std::string& extension_id,
-    const std::string& name,
-    const std::string& url,
-    bool is_bookmark_app = false) {
-  base::Value manifest(base::Value::Type::DICTIONARY);
-  manifest.SetStringPath(extensions::manifest_keys::kName, name);
-  manifest.SetStringPath(extensions::manifest_keys::kVersion, "1");
-  manifest.SetIntPath(extensions::manifest_keys::kManifestVersion, 2);
-  manifest.SetStringPath(extensions::manifest_keys::kLaunchWebURL, url);
-
-  std::string error;
-  extensions::Extension::InitFromValueFlags flags =
-      is_bookmark_app ? extensions::Extension::FROM_BOOKMARK
-                      : extensions::Extension::NO_FLAGS;
-  scoped_refptr<extensions::Extension> extension =
-      extensions::Extension::Create(
-          base::FilePath(), extensions::Manifest::UNPACKED,
-          static_cast<base::DictionaryValue&>(manifest), flags, extension_id,
-          &error);
-  return extension;
-}
 
 }  // namespace
 
@@ -269,8 +224,8 @@ TEST_F(AppServiceWrapperTest, GetInstalledApps) {
   // extensions (with exception of Chrome) now.
   const AppId app2(apps::mojom::AppType::kExtension,
                    web_app::GenerateAppIdFromURL(GURL(kExtensionAppUrl)));
-  // PATL does not support extensions, so there will be no install notification.
-  EXPECT_CALL(test_listener(), OnAppInstalled(app2)).Times(0);
+
+  EXPECT_CALL(test_listener(), OnAppInstalled(app2)).Times(1);
   SimulateAppInstalled(app2, kExtensionNameA, kExtensionAppUrl);
 
   // Add web app.
@@ -279,10 +234,10 @@ TEST_F(AppServiceWrapperTest, GetInstalledApps) {
   EXPECT_CALL(test_listener(), OnAppInstalled(app3)).Times(1);
   SimulateAppInstalled(app3, kWebAppName1, kWebAppUrl1);
 
-  // We get ARC and web app plus Chrome that is 'preinstalled'.
-  const std::vector<AppId> expected_apps = {chrome, app1, app3};
+  // Expect, chrome, ARC app, hosted extension app and web app to be included.
+  const std::vector<AppId> expected_apps = {chrome, app1, app2, app3};
   installed_apps = tested_wrapper().GetInstalledApps();
-  ASSERT_EQ(3u, installed_apps.size());
+  ASSERT_EQ(4u, installed_apps.size());
   for (const auto& app : expected_apps) {
     EXPECT_TRUE(base::Contains(installed_apps, app));
   }
@@ -299,8 +254,8 @@ TEST_F(AppServiceWrapperTest, GetAppName) {
 
   const AppId app2(apps::mojom::AppType::kExtension,
                    web_app::GenerateAppIdFromURL(GURL(kExtensionAppUrl)));
-  // PATL does not support extensions, so there will be no install notification.
-  EXPECT_CALL(test_listener(), OnAppInstalled(app2)).Times(0);
+
+  EXPECT_CALL(test_listener(), OnAppInstalled(app2)).Times(1);
   SimulateAppInstalled(app2, kExtensionNameA, kExtensionAppUrl);
 
   const AppId app3(apps::mojom::AppType::kWeb,
@@ -419,12 +374,16 @@ TEST_F(AppServiceWrapperTest, IgnoreOtherExtensions) {
 
   const AppId app1(apps::mojom::AppType::kExtension,
                    web_app::GenerateAppIdFromURL(GURL(kExtensionAppUrl)));
-  EXPECT_CALL(test_listener(), OnAppInstalled(app1)).Times(0);
+  EXPECT_CALL(test_listener(), OnAppInstalled(app1)).Times(1);
   SimulateAppInstalled(app1, kExtensionNameA, kExtensionAppUrl);
 
   installed_apps = tested_wrapper().GetInstalledApps();
-  EXPECT_EQ(1u, installed_apps.size());
+  EXPECT_EQ(2u, installed_apps.size());
   EXPECT_TRUE(base::Contains(installed_apps, chrome));
+
+  // TODO(yilkal): simulate install for non hosted extension apps (such as
+  // platform extensions apps, normal extensions, theme extensions for this
+  // test)
 }
 
 // TODO(agawronska): Add tests for ARC apps activity once crrev.com/c/1906614 is

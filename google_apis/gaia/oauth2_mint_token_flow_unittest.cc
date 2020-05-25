@@ -234,11 +234,13 @@ class OAuth2MintTokenFlowTest : public testing::Test {
                   const std::string& consent_result) {
     std::string ext_id = "ext1";
     std::string client_id = "client1";
+    std::string version = "test_version";
+    std::string channel = "test_channel";
     std::vector<std::string> scopes(CreateTestScopes());
     flow_ = std::make_unique<MockMintTokenFlow>(
-        delegate,
-        OAuth2MintTokenFlow::Parameters(ext_id, client_id, scopes, device_id,
-                                        consent_result, mode));
+        delegate, OAuth2MintTokenFlow::Parameters(ext_id, client_id, scopes,
+                                                  device_id, consent_result,
+                                                  version, channel, mode));
   }
 
   void ProcessApiCallSuccess(const network::mojom::URLResponseHead* head,
@@ -274,7 +276,9 @@ TEST_F(OAuth2MintTokenFlowTest, CreateApiCallBody) {
         "&response_type=none"
         "&scope=http://scope1+http://scope2"
         "&client_id=client1"
-        "&origin=ext1");
+        "&origin=ext1"
+        "&lib_ver=test_version"
+        "&release_channel=test_channel");
     EXPECT_EQ(expected_body, body);
   }
   {  // Record grant mode.
@@ -285,7 +289,9 @@ TEST_F(OAuth2MintTokenFlowTest, CreateApiCallBody) {
         "&response_type=none"
         "&scope=http://scope1+http://scope2"
         "&client_id=client1"
-        "&origin=ext1");
+        "&origin=ext1"
+        "&lib_ver=test_version"
+        "&release_channel=test_channel");
     EXPECT_EQ(expected_body, body);
   }
   {  // Mint token no force mode.
@@ -296,7 +302,9 @@ TEST_F(OAuth2MintTokenFlowTest, CreateApiCallBody) {
         "&response_type=token"
         "&scope=http://scope1+http://scope2"
         "&client_id=client1"
-        "&origin=ext1");
+        "&origin=ext1"
+        "&lib_ver=test_version"
+        "&release_channel=test_channel");
     EXPECT_EQ(expected_body, body);
   }
   {  // Mint token force mode.
@@ -307,7 +315,9 @@ TEST_F(OAuth2MintTokenFlowTest, CreateApiCallBody) {
         "&response_type=token"
         "&scope=http://scope1+http://scope2"
         "&client_id=client1"
-        "&origin=ext1");
+        "&origin=ext1"
+        "&lib_ver=test_version"
+        "&release_channel=test_channel");
     EXPECT_EQ(expected_body, body);
   }
   {  // Mint token with device_id.
@@ -319,9 +329,10 @@ TEST_F(OAuth2MintTokenFlowTest, CreateApiCallBody) {
         "&scope=http://scope1+http://scope2"
         "&client_id=client1"
         "&origin=ext1"
+        "&lib_ver=test_version"
+        "&release_channel=test_channel"
         "&device_id=device_id1"
-        "&device_type=chrome"
-        "&lib_ver=extension");
+        "&device_type=chrome");
     EXPECT_EQ(expected_body, body);
   }
   {
@@ -333,6 +344,8 @@ TEST_F(OAuth2MintTokenFlowTest, CreateApiCallBody) {
         "&scope=http://scope1+http://scope2"
         "&client_id=client1"
         "&origin=ext1"
+        "&lib_ver=test_version"
+        "&release_channel=test_channel"
         "&consent_result=consent1");
     EXPECT_EQ(expected_body, body);
   }

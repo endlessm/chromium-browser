@@ -24,6 +24,7 @@ class GrCaps;
 class GrClientMappedBufferManager;
 class GrContextPriv;
 class GrContextThreadSafeProxy;
+struct GrD3DBackendContext;
 class GrFragmentProcessor;
 struct GrGLInterface;
 class GrGpu;
@@ -39,6 +40,7 @@ class GrTextureProxy;
 struct GrVkBackendContext;
 
 class SkImage;
+class SkString;
 class SkSurfaceCharacterization;
 class SkSurfaceProps;
 class SkTaskGroup;
@@ -46,6 +48,7 @@ class SkTraceMemoryDump;
 
 class SK_API GrContext : public GrRecordingContext {
 public:
+#ifdef SK_GL
     /**
      * Creates a GrContext for a backend context. If no GrGLInterface is provided then the result of
      * GrGLMakeNativeInterface() is used if it succeeds.
@@ -54,9 +57,10 @@ public:
     static sk_sp<GrContext> MakeGL(sk_sp<const GrGLInterface>);
     static sk_sp<GrContext> MakeGL(const GrContextOptions&);
     static sk_sp<GrContext> MakeGL();
+#endif
 
     /**
-     * The Vulkan context (VkQueue, VkDevice, VkInstance) must be kept alive unitl the returned
+     * The Vulkan context (VkQueue, VkDevice, VkInstance) must be kept alive until the returned
      * GrContext is first destroyed or abandoned.
      */
     static sk_sp<GrContext> MakeVulkan(const GrVkBackendContext&, const GrContextOptions&);
@@ -71,6 +75,16 @@ public:
      */
     static sk_sp<GrContext> MakeMetal(void* device, void* queue, const GrContextOptions& options);
     static sk_sp<GrContext> MakeMetal(void* device, void* queue);
+#endif
+
+#ifdef SK_DIRECT3D
+    /**
+     * Makes a GrContext which uses Direct3D as the backend. The Direct3D context
+     * must be kept alive until the returned GrContext is first destroyed or abandoned.
+     */
+    static sk_sp<GrContext> MakeDirect3D(const GrD3DBackendContext&,
+                                         const GrContextOptions& options);
+    static sk_sp<GrContext> MakeDirect3D(const GrD3DBackendContext&);
 #endif
 
 #ifdef SK_DAWN
@@ -123,9 +137,12 @@ public:
     void abandonContext() override;
 
     /**
-     * Returns true if the context was abandoned.
+     * Returns true if the context was abandoned or if the if the backend specific context has
+     * gotten into an unrecoverarble, lost state (e.g. in Vulkan backend if we've gotten a
+     * VK_ERROR_DEVICE_LOST). If the backend context is lost, this call will also abandon the
+     * GrContext.
      */
-    using GrImageContext::abandoned;
+    bool abandoned() override;
 
     /**
      * This is similar to abandonContext() however the underlying 3D context is not yet lost and

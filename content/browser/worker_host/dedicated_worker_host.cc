@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <memory>
 #include <string>
 #include <utility>
 
@@ -14,6 +13,7 @@
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/interface_provider_filtering.h"
+#include "content/browser/net/cross_origin_embedder_policy_reporter.h"
 #include "content/browser/service_worker/service_worker_main_resource_handle.h"
 #include "content/browser/service_worker/service_worker_object_host.h"
 #include "content/browser/storage_partition_impl.h"
@@ -46,6 +46,9 @@ DedicatedWorkerHost::DedicatedWorkerHost(
     base::Optional<GlobalFrameRoutingId> creator_render_frame_host_id,
     GlobalFrameRoutingId ancestor_render_frame_host_id,
     const url::Origin& creator_origin,
+    const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter,
     mojo::PendingReceiver<blink::mojom::DedicatedWorkerHost> host)
     : service_(service),
       id_(id),
@@ -57,9 +60,13 @@ DedicatedWorkerHost::DedicatedWorkerHost(
       // TODO(https://crbug.com/1058759): Calculate the worker origin based on
       // the worker script URL.
       worker_origin_(creator_origin),
-      host_receiver_(this, std::move(host)) {
+      cross_origin_embedder_policy_(cross_origin_embedder_policy),
+      host_receiver_(this, std::move(host)),
+      coep_reporter_(std::move(coep_reporter)) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(worker_process_host_);
+  DCHECK(worker_process_host_->IsInitializedAndNotDead());
+  DCHECK(coep_reporter_);
 
   scoped_process_host_observer_.Add(worker_process_host_);
 
@@ -201,8 +208,10 @@ void DedicatedWorkerHost::StartScriptLoad(
 
   WorkerScriptFetchInitiator::Start(
       worker_process_host_->GetID(), script_url, creator_render_frame_host,
+      nearest_ancestor_render_frame_host->ComputeSiteForCookies(),
       creator_origin_, network_isolation_key_, credentials_mode,
-      std::move(outside_fetch_client_settings_object), ResourceType::kWorker,
+      std::move(outside_fetch_client_settings_object),
+      blink::mojom::ResourceType::kWorker,
       storage_partition_impl->GetServiceWorkerContext(),
       service_worker_handle_.get(),
       appcache_host ? appcache_host->GetWeakPtr() : nullptr,
@@ -212,14 +221,19 @@ void DedicatedWorkerHost::StartScriptLoad(
                      weak_factory_.GetWeakPtr()));
 }
 
+void DedicatedWorkerHost::ReportNoBinderForInterface(const std::string& error) {
+  broker_receiver_.ReportBadMessage(error + " for the dedicated worker scope");
+}
+
 void DedicatedWorkerHost::DidStartScriptLoad(
+    bool success,
     std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
         subresource_loader_factories,
     blink::mojom::WorkerMainScriptLoadParamsPtr main_script_load_params,
     blink::mojom::ControllerServiceWorkerInfoPtr controller,
     base::WeakPtr<ServiceWorkerObjectHost>
         controller_service_worker_object_host,
-    bool success) {
+    const GURL& final_response_url) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker));
 
@@ -229,7 +243,8 @@ void DedicatedWorkerHost::DidStartScriptLoad(
   }
 
   // TODO(https://crbug.com/986188): Check if the main script's final response
-  // URL is commitable.
+  // URL is committable.
+  service_->NotifyWorkerFinalResponseURLDetermined(id_, final_response_url);
 
   // TODO(cammie): Change this approach when we support shared workers
   // creating dedicated workers, as there might be no ancestor frame.
@@ -298,10 +313,17 @@ DedicatedWorkerHost::CreateNetworkFactoryForSubresources(
   mojo::PendingReceiver<network::mojom::URLLoaderFactory>
       default_factory_receiver =
           pending_default_factory.InitWithNewPipeAndPassReceiver();
+  mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      coep_reporter;
+  DCHECK(coep_reporter_);
+  coep_reporter_->Clone(coep_reporter.InitWithNewPipeAndPassReceiver());
 
   network::mojom::URLLoaderFactoryParamsPtr factory_params =
       URLLoaderFactoryParamsHelper::CreateForFrame(
-          ancestor_render_frame_host, worker_origin_, worker_process_host_);
+          ancestor_render_frame_host, worker_origin_,
+          mojo::Clone(ancestor_render_frame_host
+                          ->last_committed_client_security_state()),
+          std::move(coep_reporter), worker_process_host_);
   GetContentClient()->browser()->WillCreateURLLoaderFactory(
       worker_process_host_->GetBrowserContext(),
       /*frame=*/nullptr, worker_process_host_->GetID(),
@@ -369,14 +391,40 @@ void DedicatedWorkerHost::CreateQuicTransportConnector(
                               std::move(receiver));
 }
 
+void DedicatedWorkerHost::CreateWakeLockService(
+    mojo::PendingReceiver<blink::mojom::WakeLockService> receiver) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  // Unconditionally disallow wake locks from workers until
+  // WakeLockPermissionContext has been updated to no longer force the
+  // permission to "denied" and WakeLockServiceImpl checks permissions on
+  // every request.
+  return;
+}
+
+void DedicatedWorkerHost::BindCacheStorage(
+    mojo::PendingReceiver<blink::mojom::CacheStorage> receiver) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      coep_reporter;
+  coep_reporter_->Clone(coep_reporter.InitWithNewPipeAndPassReceiver());
+  worker_process_host_->BindCacheStorage(cross_origin_embedder_policy_,
+                                         std::move(coep_reporter),
+                                         worker_origin_, std::move(receiver));
+}
+
 void DedicatedWorkerHost::CreateNestedDedicatedWorker(
     mojo::PendingReceiver<blink::mojom::DedicatedWorkerHostFactory> receiver) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      coep_reporter;
+  coep_reporter_->Clone(coep_reporter.InitWithNewPipeAndPassReceiver());
   // There is no creator frame when the worker is nested.
   CreateDedicatedWorkerHostFactory(
       worker_process_host_->GetID(),
       /*creator_render_frame_host_id_=*/base::nullopt,
-      ancestor_render_frame_host_id_, worker_origin_, std::move(receiver));
+      ancestor_render_frame_host_id_, worker_origin_,
+      cross_origin_embedder_policy_, std::move(coep_reporter),
+      std::move(receiver));
 }
 
 void DedicatedWorkerHost::CreateIdleManager(
@@ -503,11 +551,16 @@ class DedicatedWorkerHostFactoryImpl final
       int worker_process_id,
       base::Optional<GlobalFrameRoutingId> creator_render_frame_host_id,
       GlobalFrameRoutingId ancestor_render_frame_host_id,
-      const url::Origin& creator_origin)
+      const url::Origin& creator_origin,
+      const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
+      mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+          coep_reporter)
       : worker_process_id_(worker_process_id),
         creator_render_frame_host_id_(creator_render_frame_host_id),
         ancestor_render_frame_host_id_(ancestor_render_frame_host_id),
-        creator_origin_(creator_origin) {
+        creator_origin_(creator_origin),
+        cross_origin_embedder_policy_(cross_origin_embedder_policy),
+        coep_reporter_(std::move(coep_reporter)) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
   }
 
@@ -515,16 +568,20 @@ class DedicatedWorkerHostFactoryImpl final
   void CreateWorkerHost(
       mojo::PendingReceiver<blink::mojom::BrowserInterfaceBroker>
           broker_receiver,
-      mojo::PendingReceiver<blink::mojom::DedicatedWorkerHost> host_receiver)
-      override {
+      mojo::PendingReceiver<blink::mojom::DedicatedWorkerHost> host_receiver,
+      base::OnceCallback<void(const network::CrossOriginEmbedderPolicy&)>
+          callback) override {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     if (base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker)) {
       mojo::ReportBadMessage("DWH_INVALID_WORKER_CREATION");
       return;
     }
 
+    std::move(callback).Run(cross_origin_embedder_policy_);
+
     auto* worker_process_host = RenderProcessHost::FromID(worker_process_id_);
-    if (!worker_process_host) {
+    if (!worker_process_host ||
+        !worker_process_host->IsInitializedAndNotDead()) {
       // Abort if the worker's process host is gone. This means that the calling
       // frame or worker is also either destroyed or in the process of being
       // destroyed.
@@ -538,10 +595,15 @@ class DedicatedWorkerHostFactoryImpl final
     DedicatedWorkerServiceImpl* service =
         storage_partition->GetDedicatedWorkerService();
 
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter;
+    coep_reporter_->Clone(coep_reporter.InitWithNewPipeAndPassReceiver());
+
     auto* host = new DedicatedWorkerHost(
         service, service->GenerateNextDedicatedWorkerId(), worker_process_host,
         creator_render_frame_host_id_, ancestor_render_frame_host_id_,
-        creator_origin_, std::move(host_receiver));
+        creator_origin_, cross_origin_embedder_policy_,
+        std::move(coep_reporter), std::move(host_receiver));
     host->BindBrowserInterfaceBrokerReceiver(std::move(broker_receiver));
   }
 
@@ -566,7 +628,8 @@ class DedicatedWorkerHostFactoryImpl final
     // |script_url|, and report as bad message if that fails.
 
     auto* worker_process_host = RenderProcessHost::FromID(worker_process_id_);
-    if (!worker_process_host) {
+    if (!worker_process_host ||
+        !worker_process_host->IsInitializedAndNotDead()) {
       // Abort if the worker's process host is gone. This means that the calling
       // frame or worker is also either destroyed or in the process of being
       // destroyed.
@@ -580,10 +643,15 @@ class DedicatedWorkerHostFactoryImpl final
     DedicatedWorkerServiceImpl* service =
         storage_partition->GetDedicatedWorkerService();
 
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter;
+    coep_reporter_->Clone(coep_reporter.InitWithNewPipeAndPassReceiver());
+
     auto* host = new DedicatedWorkerHost(
         service, service->GenerateNextDedicatedWorkerId(), worker_process_host,
         creator_render_frame_host_id_, ancestor_render_frame_host_id_,
-        creator_origin_, std::move(host_receiver));
+        creator_origin_, cross_origin_embedder_policy_,
+        std::move(coep_reporter), std::move(host_receiver));
     mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker> broker;
     host->BindBrowserInterfaceBrokerReceiver(
         broker.InitWithNewPipeAndPassReceiver());
@@ -604,6 +672,9 @@ class DedicatedWorkerHostFactoryImpl final
   const GlobalFrameRoutingId ancestor_render_frame_host_id_;
 
   const url::Origin creator_origin_;
+  const network::CrossOriginEmbedderPolicy cross_origin_embedder_policy_;
+  mojo::Remote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      coep_reporter_;
 
   DISALLOW_COPY_AND_ASSIGN(DedicatedWorkerHostFactoryImpl);
 };
@@ -615,12 +686,16 @@ void CreateDedicatedWorkerHostFactory(
     base::Optional<GlobalFrameRoutingId> creator_render_frame_host_id,
     GlobalFrameRoutingId ancestor_render_frame_host_id,
     const url::Origin& creator_origin,
+    const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy,
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter,
     mojo::PendingReceiver<blink::mojom::DedicatedWorkerHostFactory> receiver) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   mojo::MakeSelfOwnedReceiver(
       std::make_unique<DedicatedWorkerHostFactoryImpl>(
           worker_process_id, creator_render_frame_host_id,
-          ancestor_render_frame_host_id, creator_origin),
+          ancestor_render_frame_host_id, creator_origin,
+          cross_origin_embedder_policy, std::move(coep_reporter)),
       std::move(receiver));
 }
 

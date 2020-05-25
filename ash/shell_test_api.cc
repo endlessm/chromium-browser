@@ -94,7 +94,6 @@ class WindowAnimationWaiter : public ui::LayerAnimationObserver {
       ui::LayerAnimationSequence* sequence) override {}
 
   void Wait() {
-    DCHECK(animator_->is_animating());
     run_loop_.Run();
   }
 
@@ -164,6 +163,7 @@ void ShellTestApi::SetTabletModeEnabledForTest(bool enable,
   // to prevent the callback from evdev thread from overwriting whatever we set
   // here below. See `InputDeviceFactoryEvdevProxy::OnStartupScanComplete()`.
   base::RunLoop().RunUntilIdle();
+  ui::DeviceDataManagerTestApi().OnDeviceListsComplete();
   ui::DeviceDataManagerTestApi().SetMouseDevices({});
 
   TabletMode::Waiter waiter(enable);

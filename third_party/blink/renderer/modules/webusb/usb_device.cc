@@ -161,20 +161,20 @@ bool ConvertBufferSource(const ArrayBufferOrArrayBufferView& buffer_source,
     vector->Append(static_cast<uint8_t*>(array_buffer->Data()),
                    static_cast<wtf_size_t>(array_buffer->ByteLengthAsSizeT()));
   } else {
-    ArrayBufferView* view = buffer_source.GetAsArrayBufferView().View()->View();
-    if (!view->Buffer() || view->Buffer()->IsDetached()) {
+    DOMArrayBufferView* view = buffer_source.GetAsArrayBufferView().View();
+    if (!view->buffer() || view->buffer()->IsDetached()) {
       resolver->Reject(MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kInvalidStateError, kDetachedBuffer));
       return false;
     }
-    if (view->ByteLengthAsSizeT() > std::numeric_limits<wtf_size_t>::max()) {
+    if (view->byteLengthAsSizeT() > std::numeric_limits<wtf_size_t>::max()) {
       resolver->Reject(MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kDataError, kBufferTooBig));
       return false;
     }
 
     vector->Append(static_cast<uint8_t*>(view->BaseAddress()),
-                   static_cast<wtf_size_t>(view->ByteLengthAsSizeT()));
+                   static_cast<wtf_size_t>(view->byteLengthAsSizeT()));
   }
   return true;
 }
@@ -184,7 +184,7 @@ bool ConvertBufferSource(const ArrayBufferOrArrayBufferView& buffer_source,
 USBDevice::USBDevice(UsbDeviceInfoPtr device_info,
                      mojo::PendingRemote<UsbDevice> device,
                      ExecutionContext* context)
-    : ContextLifecycleObserver(context),
+    : ExecutionContextLifecycleObserver(context),
       device_info_(std::move(device_info)),
       device_(std::move(device)),
       opened_(false),
@@ -314,11 +314,12 @@ ScriptPromise USBDevice::claimInterface(ScriptState* script_state,
       resolver->Resolve();
     } else if (IsProtectedInterfaceClass(interface_index)) {
       GetExecutionContext()->AddConsoleMessage(
-          ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
-                                 mojom::ConsoleMessageLevel::kWarning,
-                                 "An attempt to claim a USB device interface "
-                                 "has been blocked because it "
-                                 "implements a protected interface class."));
+          MakeGarbageCollected<ConsoleMessage>(
+              mojom::ConsoleMessageSource::kJavaScript,
+              mojom::ConsoleMessageLevel::kWarning,
+              "An attempt to claim a USB device interface "
+              "has been blocked because it "
+              "implements a protected interface class."));
       resolver->Reject(MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kSecurityError,
           "The requested interface implements a protected class."));
@@ -589,15 +590,15 @@ ScriptPromise USBDevice::reset(ScriptState* script_state) {
   return promise;
 }
 
-void USBDevice::ContextDestroyed(ExecutionContext*) {
+void USBDevice::ContextDestroyed() {
   device_.reset();
   device_requests_.clear();
 }
 
-void USBDevice::Trace(blink::Visitor* visitor) {
+void USBDevice::Trace(Visitor* visitor) {
   visitor->Trace(device_requests_);
   ScriptWrappable::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 wtf_size_t USBDevice::FindConfigurationIndex(
@@ -1082,7 +1083,8 @@ void USBDevice::AsyncIsochronousTransferIn(
           DOMDataView::Create(buffer, byte_offset, packet->transferred_length);
     }
     packets.push_back(USBIsochronousInTransferPacket::Create(
-        ConvertTransferStatus(packet->status), data_view));
+        ConvertTransferStatus(packet->status),
+        NotShared<DOMDataView>(data_view)));
     byte_offset += packet->length;
   }
   resolver->Resolve(USBIsochronousInTransferResult::Create(buffer, packets));

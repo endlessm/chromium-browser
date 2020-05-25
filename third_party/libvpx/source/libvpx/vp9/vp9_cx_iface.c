@@ -61,6 +61,7 @@ typedef struct vp9_extracfg {
   int render_height;
   unsigned int row_mt;
   unsigned int motion_vector_unit_test;
+  int delta_q_uv;
 } vp9_extracfg;
 
 static struct vp9_extracfg default_extra_cfg = {
@@ -95,6 +96,7 @@ static struct vp9_extracfg default_extra_cfg = {
   0,                     // render height
   0,                     // row_mt
   0,                     // motion_vector_unit_test
+  0,                     // delta_q_uv
 };
 
 struct vpx_codec_alg_priv {
@@ -600,6 +602,8 @@ static vpx_codec_err_t set_encoder_config(
 
   oxcf->row_mt = extra_cfg->row_mt;
   oxcf->motion_vector_unit_test = extra_cfg->motion_vector_unit_test;
+
+  oxcf->delta_q_uv = extra_cfg->delta_q_uv;
 
   for (sl = 0; sl < oxcf->ss_number_layers; ++sl) {
     for (tl = 0; tl < oxcf->ts_number_layers; ++tl) {
@@ -1201,8 +1205,9 @@ static vpx_codec_err_t encoder_encode(vpx_codec_alg_priv_t *ctx,
       // compute first pass stats
       if (img) {
         int ret;
-        ENCODE_FRAME_RESULT encode_frame_result;
         vpx_codec_cx_pkt_t fps_pkt;
+        ENCODE_FRAME_RESULT encode_frame_result;
+        vp9_init_encode_frame_result(&encode_frame_result);
         // TODO(angiebird): Call vp9_first_pass directly
         ret = vp9_get_compressed_data(cpi, &lib_flags, &size, cx_data,
                                       &dst_time_stamp, &dst_end_time_stamp,
@@ -1225,6 +1230,7 @@ static vpx_codec_err_t encoder_encode(vpx_codec_alg_priv_t *ctx,
 #endif  // !CONFIG_REALTIME_ONLY
     } else {
       ENCODE_FRAME_RESULT encode_frame_result;
+      vp9_init_encode_frame_result(&encode_frame_result);
       while (cx_data_sz >= ctx->cx_data_sz / 2 &&
              -1 != vp9_get_compressed_data(cpi, &lib_flags, &size, cx_data,
                                            &dst_time_stamp, &dst_end_time_stamp,
@@ -1642,12 +1648,11 @@ static vpx_codec_err_t ctrl_set_svc_spatial_layer_sync(
 
 static vpx_codec_err_t ctrl_set_delta_q_uv(vpx_codec_alg_priv_t *ctx,
                                            va_list args) {
+  struct vp9_extracfg extra_cfg = ctx->extra_cfg;
   int data = va_arg(args, int);
-  VP9_COMP *const cpi = ctx->cpi;
-  data = VPXMIN(VPXMAX(data, -20), 20);
-  cpi->oxcf.delta_q_uv = data;
-  ctx->oxcf.delta_q_uv = data;
-  return VPX_CODEC_OK;
+  data = VPXMIN(VPXMAX(data, -15), 15);
+  extra_cfg.delta_q_uv = data;
+  return update_extra_cfg(ctx, &extra_cfg);
 }
 
 static vpx_codec_err_t ctrl_register_cx_callback(vpx_codec_alg_priv_t *ctx,

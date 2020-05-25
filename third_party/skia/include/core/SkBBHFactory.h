@@ -8,15 +8,35 @@
 #ifndef SkBBHFactory_DEFINED
 #define SkBBHFactory_DEFINED
 
+#include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypes.h"
+#include <vector>
 
 class SkBBoxHierarchy : public SkRefCnt {
 public:
     SkBBoxHierarchy() {}
     virtual ~SkBBoxHierarchy() {}
 
-    // Future public APIs may go here.
+    struct Metadata {
+        bool isDraw;  // The corresponding SkRect bounds a draw command, not a pure state change.
+    };
+
+    /**
+     * Insert N bounding boxes into the hierarchy.
+     */
+    virtual void insert(const SkRect[], int N) = 0;
+    virtual void insert(const SkRect[], const Metadata[], int N);
+
+    /**
+     * Populate results with the indices of bounding boxes intersecting that query.
+     */
+    virtual void search(const SkRect& query, std::vector<int>* results) const = 0;
+
+    /**
+     * Return approximate size in memory of *this.
+     */
+    virtual size_t bytesUsed() const = 0;
 };
 
 class SK_API SkBBHFactory {

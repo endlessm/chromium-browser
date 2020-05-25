@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import os
+import sys
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
@@ -17,6 +18,9 @@ from chromite.lib import portage_util
 from chromite.lib import sysroot_lib
 from chromite.lib import workon_helper
 from chromite.utils import metrics
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class Error(Exception):
@@ -94,13 +98,12 @@ class SetupBoardRunConfig(object):
 class BuildPackagesRunConfig(object):
   """Value object to hold build packages run configs."""
 
-  def __init__(self, event_file=None, usepkg=True, install_debug_symbols=False,
+  def __init__(self, usepkg=True, install_debug_symbols=False,
                packages=None, use_flags=None, use_goma=False,
                incremental_build=True):
     """Init method.
 
     Args:
-      event_file (str): The event file location, enables events.
       usepkg (bool): Whether to use binpkgs or build from source. False
         currently triggers a local build, which will enable local reuse.
       install_debug_symbols (bool): Whether to include the debug symbols for all
@@ -114,7 +117,6 @@ class BuildPackagesRunConfig(object):
         safe, but certain operations can be faster when we know we are doing
         a fresh build.
     """
-    self.event_file = event_file
     self.usepkg = usepkg
     self.install_debug_symbols = install_debug_symbols
     self.packages = packages
@@ -134,13 +136,8 @@ class BuildPackagesRunConfig(object):
         '--nouse_any_chrome',
     ]
 
-    if self.event_file:
-      args.append('--withevents')
-      args.extend(['--eventfile', self.event_file])
-
     if not self.usepkg:
       args.append('--nousepkg')
-      args.append('--reuse_pkgs_from_local_boards')
 
     if self.install_debug_symbols:
       args.append('--withdebugsymbols')
@@ -193,7 +190,7 @@ def SetupBoard(target, accept_licenses=None, run_configs=None):
   This is the entry point to run the setup_board script.
 
   Args:
-    target (build_target_util.BuildTarget): The build target configuration.
+    target (build_target_lib.BuildTarget): The build target configuration.
     accept_licenses (str|None): The additional licenses to accept.
     run_configs (SetupBoardRunConfig): The run configs.
 
@@ -286,6 +283,25 @@ def Create(target, run_configs, accept_licenses):
   return sysroot
 
 
+def GenerateArchive(output_dir, build_target_name, pkg_list):
+  """Generate a sysroot tarball for informational builders.
+
+  Args:
+    output_dir (string): Directory to contain the created the sysroot.
+    build_target_name (string): The build target for the sysroot being created.
+    pkg_list (list[string]|None): List of 'category/package' package strings.
+
+  Returns:
+    Path to the sysroot tar file.
+  """
+  cmd = ['cros_generate_sysroot',
+         '--out-file', constants.TARGET_SYSROOT_TAR,
+         '--out-dir', output_dir,
+         '--board', build_target_name,
+         '--package', ' '.join(pkg_list)]
+  cros_build_lib.run(cmd, cwd=constants.SOURCE_ROOT)
+  return os.path.join(output_dir, constants.TARGET_SYSROOT_TAR)
+
 def CreateSimpleChromeSysroot(target, use_flags):
   """Create a sysroot for SimpleChrome to use.
 
@@ -293,7 +309,6 @@ def CreateSimpleChromeSysroot(target, use_flags):
     target (build_target.BuildTarget): The build target being installed for the
       sysroot being created.
     use_flags (list[string]|None): Additional USE flags for building chrome.
-    output_directory (string): Where to put output files.
 
   Returns:
     Path to the sysroot tar file.
@@ -316,7 +331,7 @@ def InstallToolchain(target, sysroot, run_configs):
   Everything else must have been done already for this to be successful.
 
   Args:
-    target (build_target_util.BuildTarget): The target whose toolchain is being
+    target (build_target_lib.BuildTarget): The target whose toolchain is being
       installed.
     sysroot (sysroot_lib.Sysroot): The sysroot where the toolchain is being
       installed.
@@ -340,7 +355,7 @@ def BuildPackages(target, sysroot, run_configs):
   """Build and install packages into a sysroot.
 
   Args:
-    target (build_target_util.BuildTarget): The target whose packages are being
+    target (build_target_lib.BuildTarget): The target whose packages are being
       installed.
     sysroot (sysroot_lib.Sysroot): The sysroot where the packages are being
       installed.
@@ -460,7 +475,7 @@ def _ChooseProfile(target, sysroot):
   call here, and by extension this method all together.
 
   Args:
-    target (build_target_util.BuildTarget): The build target whose profile is
+    target (build_target_lib.BuildTarget): The build target whose profile is
       being chosen.
     sysroot (sysroot_lib.Sysroot): The sysroot for which the profile is
       being chosen.

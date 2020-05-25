@@ -11,6 +11,7 @@ Handles all testing related functionality, it is not itself a test.
 from __future__ import print_function
 
 import os
+import sys
 
 from chromite.api import controller
 from chromite.api import faux
@@ -19,7 +20,6 @@ from chromite.api.metrics import deserialize_metrics_log
 from chromite.api.controller import controller_util
 from chromite.api.gen.chromite.api import test_pb2
 from chromite.cbuildbot import goma_util
-from chromite.lib import build_target_util
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import image_lib
@@ -30,6 +30,9 @@ from chromite.scripts import cros_set_lsb_release
 from chromite.service import test
 from chromite.utils import key_value_store
 from chromite.utils import metrics
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 @faux.empty_success
@@ -84,7 +87,6 @@ def _BuildTargetUnitTestFailedResponse(_input_proto, output_proto, _config):
 def BuildTargetUnitTest(input_proto, output_proto, _config):
   """Run a build target's ebuild unit tests."""
   # Required args.
-  board = input_proto.build_target.name
   result_path = input_proto.result_path
 
   # Method flags.
@@ -98,7 +100,7 @@ def BuildTargetUnitTest(input_proto, output_proto, _config):
   for package_info in blacklisted_package_info:
     blacklist.append(controller_util.PackageInfoToString(package_info))
 
-  build_target = build_target_util.BuildTarget(board)
+  build_target = controller_util.ParseBuildTarget(input_proto.build_target)
   chroot = controller_util.ParseChroot(input_proto.chroot)
 
   result = test.BuildTargetUnitTest(build_target, chroot, blacklist=blacklist,
@@ -130,6 +132,17 @@ def ChromiteUnitTest(_input_proto, _output_proto, _config):
   cmd = [os.path.join(constants.CHROMITE_DIR, 'scripts', 'run_tests')]
   result = cros_build_lib.run(cmd, check=False)
   if result.returncode == 0:
+    return controller.RETURN_CODE_SUCCESS
+  else:
+    return controller.RETURN_CODE_COMPLETED_UNSUCCESSFULLY
+
+
+@faux.empty_success
+@faux.empty_completed_unsuccessfully_error
+@validate.validation_complete
+def ChromitePytest(_input_proto, _output_proto, _config):
+  """Run the chromite unit tests."""
+  if test.ChromitePytest():
     return controller.RETURN_CODE_SUCCESS
   else:
     return controller.RETURN_CODE_COMPLETED_UNSUCCESSFULLY

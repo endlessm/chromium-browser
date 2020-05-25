@@ -56,8 +56,9 @@ namespace {
 constexpr char kFakeOnlineEulaPath[] = "/intl/en-US/chrome/eula_text.html";
 constexpr char kFakeOnlineEula[] = "No obligations at all";
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-// See IDS_ABOUT_TERMS_OF_SERVICE for the complete text.
-constexpr char kOfflineEULAWarning[] = "Chrome OS Terms";
+// See IDS_TERMS_HTML for the complete text.
+constexpr char kOfflineEULAWarning[] =
+    "Google Chrome and Chrome OS Additional Terms of Service";
 #else
 // Placeholder text in terms_chromium.html.
 constexpr char kOfflineEULAWarning[] =
@@ -272,8 +273,9 @@ IN_PROC_BROWSER_TEST_F(EulaOfflineTest, LoadOffline) {
                   .find(kOfflineEULAWarning) != std::string::npos);
 }
 
-#if defined(OS_CHROMEOS) && defined(MEMORY_SANITIZER)
-// TODO(http://crbug.com/1041188): flaky on ChromeOS MSAN.
+#if defined(OS_CHROMEOS) && \
+    (defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER))
+// TODO(http://crbug.com/1041188): flaky on ChromeOS MSAN and LSAN.
 #define MAYBE_LoadOnline DISABLED_LoadOnline
 #else
 #define MAYBE_LoadOnline LoadOnline

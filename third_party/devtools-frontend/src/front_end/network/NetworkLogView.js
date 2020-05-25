@@ -28,6 +28,17 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Bindings from '../bindings/bindings.js';
+import * as Common from '../common/common.js';
+import * as Components from '../components/components.js';
+import * as DataGrid from '../data_grid/data_grid.js';
+import * as HARImporter from '../har_importer/har_importer.js';
+import * as Host from '../host/host.js';
+import * as PerfUI from '../perf_ui/perf_ui.js';
+import * as SDK from '../sdk/sdk.js';
+import * as TextUtils from '../text_utils/text_utils.js';
+import * as UI from '../ui/ui.js';
+
 import {HARWriter} from './HARWriter.js';
 import {Events, NetworkGroupNode, NetworkLogViewInterface, NetworkNode, NetworkRequestNode} from './NetworkDataGridNode.js';  // eslint-disable-line no-unused-vars
 import {NetworkFrameGrouper} from './NetworkFrameGrouper.js';
@@ -35,14 +46,14 @@ import {NetworkLogViewColumns} from './NetworkLogViewColumns.js';
 import {NetworkTimeBoundary, NetworkTimeCalculator, NetworkTransferDurationCalculator, NetworkTransferTimeCalculator,} from './NetworkTimeCalculator.js';  // eslint-disable-line no-unused-vars
 
 /**
- * @implements {SDK.SDKModelObserver<!SDK.NetworkManager>}
+ * @implements {SDK.SDKModel.SDKModelObserver<!SDK.NetworkManager.NetworkManager>}
  * @implements {NetworkLogViewInterface}
  */
-export class NetworkLogView extends UI.VBox {
+export class NetworkLogView extends UI.Widget.VBox {
   /**
-   * @param {!UI.FilterBar} filterBar
+   * @param {!UI.FilterBar.FilterBar} filterBar
    * @param {!Element} progressBarContainer
-   * @param {!Common.Setting} networkLogLargeRowsSetting
+   * @param {!Common.Settings.Setting} networkLogLargeRowsSetting
    */
   constructor(filterBar, progressBarContainer, networkLogLargeRowsSetting) {
     super();
@@ -52,9 +63,13 @@ export class NetworkLogView extends UI.VBox {
     this.element.id = 'network-container';
     this.element.classList.add('no-node-selected');
 
-    this._networkHideDataURLSetting = self.Common.settings.createSetting('networkHideDataURL', false);
-    this._networkShowIssuesOnlySetting = self.Common.settings.createSetting('networkShowIssuesOnly', false);
-    this._networkResourceTypeFiltersSetting = self.Common.settings.createSetting('networkResourceTypeFilters', {});
+    this._networkHideDataURLSetting = Common.Settings.Settings.instance().createSetting('networkHideDataURL', false);
+    this._networkShowIssuesOnlySetting =
+        Common.Settings.Settings.instance().createSetting('networkShowIssuesOnly', false);
+    this._networkOnlyBlockedRequestsSetting =
+        Common.Settings.Settings.instance().createSetting('networkOnlyBlockedRequests', false);
+    this._networkResourceTypeFiltersSetting =
+        Common.Settings.Settings.instance().createSetting('networkResourceTypeFilters', {});
 
     this._rawRowHeight = 0;
     this._progressBarContainer = progressBarContainer;
@@ -82,7 +97,7 @@ export class NetworkLogView extends UI.VBox {
         new NetworkLogViewColumns(this, this._timeCalculator, this._durationCalculator, networkLogLargeRowsSetting);
     this._columns.show(this.element);
 
-    /** @type {!Set<!SDK.NetworkRequest>} */
+    /** @type {!Set<!SDK.NetworkRequest.NetworkRequest>} */
     this._staleRequests = new Set();
     /** @type {number} */
     this._mainRequestLoadTime = -1;
@@ -90,9 +105,9 @@ export class NetworkLogView extends UI.VBox {
     this._mainRequestDOMContentLoadedTime = -1;
     this._highlightedSubstringChanges = [];
 
-    /** @type {!Array.<!Network.NetworkLogView.Filter>} */
+    /** @type {!Array.<!Filter>} */
     this._filters = [];
-    /** @type {?Network.NetworkLogView.Filter} */
+    /** @type {?Filter} */
     this._timeFilter = null;
     /** @type {?NetworkNode} */
     this._hoveredNode = null;
@@ -103,7 +118,7 @@ export class NetworkLogView extends UI.VBox {
     /** @type {?NetworkRequestNode} */
     this._highlightedNode = null;
 
-    this.linkifier = new Components.Linkifier();
+    this.linkifier = new Components.Linkifier.Linkifier();
 
     this._recording = false;
     this._needsRefresh = false;
@@ -117,63 +132,79 @@ export class NetworkLogView extends UI.VBox {
     /** @type {?GroupLookupInterface} */
     this._activeGroupLookup = null;
 
-    this._textFilterUI = new UI.TextFilterUI();
-    this._textFilterUI.addEventListener(UI.FilterUI.Events.FilterChanged, this._filterChanged, this);
+    this._textFilterUI = new UI.FilterBar.TextFilterUI();
+    this._textFilterUI.addEventListener(UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged, this);
     filterBar.addFilter(this._textFilterUI);
 
-    this._dataURLFilterUI = new UI.CheckboxFilterUI(
-        'hide-data-url', Common.UIString('Hide data URLs'), true, this._networkHideDataURLSetting);
-    this._dataURLFilterUI.addEventListener(UI.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
+    this._dataURLFilterUI = new UI.FilterBar.CheckboxFilterUI(
+        'hide-data-url', Common.UIString.UIString('Hide data URLs'), true, this._networkHideDataURLSetting);
+    this._dataURLFilterUI.addEventListener(
+        UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
     this._dataURLFilterUI.element().title = ls`Hides data: and blob: URLs`;
     filterBar.addFilter(this._dataURLFilterUI);
 
     const filterItems =
-        Object.values(Common.resourceCategories)
+        Object.values(Common.ResourceType.resourceCategories)
             .map(category => ({name: category.title, label: category.shortTitle, title: category.title}));
-    this._resourceCategoryFilterUI = new UI.NamedBitSetFilterUI(filterItems, this._networkResourceTypeFiltersSetting);
+    this._resourceCategoryFilterUI =
+        new UI.FilterBar.NamedBitSetFilterUI(filterItems, this._networkResourceTypeFiltersSetting);
     UI.ARIAUtils.setAccessibleName(this._resourceCategoryFilterUI.element(), ls`Resource types to include`);
     this._resourceCategoryFilterUI.addEventListener(
-        UI.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
+        UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
     filterBar.addFilter(this._resourceCategoryFilterUI);
 
-    this._onlyIssuesFilterUI =
-        new UI.CheckboxFilterUI('only-show-issues', ls`Has blocked cookies`, true, this._networkShowIssuesOnlySetting);
-    this._onlyIssuesFilterUI.addEventListener(UI.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
+    this._onlyIssuesFilterUI = new UI.FilterBar.CheckboxFilterUI(
+        'only-show-issues', ls`Has blocked cookies`, true, this._networkShowIssuesOnlySetting);
+    this._onlyIssuesFilterUI.addEventListener(
+        UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
     this._onlyIssuesFilterUI.element().title = ls`Only show requests with blocked response cookies`;
     filterBar.addFilter(this._onlyIssuesFilterUI);
 
+    this._onlyBlockedRequestsUI = new UI.FilterBar.CheckboxFilterUI(
+        'only-show-blocked-requests', ls`Blocked Requests`, true, this._networkOnlyBlockedRequestsSetting);
+    this._onlyBlockedRequestsUI.addEventListener(
+        UI.FilterBar.FilterUI.Events.FilterChanged, this._filterChanged.bind(this), this);
+    this._onlyBlockedRequestsUI.element().title = ls`Only show blocked requests`;
+    filterBar.addFilter(this._onlyBlockedRequestsUI);
 
-    this._filterParser = new TextUtils.FilterParser(_searchKeys);
-    this._suggestionBuilder = new UI.FilterSuggestionBuilder(_searchKeys, NetworkLogView._sortSearchValues);
+
+    this._filterParser = new TextUtils.TextUtils.FilterParser(_searchKeys);
+    this._suggestionBuilder =
+        new UI.FilterSuggestionBuilder.FilterSuggestionBuilder(_searchKeys, NetworkLogView._sortSearchValues);
     this._resetSuggestionBuilder();
 
     this._dataGrid = this._columns.dataGrid();
     this._setupDataGrid();
     this._columns.sortByCurrentColumn();
     filterBar.filterButton().addEventListener(
-        UI.ToolbarButton.Events.Click, this._dataGrid.scheduleUpdate.bind(this._dataGrid, true /* isFromUser */));
+        UI.Toolbar.ToolbarButton.Events.Click,
+        this._dataGrid.scheduleUpdate.bind(this._dataGrid, true /* isFromUser */));
 
-    this._summaryToolbar = new UI.Toolbar('network-summary-bar', this.element);
+    this._summaryToolbar = new UI.Toolbar.Toolbar('network-summary-bar', this.element);
 
-    new UI.DropTarget(
-        this.element, [UI.DropTarget.Type.File], Common.UIString('Drop HAR files here'), this._handleDrop.bind(this));
+    new UI.DropTarget.DropTarget(
+        this.element, [UI.DropTarget.Type.File], Common.UIString.UIString('Drop HAR files here'),
+        this._handleDrop.bind(this));
 
-    self.Common.settings.moduleSetting('networkColorCodeResourceTypes')
+    Common.Settings.Settings.instance()
+        .moduleSetting('networkColorCodeResourceTypes')
         .addChangeListener(this._invalidateAllItems.bind(this, false), this);
 
-    self.SDK.targetManager.observeModels(SDK.NetworkManager, this);
+    SDK.SDKModel.TargetManager.instance().observeModels(SDK.NetworkManager.NetworkManager, this);
     self.SDK.networkLog.addEventListener(SDK.NetworkLog.Events.RequestAdded, this._onRequestUpdated, this);
     self.SDK.networkLog.addEventListener(SDK.NetworkLog.Events.RequestUpdated, this._onRequestUpdated, this);
     self.SDK.networkLog.addEventListener(SDK.NetworkLog.Events.Reset, this._reset, this);
 
     this._updateGroupByFrame();
-    self.Common.settings.moduleSetting('network.group-by-frame').addChangeListener(() => this._updateGroupByFrame());
+    Common.Settings.Settings.instance()
+        .moduleSetting('network.group-by-frame')
+        .addChangeListener(() => this._updateGroupByFrame());
 
     this._filterBar = filterBar;
   }
 
   _updateGroupByFrame() {
-    const value = self.Common.settings.moduleSetting('network.group-by-frame').get();
+    const value = Common.Settings.Settings.instance().moduleSetting('network.group-by-frame').get();
     this._setGrouping(value ? 'Frame' : null);
   }
 
@@ -184,9 +215,12 @@ export class NetworkLogView extends UI.VBox {
   static _sortSearchValues(key, values) {
     if (key === FilterType.Priority) {
       values.sort((a, b) => {
-        const aPriority = /** @type {!Protocol.Network.ResourcePriority} */ (PerfUI.uiLabelToNetworkPriority(a));
-        const bPriority = /** @type {!Protocol.Network.ResourcePriority} */ (PerfUI.uiLabelToNetworkPriority(b));
-        return PerfUI.networkPriorityWeight(aPriority) - PerfUI.networkPriorityWeight(bPriority);
+        const aPriority =
+            /** @type {!Protocol.Network.ResourcePriority} */ (PerfUI.NetworkPriorities.uiLabelToNetworkPriority(a));
+        const bPriority =
+            /** @type {!Protocol.Network.ResourcePriority} */ (PerfUI.NetworkPriorities.uiLabelToNetworkPriority(b));
+        return PerfUI.NetworkPriorities.networkPriorityWeight(aPriority) -
+            PerfUI.NetworkPriorities.networkPriorityWeight(bPriority);
       });
     } else {
       values.sort();
@@ -194,8 +228,8 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Network.NetworkLogView.Filter} filter
-   * @param {!SDK.NetworkRequest} request
+   * @param {!Filter} filter
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _negativeFilter(filter, request) {
@@ -204,7 +238,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {?RegExp} regex
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestPathFilter(regex, request) {
@@ -231,7 +265,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @return {!Network.NetworkLogView.Filter}
+   * @return {!Filter}
    */
   static _createRequestDomainFilter(value) {
     /**
@@ -247,7 +281,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {!RegExp} regex
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestDomainFilter(regex, request) {
@@ -255,7 +289,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _runningRequestFilter(request) {
@@ -263,7 +297,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _fromCacheRequestFilter(request) {
@@ -271,7 +305,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _interceptedByServiceWorkerFilter(request) {
@@ -279,7 +313,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _initiatedByServiceWorkerFilter(request) {
@@ -288,7 +322,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestResponseHeaderFilter(value, request) {
@@ -297,7 +331,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestMethodFilter(value, request) {
@@ -306,7 +340,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestPriorityFilter(value, request) {
@@ -315,7 +349,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestMimeTypeFilter(value, request) {
@@ -324,17 +358,20 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {!MixedContentFilterValues} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestMixedContentFilter(value, request) {
     if (value === MixedContentFilterValues.Displayed) {
       return request.mixedContentType === Protocol.Security.MixedContentType.OptionallyBlockable;
-    } else if (value === MixedContentFilterValues.Blocked) {
+    }
+    if (value === MixedContentFilterValues.Blocked) {
       return request.mixedContentType === Protocol.Security.MixedContentType.Blockable && request.wasBlocked();
-    } else if (value === MixedContentFilterValues.BlockOverridden) {
+    }
+    if (value === MixedContentFilterValues.BlockOverridden) {
       return request.mixedContentType === Protocol.Security.MixedContentType.Blockable && !request.wasBlocked();
-    } else if (value === MixedContentFilterValues.All) {
+    }
+    if (value === MixedContentFilterValues.All) {
       return request.mixedContentType !== Protocol.Security.MixedContentType.None;
     }
 
@@ -343,7 +380,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestSchemeFilter(value, request) {
@@ -352,7 +389,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestCookieDomainFilter(value, request) {
@@ -361,7 +398,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestCookieNameFilter(value, request) {
@@ -370,7 +407,16 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
+   * @return {boolean}
+   */
+  static _requestCookiePathFilter(value, request) {
+    return request.allCookiesIncludingBlockedOnes().some(cookie => cookie.path() === value);
+  }
+
+  /**
+   * @param {string} value
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestCookieValueFilter(value, request) {
@@ -379,7 +425,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestSetCookieDomainFilter(value, request) {
@@ -388,7 +434,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestSetCookieNameFilter(value, request) {
@@ -397,7 +443,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestSetCookieValueFilter(value, request) {
@@ -406,7 +452,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {number} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestSizeLargerThanFilter(value, request) {
@@ -415,7 +461,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _statusCodeFilter(value, request) {
@@ -423,7 +469,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static HTTPRequestsFilter(request) {
@@ -433,7 +479,7 @@ export class NetworkLogView extends UI.VBox {
   /**
    * @param {number} windowStart
    * @param {number} windowEnd
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {boolean}
    */
   static _requestTimeFilter(windowStart, windowEnd, request) {
@@ -447,31 +493,31 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   static _copyRequestHeaders(request) {
-    Host.InspectorFrontendHost.copyText(request.requestHeadersText());
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(request.requestHeadersText());
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   static _copyResponseHeaders(request) {
-    Host.InspectorFrontendHost.copyText(request.responseHeadersText);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(request.responseHeadersText);
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   static async _copyResponse(request) {
     const contentData = await request.contentData();
     let content = contentData.content || '';
     if (!request.contentType().isTextType()) {
-      content = Common.ContentProvider.contentAsDataURL(content, request.mimeType, contentData.encoded);
+      content = TextUtils.ContentProvider.contentAsDataURL(content, request.mimeType, contentData.encoded);
     } else if (contentData.encoded) {
       content = window.atob(content);
     }
-    Host.InspectorFrontendHost.copyText(content);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(content);
   }
 
   /**
@@ -495,8 +541,8 @@ export class NetworkLogView extends UI.VBox {
    * @param {!File} file
    */
   async onLoadFromFile(file) {
-    const outputStream = new Common.StringOutputStream();
-    const reader = new Bindings.ChunkedFileReader(file, /* chunkSize */ 10000000);
+    const outputStream = new Common.StringOutputStream.StringOutputStream();
+    const reader = new Bindings.FileUtils.ChunkedFileReader(file, /* chunkSize */ 10000000);
     const success = await reader.read(outputStream);
     if (!success) {
       this._harLoadFailed(reader.error().message);
@@ -505,19 +551,19 @@ export class NetworkLogView extends UI.VBox {
     let harRoot;
     try {
       // HARRoot and JSON.parse might throw.
-      harRoot = new HARImporter.HARRoot(JSON.parse(outputStream.data()));
+      harRoot = new HARImporter.HARFormat.HARRoot(JSON.parse(outputStream.data()));
     } catch (e) {
       this._harLoadFailed(e);
       return;
     }
-    self.SDK.networkLog.importRequests(HARImporter.Importer.requestsFromHARLog(harRoot.log));
+    self.SDK.networkLog.importRequests(HARImporter.HARImporter.Importer.requestsFromHARLog(harRoot.log));
   }
 
   /**
    * @param {string} message
    */
   _harLoadFailed(message) {
-    self.Common.console.error('Failed to load HAR file with following error: ' + message);
+    Common.Console.Console.instance().error('Failed to load HAR file with following error: ' + message);
   }
 
   /**
@@ -541,7 +587,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @override
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {?NetworkRequestNode}
    */
   nodeForRequest(request) {
@@ -567,14 +613,14 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @override
-   * @param {!SDK.NetworkManager} networkManager
+   * @param {!SDK.NetworkManager.NetworkManager} networkManager
    */
   modelAdded(networkManager) {
     // TODO(allada) Remove dependency on networkManager and instead use NetworkLog and PageLoad for needed data.
     if (networkManager.target().parentTarget()) {
       return;
     }
-    const resourceTreeModel = networkManager.target().model(SDK.ResourceTreeModel);
+    const resourceTreeModel = networkManager.target().model(SDK.ResourceTreeModel.ResourceTreeModel);
     if (resourceTreeModel) {
       resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.Load, this._loadEventFired, this);
       resourceTreeModel.addEventListener(
@@ -584,11 +630,11 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @override
-   * @param {!SDK.NetworkManager} networkManager
+   * @param {!SDK.NetworkManager.NetworkManager} networkManager
    */
   modelRemoved(networkManager) {
     if (!networkManager.target().parentTarget()) {
-      const resourceTreeModel = networkManager.target().model(SDK.ResourceTreeModel);
+      const resourceTreeModel = networkManager.target().model(SDK.ResourceTreeModel.ResourceTreeModel);
       if (resourceTreeModel) {
         resourceTreeModel.removeEventListener(SDK.ResourceTreeModel.Events.Load, this._loadEventFired, this);
         resourceTreeModel.removeEventListener(
@@ -631,12 +677,16 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _filterChanged(event) {
     this.removeAllNodeHighlights();
     this._parseFilterQuery(this._textFilterUI.value());
     this._filterRequests();
+  }
+
+  async resetFilter() {
+    this._textFilterUI.clear();
   }
 
   _showRecordingHint() {
@@ -653,24 +703,24 @@ export class NetworkLogView extends UI.VBox {
 
     if (this._recording) {
       const recordingText = hintText.createChild('span');
-      recordingText.textContent = Common.UIString('Recording network activity\u2026');
+      recordingText.textContent = Common.UIString.UIString('Recording network activity…');
       if (reloadShortcutNode) {
         hintText.createChild('br');
         hintText.appendChild(
-            UI.formatLocalized('Perform a request or hit %s to record the reload.', [reloadShortcutNode]));
+            UI.UIUtils.formatLocalized('Perform a request or hit %s to record the reload.', [reloadShortcutNode]));
       }
     } else {
       const recordNode = hintText.createChild('b');
       recordNode.textContent = self.UI.shortcutRegistry.shortcutTitleForAction('network.toggle-recording');
       if (reloadShortcutNode) {
-        hintText.appendChild(UI.formatLocalized(
+        hintText.appendChild(UI.UIUtils.formatLocalized(
             'Record (%s) or reload (%s) to display network activity.', [recordNode, reloadShortcutNode]));
       } else {
-        hintText.appendChild(UI.formatLocalized('Record (%s) to display network activity.', [recordNode]));
+        hintText.appendChild(UI.UIUtils.formatLocalized('Record (%s) to display network activity.', [recordNode]));
       }
     }
     hintText.createChild('br');
-    hintText.appendChild(UI.XLink.create(
+    hintText.appendChild(UI.XLink.XLink.create(
         'https://developers.google.com/web/tools/chrome-devtools/network/?utm_source=devtools&utm_campaign=2019Q1',
         'Learn more'));
 
@@ -728,12 +778,12 @@ export class NetworkLogView extends UI.VBox {
     this._dataGrid.element.addEventListener('mouseleave', () => this._setHoveredNode(null), true);
     this._dataGrid.element.addEventListener('keydown', event => {
       if (isEnterOrSpaceKey(event)) {
-        this.dispatchEventToListeners(Events.RequestActivated, /* showPanel */ true);
+        this.dispatchEventToListeners(Events.RequestActivated, {showPanel: true});
         event.consume(true);
       }
     });
-    this._dataGrid.element.addEventListener('focus', this.updateNodeBackground.bind(this), true);
-    this._dataGrid.element.addEventListener('blur', this.updateNodeBackground.bind(this), true);
+    this._dataGrid.element.addEventListener('focus', this._onDataGridFocus.bind(this), true);
+    this._dataGrid.element.addEventListener('blur', this._onDataGridBlur.bind(this), true);
     return this._dataGrid;
   }
 
@@ -804,11 +854,12 @@ export class NetworkLogView extends UI.VBox {
         selectedTransferSize += requestTransferSize;
         selectedResourceSize += requestResourceSize;
       }
-      const networkManager = SDK.NetworkManager.forRequest(request);
+      const networkManager = SDK.NetworkManager.NetworkManager.forRequest(request);
       // TODO(allada) inspectedURL should be stored in PageLoad used instead of target so HAR requests can have an
       // inspected url.
       if (networkManager && request.url() === networkManager.target().inspectedURL() &&
-          request.resourceType() === Common.resourceTypes.Document && !networkManager.target().parentTarget()) {
+          request.resourceType() === Common.ResourceType.resourceTypes.Document &&
+          !networkManager.target().parentTarget()) {
         baseTime = request.startTime;
       }
       if (request.endTime > maxTime) {
@@ -828,7 +879,7 @@ export class NetworkLogView extends UI.VBox {
      * @return {!Element}
      */
     const appendChunk = (chunk, title) => {
-      const toolbarText = new UI.ToolbarText(chunk);
+      const toolbarText = new UI.Toolbar.ToolbarText(chunk);
       toolbarText.setTitle(title ? title : chunk);
       this._summaryToolbar.appendToolbarItem(toolbarText);
       return toolbarText.element;
@@ -964,7 +1015,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _loadEventFired(event) {
     if (!this._recording) {
@@ -979,7 +1030,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _domContentLoadedEventFired(event) {
     if (!this._recording) {
@@ -1020,6 +1071,16 @@ export class NetworkLogView extends UI.VBox {
    */
   flatNodesList() {
     return this._dataGrid.rootNode().flatChildren();
+  }
+
+  _onDataGridFocus() {
+    this.element.classList.add('grid-focused');
+    this.updateNodeBackground();
+  }
+
+  _onDataGridBlur() {
+    this.element.classList.remove('grid-focused');
+    this.updateNodeBackground();
   }
 
   /** @override */
@@ -1158,7 +1219,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   _reset() {
-    this.dispatchEventToListeners(Events.RequestActivated, /* showPanel */ false);
+    this.dispatchEventToListeners(Events.RequestActivated, {showPanel: false});
 
     this._setHoveredNode(null);
     this._columns.reset();
@@ -1192,11 +1253,12 @@ export class NetworkLogView extends UI.VBox {
     this._textFilterUI.setValue(filterString);
     this._dataURLFilterUI.setChecked(false);
     this._onlyIssuesFilterUI.setChecked(false);
+    this._onlyBlockedRequestsUI.setChecked(false);
     this._resourceCategoryFilterUI.reset();
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   _createNodeForRequest(request) {
     const node = new NetworkRequestNode(this, request);
@@ -1210,15 +1272,15 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _onRequestUpdated(event) {
-    const request = /** @type {!SDK.NetworkRequest} */ (event.data);
+    const request = /** @type {!SDK.NetworkRequest.NetworkRequest} */ (event.data);
     this._refreshRequest(request);
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   _refreshRequest(request) {
     NetworkLogView._subdomains(request.domain)
@@ -1230,7 +1292,8 @@ export class NetworkLogView extends UI.VBox {
 
     const priority = request.priority();
     if (priority) {
-      this._suggestionBuilder.addItem(FilterType.Priority, PerfUI.uiLabelForNetworkPriority(priority));
+      this._suggestionBuilder.addItem(
+          FilterType.Priority, PerfUI.NetworkPriorities.uiLabelForNetworkPriority(priority));
     }
 
     if (request.mixedContentType !== Protocol.Security.MixedContentType.None) {
@@ -1261,6 +1324,7 @@ export class NetworkLogView extends UI.VBox {
     for (const cookie of request.allCookiesIncludingBlockedOnes()) {
       this._suggestionBuilder.addItem(FilterType.CookieDomain, cookie.domain());
       this._suggestionBuilder.addItem(FilterType.CookieName, cookie.name());
+      this._suggestionBuilder.addItem(FilterType.CookiePath, cookie.path());
       this._suggestionBuilder.addItem(FilterType.CookieValue, cookie.value());
     }
 
@@ -1286,71 +1350,85 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @override
-   * @param {!UI.ContextMenu} contextMenu
-   * @param {!SDK.NetworkRequest} request
+   * @param {!UI.ContextMenu.ContextMenu} contextMenu
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   handleContextMenuForRequest(contextMenu, request) {
     contextMenu.appendApplicableItems(request);
-    let copyMenu = contextMenu.clipboardSection().appendSubMenuItem(Common.UIString('Copy'));
+    let copyMenu = contextMenu.clipboardSection().appendSubMenuItem(Common.UIString.UIString('Copy'));
     const footerSection = copyMenu.footerSection();
     if (request) {
       copyMenu.defaultSection().appendItem(
-          UI.copyLinkAddressLabel(),
-          Host.InspectorFrontendHost.copyText.bind(Host.InspectorFrontendHost, request.contentURL()));
+          UI.UIUtils.copyLinkAddressLabel(),
+          Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText.bind(
+              Host.InspectorFrontendHost.InspectorFrontendHostInstance, request.contentURL()));
       if (request.requestHeadersText()) {
         copyMenu.defaultSection().appendItem(
-            Common.UIString('Copy request headers'), NetworkLogView._copyRequestHeaders.bind(null, request));
+            Common.UIString.UIString('Copy request headers'), NetworkLogView._copyRequestHeaders.bind(null, request));
       }
 
       if (request.responseHeadersText) {
         copyMenu.defaultSection().appendItem(
-            Common.UIString('Copy response headers'), NetworkLogView._copyResponseHeaders.bind(null, request));
+            Common.UIString.UIString('Copy response headers'), NetworkLogView._copyResponseHeaders.bind(null, request));
       }
 
       if (request.finished) {
         copyMenu.defaultSection().appendItem(
-            Common.UIString('Copy response'), NetworkLogView._copyResponse.bind(null, request));
+            Common.UIString.UIString('Copy response'), NetworkLogView._copyResponse.bind(null, request));
       }
 
       const disableIfBlob = request.isBlobRequest();
-      if (Host.isWin()) {
+      if (Host.Platform.isWin()) {
         footerSection.appendItem(
-            Common.UIString('Copy as PowerShell'), this._copyPowerShellCommand.bind(this, request), disableIfBlob);
+            Common.UIString.UIString('Copy as PowerShell'), this._copyPowerShellCommand.bind(this, request),
+            disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request, false), disableIfBlob);
+            Common.UIString.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request, false), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as Node.js fetch'), this._copyFetchCall.bind(this, request, true), disableIfBlob);
+            Common.UIString.UIString('Copy as Node.js fetch'), this._copyFetchCall.bind(this, request, true),
+            disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as cURL (cmd)'), this._copyCurlCommand.bind(this, request, 'win'), disableIfBlob);
+            Common.UIString.UIString('Copy as cURL (cmd)'), this._copyCurlCommand.bind(this, request, 'win'),
+            disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as cURL (bash)'), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
-        footerSection.appendItem(Common.UIString('Copy all as PowerShell'), this._copyAllPowerShellCommand.bind(this));
-        footerSection.appendItem(Common.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this, false));
-        footerSection.appendItem(Common.UIString('Copy all as Node.js fetch'), this._copyAllFetchCall.bind(this, true));
-        footerSection.appendItem(Common.UIString('Copy all as cURL (cmd)'), this._copyAllCurlCommand.bind(this, 'win'));
+            Common.UIString.UIString('Copy as cURL (bash)'), this._copyCurlCommand.bind(this, request, 'unix'),
+            disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy all as cURL (bash)'), this._copyAllCurlCommand.bind(this, 'unix'));
+            Common.UIString.UIString('Copy all as PowerShell'), this._copyAllPowerShellCommand.bind(this));
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this, false));
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as Node.js fetch'), this._copyAllFetchCall.bind(this, true));
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as cURL (cmd)'), this._copyAllCurlCommand.bind(this, 'win'));
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as cURL (bash)'), this._copyAllCurlCommand.bind(this, 'unix'));
       } else {
         footerSection.appendItem(
-            Common.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request, false), disableIfBlob);
+            Common.UIString.UIString('Copy as fetch'), this._copyFetchCall.bind(this, request, false), disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as Node.js fetch'), this._copyFetchCall.bind(this, request, true), disableIfBlob);
+            Common.UIString.UIString('Copy as Node.js fetch'), this._copyFetchCall.bind(this, request, true),
+            disableIfBlob);
         footerSection.appendItem(
-            Common.UIString('Copy as cURL'), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
-        footerSection.appendItem(Common.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this, false));
-        footerSection.appendItem(Common.UIString('Copy all as Node.js fetch'), this._copyAllFetchCall.bind(this, true));
-        footerSection.appendItem(Common.UIString('Copy all as cURL'), this._copyAllCurlCommand.bind(this, 'unix'));
+            Common.UIString.UIString('Copy as cURL'), this._copyCurlCommand.bind(this, request, 'unix'), disableIfBlob);
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as fetch'), this._copyAllFetchCall.bind(this, false));
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as Node.js fetch'), this._copyAllFetchCall.bind(this, true));
+        footerSection.appendItem(
+            Common.UIString.UIString('Copy all as cURL'), this._copyAllCurlCommand.bind(this, 'unix'));
       }
     } else {
-      copyMenu = contextMenu.clipboardSection().appendSubMenuItem(Common.UIString('Copy'));
+      copyMenu = contextMenu.clipboardSection().appendSubMenuItem(Common.UIString.UIString('Copy'));
     }
-    footerSection.appendItem(Common.UIString('Copy all as HAR'), this._copyAll.bind(this));
+    footerSection.appendItem(Common.UIString.UIString('Copy all as HAR'), this._copyAll.bind(this));
 
     contextMenu.saveSection().appendItem(ls`Save all as HAR with content`, this.exportAll.bind(this));
 
-    contextMenu.editSection().appendItem(Common.UIString('Clear browser cache'), this._clearBrowserCache.bind(this));
     contextMenu.editSection().appendItem(
-        Common.UIString('Clear browser cookies'), this._clearBrowserCookies.bind(this));
+        Common.UIString.UIString('Clear browser cache'), this._clearBrowserCache.bind(this));
+    contextMenu.editSection().appendItem(
+        Common.UIString.UIString('Clear browser cookies'), this._clearBrowserCookies.bind(this));
 
     if (request) {
       const maxBlockedURLLength = 20;
@@ -1364,7 +1442,7 @@ export class NetworkLogView extends UI.VBox {
         patterns.push({enabled: true, url: url});
         manager.setBlockedPatterns(patterns);
         manager.setBlockingEnabled(true);
-        self.UI.viewManager.showView('network.blocked-urls');
+        UI.ViewManager.ViewManager.instance().showView('network.blocked-urls');
       }
 
       /**
@@ -1373,32 +1451,33 @@ export class NetworkLogView extends UI.VBox {
       function removeBlockedURL(url) {
         patterns = patterns.filter(pattern => pattern.url !== url);
         manager.setBlockedPatterns(patterns);
-        self.UI.viewManager.showView('network.blocked-urls');
+        UI.ViewManager.ViewManager.instance().showView('network.blocked-urls');
       }
 
       const urlWithoutScheme = request.parsedURL.urlWithoutScheme();
       if (urlWithoutScheme && !patterns.find(pattern => pattern.url === urlWithoutScheme)) {
         contextMenu.debugSection().appendItem(
-            Common.UIString('Block request URL'), addBlockedURL.bind(null, urlWithoutScheme));
+            Common.UIString.UIString('Block request URL'), addBlockedURL.bind(null, urlWithoutScheme));
       } else if (urlWithoutScheme) {
         const croppedURL = urlWithoutScheme.trimMiddle(maxBlockedURLLength);
         contextMenu.debugSection().appendItem(
-            Common.UIString('Unblock %s', croppedURL), removeBlockedURL.bind(null, urlWithoutScheme));
+            Common.UIString.UIString('Unblock %s', croppedURL), removeBlockedURL.bind(null, urlWithoutScheme));
       }
 
       const domain = request.parsedURL.domain();
       if (domain && !patterns.find(pattern => pattern.url === domain)) {
         contextMenu.debugSection().appendItem(
-            Common.UIString('Block request domain'), addBlockedURL.bind(null, domain));
+            Common.UIString.UIString('Block request domain'), addBlockedURL.bind(null, domain));
       } else if (domain) {
         const croppedDomain = domain.trimMiddle(maxBlockedURLLength);
         contextMenu.debugSection().appendItem(
-            Common.UIString('Unblock %s', croppedDomain), removeBlockedURL.bind(null, domain));
+            Common.UIString.UIString('Unblock %s', croppedDomain), removeBlockedURL.bind(null, domain));
       }
 
-      if (SDK.NetworkManager.canReplayRequest(request)) {
+      if (SDK.NetworkManager.NetworkManager.canReplayRequest(request)) {
         contextMenu.debugSection().appendItem(
-            Common.UIString('Replay XHR'), SDK.NetworkManager.replayRequest.bind(null, request));
+            Common.UIString.UIString('Replay XHR'),
+            SDK.NetworkManager.NetworkManager.replayRequest.bind(null, request));
       }
     }
   }
@@ -1406,22 +1485,22 @@ export class NetworkLogView extends UI.VBox {
   _harRequests() {
     return self.SDK.networkLog.requests().filter(NetworkLogView.HTTPRequestsFilter).filter(request => {
       return request.finished ||
-          (request.resourceType() === Common.resourceTypes.WebSocket && request.responseReceivedTime);
+          (request.resourceType() === Common.ResourceType.resourceTypes.WebSocket && request.responseReceivedTime);
     });
   }
 
   async _copyAll() {
-    const harArchive = {log: await SDK.HARLog.build(this._harRequests())};
-    Host.InspectorFrontendHost.copyText(JSON.stringify(harArchive, null, 2));
+    const harArchive = {log: await SDK.HARLog.HARLog.build(this._harRequests())};
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(JSON.stringify(harArchive, null, 2));
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @param {string} platform
    */
   async _copyCurlCommand(request, platform) {
     const command = await this._generateCurlCommand(request, platform);
-    Host.InspectorFrontendHost.copyText(command);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(command);
   }
 
   /**
@@ -1429,16 +1508,16 @@ export class NetworkLogView extends UI.VBox {
    */
   async _copyAllCurlCommand(platform) {
     const commands = await this._generateAllCurlCommand(self.SDK.networkLog.requests(), platform);
-    Host.InspectorFrontendHost.copyText(commands);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(commands);
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @param {boolean} includeCookies
    */
   async _copyFetchCall(request, includeCookies) {
     const command = await this._generateFetchCall(request, includeCookies);
-    Host.InspectorFrontendHost.copyText(command);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(command);
   }
 
   /**
@@ -1446,20 +1525,20 @@ export class NetworkLogView extends UI.VBox {
    */
   async _copyAllFetchCall(includeCookies) {
     const commands = await this._generateAllFetchCall(self.SDK.networkLog.requests(), includeCookies);
-    Host.InspectorFrontendHost.copyText(commands);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(commands);
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   async _copyPowerShellCommand(request) {
     const command = await this._generatePowerShellCommand(request);
-    Host.InspectorFrontendHost.copyText(command);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(command);
   }
 
   async _copyAllPowerShellCommand() {
     const commands = await this._generateAllPowerShellCommand(self.SDK.networkLog.requests());
-    Host.InspectorFrontendHost.copyText(commands);
+    Host.InspectorFrontendHost.InspectorFrontendHostInstance.copyText(commands);
   }
 
   /**
@@ -1467,16 +1546,16 @@ export class NetworkLogView extends UI.VBox {
    * @return {!Promise}
    */
   async exportAll() {
-    const url = self.SDK.targetManager.mainTarget().inspectedURL();
-    const parsedURL = Common.ParsedURL.fromString(url);
+    const url = SDK.SDKModel.TargetManager.instance().mainTarget().inspectedURL();
+    const parsedURL = Common.ParsedURL.ParsedURL.fromString(url);
     const filename = parsedURL ? parsedURL.host : 'network-log';
-    const stream = new Bindings.FileOutputStream();
+    const stream = new Bindings.FileUtils.FileOutputStream();
 
     if (!await stream.open(filename + '.har')) {
       return;
     }
 
-    const progressIndicator = new UI.ProgressIndicator();
+    const progressIndicator = new UI.ProgressIndicator.ProgressIndicator();
     this._progressBarContainer.appendChild(progressIndicator.element);
     await HARWriter.write(stream, this._harRequests(), progressIndicator);
     progressIndicator.done();
@@ -1484,13 +1563,13 @@ export class NetworkLogView extends UI.VBox {
   }
 
   _clearBrowserCache() {
-    if (confirm(Common.UIString('Are you sure you want to clear browser cache?'))) {
+    if (confirm(Common.UIString.UIString('Are you sure you want to clear browser cache?'))) {
       self.SDK.multitargetNetworkManager.clearBrowserCache();
     }
   }
 
   _clearBrowserCookies() {
-    if (confirm(Common.UIString('Are you sure you want to clear browser cookies?'))) {
+    if (confirm(Common.UIString.UIString('Are you sure you want to clear browser cookies?'))) {
       self.SDK.multitargetNetworkManager.clearBrowserCookies();
     }
   }
@@ -1498,7 +1577,7 @@ export class NetworkLogView extends UI.VBox {
   _removeAllHighlights() {
     this.removeAllNodeHighlights();
     for (let i = 0; i < this._highlightedSubstringChanges.length; ++i) {
-      UI.revertDomChanges(this._highlightedSubstringChanges[i]);
+      UI.UIUtils.revertDomChanges(this._highlightedSubstringChanges[i]);
     }
     this._highlightedSubstringChanges = [];
   }
@@ -1519,7 +1598,10 @@ export class NetworkLogView extends UI.VBox {
     if (this._dataURLFilterUI.checked() && (request.parsedURL.isDataURL() || request.parsedURL.isBlobURL())) {
       return false;
     }
-    if (this._onlyIssuesFilterUI.checked() && !SDK.IssuesModel.hasIssues(request)) {
+    if (this._onlyIssuesFilterUI.checked() && !SDK.RelatedIssue.hasIssues(request)) {
+      return false;
+    }
+    if (this._onlyBlockedRequestsUI.checked() && !request.wasBlocked()) {
       return false;
     }
     if (request.statusText === 'Service Worker Fallback Required') {
@@ -1559,7 +1641,7 @@ export class NetworkLogView extends UI.VBox {
   /**
    * @param {!FilterType} type
    * @param {string} value
-   * @return {?Network.NetworkLogView.Filter}
+   * @return {?Filter}
    */
   _createSpecialFilter(type, value) {
     switch (type) {
@@ -1614,11 +1696,15 @@ export class NetworkLogView extends UI.VBox {
       case FilterType.CookieName:
         return NetworkLogView._requestCookieNameFilter.bind(null, value);
 
+      case FilterType.CookiePath:
+        return NetworkLogView._requestCookiePathFilter.bind(null, value);
+
       case FilterType.CookieValue:
         return NetworkLogView._requestCookieValueFilter.bind(null, value);
 
       case FilterType.Priority:
-        return NetworkLogView._requestPriorityFilter.bind(null, PerfUI.uiLabelToNetworkPriority(value));
+        return NetworkLogView._requestPriorityFilter.bind(
+            null, PerfUI.NetworkPriorities.uiLabelToNetworkPriority(value));
 
       case FilterType.StatusCode:
         return NetworkLogView._statusCodeFilter.bind(null, value);
@@ -1628,7 +1714,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @param {string} value
-   * @return {?Network.NetworkLogView.Filter}
+   * @return {?Filter}
    */
   _createSizeFilter(value) {
     let multiplier = 1;
@@ -1652,7 +1738,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {?NetworkRequestNode}
    */
   _reveal(request) {
@@ -1667,7 +1753,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @override
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   revealAndHighlightRequest(request) {
     const node = this._reveal(request);
@@ -1678,7 +1764,7 @@ export class NetworkLogView extends UI.VBox {
 
   /**
    * @override
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    */
   selectRequest(request) {
     this.setTextFilterValue('');
@@ -1700,20 +1786,20 @@ export class NetworkLogView extends UI.VBox {
    * @param {!NetworkRequestNode} node
    */
   _highlightNode(node) {
-    UI.runCSSAnimationOnce(node.element(), 'highlighted-row');
+    UI.UIUtils.runCSSAnimationOnce(node.element(), 'highlighted-row');
     this._highlightedNode = node;
   }
 
   /**
-   * @param {!Array<!SDK.NetworkRequest>} requests
-   * @return {!Array<!SDK.NetworkRequest>}
+   * @param {!Array<!SDK.NetworkRequest.NetworkRequest>} requests
+   * @return {!Array<!SDK.NetworkRequest.NetworkRequest>}
    */
   _filterOutBlobRequests(requests) {
     return requests.filter(request => !request.isBlobRequest());
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @param {boolean} includeCookies
    * @return {!Promise<string>}
    */
@@ -1810,7 +1896,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @param {!Array<!SDK.NetworkRequest.NetworkRequest>} requests
    * @param {boolean} includeCookies
    * @return {!Promise<string>}
    */
@@ -1822,7 +1908,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @param {string} platform
    * @return {!Promise<string>}
    */
@@ -1891,19 +1977,18 @@ export class NetworkLogView extends UI.VBox {
         return '\\u' + hexString;
       }
 
-      if (/[\u0000-\u001f\u007f-\u009f!]|\'/.test(str)) {
+      if (/[\0-\x1F\x7F-\x9F!]|\'/.test(str)) {
         // Use ANSI-C quoting syntax.
         return '$\'' +
             str.replace(/\\/g, '\\\\')
                 .replace(/\'/g, '\\\'')
                 .replace(/\n/g, '\\n')
                 .replace(/\r/g, '\\r')
-                .replace(/[\u0000-\u001f\u007f-\u009f!]/g, escapeCharacter) +
+                .replace(/[\0-\x1F\x7F-\x9F!]/g, escapeCharacter) +
             '\'';
-      } else {
-        // Use single quote syntax.
-        return '\'' + str + '\'';
       }
+      // Use single quote syntax.
+      return '\'' + str + '\'';
     }
 
     // cURL command expected to run on the same platform that DevTools run
@@ -1917,7 +2002,9 @@ export class NetworkLogView extends UI.VBox {
     const requestContentType = request.requestContentType();
     const formData = await request.requestFormData();
     if (requestContentType && requestContentType.startsWith('application/x-www-form-urlencoded') && formData) {
-      data.push('--data ' + escapeString(formData));
+      // Note that formData is not necessarily urlencoded because it might for example
+      // come from a fetch request made with an explicitly unencoded body.
+      data.push('--data-raw ' + escapeString(formData));
       ignoredHeaders['content-length'] = true;
       inferredMethod = 'POST';
     } else if (formData) {
@@ -1949,7 +2036,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @param {!Array<!SDK.NetworkRequest.NetworkRequest>} requests
    * @param {string} platform
    * @return {!Promise<string>}
    */
@@ -1958,13 +2045,12 @@ export class NetworkLogView extends UI.VBox {
     const commands = await Promise.all(nonBlobRequests.map(request => this._generateCurlCommand(request, platform)));
     if (platform === 'win') {
       return commands.join(' &\r\n');
-    } else {
-      return commands.join(' ;\n');
     }
+    return commands.join(' ;\n');
   }
 
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {!Promise<string>}
    */
   async _generatePowerShellCommand(request) {
@@ -2019,7 +2105,7 @@ export class NetworkLogView extends UI.VBox {
   }
 
   /**
-   * @param {!Array<!SDK.NetworkRequest>} requests
+   * @param {!Array<!SDK.NetworkRequest.NetworkRequest>} requests
    * @return {!Promise<string>}
    */
   async _generateAllPowerShellCommand(requests) {
@@ -2042,7 +2128,7 @@ export class NetworkLogView extends UI.VBox {
    * @return {string}
    */
   static getLoadEventColor() {
-    return self.UI.themeSupport.patchColorText('#B31412', UI.ThemeSupport.ColorUsage.Foreground);
+    return self.UI.themeSupport.patchColorText('#B31412', UI.UIUtils.ThemeSupport.ColorUsage.Foreground);
   }
 }
 
@@ -2072,6 +2158,7 @@ export const FilterType = {
   SetCookieValue: 'set-cookie-value',
   CookieDomain: 'cookie-domain',
   CookieName: 'cookie-name',
+  CookiePath: 'cookie-path',
   CookieValue: 'cookie-value',
   StatusCode: 'status-code'
 };
@@ -2100,7 +2187,7 @@ export const _searchKeys = Object.keys(FilterType).map(key => FilterType[key]);
  */
 export class GroupLookupInterface {
   /**
-   * @param {!SDK.NetworkRequest} request
+   * @param {!SDK.NetworkRequest.NetworkRequest} request
    * @return {?NetworkGroupNode}
    */
   groupNodeForRequest(request) {
@@ -2109,3 +2196,6 @@ export class GroupLookupInterface {
   reset() {
   }
 }
+
+/** @typedef {function(!SDK.NetworkRequest.NetworkRequest): boolean} */
+export let Filter;

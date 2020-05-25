@@ -10,7 +10,6 @@
 
 #include "include/core/SkMatrix.h"
 #include "include/core/SkRect.h"
-#include "include/gpu/GrTexture.h"
 #include "include/gpu/mock/GrMockTypes.h"
 #include "include/private/GrRecordingContext.h"
 #include "src/core/SkExchange.h"
@@ -23,6 +22,7 @@
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/GrRenderTargetContext.h"
 #include "src/gpu/GrRenderTargetContextPriv.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/ccpr/GrCCPathCache.h"
 #include "src/gpu/ccpr/GrCoverageCountingPathRenderer.h"
 #include "src/gpu/geometry/GrShape.h"
@@ -200,6 +200,7 @@ protected:
     }
 
 class CCPR_cleanup : public CCPRTest {
+protected:
     void onRun(skiatest::Reporter* reporter, CCPRPathDrawer& ccpr) override {
         REPORTER_ASSERT(reporter, SkPathPriv::TestingOnly_unique(fPath));
 
@@ -235,6 +236,10 @@ DEF_CCPR_TEST(CCPR_cleanup)
 class CCPR_cleanupWithTexAllocFail : public CCPR_cleanup {
     void customizeOptions(GrMockOptions* mockOptions, GrContextOptions*) override {
         mockOptions->fFailTextureAllocations = true;
+    }
+    void onRun(skiatest::Reporter* reporter, CCPRPathDrawer& ccpr) override {
+        ((GrRecordingContext*)ccpr.ctx())->priv().incrSuppressWarningMessages();
+        this->CCPR_cleanup::onRun(reporter, ccpr);
     }
 };
 DEF_CCPR_TEST(CCPR_cleanupWithTexAllocFail)
@@ -675,7 +680,7 @@ class CCPR_cache_multiFlush : public CCPRCacheTest {
                     } else {
                         REPORTER_ASSERT(reporter, 0 == atlasIDRecorder.lastRenderedAtlasID());
                     }
-                    nextFlush = SkTMin(j + (int)rand.nextRangeU(1, 29), kNumPaths - 1);
+                    nextFlush = std::min(j + (int)rand.nextRangeU(1, 29), kNumPaths - 1);
                 }
             }
             SkASSERT(endPathIdx == pathIdx % kNumPaths);

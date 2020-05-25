@@ -21,7 +21,7 @@ class QUIC_EXPORT_PRIVATE QboneWriteOnlyStream : public QuicStream {
  public:
   QboneWriteOnlyStream(QuicStreamId id, QuicSession* session);
 
-  // QuicStream implementation. Qbone writers are ephemeral and don't
+  // QuicStream implementation. QBONE writers are ephemeral and don't
   // read any data.
   void OnDataAvailable() override {}
 
@@ -38,7 +38,7 @@ class QUIC_EXPORT_PRIVATE QboneReadOnlyStream : public QuicStream {
  public:
   QboneReadOnlyStream(QuicStreamId id, QboneSessionBase* session);
 
-  ~QboneReadOnlyStream() override;
+  ~QboneReadOnlyStream() override = default;
 
   // QuicStream overrides.
   // OnDataAvailable is called when there is data in the quic stream buffer.
@@ -47,7 +47,7 @@ class QUIC_EXPORT_PRIVATE QboneReadOnlyStream : public QuicStream {
   void OnDataAvailable() override;
 
  private:
-  string buffer_;
+  std::string buffer_;
   QboneSessionBase* session_;
 };
 

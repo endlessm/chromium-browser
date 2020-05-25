@@ -16,7 +16,9 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_tokenizer.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/branding_buildflags.h"
+#include "build/build_config.h"
 #include "components/safe_browsing/core/common/thread_utils.h"
 #include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "crypto/sha2.h"
@@ -51,26 +53,32 @@ ListInfos GetListInfos() {
 // - The list doesn't have hash prefixes to match. All requests lead to full
 //   hash checks. For instance: GetChromeUrlApiId()
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#if defined(OS_IOS)
+  const bool kSyncOnlyOnChromeBuilds = false;
+  const bool kSyncOnlyOnDesktopBuilds = false;
+#elif BUILDFLAG(GOOGLE_CHROME_BRANDING)
   const bool kSyncOnlyOnChromeBuilds = true;
+  const bool kSyncOnlyOnDesktopBuilds = true;
 #else
   const bool kSyncOnlyOnChromeBuilds = false;
+  const bool kSyncOnlyOnDesktopBuilds = true;
 #endif
+
   const bool kSyncAlways = true;
   const bool kSyncNever = false;
   return ListInfos({
-      ListInfo(kSyncAlways, "IpMalware.store", GetIpMalwareId(),
+      ListInfo(kSyncOnlyOnDesktopBuilds, "IpMalware.store", GetIpMalwareId(),
                SB_THREAT_TYPE_UNUSED),
       ListInfo(kSyncAlways, "UrlSoceng.store", GetUrlSocEngId(),
                SB_THREAT_TYPE_URL_PHISHING),
       ListInfo(kSyncAlways, "UrlMalware.store", GetUrlMalwareId(),
                SB_THREAT_TYPE_URL_MALWARE),
-      ListInfo(kSyncAlways, "UrlUws.store", GetUrlUwsId(),
+      ListInfo(kSyncOnlyOnDesktopBuilds, "UrlUws.store", GetUrlUwsId(),
                SB_THREAT_TYPE_URL_UNWANTED),
-      ListInfo(kSyncAlways, "UrlMalBin.store", GetUrlMalBinId(),
+      ListInfo(kSyncOnlyOnDesktopBuilds, "UrlMalBin.store", GetUrlMalBinId(),
                SB_THREAT_TYPE_URL_BINARY_MALWARE),
-      ListInfo(kSyncAlways, "ChromeExtMalware.store", GetChromeExtMalwareId(),
-               SB_THREAT_TYPE_EXTENSION),
+      ListInfo(kSyncOnlyOnDesktopBuilds, "ChromeExtMalware.store",
+               GetChromeExtMalwareId(), SB_THREAT_TYPE_EXTENSION),
       ListInfo(kSyncOnlyOnChromeBuilds, "CertCsdDownloadWhitelist.store",
                GetCertCsdDownloadWhitelistId(), SB_THREAT_TYPE_UNUSED),
       ListInfo(kSyncOnlyOnChromeBuilds, "ChromeUrlClientIncident.store",
@@ -187,6 +195,21 @@ enum StoreAvailabilityResult {
   COUNT,
 };
 
+void RecordTimeSinceLastUpdateHistograms(const base::Time& last_response_time) {
+  bool response_received = !last_response_time.is_null();
+  UMA_HISTOGRAM_BOOLEAN(
+      "SafeBrowsing.V4LocalDatabaseManager.HasReceivedUpdateResponse",
+      response_received);
+
+  if (!response_received)
+    return;
+
+  base::TimeDelta time_since_update = base::Time::Now() - last_response_time;
+  UMA_HISTOGRAM_LONG_TIMES_100(
+      "SafeBrowsing.V4LocalDatabaseManager.TimeSinceLastUpdateResponse",
+      time_since_update);
+}
+
 }  // namespace
 
 V4LocalDatabaseManager::PendingCheck::PendingCheck(
@@ -259,8 +282,8 @@ V4LocalDatabaseManager::V4LocalDatabaseManager(
       list_infos_(GetListInfos()),
       task_runner_(task_runner_for_tests
                        ? task_runner_for_tests
-                       : base::CreateSequencedTaskRunner(
-                             {base::ThreadPool(), base::MayBlock(),
+                       : base::ThreadPool::CreateSequencedTaskRunner(
+                             {base::MayBlock(),
                               base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})) {
   DCHECK(!base_path_.empty());
   DCHECK(!list_infos_.empty());
@@ -301,7 +324,7 @@ void V4LocalDatabaseManager::CancelCheck(Client* client) {
 }
 
 bool V4LocalDatabaseManager::CanCheckResourceType(
-    content::ResourceType resource_type) const {
+    blink::mojom::ResourceType resource_type) const {
   // We check all types since most checks are fast.
   return true;
 }
@@ -334,6 +357,8 @@ bool V4LocalDatabaseManager::CheckBrowseUrl(const GURL& url,
   bool safe_synchronously = HandleCheck(std::move(check));
   UMA_HISTOGRAM_BOOLEAN("SafeBrowsing.CheckBrowseUrl.HasLocalMatch",
                         !safe_synchronously);
+  RecordTimeSinceLastUpdateHistograms(
+      v4_update_protocol_manager_->last_response_time());
   return safe_synchronously;
 }
 
@@ -518,7 +543,6 @@ void V4LocalDatabaseManager::StartOnIOThread(
   db_updated_callback_ = base::BindRepeating(
       &V4LocalDatabaseManager::DatabaseUpdated, weak_factory_.GetWeakPtr());
 
-  SetupRealTimeUrlLookupService(url_loader_factory);
   SetupUpdateProtocolManager(url_loader_factory, config);
   SetupDatabase();
 
@@ -542,8 +566,6 @@ void V4LocalDatabaseManager::StopOnIOThread(bool shutdown) {
   // This operation happens on the task_runner on which v4_database_ operates
   // and doesn't block the IO thread.
   V4Database::Destroy(std::move(v4_database_));
-
-  ResetRealTimeUrlLookupService();
 
   // Delete the V4UpdateProtocolManager.
   // This cancels any in-flight update request.
@@ -684,6 +706,8 @@ void V4LocalDatabaseManager::GetSeverestThreatTypeAndMetadata(
     SBThreatType* most_severe_threat_type,
     ThreatMetadata* metadata,
     FullHash* matching_full_hash) {
+  UMA_HISTOGRAM_COUNTS_100("SafeBrowsing.V4LocalDatabaseManager.ThreatInfoSize",
+                           full_hash_infos.size());
   ThreatSeverity most_severe_yet = kLeastSeverity;
   for (const FullHashInfo& fhi : full_hash_infos) {
     ThreatSeverity severity = GetThreatSeverity(fhi.list_id);

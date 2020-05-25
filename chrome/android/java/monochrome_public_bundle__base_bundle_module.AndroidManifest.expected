@@ -8,6 +8,7 @@
     xmlns:tools="http://schemas.android.com/tools">
   <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="29"/>
   <uses-permission-sdk-23 android:name="android.permission.USE_FINGERPRINT"/>
+  <uses-permission-sdk-23 android:name="android.permission.USE_BIOMETRIC"/>
   <uses-permission-sdk-23 android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
   <uses-permission-sdk-23 android:name="android.permission.REORDER_TASKS"/>
   <uses-permission-sdk-23 android:name="android.permission.READ_CONTACTS"/>
@@ -79,7 +80,6 @@
       android:protectionLevel="signature"/>
   <application
       android:allowBackup="false"
-      android:appComponentFactory="android.support.v4.app.CoreComponentFactory"
       android:extractNativeLibs="false"
       android:icon="@drawable/ic_launcher"
       android:label="@string/app_name"
@@ -277,7 +277,7 @@
         android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize"
         android:exported="false"
         android:label="@string/storage_management_activity_label"
-        android:name="org.chromium.chrome.browser.settings.website.ManageSpaceActivity"
+        android:name="org.chromium.chrome.browser.site_settings.ManageSpaceActivity"
         android:theme="@style/Theme.Chromium.Settings.ManageSpace"/>
     <activity
         android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize"
@@ -1002,8 +1002,9 @@
         android:launchMode="singleTask"
         android:name="org.chromium.android_webview.devui.MainActivity"
         android:process=":webview_apk"
-        android:taskAffinity="org.chromium.android_webview.devui"
-        android:theme="@style/Theme.DevUi.DayNight">
+        android:taskAffinity="org.chromium.chrome.org.chromium.android_webview.devui"
+        android:theme="@style/Theme.DevUi.DayNight"
+        android:visibleToInstantApps="true">
       <intent-filter>
         <action android:name="com.android.webview.SHOW_DEV_UI"/>
         <category android:name="android.intent.category.DEFAULT"/>
@@ -1021,22 +1022,6 @@
           android:name="com.android.settings.PRIMARY_PROFILE_CONTROLLED"
           android:value="true"/>
     </activity>
-    <activity
-        android:label="WebView
-        Crashes"
-        android:launchMode="singleTop"
-        android:name="org.chromium.android_webview.devui.CrashesListActivity"
-        android:process=":webview_apk"
-        android:taskAffinity="org.chromium.android_webview.devui"
-        android:theme="@style/Theme.DevUi.DayNight"/>
-    <activity
-        android:label="WebView
-        Flags"
-        android:launchMode="singleTop"
-        android:name="org.chromium.android_webview.devui.FlagsActivity"
-        android:process=":webview_apk"
-        android:taskAffinity="org.chromium.android_webview.devui"
-        android:theme="@style/Theme.DevUi.DayNight"/>
     <activity
         android:enabled="false"
         android:excludeFromRecents="true"
@@ -1068,7 +1053,8 @@
         android:enabled="false"
         android:name="org.chromium.android_webview.devui.DeveloperModeState"
         android:process=":webview_apk"
-        android:targetActivity="org.chromium.android_webview.devui.MainActivity"/>
+        android:targetActivity="org.chromium.android_webview.devui.MainActivity"
+        android:visibleToInstantApps="true"/>
     <activity-alias
         android:exported="false"
         android:name="org.chromium.chrome.browser.webapps.SecureWebAppLauncher"
@@ -1330,7 +1316,8 @@
         android:authorities="org.chromium.chrome.DeveloperModeContentProvider"
         android:exported="true"
         android:name="org.chromium.android_webview.services.DeveloperModeContentProvider"
-        android:process=":webview_service"/>
+        android:process=":webview_service"
+        android:visibleToInstantApps="true"/>
     <provider
         android:authorities="org.chromium.chrome.DownloadFileProvider"
         android:exported="false"
@@ -1410,6 +1397,9 @@
         android:name="org.chromium.chrome.browser.send_tab_to_self.NotificationManager$SendTabToSelfNotificationReceiver"/>
     <receiver
         android:exported="false"
+        android:name="org.chromium.chrome.browser.share.SaveImageNotificationManager$TapReceiver"/>
+    <receiver
+        android:exported="false"
         android:name="org.chromium.chrome.browser.sharing.click_to_call.ClickToCallMessageHandler$TapReceiver"/>
     <receiver
         android:exported="false"
@@ -1426,7 +1416,7 @@
     </receiver>
     <receiver
         android:exported="false"
-        android:name="org.chromium.components.background_task_scheduler.BackgroundTaskBroadcastReceiver"/>
+        android:name="org.chromium.components.background_task_scheduler.internal.BackgroundTaskBroadcastReceiver"/>
     <receiver
         android:exported="true"
         android:name="com.google.android.gms.gcm.GcmReceiver"
@@ -1648,7 +1638,7 @@
         android:name="org.chromium.chrome.browser.tracing.TracingNotificationService"/>
     <service
         android:exported="false"
-        android:name="org.chromium.components.background_task_scheduler.BackgroundTaskJobService"
+        android:name="org.chromium.components.background_task_scheduler.internal.BackgroundTaskJobService"
         android:permission="android.permission.BIND_JOB_SERVICE"/>
     <service
         android:exported="true"
@@ -1681,7 +1671,7 @@
     </service>
     <service
         android:exported="true"
-        android:name="org.chromium.components.background_task_scheduler.BackgroundTaskGcmTaskService"
+        android:name="org.chromium.components.background_task_scheduler.internal.BackgroundTaskGcmTaskService"
         android:permission="com.google.android.gms.permission.BIND_NETWORK_TASK_SERVICE">
       <intent-filter>
         <action android:name="com.google.android.gms.gcm.ACTION_TASK_READY"/>

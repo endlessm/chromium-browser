@@ -171,9 +171,11 @@ source_set("libdawn_native_sources") {
     "src/dawn_native/BackendConnection.h",
     "src/dawn_native/BindGroup.cpp",
     "src/dawn_native/BindGroup.h",
+    "src/dawn_native/BindGroupAndStorageBarrierTracker.h",
     "src/dawn_native/BindGroupLayout.cpp",
     "src/dawn_native/BindGroupLayout.h",
     "src/dawn_native/BindGroupTracker.h",
+    "src/dawn_native/BindingInfo.h",
     "src/dawn_native/BuddyAllocator.cpp",
     "src/dawn_native/BuddyAllocator.h",
     "src/dawn_native/BuddyMemoryAllocator.cpp",
@@ -301,6 +303,8 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/d3d12/D3D12Error.h",
       "src/dawn_native/d3d12/D3D12Info.cpp",
       "src/dawn_native/d3d12/D3D12Info.h",
+      "src/dawn_native/d3d12/DescriptorHeapAllocationD3D12.cpp",
+      "src/dawn_native/d3d12/DescriptorHeapAllocationD3D12.h",
       "src/dawn_native/d3d12/DescriptorHeapAllocator.cpp",
       "src/dawn_native/d3d12/DescriptorHeapAllocator.h",
       "src/dawn_native/d3d12/DeviceD3D12.cpp",
@@ -322,6 +326,8 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/d3d12/RenderPassBuilderD3D12.h",
       "src/dawn_native/d3d12/RenderPipelineD3D12.cpp",
       "src/dawn_native/d3d12/RenderPipelineD3D12.h",
+      "src/dawn_native/d3d12/ResidencyManagerD3D12.cpp",
+      "src/dawn_native/d3d12/ResidencyManagerD3D12.h",
       "src/dawn_native/d3d12/ResourceAllocatorManagerD3D12.cpp",
       "src/dawn_native/d3d12/ResourceAllocatorManagerD3D12.h",
       "src/dawn_native/d3d12/ResourceHeapAllocationD3D12.cpp",
@@ -330,6 +336,8 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/d3d12/SamplerD3D12.h",
       "src/dawn_native/d3d12/ShaderModuleD3D12.cpp",
       "src/dawn_native/d3d12/ShaderModuleD3D12.h",
+      "src/dawn_native/d3d12/ShaderVisibleDescriptorAllocatorD3D12.cpp",
+      "src/dawn_native/d3d12/ShaderVisibleDescriptorAllocatorD3D12.h",
       "src/dawn_native/d3d12/StagingBufferD3D12.cpp",
       "src/dawn_native/d3d12/StagingBufferD3D12.h",
       "src/dawn_native/d3d12/SwapChainD3D12.cpp",
@@ -355,6 +363,10 @@ source_set("libdawn_native_sources") {
       "src/dawn_native/Surface_metal.mm",
       "src/dawn_native/metal/BackendMTL.h",
       "src/dawn_native/metal/BackendMTL.mm",
+      "src/dawn_native/metal/BindGroupLayoutMTL.h",
+      "src/dawn_native/metal/BindGroupLayoutMTL.mm",
+      "src/dawn_native/metal/BindGroupMTL.h",
+      "src/dawn_native/metal/BindGroupMTL.mm",
       "src/dawn_native/metal/BufferMTL.h",
       "src/dawn_native/metal/BufferMTL.mm",
       "src/dawn_native/metal/CommandBufferMTL.h",
@@ -403,6 +415,10 @@ source_set("libdawn_native_sources") {
     sources += [
       "src/dawn_native/opengl/BackendGL.cpp",
       "src/dawn_native/opengl/BackendGL.h",
+      "src/dawn_native/opengl/BindGroupGL.cpp",
+      "src/dawn_native/opengl/BindGroupGL.h",
+      "src/dawn_native/opengl/BindGroupLayoutGL.cpp",
+      "src/dawn_native/opengl/BindGroupLayoutGL.h",
       "src/dawn_native/opengl/BufferGL.cpp",
       "src/dawn_native/opengl/BufferGL.h",
       "src/dawn_native/opengl/CommandBufferGL.cpp",
@@ -738,6 +754,8 @@ static_library("dawn_utils") {
     "src/utils/SystemUtils.h",
     "src/utils/TerribleCommandBuffer.cpp",
     "src/utils/TerribleCommandBuffer.h",
+    "src/utils/TextureFormatUtils.cpp",
+    "src/utils/TextureFormatUtils.h",
     "src/utils/Timer.h",
     "src/utils/WGPUHelpers.cpp",
     "src/utils/WGPUHelpers.h",
@@ -826,14 +844,17 @@ test("dawn_unittests") {
     "src/tests/unittests/ErrorTests.cpp",
     "src/tests/unittests/ExtensionTests.cpp",
     "src/tests/unittests/GetProcAddressTests.cpp",
+    "src/tests/unittests/LinkedListTests.cpp",
     "src/tests/unittests/MathTests.cpp",
     "src/tests/unittests/ObjectBaseTests.cpp",
     "src/tests/unittests/PerStageTests.cpp",
+    "src/tests/unittests/PlacementAllocatedTests.cpp",
     "src/tests/unittests/RefCountedTests.cpp",
     "src/tests/unittests/ResultTests.cpp",
     "src/tests/unittests/RingBufferAllocatorTests.cpp",
     "src/tests/unittests/SerialMapTests.cpp",
     "src/tests/unittests/SerialQueueTests.cpp",
+    "src/tests/unittests/SlabAllocatorTests.cpp",
     "src/tests/unittests/SystemUtilsTests.cpp",
     "src/tests/unittests/ToBackendTests.cpp",
     "src/tests/unittests/validation/BindGroupValidationTests.cpp",
@@ -854,8 +875,10 @@ test("dawn_unittests") {
     "src/tests/unittests/validation/RenderPassDescriptorValidationTests.cpp",
     "src/tests/unittests/validation/RenderPassValidationTests.cpp",
     "src/tests/unittests/validation/RenderPipelineValidationTests.cpp",
+    "src/tests/unittests/validation/ResourceUsageTrackingTests.cpp",
     "src/tests/unittests/validation/SamplerValidationTests.cpp",
     "src/tests/unittests/validation/ShaderModuleValidationTests.cpp",
+    "src/tests/unittests/validation/StorageTextureValidationTests.cpp",
     "src/tests/unittests/validation/TextureValidationTests.cpp",
     "src/tests/unittests/validation/TextureViewValidationTests.cpp",
     "src/tests/unittests/validation/ToggleValidationTests.cpp",
@@ -939,6 +962,7 @@ source_set("dawn_end2end_tests_sources") {
     "src/tests/end2end/RenderPassTests.cpp",
     "src/tests/end2end/SamplerTests.cpp",
     "src/tests/end2end/ScissorTests.cpp",
+    "src/tests/end2end/StorageTextureTests.cpp",
     "src/tests/end2end/TextureFormatTests.cpp",
     "src/tests/end2end/TextureViewTests.cpp",
     "src/tests/end2end/TextureZeroInitTests.cpp",
@@ -975,6 +999,7 @@ source_set("dawn_end2end_tests_sources") {
 
   if (supports_glfw_for_windowing) {
     sources += [
+      "src/tests/end2end/SwapChainTests.cpp",
       "src/tests/end2end/SwapChainValidationTests.cpp",
       "src/tests/end2end/WindowSurfaceTests.cpp",
     ]
@@ -1005,8 +1030,10 @@ source_set("dawn_white_box_tests_sources") {
   if (dawn_enable_vulkan) {
     deps += [ "third_party:vulkan_headers" ]
 
-    if (is_linux) {
-      sources += [ "src/tests/white_box/VulkanImageWrappingTests.cpp" ]
+    if (is_chromeos) {
+      sources += [ "src/tests/white_box/VulkanImageWrappingTestsDmaBuf.cpp" ]
+    } else if (is_linux) {
+      sources += [ "src/tests/white_box/VulkanImageWrappingTestsOpaqueFD.cpp" ]
     }
 
     if (dawn_enable_error_injection) {
@@ -1015,7 +1042,10 @@ source_set("dawn_white_box_tests_sources") {
   }
 
   if (dawn_enable_d3d12) {
-    sources += [ "src/tests/white_box/D3D12SmallTextureTests.cpp" ]
+    sources += [
+      "src/tests/white_box/D3D12DescriptorHeapTests.cpp",
+      "src/tests/white_box/D3D12SmallTextureTests.cpp",
+    ]
   }
 
   if (dawn_enable_metal) {
@@ -1061,6 +1091,10 @@ test("dawn_end2end_tests") {
 
   if (dawn_enable_opengl) {
     deps += [ ":dawn_glfw" ]
+  }
+
+  if (is_chromeos) {
+    libs += [ "gbm" ]
   }
 }
 
@@ -1257,6 +1291,12 @@ if (dawn_standalone) {
     ]
     deps = [
       "third_party:glm",
+    ]
+  }
+
+  dawn_sample("ManualSwapChainTest") {
+    sources = [
+      "examples/ManualSwapChainTest.cpp",
     ]
   }
 

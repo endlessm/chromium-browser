@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.photo_picker;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.Configuration;
@@ -11,8 +12,6 @@ import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.SystemClock;
-import android.support.v7.widget.GridLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.transition.ChangeBounds;
 import android.transition.Transition;
 import android.transition.TransitionManager;
@@ -25,6 +24,8 @@ import android.widget.ImageView;
 import android.widget.RelativeLayout;
 
 import androidx.annotation.VisibleForTesting;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import org.chromium.base.DiscardableReferencePool.DiscardableReference;
 import org.chromium.base.metrics.RecordHistogram;
@@ -51,7 +52,7 @@ import java.util.List;
  */
 public class PickerCategoryView extends RelativeLayout
         implements FileEnumWorkerTask.FilesEnumeratedCallback, RecyclerView.RecyclerListener,
-                   DecoderServiceHost.ServiceReadyCallback, View.OnClickListener,
+                   DecoderServiceHost.DecoderStatusCallback, View.OnClickListener,
                    SelectionDelegate.SelectionObserver<PickerBitmap> {
     // These values are written to logs.  New enum values can be added, but existing
     // enums must never be renumbered or deleted and reused.
@@ -91,6 +92,9 @@ public class PickerCategoryView extends RelativeLayout
 
     // Our activity.
     private ChromeActivity mActivity;
+
+    // The ContentResolver to use to retrieve image metadata from disk.
+    private ContentResolver mContentResolver;
 
     // The list of images on disk, sorted by last-modified first.
     private List<PickerBitmap> mPickerBitmaps;
@@ -187,13 +191,15 @@ public class PickerCategoryView extends RelativeLayout
 
     /**
      * @param context The context to use.
+     * @param contentResolver The ContentResolver to use to retrieve image metadata from disk.
      * @param multiSelectionAllowed Whether to allow the user to select more than one image.
      */
     @SuppressWarnings("unchecked") // mSelectableListLayout
-    public PickerCategoryView(Context context, boolean multiSelectionAllowed,
-            PhotoPickerToolbar.PhotoPickerToolbarDelegate delegate) {
+    public PickerCategoryView(Context context, ContentResolver contentResolver,
+            boolean multiSelectionAllowed, PhotoPickerToolbar.PhotoPickerToolbarDelegate delegate) {
         super(context);
         mActivity = (ChromeActivity) context;
+        mContentResolver = contentResolver;
         mMultiSelectionAllowed = multiSelectionAllowed;
 
         mDecoderServiceHost = new DecoderServiceHost(this, context);
@@ -321,6 +327,10 @@ public class PickerCategoryView extends RelativeLayout
 
     @Override
     public void filesEnumeratedCallback(List<PickerBitmap> files) {
+        if (files == null) {
+            return;
+        }
+
         // Calculate the rate of files enumerated per tenth of a second.
         long elapsedTimeMs = SystemClock.elapsedRealtime() - mEnumStartTime;
         int rate = (int) (100 * files.size() / elapsedTimeMs);
@@ -333,13 +343,16 @@ public class PickerCategoryView extends RelativeLayout
         processBitmaps();
     }
 
-    // DecoderServiceHost.ServiceReadyCallback:
+    // DecoderServiceHost.DecoderStatusCallback:
 
     @Override
     public void serviceReady() {
         mServiceReady = true;
         processBitmaps();
     }
+
+    @Override
+    public void decoderIdle() {}
 
     // RecyclerView.RecyclerListener:
 
@@ -560,7 +573,7 @@ public class PickerCategoryView extends RelativeLayout
 
         mEnumStartTime = SystemClock.elapsedRealtime();
         mWorkerTask = new FileEnumWorkerTask(mActivity.getWindowAndroid(), this,
-                new MimeTypeFilter(mMimeTypes, true), mMimeTypes, mActivity.getContentResolver());
+                new MimeTypeFilter(mMimeTypes, true), mMimeTypes, mContentResolver);
         mWorkerTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 

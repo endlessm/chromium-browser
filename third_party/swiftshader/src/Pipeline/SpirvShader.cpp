@@ -14,7 +14,7 @@
 
 #include "SpirvShader.hpp"
 
-#include "Vulkan/VkDebug.hpp"
+#include "System/Debug.hpp"
 #include "Vulkan/VkPipelineLayout.hpp"
 #include "Vulkan/VkRenderPass.hpp"
 
@@ -381,6 +381,7 @@ SpirvShader::SpirvShader(
 					case spv::CapabilityGroupNonUniformShuffleRelative: capabilities.GroupNonUniformShuffleRelative = true; break;
 					case spv::CapabilityDeviceGroup: capabilities.DeviceGroup = true; break;
 					case spv::CapabilityMultiView: capabilities.MultiView = true; break;
+					case spv::CapabilityStencilExportEXT: capabilities.StencilExportEXT = true; break;
 					default:
 						UNSUPPORTED("Unsupported capability %u", insn.word(1));
 				}
@@ -399,18 +400,12 @@ SpirvShader::SpirvShader(
 				function.result = Type::ID(insn.word(1));
 				function.type = Type::ID(insn.word(4));
 				// Scan forward to find the function's label.
-				for(auto it = insn; it != end() && function.entry == 0; it++)
+				for(auto it = insn; it != end(); it++)
 				{
-					switch(it.opcode())
+					if(it.opcode() == spv::OpLabel)
 					{
-						case spv::OpFunction:
-						case spv::OpFunctionParameter:
-							break;
-						case spv::OpLabel:
-							function.entry = Block::ID(it.word(1));
-							break;
-						default:
-							WARN("Unexpected opcode '%s' following OpFunction", OpcodeName(it.opcode()).c_str());
+						function.entry = Block::ID(it.word(1));
+						break;
 					}
 				}
 				ASSERT_MSG(function.entry != 0, "Function<%d> has no label", currentFunction.value());
@@ -423,18 +418,20 @@ SpirvShader::SpirvShader(
 
 			case spv::OpExtInstImport:
 			{
-				auto const extensionsByName = std::initializer_list<std::pair<const char *, Extension::Name>>{
+				static constexpr std::pair<const char *, Extension::Name> extensionsByName[] = {
 					{ "GLSL.std.450", Extension::GLSLstd450 },
 					{ "OpenCL.DebugInfo.100", Extension::OpenCLDebugInfo100 },
 				};
+				static constexpr auto extensionCount = sizeof(extensionsByName) / sizeof(extensionsByName[0]);
+
 				auto id = Extension::ID(insn.word(1));
 				auto name = insn.string(2);
 				auto ext = Extension{ Extension::Unknown };
-				for(auto it : extensionsByName)
+				for(size_t i = 0; i < extensionCount; i++)
 				{
-					if(0 == strcmp(name, it.first))
+					if(0 == strcmp(name, extensionsByName[i].first))
 					{
-						ext = Extension{ it.second };
+						ext = Extension{ extensionsByName[i].second };
 						break;
 					}
 				}
@@ -717,6 +714,7 @@ SpirvShader::SpirvShader(
 				if(!strcmp(ext, "SPV_KHR_variable_pointers")) break;
 				if(!strcmp(ext, "SPV_KHR_device_group")) break;
 				if(!strcmp(ext, "SPV_KHR_multiview")) break;
+				if(!strcmp(ext, "SPV_EXT_shader_stencil_export")) break;
 				UNSUPPORTED("SPIR-V Extension: %s", ext);
 				break;
 			}
@@ -2325,20 +2323,22 @@ SpirvShader::EmitResult SpirvShader::EmitArrayLength(InsnIterator insn, EmitStat
 
 	auto &structPtrTy = getType(getObject(structPtrId).type);
 	auto &structTy = getType(structPtrTy.element);
-	auto &arrayTy = getType(structTy.definition.word(2 + arrayFieldIdx));
-	ASSERT(arrayTy.definition.opcode() == spv::OpTypeRuntimeArray);
-	auto &arrayElTy = getType(arrayTy.element);
+	auto arrayId = Type::ID(structTy.definition.word(2 + arrayFieldIdx));
 
 	auto &result = state->createIntermediate(resultId, 1);
 	auto structBase = GetPointerToData(structPtrId, 0, state);
 
-	Decorations d = {};
-	ApplyDecorationsForIdMember(&d, structPtrTy.element, arrayFieldIdx);
-	ASSERT(d.HasOffset);
+	Decorations structDecorations = {};
+	ApplyDecorationsForIdMember(&structDecorations, structPtrTy.element, arrayFieldIdx);
+	ASSERT(structDecorations.HasOffset);
 
-	auto arrayBase = structBase + d.Offset;
+	auto arrayBase = structBase + structDecorations.Offset;
 	auto arraySizeInBytes = SIMD::Int(arrayBase.limit()) - arrayBase.offsets();
-	auto arrayLength = arraySizeInBytes / SIMD::Int(arrayElTy.sizeInComponents * sizeof(float));
+
+	Decorations arrayDecorations = {};
+	ApplyDecorationsForId(&arrayDecorations, arrayId);
+	ASSERT(arrayDecorations.HasArrayStride);
+	auto arrayLength = arraySizeInBytes / SIMD::Int(arrayDecorations.ArrayStride);
 
 	result.move(0, SIMD::Int(arrayLength));
 

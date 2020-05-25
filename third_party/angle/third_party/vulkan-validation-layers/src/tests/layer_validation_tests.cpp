@@ -126,11 +126,23 @@ bool ImageFormatAndFeaturesSupported(const VkInstance inst, const VkPhysicalDevi
     return true;
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL myDbgFunc(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject, size_t location,
-                                         int32_t msgCode, const char *pLayerPrefix, const char *pMsg, void *pUserData) {
+VKAPI_ATTR VkBool32 VKAPI_CALL LvtDebugReportFunc(VkFlags msgFlags, VkDebugReportObjectTypeEXT objType, uint64_t srcObject,
+                                                  size_t location, int32_t msgCode, const char *pLayerPrefix, const char *pMsg,
+                                                  void *pUserData) {
     ErrorMonitor *errMonitor = (ErrorMonitor *)pUserData;
     if (msgFlags & errMonitor->GetMessageFlags()) {
         return errMonitor->CheckForDesiredMsg(pMsg);
+    }
+    return VK_FALSE;
+}
+
+VKAPI_ATTR VkBool32 VKAPI_CALL LvtDebugUtilsFunc(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                 VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+                                                 const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData) {
+    ErrorMonitor *errMonitor = (ErrorMonitor *)pUserData;
+    auto msg_flags = DebugAnnotFlagsToMsgTypeFlags(messageSeverity, messageTypes);
+    if (msg_flags & errMonitor->GetMessageFlags()) {
+        return errMonitor->CheckForDesiredMsg(pCallbackData->pMessage);
     }
     return VK_FALSE;
 }
@@ -154,6 +166,14 @@ VkPhysicalDeviceSubgroupProperties GetSubgroupProperties(VkInstance instance, Vk
     auto prop2 = lvl_init_struct<VkPhysicalDeviceProperties2>(&subgroup_prop);
     vk::GetPhysicalDeviceProperties2(gpu, &prop2);
     return subgroup_prop;
+}
+
+VkPhysicalDeviceDescriptorIndexingProperties GetDescriptorIndexingProperties(VkInstance instance, VkPhysicalDevice gpu) {
+    auto descriptor_indexing_prop = lvl_init_struct<VkPhysicalDeviceDescriptorIndexingProperties>();
+
+    auto prop2 = lvl_init_struct<VkPhysicalDeviceProperties2>(&descriptor_indexing_prop);
+    vk::GetPhysicalDeviceProperties2(gpu, &prop2);
+    return descriptor_indexing_prop;
 }
 
 bool operator==(const VkDebugUtilsLabelEXT &rhs, const VkDebugUtilsLabelEXT &lhs) {
@@ -236,7 +256,7 @@ void TestRenderPassCreate(ErrorMonitor *error_monitor, const VkDevice device, co
     VkResult err;
 
     if (rp1_vuid) {
-        error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp1_vuid);
+        error_monitor->SetDesiredFailureMsg(kErrorBit, rp1_vuid);
         err = vk::CreateRenderPass(device, create_info, nullptr, &render_pass);
         if (err == VK_SUCCESS) vk::DestroyRenderPass(device, render_pass, nullptr);
         error_monitor->VerifyFound();
@@ -248,7 +268,7 @@ void TestRenderPassCreate(ErrorMonitor *error_monitor, const VkDevice device, co
         safe_VkRenderPassCreateInfo2 create_info2;
         ConvertVkRenderPassCreateInfoToV2KHR(*create_info, &create_info2);
 
-        error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+        error_monitor->SetDesiredFailureMsg(kErrorBit, rp2_vuid);
         err = vkCreateRenderPass2KHR(device, create_info2.ptr(), nullptr, &render_pass);
         if (err == VK_SUCCESS) vk::DestroyRenderPass(device, render_pass, nullptr);
         error_monitor->VerifyFound();
@@ -256,7 +276,7 @@ void TestRenderPassCreate(ErrorMonitor *error_monitor, const VkDevice device, co
         // For api version >= 1.2, try core entrypoint
         PFN_vkCreateRenderPass2 vkCreateRenderPass2 = (PFN_vkCreateRenderPass2)vk::GetDeviceProcAddr(device, "vkCreateRenderPass2");
         if (vkCreateRenderPass2) {
-            error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+            error_monitor->SetDesiredFailureMsg(kErrorBit, rp2_vuid);
             err = vkCreateRenderPass2(device, create_info2.ptr(), nullptr, &render_pass);
             if (err == VK_SUCCESS) vk::DestroyRenderPass(device, render_pass, nullptr);
             error_monitor->VerifyFound();
@@ -294,7 +314,7 @@ void TestRenderPass2KHRCreate(ErrorMonitor *error_monitor, const VkDevice device
     PFN_vkCreateRenderPass2KHR vkCreateRenderPass2KHR =
         (PFN_vkCreateRenderPass2KHR)vk::GetDeviceProcAddr(device, "vkCreateRenderPass2KHR");
 
-    error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+    error_monitor->SetDesiredFailureMsg(kErrorBit, rp2_vuid);
     err = vkCreateRenderPass2KHR(device, create_info, nullptr, &render_pass);
     if (err == VK_SUCCESS) vk::DestroyRenderPass(device, render_pass, nullptr);
     error_monitor->VerifyFound();
@@ -307,7 +327,7 @@ void TestRenderPassBegin(ErrorMonitor *error_monitor, const VkDevice device, con
 
     if (rp1_vuid) {
         vk::BeginCommandBuffer(command_buffer, &cmd_begin_info);
-        error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp1_vuid);
+        error_monitor->SetDesiredFailureMsg(kErrorBit, rp1_vuid);
         vk::CmdBeginRenderPass(command_buffer, begin_info, VK_SUBPASS_CONTENTS_INLINE);
         error_monitor->VerifyFound();
         vk::ResetCommandBuffer(command_buffer, 0);
@@ -317,7 +337,7 @@ void TestRenderPassBegin(ErrorMonitor *error_monitor, const VkDevice device, con
             (PFN_vkCmdBeginRenderPass2KHR)vk::GetDeviceProcAddr(device, "vkCmdBeginRenderPass2KHR");
         VkSubpassBeginInfoKHR subpass_begin_info = {VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO_KHR, nullptr, VK_SUBPASS_CONTENTS_INLINE};
         vk::BeginCommandBuffer(command_buffer, &cmd_begin_info);
-        error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+        error_monitor->SetDesiredFailureMsg(kErrorBit, rp2_vuid);
         vkCmdBeginRenderPass2KHR(command_buffer, begin_info, &subpass_begin_info);
         error_monitor->VerifyFound();
         vk::ResetCommandBuffer(command_buffer, 0);
@@ -327,7 +347,7 @@ void TestRenderPassBegin(ErrorMonitor *error_monitor, const VkDevice device, con
             (PFN_vkCmdBeginRenderPass2KHR)vk::GetDeviceProcAddr(device, "vkCmdBeginRenderPass2");
         if (vkCmdBeginRenderPass2) {
             vk::BeginCommandBuffer(command_buffer, &cmd_begin_info);
-            error_monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, rp2_vuid);
+            error_monitor->SetDesiredFailureMsg(kErrorBit, rp2_vuid);
             vkCmdBeginRenderPass2(command_buffer, begin_info, &subpass_begin_info);
             error_monitor->VerifyFound();
             vk::ResetCommandBuffer(command_buffer, 0);
@@ -502,10 +522,9 @@ void NegHeightViewportTests(VkDeviceObj *m_device, VkCommandBufferObj *m_command
     for (const auto &test_case : test_cases) {
         for (const auto vuid : test_case.vuids) {
             if (vuid == "VUID-Undefined")
-                m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT,
-                                                     "is less than VkPhysicalDeviceLimits::viewportBoundsRange[0]");
+                m_errorMonitor->SetDesiredFailureMsg(kErrorBit, "is less than VkPhysicalDeviceLimits::viewportBoundsRange[0]");
             else
-                m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, vuid);
+                m_errorMonitor->SetDesiredFailureMsg(kErrorBit, vuid);
         }
         vk::CmdSetViewport(m_commandBuffer->handle(), 0, 1, &test_case.vp);
         m_errorMonitor->VerifyFound();
@@ -516,7 +535,7 @@ void CreateSamplerTest(VkLayerTest &test, const VkSamplerCreateInfo *pCreateInfo
     VkResult err;
     VkSampler sampler = VK_NULL_HANDLE;
     if (code.length())
-        test.Monitor()->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT, code);
+        test.Monitor()->SetDesiredFailureMsg(kErrorBit | kWarningBit, code);
     else
         test.Monitor()->ExpectSuccess();
 
@@ -535,7 +554,7 @@ void CreateBufferTest(VkLayerTest &test, const VkBufferCreateInfo *pCreateInfo, 
     VkResult err;
     VkBuffer buffer = VK_NULL_HANDLE;
     if (code.length())
-        test.Monitor()->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, code);
+        test.Monitor()->SetDesiredFailureMsg(kErrorBit, code);
     else
         test.Monitor()->ExpectSuccess();
 
@@ -554,7 +573,7 @@ void CreateImageTest(VkLayerTest &test, const VkImageCreateInfo *pCreateInfo, st
     VkResult err;
     VkImage image = VK_NULL_HANDLE;
     if (code.length())
-        test.Monitor()->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, code);
+        test.Monitor()->SetDesiredFailureMsg(kErrorBit, code);
     else
         test.Monitor()->ExpectSuccess();
 
@@ -574,7 +593,7 @@ void CreateBufferViewTest(VkLayerTest &test, const VkBufferViewCreateInfo *pCrea
     VkBufferView view = VK_NULL_HANDLE;
     if (codes.size())
         std::for_each(codes.begin(), codes.end(),
-                      [&](const std::string &s) { test.Monitor()->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, s); });
+                      [&](const std::string &s) { test.Monitor()->SetDesiredFailureMsg(kErrorBit, s); });
     else
         test.Monitor()->ExpectSuccess();
 
@@ -593,7 +612,7 @@ void CreateImageViewTest(VkLayerTest &test, const VkImageViewCreateInfo *pCreate
     VkResult err;
     VkImageView view = VK_NULL_HANDLE;
     if (code.length())
-        test.Monitor()->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, code);
+        test.Monitor()->SetDesiredFailureMsg(kErrorBit, code);
     else
         test.Monitor()->ExpectSuccess();
 
@@ -667,7 +686,7 @@ bool CheckDescriptorIndexingSupportAndInitFramework(VkRenderFramework *renderFra
     if (descriptor_indexing) {
         instance_extension_names.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
     }
-    renderFramework->InitFramework(myDbgFunc, userData, features);
+    renderFramework->InitFramework(userData, features);
     descriptor_indexing = descriptor_indexing && renderFramework->DeviceExtensionSupported(renderFramework->gpu(), nullptr,
                                                                                            VK_KHR_MAINTENANCE3_EXTENSION_NAME);
     descriptor_indexing = descriptor_indexing && renderFramework->DeviceExtensionSupported(
@@ -895,7 +914,7 @@ void VkLayerTest::GenericDrawPreparation(VkCommandBufferObj *commandBuffer, VkPi
 
 void VkLayerTest::Init(VkPhysicalDeviceFeatures *features, VkPhysicalDeviceFeatures2 *features2,
                        const VkCommandPoolCreateFlags flags, void *instance_pnext) {
-    InitFramework(myDbgFunc, m_errorMonitor, instance_pnext);
+    InitFramework(m_errorMonitor, instance_pnext);
     InitState(features, features2, flags);
 }
 
@@ -910,6 +929,7 @@ VkLayerTest::VkLayerTest() {
 
     // Add default instance extensions to the list
     m_instance_extension_names.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+    m_instance_extension_names.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
     m_instance_layer_names.push_back("VK_LAYER_KHRONOS_validation");
 
@@ -1844,8 +1864,8 @@ BarrierQueueFamilyTestHelper::QueueFamilyObjs *BarrierQueueFamilyTestHelper::Get
 void BarrierQueueFamilyTestHelper::operator()(std::string img_err, std::string buf_err, uint32_t src, uint32_t dst, bool positive,
                                               uint32_t queue_family_index, Modifier mod) {
     auto monitor = context_->layer_test->Monitor();
-    if (img_err.length()) monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT, img_err);
-    if (buf_err.length()) monitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT, buf_err);
+    if (img_err.length()) monitor->SetDesiredFailureMsg(kErrorBit | kWarningBit, img_err);
+    if (buf_err.length()) monitor->SetDesiredFailureMsg(kErrorBit | kWarningBit, buf_err);
 
     image_barrier_.srcQueueFamilyIndex = src;
     image_barrier_.dstQueueFamilyIndex = dst;
@@ -2009,12 +2029,6 @@ static void processCommand(struct android_app *app, int32_t cmd) {
 }
 
 void android_main(struct android_app *app) {
-    int vulkanSupport = InitVulkan();
-    if (vulkanSupport == 0) {
-        __android_log_print(ANDROID_LOG_INFO, appTag, "==== FAILED ==== No Vulkan support found");
-        return;
-    }
-
     app->onAppCmd = processCommand;
     app->onInputEvent = processInput;
 
@@ -2088,11 +2102,6 @@ void android_main(struct android_app *app) {
 
 int main(int argc, char **argv) {
     int result;
-
-#ifdef ANDROID
-    int vulkanSupport = InitVulkan();
-    if (vulkanSupport == 0) return 1;
-#endif
 
 #if defined(_WIN32) && !defined(NDEBUG)
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);

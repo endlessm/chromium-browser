@@ -26,6 +26,12 @@ import os
 import re
 import sys
 
+try:
+  import pytest  # pylint: disable=import-error
+  pytest.importorskip('pylint')
+except ImportError:
+  pass
+
 import pylint.checkers
 from pylint.config import ConfigurationMixIn
 import pylint.interfaces
@@ -353,7 +359,10 @@ class DocStringChecker(pylint.checkers.BaseChecker):
             'prop', 'props', 'properties',
             'member', 'members',
         },
-        'Args': {'arg', 'argument', 'arguments'},
+        'Args': {
+            'arg', 'argument', 'arguments',
+            'param', 'params', 'parameter', 'parameters',
+        },
         'Returns': {
             'ret', 'rets', 'return', 'retrun', 'retruns', 'result', 'results',
         },

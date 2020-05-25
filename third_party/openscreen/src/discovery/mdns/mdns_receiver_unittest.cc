@@ -43,10 +43,9 @@ TEST(MdnsReceiverTest, ReceiveQuery) {
   };
   // clang-format on
 
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV4);
+  FakeUdpSocket socket;
   MockMdnsReceiverDelegate delegate;
-  MdnsReceiver receiver(socket_info.get());
+  MdnsReceiver receiver;
   receiver.SetQueryCallback(
       [&delegate](const MdnsMessage& message, const IPEndpoint& endpoint) {
         delegate.OnMessageReceived(message);
@@ -67,7 +66,7 @@ TEST(MdnsReceiverTest, ReceiveQuery) {
 
   // Imitate a call to OnRead from NetworkRunner by calling it manually here
   EXPECT_CALL(delegate, OnMessageReceived(message)).Times(1);
-  receiver.OnRead(socket_info.get(), std::move(packet));
+  receiver.OnRead(&socket, std::move(packet));
 
   receiver.Stop();
 }
@@ -98,10 +97,9 @@ TEST(MdnsReceiverTest, ReceiveResponse) {
   };
   // clang-format on
 
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV6);
+  FakeUdpSocket socket;
   MockMdnsReceiverDelegate delegate;
-  MdnsReceiver receiver(socket_info.get());
+  MdnsReceiver receiver;
   receiver.AddResponseCallback(&delegate);
   receiver.Start();
 
@@ -122,7 +120,7 @@ TEST(MdnsReceiverTest, ReceiveResponse) {
 
   // Imitate a call to OnRead from NetworkRunner by calling it manually here
   EXPECT_CALL(delegate, OnMessageReceived(message)).Times(1);
-  receiver.OnRead(socket_info.get(), std::move(packet));
+  receiver.OnRead(&socket, std::move(packet));
 
   receiver.Stop();
   receiver.RemoveResponseCallback(&delegate);

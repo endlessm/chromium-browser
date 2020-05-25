@@ -17,8 +17,8 @@
 #ifndef SRC_TRACE_PROCESSOR_TRACK_TRACKER_H_
 #define SRC_TRACE_PROCESSOR_TRACK_TRACKER_H_
 
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_processor_context.h"
-#include "src/trace_processor/trace_storage.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -51,6 +51,9 @@ class TrackTracker {
   TrackId InternAndroidAsyncTrack(StringId name,
                                   UniquePid upid,
                                   int64_t cookie);
+
+  // Interns a track for perf event stack samples, with process-wide grouping.
+  TrackId InternPerfStackTrack(UniquePid upid);
 
   // Interns a track for legacy Chrome process-scoped instant events into the
   // storage.
@@ -96,6 +99,29 @@ class TrackTracker {
   // track.
   void ReserveDescriptorChildTrack(uint64_t uuid, uint64_t parent_uuid);
 
+  // Associate a counter-type TrackDescriptor track identified by the given
+  // |uuid| with a parent track (usually a process or thread track). This is
+  // called during tokenization. If a reservation for the same |uuid| already
+  // exists, will attempt to update it. The provided |category| will be stored
+  // into the track's args.
+  //
+  // If |is_incremental| is true, the counter will only be valid on the packet
+  // sequence identified by |packet_sequence_id|. |unit_multiplier| is an
+  // optional multiplication factor applied to counter values. Values for the
+  // counter will be translated during tokenization via
+  // ConvertToAbsoluteCounterValue().
+  //
+  // The track will be created upon the first call to GetDescriptorTrack() with
+  // the same |uuid|. If |parent_uuid| is 0, the track will become a global
+  // track. Otherwise, it will become a new counter track for the same
+  // process/thread as its parent track.
+  void ReserveDescriptorCounterTrack(uint64_t uuid,
+                                     uint64_t parent_uuid,
+                                     StringId category,
+                                     int64_t unit_multiplier,
+                                     bool is_incremental,
+                                     uint32_t packet_sequence_id);
+
   // Returns the ID of the track for the TrackDescriptor with the given |uuid|.
   // This is called during parsing. The first call to GetDescriptorTrack() for
   // each |uuid| resolves and inserts the track (and its parent tracks,
@@ -106,6 +132,10 @@ class TrackTracker {
 
   // Returns the ID of the implicit trace-global default TrackDescriptor track.
   TrackId GetOrCreateDefaultDescriptorTrack();
+
+  // Returns the ID of the implicit trace-global default track for triggers
+  // received by the service.
+  TrackId GetOrCreateTriggerTrack();
 
   // Interns a global counter track into the storage.
   TrackId InternGlobalCounterTrack(StringId name);
@@ -133,6 +163,21 @@ class TrackTracker {
                                 uint32_t gpu_id,
                                 StringId description = StringId::Null(),
                                 StringId unit = StringId::Null());
+
+  // Converts the given counter value to an absolute value in the unit of the
+  // counter, applying incremental delta encoding or unit multipliers as
+  // necessary. If the counter uses incremental encoding, |packet_sequence_id|
+  // must match the one in its track reservation. Returns base::nullopt if the
+  // counter track is unknown or an invalid |packet_sequence_id| was passed.
+  base::Optional<int64_t> ConvertToAbsoluteCounterValue(
+      uint64_t counter_track_uuid,
+      uint32_t packet_sequence_id,
+      int64_t value);
+
+  // Called by ProtoTraceTokenizer whenever incremental state is cleared on a
+  // packet sequence. Resets counter values for any incremental counters of
+  // the sequence identified by |packet_sequence_id|.
+  void OnIncrementalStateCleared(uint32_t packet_sequence_id);
 
  private:
   struct GpuTrackTuple {
@@ -173,12 +218,23 @@ class TrackTracker {
     base::Optional<uint32_t> tid;
     int64_t min_timestamp = 0;  // only set if |pid| and/or |tid| is set.
 
+    // For counter tracks.
+    bool is_counter = false;
+    StringId category = kNullStringId;
+    int64_t unit_multiplier = 1;
+    bool is_incremental = false;
+    uint32_t packet_sequence_id = 0;
+    int64_t latest_value = 0;
+
     // Whether |other| is a valid descriptor for this track reservation. A track
     // should always remain nested underneath its original parent.
     bool IsForSameTrack(const DescriptorTrackReservation& other) {
-      // Note that |timestamp| is ignored for this comparison.
-      return std::tie(parent_uuid, pid, tid) ==
-             std::tie(other.parent_uuid, pid, tid);
+      // Note that |min_timestamp| and |last_value| are ignored for this
+      // comparison.
+      return std::tie(parent_uuid, pid, tid, is_counter, category,
+                      unit_multiplier, is_incremental, packet_sequence_id) ==
+             std::tie(other.parent_uuid, pid, tid, is_counter, category,
+                      unit_multiplier, is_incremental, packet_sequence_id);
     }
   };
 
@@ -198,6 +254,7 @@ class TrackTracker {
   std::map<uint64_t /* uuid */, DescriptorTrackReservation>
       reserved_descriptor_tracks_;
   std::map<uint64_t /* uuid */, TrackId> resolved_descriptor_tracks_;
+  std::map<UniquePid, TrackId> perf_stack_tracks_;
 
   std::map<StringId, TrackId> global_counter_tracks_by_name_;
   std::map<std::pair<StringId, uint32_t>, TrackId> cpu_counter_tracks_;
@@ -212,11 +269,14 @@ class TrackTracker {
   std::map<UniquePid, uint64_t /*uuid*/> descriptor_uuids_by_upid_;
   std::map<UniqueTid, uint64_t /*uuid*/> descriptor_uuids_by_utid_;
 
+  base::Optional<TrackId> trigger_track_id_;
+
   const StringId source_key_ = kNullStringId;
   const StringId source_id_key_ = kNullStringId;
   const StringId source_id_is_process_scoped_key_ = kNullStringId;
   const StringId source_scope_key_ = kNullStringId;
   const StringId parent_track_id_key_ = kNullStringId;
+  const StringId category_key_ = kNullStringId;
 
   const StringId fuchsia_source_ = kNullStringId;
   const StringId chrome_source_ = kNullStringId;

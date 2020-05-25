@@ -216,12 +216,6 @@ class ExtensionManagement : public KeyedService {
   // Helper to update |extension_dict| for forced installs.
   void UpdateForcedExtensions(const base::DictionaryValue* extension_dict);
 
-  // Helper to update |settings_by_id_| for forced cloud reporting extension.
-  void UpdateForcedCloudReportingExtension();
-
-  // Returns true if cloud reporting policy is enabled.
-  bool IsCloudReportingPolicyEnabled() const;
-
   // Helper function to access |settings_by_id_| with |id| as key.
   // Adds a new IndividualSettings entry to |settings_by_id_| if none exists for
   // |id| yet.
@@ -259,6 +253,7 @@ class ExtensionManagement : public KeyedService {
 
   base::ObserverList<Observer, true>::Unchecked observer_list_;
   PrefChangeRegistrar pref_change_registrar_;
+  PrefChangeRegistrar local_state_pref_change_registrar_;
   std::vector<std::unique_ptr<ManagementPolicy::Provider>> providers_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionManagement);

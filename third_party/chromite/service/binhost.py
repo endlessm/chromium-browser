@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import functools
 import os
+import sys
 
 from chromite.lib import binpkg
 from chromite.lib import constants
@@ -17,6 +18,9 @@ from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import portage_util
 from chromite.utils import key_value_store
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # The name of the ACL argument file.
@@ -110,7 +114,7 @@ def GetPrebuiltsRoot(chroot, sysroot, build_target):
   Args:
     chroot (chroot_lib.Chroot): The chroot where the sysroot lives.
     sysroot (sysroot_lib.Sysroot): The sysroot.
-    build_target (build_target_util.BuildTarget): The build target.
+    build_target (build_target_lib.BuildTarget): The build target.
 
   Returns:
     Absolute path to the root directory with the target's prebuilt archives.
@@ -231,7 +235,7 @@ def GetPrebuiltAclArgs(build_target):
   """Read and parse the GS ACL file from the private overlays.
 
   Args:
-    build_target (build_target_util.BuildTarget): The build target.
+    build_target (build_target_lib.BuildTarget): The build target.
 
   Returns:
     list[list[str]]: A list containing all of the [arg, value] pairs. E.g.
@@ -256,7 +260,7 @@ def GetBinhosts(build_target):
   """Get the binhosts for the build target.
 
   Args:
-    build_target (build_target_util.BuildTarget): The build target.
+    build_target (build_target_lib.BuildTarget): The build target.
 
   Returns:
     list[str]: The build target's binhosts.

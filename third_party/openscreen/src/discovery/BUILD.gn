@@ -3,6 +3,23 @@
 # found in the LICENSE file.
 
 import("//build_overrides/build.gni")
+import("../testing/libfuzzer/fuzzer_test.gni")
+
+source_set("common") {
+  sources = [
+    "common/config.h",
+    "common/reporting_client.h",
+  ]
+
+  deps = [
+    "../util",
+  ]
+
+  public_deps = [
+    "../platform",
+    "../third_party/abseil",
+  ]
+}
 
 source_set("mdns") {
   sources = [
@@ -33,6 +50,7 @@ source_set("mdns") {
     "mdns/mdns_writer.cc",
     "mdns/mdns_writer.h",
     "mdns/public/mdns_constants.h",
+    "mdns/public/mdns_service.cc",
     "mdns/public/mdns_service.h",
   ]
 
@@ -41,6 +59,7 @@ source_set("mdns") {
   ]
 
   public_deps = [
+    ":common",
     "../platform",
     "../third_party/abseil",
   ]
@@ -72,17 +91,20 @@ source_set("dnssd") {
   ]
 
   public_deps = [
+    ":common",
     ":mdns",
   ]
 }
 
 source_set("public") {
   sources = [
+    "public/dns_sd_service_factory.h",
+    "public/dns_sd_service_publisher.h",
     "public/dns_sd_service_watcher.h",
-    "public/temp.cc",
   ]
 
   public_deps = [
+    ":common",
     ":dnssd",
   ]
 }
@@ -91,6 +113,7 @@ source_set("testing") {
   testonly = true
 
   sources = [
+    "common/testing/mock_reporting_client.h",
     "dnssd/testing/fake_dns_record_factory.cc",
     "mdns/testing/mdns_test_util.cc",
     "mdns/testing/mdns_test_util.h",
@@ -138,4 +161,19 @@ source_set("unittests") {
     "../third_party/googletest:gtest",
     "../util",
   ]
+}
+
+openscreen_fuzzer_test("mdns_fuzzer") {
+  sources = [
+    "mdns/mdns_reader_fuzztest.cc",
+  ]
+
+  deps = [
+    ":mdns",
+  ]
+
+  seed_corpus = "mdns/fuzzer_seeds"
+
+  # Note: 512 is the maximum size for a serialized mDNS packet.
+  libfuzzer_options = [ "max_len=512" ]
 }

@@ -485,6 +485,9 @@ ExtensionFunction::ResponseAction WindowsCreateFunction::Run() {
       if (ExtensionTabUtil::IsKillURL(url))
         return RespondNow(Error(tabs_constants::kNoCrashBrowserError));
       urls.push_back(url);
+
+      // Log if this navigation looks like it is to a devtools URL.
+      ExtensionTabUtil::LogPossibleDevtoolsSchemeNavigation(url);
     }
   }
 
@@ -547,9 +550,8 @@ ExtensionFunction::ResponseAction WindowsCreateFunction::Run() {
 
     // Initialize default window bounds according to window type.
     ui::WindowShowState ignored_show_state = ui::SHOW_STATE_DEFAULT;
-    WindowSizer::GetBrowserWindowBoundsAndShowState(std::string(), gfx::Rect(),
-                                                    nullptr, &window_bounds,
-                                                    &ignored_show_state);
+    WindowSizer::GetBrowserWindowBoundsAndShowState(
+        gfx::Rect(), nullptr, &window_bounds, &ignored_show_state);
 
     // Any part of the bounds can optionally be set by the caller.
     if (create_data->left)
@@ -877,7 +879,6 @@ ExtensionFunction::ResponseAction TabsQueryFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   bool loading_status_set = params->query_info.status != tabs::TAB_STATUS_NONE;
-  bool loading = params->query_info.status == tabs::TAB_STATUS_LOADING;
 
   URLPatternSet url_patterns;
   if (params->query_info.url.get()) {
@@ -1034,8 +1035,11 @@ ExtensionFunction::ResponseAction TabsQueryFunction::Run() {
         }
       }
 
-      if (loading_status_set && loading != web_contents->IsLoading())
+      if (loading_status_set &&
+          params->query_info.status !=
+              ExtensionTabUtil::GetLoadingStatus(web_contents)) {
         continue;
+      }
 
       result->Append(CreateTabObjectHelper(web_contents, extension(),
                                            source_context_type(), tab_strip, i)
@@ -1346,6 +1350,9 @@ bool TabsUpdateFunction::UpdateURL(const std::string& url_string,
     *error = tabs_constants::kNoCrashBrowserError;
     return false;
   }
+
+  // Log if this navigation looks like it is to a devtools URL.
+  ExtensionTabUtil::LogPossibleDevtoolsSchemeNavigation(url);
 
   const bool is_javascript_scheme = url.SchemeIs(url::kJavaScriptScheme);
   UMA_HISTOGRAM_BOOLEAN("Extensions.ApiTabUpdateJavascript",

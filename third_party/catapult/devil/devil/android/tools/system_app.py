@@ -18,6 +18,7 @@ if __name__ == '__main__':
           os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
 from devil.android import apk_helper
+from devil.android import decorators
 from devil.android import device_errors
 from devil.android import device_temp_file
 from devil.android.sdk import version_codes
@@ -120,19 +121,26 @@ def _GetSystemPath(package, paths):
   return None
 
 
+_MODIFICATION_TIMEOUT = 300
+_MODIFICATION_RETRIES = 2
 _ENABLE_MODIFICATION_PROP = 'devil.modify_sys_apps'
 
 
-@contextlib.contextmanager
-def EnableSystemAppModification(device):
-  """A context manager that allows system apps to be modified while in scope.
+def _ShouldRetryModification(exc):
+  return not isinstance(exc, device_errors.CommandTimeoutError)
 
-  Args:
-    device: (device_utils.DeviceUtils) the device
-  """
-  if device.GetProp(_ENABLE_MODIFICATION_PROP) == '1':
-    yield
-    return
+
+# timeout and retries are both required by the decorator, but neither
+# are used within the body of the function.
+# pylint: disable=unused-argument
+
+
+@decorators.WithTimeoutAndConditionalRetries(_ShouldRetryModification)
+def _SetUpSystemAppModification(device, timeout=None, retries=None):
+  # Ensure that the device is online & available before proceeding to
+  # handle the case where something fails in the middle of set up and
+  # triggers a retry.
+  device.WaitUntilFullyBooted()
 
   # All calls that could potentially need root should run with as_root=True, but
   # it looks like some parts of Telemetry work as-is by implicitly assuming that
@@ -158,8 +166,7 @@ def EnableSystemAppModification(device):
     device.adb.Remount()
     device.RunShellCommand(['stop'], check_return=True)
     device.SetProp(_ENABLE_MODIFICATION_PROP, '1')
-    yield
-  except device_errors.CommandFailedError as e:
+  except device_errors.CommandFailedError:
     if device.adb.is_emulator:
       # Point the user to documentation, since there's a good chance they can
       # workaround this on an emulator.
@@ -168,13 +175,52 @@ def EnableSystemAppModification(device):
       logger.error(
           'Did you start the emulator with "-writable-system?"\n'
           'See %s\n', docs_url)
-    raise e
-  finally:
+    raise
+
+  return should_restore_root
+
+
+@decorators.WithTimeoutAndConditionalRetries(_ShouldRetryModification)
+def _TearDownSystemAppModification(device,
+                                   should_restore_root,
+                                   timeout=None,
+                                   retries=None):
+  try:
     device.SetProp(_ENABLE_MODIFICATION_PROP, '0')
     device.Reboot()
     device.WaitUntilFullyBooted()
     if should_restore_root:
       device.EnableRoot()
+  except device_errors.CommandTimeoutError:
+    logger.error('Timed out while tearing down system app modification.')
+    logger.error('  device state: %s', device.adb.GetState())
+    raise
+
+
+# pylint: enable=unused-argument
+
+
+@contextlib.contextmanager
+def EnableSystemAppModification(device):
+  """A context manager that allows system apps to be modified while in scope.
+
+  Args:
+    device: (device_utils.DeviceUtils) the device
+  """
+  if device.GetProp(_ENABLE_MODIFICATION_PROP) == '1':
+    yield
+    return
+
+  should_restore_root = _SetUpSystemAppModification(
+      device, timeout=_MODIFICATION_TIMEOUT, retries=_MODIFICATION_RETRIES)
+  try:
+    yield
+  finally:
+    _TearDownSystemAppModification(
+        device,
+        should_restore_root,
+        timeout=_MODIFICATION_TIMEOUT,
+        retries=_MODIFICATION_RETRIES)
 
 
 @contextlib.contextmanager

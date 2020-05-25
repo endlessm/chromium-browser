@@ -3452,8 +3452,8 @@ ALIGN function_align
     IDTX16                0, 1, 15
     mova                 m1, [rsp+32*0]
     pmulhrsw            m15, m1
-    paddw                m1, m1
-    paddw               m15, m1
+    paddsw               m1, m1
+    paddsw              m15, m1
     jmp m(idct_16x16_internal).end
 
 %define o_base iadst4_dconly2a + 128
@@ -4626,13 +4626,13 @@ cglobal inv_txfm_add_identity_identity_16x32, 4, 5, 13, dst, stride, c, eob
     pxor                 m0, m0
     mov                 r0d, 8
     cmp                  cq, rax
-    jg .zero_loop
+    ja .zero_loop
 .zero_loop_half:
     mova         [rax+64*0], m0
     mova         [rax+64*1], m0
-    mova         [rax+64*2], m0
-    mova         [rax+64*3], m0
     add                 rax, 64*4
+    mova         [rax-64*2], m0
+    mova         [rax-64*1], m0
     sub                 r0d, 2
     jg .zero_loop_half
     RET
@@ -4697,20 +4697,17 @@ cglobal inv_txfm_add_identity_identity_32x16, 4, 6, 12, dst, stride, c, eob
     lea                dstq, [r5+16]
     jmp .loop
 .ret:
-    sub                  cq, 32
+    sub                  cd, eax
     pxor                 m0, m0
-    mov                 r0d, 4
-    mov                 r1d, 8
-    cmp                  cq, rax
-    cmovg               r0d, r1d
+    add                  cd, 384
 .zero_loop:
     mova         [rax+32*0], m0
     mova         [rax+32*1], m0
     mova         [rax+32*2], m0
     mova         [rax+32*3], m0
     add                 rax, 32*4
-    dec                 r0d
-    jg .zero_loop
+    sub                  cd, 128
+    jge .zero_loop
     RET
 
 cglobal inv_txfm_add_dct_dct_32x32, 4, 4, 0, dst, stride, c, eob
@@ -4848,7 +4845,7 @@ cglobal inv_txfm_add_dct_dct_32x32, 4, 4, 0, dst, stride, c, eob
     call m(inv_txfm_add_dct_dct_16x32).pass2_end
     lea               tmp3q, [tmp1q-32*32]
     cmp               tmp2q, tmp3q
-    jl .ret
+    jb .ret
     sub               tmp2q, 32*32
     sub                dstq, r3
     lea                  r2, [r2+r3+16]

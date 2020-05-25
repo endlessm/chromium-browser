@@ -31,13 +31,14 @@
 
 import * as Common from '../common/common.js';
 import * as Host from '../host/host.js';
-import * as ProtocolModule from '../protocol/protocol.js';
+import * as Platform from '../platform/platform.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
 
 import {CSSModel} from './CSSModel.js';
 import {OverlayModel} from './OverlayModel.js';
 import {RemoteObject} from './RemoteObject.js';  // eslint-disable-line no-unused-vars
 import {RuntimeModel} from './RuntimeModel.js';
-import {Capability, SDKModel, Target} from './SDKModel.js';  // eslint-disable-line no-unused-vars
+import {Capability, SDKModel, Target, TargetManager} from './SDKModel.js';  // eslint-disable-line no-unused-vars
 
 /**
  * @unrestricted
@@ -89,8 +90,8 @@ export class DOMNode {
 
     this._shadowRoots = [];
 
-    this._attributes = [];
-    this._attributesMap = {};
+    /** @type {!Map<string, !Attribute>} */
+    this._attributes = new Map();
     if (payload.attributes) {
       this._setAttributesPayload(payload.attributes);
     }
@@ -128,7 +129,7 @@ export class DOMNode {
       this._contentDocument.parentNode = this;
       this._children = [];
     } else if ((payload.nodeName === 'IFRAME' || payload.nodeName === 'PORTAL') && payload.frameId) {
-      const childTarget = self.SDK.targetManager.targetById(payload.frameId);
+      const childTarget = TargetManager.instance().targetById(payload.frameId);
       const childModel = childTarget ? childTarget.model(DOMModel) : null;
       if (childModel) {
         this._childDocumentPromiseForTesting = childModel.requestDocument();
@@ -215,7 +216,7 @@ export class DOMNode {
    * @return {boolean}
    */
   hasAttributes() {
-    return this._attributes.length > 0;
+    return this._attributes.size > 0;
   }
 
   /**
@@ -434,16 +435,16 @@ export class DOMNode {
 
   /**
    * @param {string} name
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError, ?DOMNode)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, ?DOMNode)=} callback
    */
   setNodeName(name, callback) {
     this._agent.invoke_setNodeName({nodeId: this.id, name}).then(response => {
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._domModel.markUndoableState();
       }
       if (callback) {
         callback(
-            response[ProtocolModule.InspectorBackend.ProtocolError] || null, this._domModel.nodeForId(response.nodeId));
+            response[ProtocolClient.InspectorBackend.ProtocolError] || null, this._domModel.nodeForId(response.nodeId));
       }
     });
   }
@@ -464,40 +465,40 @@ export class DOMNode {
 
   /**
    * @param {string} value
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError)=} callback
    */
   setNodeValue(value, callback) {
     this._agent.invoke_setNodeValue({nodeId: this.id, value}).then(response => {
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolModule.InspectorBackend.ProtocolError] || null);
+        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
       }
     });
   }
 
   /**
    * @param {string} name
-   * @return {string}
+   * @return {string|undefined}
    */
   getAttribute(name) {
-    const attr = this._attributesMap[name];
+    const attr = this._attributes.get(name);
     return attr ? attr.value : undefined;
   }
 
   /**
    * @param {string} name
    * @param {string} text
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError)=} callback
    */
   setAttribute(name, text, callback) {
     this._agent.invoke_setAttributesAsText({nodeId: this.id, text, name}).then(response => {
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolModule.InspectorBackend.ProtocolError] || null);
+        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
       }
     });
   }
@@ -505,15 +506,15 @@ export class DOMNode {
   /**
    * @param {string} name
    * @param {string} value
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError)=} callback
    */
   setAttributeValue(name, value, callback) {
     this._agent.invoke_setAttributeValue({nodeId: this.id, name, value}).then(response => {
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolModule.InspectorBackend.ProtocolError] || null);
+        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
       }
     });
   }
@@ -521,17 +522,17 @@ export class DOMNode {
   /**
   * @param {string} name
   * @param {string} value
-  * @return {!Promise<?ProtocolModule.InspectorBackend.ProtocolError>}
+  * @return {!Promise<?ProtocolClient.InspectorBackend.ProtocolError>}
   */
   setAttributeValuePromise(name, value) {
     return new Promise(fulfill => this.setAttributeValue(name, value, fulfill));
   }
 
   /**
-   * @return {!Array<!SDK.DOMNode.Attribute>}
+   * @return {!Array<!Attribute>}
    */
   attributes() {
-    return this._attributes;
+    return [...this._attributes.values()];
   }
 
   /**
@@ -540,14 +541,10 @@ export class DOMNode {
    */
   async removeAttribute(name) {
     const response = await this._agent.invoke_removeAttribute({nodeId: this.id, name});
-    if (response[ProtocolModule.InspectorBackend.ProtocolError]) {
+    if (response[ProtocolClient.InspectorBackend.ProtocolError]) {
       return;
     }
-    delete this._attributesMap[name];
-    const index = this._attributes.findIndex(attr => attr.name === name);
-    if (index !== -1) {
-      this._attributes.splice(index, 1);
-    }
+    this._attributes.delete(name);
     this._domModel.markUndoableState();
   }
 
@@ -560,7 +557,7 @@ export class DOMNode {
       return;
     }
     this._agent.invoke_requestChildNodes({nodeId: this.id}).then(response => {
-      callback(response[ProtocolModule.InspectorBackend.ProtocolError] ? null : this.children());
+      callback(response[ProtocolClient.InspectorBackend.ProtocolError] ? null : this.children());
     });
   }
 
@@ -571,7 +568,7 @@ export class DOMNode {
    */
   async getSubtree(depth, pierce) {
     const response = await this._agent.invoke_requestChildNodes({nodeId: this.id, depth: depth, pierce: pierce});
-    return response[ProtocolModule.InspectorBackend.ProtocolError] ? null : this._children;
+    return response[ProtocolClient.InspectorBackend.ProtocolError] ? null : this._children;
   }
 
   /**
@@ -583,29 +580,29 @@ export class DOMNode {
 
   /**
    * @param {string} html
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError)=} callback
    */
   setOuterHTML(html, callback) {
     this._agent.invoke_setOuterHTML({nodeId: this.id, outerHTML: html}).then(response => {
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolModule.InspectorBackend.ProtocolError] || null);
+        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
       }
     });
   }
 
   /**
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError, !Protocol.DOM.NodeId=)=} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.DOM.NodeId=)=} callback
    */
   removeNode(callback) {
     this._agent.invoke_removeNode({nodeId: this.id}).then(response => {
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._domModel.markUndoableState();
       }
       if (callback) {
-        callback(response[ProtocolModule.InspectorBackend.ProtocolError] || null);
+        callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null);
       }
     });
   }
@@ -688,11 +685,10 @@ export class DOMNode {
    * @return {boolean}
    */
   _setAttributesPayload(attrs) {
-    let attributesChanged = !this._attributes || attrs.length !== this._attributes.length * 2;
-    const oldAttributesMap = this._attributesMap || {};
+    let attributesChanged = !this._attributes || attrs.length !== this._attributes.size * 2;
+    const oldAttributesMap = this._attributes || new Map();
 
-    this._attributes = [];
-    this._attributesMap = {};
+    this._attributes = new Map();
 
     for (let i = 0; i < attrs.length; i += 2) {
       const name = attrs[i];
@@ -703,7 +699,7 @@ export class DOMNode {
         continue;
       }
 
-      if (!oldAttributesMap[name] || oldAttributesMap[name].value !== value) {
+      if (!oldAttributesMap.has(name) || oldAttributesMap.get(name).value !== value) {
         attributesChanged = true;
       }
     }
@@ -713,7 +709,7 @@ export class DOMNode {
   /**
    * @param {!DOMNode} prev
    * @param {!Protocol.DOM.Node} payload
-   * @return {!SDK.DOMNode}
+   * @return {!DOMNode}
    */
   _insertChild(prev, payload) {
     const node = DOMNode.create(this._domModel, this.ownerDocument, this._isInShadowTree, payload);
@@ -809,8 +805,7 @@ export class DOMNode {
    */
   _addAttribute(name, value) {
     const attr = {name: name, value: value, _node: this};
-    this._attributesMap[name] = attr;
-    this._attributes.push(attr);
+    this._attributes.set(name, attr);
   }
 
   /**
@@ -818,7 +813,7 @@ export class DOMNode {
    * @param {string} value
    */
   _setAttribute(name, value) {
-    const attr = this._attributesMap[name];
+    const attr = this._attributes.get(name);
     if (attr) {
       attr.value = value;
     } else {
@@ -830,48 +825,44 @@ export class DOMNode {
    * @param {string} name
    */
   _removeAttribute(name) {
-    const attr = this._attributesMap[name];
-    if (attr) {
-      this._attributes.remove(attr);
-      delete this._attributesMap[name];
-    }
+    this._attributes.delete(name);
   }
 
   /**
    * @param {!DOMNode} targetNode
-   * @param {?SDK.DOMNode} anchorNode
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError, !Protocol.DOM.NodeId=)=} callback
+   * @param {?DOMNode} anchorNode
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.DOM.NodeId=)=} callback
    */
   copyTo(targetNode, anchorNode, callback) {
     this._agent
         .invoke_copyTo(
             {nodeId: this.id, targetNodeId: targetNode.id, insertBeforeNodeId: anchorNode ? anchorNode.id : undefined})
         .then(response => {
-          if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+          if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
             this._domModel.markUndoableState();
           }
           if (callback) {
-            callback(response[ProtocolModule.InspectorBackend.ProtocolError] || null, response.nodeId);
+            callback(response[ProtocolClient.InspectorBackend.ProtocolError] || null, response.nodeId);
           }
         });
   }
 
   /**
    * @param {!DOMNode} targetNode
-   * @param {?SDK.DOMNode} anchorNode
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError, ?SDK.DOMNode)=} callback
+   * @param {?DOMNode} anchorNode
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, ?SDK.DOMNode)=} callback
    */
   moveTo(targetNode, anchorNode, callback) {
     this._agent
         .invoke_moveTo(
             {nodeId: this.id, targetNodeId: targetNode.id, insertBeforeNodeId: anchorNode ? anchorNode.id : undefined})
         .then(response => {
-          if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+          if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
             this._domModel.markUndoableState();
           }
           if (callback) {
             callback(
-                response[ProtocolModule.InspectorBackend.ProtocolError] || null,
+                response[ProtocolClient.InspectorBackend.ProtocolError] || null,
                 this._domModel.nodeForId(response.nodeId));
           }
         });
@@ -1242,7 +1233,7 @@ export class DOMModel extends SDKModel {
   }
 
   static cancelSearch() {
-    for (const domModel of self.SDK.targetManager.models(DOMModel)) {
+    for (const domModel of TargetManager.instance().models(DOMModel)) {
       domModel._cancelSearch();
     }
   }
@@ -1304,7 +1295,7 @@ export class DOMModel extends SDKModel {
     if (parentModel && !this._frameOwnerNode) {
       await parentModel.requestDocument();
       const response = await parentModel._agent.invoke_getFrameOwner({frameId: this.target().id()});
-      if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+      if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
         this._frameOwnerNode = parentModel.nodeForId(response.nodeId);
       }
     }
@@ -1355,7 +1346,7 @@ export class DOMModel extends SDKModel {
    */
   async pushNodesByBackendIdsToFrontend(backendNodeIds) {
     await this.requestDocument();
-    const backendNodeIdsArray = backendNodeIds.valuesArray();
+    const backendNodeIdsArray = [...backendNodeIds];
     const nodeIds = await this._agent.pushNodesByBackendIdsToFrontend(backendNodeIdsArray);
     if (!nodeIds) {
       return null;
@@ -1372,12 +1363,12 @@ export class DOMModel extends SDKModel {
 
   /**
    * @param {function(?T)} callback
-   * @return {function(?ProtocolModule.InspectorBackend.ProtocolError, !T=)}
+   * @return {function(?ProtocolClient.InspectorBackend.ProtocolError, !T=)}
    * @template T
    */
   _wrapClientCallback(callback) {
     /**
-     * @param {?ProtocolModule.InspectorBackend.ProtocolError} error
+     * @param {?ProtocolClient.InspectorBackend.ProtocolError} error
      * @param {!T=} result
      * @template T
      */
@@ -1672,10 +1663,10 @@ export class DOMModel extends SDKModel {
    */
   async performSearch(query, includeUserAgentShadowDOM) {
     const response = await this._agent.invoke_performSearch({query, includeUserAgentShadowDOM});
-    if (!response[ProtocolModule.InspectorBackend.ProtocolError]) {
+    if (!response[ProtocolClient.InspectorBackend.ProtocolError]) {
       this._searchId = response.searchId;
     }
-    return response[ProtocolModule.InspectorBackend.ProtocolError] ? 0 : response.resultCount;
+    return response[ProtocolClient.InspectorBackend.ProtocolError] ? 0 : response.resultCount;
   }
 
   /**
@@ -1739,7 +1730,7 @@ export class DOMModel extends SDKModel {
    */
   async nodeForLocation(x, y, includeUserAgentShadowDOM) {
     const response = await this._agent.invoke_getNodeForLocation({x, y, includeUserAgentShadowDOM});
-    if (response[ProtocolModule.InspectorBackend.ProtocolError] || !response.nodeId) {
+    if (response[ProtocolClient.InspectorBackend.ProtocolError] || !response.nodeId) {
       return null;
     }
     return this.nodeForId(response.nodeId);
@@ -2011,7 +2002,7 @@ export class DOMModelUndoStack {
         ++shift;
       }
     }
-    this._stack.remove(model);
+    Platform.ArrayUtilities.removeElement(this._stack, model);
     this._index -= shift;
     if (this._lastModelWithMinorChange === model) {
       this._lastModelWithMinorChange = null;
@@ -2020,3 +2011,6 @@ export class DOMModelUndoStack {
 }
 
 SDKModel.register(DOMModel, Capability.DOM, true);
+
+/** @typedef {{name: string, value: string, _node: DOMNode}} */
+export let Attribute;

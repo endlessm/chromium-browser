@@ -12,14 +12,24 @@
 #include "cast/standalone_receiver/dummy_player.h"
 #endif  // defined(CAST_STANDALONE_RECEIVER_HAVE_EXTERNAL_LIBS)
 
+#include "util/trace_logging.h"
+
 namespace openscreen {
 namespace cast {
 
 #if defined(CAST_STANDALONE_RECEIVER_HAVE_EXTERNAL_LIBS)
 StreamingPlaybackController::StreamingPlaybackController(
-    TaskRunnerImpl* task_runner)
+    TaskRunner* task_runner,
+    StreamingPlaybackController::Client* client)
     : task_runner_(task_runner),
-      sdl_event_loop_(task_runner_, [&] { task_runner_->RequestStopSoon(); }) {
+      client_(client),
+      sdl_event_loop_(task_runner_, [this] {
+        client_->OnPlaybackError(this,
+                                 Error{Error::Code::kOperationCancelled,
+                                       std::string("SDL event loop closed.")});
+      }) {
+  OSP_DCHECK(task_runner_ != nullptr);
+  OSP_DCHECK(client_ != nullptr);
   constexpr int kDefaultWindowWidth = 1280;
   constexpr int kDefaultWindowHeight = 720;
   window_ = MakeUniqueSDLWindow(
@@ -33,45 +43,48 @@ StreamingPlaybackController::StreamingPlaybackController(
 }
 #else
 StreamingPlaybackController::StreamingPlaybackController(
-    TaskRunnerImpl* task_runner)
-    : task_runner_(task_runner) {
+    TaskRunner* task_runner,
+    StreamingPlaybackController::Client* client)
+    : task_runner_(task_runner), client_(client) {
   OSP_DCHECK(task_runner_ != nullptr);
+  OSP_DCHECK(client_ != nullptr);
 }
 #endif  // defined(CAST_STANDALONE_RECEIVER_HAVE_EXTERNAL_LIBS)
 
+// TODO(jophba): add async tracing to streaming implementation for exposing
+// how long the OFFER/ANSWER and receiver startup takes.
 void StreamingPlaybackController::OnNegotiated(
     const ReceiverSession* session,
     ReceiverSession::ConfiguredReceivers receivers) {
+  TRACE_DEFAULT_SCOPED(TraceCategory::kStandaloneReceiver);
 #if defined(CAST_STANDALONE_RECEIVER_HAVE_EXTERNAL_LIBS)
   if (receivers.audio) {
     audio_player_ = std::make_unique<SDLAudioPlayer>(
-        &Clock::now, task_runner_, receivers.audio.value().receiver, [&] {
-          OSP_LOG_ERROR << audio_player_->error_status().message();
-          task_runner_->RequestStopSoon();
+        &Clock::now, task_runner_, receivers.audio->receiver,
+        receivers.audio->selected_stream.stream.codec_name, [this] {
+          client_->OnPlaybackError(this, audio_player_->error_status());
         });
   }
   if (receivers.video) {
     video_player_ = std::make_unique<SDLVideoPlayer>(
-        &Clock::now, task_runner_, receivers.video.value().receiver,
-        renderer_.get(), [&] {
-          OSP_LOG_ERROR << video_player_->error_status().message();
-          task_runner_->RequestStopSoon();
+        &Clock::now, task_runner_, receivers.video->receiver,
+        receivers.video->selected_stream.stream.codec_name, renderer_.get(),
+        [this] {
+          client_->OnPlaybackError(this, video_player_->error_status());
         });
   }
 #else
   if (receivers.audio) {
-    audio_player_ =
-        std::make_unique<DummyPlayer>(receivers.audio.value().receiver);
+    audio_player_ = std::make_unique<DummyPlayer>(receivers.audio->receiver);
   }
 
   if (receivers.video) {
-    video_player_ =
-        std::make_unique<DummyPlayer>(receivers.video.value().receiver);
+    video_player_ = std::make_unique<DummyPlayer>(receivers.video->receiver);
   }
 #endif  // defined(CAST_STANDALONE_RECEIVER_HAVE_EXTERNAL_LIBS)
 }
 
-void StreamingPlaybackController::OnReceiversDestroyed(
+void StreamingPlaybackController::OnConfiguredReceiversDestroyed(
     const ReceiverSession* session) {
   audio_player_.reset();
   video_player_.reset();
@@ -79,8 +92,7 @@ void StreamingPlaybackController::OnReceiversDestroyed(
 
 void StreamingPlaybackController::OnError(const ReceiverSession* session,
                                           Error error) {
-  OSP_LOG_FATAL << "Failure reported to demo client for session " << session
-                << ": " << error;
+  client_->OnPlaybackError(this, error);
 }
 
 }  // namespace cast

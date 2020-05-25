@@ -10,6 +10,7 @@ from __future__ import print_function
 import copy
 import os
 import shutil
+import sys
 
 import mock
 
@@ -23,6 +24,9 @@ from chromite.lib import gs_unittest
 from chromite.lib import osutils
 from chromite.lib import partial_mock
 from gn_helpers import gn_helpers
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # pylint: disable=protected-access
@@ -202,10 +206,13 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
 
   FAKE_ENV = {
       'GN_ARGS': 'target_sysroot="/path/to/sysroot" is_clang=false',
-      'CXX': 'x86_64-cros-linux-gnu-clang++ -B /path/to/gold',
-      'CC': 'x86_64-cros-linux-gnu-clang -B /path/to/gold',
-      'LD': 'x86_64-cros-linux-gnu-clang++ -B /path/to/gold',
+      'AR': 'x86_64-cros-linux-gnu-ar',
+      'AS': 'x86_64-cros-linux-gnu-as',
+      'CXX': 'x86_64-cros-linux-gnu-clang++',
+      'CC': 'x86_64-cros-linux-gnu-clang',
+      'LD': 'x86_64-cros-linux-gnu-clang++',
       'NM': 'x86_64-cros-linux-gnu-nm',
+      'RANLIB': 'x86_64-cros-linux-gnu-ranlib',
       'READELF': 'x86_64-cros-linux-gnu-readelf',
       'CFLAGS': '-O2',
       'CXXFLAGS': '-O2',
@@ -353,7 +360,6 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
       osutils.SafeMakedirs(gn_args_file_dir)
       osutils.WriteFile(gn_args_file_path, self.cmd_mock.env['GN_ARGS'])
 
-      os.environ.pop(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV, None)
       self.cmd_mock.inst.Run()
 
       self.AssertLogsContain(logs, 'Stale args.gn file', inverted=True)
@@ -374,7 +380,6 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
       gn_args_dict = gn_helpers.FromGNArgs(self.cmd_mock.env['GN_ARGS'])
       osutils.WriteFile(gn_args_file_path, gn_helpers.ToGNString(gn_args_dict))
 
-      os.environ.pop(cros_chrome_sdk.SDKFetcher.SDK_VERSION_ENV, None)
       self.cmd_mock.inst.Run()
 
       self.AssertLogsContain(logs, 'Stale args.gn file', inverted=True)

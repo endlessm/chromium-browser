@@ -142,9 +142,9 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
   unwinder.SetJitDebug(metadata->jit_debug.get(), regs->Arch());
   unwinder.SetDexFiles(metadata->dex_files.get(), regs->Arch());
 #endif
-  // Surpress incorrect "variable may be uninitialized" error for if condition
+  // Suppress incorrect "variable may be uninitialized" error for if condition
   // after this loop. error_code = LastErrorCode gets run at least once.
-  uint8_t error_code = 0;
+  unwindstack::ErrorCode error_code = unwindstack::ERROR_NONE;
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (attempt > 0) {
       if (metadata->last_maps_reparse_time + kMapsReparseInterval >
@@ -164,30 +164,24 @@ bool DoUnwind(WireMessage* msg, UnwindingMetadata* metadata, AllocRecord* out) {
       unwinder.SetDexFiles(metadata->dex_files.get(), regs->Arch());
 #endif
     }
-    unwinder.Unwind(&kSkipMaps, nullptr);
+    unwinder.Unwind(&kSkipMaps, /*map_suffixes_to_ignore=*/nullptr);
     error_code = unwinder.LastErrorCode();
     if (error_code != unwindstack::ERROR_INVALID_MAP)
       break;
   }
   std::vector<unwindstack::FrameData> frames = unwinder.ConsumeFrames();
   for (unwindstack::FrameData& fd : frames) {
-    std::string build_id;
-    if (fd.map_name != "") {
-      unwindstack::MapInfo* map_info = metadata->fd_maps.Find(fd.pc);
-      if (map_info)
-        build_id = map_info->GetBuildID();
-    }
-
-    out->frames.emplace_back(std::move(fd), std::move(build_id));
+    out->frames.emplace_back(metadata->AnnotateFrame(std::move(fd)));
   }
 
-  if (error_code != 0) {
+  if (error_code != unwindstack::ERROR_NONE) {
     PERFETTO_DLOG("Unwinding error %" PRIu8, error_code);
     unwindstack::FrameData frame_data{};
-    frame_data.function_name = "ERROR " + std::to_string(error_code);
+    frame_data.function_name =
+        "ERROR " + StringifyLibUnwindstackError(error_code);
     frame_data.map_name = "ERROR";
 
-    out->frames.emplace_back(frame_data, "");
+    out->frames.emplace_back(std::move(frame_data), "");
     out->error = true;
   }
   return true;
@@ -324,7 +318,7 @@ void UnwindingWorker::HandleHandoffSocket(HandoffData handoff_data) {
       base::SockFamily::kUnix, base::SockType::kStream);
   pid_t peer_pid = sock->peer_pid();
 
-  UnwindingMetadata metadata(peer_pid, std::move(handoff_data.maps_fd),
+  UnwindingMetadata metadata(std::move(handoff_data.maps_fd),
                              std::move(handoff_data.mem_fd));
   ClientData client_data{
       handoff_data.data_source_instance_id,

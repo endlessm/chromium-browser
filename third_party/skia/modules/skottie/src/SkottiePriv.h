@@ -15,10 +15,12 @@
 #include "include/core/SkTypeface.h"
 #include "include/private/SkTHash.h"
 #include "modules/skottie/include/SkottieProperty.h"
+#include "modules/skottie/src/animator/Animator.h"
 #include "modules/sksg/include/SkSGScene.h"
 #include "src/utils/SkUTF.h"
 
 #include <functional>
+#include <vector>
 
 class SkFontMgr;
 
@@ -38,11 +40,14 @@ class Transform;
 namespace skottie {
 namespace internal {
 
+// Close-enough to AE.
+static constexpr float kBlurSizeToSigma = 0.3f;
+
 class TextAdapter;
 class TransformAdapter2D;
 class TransformAdapter3D;
 
-using AnimatorScope = sksg::AnimatorList;
+using AnimatorScope = std::vector<sk_sp<Animator>>;
 
 class AnimationBuilder final : public SkNoncopyable {
 public:
@@ -51,7 +56,12 @@ public:
                      Animation::Builder::Stats*, const SkSize& comp_size,
                      float duration, float framerate, uint32_t flags);
 
-    std::unique_ptr<sksg::Scene> parse(const skjson::ObjectValue&);
+    struct AnimationInfo {
+        std::unique_ptr<sksg::Scene> fScene;
+        AnimatorScope                fAnimators;
+    };
+
+    AnimationInfo parse(const skjson::ObjectValue&);
 
     struct FontInfo {
         SkString                  fFamily,
@@ -63,22 +73,8 @@ public:
     };
     const FontInfo* findFont(const SkString& name) const;
 
-    // DEPRECATED/TO-BE-REMOVED: use AnimatablePropertyContainer::bind<> instead.
-    template <typename T>
-    bool bindProperty(const skjson::Value&,
-                      std::function<void(const T&)>&&,
-                      const T* default_igore = nullptr) const;
-
-    template <typename T>
-    bool bindProperty(const skjson::Value& jv,
-                      std::function<void(const T&)>&& apply,
-                      const T& default_ignore) const {
-        return this->bindProperty(jv, std::move(apply), &default_ignore);
-    }
-
     void log(Logger::Level, const skjson::Value*, const char fmt[], ...) const;
 
-    sk_sp<sksg::Color> attachColor(const skjson::ObjectValue&, const char prop_name[]) const;
     sk_sp<sksg::Transform> attachMatrix2D(const skjson::ObjectValue&, sk_sp<sksg::Transform>) const;
     sk_sp<sksg::Transform> attachMatrix3D(const skjson::ObjectValue&, sk_sp<sksg::Transform>) const;
 
@@ -119,20 +115,29 @@ public:
         AnimatorScope*          fPrevScope;
     };
 
-    template <typename T,  typename NodeType = sk_sp<sksg::RenderNode>, typename... Args>
-    NodeType attachDiscardableAdapter(Args&&... args) const {
-        if (auto adapter = T::Make(std::forward<Args>(args)...)) {
-            auto node = adapter->node();
-            if (adapter->isStatic()) {
-                // Fire off a synthetic tick to force a single SG sync before discarding.
-                adapter->tick(0);
-            } else {
-                fCurrentAnimatorScope->push_back(std::move(adapter));
-            }
-            return node;
+    template <typename T>
+    void attachDiscardableAdapter(sk_sp<T> adapter) const {
+        if (adapter->isStatic()) {
+            // Fire off a synthetic tick to force a single SG sync before discarding.
+            adapter->seek(0);
+        } else {
+            fCurrentAnimatorScope->push_back(std::move(adapter));
         }
+    }
 
-        return nullptr;
+    template <typename T, typename... Args>
+    auto attachDiscardableAdapter(Args&&... args) const ->
+        typename std::decay<decltype(T::Make(std::forward<Args>(args)...)->node())>::type
+    {
+        using NodeType =
+        typename std::decay<decltype(T::Make(std::forward<Args>(args)...)->node())>::type;
+
+        NodeType node;
+        if (auto adapter = T::Make(std::forward<Args>(args)...)) {
+            node = adapter->node();
+            this->attachDiscardableAdapter(std::move(adapter));
+        }
+        return node;
     }
 
     class AutoPropertyTracker {
@@ -141,12 +146,15 @@ public:
             : fBuilder(builder)
             , fPrevContext(builder->fPropertyObserverContext) {
             if (fBuilder->fPropertyObserver) {
-                this->updateContext(builder->fPropertyObserver.get(), obj);
+                auto observer = builder->fPropertyObserver.get();
+                this->updateContext(observer, obj);
+                observer->onEnterNode(fBuilder->fPropertyObserverContext);
             }
         }
 
         ~AutoPropertyTracker() {
             if (fBuilder->fPropertyObserver) {
+                fBuilder->fPropertyObserver->onLeavingNode(fBuilder->fPropertyObserverContext);
                 fBuilder->fPropertyObserverContext = fPrevContext;
             }
         }

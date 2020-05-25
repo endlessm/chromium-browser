@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback_forward.h"
+#include "chrome/browser/extensions/extension_context_menu_model.h"
 
 class ToolbarActionViewController;
 class ToolbarActionsBarBubbleDelegate;
@@ -24,9 +25,21 @@ class ExtensionsContainer {
   // that relate to more than one extension.
   virtual ToolbarActionViewController* GetPoppedOutAction() const = 0;
 
+  // Called when a context menu is shown so the container can perform any
+  // necessary setup.
+  virtual void OnContextMenuShown(ToolbarActionViewController* extension) {}
+
+  // Called when a context menu is closed so the container can perform any
+  // necessary cleanup.
+  virtual void OnContextMenuClosed(ToolbarActionViewController* extension) {}
+
   // Returns true if the given |action| is visible on the toolbar.
   virtual bool IsActionVisibleOnToolbar(
       const ToolbarActionViewController* action) const = 0;
+
+  // Returns the action's toolbar button visibility.
+  virtual extensions::ExtensionContextMenuModel::ButtonVisibility
+  GetActionVisibility(const ToolbarActionViewController* action) const = 0;
 
   // Undoes the current "pop out"; i.e., moves the popped out action back into
   // overflow.

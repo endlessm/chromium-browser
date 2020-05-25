@@ -927,34 +927,34 @@ export class HeapSnapshot {
     this._firstDominatedNodeIndex = new Uint32Array(this.nodeCount + 1);
     this._dominatedNodes = new Uint32Array(this.nodeCount - 1);
 
-    this._progress.updateStatus(ls`Building edge indexes\u2026`);
+    this._progress.updateStatus(ls`Building edge indexes…`);
     this._buildEdgeIndexes();
-    this._progress.updateStatus(ls`Building retainers\u2026`);
+    this._progress.updateStatus(ls`Building retainers…`);
     this._buildRetainers();
-    this._progress.updateStatus(ls`Calculating node flags\u2026`);
+    this._progress.updateStatus(ls`Calculating node flags…`);
     this.calculateFlags();
-    this._progress.updateStatus(ls`Calculating distances\u2026`);
+    this._progress.updateStatus(ls`Calculating distances…`);
     this.calculateDistances();
-    this._progress.updateStatus(ls`Building postorder index\u2026`);
+    this._progress.updateStatus(ls`Building postorder index…`);
     const result = this._buildPostOrderIndex();
     // Actually it is array that maps node ordinal number to dominator node ordinal number.
-    this._progress.updateStatus(ls`Building dominator tree\u2026`);
+    this._progress.updateStatus(ls`Building dominator tree…`);
     this._dominatorsTree =
         this._buildDominatorTree(result.postOrderIndex2NodeOrdinal, result.nodeOrdinal2PostOrderIndex);
-    this._progress.updateStatus(ls`Calculating retained sizes\u2026`);
+    this._progress.updateStatus(ls`Calculating retained sizes…`);
     this._calculateRetainedSizes(result.postOrderIndex2NodeOrdinal);
-    this._progress.updateStatus(ls`Building dominated nodes\u2026`);
+    this._progress.updateStatus(ls`Building dominated nodes…`);
     this._buildDominatedNodes();
-    this._progress.updateStatus(ls`Calculating statistics\u2026`);
+    this._progress.updateStatus(ls`Calculating statistics…`);
     this.calculateStatistics();
-    this._progress.updateStatus(ls`Calculating samples\u2026`);
+    this._progress.updateStatus(ls`Calculating samples…`);
     this._buildSamples();
-    this._progress.updateStatus(ls`Building locations\u2026`);
+    this._progress.updateStatus(ls`Building locations…`);
     this._buildLocationMap();
     this._progress.updateStatus(ls`Finished processing.`);
 
     if (this._profile.snapshot.trace_function_count) {
-      this._progress.updateStatus(ls`Building allocation statistics\u2026`);
+      this._progress.updateStatus(ls`Building allocation statistics…`);
       const nodes = this.nodes;
       const nodesLength = nodes.length;
       const nodeFieldCount = this._nodeFieldCount;
@@ -1397,8 +1397,8 @@ export class HeapSnapshot {
 
   /**
    * @param {function(!HeapSnapshotNode):boolean=} filter
-   * @return {!{aggregatesByClassName: !Object<string, !HeapSnapshotWorker.HeapSnapshot.AggregatedInfo>,
-   *     aggregatesByClassIndex: !Object<number, !HeapSnapshotWorker.HeapSnapshot.AggregatedInfo>}}
+   * @return {!{aggregatesByClassName: !Object<string, !AggregatedInfo>,
+   *     aggregatesByClassIndex: !Object<number, !AggregatedInfo>}}
    */
   _buildAggregates(filter) {
     const aggregates = {};
@@ -1458,7 +1458,7 @@ export class HeapSnapshot {
   }
 
   /**
-   * @param {!Object<number, !HeapSnapshotWorker.HeapSnapshot.AggregatedInfo>} aggregates
+   * @param {!Object<number, !AggregatedInfo>} aggregates
    * @param {function(!HeapSnapshotNode):boolean=} filter
    */
   _calculateClassesRetainedSize(aggregates, filter) {
@@ -1507,7 +1507,7 @@ export class HeapSnapshot {
   }
 
   /**
-   * @param {!{aggregatesByClassName: !Object<string, !HeapSnapshotWorker.HeapSnapshot.AggregatedInfo>, aggregatesByClassIndex: !Object<number, !HeapSnapshotWorker.HeapSnapshot.AggregatedInfo>}} aggregates
+   * @param {!{aggregatesByClassName: !Object<string, !AggregatedInfo>, aggregatesByClassIndex: !Object<number, !AggregatedInfo>}} aggregates
    */
   _sortAggregateIndexes(aggregates) {
     const nodeA = this.createNode();
@@ -3171,9 +3171,8 @@ export class JSHeapSnapshotEdge extends HeapSnapshotEdge {
       case 'shortcut':
         if (typeof name === 'string') {
           return name.indexOf(' ') === -1 ? '.' + name : '["' + name + '"]';
-        } else {
-          return '[' + name + ']';
         }
+        return '[' + name + ']';
       case 'internal':
       case 'hidden':
       case 'invisible':
@@ -3278,3 +3277,15 @@ export class JSHeapSnapshotRetainerEdge extends HeapSnapshotRetainerEdge {
     console.warn = () => undefined;
   }
 })();
+
+/**
+ * @typedef {!{
+ *   count: number,
+ *   distance: number,
+ *   self: number,
+ *   maxRet: number,
+ *   name: ?string,
+ *   idxs: !Array<number>
+ * }}
+ */
+export let AggregatedInfo;

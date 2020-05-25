@@ -6,7 +6,7 @@
       "sub_dir" : "glslang",
       "build_dir" : "glslang/build",
       "install_dir" : "glslang/build/install",
-      "commit" : "4fc7a33910fb8e40b970d160e1b38ab3f67fe0f3",
+      "commit" : "e157435c1e777aa1052f446dafed162b4a722e03",
       "prebuild" : [
         "python update_glslang_sources.py"
       ],
@@ -20,75 +20,7 @@
       "sub_dir" : "Vulkan-Headers",
       "build_dir" : "Vulkan-Headers/build",
       "install_dir" : "Vulkan-Headers/build/install",
-      "commit" : "v1.2.131"
-    },
-    {
-      "name" : "VulkanTools",
-      "url" : "https://github.com/LunarG/VulkanTools.git",
-      "sub_dir" : "VulkanTools",
-      "build_dir" : "VulkanTools/build",
-      "install_dir" : "VulkanTools/build/install",
-      "commit" : "264a7c87cadb3228cf1cd2d23c90a520b6be0435",
-      "deps" : [
-        {
-          "var_name" : "VULKAN_HEADERS_INSTALL_DIR",
-          "repo_name" : "Vulkan-Headers"
-        },
-        {
-          "var_name" : "VULKAN_LOADER_INSTALL_DIR",
-          "repo_name" : "Vulkan-Loader"
-        },
-        {
-          "var_name" : "VULKAN_VALIDATIONLAYERS_INSTALL_DIR",
-          "repo_name" : "Vulkan-ValidationLayers"
-        }
-      ],
-      "prebuild_linux" : [
-        "bash update_external_sources.sh"
-      ],
-      "prebuild_windows" : [
-        ".\\update_external_sources.bat"
-      ],
-      "cmake_options" : [
-        "-DBUILD_TESTS=NO",
-        "-DBUILD_VKTRACE=NO",
-        "-DBUILD_VLF=NO",
-        "-DBUILD_VIA=NO"
-      ],
-      "ci_only" : [
-        "TRAVIS"
-      ],
-      "build_step" : "skip"
-    },
-    {
-      "name" : "Vulkan-Tools",
-      "url" : "https://github.com/KhronosGroup/Vulkan-Tools.git",
-      "sub_dir" : "Vulkan-Tools",
-      "build_dir" : "Vulkan-Tools/build",
-      "install_dir" : "Vulkan-Tools/build/install",
-      "commit" : "v1.2.131",
-      "deps" : [
-        {
-          "var_name" : "VULKAN_HEADERS_INSTALL_DIR",
-          "repo_name" : "Vulkan-Headers"
-        },
-        {
-          "var_name" : "GLSLANG_INSTALL_DIR",
-          "repo_name" : "glslang"
-        },
-        {
-          "var_name" : "MOLTENVK_REPO_ROOT",
-          "repo_name" : "MoltenVK"
-        }
-      ],
-      "cmake_options" : [
-        "-DBUILD_CUBE=NO",
-        "-DBUILD_VULKANINFO=NO",
-        "-DINSTALL_ICD=ON"
-      ],
-      "ci_only" : [
-        "TRAVIS"
-      ]
+      "commit" : "v1.2.135"
     }
   ],
   "install_names" : {

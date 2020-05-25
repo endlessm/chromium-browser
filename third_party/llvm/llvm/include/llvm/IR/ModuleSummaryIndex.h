@@ -959,7 +959,8 @@ private:
   /// with that type identifier's metadata. Produced by per module summary
   /// analysis and consumed by thin link. For more information, see description
   /// above where TypeIdCompatibleVtableInfo is defined.
-  std::map<std::string, TypeIdCompatibleVtableInfo> TypeIdCompatibleVtableMap;
+  std::map<std::string, TypeIdCompatibleVtableInfo, std::less<>>
+      TypeIdCompatibleVtableMap;
 
   /// Mapping from original ID to GUID. If original ID can map to multiple
   /// GUIDs, it will be mapped to 0.
@@ -1034,6 +1035,9 @@ public:
   }
 
   bool haveGVs() const { return HaveGVs; }
+
+  uint64_t getFlags() const;
+  void setFlags(uint64_t Flags);
 
   gvsummary_iterator begin() { return GlobalValueMap.begin(); }
   const_gvsummary_iterator begin() const { return GlobalValueMap.begin(); }
@@ -1295,7 +1299,7 @@ public:
     NewName += ".llvm.";
     NewName += utostr((uint64_t(ModHash[0]) << 32) |
                       ModHash[1]); // Take the first 64 bits
-    return NewName.str();
+    return std::string(NewName.str());
   }
 
   /// Helper to obtain the unpromoted name for a global value (or the original
@@ -1341,7 +1345,7 @@ public:
       if (It->second.first == TypeId)
         return It->second.second;
     auto It = TypeIdMap.insert(
-        {GlobalValue::getGUID(TypeId), {TypeId, TypeIdSummary()}});
+        {GlobalValue::getGUID(TypeId), {std::string(TypeId), TypeIdSummary()}});
     return It->second.second;
   }
 
@@ -1361,8 +1365,7 @@ public:
             TypeId));
   }
 
-  const std::map<std::string, TypeIdCompatibleVtableInfo> &
-  typeIdCompatibleVtableMap() const {
+  const auto &typeIdCompatibleVtableMap() const {
     return TypeIdCompatibleVtableMap;
   }
 
@@ -1371,7 +1374,7 @@ public:
   /// the ThinLTO backends.
   TypeIdCompatibleVtableInfo &
   getOrInsertTypeIdCompatibleVtableSummary(StringRef TypeId) {
-    return TypeIdCompatibleVtableMap[TypeId];
+    return TypeIdCompatibleVtableMap[std::string(TypeId)];
   }
 
   /// For the given \p TypeId, this returns the TypeIdCompatibleVtableMap

@@ -34,7 +34,6 @@
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/field_trial.h"
-#include "third_party/libyuv/include/libyuv/scale.h"
 
 namespace {
 
@@ -378,6 +377,8 @@ int SimulcastEncoderAdapter::Encode(
     }
   }
 
+  // Temporary thay may hold the result of texture to i420 buffer conversion.
+  rtc::scoped_refptr<I420BufferInterface> src_buffer;
   int src_width = input_image.width();
   int src_height = input_image.height();
   for (size_t stream_idx = 0; stream_idx < streaminfos_.size(); ++stream_idx) {
@@ -421,26 +422,24 @@ int SimulcastEncoderAdapter::Encode(
     // TODO(perkj): ensure that works going forward, and figure out how this
     // affects webrtc:5683.
     if ((dst_width == src_width && dst_height == src_height) ||
-        input_image.video_frame_buffer()->type() ==
-            VideoFrameBuffer::Type::kNative) {
+        (input_image.video_frame_buffer()->type() ==
+             VideoFrameBuffer::Type::kNative &&
+         streaminfos_[stream_idx]
+             .encoder->GetEncoderInfo()
+             .supports_native_handle)) {
       int ret = streaminfos_[stream_idx].encoder->Encode(input_image,
                                                          &stream_frame_types);
       if (ret != WEBRTC_VIDEO_CODEC_OK) {
         return ret;
       }
     } else {
+      if (src_buffer == nullptr) {
+        src_buffer = input_image.video_frame_buffer()->ToI420();
+      }
       rtc::scoped_refptr<I420Buffer> dst_buffer =
           I420Buffer::Create(dst_width, dst_height);
-      rtc::scoped_refptr<I420BufferInterface> src_buffer =
-          input_image.video_frame_buffer()->ToI420();
-      libyuv::I420Scale(src_buffer->DataY(), src_buffer->StrideY(),
-                        src_buffer->DataU(), src_buffer->StrideU(),
-                        src_buffer->DataV(), src_buffer->StrideV(), src_width,
-                        src_height, dst_buffer->MutableDataY(),
-                        dst_buffer->StrideY(), dst_buffer->MutableDataU(),
-                        dst_buffer->StrideU(), dst_buffer->MutableDataV(),
-                        dst_buffer->StrideV(), dst_width, dst_height,
-                        libyuv::kFilterBilinear);
+
+      dst_buffer->ScaleFrom(*src_buffer);
 
       // UpdateRect is not propagated to lower simulcast layers currently.
       // TODO(ilnik): Consider scaling UpdateRect together with the buffer.
@@ -514,16 +513,17 @@ void SimulcastEncoderAdapter::SetRates(
     }
 
     // Assign link allocation proportionally to spatial layer allocation.
-    if (parameters.bandwidth_allocation != DataRate::Zero()) {
+    if (!parameters.bandwidth_allocation.IsZero() &&
+        parameters.bitrate.get_sum_bps() > 0) {
       stream_parameters.bandwidth_allocation =
-          DataRate::bps((parameters.bandwidth_allocation.bps() *
-                         stream_parameters.bitrate.get_sum_bps()) /
-                        parameters.bitrate.get_sum_bps());
+          DataRate::BitsPerSec((parameters.bandwidth_allocation.bps() *
+                                stream_parameters.bitrate.get_sum_bps()) /
+                               parameters.bitrate.get_sum_bps());
       // Make sure we don't allocate bandwidth lower than target bitrate.
       if (stream_parameters.bandwidth_allocation.bps() <
           stream_parameters.bitrate.get_sum_bps()) {
         stream_parameters.bandwidth_allocation =
-            DataRate::bps(stream_parameters.bitrate.get_sum_bps());
+            DataRate::BitsPerSec(stream_parameters.bitrate.get_sum_bps());
       }
     }
 
@@ -669,8 +669,8 @@ VideoEncoder::EncoderInfo SimulcastEncoderAdapter::GetEncoderInfo() const {
       encoder_info.implementation_name += ", ";
       encoder_info.implementation_name += encoder_impl_info.implementation_name;
 
-      // Native handle supported only if all encoders supports it.
-      encoder_info.supports_native_handle &=
+      // Native handle supported if any encoder supports it.
+      encoder_info.supports_native_handle |=
           encoder_impl_info.supports_native_handle;
 
       // Trusted rate controller only if all encoders have it.

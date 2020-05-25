@@ -140,10 +140,12 @@ bool HttpDecoder::ReadFrameLength(QuicDataReader* reader) {
 
   switch (current_frame_type_) {
     case static_cast<uint64_t>(HttpFrameType::DATA):
-      continue_processing = visitor_->OnDataFrameStart(header_length);
+      continue_processing =
+          visitor_->OnDataFrameStart(header_length, current_frame_length_);
       break;
     case static_cast<uint64_t>(HttpFrameType::HEADERS):
-      continue_processing = visitor_->OnHeadersFrameStart(header_length);
+      continue_processing =
+          visitor_->OnHeadersFrameStart(header_length, current_frame_length_);
       break;
     case static_cast<uint64_t>(HttpFrameType::CANCEL_PUSH):
       break;
@@ -164,14 +166,12 @@ bool HttpDecoder::ReadFrameLength(QuicDataReader* reader) {
       break;
     case static_cast<uint64_t>(HttpFrameType::MAX_PUSH_ID):
       break;
-    case static_cast<uint64_t>(HttpFrameType::DUPLICATE_PUSH):
-      break;
     case static_cast<uint64_t>(HttpFrameType::PRIORITY_UPDATE):
       continue_processing = visitor_->OnPriorityUpdateFrameStart(header_length);
       break;
     default:
-      continue_processing =
-          visitor_->OnUnknownFrameStart(current_frame_type_, header_length);
+      continue_processing = visitor_->OnUnknownFrameStart(
+          current_frame_type_, header_length, current_frame_length_);
       break;
   }
 
@@ -239,8 +239,9 @@ bool HttpDecoder::ReadFramePayload(QuicDataReader* reader) {
         bool success = reader->ReadVarInt62(&push_id);
         DCHECK(success);
         remaining_frame_length_ -= current_push_id_length_;
-        if (!visitor_->OnPushPromiseFramePushId(push_id,
-                                                current_push_id_length_)) {
+        if (!visitor_->OnPushPromiseFramePushId(
+                push_id, current_push_id_length_,
+                current_frame_length_ - current_push_id_length_)) {
           continue_processing = false;
           current_push_id_length_ = 0;
           break;
@@ -257,8 +258,9 @@ bool HttpDecoder::ReadFramePayload(QuicDataReader* reader) {
 
         bool success = push_id_reader.ReadVarInt62(&push_id);
         DCHECK(success);
-        if (!visitor_->OnPushPromiseFramePushId(push_id,
-                                                current_push_id_length_)) {
+        if (!visitor_->OnPushPromiseFramePushId(
+                push_id, current_push_id_length_,
+                current_frame_length_ - current_push_id_length_)) {
           continue_processing = false;
           current_push_id_length_ = 0;
           break;
@@ -286,10 +288,6 @@ bool HttpDecoder::ReadFramePayload(QuicDataReader* reader) {
       break;
     }
     case static_cast<uint64_t>(HttpFrameType::MAX_PUSH_ID): {
-      BufferFramePayload(reader);
-      break;
-    }
-    case static_cast<uint64_t>(HttpFrameType::DUPLICATE_PUSH): {
       BufferFramePayload(reader);
       break;
     }
@@ -396,22 +394,6 @@ bool HttpDecoder::FinishParsing() {
         return false;
       }
       continue_processing = visitor_->OnMaxPushIdFrame(frame);
-      break;
-    }
-    case static_cast<uint64_t>(HttpFrameType::DUPLICATE_PUSH): {
-      QuicDataReader reader(buffer_.data(), current_frame_length_);
-      DuplicatePushFrame frame;
-      if (!reader.ReadVarInt62(&frame.push_id)) {
-        RaiseError(QUIC_HTTP_FRAME_ERROR,
-                   "Unable to read DUPLICATE_PUSH push_id.");
-        return false;
-      }
-      if (!reader.IsDoneReading()) {
-        RaiseError(QUIC_HTTP_FRAME_ERROR,
-                   "Superfluous data in DUPLICATE_PUSH frame.");
-        return false;
-      }
-      continue_processing = visitor_->OnDuplicatePushFrame(frame);
       break;
     }
     case static_cast<uint64_t>(HttpFrameType::PRIORITY_UPDATE): {
@@ -522,7 +504,8 @@ bool HttpDecoder::ParseSettingsFrame(QuicDataReader* reader,
     }
     auto result = frame->values.insert({id, content});
     if (!result.second) {
-      RaiseError(QUIC_HTTP_FRAME_ERROR, "Duplicate setting identifier.");
+      RaiseError(QUIC_HTTP_DUPLICATE_SETTING_IDENTIFIER,
+                 "Duplicate setting identifier.");
       return false;
     }
   }
@@ -570,8 +553,6 @@ QuicByteCount HttpDecoder::MaxFrameLength(uint64_t frame_type) {
     case static_cast<uint64_t>(HttpFrameType::GOAWAY):
       return VARIABLE_LENGTH_INTEGER_LENGTH_8;
     case static_cast<uint64_t>(HttpFrameType::MAX_PUSH_ID):
-      return sizeof(PushId);
-    case static_cast<uint64_t>(HttpFrameType::DUPLICATE_PUSH):
       return sizeof(PushId);
     case static_cast<uint64_t>(HttpFrameType::PRIORITY_UPDATE):
       // This limit is arbitrary.

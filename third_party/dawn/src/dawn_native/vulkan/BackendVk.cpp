@@ -86,7 +86,7 @@ namespace dawn_native { namespace vulkan {
         if (GetInstance()->IsBackendValidationEnabled()) {
             std::string vkDataDir = GetExecutableDirectory() + DAWN_VK_DATA_DIR;
             if (!SetEnvironmentVar("VK_LAYER_PATH", vkDataDir.c_str())) {
-                return DAWN_DEVICE_LOST_ERROR("Couldn't set VK_LAYER_PATH");
+                return DAWN_INTERNAL_ERROR("Couldn't set VK_LAYER_PATH");
             }
         }
 #endif
@@ -94,7 +94,7 @@ namespace dawn_native { namespace vulkan {
         std::string fullSwiftshaderICDPath =
             GetExecutableDirectory() + DAWN_SWIFTSHADER_VK_ICD_JSON;
         if (!SetEnvironmentVar("VK_ICD_FILENAMES", fullSwiftshaderICDPath.c_str())) {
-            return DAWN_DEVICE_LOST_ERROR("Couldn't set VK_ICD_FILENAMES");
+            return DAWN_INTERNAL_ERROR("Couldn't set VK_ICD_FILENAMES");
         }
 #endif
 
@@ -112,7 +112,7 @@ namespace dawn_native { namespace vulkan {
         }
 #endif
 
-        return DAWN_DEVICE_LOST_ERROR("Couldn't load Vulkan");
+        return DAWN_INTERNAL_ERROR("Couldn't load Vulkan");
     }
 
     MaybeError Backend::Initialize() {
@@ -190,28 +190,15 @@ namespace dawn_native { namespace vulkan {
             }
         }
 
+        // Always request all extensions used to create VkSurfaceKHR objects so that they are
+        // always available for embedders looking to create VkSurfaceKHR on our VkInstance.
         if (mGlobalInfo.fuchsiaImagePipeSwapchain) {
             layersToRequest.push_back(kLayerNameFuchsiaImagePipeSwapchain);
             usedKnobs.fuchsiaImagePipeSwapchain = true;
         }
-
-        // Always request all extensions used to create VkSurfaceKHR objects so that they are
-        // always available for embedders looking to create VkSurfaceKHR on our VkInstance.
-        if (mGlobalInfo.macosSurface) {
-            extensionsToRequest.push_back(kExtensionNameMvkMacosSurface);
-            usedKnobs.macosSurface = true;
-        }
-        if (mGlobalInfo.externalMemoryCapabilities) {
-            extensionsToRequest.push_back(kExtensionNameKhrExternalMemoryCapabilities);
-            usedKnobs.externalMemoryCapabilities = true;
-        }
-        if (mGlobalInfo.externalSemaphoreCapabilities) {
-            extensionsToRequest.push_back(kExtensionNameKhrExternalSemaphoreCapabilities);
-            usedKnobs.externalSemaphoreCapabilities = true;
-        }
-        if (mGlobalInfo.getPhysicalDeviceProperties2) {
-            extensionsToRequest.push_back(kExtensionNameKhrGetPhysicalDeviceProperties2);
-            usedKnobs.getPhysicalDeviceProperties2 = true;
+        if (mGlobalInfo.metalSurface) {
+            extensionsToRequest.push_back(kExtensionNameExtMetalSurface);
+            usedKnobs.metalSurface = true;
         }
         if (mGlobalInfo.surface) {
             extensionsToRequest.push_back(kExtensionNameKhrSurface);
@@ -236,6 +223,28 @@ namespace dawn_native { namespace vulkan {
         if (mGlobalInfo.fuchsiaImagePipeSurface) {
             extensionsToRequest.push_back(kExtensionNameFuchsiaImagePipeSurface);
             usedKnobs.fuchsiaImagePipeSurface = true;
+        }
+
+        // Mark the promoted extensions as present if the core version in which they were promoted
+        // is used. This allows having a single boolean that checks if the functionality from that
+        // extension is available (instead of checking extension || coreVersion).
+        if (mGlobalInfo.apiVersion >= VK_MAKE_VERSION(1, 1, 0)) {
+            usedKnobs.getPhysicalDeviceProperties2 = true;
+            usedKnobs.externalMemoryCapabilities = true;
+            usedKnobs.externalSemaphoreCapabilities = true;
+        } else {
+            if (mGlobalInfo.externalMemoryCapabilities) {
+                extensionsToRequest.push_back(kExtensionNameKhrExternalMemoryCapabilities);
+                usedKnobs.externalMemoryCapabilities = true;
+            }
+            if (mGlobalInfo.externalSemaphoreCapabilities) {
+                extensionsToRequest.push_back(kExtensionNameKhrExternalSemaphoreCapabilities);
+                usedKnobs.externalSemaphoreCapabilities = true;
+            }
+            if (mGlobalInfo.getPhysicalDeviceProperties2) {
+                extensionsToRequest.push_back(kExtensionNameKhrGetPhysicalDeviceProperties2);
+                usedKnobs.getPhysicalDeviceProperties2 = true;
+            }
         }
 
         VkApplicationInfo appInfo;
@@ -272,7 +281,7 @@ namespace dawn_native { namespace vulkan {
         createInfo.pUserData = this;
 
         return CheckVkSuccess(mFunctions.CreateDebugReportCallbackEXT(
-                                  mInstance, &createInfo, nullptr, &mDebugReportCallback),
+                                  mInstance, &createInfo, nullptr, &*mDebugReportCallback),
                               "vkCreateDebugReportcallback");
     }
 

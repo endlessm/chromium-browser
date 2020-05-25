@@ -129,7 +129,7 @@ CPDFSDK_Widget* CPDFSDK_InteractiveForm::GetWidget(
   CPDFSDK_Widget* pWidget = nullptr;
   const auto it = m_Map.find(pControl);
   if (it != m_Map.end())
-    pWidget = it->second;
+    pWidget = it->second.Get();
   if (pWidget)
     return pWidget;
 
@@ -140,13 +140,13 @@ CPDFSDK_Widget* CPDFSDK_InteractiveForm::GetWidget(
   if (CPDF_Dictionary* pPageDict = pControlDict->GetDictFor("P")) {
     int nPageIndex = pDocument->GetPageIndex(pPageDict->GetObjNum());
     if (nPageIndex >= 0)
-      pPage = m_pFormFillEnv->GetPageView(nPageIndex);
+      pPage = m_pFormFillEnv->GetPageViewAtIndex(nPageIndex);
   }
 
   if (!pPage) {
     int nPageIndex = GetPageIndexByAnnotDict(pDocument, pControlDict);
     if (nPageIndex >= 0)
-      pPage = m_pFormFillEnv->GetPageView(nPageIndex);
+      pPage = m_pFormFillEnv->GetPageViewAtIndex(nPageIndex);
   }
 
   return pPage ? ToCPDFSDKWidget(pPage->GetAnnotByDict(pControlDict)) : nullptr;

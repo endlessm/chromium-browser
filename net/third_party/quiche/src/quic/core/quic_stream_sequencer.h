@@ -35,20 +35,15 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
     virtual void OnFinRead() = 0;
     // Called when bytes have been consumed from the sequencer.
     virtual void AddBytesConsumed(QuicByteCount bytes) = 0;
-    // TODO(rch): Clean up this interface via OnUnrecoverableError and
-    // remove PeerAddressOfLatestPacket().
     // Called when an error has occurred which should result in the stream
     // being reset.
     virtual void Reset(QuicRstStreamErrorCode error) = 0;
     // Called when an error has occurred which should result in the connection
     // being closed.
-    virtual void CloseConnectionWithDetails(QuicErrorCode error,
-                                            const std::string& details) = 0;
-
+    virtual void OnUnrecoverableError(QuicErrorCode error,
+                                      const std::string& details) = 0;
     // Returns the stream id of this stream.
     virtual QuicStreamId id() const = 0;
-    // Returns the peer address of the last packet received for this stream.
-    virtual const QuicSocketAddress& PeerAddressOfLatestPacket() const = 0;
   };
 
   explicit QuicStreamSequencer(StreamInterface* quic_stream);

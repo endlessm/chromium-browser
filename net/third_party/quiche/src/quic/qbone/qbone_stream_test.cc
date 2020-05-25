@@ -40,11 +40,13 @@ class MockQuicSession : public QboneSessionBase {
   ~MockQuicSession() override {}
 
   // Writes outgoing data from QuicStream to a string.
-  QuicConsumedData WritevData(QuicStream* stream,
-                              QuicStreamId id,
-                              size_t write_length,
-                              QuicStreamOffset offset,
-                              StreamSendingState state) override {
+  QuicConsumedData WritevData(
+      QuicStreamId id,
+      size_t write_length,
+      QuicStreamOffset offset,
+      StreamSendingState state,
+      TransmissionType type,
+      quiche::QuicheOptional<EncryptionLevel> level) override {
     if (!writable_) {
       return QuicConsumedData(0, false);
     }
@@ -180,7 +182,7 @@ class QboneReadOnlyStreamTest : public ::testing::Test,
 
 // Read an entire string.
 TEST_F(QboneReadOnlyStreamTest, ReadDataWhole) {
-  string packet = "Stuff";
+  std::string packet = "Stuff";
   CreateReliableQuicStream();
   QuicStreamFrame frame(kStreamId, true, 0, packet);
   EXPECT_CALL(*session_, ProcessPacketFromPeer("Stuff"));
@@ -190,7 +192,7 @@ TEST_F(QboneReadOnlyStreamTest, ReadDataWhole) {
 // Test buffering.
 TEST_F(QboneReadOnlyStreamTest, ReadBuffered) {
   CreateReliableQuicStream();
-  string packet = "Stuf";
+  std::string packet = "Stuf";
   {
     QuicStreamFrame frame(kStreamId, false, 0, packet);
     stream_->OnStreamFrame(frame);
@@ -207,7 +209,7 @@ TEST_F(QboneReadOnlyStreamTest, ReadBuffered) {
 
 TEST_F(QboneReadOnlyStreamTest, ReadOutOfOrder) {
   CreateReliableQuicStream();
-  string packet = "f";
+  std::string packet = "f";
   {
     QuicStreamFrame frame(kStreamId, true, 4, packet);
     stream_->OnStreamFrame(frame);
@@ -230,7 +232,7 @@ TEST_F(QboneReadOnlyStreamTest, ReadOutOfOrder) {
 // Test buffering too many bytes.
 TEST_F(QboneReadOnlyStreamTest, ReadBufferedTooLarge) {
   CreateReliableQuicStream();
-  string packet = "0123456789";
+  std::string packet = "0123456789";
   int iterations = (QboneConstants::kMaxQbonePacketBytes / packet.size()) + 2;
   EXPECT_CALL(*session_,
               SendRstStream(kStreamId, QUIC_BAD_APPLICATION_PAYLOAD, _));

@@ -24,7 +24,6 @@ namespace SkSL {
 #endif
 
 #ifdef SKSL_THREADED_CODE
-    using instruction = void*;
     #define LABEL(name) name:
     #ifdef TRACE
         #define NEXT()                                   \
@@ -38,7 +37,6 @@ namespace SkSL {
         #define NEXT() goto *labels[(int) read<ByteCode::Instruction>(&ip)]
     #endif
 #else
-    using instruction = uint16_t;
     #define LABEL(name) case ByteCode::Instruction::name:
     #define NEXT() continue
 #endif
@@ -240,13 +238,13 @@ public:
      bool run(const ByteCodeFunction* f, Vector args[], Vector** outResult) {
         SkASSERT(f);
         VectorI condStack[MASK_STACK_SIZE];
-        memset(condStack, 255, sizeof(VectorI));
+        memset(&condStack[0], 255, sizeof(condStack[0]));
         VectorI maskStack[MASK_STACK_SIZE];
-        memset(maskStack, 255, sizeof(VectorI));
+        memset(&maskStack[0], 255, sizeof(maskStack[0]));
         VectorI loopStack[LOOP_STACK_SIZE];
-        memset(loopStack, 255, sizeof(VectorI));
+        memset(&loopStack[0], 255, sizeof(loopStack[0]));
         VectorI continueStack[LOOP_STACK_SIZE];
-        memset(continueStack, 0, sizeof(VectorI));
+        memset(&continueStack[0], 0, sizeof(continueStack[0]));
         Vector* stack = fMemory + MEMORY_SIZE;
         int stackCount = f->fStackSlotCount + f->fParameterSlotCount;
         stack -= stackCount;
@@ -274,11 +272,12 @@ public:
      *   ...
      *   args[argCount - 1] points to an array of N values, the last argument for each invocation
      *
-     * All values in 'args', 'outReturn', and 'uniforms' are 32-bit values (typically floats,
+     * All values in 'args', 'outResult', and 'uniforms' are 32-bit values (typically floats,
      * but possibly int32_t or uint32_t, depending on the types used in the SkSL).
      * Any 'out' or 'inout' parameters will result in the 'args' array being modified.
      */
-    bool runStriped(const ByteCodeFunction* f, int count, float* args[]) {
+    bool runStriped(const ByteCodeFunction* f, int count, float* args[],
+                    float* outResult[] = nullptr) {
         SkASSERT(f);
         Vector* stack = fMemory + MEMORY_SIZE;
         int stackCount = f->fStackSlotCount + f->fParameterSlotCount;
@@ -287,21 +286,22 @@ public:
         VectorI maskStack[MASK_STACK_SIZE];
         VectorI loopStack[LOOP_STACK_SIZE];
         VectorI continueStack[LOOP_STACK_SIZE];
+        Vector* innerResult = nullptr;
         Context context(fMemory, stack, condStack, maskStack, loopStack, continueStack);
         for (int i = 0; i < count; i += width) {
             int lanes = std::min(width, count - i);
             size_t size = lanes * sizeof(float);
-            memset(maskStack, 255, sizeof(VectorI));
-            memset(loopStack, 255, sizeof(VectorI));
+            memset(&maskStack[0], 255, sizeof(maskStack[0]));
+            memset(&loopStack[0], 255, sizeof(loopStack[0]));
             for (int j = lanes; j < width; ++j) {
                 maskStack[0][j] = 0;
                 loopStack[0][j] = 0;
             }
-            memset(continueStack, 0, sizeof(VectorI));
+            memset(&continueStack[0], 0, sizeof(continueStack[0]));
             for (int j = 0; j < f->fParameterSlotCount; ++j) {
                 memcpy(stack + j, &args[j][i], size);
             }
-            if (!this->innerRun(f, context, i, nullptr)) {
+            if (!this->innerRun(f, context, i, &innerResult)) {
                 return false;
             }
             int slot = 0;
@@ -312,6 +312,11 @@ public:
                     }
                 }
                 slot += p.fSlotCount;
+            }
+            if (outResult) {
+                for (int j = 0; j < f->fReturnSlotCount; ++j) {
+                    memcpy(&outResult[j][i], &innerResult[j], size);
+                }
             }
         }
         return true;

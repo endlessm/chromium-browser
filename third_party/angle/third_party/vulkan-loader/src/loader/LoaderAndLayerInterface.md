@@ -470,11 +470,11 @@ the case.  See the [Overall Layer Ordering](#overall-layer-ordering) section
 for more information.
 
 The following code section shows how you would go about enabling the
-VK_LAYER_LUNARG_standard_validation layer.
+VK_LAYER_KHRONOS_validation layer.
 
 ```
    char *instance_validation_layers[] = {
-        "VK_LAYER_LUNARG_standard_validation"
+        "VK_LAYER_KHRONOS_validation"
     };
     const VkApplicationInfo app = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -1458,10 +1458,6 @@ desktop loader.  While normal layers are associated with one particular library,
 a meta-layer is actually a collection layer which contains an ordered list of
 other layers (called component layers).
 
-The most common example of a meta-layer is the
-`VK_LAYER_LUNARG_standard_validation` layer which groups all the most common
-individual validation layers into a single layer for ease-of-use.
-
 The benefits of a meta-layer are:
  1. You can activate more than one layer using a single layer name by simply
 grouping multiple layers in a meta-layer.
@@ -1550,7 +1546,7 @@ Each layer intercept function must have a prototype that is the same as the prot
 For example, a function that wishes to intercept `vkEnumerateInstanceExtensionProperties` would have the prototype:
 
 ```
-VkResult InterceptFunctionName(const VkEnumerateInstanceExtensionProperties* pChain,
+VkResult InterceptFunctionName(const VkEnumerateInstanceExtensionPropertiesChain* pChain,
     const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties);
 ```
 
@@ -1560,7 +1556,7 @@ This is done by calling the `pfnNextLayer` member of the chain struct, passing `
 For example, a simple implementation for `vkEnumerateInstanceExtensionProperties` that does nothing but call down the chain would look like:
 
 ```
-VkResult InterceptFunctionName(const VkEnumerateInstanceExtensionProperties* pChain,
+VkResult InterceptFunctionName(const VkEnumerateInstanceExtensionPropertiesChain* pChain,
     const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties)
 {
     return pChain->pfnNextLayer(pChain->pNextLink, pLayerName, pPropertyCount, pProperties);
@@ -1571,7 +1567,7 @@ When using a C++ compiler, each chain type also defines a function named `CallDo
 Implementing the above function using this method would look like:
 
 ```
-VkResult InterceptFunctionName(const VkEnumerateInstanceExtensionProperties* pChain,
+VkResult InterceptFunctionName(const VkEnumerateInstanceExtensionPropertiesChain* pChain,
     const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties)
 {
     return pChain->CallDown(pLayerName, pPropertyCount, pProperties);
@@ -1805,17 +1801,14 @@ Here's an example of a meta-layer manifest file:
 {
    "file_format_version" : "1.1.1",
    "layer": {
-       "name": "VK_LAYER_LUNARG_standard_validation",
+       "name": "VK_LAYER_META_layer",
        "type": "GLOBAL",
        "api_version" : "1.0.40",
        "implementation_version" : "1",
-       "description" : "LunarG Standard Validation Meta-layer",
+       "description" : "LunarG Meta-layer example",
        "component_layers": [
-           "VK_LAYER_GOOGLE_threading",
-           "VK_LAYER_LUNARG_parameter_validation",
-           "VK_LAYER_LUNARG_object_tracker",
-           "VK_LAYER_LUNARG_core_validation",
-           "VK_LAYER_GOOGLE_unique_objects"
+           "VK_LAYER_KHRONOS_validation",
+           "VK_LAYER_LUNARG_api_dump"
        ]
    }
 }

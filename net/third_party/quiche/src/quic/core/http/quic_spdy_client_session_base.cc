@@ -85,7 +85,7 @@ void QuicSpdyClientSessionBase::OnPromiseHeaderList(
   }
 
   if (VersionUsesHttp3(transport_version()) &&
-      promised_stream_id > max_allowed_push_id()) {
+      !CanCreatePushStreamWithId(promised_stream_id)) {
     connection()->CloseConnection(
         QUIC_INVALID_STREAM_ID,
         "Received push stream id higher than MAX_PUSH_ID.",
@@ -203,14 +203,14 @@ void QuicSpdyClientSessionBase::ResetPromised(
     QuicRstStreamErrorCode error_code) {
   DCHECK(QuicUtils::IsServerInitiatedStreamId(transport_version(), id));
   SendRstStream(id, error_code, 0);
-  if (!IsOpenStream(id)) {
+  if (!IsOpenStream(id) && !IsClosedStream(id)) {
     MaybeIncreaseLargestPeerStreamId(id);
   }
 }
 
 void QuicSpdyClientSessionBase::CloseStreamInner(QuicStreamId stream_id,
-                                                 bool locally_reset) {
-  QuicSpdySession::CloseStreamInner(stream_id, locally_reset);
+                                                 bool rst_sent) {
+  QuicSpdySession::CloseStreamInner(stream_id, rst_sent);
   if (!VersionUsesHttp3(transport_version())) {
     headers_stream()->MaybeReleaseSequencerBuffer();
   }

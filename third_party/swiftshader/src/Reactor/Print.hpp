@@ -15,10 +15,6 @@
 #ifndef rr_Print_hpp
 #define rr_Print_hpp
 
-#if !defined(NDEBUG)
-#	define ENABLE_RR_PRINT 1  // Enables RR_PRINT(), RR_WATCH()
-#endif                         // !defined(NDEBUG)
-
 #ifdef ENABLE_RR_PRINT
 
 #	include "Reactor.hpp"
@@ -147,9 +143,12 @@ public:
 	PrintValue(double v)
 	    : format(std::to_string(v))
 	{}
+	PrintValue(const char *v)
+	    : format(v)
+	{}
 
 	template<typename T>
-	PrintValue(const T *v)
+	PrintValue(T *v)
 	    : format(addr(v))
 	{}
 
@@ -226,8 +225,8 @@ struct PrintValue::Ty<std::string>
 template<>
 struct PrintValue::Ty<Bool>
 {
-	static std::string fmt(const RValue<Bool> &v) { return "%d"; }
-	static std::vector<Value *> val(const RValue<Bool> &v) { return { v.value }; }
+	static std::string fmt(const RValue<Bool> &v) { return "%s"; }
+	static std::vector<Value *> val(const RValue<Bool> &v);
 };
 template<>
 struct PrintValue::Ty<Byte>
@@ -250,7 +249,7 @@ struct PrintValue::Ty<Int>
 template<>
 struct PrintValue::Ty<Int2>
 {
-	static std::string fmt(const RValue<Int> &v) { return "[%d, %d]"; }
+	static std::string fmt(const RValue<Int2> &v) { return "[%d, %d]"; }
 	static std::vector<Value *> val(const RValue<Int2> &v);
 };
 template<>
@@ -268,7 +267,7 @@ struct PrintValue::Ty<UInt>
 template<>
 struct PrintValue::Ty<UInt2>
 {
-	static std::string fmt(const RValue<UInt> &v) { return "[%u, %u]"; }
+	static std::string fmt(const RValue<UInt2> &v) { return "[%u, %u]"; }
 	static std::vector<Value *> val(const RValue<UInt2> &v);
 };
 template<>
@@ -304,7 +303,7 @@ struct PrintValue::Ty<UShort4>
 template<>
 struct PrintValue::Ty<Float>
 {
-	static std::string fmt(const RValue<Float> &v) { return "[%f]"; }
+	static std::string fmt(const RValue<Float> &v) { return "%f"; }
 	static std::vector<Value *> val(const RValue<Float> &v);
 };
 template<>
@@ -337,6 +336,10 @@ struct PrintValue::Ty<RValue<T>>
 	static std::string fmt(const RValue<T> &v) { return PrintValue::Ty<T>::fmt(v); }
 	static std::vector<Value *> val(const RValue<T> &v) { return PrintValue::Ty<T>::val(v); }
 };
+
+// VPrintf emits a call to printf() using vals[0] as the format string,
+// and vals[1..n] as the args.
+void VPrintf(const std::vector<Value *> &vals);
 
 // Printv emits a call to printf() using the function, file and line,
 // message and optional values.

@@ -51,6 +51,9 @@ QuicSentPacketManager* QuicConnectionPeer::GetSentPacketManager(
 // static
 QuicTime::Delta QuicConnectionPeer::GetNetworkTimeout(
     QuicConnection* connection) {
+  if (connection->use_idle_network_detector_) {
+    return connection->idle_network_detector_.idle_network_timeout_;
+  }
   return connection->idle_network_timeout_;
 }
 
@@ -346,6 +349,36 @@ size_t QuicConnectionPeer::GetNumEncryptionLevels(QuicConnection* connection) {
     }
   }
   return count;
+}
+
+// static
+QuicNetworkBlackholeDetector& QuicConnectionPeer::GetBlackholeDetector(
+    QuicConnection* connection) {
+  return connection->blackhole_detector_;
+}
+
+// static
+QuicAlarm* QuicConnectionPeer::GetBlackholeDetectorAlarm(
+    QuicConnection* connection) {
+  return connection->blackhole_detector_.alarm_.get();
+}
+
+// static
+QuicTime QuicConnectionPeer::GetPathDegradingDeadline(
+    QuicConnection* connection) {
+  return connection->blackhole_detector_.path_degrading_deadline_;
+}
+
+// static
+QuicTime QuicConnectionPeer::GetBlackholeDetectionDeadline(
+    QuicConnection* connection) {
+  return connection->blackhole_detector_.blackhole_deadline_;
+}
+
+// static
+QuicAlarm* QuicConnectionPeer::GetIdleNetworkDetectorAlarm(
+    QuicConnection* connection) {
+  return connection->idle_network_detector_.alarm_.get();
 }
 
 }  // namespace test

@@ -21,6 +21,8 @@ from telemetry.util import cmd_util
 _CHROME_PROCESS_REGEX = [re.compile(r'^/opt/google/chrome/chrome '),
                          re.compile(r'^/usr/local/?.*/chrome/chrome ')]
 
+_CHROME_MOUNT_NAMESPACE_PATH = "/run/namespaces/mnt_chrome"
+
 
 def RunCmd(args, cwd=None, quiet=False):
   return cmd_util.RunCmd(args, cwd, quiet)
@@ -381,6 +383,12 @@ class CrOSInterface(object):
       if not os.path.exists(host_path):
         device_path = cmd_helper.SingleQuote(
             posixpath.join(self.CROS_MINIDUMP_DIR, dump_filename))
+        # Skip any directories that happen to be in the list.
+        stdout, _ = self.RunCmdOnDevice(
+            ['test', '-f', device_path, '&&',
+             'echo', 'true', '||', 'echo', 'false'])
+        if 'false' in stdout:
+          continue
         self.GetFile(device_path, host_path)
         # Set the local version's modification time to the device's.
         stdout, _ = self.RunCmdOnDevice(
@@ -533,8 +541,12 @@ class CrOSInterface(object):
 
     return True
 
-  def _GetMountSourceAndTarget(self, path):
-    df_out, _ = self.RunCmdOnDevice(['/bin/df', '--output=source,target', path])
+  def _GetMountSourceAndTarget(self, path, ns=None):
+    cmd = []
+    if ns:
+      cmd.extend(['nsenter', '--mount=%s' % ns])
+    cmd.extend(['/bin/df', '--output=source,target', path])
+    df_out, _ = self.RunCmdOnDevice(cmd)
     df_ary = df_out.split('\n')
     # 3 lines for title, mount info, and empty line.
     if len(df_ary) == 3:
@@ -566,7 +578,11 @@ class CrOSInterface(object):
     """Returns True iff |user|'s cryptohome is mounted."""
     # Check whether it's ephemeral mount from a loop device.
     profile_ephemeral_path = self.EphemeralCryptohomePath(username)
-    ephemeral_mount_info = self._GetMountSourceAndTarget(profile_ephemeral_path)
+    ns = None
+    if is_guest:
+      ns = _CHROME_MOUNT_NAMESPACE_PATH
+    ephemeral_mount_info = self._GetMountSourceAndTarget(profile_ephemeral_path,
+                                                         ns)
     if ephemeral_mount_info:
       return (ephemeral_mount_info[0].startswith('/dev/loop') and
               ephemeral_mount_info[1] == profile_ephemeral_path)

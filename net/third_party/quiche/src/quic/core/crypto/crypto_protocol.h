@@ -82,16 +82,13 @@ const QuicTag kTBBR = TAG('T', 'B', 'B', 'R');   // Reduced Buffer Bloat TCP
 const QuicTag k1RTT = TAG('1', 'R', 'T', 'T');   // STARTUP in BBR for 1 RTT
 const QuicTag k2RTT = TAG('2', 'R', 'T', 'T');   // STARTUP in BBR for 2 RTTs
 const QuicTag kLRTT = TAG('L', 'R', 'T', 'T');   // Exit STARTUP in BBR on loss
-const QuicTag kBBS1 = TAG('B', 'B', 'S', '1');   // Rate-based recovery in
-                                                 // BBR STARTUP
+const QuicTag kBBS1 = TAG('B', 'B', 'S', '1');   // DEPRECATED
 const QuicTag kBBS2 = TAG('B', 'B', 'S', '2');   // More aggressive packet
                                                  // conservation in BBR STARTUP
 const QuicTag kBBS3 = TAG('B', 'B', 'S', '3');   // Slowstart packet
                                                  // conservation in BBR STARTUP
-const QuicTag kBBS4 = TAG('B', 'B', 'S', '4');   // Reduce rate in STARTUP by
-                                                 // bytes_lost / CWND.
-const QuicTag kBBS5 = TAG('B', 'B', 'S', '5');   // Reduce rate in STARTUP by
-                                                 // 2 * bytes_lost / CWND.
+const QuicTag kBBS4 = TAG('B', 'B', 'S', '4');   // DEPRECATED
+const QuicTag kBBS5 = TAG('B', 'B', 'S', '5');   // DEPRECATED
 const QuicTag kBBRR = TAG('B', 'B', 'R', 'R');   // Rate-based recovery in BBR
 const QuicTag kBBR1 = TAG('B', 'B', 'R', '1');   // DEPRECATED
 const QuicTag kBBR2 = TAG('B', 'B', 'R', '2');   // DEPRECATED
@@ -101,8 +98,7 @@ const QuicTag kBBR4 = TAG('B', 'B', 'R', '4');   // 20 RTT ack aggregation
 const QuicTag kBBR5 = TAG('B', 'B', 'R', '5');   // 40 RTT ack aggregation
 const QuicTag kBBR9 = TAG('B', 'B', 'R', '9');   // Ignore app-limited calls in
                                                  // BBR if enough inflight.
-const QuicTag kBBRS = TAG('B', 'B', 'R', 'S');   // Use 1.5x pacing in startup
-                                                 // after a loss has occurred.
+const QuicTag kBBRS = TAG('B', 'B', 'R', 'S');   // DEPRECATED
 const QuicTag kBBQ1 = TAG('B', 'B', 'Q', '1');   // BBR with lower 2.77 STARTUP
                                                  // pacing and CWND gain.
 const QuicTag kBBQ2 = TAG('B', 'B', 'Q', '2');   // BBR with lower 2.0 STARTUP
@@ -121,6 +117,13 @@ const QuicTag kIW10 = TAG('I', 'W', '1', '0');   // Force ICWND to 10
 const QuicTag kIW20 = TAG('I', 'W', '2', '0');   // Force ICWND to 20
 const QuicTag kIW50 = TAG('I', 'W', '5', '0');   // Force ICWND to 50
 const QuicTag kB2ON = TAG('B', '2', 'O', 'N');   // Enable BBRv2
+const QuicTag kB2NA = TAG('B', '2', 'N', 'A');   // For BBRv2, do not add ack
+                                                 // height to queueing threshold
+const QuicTag kB2RP = TAG('B', '2', 'R', 'P');   // For BBRv2, run PROBE_RTT on
+                                                 // the regular schedule
+const QuicTag kBSAO = TAG('B', 'S', 'A', 'O');   // Avoid Overestimation in
+                                                 // Bandwidth Sampler with ack
+                                                 // aggregation
 const QuicTag kNTLP = TAG('N', 'T', 'L', 'P');   // No tail loss probe
 const QuicTag k1TLP = TAG('1', 'T', 'L', 'P');   // 1 tail loss probe
 const QuicTag k1RTO = TAG('1', 'R', 'T', 'O');   // Send 1 packet upon RTO
@@ -159,6 +162,8 @@ const QuicTag kCONH = TAG('C', 'O', 'N', 'H');   // Conservative Handshake
 const QuicTag kLFAK = TAG('L', 'F', 'A', 'K');   // Don't invoke FACK on the
                                                  // first ack.
 const QuicTag kSTMP = TAG('S', 'T', 'M', 'P');   // Send and process timestamps
+const QuicTag kEACK = TAG('E', 'A', 'C', 'K');   // Bundle ack-eliciting frame
+                                                 // with an ACK after PTO/RTO
 
 const QuicTag kILD0 = TAG('I', 'L', 'D', '0');   // IETF style loss detection
                                                  // (default with 1/8 RTT time
@@ -177,6 +182,8 @@ const QuicTag kILD4 = TAG('I', 'L', 'D', '4');   // IETF style loss detection
                                                  // threshold (default 1/4 RTT)
                                                  // and adaptive packet
                                                  // threshold
+const QuicTag kRUNT = TAG('R', 'U', 'N', 'T');   // No packet threshold loss
+                                                 // detection for "runt" packet.
 // TODO(fayang): Remove this connection option when QUIC_VERSION_35, is removed
 // Since MAX_HEADER_LIST_SIZE settings frame is supported instead.
 const QuicTag kSMHL = TAG('S', 'M', 'H', 'L');   // Support MAX_HEADER_LIST_SIZE
@@ -208,6 +215,16 @@ const QuicTag kPVS1 = TAG('P', 'V', 'S', '1');   // Use 2 * rttvar when
 const QuicTag kPAG1 = TAG('P', 'A', 'G', '1');   // Make 1st PTO more aggressive
 const QuicTag kPAG2 = TAG('P', 'A', 'G', '2');   // Make first 2 PTOs more
                                                  // aggressive
+const QuicTag kPSDA = TAG('P', 'S', 'D', 'A');   // Use standard deviation when
+                                                 // calculating PTO timeout.
+const QuicTag kPLE1 = TAG('P', 'L', 'E', '1');   // Arm the 1st PTO with
+                                                 // earliest in flight sent time
+                                                 // and at least 0.5*srtt from
+                                                 // last sent packet.
+const QuicTag kPLE2 = TAG('P', 'L', 'E', '2');   // Arm the 1st PTO with
+                                                 // earliest in flight sent time
+                                                 // and at least 1.5*srtt from
+                                                 // last sent packet.
 
 // Optional support of truncated Connection IDs.  If sent by a peer, the value
 // is the minimum number of bytes allowed for the connection ID sent to the
@@ -243,6 +260,8 @@ const QuicTag kBWM3 = TAG('B', 'W', 'M', '3');  // Consider overshooting if
 const QuicTag kBWM4 = TAG('B', 'W', 'M', '4');  // Consider overshooting if
                                                 // bytes lost after bandwidth
                                                 // resumption * 4 > IW.
+const QuicTag kICW1 = TAG('I', 'C', 'W', '1');  // Max initial congestion window
+                                                // 100.
 
 // Enable path MTU discovery experiment.
 const QuicTag kMTUH = TAG('M', 'T', 'U', 'H');  // High-target MTU discovery.

@@ -5,30 +5,47 @@
 #ifndef DISCOVERY_MDNS_PUBLIC_MDNS_SERVICE_H_
 #define DISCOVERY_MDNS_PUBLIC_MDNS_SERVICE_H_
 
+#include <functional>
 #include <memory>
 
 #include "discovery/mdns/public/mdns_constants.h"
 #include "platform/base/error.h"
+#include "platform/base/interface_info.h"
+#include "platform/base/ip_address.h"
 
 namespace openscreen {
 
-struct IPEndpoint;
 class TaskRunner;
 
 namespace discovery {
 
+struct Config;
 class DomainName;
 class MdnsDomainConfirmedProvider;
 class MdnsRecord;
 class MdnsRecordChangedCallback;
+class ReportingClient;
 
 class MdnsService {
  public:
-  virtual ~MdnsService() = default;
+  enum SupportedNetworkAddressFamily : uint8_t {
+    kNoAddressFamily = 0,
+    kUseIpV4Multicast = 0x01 << 0,
+    kUseIpV6Multicast = 0x01 << 1
+  };
+
+  MdnsService();
+  virtual ~MdnsService();
 
   // Creates a new MdnsService instance, to be owned by the caller. On failure,
-  // returns nullptr.
-  static std::unique_ptr<MdnsService> Create(TaskRunner* task_runner);
+  // returns nullptr. |task_runner|, |reporting_client|, and |config| must exist
+  // for the duration of the resulting instance's life.
+  static std::unique_ptr<MdnsService> Create(
+      TaskRunner* task_runner,
+      ReportingClient* reporting_client,
+      const Config& config,
+      NetworkInterfaceIndex network_interface,
+      SupportedNetworkAddressFamily supported_address_types);
 
   // Starts an mDNS query with the given properties. Updated records are passed
   // to |callback|.  The caller must ensure |callback| remains alive while it is
@@ -74,6 +91,20 @@ class MdnsService {
   // the name is released.
   virtual Error UnregisterRecord(const MdnsRecord& record) = 0;
 };
+
+inline MdnsService::SupportedNetworkAddressFamily operator&(
+    MdnsService::SupportedNetworkAddressFamily lhs,
+    MdnsService::SupportedNetworkAddressFamily rhs) {
+  return static_cast<MdnsService::SupportedNetworkAddressFamily>(
+      static_cast<uint8_t>(lhs) & static_cast<uint8_t>(rhs));
+}
+
+inline MdnsService::SupportedNetworkAddressFamily operator|(
+    MdnsService::SupportedNetworkAddressFamily lhs,
+    MdnsService::SupportedNetworkAddressFamily rhs) {
+  return static_cast<MdnsService::SupportedNetworkAddressFamily>(
+      static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs));
+}
 
 }  // namespace discovery
 }  // namespace openscreen

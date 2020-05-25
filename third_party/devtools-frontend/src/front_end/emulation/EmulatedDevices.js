@@ -17,9 +17,9 @@ export class EmulatedDevice {
     this.title = '';
     /** @type {string} */
     this.type = Type.Unknown;
-    /** @type {!Emulation.EmulatedDevice.Orientation} */
+    /** @type {!Orientation} */
     this.vertical = {width: 0, height: 0, outlineInsets: null, outlineImage: null};
-    /** @type {!Emulation.EmulatedDevice.Orientation} */
+    /** @type {!Orientation} */
     this.horizontal = {width: 0, height: 0, outlineInsets: null, outlineImage: null};
     /** @type {number} */
     this.deviceScaleFactor = 1;
@@ -27,7 +27,7 @@ export class EmulatedDevice {
     this.capabilities = [Capability.Touch, Capability.Mobile];
     /** @type {string} */
     this.userAgent = '';
-    /** @type {!Array.<!Emulation.EmulatedDevice.Mode>} */
+    /** @type {!Array.<!Mode>} */
     this.modes = [];
 
     /** @type {string} */
@@ -91,7 +91,7 @@ export class EmulatedDevice {
 
       /**
        * @param {*} json
-       * @return {!EmulatedDevice.Orientation}
+       * @return {!Orientation}
        */
       function parseOrientation(json) {
         const result = {};
@@ -114,7 +114,7 @@ export class EmulatedDevice {
           }
           result.outlineImage = /** @type {string} */ (parseValue(json['outline'], 'image', 'string'));
         }
-        return /** @type {!EmulatedDevice.Orientation} */ (result);
+        return /** @type {!Orientation} */ (result);
       }
 
       const result = new EmulatedDevice();
@@ -210,7 +210,7 @@ export class EmulatedDevice {
 
   /**
    * @param {string} orientation
-   * @return {!Array.<!EmulatedDevice.Mode>}
+   * @return {!Array.<!Mode>}
    */
   modesForOrientation(orientation) {
     const result = [];
@@ -260,7 +260,7 @@ export class EmulatedDevice {
   }
 
   /**
-   * @param {!EmulatedDevice.Orientation} orientation
+   * @param {!Orientation} orientation
    * @return {*}
    */
   _orientationToJSON(orientation) {
@@ -280,7 +280,7 @@ export class EmulatedDevice {
   }
 
   /**
-   * @param {!EmulatedDevice.Mode} mode
+   * @param {!Mode} mode
    * @return {string}
    */
   modeImage(mode) {
@@ -294,7 +294,7 @@ export class EmulatedDevice {
   }
 
   /**
-   * @param {!EmulatedDevice.Mode} mode
+   * @param {!Mode} mode
    * @return {string}
    */
   outlineImage(mode) {
@@ -310,7 +310,7 @@ export class EmulatedDevice {
 
   /**
    * @param {string} name
-   * @return {!EmulatedDevice.Orientation}
+   * @return {!Orientation}
    */
   orientationByName(name) {
     return name === Vertical ? this.vertical : this.horizontal;
@@ -388,16 +388,16 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
     super();
 
     /** @type {!Common.Settings.Setting} */
-    this._standardSetting = self.Common.settings.createSetting('standardEmulatedDeviceList', []);
-    /** @type {!Array.<!EmulatedDevice>} */
-    this._standard = [];
+    this._standardSetting = Common.Settings.Settings.instance().createSetting('standardEmulatedDeviceList', []);
+    /** @type {!Set.<!EmulatedDevice>} */
+    this._standard = new Set();
     this._listFromJSONV1(this._standardSetting.get(), this._standard);
     this._updateStandardDevices();
 
     /** @type {!Common.Settings.Setting} */
-    this._customSetting = self.Common.settings.createSetting('customEmulatedDeviceList', []);
-    /** @type {!Array.<!EmulatedDevice>} */
-    this._custom = [];
+    this._customSetting = Common.Settings.Settings.instance().createSetting('customEmulatedDeviceList', []);
+    /** @type {!Set.<!EmulatedDevice>} */
+    this._custom = new Set();
     if (!this._listFromJSONV1(this._customSetting.get(), this._custom)) {
       this.saveCustomDevices();
     }
@@ -414,12 +414,12 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
   }
 
   _updateStandardDevices() {
-    const devices = [];
+    const devices = new Set();
     const extensions = self.runtime.extensions('emulated-device');
-    for (let i = 0; i < extensions.length; ++i) {
-      const device = EmulatedDevice.fromJSONV1(extensions[i].descriptor()['device']);
-      device.setExtension(extensions[i]);
-      devices.push(device);
+    for (const extension of extensions) {
+      const device = EmulatedDevice.fromJSONV1(extension.descriptor()['device']);
+      device.setExtension(extension);
+      devices.add(device);
     }
     this._copyShowValues(this._standard, devices);
     this._standard = devices;
@@ -428,7 +428,7 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
 
   /**
    * @param {!Array.<*>} jsonArray
-   * @param {!Array.<!EmulatedDevice>} result
+   * @param {!Set.<!EmulatedDevice>} result
    * @return {boolean}
    */
   _listFromJSONV1(jsonArray, result) {
@@ -439,7 +439,7 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
     for (let i = 0; i < jsonArray.length; ++i) {
       const device = EmulatedDevice.fromJSONV1(jsonArray[i]);
       if (device) {
-        result.push(device);
+        result.add(device);
         if (!device.modes.length) {
           device.modes.push(
               {title: '', orientation: Horizontal, insets: new UI.Geometry.Insets(0, 0, 0, 0), image: null});
@@ -457,14 +457,14 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
    * @return {!Array.<!EmulatedDevice>}
    */
   standard() {
-    return this._standard;
+    return [...this._standard];
   }
 
   /**
    * @return {!Array.<!EmulatedDevice>}
    */
   custom() {
-    return this._custom;
+    return [...this._custom];
   }
 
   revealCustomSetting() {
@@ -475,7 +475,7 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
    * @param {!EmulatedDevice} device
    */
   addCustomDevice(device) {
-    this._custom.push(device);
+    this._custom.add(device);
     this.saveCustomDevices();
   }
 
@@ -483,40 +483,40 @@ export class EmulatedDevicesList extends Common.ObjectWrapper.ObjectWrapper {
    * @param {!EmulatedDevice} device
    */
   removeCustomDevice(device) {
-    this._custom.remove(device);
+    this._custom.delete(device);
     this.saveCustomDevices();
   }
 
   saveCustomDevices() {
-    const json = this._custom.map(/** @param {!EmulatedDevice} device */ function(device) {
-      return device._toJSON();
-    });
+    const json = [];
+    this._custom.forEach(device => json.push(device._toJSON()));
+
     this._customSetting.set(json);
     this.dispatchEventToListeners(Events.CustomDevicesUpdated);
   }
 
   saveStandardDevices() {
-    const json = this._standard.map(/** @param {!EmulatedDevice} device */ function(device) {
-      return device._toJSON();
-    });
+    const json = [];
+    this._standard.forEach(device => json.push(device._toJSON()));
+
     this._standardSetting.set(json);
     this.dispatchEventToListeners(Events.StandardDevicesUpdated);
   }
 
   /**
-   * @param {!Array.<!EmulatedDevice>} from
-   * @param {!Array.<!EmulatedDevice>} to
+   * @param {!Set.<!EmulatedDevice>} from
+   * @param {!Set.<!EmulatedDevice>} to
    */
   _copyShowValues(from, to) {
-    const deviceById = new Map();
-    for (let i = 0; i < from.length; ++i) {
-      deviceById.set(from[i].title, from[i]);
+    const fromDeviceById = new Map();
+    for (const device of from) {
+      fromDeviceById.set(device.title, device);
     }
 
-    for (let i = 0; i < to.length; ++i) {
-      const title = to[i].title;
-      if (deviceById.has(title)) {
-        to[i].copyShowFrom(/** @type {!EmulatedDevice} */ (deviceById.get(title)));
+    for (const toDevice of to) {
+      const fromDevice = fromDeviceById.get(toDevice.title);
+      if (fromDevice) {
+        toDevice.copyShowFrom(fromDevice);
       }
     }
   }
@@ -527,3 +527,9 @@ export const Events = {
   CustomDevicesUpdated: Symbol('CustomDevicesUpdated'),
   StandardDevicesUpdated: Symbol('StandardDevicesUpdated')
 };
+
+/** @typedef {!{title: string, orientation: string, insets: !UI.Geometry.Insets, image: ?string}} */
+export let Mode;
+
+/** @typedef {!{width: number, height: number, outlineInsets: ?UI.Geometry.Insets, outlineImage: ?string}} */
+export let Orientation;

@@ -413,7 +413,6 @@ bool tls1_check_group_id(const SSL_HANDSHAKE *hs, uint16_t group_id) {
 // algorithms for verifying.
 static const uint16_t kVerifySignatureAlgorithms[] = {
     // List our preferred algorithms first.
-    SSL_SIGN_ED25519,
     SSL_SIGN_ECDSA_SECP256R1_SHA256,
     SSL_SIGN_RSA_PSS_RSAE_SHA256,
     SSL_SIGN_RSA_PKCS1_SHA256,
@@ -455,39 +454,15 @@ static const uint16_t kSignSignatureAlgorithms[] = {
     SSL_SIGN_RSA_PKCS1_SHA1,
 };
 
-struct SSLSignatureAlgorithmList {
-  bool Next(uint16_t *out) {
-    while (!list.empty()) {
-      uint16_t sigalg = list[0];
-      list = list.subspan(1);
-      if (skip_ed25519 && sigalg == SSL_SIGN_ED25519) {
-        continue;
-      }
-      *out = sigalg;
-      return true;
-    }
-    return false;
+static Span<const uint16_t> tls12_get_verify_sigalgs(const SSL_HANDSHAKE *hs) {
+  if (hs->config->verify_sigalgs.empty()) {
+    return Span<const uint16_t>(kVerifySignatureAlgorithms);
   }
-
-  Span<const uint16_t> list;
-  bool skip_ed25519 = false;
-};
-
-static SSLSignatureAlgorithmList tls12_get_verify_sigalgs(const SSL *ssl) {
-  SSLSignatureAlgorithmList ret;
-  if (!ssl->config->verify_sigalgs.empty()) {
-    ret.list = ssl->config->verify_sigalgs;
-  } else {
-    ret.list = kVerifySignatureAlgorithms;
-    ret.skip_ed25519 = !ssl->ctx->ed25519_enabled;
-  }
-  return ret;
+  return hs->config->verify_sigalgs;
 }
 
-bool tls12_add_verify_sigalgs(const SSL *ssl, CBB *out) {
-  SSLSignatureAlgorithmList list = tls12_get_verify_sigalgs(ssl);
-  uint16_t sigalg;
-  while (list.Next(&sigalg)) {
+bool tls12_add_verify_sigalgs(const SSL_HANDSHAKE *hs, CBB *out) {
+  for (uint16_t sigalg : tls12_get_verify_sigalgs(hs)) {
     if (!CBB_add_u16(out, sigalg)) {
       return false;
     }
@@ -495,11 +470,9 @@ bool tls12_add_verify_sigalgs(const SSL *ssl, CBB *out) {
   return true;
 }
 
-bool tls12_check_peer_sigalg(const SSL *ssl, uint8_t *out_alert,
+bool tls12_check_peer_sigalg(const SSL_HANDSHAKE *hs, uint8_t *out_alert,
                              uint16_t sigalg) {
-  SSLSignatureAlgorithmList list = tls12_get_verify_sigalgs(ssl);
-  uint16_t verify_sigalg;
-  while (list.Next(&verify_sigalg)) {
+  for (uint16_t verify_sigalg : tls12_get_verify_sigalgs(hs)) {
     if (verify_sigalg == sigalg) {
       return true;
     }
@@ -936,7 +909,6 @@ static bool ext_ticket_add_serverhello(SSL_HANDSHAKE *hs, CBB *out) {
 // https://tools.ietf.org/html/rfc5246#section-7.4.1.4.1
 
 static bool ext_sigalgs_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
-  SSL *const ssl = hs->ssl;
   if (hs->max_version < TLS1_2_VERSION) {
     return true;
   }
@@ -945,7 +917,7 @@ static bool ext_sigalgs_add_clienthello(SSL_HANDSHAKE *hs, CBB *out) {
   if (!CBB_add_u16(out, TLSEXT_TYPE_signature_algorithms) ||
       !CBB_add_u16_length_prefixed(out, &contents) ||
       !CBB_add_u16_length_prefixed(&contents, &sigalgs_cbb) ||
-      !tls12_add_verify_sigalgs(ssl, &sigalgs_cbb) ||
+      !tls12_add_verify_sigalgs(hs, &sigalgs_cbb) ||
       !CBB_flush(out)) {
     return false;
   }
@@ -2611,14 +2583,10 @@ static bool ext_quic_transport_params_parse_clienthello(SSL_HANDSHAKE *hs,
                                                         uint8_t *out_alert,
                                                         CBS *contents) {
   SSL *const ssl = hs->ssl;
-  if (!contents || hs->config->quic_transport_params.empty()) {
+  if (!contents || !ssl->quic_method) {
     return true;
   }
-  // Ignore the extension before TLS 1.3.
-  if (ssl_protocol_version(ssl) < TLS1_3_VERSION) {
-    return true;
-  }
-
+  assert(ssl_protocol_version(ssl) == TLS1_3_VERSION);
   return ssl->s3->peer_quic_transport_params.CopyFrom(*contents);
 }
 
@@ -3869,8 +3837,4 @@ int SSL_early_callback_ctx_extension_get(const SSL_CLIENT_HELLO *client_hello,
   *out_data = CBS_data(&cbs);
   *out_len = CBS_len(&cbs);
   return 1;
-}
-
-void SSL_CTX_set_ed25519_enabled(SSL_CTX *ctx, int enabled) {
-  ctx->ed25519_enabled = !!enabled;
 }

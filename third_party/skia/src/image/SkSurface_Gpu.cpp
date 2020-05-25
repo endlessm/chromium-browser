@@ -6,11 +6,10 @@
  */
 
 #include "include/core/SkCanvas.h"
+#include "include/core/SkDeferredDisplayList.h"
 #include "include/core/SkSurfaceCharacterization.h"
 #include "include/gpu/GrBackendSurface.h"
-#include "include/gpu/GrTexture.h"
 #include "include/private/GrRecordingContext.h"
-#include "include/private/SkDeferredDisplayList.h"
 #include "src/core/SkImagePriv.h"
 #include "src/gpu/GrAHardwareBufferUtils.h"
 #include "src/gpu/GrCaps.h"
@@ -20,6 +19,7 @@
 #include "src/gpu/GrRenderTarget.h"
 #include "src/gpu/GrRenderTargetContextPriv.h"
 #include "src/gpu/GrRenderTargetProxyPriv.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/SkGpuDevice.h"
 #include "src/image/SkImage_Base.h"
 #include "src/image/SkImage_Gpu.h"
@@ -101,29 +101,29 @@ sk_sp<SkImage> SkSurface_Gpu::onNewImageSnapshot(const SkIRect* subset) {
 
     SkBudgeted budgeted = rtc->asSurfaceProxy()->isBudgeted();
 
-    sk_sp<GrTextureProxy> srcProxy = rtc->asTextureProxyRef();
-
+    GrSurfaceProxyView srcView;
     if (subset) {
-        srcProxy = GrSurfaceProxy::Copy(ctx, rtc->asSurfaceProxy(), rtc->colorInfo().colorType(),
-                                        rtc->mipMapped(), *subset, SkBackingFit::kExact, budgeted);
-    } else if (!srcProxy || rtc->priv().refsWrappedObjects()) {
+        srcView = GrSurfaceProxy::Copy(ctx, rtc->asSurfaceProxy(), rtc->origin(),
+                                       rtc->colorInfo().colorType(), rtc->mipMapped(), *subset,
+                                       SkBackingFit::kExact, budgeted);
+    } else if (!rtc->asTextureProxy() || rtc->priv().refsWrappedObjects()) {
         // If the original render target is a buffer originally created by the client, then we don't
-        // want to ever retarget the SkSurface at another buffer we create. Force a copy now to avoid
-        // copy-on-write.
-        SkASSERT(rtc->origin() == rtc->asSurfaceProxy()->origin());
-
-        srcProxy = GrSurfaceProxy::Copy(ctx, rtc->asSurfaceProxy(), rtc->colorInfo().colorType(),
-                                        rtc->mipMapped(), SkBackingFit::kExact, budgeted);
+        // want to ever retarget the SkSurface at another buffer we create. Force a copy now to
+        // avoid copy-on-write.
+        srcView = GrSurfaceProxy::Copy(ctx, rtc->asSurfaceProxy(), rtc->origin(),
+                                       rtc->colorInfo().colorType(), rtc->mipMapped(),
+                                       SkBackingFit::kExact, budgeted);
+    } else {
+        srcView = rtc->readSurfaceView();
     }
 
     const SkImageInfo info = fDevice->imageInfo();
     sk_sp<SkImage> image;
-    if (srcProxy) {
+    if (srcView.asTextureProxy()) {
         // The renderTargetContext coming out of SkGpuDevice should always be exact and the
         // above copy creates a kExact surfaceContext.
-        SkASSERT(srcProxy->priv().isExact());
-        GrSurfaceProxyView view(std::move(srcProxy), rtc->origin(), rtc->readSwizzle());
-        image = sk_make_sp<SkImage_Gpu>(sk_ref_sp(ctx), kNeedNewImageUniqueID, std::move(view),
+        SkASSERT(srcView.proxy()->priv().isExact());
+        image = sk_make_sp<SkImage_Gpu>(sk_ref_sp(ctx), kNeedNewImageUniqueID, std::move(srcView),
                                         info.colorType(), info.alphaType(), info.refColorSpace());
     }
     return image;
@@ -177,7 +177,7 @@ void SkSurface_Gpu::onCopyOnWrite(ContentChangeMode mode) {
     SkASSERT(imageProxy);
 
     if (rtc->asSurfaceProxy()->underlyingUniqueID() == imageProxy->underlyingUniqueID()) {
-        fDevice->replaceRenderTargetContext(SkSurface::kRetain_ContentChangeMode == mode);
+        fDevice->replaceRenderTargetContext(mode);
     } else if (kDiscard_ContentChangeMode == mode) {
         this->SkSurface_Gpu::onDiscard();
     }
@@ -302,7 +302,13 @@ bool SkSurface_Gpu::onIsCompatible(const SkSurfaceCharacterization& characteriza
     }
 
     if (characterization.usesGLFBO0() != rtc->asRenderTargetProxy()->rtPriv().glRTFBOIDIs0()) {
-        return false;
+        // FBO0-ness effects how MSAA and window rectangles work. If the characterization was
+        // tagged as FBO0 it would never have been allowed to use window rectangles. If MSAA
+        // was also never used then a DDL recorded with this characterization should be replayable
+        // on a non-FBO0 surface.
+        if (!characterization.usesGLFBO0() || characterization.sampleCount() > 1) {
+            return false;
+        }
     }
 
     SkColorType rtcColorType = GrColorTypeToSkColorType(rtc->colorInfo().colorType());
@@ -467,7 +473,7 @@ sk_sp<SkSurface> SkSurface::MakeRenderTarget(GrContext* ctx, SkBudgeted budgeted
     if (!ctx) {
         return nullptr;
     }
-    sampleCount = SkTMax(1, sampleCount);
+    sampleCount = std::max(1, sampleCount);
     GrMipMapped mipMapped = shouldCreateWithMips ? GrMipMapped::kYes : GrMipMapped::kNo;
 
     if (!ctx->priv().caps()->mipMapSupport()) {
@@ -507,7 +513,7 @@ sk_sp<SkSurface> SkSurface::MakeFromBackendTexture(GrContext* context, const GrB
     if (!context) {
         return nullptr;
     }
-    sampleCnt = SkTMax(1, sampleCnt);
+    sampleCnt = std::max(1, sampleCnt);
 
     GrColorType grColorType = SkColorTypeAndFormatToGrColorType(context->priv().caps(), colorType,
                                                                 tex.getBackendFormat());
@@ -534,7 +540,7 @@ sk_sp<SkSurface> SkSurface::MakeFromBackendTexture(GrContext* context, const GrB
 }
 
 bool SkSurface_Gpu::onReplaceBackendTexture(const GrBackendTexture& backendTexture,
-                                            GrSurfaceOrigin origin, TextureReleaseProc releaseProc,
+                                            GrSurfaceOrigin origin, ContentChangeMode mode, TextureReleaseProc releaseProc,
                                             ReleaseContext releaseContext) {
     auto context = this->fDevice->context();
     if (context->abandoned()) {
@@ -578,7 +584,7 @@ bool SkSurface_Gpu::onReplaceBackendTexture(const GrBackendTexture& backendTextu
     if (!rtc) {
         return false;
     }
-    fDevice->replaceRenderTargetContext(std::move(rtc), true);
+    fDevice->replaceRenderTargetContext(std::move(rtc), mode);
     return true;
 }
 
@@ -642,7 +648,7 @@ sk_sp<SkSurface> SkSurface::MakeFromBackendTextureAsRenderTarget(GrContext* cont
         return nullptr;
     }
 
-    sampleCnt = SkTMax(1, sampleCnt);
+    sampleCnt = std::max(1, sampleCnt);
     GrColorType grColorType = SkColorTypeAndFormatToGrColorType(context->priv().caps(), colorType,
                                                                 tex.getBackendFormat());
     if (grColorType == GrColorType::kUnknown) {

@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/cpu.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
@@ -34,6 +35,7 @@
 #include "media/gpu/vaapi/h264_vaapi_video_decoder_delegate.h"
 #include "media/gpu/vaapi/vaapi_common.h"
 #include "media/gpu/vaapi/vaapi_picture.h"
+#include "media/gpu/vaapi/vaapi_utils.h"
 #include "media/gpu/vaapi/vp8_vaapi_video_decoder_delegate.h"
 #include "media/gpu/vaapi/vp9_vaapi_video_decoder_delegate.h"
 #include "media/gpu/vp8_decoder.h"
@@ -114,24 +116,6 @@ class VaapiVideoDecodeAccelerator::InputBuffer {
   base::OnceCallback<void(int32_t id)> release_cb_;
 
   DISALLOW_COPY_AND_ASSIGN(InputBuffer);
-};
-
-class VaapiVideoDecodeAccelerator::ScopedVASurfaceID {
- public:
-  using ReleaseCB = base::OnceCallback<void(VASurfaceID)>;
-
-  ScopedVASurfaceID(VASurfaceID va_surface_id, ReleaseCB release_cb)
-      : va_surface_id_(va_surface_id), release_cb_(std::move(release_cb)) {}
-  ~ScopedVASurfaceID() { std::move(release_cb_).Run(va_surface_id_); }
-
-  ScopedVASurfaceID& operator=(const ScopedVASurfaceID&) = delete;
-  ScopedVASurfaceID(const ScopedVASurfaceID&) = delete;
-
-  VASurfaceID va_surface_id() const { return va_surface_id_; }
-
- private:
-  const VASurfaceID va_surface_id_;
-  ReleaseCB release_cb_;
 };
 
 void VaapiVideoDecodeAccelerator::NotifyError(Error error) {
@@ -1012,8 +996,8 @@ void VaapiVideoDecodeAccelerator::Cleanup() {
 
   // Call DismissPictureBuffer() to notify |client_| that the picture buffers
   // are no longer used and thus |client_| shall release them. If |client_| has
-  // been destroyed, DismissPictureBuffer() on all picture buffers are executed
-  // on the |client_| destruction.
+  // been invalidated in NotifyError(),|client_| will be destroyed shortly. The
+  // destruction should release all the PictureBuffers.
   if (client_) {
     for (const auto& id_and_picture : pictures_)
       client_->DismissPictureBuffer(id_and_picture.first);
@@ -1095,8 +1079,8 @@ scoped_refptr<VASurface> VaapiVideoDecodeAccelerator::CreateSurface() {
   DCHECK_NE(VA_INVALID_ID, va_surface_format_);
   DCHECK(!awaiting_va_surfaces_recycle_);
   if (buffer_allocation_mode_ != BufferAllocationMode::kNone) {
-    auto va_surface = std::move(available_va_surfaces_.front());
-    const VASurfaceID id = va_surface->va_surface_id();
+    auto va_surface_id = std::move(available_va_surfaces_.front());
+    const VASurfaceID id = va_surface_id->id();
     available_va_surfaces_.pop_front();
 
     TRACE_COUNTER_ID2("media,gpu", "Vaapi VASurfaceIDs", this, "used",
@@ -1108,7 +1092,7 @@ scoped_refptr<VASurface> VaapiVideoDecodeAccelerator::CreateSurface() {
 
     return new VASurface(
         id, requested_pic_size_, va_surface_format_,
-        base::BindOnce(va_surface_recycle_cb_, std::move(va_surface)));
+        base::BindOnce(va_surface_recycle_cb_, std::move(va_surface_id)));
   }
 
   // Find the first |available_va_surfaces_| id such that the associated
@@ -1116,7 +1100,7 @@ scoped_refptr<VASurface> VaapiVideoDecodeAccelerator::CreateSurface() {
   // we will quickly find an available |va_surface_id|.
   for (auto it = available_va_surfaces_.begin();
        it != available_va_surfaces_.end(); ++it) {
-    const VASurfaceID va_surface_id = (*it)->va_surface_id();
+    const VASurfaceID va_surface_id = (*it)->id();
     for (const auto& id_and_picture : pictures_) {
       if (id_and_picture.second->va_surface_id() == va_surface_id &&
           base::Contains(available_picture_buffers_, id_and_picture.first)) {

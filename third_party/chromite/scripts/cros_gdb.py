@@ -31,6 +31,10 @@ from chromite.lib import remote_access
 from chromite.lib import retry_util
 from chromite.lib import toolchain
 
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
+
 class GdbException(Exception):
   """Base exception for this module."""
 
@@ -223,7 +227,8 @@ To install the debug symbols for all available packages, run:
     # the debug info.
     if sysroot_inf_cmd:
       stripped_info = cros_build_lib.run(['file', sysroot_inf_cmd],
-                                         capture_output=True).output
+                                         capture_output=True,
+                                         encoding='utf-8').stdout
       if ' not stripped' not in stripped_info:
         debug_file = os.path.join(self.sysroot, 'usr/lib/debug',
                                   self.inf_cmd.lstrip('/'))
@@ -231,7 +236,8 @@ To install the debug symbols for all available packages, run:
         if not os.path.exists(debug_file):
           equery = 'equery-%s' % self.board
           package = cros_build_lib.run([equery, '-q', 'b', self.inf_cmd],
-                                       capture_output=True).output
+                                       capture_output=True,
+                                       encoding='utf-8').stdout
           # pylint: disable=logging-not-lazy
           logging.info(self._MISSING_DEBUG_INFO_MSG % {
               'board': self.board,
@@ -389,7 +395,7 @@ To install the debug symbols for all available packages, run:
         '-e', '/proc/%s/exe' % self.pid,
     ]
     try:
-      res = device.RunCommand(command, capture_output=True)
+      res = device.run(command, capture_output=True)
       if res.returncode == 0:
         self.inf_cmd = res.output.rstrip('\n')
     except cros_build_lib.RunCommandError:

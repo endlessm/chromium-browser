@@ -116,6 +116,17 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
   // Set the position of the cursor in the candidate window.
   bool SetCursorPosition(int context_id, int candidate_id, std::string* error);
 
+  // Dismiss suggestion window.
+  bool DismissSuggestion(int context_id, std::string* error);
+
+  // Set and show suggestion window.
+  bool SetSuggestion(int context_id,
+                     const base::string16& text,
+                     std::string* error);
+
+  // Commit the suggestion and hide the window.
+  bool AcceptSuggestion(int context_id, std::string* error);
+
   // Set the list of items that appears in the language menu when this IME is
   // active.
   bool SetMenuItems(
@@ -129,6 +140,10 @@ class InputMethodEngine : public ::input_method::InputMethodEngineBase {
 
   // Hides the input view window (from API call).
   void HideInputView();
+
+  // Determine if the key event should be processed by the key
+  // event handler.
+  bool IsValidKeyEvent(const ui::KeyEvent* ui_event) override;
 
  private:
   // input_method::InputMethodEngineBase:

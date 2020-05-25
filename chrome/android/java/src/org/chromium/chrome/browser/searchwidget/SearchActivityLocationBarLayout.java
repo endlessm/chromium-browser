@@ -16,10 +16,10 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.omnibox.LocationBarLayout;
-import org.chromium.chrome.browser.omnibox.LocationBarVoiceRecognitionHandler;
 import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.omnibox.UrlBarCoordinator.SelectionState;
 import org.chromium.chrome.browser.omnibox.UrlBarData;
+import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.toolbar.top.ToolbarPhone;
 
@@ -74,9 +74,9 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
     @Override
     public void onNativeLibraryReady() {
         super.onNativeLibraryReady();
-        setAutocompleteProfile(Profile.getLastUsedProfile().getOriginalProfile());
-
         mNativeLibraryReady = true;
+
+        setAutocompleteProfile(Profile.getLastUsedRegularProfile());
 
         mPendingSearchPromoDecision = LocaleManager.getInstance().needToCheckForSearchEnginePromo();
         getAutocompleteCoordinator().setShouldPreventOmniboxAutocomplete(
@@ -88,7 +88,7 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
         getAutocompleteCoordinator().prefetchZeroSuggestResults();
 
         SearchWidgetProvider.updateCachedVoiceSearchAvailability(
-                getLocationBarVoiceRecognitionHandler().isVoiceSearchEnabled());
+                getVoiceRecognitionHandler().isVoiceSearchEnabled());
         if (isVoiceSearchIntent && mUrlBar.isFocused()) onUrlFocusChange(true);
 
         assert !LocaleManager.getInstance().needToCheckForSearchEnginePromo();
@@ -133,9 +133,9 @@ public class SearchActivityLocationBarLayout extends LocationBarLayout {
         assert !mPendingSearchPromoDecision;
         assert !isVoiceSearchIntent || mNativeLibraryReady;
 
-        if (getLocationBarVoiceRecognitionHandler().isVoiceSearchEnabled() && isVoiceSearchIntent) {
-            getLocationBarVoiceRecognitionHandler().startVoiceRecognition(
-                    LocationBarVoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
+        if (getVoiceRecognitionHandler().isVoiceSearchEnabled() && isVoiceSearchIntent) {
+            getVoiceRecognitionHandler().startVoiceRecognition(
+                    VoiceRecognitionHandler.VoiceInteractionSource.SEARCH_WIDGET);
         } else {
             focusTextBox();
         }

@@ -77,6 +77,7 @@ public:
         kDefaultGeoProc_ClassID,
         kDIEllipseGeometryProcessor_ClassID,
         kDisableColorXP_ClassID,
+        kDrawAtlasPathShader_ClassID,
         kEllipseGeometryProcessor_ClassID,
         kEllipticalRRectEffect_ClassID,
         kGP_ClassID,
@@ -95,12 +96,11 @@ public:
         kGrColorMatrixFragmentProcessor_ClassID,
         kGrColorSpaceXformEffect_ClassID,
         kGrComposeLerpEffect_ClassID,
-        kGrComposeLerpRedEffect_ClassID,
         kGrConfigConversionEffect_ClassID,
         kGrConicEffect_ClassID,
         kGrConstColorProcessor_ClassID,
         kGrConvexPolyEffect_ClassID,
-        kGrDeviceSpaceTextureDecalFragmentProcessor_ClassID,
+        kGrDeviceSpaceEffect_ClassID,
         kGrDiffuseLightingEffect_ClassID,
         kGrDisplacementMapEffect_ClassID,
         kGrDistanceFieldA8TextGeoProc_ClassID,
@@ -134,7 +134,6 @@ public:
         kGrSingleIntervalGradientColorizer_ClassID,
         kGrSkSLFP_ClassID,
         kGrSpecularLightingEffect_ClassID,
-        kGrSRGBEffect_ClassID,
         kGrSampleMaskProcessor_ClassID,
         kGrSweepGradientLayout_ClassID,
         kGrTextureEffect_ClassID,
@@ -171,12 +170,13 @@ public:
         kMappedNormalsFP_ClassID,
         kLightingFP_ClassID,
         kLinearStrokeProcessor_ClassID,
+        kVerticesGP_ClassID,
     };
 
     virtual ~GrProcessor() = default;
 
     /** Human-meaningful string to identify this prcoessor; may be embedded in generated shader
-        code. */
+        code and must be a legal identifier. */
     virtual const char* name() const = 0;
 
     /** Human-readable dump of all information */

@@ -97,6 +97,7 @@
 <translation id="2149973817440762519">Edytuj zakładkę</translation>
 <translation id="2179182049312275900">W każdej chwili możesz włączyć synchronizację w ustawieniach.</translation>
 <translation id="2198757192731523470">Google może korzystać z Twojej historii, by personalizować wyniki wyszukiwania, reklamy i działanie innych usług.</translation>
+<translation id="2218443599109088993">Pomniejsz</translation>
 <translation id="2230173723195178503">Wczytano stronę internetową</translation>
 <translation id="2239626343334228536">Czyszczę dane przeglądania…</translation>
 <translation id="2257567812274161158">Synchronizacja nie działa.</translation>
@@ -159,6 +160,7 @@
 <translation id="2923448633003185837">Wklej i otwórz</translation>
 <translation id="292639812446257861">Oznacz jako nieprzeczytane</translation>
 <translation id="2958718410589002129">Hasła</translation>
+<translation id="2964349545761222050">Blokowanie plików cookie innych firm</translation>
 <translation id="2969979262385602596">Nie udało się zalogować. Spróbuj ponownie później.</translation>
 <translation id="298306318844797842">Dodaj formę płatności…</translation>
 <translation id="2989805286512600854">Otwórz w nowej karcie</translation>
@@ -166,6 +168,7 @@
 <translation id="3112556859945124369">Oznacz…</translation>
 <translation id="3153862085237805241">Zapisz kartę</translation>
 <translation id="3157684681743766797">Oznacz wszystko…</translation>
+<translation id="3161291298470460782">Spowoduje to wylogowanie Cię, wyłączenie synchronizacji i usunięcie wszystkich danych Chrome z tego urządzenia. Zsynchronizowane dane pozostaną na Twoim koncie Google.</translation>
 <translation id="3175081911749765310">Usługi internetowe</translation>
 <translation id="3178650076442119961">Aktywność dzisiaj</translation>
 <translation id="3207960819495026254">Dodano do zakładek</translation>
@@ -178,6 +181,7 @@
 <translation id="3290875554372353449">Wybierz konto</translation>
 <translation id="3311748811247479259">Wyłączono</translation>
 <translation id="3324193307694657476">Adres 2</translation>
+<translation id="3328801116991980348">Informacje o witrynie</translation>
 <translation id="3329904751041170572">Nie można połączyć się z serwerem.</translation>
 <translation id="3335947283844343239">Otwórz ponownie zamkniętą kartę</translation>
 <translation id="3371831930909698441">Dostępne jest tłumaczenie. Opcje znajdują się u dołu ekranu.</translation>
@@ -197,6 +201,7 @@
 <translation id="3494788280727468875">Potwierdź czyszczenie danych przeglądania</translation>
 <translation id="35083190962747987">Otwórz ${url}</translation>
 <translation id="3519193562722059437">Otwórz kartę, by przeglądać strony.</translation>
+<translation id="3523473570015918798">Po wylogowaniu Twoje zakładki, historia, hasła i inne dane Chrome nie będą już synchronizowane z Twoim kontem Google.</translation>
 <translation id="3527085408025491307">Folder</translation>
 <translation id="3529024052484145543">Niezabezpieczona</translation>
 <translation id="3533202363250687977">Zamknij karty incognito</translation>
@@ -300,6 +305,7 @@ Aby zmienić to ustawienie, <ph name="BEGIN_LINK" />zresetuj synchronizację<ph 
 <translation id="4979397965658815378">Zaloguj się na konto Google, by korzystać z zakładek, haseł, historii i innych ustawień na wszystkich urządzeniach</translation>
 <translation id="5005498671520578047">Skopiuj hasło</translation>
 <translation id="5010803260590204777">Otwórz kartę incognito, by przeglądać strony prywatnie.</translation>
+<translation id="5039020240289137291">Blokowanie plików cookie innych firm</translation>
 <translation id="5039804452771397117">Zezwalaj</translation>
 <translation id="5059136629401106827">OK</translation>
 <translation id="5062321486222145940">Zainstaluj Dysk Google</translation>
@@ -329,6 +335,7 @@ Aby zmienić to ustawienie, <ph name="BEGIN_LINK" />zresetuj synchronizację<ph 
 <translation id="54401264925851789">Informacje o bezpieczeństwie strony</translation>
 <translation id="5443952882982198570">Karty kredytowe</translation>
 <translation id="5457907402803865181">Błąd synchronizowania haseł.</translation>
+<translation id="5508435575041083207">Wyloguj i usuń dane z tego urządzenia</translation>
 <translation id="5525269841082836315">Utwórz hasło</translation>
 <translation id="5548760955356983418">Dzięki funkcji Handoff możesz rozpocząć przeglądanie strony na tym urządzeniu, a następnie płynnie kontynuować na Macu. Aktualnie otwarta strona internetowa wyświetli się w Docku na Macu.
 
@@ -414,9 +421,11 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="6434591244308415567">Wystąpił błąd. Spróbuj ponownie później.</translation>
 <translation id="6445051938772793705">Kraj</translation>
 <translation id="6445981559479772097">Wiadomość została wysłana.</translation>
+<translation id="6447842834002726250">Pliki cookie</translation>
 <translation id="6464071786529933911">Otwórz w karcie incognito</translation>
 <translation id="6476800141292307438">Tłumaczę stronę na <ph name="LANGUAGE" />. Opcje znajdują się na dole ekranu.</translation>
 <translation id="6482629121755362506">Usunięte elementy: <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
+<translation id="6561262006871132942">Powiększ</translation>
 <translation id="6610002944194042868">Opcje tłumaczenia</translation>
 <translation id="6628106477656132239">Nieprawidłowa data ważności</translation>
 <translation id="6638511529934826365">Powiększ tekst…</translation>
@@ -479,7 +488,6 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="734758817008927353">Opcje zapisania karty</translation>
 <translation id="7348502496356775519">Dodaj do zakładek</translation>
 <translation id="7383797227493018512">Do przeczytania</translation>
-<translation id="7392048574806661116">Wyloguj się i wyczyść synchronizowane dane</translation>
 <translation id="7400418766976504921">Adres URL</translation>
 <translation id="7409985198648820906">Nieprzeczytane artykuły: <ph name="UNREAD_COUNT" />.</translation>
 <translation id="7425346204213733349">Zmiany w zakładkach, historii, hasłach i innych ustawieniach nie będą już synchronizowane z kontem Google. Twoje obecne dane będą jednak nadal na nim przechowywane.</translation>
@@ -501,6 +509,9 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="766891008101699113">Aby przeglądać strony internetowe prywatnie, dodaj nową kartę.</translation>
 <translation id="7671141431838911305">ZAINSTALUJ</translation>
 <translation id="7765158879357617694">Przenieś</translation>
+<translation id="7771470029643830783">Po wylogowaniu Twoje zakładki, historia, hasła i inne dane Chrome nie będą już synchronizowane z Twoim kontem Google.
+
+Ponieważ Twoim kontem zarządza <ph name="HOSTED_DOMAIN" />, Twoje dane Chrome zostaną usunięte z tego urządzenia, gdy się wylogujesz. Zsynchronizowane dane pozostaną na Twoim koncie Google.</translation>
 <translation id="7772032839648071052">Potwierdź hasło</translation>
 <translation id="7781011649027948662">Przetłumaczyć stronę?</translation>
 <translation id="7781829728241885113">Wczoraj</translation>
@@ -550,6 +561,7 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="8490978609246021741">Zapisz zmiany</translation>
 <translation id="8503813439785031346">Nazwa użytkownika</translation>
 <translation id="850600235656508448">Otwórz w trybie incognito</translation>
+<translation id="8510057420705599706">Spowoduje to wylogowanie Cię i wyłączenie synchronizacji, ale Twoje zakładki, historia, hasła i inne dane Chrome pozostaną na tym urządzeniu.</translation>
 <translation id="8517375800490286174">Licencje typu open source</translation>
 <translation id="8524799873541103884">Karty <ph name="INCOGNITO" /> od <ph name="FIRST_VISIBLE_TAB" /> do <ph name="LAST_VISIBLE_TAB" /> z <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8529767659511976195">Nowość</translation>
@@ -592,12 +604,14 @@ Twoje dane zostały zaszyfrowane z użyciem hasła synchronizacji w dniu <ph n
 <translation id="9094033019050270033">Aktualizuj hasło</translation>
 <translation id="9100610230175265781">Wymagane jest hasło</translation>
 <translation id="9148126808321036104">Zaloguj się ponownie</translation>
+<translation id="9152539721251340337">Utwórz kod QR</translation>
 <translation id="9157836665414082580">Ukryj okna dialogowe</translation>
 <translation id="9188680907066685419">Wyloguj się z konta zarządzanego</translation>
 <translation id="9203116392574189331">Handoff</translation>
 <translation id="9223358826628549784">Raport o awarii został wysłany.</translation>
 <translation id="952704832371081537">Anuluj</translation>
 <translation id="988141524645182168">Inne urządzenia</translation>
+<translation id="989697783705943787">Bezpieczeństwo witryny</translation>
 <translation id="989988560359834682">Edytuj adres</translation>
 <translation id="994757059139821576">Proponowanie artykułów</translation>
 </translationbundle>

@@ -28,14 +28,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as Host from '../host/host.js';
+import * as Platform from '../platform/platform.js';
+import * as TextUtils from '../text_utils/text_utils.js';
+import * as UI from '../ui/ui.js';
+
 import {changeObjectToEditOperation, toPos, toRange} from './CodeMirrorUtils.js';
 import {TextEditorAutocompleteController} from './TextEditorAutocompleteController.js';
 
 /**
- * @implements {UI.TextEditor}
+ * @implements {UI.TextEditor.TextEditor}
  * @unrestricted
  */
-export class CodeMirrorTextEditor extends UI.VBox {
+export class CodeMirrorTextEditor extends UI.Widget.VBox {
   /**
    * @param {!UI.TextEditor.Options} options
    */
@@ -46,8 +52,8 @@ export class CodeMirrorTextEditor extends UI.VBox {
     this.registerRequiredCSS('cm/codemirror.css');
     this.registerRequiredCSS('text_editor/cmdevtools.css');
 
-    const {indentWithTabs, indentUnit} =
-        CodeMirrorTextEditor._getIndentation(self.Common.settings.moduleSetting('textEditorIndent').get());
+    const {indentWithTabs, indentUnit} = CodeMirrorTextEditor._getIndentation(
+        Common.Settings.Settings.instance().moduleSetting('textEditorIndent').get());
 
     this._codeMirror = new CodeMirror(this.element, {
       devtoolsAccessibleName: options.devtoolsAccessibleName,
@@ -69,7 +75,9 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
     this._codeMirror._codeMirrorTextEditor = this;
 
-    self.Common.settings.moduleSetting('textEditorIndent').addChangeListener(this._updateIndentSize.bind(this));
+    Common.Settings.Settings.instance()
+        .moduleSetting('textEditorIndent')
+        .addChangeListener(this._updateIndentSize.bind(this));
 
     CodeMirror.keyMap['devtools-common'] = {
       'Left': 'goCharLeft',
@@ -153,7 +161,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
     }
     this._enableBracketMatchingIfNeeded();
 
-    this._codeMirror.setOption('keyMap', Host.isMac() ? 'devtools-mac' : 'devtools-pc');
+    this._codeMirror.setOption('keyMap', Host.Platform.isMac() ? 'devtools-mac' : 'devtools-pc');
 
     this._codeMirror.setOption('flattenSpans', false);
 
@@ -182,7 +190,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
     this._codeMirrorElement.classList.add('source-code');
     this._codeMirrorElement.classList.add('fill');
 
-    /** @type {!Platform.Multimap<number, !TextEditor.CodeMirrorTextEditor.Decoration>} */
+    /** @type {!Platform.Multimap<number, !Decoration>} */
     this._decorations = new Platform.Multimap();
 
     this.element.addEventListener('keydown', this._handleKeyDown.bind(this), true);
@@ -381,7 +389,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
       codeMirror.setExtending(false);
     }
 
-    const modifierKey = Host.isMac() ? 'Alt' : 'Ctrl';
+    const modifierKey = Host.Platform.isMac() ? 'Alt' : 'Ctrl';
     const leftKey = modifierKey + '-Left';
     const rightKey = modifierKey + '-Right';
     const keyMap = {};
@@ -402,7 +410,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
   /**
    * @override
-   * @return {!UI.Widget}
+   * @return {!UI.Widget.Widget}
    */
   widget() {
     return this;
@@ -437,7 +445,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
       ++lineNumber;
       columnNumber = 0;
     } else {
-      columnNumber = Number.constrain(charNumber, 0, lineLength);
+      columnNumber = Platform.NumberUtilities.clamp(charNumber, 0, lineLength);
     }
     return {lineNumber: lineNumber, columnNumber: columnNumber};
   }
@@ -467,8 +475,10 @@ export class CodeMirrorTextEditor extends UI.VBox {
       const position = charNumber;
       const nextPosition = charNumber + 1;
       return valid(position, text.length) && valid(nextPosition, text.length) &&
-          TextUtils.TextUtils.isWordChar(text[position]) && TextUtils.TextUtils.isWordChar(text[nextPosition]) &&
-          TextUtils.TextUtils.isUpperCase(text[position]) && TextUtils.TextUtils.isLowerCase(text[nextPosition]);
+          TextUtils.TextUtils.Utils.isWordChar(text[position]) &&
+          TextUtils.TextUtils.Utils.isWordChar(text[nextPosition]) &&
+          TextUtils.TextUtils.Utils.isUpperCase(text[position]) &&
+          TextUtils.TextUtils.Utils.isLowerCase(text[nextPosition]);
     }
 
     /**
@@ -480,8 +490,10 @@ export class CodeMirrorTextEditor extends UI.VBox {
       const position = charNumber;
       const prevPosition = charNumber - 1;
       return valid(position, text.length) && valid(prevPosition, text.length) &&
-          TextUtils.TextUtils.isWordChar(text[position]) && TextUtils.TextUtils.isWordChar(text[prevPosition]) &&
-          TextUtils.TextUtils.isUpperCase(text[position]) && TextUtils.TextUtils.isLowerCase(text[prevPosition]);
+          TextUtils.TextUtils.Utils.isWordChar(text[position]) &&
+          TextUtils.TextUtils.Utils.isWordChar(text[prevPosition]) &&
+          TextUtils.TextUtils.Utils.isUpperCase(text[position]) &&
+          TextUtils.TextUtils.Utils.isLowerCase(text[prevPosition]);
     }
 
     /**
@@ -491,7 +503,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
      * @return {{lineNumber: number, columnNumber: number}}
      */
     function constrainPosition(lineNumber, lineLength, columnNumber) {
-      return {lineNumber: lineNumber, columnNumber: Number.constrain(columnNumber, 0, lineLength)};
+      return {lineNumber: lineNumber, columnNumber: Platform.NumberUtilities.clamp(columnNumber, 0, lineLength)};
     }
 
     const text = this.line(lineNumber);
@@ -504,15 +516,15 @@ export class CodeMirrorTextEditor extends UI.VBox {
     let charNumber = direction === 1 ? columnNumber : columnNumber - 1;
 
     // Move through initial spaces if any.
-    while (valid(charNumber, length) && TextUtils.TextUtils.isSpaceChar(text[charNumber])) {
+    while (valid(charNumber, length) && TextUtils.TextUtils.Utils.isSpaceChar(text[charNumber])) {
       charNumber += direction;
     }
     if (!valid(charNumber, length)) {
       return constrainPosition(lineNumber, length, charNumber);
     }
 
-    if (TextUtils.TextUtils.isStopChar(text[charNumber])) {
-      while (valid(charNumber, length) && TextUtils.TextUtils.isStopChar(text[charNumber])) {
+    if (TextUtils.TextUtils.Utils.isStopChar(text[charNumber])) {
+      while (valid(charNumber, length) && TextUtils.TextUtils.Utils.isStopChar(text[charNumber])) {
         charNumber += direction;
       }
       if (!valid(charNumber, length)) {
@@ -523,7 +535,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
     charNumber += direction;
     while (valid(charNumber, length) && !isWordStart(text, charNumber) && !isWordEnd(text, charNumber) &&
-           TextUtils.TextUtils.isWordChar(text[charNumber])) {
+           TextUtils.TextUtils.Utils.isWordChar(text[charNumber])) {
       charNumber += direction;
     }
 
@@ -609,7 +621,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
    * @param {!Event} e
    */
   _handleKeyDown(e) {
-    if (e.key === 'Tab' && self.Common.settings.moduleSetting('textEditorTabMovesFocus').get()) {
+    if (e.key === 'Tab' && Common.Settings.Settings.instance().moduleSetting('textEditorTabMovesFocus').get()) {
       e.consume(false);
       return;
     }
@@ -629,7 +641,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
   /**
    * @override
-   * @param {?UI.AutocompleteConfig} config
+   * @param {?UI.TextEditor.AutocompleteConfig} config
    */
   configureAutocomplete(config) {
     if (this._autocompleteController) {
@@ -659,7 +671,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
   /**
    * @param {number} x
    * @param {number} y
-   * @return {?TextUtils.TextRange}
+   * @return {?TextUtils.TextRange.TextRange}
    */
   coordinatesToCursorPosition(x, y) {
     const element = this.element.ownerDocument.elementFromPoint(x, y);
@@ -854,7 +866,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
   }
 
   /**
-   * @param {!TextUtils.TextRange} range
+   * @param {!TextUtils.TextRange.TextRange} range
    * @param {symbol=} type
    * @return {!Array.<!TextEditorBookMark>}
    */
@@ -963,7 +975,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
     this._decorations.get(lineNumber).forEach(innerUpdateDecorations);
 
     /**
-     * @param {!TextEditor.CodeMirrorTextEditor.Decoration} decoration
+     * @param {!Decoration} decoration
      */
     function innerUpdateDecorations(decoration) {
       if (decoration.update) {
@@ -981,7 +993,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
     /**
      * @this {CodeMirrorTextEditor}
-     * @param {!TextEditor.CodeMirrorTextEditor.Decoration} decoration
+     * @param {!Decoration} decoration
      */
     function innerRemoveDecoration(decoration) {
       if (decoration.element !== element) {
@@ -998,11 +1010,11 @@ export class CodeMirrorTextEditor extends UI.VBox {
    * @param {boolean=} shouldHighlight
    */
   revealPosition(lineNumber, columnNumber, shouldHighlight) {
-    lineNumber = Number.constrain(lineNumber, 0, this._codeMirror.lineCount() - 1);
+    lineNumber = Platform.NumberUtilities.clamp(lineNumber, 0, this._codeMirror.lineCount() - 1);
     if (typeof columnNumber !== 'number') {
       columnNumber = 0;
     }
-    columnNumber = Number.constrain(columnNumber, 0, this._codeMirror.getLine(lineNumber).length);
+    columnNumber = Platform.NumberUtilities.clamp(columnNumber, 0, this._codeMirror.getLine(lineNumber).length);
 
     this.clearPositionHighlight();
     this._highlightedLine = this._codeMirror.getLineHandle(lineNumber);
@@ -1017,7 +1029,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
         this._clearHighlightTimeout = setTimeout(this.clearPositionHighlight.bind(this), 2000);
       }
     }
-    this.setSelection(TextUtils.TextRange.createFromLocation(lineNumber, columnNumber));
+    this.setSelection(TextUtils.TextRange.TextRange.createFromLocation(lineNumber, columnNumber));
   }
 
   clearPositionHighlight() {
@@ -1113,10 +1125,10 @@ export class CodeMirrorTextEditor extends UI.VBox {
   }
 
   /**
-   * @param {!TextUtils.TextRange} range
+   * @param {!TextUtils.TextRange.TextRange} range
    * @param {string} text
    * @param {string=} origin
-   * @return {!TextUtils.TextRange}
+   * @return {!TextUtils.TextRange.TextRange}
    */
   editRange(range, text, origin) {
     const pos = toPos(range);
@@ -1140,7 +1152,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
    * @param {number} lineNumber
    * @param {number} column
    * @param {function(string):boolean} isWordChar
-   * @return {!TextUtils.TextRange}
+   * @return {!TextUtils.TextRange.TextRange}
    */
   wordRangeForCursorPosition(lineNumber, column, isWordChar) {
     const line = this.line(lineNumber);
@@ -1155,7 +1167,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
     while (wordEnd < line.length && isWordChar(line.charAt(wordEnd))) {
       ++wordEnd;
     }
-    return new TextUtils.TextRange(lineNumber, wordStart, lineNumber, wordEnd);
+    return new TextUtils.TextRange.TextRange(lineNumber, wordStart, lineNumber, wordEnd);
   }
 
   /**
@@ -1247,7 +1259,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
   /**
    * @override
-   * @return {!TextUtils.TextRange}
+   * @return {!TextUtils.TextRange.TextRange}
    */
   selection() {
     const start = this._codeMirror.getCursor('anchor');
@@ -1257,7 +1269,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
   }
 
   /**
-   * @return {!Array.<!TextUtils.TextRange>}
+   * @return {!Array.<!TextUtils.TextRange.TextRange>}
    */
   selections() {
     const selectionList = this._codeMirror.listSelections();
@@ -1270,7 +1282,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
   }
 
   /**
-   * @return {?TextUtils.TextRange}
+   * @return {?TextUtils.TextRange.TextRange}
    */
   lastSelection() {
     return this._lastSelection;
@@ -1278,7 +1290,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
   /**
    * @override
-   * @param {!TextUtils.TextRange} textRange
+   * @param {!TextUtils.TextRange.TextRange} textRange
    * @param {boolean=} dontScroll
    */
   setSelection(textRange, dontScroll) {
@@ -1292,7 +1304,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
   }
 
   /**
-   * @param {!Array.<!TextUtils.TextRange>} ranges
+   * @param {!Array.<!TextUtils.TextRange.TextRange>} ranges
    * @param {number=} primarySelectionIndex
    */
   setSelections(ranges, primarySelectionIndex) {
@@ -1341,7 +1353,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
   /**
    * @override
-   * @param {!TextUtils.TextRange=} textRange
+   * @param {!TextUtils.TextRange.TextRange=} textRange
    * @return {string}
    */
   text(textRange) {
@@ -1365,7 +1377,7 @@ export class CodeMirrorTextEditor extends UI.VBox {
 
   /**
    * @override
-   * @return {!TextUtils.TextRange}
+   * @return {!TextUtils.TextRange.TextRange}
    */
   fullRange() {
     const lineCount = this.linesCount;
@@ -1456,7 +1468,7 @@ CodeMirror.commands.UserIndent = function(codeMirror) {
     return;
   }
 
-  const indentation = self.Common.settings.moduleSetting('textEditorIndent').get();
+  const indentation = Common.Settings.Settings.instance().moduleSetting('textEditorIndent').get();
   codeMirror.replaceSelection(indentation);
 };
 
@@ -1548,7 +1560,7 @@ CodeMirror.commands.dismiss = function(codemirror) {
  * @return {!Object|undefined}
  */
 CodeMirror.commands.goSmartPageUp = function(codemirror) {
-  if (codemirror._codeMirrorTextEditor.selection().equal(TextUtils.TextRange.createFromLocation(0, 0))) {
+  if (codemirror._codeMirrorTextEditor.selection().equal(TextUtils.TextRange.TextRange.createFromLocation(0, 0))) {
     return CodeMirror.Pass;
   }
   codemirror.execCommand('goPageUp');
@@ -1625,8 +1637,8 @@ export class SelectNextOccurrenceController {
   }
 
   /**
-   * @param {!Array.<!TextUtils.TextRange>} selections
-   * @param {!TextUtils.TextRange} range
+   * @param {!Array.<!TextUtils.TextRange.TextRange>} selections
+   * @param {!TextUtils.TextRange.TextRange} range
    * @return {boolean}
    */
   _findRange(selections, range) {
@@ -1678,19 +1690,19 @@ export class SelectNextOccurrenceController {
   }
 
   /**
-   * @param {!Array.<!TextUtils.TextRange>} selections
+   * @param {!Array.<!TextUtils.TextRange.TextRange>} selections
    */
   _expandSelectionsToWords(selections) {
     const newSelections = [];
     for (let i = 0; i < selections.length; ++i) {
       const selection = selections[i];
       const startRangeWord = this._textEditor.wordRangeForCursorPosition(
-                                 selection.startLine, selection.startColumn, TextUtils.TextUtils.isWordChar) ||
-          TextUtils.TextRange.createFromLocation(selection.startLine, selection.startColumn);
+                                 selection.startLine, selection.startColumn, TextUtils.TextUtils.Utils.isWordChar) ||
+          TextUtils.TextRange.TextRange.createFromLocation(selection.startLine, selection.startColumn);
       const endRangeWord = this._textEditor.wordRangeForCursorPosition(
-                               selection.endLine, selection.endColumn, TextUtils.TextUtils.isWordChar) ||
-          TextUtils.TextRange.createFromLocation(selection.endLine, selection.endColumn);
-      const newSelection = new TextUtils.TextRange(
+                               selection.endLine, selection.endColumn, TextUtils.TextUtils.Utils.isWordChar) ||
+          TextUtils.TextRange.TextRange.createFromLocation(selection.endLine, selection.endColumn);
+      const newSelection = new TextUtils.TextRange.TextRange(
           startRangeWord.startLine, startRangeWord.startColumn, endRangeWord.endLine, endRangeWord.endColumn);
       newSelections.push(newSelection);
     }
@@ -1699,9 +1711,9 @@ export class SelectNextOccurrenceController {
   }
 
   /**
-   * @param {!TextUtils.TextRange} range
+   * @param {!TextUtils.TextRange.TextRange} range
    * @param {boolean} fullWord
-   * @return {?TextUtils.TextRange}
+   * @return {?TextUtils.TextRange.TextRange}
    */
   _findNextOccurrence(range, fullWord) {
     range = range.normalize();
@@ -1746,7 +1758,7 @@ export class SelectNextOccurrenceController {
     if (typeof matchedLineNumber !== 'number') {
       return null;
     }
-    return new TextUtils.TextRange(
+    return new TextUtils.TextRange.TextRange(
         matchedLineNumber, matchedColumnNumber, matchedLineNumber, matchedColumnNumber + textToFind.length);
   }
 }
@@ -1825,18 +1837,18 @@ export class TextEditorBookMark {
   }
 
   /**
-   * @return {?TextUtils.TextRange}
+   * @return {?TextUtils.TextRange.TextRange}
    */
   position() {
     const pos = this._marker.find();
-    return pos ? TextUtils.TextRange.createFromLocation(pos.line, pos.ch) : null;
+    return pos ? TextUtils.TextRange.TextRange.createFromLocation(pos.line, pos.ch) : null;
   }
 }
 
 TextEditorBookMark._symbol = Symbol('TextEditorBookMark');
 
 /**
- * @implements {UI.TextEditorFactory}
+ * @implements {UI.TextEditor.TextEditorFactory}
  * @unrestricted
  */
 export class CodeMirrorTextEditorFactory {
@@ -1955,3 +1967,12 @@ CodeMirror.inputStyles.devToolsAccessibleTextArea = class extends CodeMirror.inp
     return result;
   }
 };
+
+/**
+ * @typedef {{
+ *  element: !Element,
+ *  widget: !CodeMirror.LineWidget,
+ *  update: ?function()
+ * }}
+ */
+export let Decoration;

@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 import * as Common from '../common/common.js';
+import * as ARIAUtils from './ARIAUtils.js';
+
 import {ContextMenu} from './ContextMenu.js';  // eslint-disable-line no-unused-vars
 import {Icon} from './Icon.js';
 import {Events as TabbedPaneEvents, TabbedPane} from './TabbedPane.js';
@@ -11,9 +13,17 @@ import {ProvidedView, TabbedViewLocation, View, ViewLocation, ViewLocationResolv
 import {VBox, Widget} from './Widget.js';  // eslint-disable-line no-unused-vars
 
 /**
+ * @type {!ViewManager}
+ */
+let viewManagerInstance;
+
+/**
  * @unrestricted
  */
 export class ViewManager {
+  /**
+   * @private
+   */
   constructor() {
     /** @type {!Map<string, !View>} */
     this._views = new Map();
@@ -25,6 +35,18 @@ export class ViewManager {
       this._views.set(descriptor['id'], new ProvidedView(extension));
       this._locationNameByViewId.set(descriptor['id'], descriptor['location']);
     }
+  }
+
+  /**
+   * @param {{forceNew: ?boolean}} opts
+   */
+  static instance(opts = {forceNew: null}) {
+    const {forceNew} = opts;
+    if (!viewManagerInstance || forceNew) {
+      viewManagerInstance = new ViewManager();
+    }
+
+    return viewManagerInstance;
   }
 
   /**
@@ -178,8 +200,8 @@ export class ContainerWidget extends VBox {
     this.element.classList.add('flex-auto', 'view-container', 'overflow-auto');
     this._view = view;
     this.element.tabIndex = -1;
-    UI.ARIAUtils.markAsTabpanel(this.element);
-    UI.ARIAUtils.setAccessibleName(this.element, ls`${view.title()} panel`);
+    ARIAUtils.markAsTabpanel(this.element);
+    ARIAUtils.setAccessibleName(this.element, ls`${view.title()} panel`);
     this.setDefaultFocusedElement(this.element);
   }
 
@@ -240,19 +262,19 @@ export class _ExpandableContainerWidget extends VBox {
     this.registerRequiredCSS('ui/viewContainers.css');
 
     this._titleElement = createElementWithClass('div', 'expandable-view-title');
-    UI.ARIAUtils.markAsButton(this._titleElement);
+    ARIAUtils.markAsButton(this._titleElement);
     this._titleExpandIcon = Icon.create('smallicon-triangle-right', 'title-expand-icon');
     this._titleElement.appendChild(this._titleExpandIcon);
     const titleText = view.title();
     this._titleElement.createTextChild(titleText);
-    UI.ARIAUtils.setAccessibleName(this._titleElement, titleText);
-    UI.ARIAUtils.setExpanded(this._titleElement, false);
+    ARIAUtils.setAccessibleName(this._titleElement, titleText);
+    ARIAUtils.setExpanded(this._titleElement, false);
     this._titleElement.tabIndex = 0;
     self.onInvokeElement(this._titleElement, this._toggleExpanded.bind(this));
     this._titleElement.addEventListener('keydown', this._onTitleKeyDown.bind(this), false);
     this.contentElement.insertBefore(this._titleElement, this.contentElement.firstChild);
 
-    UI.ARIAUtils.setControls(this._titleElement, this.contentElement.createChild('slot'));
+    ARIAUtils.setControls(this._titleElement, this.contentElement.createChild('slot'));
     this._view = view;
     view[_ExpandableContainerWidget._symbol] = this;
   }
@@ -298,7 +320,7 @@ export class _ExpandableContainerWidget extends VBox {
       return this._materialize();
     }
     this._titleElement.classList.add('expanded');
-    UI.ARIAUtils.setExpanded(this._titleElement, true);
+    ARIAUtils.setExpanded(this._titleElement, true);
     this._titleExpandIcon.setIconType('smallicon-triangle-down');
     return this._materialize().then(() => this._widget.show(this.element));
   }
@@ -308,7 +330,7 @@ export class _ExpandableContainerWidget extends VBox {
       return;
     }
     this._titleElement.classList.remove('expanded');
-    UI.ARIAUtils.setExpanded(this._titleElement, false);
+    ARIAUtils.setExpanded(this._titleElement, false);
     this._titleExpandIcon.setIconType('smallicon-triangle-right');
     this._materialize().then(() => this._widget.detach());
   }
@@ -405,13 +427,13 @@ export class _TabbedLocation extends _Location {
     this._tabbedPane.addEventListener(TabbedPaneEvents.TabSelected, this._tabSelected, this);
     this._tabbedPane.addEventListener(TabbedPaneEvents.TabClosed, this._tabClosed, this);
     // Note: go via self.Common for globally-namespaced singletons.
-    this._closeableTabSetting = self.self.Common.settings.createSetting(location + '-closeableTabs', {});
+    this._closeableTabSetting = Common.Settings.Settings.instance().createSetting(location + '-closeableTabs', {});
     // Note: go via self.Common for globally-namespaced singletons.
-    this._tabOrderSetting = self.self.Common.settings.createSetting(location + '-tabOrder', {});
+    this._tabOrderSetting = Common.Settings.Settings.instance().createSetting(location + '-tabOrder', {});
     this._tabbedPane.addEventListener(TabbedPaneEvents.TabOrderChanged, this._persistTabOrder, this);
     if (restoreSelection) {
       // Note: go via self.Common for globally-namespaced singletons.
-      this._lastSelectedTabSetting = self.self.Common.settings.createSetting(location + '-selectedTab', '');
+      this._lastSelectedTabSetting = Common.Settings.Settings.instance().createSetting(location + '-selectedTab', '');
     }
     this._defaultTab = defaultTab;
 
@@ -511,7 +533,7 @@ export class _TabbedLocation extends _Location {
   /**
    * @override
    * @param {!View} view
-   * @param {?UI.View=} insertBefore
+   * @param {?View=} insertBefore
    */
   appendView(view, insertBefore) {
     if (this._tabbedPane.hasTab(view.viewId())) {
@@ -559,7 +581,7 @@ export class _TabbedLocation extends _Location {
   /**
    * @override
    * @param {!View} view
-   * @param {?UI.View=} insertBefore
+   * @param {?View=} insertBefore
    * @param {boolean=} userGesture
    * @param {boolean=} omitFocus
    * @return {!Promise}
@@ -590,7 +612,7 @@ export class _TabbedLocation extends _Location {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _tabSelected(event) {
     const tabId = /** @type {string} */ (event.data.tabId);
@@ -600,7 +622,7 @@ export class _TabbedLocation extends _Location {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _tabClosed(event) {
     const id = /** @type {string} */ (event.data['tabId']);
@@ -662,7 +684,7 @@ class _StackLocation extends _Location {
   /**
    * @override
    * @param {!View} view
-   * @param {?UI.View=} insertBefore
+   * @param {?View=} insertBefore
    */
   appendView(view, insertBefore) {
     const oldLocation = view[_Location.symbol];
@@ -688,7 +710,7 @@ class _StackLocation extends _Location {
   /**
    * @override
    * @param {!View} view
-   * @param {?UI.View=} insertBefore
+   * @param {?View=} insertBefore
    * @return {!Promise}
    */
   showView(view, insertBefore) {

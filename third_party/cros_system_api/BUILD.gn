@@ -35,6 +35,7 @@ group("all") {
     ":system_api-seneschal-goprotos",
     ":system_api-seneschal-protos",
     ":system_api-smbprovider-protos",
+    ":system_api-system_proxy-protos",
     ":system_api-tpm_manager-protos",
     ":system_api-u2f-protos",
     ":system_api-update_engine-protos",
@@ -193,6 +194,7 @@ proto_library("system_api-attestation-protos") {
     "${proto_in_dir}/attestation_ca.proto",
     "${proto_in_dir}/interface.proto",
     "${proto_in_dir}/keystore.proto",
+    "${proto_in_dir}/pca_agent.proto",
   ]
   standalone = true
 
@@ -417,7 +419,7 @@ proto_library("system_api-patchpanel-protos") {
   proto_in_dir = "dbus/patchpanel"
   proto_out_dir = "include/patchpanel/proto_bindings"
   sources = [
-    "${proto_in_dir}/patchpanel-service.proto",
+    "${proto_in_dir}/patchpanel_service.proto",
   ]
   standalone = true
   use_pic = true
@@ -428,6 +430,15 @@ proto_library("system_api-anomaly_detector-protos") {
   proto_out_dir = "include/anomaly_detector/proto_bindings"
   sources = [
     "${proto_in_dir}/anomaly_detector.proto",
+  ]
+  standalone = true
+}
+
+proto_library("system_api-system_proxy-protos") {
+  proto_in_dir = "dbus/system_proxy"
+  proto_out_dir = "include/system_proxy/proto_bindings"
+  sources = [
+    "${proto_in_dir}/system_proxy_service.proto",
   ]
   standalone = true
 }

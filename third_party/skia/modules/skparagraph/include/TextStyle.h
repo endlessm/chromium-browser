@@ -18,6 +18,21 @@
 namespace skia {
 namespace textlayout {
 
+static inline bool nearlyZero(SkScalar x, SkScalar tolerance = SK_ScalarNearlyZero) {
+    if (SkScalarIsFinite(x)) {
+        return SkScalarNearlyZero(x, tolerance);
+    }
+    return false;
+}
+
+static inline bool nearlyEqual(SkScalar x, SkScalar y, SkScalar tolerance = SK_ScalarNearlyZero) {
+    if (SkScalarIsFinite(x) && SkScalarIsFinite(x)) {
+        return SkScalarNearlyEqual(x, y, tolerance);
+    }
+    // Inf == Inf, anything else is false
+    return x == y;
+}
+
 // Multiple decorations can be applied at once. Ex: Underline and overline is
 // (0x1 | 0x2)
 enum TextDecoration {
@@ -36,6 +51,7 @@ constexpr TextDecoration AllTextDecorations[] = {
 enum TextDecorationStyle { kSolid, kDouble, kDotted, kDashed, kWavy };
 
 enum StyleType {
+    kNone,
     kAllAttributes,
     kFont,
     kForeground,
@@ -91,16 +107,21 @@ enum class PlaceholderAlignment {
 
 struct FontFeature {
     FontFeature(const SkString name, int value) : fName(name), fValue(value) { }
-    FontFeature(const FontFeature& other) : fName(other.fName), fValue(other.fValue) { }
-    bool operator==(const FontFeature& other) const {
-        return fName == other.fName && fValue == other.fValue;
+    bool operator==(const FontFeature& that) const {
+        return fName == that.fName && fValue == that.fValue;
     }
     SkString fName;
     int fValue;
 };
 
 struct PlaceholderStyle {
-    PlaceholderStyle() { }
+    PlaceholderStyle()
+            : fWidth(0)
+            , fHeight(0)
+            , fAlignment(PlaceholderAlignment::kBaseline)
+            , fBaseline(TextBaseline::kAlphabetic)
+            , fBaselineOffset(0) {}
+
     PlaceholderStyle(SkScalar width, SkScalar height, PlaceholderAlignment alignment,
                      TextBaseline baseline, SkScalar offset)
             : fWidth(width)
@@ -109,15 +130,12 @@ struct PlaceholderStyle {
             , fBaseline(baseline)
             , fBaselineOffset(offset) {}
 
-    bool equals(const PlaceholderStyle& other) const;
+    bool equals(const PlaceholderStyle&) const;
 
-    SkScalar fWidth = 0;
-    SkScalar fHeight = 0;
-
+    SkScalar fWidth;
+    SkScalar fHeight;
     PlaceholderAlignment fAlignment;
-
     TextBaseline fBaseline;
-
     // Distance from the top edge of the rect to the baseline position. This
     // baseline will be aligned against the alphabetic baseline of the surrounding
     // text.
@@ -126,7 +144,7 @@ struct PlaceholderStyle {
     // small or negative values will cause the rect to be positioned underneath
     // the line. When baseline == height, the bottom edge of the rect will rest on
     // the alphabetic baseline.
-    SkScalar fBaselineOffset = 0;
+    SkScalar fBaselineOffset;
 };
 
 class TextStyle {

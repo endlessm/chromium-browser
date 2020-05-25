@@ -127,6 +127,7 @@ struct PHYSICAL_DEVICE_STATE {
 // This structure is used to save data across the CreateGraphicsPipelines down-chain API call
 struct create_graphics_pipeline_api_state {
     std::vector<safe_VkGraphicsPipelineCreateInfo> gpu_create_infos;
+    std::vector<safe_VkGraphicsPipelineCreateInfo> printf_create_infos;
     std::vector<std::shared_ptr<PIPELINE_STATE>> pipe_state;
     const VkGraphicsPipelineCreateInfo* pCreateInfos;
 };
@@ -134,15 +135,24 @@ struct create_graphics_pipeline_api_state {
 // This structure is used to save data across the CreateComputePipelines down-chain API call
 struct create_compute_pipeline_api_state {
     std::vector<safe_VkComputePipelineCreateInfo> gpu_create_infos;
+    std::vector<safe_VkComputePipelineCreateInfo> printf_create_infos;
     std::vector<std::shared_ptr<PIPELINE_STATE>> pipe_state;
     const VkComputePipelineCreateInfo* pCreateInfos;
 };
 
 // This structure is used to save data across the CreateRayTracingPipelinesNV down-chain API call.
 struct create_ray_tracing_pipeline_api_state {
-    std::vector<safe_VkRayTracingPipelineCreateInfoNV> gpu_create_infos;
+    std::vector<safe_VkRayTracingPipelineCreateInfoCommon> gpu_create_infos;
+    std::vector<safe_VkRayTracingPipelineCreateInfoCommon> printf_create_infos;
     std::vector<std::shared_ptr<PIPELINE_STATE>> pipe_state;
     const VkRayTracingPipelineCreateInfoNV* pCreateInfos;
+};
+
+// This structure is used to save data across the CreateRayTracingPipelinesKHR down-chain API call.
+struct create_ray_tracing_pipeline_khr_api_state {
+    std::vector<safe_VkRayTracingPipelineCreateInfoCommon> gpu_create_infos;
+    std::vector<std::shared_ptr<PIPELINE_STATE>> pipe_state;
+    const VkRayTracingPipelineCreateInfoKHR* pCreateInfos;
 };
 
 // This structure is used modify parameters for the CreatePipelineLayout down-chain API call
@@ -219,17 +229,8 @@ using std::unordered_map;
 #define VALSTATETRACK_MAP_AND_TRAITS_INSTANCE_SCOPE(handle_type, state_type, map_member) \
     VALSTATETRACK_MAP_AND_TRAITS_IMPL(handle_type, state_type, map_member, true)
 
-// A special memory handle used to flag object as unbound from memory
-static const VkDeviceMemory MEMORY_UNBOUND = VkDeviceMemory(~((uint64_t)(0)) - 1);
-
-static std::shared_ptr<cvdescriptorset::DescriptorSetLayout const> GetDslFromPipelineLayout(
-    PIPELINE_LAYOUT_STATE const* layout_data, uint32_t set) {
-    std::shared_ptr<cvdescriptorset::DescriptorSetLayout const> dsl = nullptr;
-    if (layout_data && (set < layout_data->set_layouts.size())) {
-        dsl = layout_data->set_layouts[set];
-    }
-    return dsl;
-}
+extern std::shared_ptr<cvdescriptorset::DescriptorSetLayout const> GetDslFromPipelineLayout(
+    PIPELINE_LAYOUT_STATE const* layout_data, uint32_t set);
 
 struct SHADER_MODULE_STATE;
 
@@ -611,9 +612,15 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordSignalSemaphoreKHR(VkDevice device, const VkSemaphoreSignalInfoKHR* pSignalInfo, VkResult result);
 
     // Create/Destroy/Bind
+    void PostCallRecordBindAccelerationStructureMemoryCommon(VkDevice device, uint32_t bindInfoCount,
+                                                             const VkBindAccelerationStructureMemoryInfoKHR* pBindInfos,
+                                                             VkResult result, bool isNV);
     void PostCallRecordBindAccelerationStructureMemoryNV(VkDevice device, uint32_t bindInfoCount,
                                                          const VkBindAccelerationStructureMemoryInfoNV* pBindInfos,
                                                          VkResult result);
+    void PostCallRecordBindAccelerationStructureMemoryKHR(VkDevice device, uint32_t bindInfoCount,
+                                                          const VkBindAccelerationStructureMemoryInfoKHR* pBindInfos,
+                                                          VkResult result);
     void PostCallRecordBindBufferMemory(VkDevice device, VkBuffer buffer, VkDeviceMemory mem, VkDeviceSize memoryOffset,
                                         VkResult result);
     void PostCallRecordBindBufferMemory2(VkDevice device, uint32_t bindInfoCount, const VkBindBufferMemoryInfoKHR* pBindInfos,
@@ -636,6 +643,13 @@ class ValidationStateTracker : public ValidationObject {
                                                      VkAccelerationStructureNV* pAccelerationStructure, VkResult result);
     void PreCallRecordDestroyAccelerationStructureNV(VkDevice device, VkAccelerationStructureNV accelerationStructure,
                                                      const VkAllocationCallbacks* pAllocator);
+
+    void PostCallRecordCreateAccelerationStructureKHR(VkDevice device, const VkAccelerationStructureCreateInfoKHR* pCreateInfo,
+                                                      const VkAllocationCallbacks* pAllocator,
+                                                      VkAccelerationStructureKHR* pAccelerationStructure, VkResult result);
+    void PreCallRecordDestroyAccelerationStructureKHR(VkDevice device, VkAccelerationStructureKHR accelerationStructure,
+                                                      const VkAllocationCallbacks* pAllocator);
+
     void PostCallRecordCreateBuffer(VkDevice device, const VkBufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator,
                                     VkBuffer* pBuffer, VkResult result);
     void PreCallRecordDestroyBuffer(VkDevice device, VkBuffer buffer, const VkAllocationCallbacks* pAllocator);
@@ -728,6 +742,14 @@ class ValidationStateTracker : public ValidationObject {
                                                    const VkRayTracingPipelineCreateInfoNV* pCreateInfos,
                                                    const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines, VkResult result,
                                                    void* pipe_state);
+    bool PreCallValidateCreateRayTracingPipelinesKHR(VkDevice device, VkPipelineCache pipelineCache, uint32_t count,
+                                                     const VkRayTracingPipelineCreateInfoKHR* pCreateInfos,
+                                                     const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines,
+                                                     void* pipe_state) const;
+    void PostCallRecordCreateRayTracingPipelinesKHR(VkDevice device, VkPipelineCache pipelineCache, uint32_t count,
+                                                    const VkRayTracingPipelineCreateInfoKHR* pCreateInfos,
+                                                    const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines,
+                                                    VkResult result, void* pipe_state);
     void PostCallRecordCreateRenderPass(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo,
                                         const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass, VkResult result);
     void RecordCreateRenderPass2(VkDevice device, const VkRenderPassCreateInfo2KHR* pCreateInfo,
@@ -779,8 +801,8 @@ class ValidationStateTracker : public ValidationObject {
     void PreCallRecordSetEvent(VkDevice device, VkEvent event);
     void PostCallRecordWaitForFences(VkDevice device, uint32_t fenceCount, const VkFence* pFences, VkBool32 waitAll,
                                      uint64_t timeout, VkResult result);
+    void PostCallRecordWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout, VkResult result);
     void PostCallRecordAcquireProfilingLockKHR(VkDevice device, const VkAcquireProfilingLockInfoKHR* pInfo, VkResult result);
-    bool PreCallValidateReleaseProfilingLockKHR(VkDevice device) const;
     void PostCallRecordReleaseProfilingLockKHR(VkDevice device);
 
     // Allocate/Free
@@ -1001,7 +1023,7 @@ class ValidationStateTracker : public ValidationObject {
     void AddMemObjInfo(void* object, const VkDeviceMemory mem, const VkMemoryAllocateInfo* pAllocateInfo);
     void AddFramebufferBinding(CMD_BUFFER_STATE* cb_state, FRAMEBUFFER_STATE* fb_state);
     void ClearMemoryObjectBindings(const VulkanTypedHandle& typed_handle);
-    void ClearMemoryObjectBinding(const VulkanTypedHandle& typed_handle, VkDeviceMemory mem);
+    void ClearMemoryObjectBinding(const VulkanTypedHandle& typed_handle, DEVICE_MEMORY_STATE* mem_info);
     void DecrementBoundResources(CMD_BUFFER_STATE const* cb_node);
     void DeleteDescriptorSetPools();
     void FreeCommandBufferStates(COMMAND_POOL_STATE* pool_state, const uint32_t command_buffer_count,
@@ -1077,6 +1099,7 @@ class ValidationStateTracker : public ValidationObject {
     void RemoveImageMemoryRange(VkImage image, DEVICE_MEMORY_STATE* mem_info);
     void ResetCommandBufferState(const VkCommandBuffer cb);
     void RetireFence(VkFence fence);
+    void RetireTimelineSemaphore(VkSemaphore semaphore, uint64_t until_payload);
     void RetireWorkOnQueue(QUEUE_STATE* pQueue, uint64_t seq);
     static bool SetEventStageMask(VkEvent event, VkPipelineStageFlags stageMask, EventToStageMap* localEventToStageMap);
     void ResetCommandBufferPushConstantDataIfIncompatible(CMD_BUFFER_STATE* cb_state, VkPipelineLayout layout);
@@ -1086,7 +1109,8 @@ class ValidationStateTracker : public ValidationObject {
     static bool SetQueryStateMulti(VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, QueryState value,
                                    QueryMap* localQueryToStateMap);
     QueryState GetQueryState(const QueryMap* localQueryToStateMap, VkQueryPool queryPool, uint32_t queryIndex) const;
-    bool SetSparseMemBinding(MEM_BINDING binding, const VulkanTypedHandle& typed_handle);
+    bool SetSparseMemBinding(const VkDeviceMemory mem, const VkDeviceSize mem_offset, const VkDeviceSize mem_size,
+                             const VulkanTypedHandle& typed_handle);
     void UpdateBindBufferMemoryState(VkBuffer buffer, VkDeviceMemory mem, VkDeviceSize memoryOffset);
     void UpdateBindImageMemoryState(const VkBindImageMemoryInfo& bindInfo);
     void UpdateLastBoundDescriptorSets(CMD_BUFFER_STATE* cb_state, VkPipelineBindPoint pipeline_bind_point,
@@ -1115,7 +1139,8 @@ class ValidationStateTracker : public ValidationObject {
         VkPhysicalDeviceVertexAttributeDivisorPropertiesEXT vtx_attrib_divisor_props;
         VkPhysicalDeviceCooperativeMatrixPropertiesNV cooperative_matrix_props;
         VkPhysicalDeviceTransformFeedbackPropertiesEXT transform_feedback_props;
-        VkPhysicalDeviceRayTracingPropertiesNV ray_tracing_props;
+        VkPhysicalDeviceRayTracingPropertiesNV ray_tracing_propsNV;
+        VkPhysicalDeviceRayTracingPropertiesNV ray_tracing_propsKHR;
         VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_props;
         VkPhysicalDeviceFragmentDensityMapPropertiesEXT fragment_density_map_props;
         VkPhysicalDevicePerformanceQueryPropertiesKHR performance_query_props;

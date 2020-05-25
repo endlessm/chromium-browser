@@ -301,7 +301,7 @@ struct sbix
       extents->x_bearing = x_offset;
       extents->y_bearing = png.IHDR.height + y_offset;
       extents->width     = png.IHDR.width;
-      extents->height    = -static_cast<int>(png.IHDR.height);
+      extents->height    = -1 * png.IHDR.height;
 
       /* Convert to font units. */
       if (strike_ppem)
@@ -339,20 +339,16 @@ struct sbix
 			  strikes.sanitize (c, this)));
   }
 
-  bool add_strike (hb_subset_context_t *c,
-		   const void *dst_base,
-		   unsigned int i,
-		   unsigned int sbix_len) const {
-    if (strikes[i].is_null () ||
-	sbix_len < (unsigned int) strikes[i])
+  bool
+  add_strike (hb_subset_context_t *c, unsigned i) const
+  {
+    if (strikes[i].is_null () || c->source_blob->length < (unsigned) strikes[i])
       return false;
 
-    return (this+strikes[i]).subset (c, sbix_len - (unsigned int) strikes[i]);
+    return (this+strikes[i]).subset (c, c->source_blob->length - (unsigned) strikes[i]);
   }
 
-  bool serialize_strike_offsets (hb_subset_context_t *c,
-				 const void *dst_base,
-				 unsigned int sbix_len) const
+  bool serialize_strike_offsets (hb_subset_context_t *c) const
   {
     TRACE_SERIALIZE (this);
 
@@ -369,7 +365,7 @@ struct sbix
       *o = 0;
       auto snap = c->serializer->snapshot ();
       c->serializer->push ();
-      bool ret = add_strike (c, dst_base, i, sbix_len);
+      bool ret = add_strike (c, i);
       if (!ret)
       {
 	c->serializer->pop_discard ();
@@ -383,7 +379,7 @@ struct sbix
       }
     }
     for (unsigned int i = 0; i < new_strikes.length; ++i)
-      c->serializer->add_link (*new_strikes[i], objidxs[new_strikes.length - 1 - i], dst_base);
+      c->serializer->add_link (*new_strikes[i], objidxs[new_strikes.length - 1 - i]);
 
     return_trace (true);
   }
@@ -396,11 +392,8 @@ struct sbix
     if (unlikely (!sbix_prime)) return_trace (false);
     if (unlikely (!c->serializer->embed (this->version))) return_trace (false);
     if (unlikely (!c->serializer->embed (this->flags))) return_trace (false);
-    hb_blob_ptr_t<sbix> table = hb_sanitize_context_t ().reference_table<sbix> (c->plan->source);
-    const unsigned int sbix_len = table.get_blob ()->length;
-    table.destroy ();
 
-    return_trace (serialize_strike_offsets (c, sbix_prime, sbix_len));
+    return_trace (serialize_strike_offsets (c));
   }
 
   protected:

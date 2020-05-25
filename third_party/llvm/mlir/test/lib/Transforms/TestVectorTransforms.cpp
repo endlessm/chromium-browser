@@ -8,15 +8,14 @@
 
 #include <type_traits>
 
-#include "mlir/Dialect/StandardOps/Ops.h"
-#include "mlir/Dialect/VectorOps/VectorOps.h"
-#include "mlir/Dialect/VectorOps/VectorTransforms.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/Dialect/Vector/VectorTransforms.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 
 using namespace mlir;
 using namespace mlir::vector;
-
 namespace {
 
 #include "TestVectorTransformPatterns.h.inc"
@@ -42,12 +41,40 @@ struct TestVectorSlicesConversion
   }
 };
 
+struct TestVectorContractionConversion
+    : public FunctionPass<TestVectorContractionConversion> {
+  TestVectorContractionConversion() = default;
+  TestVectorContractionConversion(const TestVectorContractionConversion &pass) {
+  }
+
+  Option<bool> lowerToLLVMMatrixIntrinsics{
+      *this, "vector-lower-matrix-intrinsics",
+      llvm::cl::desc("Lower vector.contract to llvm.intr.matrix.multiply"),
+      llvm::cl::init(false)};
+
+  void runOnFunction() override {
+    OwningRewritePatternList patterns;
+    VectorTransformsOptions options{
+        /*lowerToLLVMMatrixIntrinsics=*/lowerToLLVMMatrixIntrinsics};
+    populateVectorContractLoweringPatterns(patterns, &getContext(), options);
+    applyPatternsGreedily(getFunction(), patterns);
+  }
+};
+
 } // end anonymous namespace
 
-static PassRegistration<TestVectorToVectorConversion>
-    pass("test-vector-to-vector-conversion",
-         "Test conversion patterns between ops in the vector dialect");
+namespace mlir {
+void registerTestVectorConversions() {
+  PassRegistration<TestVectorToVectorConversion> vectorToVectorPass(
+      "test-vector-to-vector-conversion",
+      "Test conversion patterns between ops in the vector dialect");
 
-static PassRegistration<TestVectorSlicesConversion> slices_pass(
-    "test-vector-slices-conversion",
-    "Test conversion patterns that lower slices ops in the vector dialect");
+  PassRegistration<TestVectorSlicesConversion> slicesPass(
+      "test-vector-slices-conversion",
+      "Test conversion patterns that lower slices ops in the vector dialect");
+
+  PassRegistration<TestVectorContractionConversion> contractionPass(
+      "test-vector-contraction-conversion",
+      "Test conversion patterns that lower contract ops in the vector dialect");
+}
+} // namespace mlir

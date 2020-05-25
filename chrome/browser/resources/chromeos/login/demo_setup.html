@@ -9,8 +9,29 @@
       <hd-iron-icon slot="oobe-icon"
           icon1x="oobe-32:computer" icon2x="oobe-64:computer">
       </hd-iron-icon>
-      <div slot="footer" class="flex layout vertical center center-justified">
-        <paper-spinner-lite id="spinner" dir="ltr" active></paper-spinner-lite>
+      <div slot="footer"
+          class="flex layout vertical center center-justified"
+          hidden$="[[showStepsInDemoModeSetup_]]">
+        <paper-spinner-lite id="spinner" dir="ltr"
+            active></paper-spinner-lite>
+      </div>
+      <div slot="footer" hidden$="[[!showStepsInDemoModeSetup_]]">
+        <div id="demo-setup-steps" role="list">
+          <progress-list-item text-key="demoSetupProgressStepDownload"
+              hidden="[[!shouldShowStep_('downloadResources', setupSteps_)]]"
+              active="[[stepIsActive_(
+                  'downloadResources', setupSteps_, currentStepIndex_)]]"
+              completed="[[stepIsCompleted_(
+                  'downloadResources', setupSteps_, currentStepIndex_)]]">
+          </progress-list-item>
+          <progress-list-item text-key="demoSetupProgressStepEnroll"
+              hidden="[[!shouldShowStep_('enrollment', setupSteps_)]]"
+              active="[[stepIsActive_(
+                  'enrollment', setupSteps_, currentStepIndex_)]]"
+              completed="[[stepIsCompleted_(
+                  'enrollment', setupSteps_, currentStepIndex_)]]">
+          </progress-list-item>
+        </div>
       </div>
     </oobe-dialog>
 

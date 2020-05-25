@@ -11,7 +11,7 @@
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "net/third_party/quiche/src/quic/core/crypto/tls_server_connection.h"
 #include "net/third_party/quiche/src/quic/core/proto/cached_network_parameters_proto.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/tls_handshaker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
@@ -39,8 +39,7 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   bool GetBase64SHA256ClientChannelID(std::string* output) const override;
   void SendServerConfigUpdate(
       const CachedNetworkParameters* cached_network_params) override;
-  uint8_t NumHandshakeMessages() const override;
-  uint8_t NumHandshakeMessagesWithServerNonces() const override;
+  bool IsZeroRtt() const override;
   int NumServerConfigUpdateMessagesSent() const override;
   const CachedNetworkParameters* PreviousCachedNetworkParams() const override;
   bool ZeroRttAttempted() const override;
@@ -59,11 +58,32 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
   CryptoMessageParser* crypto_message_parser() override;
   HandshakeState GetHandshakeState() const override;
   size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
+  void SetWriteSecret(EncryptionLevel level,
+                      const SSL_CIPHER* cipher,
+                      const std::vector<uint8_t>& write_secret) override;
 
  protected:
+  // Hook to allow the server to override parts of the QuicConfig based on SNI
+  // before we generate transport parameters.
+  virtual void OverrideQuicConfigDefaults(QuicConfig* config);
+
   const TlsConnection* tls_connection() const override {
     return &tls_connection_;
   }
+
+  ProofSource::Details* proof_source_details() const {
+    return proof_source_details_.get();
+  }
+
+  virtual void ProcessAdditionalTransportParameters(
+      const TransportParameters& /*params*/) {}
+
+  // Override of TlsHandshaker::SetReadSecret so that setting the read secret
+  // for ENCRYPTION_FORWARD_SECURE can be delayed until the handshake is
+  // complete.
+  bool SetReadSecret(EncryptionLevel level,
+                     const SSL_CIPHER* cipher,
+                     const std::vector<uint8_t>& read_secret) override;
 
   // Called when a new message is received on the crypto stream and is available
   // for the TLS stack to read.
@@ -93,7 +113,9 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
       : public ProofSource::SignatureCallback {
    public:
     explicit SignatureCallback(TlsServerHandshaker* handshaker);
-    void Run(bool ok, std::string signature) override;
+    void Run(bool ok,
+             std::string signature,
+             std::unique_ptr<ProofSource::Details> details) override;
 
     // If called, Cancel causes the pending callback to be a no-op.
     void Cancel();
@@ -126,6 +148,12 @@ class QUIC_EXPORT_PRIVATE TlsServerHandshaker
 
   std::string hostname_;
   std::string cert_verify_sig_;
+  std::unique_ptr<ProofSource::Details> proof_source_details_;
+
+  // Used to hold the ENCRYPTION_FORWARD_SECURE read secret until the handshake
+  // is complete. This is temporary until
+  // https://bugs.chromium.org/p/boringssl/issues/detail?id=303 is resolved.
+  std::vector<uint8_t> app_data_read_secret_;
 
   bool encryption_established_ = false;
   bool one_rtt_keys_available_ = false;

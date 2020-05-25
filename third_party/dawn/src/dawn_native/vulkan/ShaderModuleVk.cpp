@@ -40,7 +40,8 @@ namespace dawn_native { namespace vulkan {
         // Use SPIRV-Cross to extract info from the SPIRV even if Vulkan consumes SPIRV. We want to
         // have a translation step eventually anyway.
         if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
-            shaderc_spvc::CompileOptions options;
+            shaderc_spvc::CompileOptions options = GetCompileOptions();
+
             DAWN_TRY(CheckSpvcSuccess(
                 mSpvcContext.InitializeForVulkan(descriptor->code, descriptor->codeSize, options),
                 "Unable to initialize instance of spvc"));
@@ -74,7 +75,7 @@ namespace dawn_native { namespace vulkan {
 
         Device* device = ToBackend(GetDevice());
         return CheckVkSuccess(
-            device->fn.CreateShaderModule(device->GetVkDevice(), &createInfo, nullptr, &mHandle),
+            device->fn.CreateShaderModule(device->GetVkDevice(), &createInfo, nullptr, &*mHandle),
             "CreateShaderModule");
     }
 

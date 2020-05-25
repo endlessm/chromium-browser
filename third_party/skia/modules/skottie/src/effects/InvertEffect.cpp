@@ -7,7 +7,6 @@
 
 #include "modules/skottie/src/effects/Effects.h"
 
-#include "modules/skottie/src/Animator.h"
 #include "modules/skottie/src/SkottieValue.h"
 #include "modules/sksg/include/SkSGColorFilter.h"
 #include "src/utils/SkJSON.h"
@@ -37,7 +36,7 @@ private:
             kChannel_Index = 0,
         };
 
-        this->bind(*abuilder, EffectBuilder::GetPropValue(jprops, kChannel_Index), &fChannel);
+        EffectBinder(jprops, *abuilder, this).bind(kChannel_Index, fChannel);
     }
 
     void onSync() override {

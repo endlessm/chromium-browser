@@ -29,6 +29,7 @@
  */
 
 import * as Common from '../common/common.js';
+import * as TextUtils from '../text_utils/text_utils.js';
 
 import {CompilerSourceMappingContentProvider} from './CompilerSourceMappingContentProvider.js';
 
@@ -57,7 +58,7 @@ export class SourceMap {
   /**
    * @param {string} sourceURL
    * @param {!Common.ResourceType.ResourceType} contentType
-   * @return {!Common.ContentProvider.ContentProvider}
+   * @return {!TextUtils.ContentProvider.ContentProvider}
    */
   sourceContentProvider(sourceURL, contentType) {
   }
@@ -171,7 +172,7 @@ export class SourceMapEntry {
 export class EditResult {
   /**
    * @param {!SourceMap} map
-   * @param {!Array<!TextUtils.SourceEdit>} compiledEdits
+   * @param {!Array<!TextUtils.TextRange.SourceEdit>} compiledEdits
    * @param {!Map<string, string>} newSources
    */
   constructor(map, compiledEdits, newSources) {
@@ -214,7 +215,7 @@ export class TextSourceMap {
     if (this._json.sections) {
       const sectionWithURL = !!this._json.sections.find(section => !!section.url);
       if (sectionWithURL) {
-        self.Common.console.warn(
+        Common.Console.Console.instance().warn(
             `SourceMap "${sourceMappingURL}" contains unsupported "URL" field in one of its sections.`);
       }
     }
@@ -272,19 +273,19 @@ export class TextSourceMap {
    * @return {!Array.<string>}
    */
   sourceURLs() {
-    return this._sourceInfos.keysArray();
+    return [...this._sourceInfos.keys()];
   }
 
   /**
    * @override
    * @param {string} sourceURL
    * @param {!Common.ResourceType.ResourceType} contentType
-   * @return {!Common.ContentProvider.ContentProvider}
+   * @return {!TextUtils.ContentProvider.ContentProvider}
    */
   sourceContentProvider(sourceURL, contentType) {
     const info = this._sourceInfos.get(sourceURL);
     if (info.content) {
-      return Common.StaticContentProvider.StaticContentProvider.fromString(sourceURL, contentType, info.content);
+      return TextUtils.StaticContentProvider.StaticContentProvider.fromString(sourceURL, contentType, info.content);
     }
     return new CompilerSourceMappingContentProvider(sourceURL, contentType);
   }
@@ -539,8 +540,8 @@ export class TextSourceMap {
 
   /**
    * @param {string} url
-   * @param {!TextUtils.TextRange} textRange
-   * @return {!TextUtils.TextRange}
+   * @param {!TextUtils.TextRange.TextRange} textRange
+   * @return {!TextUtils.TextRange.TextRange}
    */
   reverseMapTextRange(url, textRange) {
     /**
@@ -564,7 +565,7 @@ export class TextSourceMap {
 
     const startMapping = mappings[startIndex];
     const endMapping = mappings[endIndex];
-    return new TextUtils.TextRange(
+    return new TextUtils.TextRange.TextRange(
         startMapping.lineNumber, startMapping.columnNumber, endMapping.lineNumber, endMapping.columnNumber);
   }
 
@@ -649,7 +650,7 @@ export class WasmSourceMap {
    */
   static async _loadBindings() {
     const arrayBuffer =
-        await Root.Runtime.loadBinaryResourcePromise('./sdk/wasm_source_map/pkg/wasm_source_map_bg.wasm');
+        await self.runtime.loadBinaryResourcePromise('./sdk/wasm_source_map/pkg/wasm_source_map_bg.wasm', true);
     await self.wasm_bindgen(arrayBuffer);
     return self.wasm_bindgen.Resolver;
   }
@@ -695,7 +696,7 @@ export class WasmSourceMap {
    * @override
    * @param {string} sourceURL
    * @param {!Common.ResourceType.ResourceType} contentType
-   * @return {!Common.ContentProvider.ContentProvider}
+   * @return {!TextUtils.ContentProvider.ContentProvider}
    */
   sourceContentProvider(sourceURL, contentType) {
     return new CompilerSourceMappingContentProvider(sourceURL, contentType);
@@ -718,7 +719,7 @@ export class WasmSourceMap {
    */
   findEntry(lineNumber, columnNumber) {
     if (lineNumber !== 0) {
-      console.warn(new Error(`Invalid non-zero line number.`));
+      console.warn(new Error('Invalid non-zero line number.'));
     }
     return this._resolver.resolve(columnNumber);
   }

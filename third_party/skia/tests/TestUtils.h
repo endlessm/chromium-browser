@@ -25,8 +25,8 @@ void TestWritePixels(skiatest::Reporter*, GrSurfaceContext* srcContext, bool exp
 // Ensure that the pixels can be copied from 'proxy' viewed as colorType, to an RGBA 8888
 // destination (both texture-backed and rendertarget-backed).
 void TestCopyFromSurface(skiatest::Reporter*, GrContext*, GrSurfaceProxy* proxy,
-                          GrColorType colorType, uint32_t expectedPixelValues[],
-                          const char* testName);
+                         GrSurfaceOrigin origin, GrColorType colorType,
+                         uint32_t expectedPixelValues[], const char* testName);
 
 // Fills data with a red-green gradient
 void FillPixelData(int width, int height, GrColor* data);
@@ -93,6 +93,6 @@ bool CheckSolidPixels(const SkColor4f& col,
  * resource are both used on a single thread.
  */
 void CheckSingleThreadedProxyRefs(skiatest::Reporter* reporter,
-                                  GrTextureProxy* proxy,
+                                  GrSurfaceProxy* proxy,
                                   int32_t expectedProxyRefs,
                                   int32_t expectedBackingRefs);

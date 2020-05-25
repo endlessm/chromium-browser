@@ -8,11 +8,17 @@
 from __future__ import print_function
 
 import os
+import sys
 
 from chromite.api import router as router_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.scripts import build_api
+
+pytestmark = cros_test_lib.pytestmark_sigterm
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class BuildApiScriptTest(cros_test_lib.MockTempDirTestCase):

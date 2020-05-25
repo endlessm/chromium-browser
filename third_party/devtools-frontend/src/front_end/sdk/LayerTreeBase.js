@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {DOMModel, DOMNode} from './DOMModel.js';  // eslint-disable-line no-unused-vars
-import {Target} from './SDKModel.js';             // eslint-disable-line no-unused-vars
+import {DOMModel, DOMNode} from './DOMModel.js';      // eslint-disable-line no-unused-vars
+import {SnapshotWithRect} from './PaintProfiler.js';  // eslint-disable-line no-unused-vars
+import {Target} from './SDKModel.js';                 // eslint-disable-line no-unused-vars
 
 /**
  * @interface
@@ -124,7 +125,7 @@ export class Layer {
   }
 
   /**
-   * @return {?Layer.StickyPositionConstraint}
+   * @return {?StickyPositionConstraint}
    */
   stickyPositionConstraint() {
   }
@@ -138,7 +139,7 @@ export class Layer {
   /**
    * @return {!Promise<!Array<string>>}
    */
-  requestCompositingReasons() {
+  requestCompositingReasonIds() {
   }
 
   /**
@@ -148,7 +149,7 @@ export class Layer {
   }
 
   /**
-   * @return {!Array<!Promise<?SDK.SnapshotWithRect>>}
+   * @return {!Array<!Promise<?SnapshotWithRect>>}
    */
   snapshots() {}
 }
@@ -305,7 +306,7 @@ export class LayerTreeBase {
     if (!nodesMap) {
       return;
     }
-    for (const nodeId of nodesMap.keysArray()) {
+    for (const nodeId of nodesMap.keys()) {
       this._backendNodeIdToNode.set(nodeId, nodesMap.get(nodeId) || null);
     }
   }

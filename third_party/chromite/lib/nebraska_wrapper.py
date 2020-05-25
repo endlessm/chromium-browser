@@ -107,7 +107,7 @@ class RemoteNebraskaWrapper(multiprocessing.Process):
       **kwargs: See remote_access.RemoteDevice documentation.
     """
     kwargs.setdefault('debug_level', logging.DEBUG)
-    return self._device.RunCommand(*args, **kwargs)
+    return self._device.run(*args, **kwargs)
 
   def _PortFileExists(self):
     """Checks whether the port file exists in the remove device or not."""
@@ -137,7 +137,7 @@ class RemoteNebraskaWrapper(multiprocessing.Process):
       raise NebraskaStartupError('Nebraska is not alive, so not ready!')
 
     url = 'http://%s:%d/%s' % (remote_access.LOCALHOST_IP, self._port,
-                               'check_health')
+                               'health_check')
     # Running curl through SSH because the port on the device is not accessible
     # by default.
     result = self._RemoteCommand(

@@ -21,9 +21,18 @@
 #include "fuzzer_pass_adjust_memory_operands_masks.h"
 #include "source/fuzz/fact_manager.h"
 #include "source/fuzz/fuzzer_context.h"
+#include "source/fuzz/fuzzer_pass_add_access_chains.h"
+#include "source/fuzz/fuzzer_pass_add_composite_types.h"
+#include "source/fuzz/fuzzer_pass_add_dead_blocks.h"
 #include "source/fuzz/fuzzer_pass_add_dead_breaks.h"
 #include "source/fuzz/fuzzer_pass_add_dead_continues.h"
+#include "source/fuzz/fuzzer_pass_add_equation_instructions.h"
+#include "source/fuzz/fuzzer_pass_add_function_calls.h"
+#include "source/fuzz/fuzzer_pass_add_global_variables.h"
+#include "source/fuzz/fuzzer_pass_add_loads.h"
+#include "source/fuzz/fuzzer_pass_add_local_variables.h"
 #include "source/fuzz/fuzzer_pass_add_no_contraction_decorations.h"
+#include "source/fuzz/fuzzer_pass_add_stores.h"
 #include "source/fuzz/fuzzer_pass_add_useful_constructs.h"
 #include "source/fuzz/fuzzer_pass_adjust_function_controls.h"
 #include "source/fuzz/fuzzer_pass_adjust_loop_controls.h"
@@ -31,11 +40,15 @@
 #include "source/fuzz/fuzzer_pass_apply_id_synonyms.h"
 #include "source/fuzz/fuzzer_pass_construct_composites.h"
 #include "source/fuzz/fuzzer_pass_copy_objects.h"
+#include "source/fuzz/fuzzer_pass_donate_modules.h"
 #include "source/fuzz/fuzzer_pass_merge_blocks.h"
 #include "source/fuzz/fuzzer_pass_obfuscate_constants.h"
 #include "source/fuzz/fuzzer_pass_outline_functions.h"
 #include "source/fuzz/fuzzer_pass_permute_blocks.h"
+#include "source/fuzz/fuzzer_pass_permute_function_parameters.h"
 #include "source/fuzz/fuzzer_pass_split_blocks.h"
+#include "source/fuzz/fuzzer_pass_swap_commutable_operands.h"
+#include "source/fuzz/fuzzer_pass_toggle_access_chain_instruction.h"
 #include "source/fuzz/protobufs/spirvfuzz_protobufs.h"
 #include "source/fuzz/pseudo_random_generator.h"
 #include "source/opt/build_module.h"
@@ -52,15 +65,21 @@ const uint32_t kTransformationLimit = 500;
 
 const uint32_t kChanceOfApplyingAnotherPass = 85;
 
-template <typename T>
+// A convenience method to add a fuzzer pass to |passes| with probability 0.5.
+// All fuzzer passes take |ir_context|, |fact_manager|, |fuzzer_context| and
+// |transformation_sequence_out| as parameters.  Extra arguments can be provided
+// via |extra_args|.
+template <typename T, typename... Args>
 void MaybeAddPass(
     std::vector<std::unique_ptr<FuzzerPass>>* passes,
     opt::IRContext* ir_context, FactManager* fact_manager,
     FuzzerContext* fuzzer_context,
-    protobufs::TransformationSequence* transformation_sequence_out) {
+    protobufs::TransformationSequence* transformation_sequence_out,
+    Args&&... extra_args) {
   if (fuzzer_context->ChooseEven()) {
     passes->push_back(MakeUnique<T>(ir_context, fact_manager, fuzzer_context,
-                                    transformation_sequence_out));
+                                    transformation_sequence_out,
+                                    std::forward<Args>(extra_args)...));
   }
 }
 
@@ -114,6 +133,7 @@ bool Fuzzer::Impl::ApplyPassAndCheckValidity(
 Fuzzer::FuzzerResultStatus Fuzzer::Run(
     const std::vector<uint32_t>& binary_in,
     const protobufs::FactSequence& initial_facts,
+    const std::vector<fuzzerutil::ModuleSupplier>& donor_suppliers,
     std::vector<uint32_t>* binary_out,
     protobufs::TransformationSequence* transformation_sequence_out) const {
   // Check compatibility between the library version being linked with and the
@@ -169,12 +189,39 @@ Fuzzer::FuzzerResultStatus Fuzzer::Run(
   // Apply some semantics-preserving passes.
   std::vector<std::unique_ptr<FuzzerPass>> passes;
   while (passes.empty()) {
+    MaybeAddPass<FuzzerPassAddAccessChains>(&passes, ir_context.get(),
+                                            &fact_manager, &fuzzer_context,
+                                            transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddCompositeTypes>(&passes, ir_context.get(),
+                                              &fact_manager, &fuzzer_context,
+                                              transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddDeadBlocks>(&passes, ir_context.get(),
+                                          &fact_manager, &fuzzer_context,
+                                          transformation_sequence_out);
     MaybeAddPass<FuzzerPassAddDeadBreaks>(&passes, ir_context.get(),
                                           &fact_manager, &fuzzer_context,
                                           transformation_sequence_out);
     MaybeAddPass<FuzzerPassAddDeadContinues>(&passes, ir_context.get(),
                                              &fact_manager, &fuzzer_context,
                                              transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddEquationInstructions>(
+        &passes, ir_context.get(), &fact_manager, &fuzzer_context,
+        transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddFunctionCalls>(&passes, ir_context.get(),
+                                             &fact_manager, &fuzzer_context,
+                                             transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddGlobalVariables>(&passes, ir_context.get(),
+                                               &fact_manager, &fuzzer_context,
+                                               transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddLoads>(&passes, ir_context.get(), &fact_manager,
+                                     &fuzzer_context,
+                                     transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddLocalVariables>(&passes, ir_context.get(),
+                                              &fact_manager, &fuzzer_context,
+                                              transformation_sequence_out);
+    MaybeAddPass<FuzzerPassAddStores>(&passes, ir_context.get(), &fact_manager,
+                                      &fuzzer_context,
+                                      transformation_sequence_out);
     MaybeAddPass<FuzzerPassApplyIdSynonyms>(&passes, ir_context.get(),
                                             &fact_manager, &fuzzer_context,
                                             transformation_sequence_out);
@@ -184,6 +231,9 @@ Fuzzer::FuzzerResultStatus Fuzzer::Run(
     MaybeAddPass<FuzzerPassCopyObjects>(&passes, ir_context.get(),
                                         &fact_manager, &fuzzer_context,
                                         transformation_sequence_out);
+    MaybeAddPass<FuzzerPassDonateModules>(
+        &passes, ir_context.get(), &fact_manager, &fuzzer_context,
+        transformation_sequence_out, donor_suppliers);
     MaybeAddPass<FuzzerPassMergeBlocks>(&passes, ir_context.get(),
                                         &fact_manager, &fuzzer_context,
                                         transformation_sequence_out);
@@ -196,6 +246,9 @@ Fuzzer::FuzzerResultStatus Fuzzer::Run(
     MaybeAddPass<FuzzerPassPermuteBlocks>(&passes, ir_context.get(),
                                           &fact_manager, &fuzzer_context,
                                           transformation_sequence_out);
+    MaybeAddPass<FuzzerPassPermuteFunctionParameters>(
+        &passes, ir_context.get(), &fact_manager, &fuzzer_context,
+        transformation_sequence_out);
     MaybeAddPass<FuzzerPassSplitBlocks>(&passes, ir_context.get(),
                                         &fact_manager, &fuzzer_context,
                                         transformation_sequence_out);
@@ -231,6 +284,12 @@ Fuzzer::FuzzerResultStatus Fuzzer::Run(
       &final_passes, ir_context.get(), &fact_manager, &fuzzer_context,
       transformation_sequence_out);
   MaybeAddPass<FuzzerPassAddNoContractionDecorations>(
+      &final_passes, ir_context.get(), &fact_manager, &fuzzer_context,
+      transformation_sequence_out);
+  MaybeAddPass<FuzzerPassSwapCommutableOperands>(
+      &final_passes, ir_context.get(), &fact_manager, &fuzzer_context,
+      transformation_sequence_out);
+  MaybeAddPass<FuzzerPassToggleAccessChainInstruction>(
       &final_passes, ir_context.get(), &fact_manager, &fuzzer_context,
       transformation_sequence_out);
   for (auto& pass : final_passes) {

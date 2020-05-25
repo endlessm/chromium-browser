@@ -23,20 +23,21 @@
  * \brief SSBO layout case.
  *//*--------------------------------------------------------------------*/
 
-#include "vktSSBOLayoutCase.hpp"
-#include "gluShaderProgram.hpp"
+#include "deFloat16.h"
+#include "deInt32.h"
+#include "deMath.h"
+#include "deMemory.h"
+#include "deRandom.hpp"
+#include "deSharedPtr.hpp"
+#include "deString.h"
+#include "deStringUtil.hpp"
 #include "gluContextInfo.hpp"
+#include "gluShaderProgram.hpp"
 #include "gluShaderUtil.hpp"
 #include "gluVarType.hpp"
 #include "gluVarTypeUtil.hpp"
 #include "tcuTestLog.hpp"
-#include "deRandom.hpp"
-#include "deStringUtil.hpp"
-#include "deMemory.h"
-#include "deString.h"
-#include "deMath.h"
-#include "deSharedPtr.hpp"
-#include "deFloat16.h"
+#include "vktSSBOLayoutCase.hpp"
 
 #include "vkBuilderUtil.hpp"
 #include "vkMemUtil.hpp"
@@ -314,12 +315,6 @@ int getDataTypeByteAlignment (glu::DataType type)
 			DE_ASSERT(false);
 			return 0;
 	}
-}
-
-static inline int deRoundUp32 (int a, int b)
-{
-	int d = a/b;
-	return d*b == a ? a : (d+1)*b;
 }
 
 int computeStd140BaseAlignment (const VarType& type, deUint32 layoutFlags)
@@ -2258,7 +2253,7 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 	bool memoryDeviceAddress = false;
 	if (m_usePhysStorageBuffer)
 	{
-		usageFlags |= vk::VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR;
+		usageFlags |= vk::VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 		if (m_context.isDeviceFunctionalitySupported("VK_KHR_buffer_device_address"))
 			memoryDeviceAddress = true;
 	}
@@ -2364,9 +2359,9 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 	{
 		const bool useKHR = m_context.isDeviceFunctionalitySupported("VK_KHR_buffer_device_address");
 
-		vk::VkBufferDeviceAddressInfoKHR info =
+		vk::VkBufferDeviceAddressInfo info =
 		{
-			vk::VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,	// VkStructureType	sType;
+			vk::VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,		// VkStructureType	sType;
 			DE_NULL,												// const void*		pNext;
 			0,														// VkBuffer			buffer
 		};
@@ -2376,7 +2371,7 @@ tcu::TestStatus SSBOLayoutCaseInstance::iterate (void)
 			info.buffer = descriptors[i].buffer;
 			vk::VkDeviceAddress addr;
 			if (useKHR)
-				addr = vk.getBufferDeviceAddressKHR(device, &info);
+				addr = vk.getBufferDeviceAddress(device, &info);
 			else
 				addr = vk.getBufferDeviceAddressEXT(device, &info);
 			addr += descriptors[i].offset;

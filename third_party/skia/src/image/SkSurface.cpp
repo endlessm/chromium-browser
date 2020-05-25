@@ -51,10 +51,8 @@ SkSurfaceProps::SkSurfaceProps(uint32_t flags, SkPixelGeometry pg)
     : fFlags(flags), fPixelGeometry(pg)
 {}
 
-SkSurfaceProps::SkSurfaceProps(const SkSurfaceProps& other)
-    : fFlags(other.fFlags)
-    , fPixelGeometry(other.fPixelGeometry)
-{}
+SkSurfaceProps::SkSurfaceProps(const SkSurfaceProps&) = default;
+SkSurfaceProps& SkSurfaceProps::operator=(const SkSurfaceProps&) = default;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -82,7 +80,7 @@ GrBackendRenderTarget SkSurface_Base::onGetBackendRenderTarget(BackendHandleAcce
 }
 
 bool SkSurface_Base::onReplaceBackendTexture(const GrBackendTexture&,
-                                             GrSurfaceOrigin,
+                                             GrSurfaceOrigin, ContentChangeMode,
                                              TextureReleaseProc,
                                              ReleaseContext) {
     return false;
@@ -431,10 +429,10 @@ GrBackendRenderTarget SkSurface::getBackendRenderTarget(BackendHandleAccess acce
 }
 
 bool SkSurface::replaceBackendTexture(const GrBackendTexture& backendTexture,
-                                      GrSurfaceOrigin origin,
+                                      GrSurfaceOrigin origin, ContentChangeMode mode,
                                       TextureReleaseProc textureReleaseProc,
                                       ReleaseContext releaseContext) {
-    return asSB(this)->onReplaceBackendTexture(backendTexture, origin, textureReleaseProc,
+    return asSB(this)->onReplaceBackendTexture(backendTexture, origin, mode, textureReleaseProc,
                                                releaseContext);
 }
 

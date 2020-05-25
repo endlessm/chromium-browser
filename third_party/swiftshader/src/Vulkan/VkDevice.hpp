@@ -16,8 +16,11 @@
 #define VK_DEVICE_HPP_
 
 #include "VkObject.hpp"
+#include "VkSampler.hpp"
 #include "Device/LRUCache.hpp"
 #include "Reactor/Routine.hpp"
+
+#include <map>
 #include <memory>
 #include <mutex>
 
@@ -83,20 +86,57 @@ public:
 			};
 		};
 
-		std::shared_ptr<rr::Routine> query(const Key &key) const;
-		void add(const Key &key, const std::shared_ptr<rr::Routine> &routine);
+		template<typename Function>
+		std::shared_ptr<rr::Routine> getOrCreate(const Key &key, Function createRoutine)
+		{
+			std::lock_guard<std::mutex> lock(mutex);
 
-		rr::Routine *queryConst(const Key &key) const;
-		void updateConstCache();
+			if(auto existingRoutine = cache.query(key))
+			{
+				return existingRoutine;
+			}
+
+			std::shared_ptr<rr::Routine> newRoutine = createRoutine(key);
+			cache.add(key, newRoutine);
+
+			return newRoutine;
+		}
+
+		rr::Routine *querySnapshot(const Key &key) const;
+		void updateSnapshot();
 
 	private:
-		sw::LRUConstCache<Key, std::shared_ptr<rr::Routine>, Key::Hash> cache;
+		sw::LRUSnapshotCache<Key, std::shared_ptr<rr::Routine>, Key::Hash> cache;  // guarded by mutex
+		std::mutex mutex;
 	};
 
 	SamplingRoutineCache *getSamplingRoutineCache() const;
-	std::mutex &getSamplingRoutineCacheMutex();
-	rr::Routine *findInConstCache(const SamplingRoutineCache::Key &key) const;
-	void updateSamplingRoutineConstCache();
+	rr::Routine *querySnapshotCache(const SamplingRoutineCache::Key &key) const;
+	void updateSamplingRoutineSnapshotCache();
+
+	class SamplerIndexer
+	{
+	public:
+		~SamplerIndexer();
+
+		uint32_t index(const SamplerState &samplerState);
+		void remove(const SamplerState &samplerState);
+
+	private:
+		struct Identifier
+		{
+			uint32_t id;
+			uint32_t count;  // Number of samplers sharing this state identifier.
+		};
+
+		std::map<SamplerState, Identifier> map;  // guarded by mutex
+		std::mutex mutex;
+
+		uint32_t nextID = 0;
+	};
+
+	uint32_t indexSampler(const SamplerState &samplerState);
+	void removeSampler(const SamplerState &samplerState);
 
 	std::shared_ptr<vk::dbg::Context> getDebuggerContext() const
 	{
@@ -112,13 +152,14 @@ private:
 	Queue *const queues = nullptr;
 	uint32_t queueCount = 0;
 	std::unique_ptr<sw::Blitter> blitter;
-	std::unique_ptr<SamplingRoutineCache> samplingRoutineCache;
-	std::mutex samplingRoutineCacheMutex;
 	uint32_t enabledExtensionCount = 0;
 	typedef char ExtensionName[VK_MAX_EXTENSION_NAME_SIZE];
 	ExtensionName *extensions = nullptr;
 	const VkPhysicalDeviceFeatures enabledFeatures = {};
+
 	std::shared_ptr<marl::Scheduler> scheduler;
+	std::unique_ptr<SamplingRoutineCache> samplingRoutineCache;
+	std::unique_ptr<SamplerIndexer> samplerIndexer;
 
 #ifdef ENABLE_VK_DEBUGGER
 	struct

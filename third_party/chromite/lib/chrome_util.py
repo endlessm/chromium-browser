@@ -14,11 +14,15 @@ import os
 import re
 import shlex
 import shutil
+import sys
 
 from chromite.lib import failures_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import osutils
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # Taken from external/gyp.git/pylib.
@@ -318,7 +322,8 @@ C = Conditions
 
 # Files shared between all deployment types.
 _COPY_PATHS_COMMON = (
-    Path('icudtl.dat'),
+    # TODO(honglinyu): remove copying "icudtl.dat" after libicu is installed.
+    Path('icudtl.dat', optional=True),
     Path('libosmesa.so', exe=True, optional=True),
     # Do not strip the nacl_helper_bootstrap binary because the binutils
     # objcopy/strip mangles the ELF program headers.

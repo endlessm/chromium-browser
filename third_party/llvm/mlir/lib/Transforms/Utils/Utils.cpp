@@ -18,8 +18,7 @@
 #include "mlir/Analysis/AffineStructures.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Analysis/Utils.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
@@ -445,8 +444,10 @@ LogicalResult mlir::normalizeMemRef(AllocOp allocOp) {
   auto oldMemRef = allocOp.getResult();
   SmallVector<Value, 4> symbolOperands(allocOp.getSymbolicOperands());
 
-  auto newMemRefType = MemRefType::get(newShape, memrefType.getElementType(),
-                                       b.getMultiDimIdentityMap(newRank));
+  MemRefType newMemRefType =
+      MemRefType::Builder(memrefType)
+          .setShape(newShape)
+          .setAffineMaps(b.getMultiDimIdentityMap(newRank));
   auto newAlloc = b.create<AllocOp>(allocOp.getLoc(), newMemRefType);
 
   // Replace all uses of the old memref.

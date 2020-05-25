@@ -10,9 +10,9 @@
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkPromiseImageTexture.h"
 #include "include/gpu/GrBackendSurface.h"
-#include "include/gpu/GrTexture.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGpu.h"
+#include "src/gpu/GrTexture.h"
 #include "src/image/SkImage_Gpu.h"
 
 using namespace sk_gpu_test;
@@ -420,12 +420,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageTextureFullCache, reporter, ctxIn
     ctx->setResourceCacheLimit(kMaxBytes);
     SkTArray<sk_sp<GrTexture>> textures;
     for (int i = 0; i < 5; ++i) {
-        GrSurfaceDesc desc;
-        desc.fWidth = desc.fHeight = 100;
         auto format = ctx->priv().caps()->getDefaultBackendFormat(GrColorType::kRGBA_8888,
                                                                   GrRenderable::kNo);
         textures.emplace_back(ctx->priv().resourceProvider()->createTexture(
-                desc, format, GrRenderable::kNo, 1, GrMipMapped::kNo, SkBudgeted::kYes,
+                {100, 100}, format, GrRenderable::kNo, 1, GrMipMapped::kNo, SkBudgeted::kYes,
                 GrProtected::kNo));
         REPORTER_ASSERT(reporter, textures[i]);
     }

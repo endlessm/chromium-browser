@@ -12,6 +12,7 @@
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrMemoryPool.h"
 #include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrVertexWriter.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
@@ -90,7 +91,11 @@ public:
                                       GrClampType) override;
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fProcessorSet.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fProcessorSet.visitProxies(func);
+        }
     }
 
 private:
@@ -101,14 +106,27 @@ private:
                const SkRect& drawRect,
                const SkRect& localRect,
                const SkMatrix& localMatrix);
+
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+    void onCreateProgramInfo(const GrCaps*,
+                             SkArenaAlloc*,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&&,
+                             const GrXferProcessor::DstProxyView&) override;
+
     void onPrepareDraws(Target*) override;
     void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
-    SkRect fDrawRect;
-    SkRect fLocalRect;
-    SkPMColor4f fColor;
-    GP fGP;
+    SkRect         fDrawRect;
+    SkRect         fLocalRect;
+    SkPMColor4f    fColor;
+    GP             fGP;
     GrProcessorSet fProcessorSet;
+
+    // If this op is prePrepared the created programInfo will be stored here for use in
+    // onExecute. In the prePrepared case it will have been stored in the record-time arena.
+    GrProgramInfo* fProgramInfo = nullptr;
+    GrSimpleMesh*  fMesh        = nullptr;
 
     friend class ::GrOpMemoryPool;
 };
@@ -150,6 +168,22 @@ TestRectOp::TestRectOp(const GrCaps* caps,
     this->setBounds(drawRect.makeSorted(), HasAABloat::kNo, IsHairline::kNo);
 }
 
+void TestRectOp::onCreateProgramInfo(const GrCaps* caps,
+                                     SkArenaAlloc* arena,
+                                     const GrSurfaceProxyView* outputView,
+                                     GrAppliedClip&& appliedClip,
+                                     const GrXferProcessor::DstProxyView& dstProxyView) {
+    fProgramInfo = GrSimpleMeshDrawOpHelper::CreateProgramInfo(caps,
+                                                               arena,
+                                                               outputView,
+                                                               std::move(appliedClip),
+                                                               dstProxyView,
+                                                               &fGP,
+                                                               std::move(fProcessorSet),
+                                                               GrPrimitiveType::kTriangles,
+                                                               GrPipeline::InputFlags::kNone);
+}
+
 void TestRectOp::onPrepareDraws(Target* target) {
     QuadHelper helper(target, fGP.vertexStride(), 1);
     GrVertexWriter writer{helper.vertices()};
@@ -157,15 +191,18 @@ void TestRectOp::onPrepareDraws(Target* target) {
     auto local = GrVertexWriter::TriStripFromRect(fLocalRect);
     GrVertexColor color(fColor, fGP.wideColor());
     writer.writeQuad(pos, local, color);
-    helper.recordDraw(target, &fGP);
+
+    fMesh = helper.mesh();
 }
 
 void TestRectOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
-    auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
-                                                             std::move(fProcessorSet),
-                                                             GrPipeline::InputFlags::kNone);
+    if (!fProgramInfo) {
+        this->createProgramInfo(flushState);
+    }
 
-    flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
+    flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+    flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+    flushState->drawMesh(*fMesh);
 }
 
 }  // anonymous namespace

@@ -4,13 +4,19 @@
 
 #include "chrome/browser/web_applications/web_app_tab_helper.h"
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "base/unguessable_token.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/web_applications/components/file_handler_manager.h"
 #include "chrome/browser/web_applications/components/policy/web_app_policy_manager.h"
 #include "chrome/browser/web_applications/components/web_app_audio_focus_id_map.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/browser/web_applications/components/web_app_ui_manager.h"
 #include "chrome/browser/web_applications/manifest_update_manager.h"
+#include "chrome/browser/web_applications/system_web_app_manager.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/site_instance.h"
@@ -41,17 +47,6 @@ const AppId& WebAppTabHelper::GetAppId() const {
   return app_id_;
 }
 
-bool WebAppTabHelper::IsUserInstalled() const {
-  return !app_id_.empty() && provider_->registrar().WasInstalledByUser(app_id_);
-}
-
-bool WebAppTabHelper::IsFromInstallButton() const {
-  // TODO(loyso): Use something better to record apps installed from promoted
-  // UIs. crbug.com/774918.
-  return !app_id_.empty() &&
-         provider_->registrar().GetAppScope(app_id_).has_value();
-}
-
 const base::UnguessableToken& WebAppTabHelper::GetAudioFocusGroupIdForTesting()
     const {
   return audio_focus_group_id_;
@@ -67,18 +62,54 @@ void WebAppTabHelper::SetAppId(const AppId& app_id) {
   OnAssociatedAppChanged();
 }
 
+void WebAppTabHelper::ReadyToCommitNavigation(
+    content::NavigationHandle* navigation_handle) {
+  if (navigation_handle->IsInMainFrame()) {
+    const GURL& url = navigation_handle->GetURL();
+    const AppId app_id = FindAppIdWithUrlInScope(url);
+    SetAppId(app_id);
+  }
+
+  // If navigating to a System Web App (including navigation in sub frames), let
+  // SystemWebAppManager perform tab-secific setup for navigations in System Web
+  // Apps.
+  if (provider_->system_web_app_manager().IsSystemWebApp(GetAppId())) {
+    provider_->system_web_app_manager().OnReadyToCommitNavigation(
+        GetAppId(), navigation_handle);
+  }
+}
+
 void WebAppTabHelper::DidFinishNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->IsInMainFrame() || !navigation_handle->HasCommitted())
     return;
 
-  const GURL& url = navigation_handle->GetURL();
-  const AppId app_id = FindAppIdWithUrlInScope(url);
-  SetAppId(app_id);
+  is_error_page_ = navigation_handle->IsErrorPage();
 
-  provider_->manifest_update_manager().MaybeUpdate(url, app_id, web_contents());
+  provider_->manifest_update_manager().MaybeUpdate(navigation_handle->GetURL(),
+                                                   GetAppId(), web_contents());
 
   ReinstallPlaceholderAppIfNecessary(navigation_handle->GetURL());
+}
+
+void WebAppTabHelper::DOMContentLoaded(
+    content::RenderFrameHost* render_frame_host) {
+  if (render_frame_host != web_contents()->GetMainFrame())
+    return;
+
+  // Don't try and update the expiry time if this is an error page.
+  if (is_error_page_)
+    return;
+
+  // Don't try and manage file handlers unless this page is for an installed
+  // app.
+  if (app_id_.empty())
+    return;
+
+  // There is no way to reliably know if |app_id_| is for a System Web App
+  // during startup, so we always call MaybeUpdateFileHandlingOriginTrialExpiry.
+  provider_->file_handler_manager().MaybeUpdateFileHandlingOriginTrialExpiry(
+      web_contents(), app_id_);
 }
 
 void WebAppTabHelper::DidCloneToNewWebContents(
@@ -100,8 +131,14 @@ bool WebAppTabHelper::IsInAppWindow() const {
 void WebAppTabHelper::OnWebAppInstalled(const AppId& installed_app_id) {
   // Check if current web_contents url is in scope for the newly installed app.
   AppId app_id = FindAppIdWithUrlInScope(web_contents()->GetURL());
-  if (app_id == installed_app_id)
-    SetAppId(app_id);
+  if (app_id != installed_app_id)
+    return;
+
+  SetAppId(app_id);
+
+  // TODO(crbug.com/1053371): Clean up where we install file handlers.
+  provider_->file_handler_manager().MaybeUpdateFileHandlingOriginTrialExpiry(
+      web_contents(), installed_app_id);
 }
 
 void WebAppTabHelper::OnWebAppUninstalled(const AppId& uninstalled_app_id) {

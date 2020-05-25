@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Hans-Kristian Arntzen
+ * Copyright 2019-2020 Hans-Kristian Arntzen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ extern "C" {
 /* Bumped if ABI or API breaks backwards compatibility. */
 #define SPVC_C_API_VERSION_MAJOR 0
 /* Bumped if APIs or enumerations are added in a backwards compatible way. */
-#define SPVC_C_API_VERSION_MINOR 22
+#define SPVC_C_API_VERSION_MINOR 28
 /* Bumped if internal implementation details change. */
 #define SPVC_C_API_VERSION_PATCH 0
 
@@ -571,6 +571,14 @@ typedef enum spvc_compiler_option
 	SPVC_COMPILER_OPTION_MSL_INVARIANT_FP_MATH = 47 | SPVC_COMPILER_OPTION_MSL_BIT,
 	SPVC_COMPILER_OPTION_MSL_EMULATE_CUBEMAP_ARRAY = 48 | SPVC_COMPILER_OPTION_MSL_BIT,
 	SPVC_COMPILER_OPTION_MSL_ENABLE_DECORATION_BINDING = 49 | SPVC_COMPILER_OPTION_MSL_BIT,
+	SPVC_COMPILER_OPTION_MSL_FORCE_ACTIVE_ARGUMENT_BUFFER_RESOURCES = 50 | SPVC_COMPILER_OPTION_MSL_BIT,
+	SPVC_COMPILER_OPTION_MSL_FORCE_NATIVE_ARRAYS = 51 | SPVC_COMPILER_OPTION_MSL_BIT,
+
+	SPVC_COMPILER_OPTION_ENABLE_STORAGE_IMAGE_QUALIFIER_DEDUCTION = 52 | SPVC_COMPILER_OPTION_COMMON_BIT,
+
+	SPVC_COMPILER_OPTION_HLSL_FORCE_STORAGE_BUFFER_AS_UAV = 53 | SPVC_COMPILER_OPTION_HLSL_BIT,
+
+	SPVC_COMPILER_OPTION_FORCE_ZERO_INITIALIZED_VARIABLES = 54 | SPVC_COMPILER_OPTION_COMMON_BIT,
 
 	SPVC_COMPILER_OPTION_INT_MAX = 0x7fffffff
 } spvc_compiler_option;
@@ -689,6 +697,8 @@ SPVC_PUBLIC_API unsigned spvc_compiler_msl_get_automatic_resource_binding(spvc_c
 SPVC_PUBLIC_API unsigned spvc_compiler_msl_get_automatic_resource_binding_secondary(spvc_compiler compiler, spvc_variable_id id);
 
 SPVC_PUBLIC_API spvc_result spvc_compiler_msl_add_dynamic_buffer(spvc_compiler compiler, unsigned desc_set, unsigned binding, unsigned index);
+
+SPVC_PUBLIC_API spvc_result spvc_compiler_msl_add_inline_uniform_block(spvc_compiler compiler, unsigned desc_set, unsigned binding);
 
 /*
  * Reflect resources.

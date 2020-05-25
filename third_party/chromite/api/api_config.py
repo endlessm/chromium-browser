@@ -7,7 +7,12 @@
 
 from __future__ import print_function
 
+import sys
+
 from chromite.api.gen.chromite.api import build_api_config_pb2
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class Error(Exception):
@@ -128,7 +133,7 @@ class ApiConfigMixin(object):
   """Mixin to add an API Config factory properties.
 
   This is meant to be used for tests to make these configs more uniform across
-  all of the tests since there's very little to change anyway.
+  all the tests since there's very little to change anyway.
   """
 
   @property

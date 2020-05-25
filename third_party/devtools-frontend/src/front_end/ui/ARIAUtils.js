@@ -236,9 +236,13 @@ export function markAsHeading(element, level) {
 
 /**
  * @param {!Element} element
+ * @param {boolean} isAtomic
  */
-export function markAsPoliteLiveRegion(element) {
+export function markAsPoliteLiveRegion(element, isAtomic) {
   element.setAttribute('aria-live', 'polite');
+  if (isAtomic) {
+    element.setAttribute('aria-atomic', 'true');
+  }
 }
 
 /**
@@ -247,6 +251,13 @@ export function markAsPoliteLiveRegion(element) {
  */
 export function hasRole(element) {
   return element.hasAttribute('role');
+}
+
+/**
+ * @param {!Element} element
+ */
+export function removeRole(element) {
+  element.removeAttribute('role');
 }
 
 /**
@@ -468,7 +479,7 @@ const _descriptionMap = new WeakMap();
  * @param {string} description
  */
 export function setDescription(element, description) {
-  // Nodes in the accesesibility tree are made up of a core
+  // Nodes in the accessibility tree are made up of a core
   // triplet of "name", "value", "description"
   // The "description" field is taken from either
   // 1. The title html attribute

@@ -15,9 +15,8 @@
 #ifndef sw_Math_hpp
 #define sw_Math_hpp
 
+#include "Debug.hpp"
 #include "Types.hpp"
-
-#include "Vulkan/VkDebug.hpp"
 
 #include <cmath>
 #if defined(_MSC_VER)
@@ -133,9 +132,6 @@ inline int ceilInt4(int x)
 	!!((x)&0xFFFFFFFC) + \
 	!!((x)&0xFFFFFFFE) + \
 	!!((x)&0xFFFFFFFF))
-
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 inline unsigned long log2i(int x)
 {
@@ -331,11 +327,11 @@ inline float sRGBtoLinear(float c)
 {
 	if(c <= 0.04045f)
 	{
-		return c * 0.07739938f;  // 1.0f / 12.92f;
+		return c / 12.92f;
 	}
 	else
 	{
-		return powf((c + 0.055f) * 0.9478673f, 2.4f);  // 1.0f / 1.055f
+		return powf((c + 0.055f) / 1.055f, 2.4f);
 	}
 }
 
@@ -347,7 +343,7 @@ inline float linearToSRGB(float c)
 	}
 	else
 	{
-		return 1.055f * powf(c, 0.4166667f) - 0.055f;  // 1.0f / 2.4f
+		return 1.055f * powf(c, 1.0f / 2.4f) - 0.055f;
 	}
 }
 

@@ -97,6 +97,7 @@
 <translation id="2149973817440762519">Закладка</translation>
 <translation id="2179182049312275900">Ее можно включить в настройках в любой момент.</translation>
 <translation id="2198757192731523470">Google может использовать вашу историю, чтобы персонализировать рекламу, а также Поиск и другие сервисы.</translation>
+<translation id="2218443599109088993">Уменьшить</translation>
 <translation id="2230173723195178503">Веб-страница загружена</translation>
 <translation id="2239626343334228536">Удаление данных о работе в браузере…</translation>
 <translation id="2257567812274161158">Ошибка синхронизации.</translation>
@@ -159,6 +160,7 @@
 <translation id="2923448633003185837">Вставить и перейти</translation>
 <translation id="292639812446257861">Отметить как непрочитанное</translation>
 <translation id="2958718410589002129">Пароли</translation>
+<translation id="2964349545761222050">Блокировать сторонние файлы cookie</translation>
 <translation id="2969979262385602596">Не удалось войти в аккаунт. Повторите попытку.</translation>
 <translation id="298306318844797842">Добавить способ оплаты</translation>
 <translation id="2989805286512600854">Открыть в новой вкладке</translation>
@@ -166,6 +168,7 @@
 <translation id="3112556859945124369">Отметить…</translation>
 <translation id="3153862085237805241">Сохранить подсказку</translation>
 <translation id="3157684681743766797">Отметить все…</translation>
+<translation id="3161291298470460782">Вы выйдете из аккаунта, синхронизация будет отключена, а все данные Chrome – удалены с этого устройства. Синхронизированные данные останутся в вашем аккаунте Google.</translation>
 <translation id="3175081911749765310">Веб-сервисы</translation>
 <translation id="3178650076442119961">Последние действия: сегодня</translation>
 <translation id="3207960819495026254">Добавлено в закладки.</translation>
@@ -178,6 +181,7 @@
 <translation id="3290875554372353449">Выберите аккаунт</translation>
 <translation id="3311748811247479259">Отключено</translation>
 <translation id="3324193307694657476">Адрес, строка 2</translation>
+<translation id="3328801116991980348">Информация о сайте</translation>
 <translation id="3329904751041170572">Не удалось установить соединение с сервером.</translation>
 <translation id="3335947283844343239">Открыть закрытую вкладку</translation>
 <translation id="3371831930909698441">Доступен перевод. Параметры указаны в нижней части экрана.</translation>
@@ -197,6 +201,7 @@
 <translation id="3494788280727468875">Подтвердить удаление данных о работе в браузере</translation>
 <translation id="35083190962747987">Открыть URL ${url}</translation>
 <translation id="3519193562722059437">Чтобы просматривать веб-страницы, откройте вкладку.</translation>
+<translation id="3523473570015918798">После выхода из аккаунта ваши закладки, история, пароли и другие данные Chrome перестанут синхронизироваться с аккаунтом Google.</translation>
 <translation id="3527085408025491307">Папка</translation>
 <translation id="3529024052484145543">Автозаполнение не используется</translation>
 <translation id="3533202363250687977">Закрыть все вкладки инкогнито</translation>
@@ -300,6 +305,7 @@
 <translation id="4979397965658815378">Войдите в аккаунт Google, чтобы пользоваться своими закладками, паролями, историей и другими настройками на любом устройстве</translation>
 <translation id="5005498671520578047">Для копирования пароля</translation>
 <translation id="5010803260590204777">Чтобы просматривать веб-страницы, не оставляя следов, откройте вкладку инкогнито.</translation>
+<translation id="5039020240289137291">Блокировать сторонние файлы cookie</translation>
 <translation id="5039804452771397117">Разрешить</translation>
 <translation id="5059136629401106827">ОК</translation>
 <translation id="5062321486222145940">Установить Google Диск</translation>
@@ -329,6 +335,7 @@
 <translation id="54401264925851789">Сведения о надежности страницы</translation>
 <translation id="5443952882982198570">Кредитные карты</translation>
 <translation id="5457907402803865181">Ошибка при синхронизации паролей.</translation>
+<translation id="5508435575041083207">Выйти из аккаунта и удалить данные с этого устройства</translation>
 <translation id="5525269841082836315">Создание код. фразы</translation>
 <translation id="5548760955356983418">Функция Handoff позволит начать просмотр веб-сайта на одном устройстве и продолжить на другом. Открытый сайт появится на панели Dock вашего компьютера Mac.
 
@@ -414,9 +421,11 @@
 <translation id="6434591244308415567">Произошла ошибка. Повторите попытку позже.</translation>
 <translation id="6445051938772793705">Страна</translation>
 <translation id="6445981559479772097">Сообщение отправлено</translation>
+<translation id="6447842834002726250">Файлы сookie</translation>
 <translation id="6464071786529933911">Откр. в режиме инкогнито</translation>
 <translation id="6476800141292307438">Перевод страницы на <ph name="LANGUAGE" />. Параметры указаны в нижней части экрана.</translation>
 <translation id="6482629121755362506">Удалено закладок: <ph name="NUMBER_OF_SELECTED_BOOKMARKS" /></translation>
+<translation id="6561262006871132942">Увеличить</translation>
 <translation id="6610002944194042868">Параметры перевода</translation>
 <translation id="6628106477656132239">Неверная дата окончания срока действия</translation>
 <translation id="6638511529934826365">Изменить масштаб текста</translation>
@@ -479,7 +488,6 @@
 <translation id="734758817008927353">Параметры сохранения карты</translation>
 <translation id="7348502496356775519">Закладка</translation>
 <translation id="7383797227493018512">Список для чтения</translation>
-<translation id="7392048574806661116">Выйти и удалить синхронизированные данные</translation>
 <translation id="7400418766976504921">URL</translation>
 <translation id="7409985198648820906">Непрочитанных статей: <ph name="UNREAD_COUNT" />.</translation>
 <translation id="7425346204213733349">Изменения в ваших закладках, паролях, истории и других настройках больше не будут синхронизироваться с аккаунтом Google. Это не повлияет на данные, сохраненные в аккаунте ранее.</translation>
@@ -501,6 +509,9 @@
 <translation id="766891008101699113">Чтобы просматривать веб-страницы анонимно, откройте новую вкладку.</translation>
 <translation id="7671141431838911305">УСТАНОВИТЬ</translation>
 <translation id="7765158879357617694">Переместить</translation>
+<translation id="7771470029643830783">После выхода из аккаунта ваши закладки, история, пароли и другие данные Chrome перестанут синхронизироваться с аккаунтом Google.
+
+С этого устройства будут удалены все данные Chrome, так как вашим аккаунтом управляет администратор домена <ph name="HOSTED_DOMAIN" />. Синхронизированные данные останутся в вашем аккаунте Google.</translation>
 <translation id="7772032839648071052">Подтвердите кодовую фразу</translation>
 <translation id="7781011649027948662">Перевести страницу?</translation>
 <translation id="7781829728241885113">Вчера</translation>
@@ -550,6 +561,7 @@
 <translation id="8490978609246021741">Сохранить изменения</translation>
 <translation id="8503813439785031346">Имя пользователя</translation>
 <translation id="850600235656508448">Открыть в режиме инкогнито</translation>
+<translation id="8510057420705599706">Вы выйдете из аккаунта, синхронизация будет отключена, но ваши закладки, история, пароли и другие данные Chrome останутся на этом устройстве.</translation>
 <translation id="8517375800490286174">Лицензии открытого ПО</translation>
 <translation id="8524799873541103884"><ph name="INCOGNITO" />, вкладки между <ph name="FIRST_VISIBLE_TAB" /> и <ph name="LAST_VISIBLE_TAB" />, всего <ph name="NUMBER_OF_OPEN_TABS" /></translation>
 <translation id="8529767659511976195">Новинка</translation>
@@ -592,12 +604,14 @@
 <translation id="9094033019050270033">Обновить пароль</translation>
 <translation id="9100610230175265781">Необходима кодовая фраза</translation>
 <translation id="9148126808321036104">Повторите вход</translation>
+<translation id="9152539721251340337">Создать QR-код</translation>
 <translation id="9157836665414082580">Блокировать диалоговые окна</translation>
 <translation id="9188680907066685419">Выход из управляемого аккаунта</translation>
 <translation id="9203116392574189331">Handoff</translation>
 <translation id="9223358826628549784">Отчет отправлен</translation>
 <translation id="952704832371081537">Отмена</translation>
 <translation id="988141524645182168">Другие устройства</translation>
+<translation id="989697783705943787">Безопасность сайта</translation>
 <translation id="989988560359834682">Изменение адреса</translation>
 <translation id="994757059139821576">Рекомендуемые статьи</translation>
 </translationbundle>

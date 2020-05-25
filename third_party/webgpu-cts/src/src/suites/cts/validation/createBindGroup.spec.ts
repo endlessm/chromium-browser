@@ -3,7 +3,7 @@ createBindGroup validation tests.
 `;
 
 import { C, TestGroup, pcombine, poptions, unreachable } from '../../../framework/index.js';
-import { bindingTypes } from '../format_info.js';
+import { kBindingTypes } from '../capability_info.js';
 
 import { BindingResourceType, ValidationTest, resourceBindingMatches } from './validation_test.js';
 
@@ -81,7 +81,7 @@ g.test('buffer binding must contain exactly one buffer of its type', t => {
   }, shouldError);
 }).params(
   pcombine(
-    poptions('bindingType', bindingTypes),
+    poptions('bindingType', kBindingTypes),
     poptions('resourceType', Object.keys(BindingResourceType))
   )
 );
@@ -291,5 +291,4 @@ g.test('buffer offset and size for bind groups match', async t => {
   { offset: 256 * 5, size: 0, _success: false }, // offset is OOB
   { offset: 0, size: 256 * 5, _success: false }, // size is OOB
   { offset: 1024, size: 1, _success: false }, // offset+size is OOB
-  { offset: 256, size: -256, _success: false }, // offset+size overflows to be 0
 ]);

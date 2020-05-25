@@ -42,6 +42,7 @@ const char kSwitchIdeValueVs2019[] = "vs2019";
 const char kSwitchIdeValueWinSdk[] = "winsdk";
 const char kSwitchIdeValueXcode[] = "xcode";
 const char kSwitchIdeValueJson[] = "json";
+const char kSwitchNinjaExecutable[] = "ninja-executable";
 const char kSwitchNinjaExtraArgs[] = "ninja-extra-args";
 const char kSwitchNoDeps[] = "no-deps";
 const char kSwitchRootTarget[] = "root-target";
@@ -51,6 +52,18 @@ const char kSwitchJsonFileName[] = "json-file-name";
 const char kSwitchJsonIdeScript[] = "json-ide-script";
 const char kSwitchJsonIdeScriptArgs[] = "json-ide-script-args";
 const char kSwitchExportCompileCommands[] = "export-compile-commands";
+
+// Extracts extra parameters for XcodeWriter from command-line flags.
+XcodeWriter::Options XcodeWriterOptionsFromCommandLine(
+    const base::CommandLine& command_line) {
+  return {
+      command_line.GetSwitchValueASCII(kSwitchWorkspace),
+      command_line.GetSwitchValueASCII(kSwitchRootTarget),
+      command_line.GetSwitchValueASCII(kSwitchNinjaExecutable),
+      command_line.GetSwitchValueASCII(kSwitchNinjaExtraArgs),
+      command_line.GetSwitchValueASCII(kSwitchFilters),
+  };
+}
 
 // Collects Ninja rules for each toolchain. The lock protectes the rules.
 struct TargetWriteInfo {
@@ -235,11 +248,8 @@ bool RunIdeWriter(const std::string& ide,
     return res;
   } else if (ide == kSwitchIdeValueXcode) {
     bool res = XcodeWriter::RunAndWriteFiles(
-        command_line->GetSwitchValueASCII(kSwitchWorkspace),
-        command_line->GetSwitchValueASCII(kSwitchRootTarget),
-        command_line->GetSwitchValueASCII(kSwitchNinjaExtraArgs),
-        command_line->GetSwitchValueASCII(kSwitchFilters), build_settings,
-        builder, err);
+        build_settings, builder,
+        XcodeWriterOptionsFromCommandLine(*command_line), err);
     if (res && !quiet) {
       OutputString("Generating Xcode projects took " +
                    base::Int64ToString(timer.Elapsed().InMilliseconds()) +
@@ -375,6 +385,9 @@ Xcode Flags
       Override defaut workspace file name ("all"). The workspace file is
       written to the root build directory.
 
+  --ninja-executable=<string>
+      Can be used to specify the ninja executable to use when building.
+
   --ninja-extra-args=<string>
       This string is passed without any quoting to the ninja invocation
       command-line. Can be used to configure ninja flags, like "-j".
@@ -490,7 +503,8 @@ int RunGen(const std::vector<std::string>& args) {
     return 1;
   }
 
-  if (!WriteRuntimeDepsFilesIfNecessary(setup->builder(), &err)) {
+  if (!WriteRuntimeDepsFilesIfNecessary(&setup->build_settings(),
+                                        setup->builder(), &err)) {
     err.PrintToStdout();
     return 1;
   }

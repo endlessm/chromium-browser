@@ -19,7 +19,10 @@ constexpr base::TimeDelta kGpuWatchdogTimeout =
     base::TimeDelta::FromSeconds(30);
 #elif defined(OS_MACOSX)
 constexpr base::TimeDelta kGpuWatchdogTimeout =
-    base::TimeDelta::FromSeconds(17);
+    base::TimeDelta::FromSeconds(25);
+#elif defined(OS_WIN)
+constexpr base::TimeDelta kGpuWatchdogTimeout =
+    base::TimeDelta::FromSeconds(30);
 #else
 constexpr base::TimeDelta kGpuWatchdogTimeout =
     base::TimeDelta::FromSeconds(15);

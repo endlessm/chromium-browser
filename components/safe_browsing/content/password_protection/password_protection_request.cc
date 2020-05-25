@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+#include "base/containers/flat_set.h"  // Copyright 2017 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,11 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/containers/flat_set.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_reuse_detector.h"
@@ -22,17 +24,19 @@
 #include "components/safe_browsing/core/db/allowlist_checker_client.h"
 #include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/proto/csd.pb.h"
+#include "components/url_formatter/url_formatter.h"
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
-#include "net/base/url_util.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "url/gurl.h"
 #include "url/origin.h"
 
 using content::BrowserThread;
@@ -68,6 +72,27 @@ std::unique_ptr<VisualFeatures> ExtractVisualFeatures(
 }
 #endif
 
+std::vector<std::string> GetMatchingDomains(
+    const std::vector<password_manager::MatchingReusedCredential>&
+        matching_reused_credentials) {
+  std::vector<std::string> matching_domains;
+  matching_domains.reserve(matching_reused_credentials.size());
+  for (const auto& credential : matching_reused_credentials) {
+    // This only works for Web credentials. For Android credentials, there needs
+    // to be special handing and should use affiliation information instead of
+    // the signon_realm.
+    std::string domain = base::UTF16ToUTF8(url_formatter::FormatUrl(
+        GURL(credential.signon_realm),
+        url_formatter::kFormatUrlOmitDefaults |
+            url_formatter::kFormatUrlOmitHTTPS |
+            url_formatter::kFormatUrlOmitTrivialSubdomains |
+            url_formatter::kFormatUrlTrimAfterHost,
+        net::UnescapeRule::SPACES, nullptr, nullptr, nullptr));
+    matching_domains.push_back(std::move(domain));
+  }
+  return base::flat_set<std::string>(std::move(matching_domains)).extract();
+}
+
 }  // namespace
 
 PasswordProtectionRequest::PasswordProtectionRequest(
@@ -77,7 +102,8 @@ PasswordProtectionRequest::PasswordProtectionRequest(
     const GURL& password_form_frame_url,
     const std::string& username,
     PasswordType password_type,
-    const std::vector<std::string>& matching_domains,
+    const std::vector<password_manager::MatchingReusedCredential>&
+        matching_reused_credentials,
     LoginReputationClientRequest::TriggerType type,
     bool password_field_exists,
     PasswordProtectionService* pps,
@@ -89,7 +115,8 @@ PasswordProtectionRequest::PasswordProtectionRequest(
       password_form_frame_url_(password_form_frame_url),
       username_(username),
       password_type_(password_type),
-      matching_domains_(matching_domains),
+      matching_domains_(GetMatchingDomains(matching_reused_credentials)),
+      matching_reused_credentials_(matching_reused_credentials),
       trigger_type_(type),
       password_field_exists_(password_field_exists),
       password_protection_service_(pps),
@@ -102,8 +129,7 @@ PasswordProtectionRequest::PasswordProtectionRequest(
          trigger_type_ == LoginReputationClientRequest::PASSWORD_REUSE_EVENT);
   DCHECK(trigger_type_ != LoginReputationClientRequest::PASSWORD_REUSE_EVENT ||
          password_type_ != PasswordType::SAVED_PASSWORD ||
-         matching_domains_.size() > 0);
-
+         !matching_reused_credentials_.empty());
   request_proto_->set_trigger_type(trigger_type_);
 }
 
@@ -272,7 +298,7 @@ void PasswordProtectionRequest::FillRequestProto(bool is_sampled_ping) {
         LogSyncAccountType(reuse_event->sync_account_type());
       }
 
-      if ((password_protection_service_->IsExtendedReporting()) &&
+      if (password_protection_service_->IsExtendedReporting() &&
           !password_protection_service_->IsIncognito()) {
         for (const auto& domain : matching_domains_) {
           reuse_event->add_domains_matching_password(domain);
@@ -405,9 +431,9 @@ void PasswordProtectionRequest::CollectVisualFeatures() {
 
 void PasswordProtectionRequest::OnScreenshotTaken(const SkBitmap& screenshot) {
   // Do the feature extraction on a worker thread, to avoid blocking the UI.
-  base::PostTaskAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
-      {base::ThreadPool(), base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&ExtractVisualFeatures, screenshot),
       base::BindOnce(&PasswordProtectionRequest::OnVisualFeatureCollectionDone,

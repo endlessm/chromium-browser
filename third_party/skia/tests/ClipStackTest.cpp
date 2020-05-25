@@ -22,7 +22,6 @@
 #include "include/core/SkTypes.h"
 #include "include/gpu/GrConfig.h"
 #include "include/gpu/GrContext.h"
-#include "include/gpu/GrTexture.h"
 #include "include/private/GrResourceKey.h"
 #include "include/private/SkTemplates.h"
 #include "include/utils/SkRandom.h"
@@ -34,6 +33,7 @@
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrReducedClip.h"
 #include "src/gpu/GrResourceCache.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTextureProxy.h"
 #include "tests/Test.h"
 #include "tools/gpu/GrContextFactory.h"
@@ -1521,7 +1521,7 @@ DEF_TEST(ClipStack, reporter) {
 
 sk_sp<GrTextureProxy> GrClipStackClip::testingOnly_createClipMask(GrContext* context) const {
     const GrReducedClip reducedClip(*fStack, SkRect::MakeWH(512, 512), 0);
-    return this->createSoftwareClipMask(context, reducedClip, nullptr);
+    return this->createSoftwareClipMask(context, reducedClip, nullptr).asTextureProxyRef();
 }
 
 // Verify that clip masks are freed up when the clip state that generated them goes away.

@@ -24,7 +24,7 @@ SkMatrix image_matrix(const sk_sp<SkImage>& image, const SkISize& dest_size) {
                  : SkMatrix::I();
 }
 
-class ImageAnimator final : public sksg::Animator {
+class ImageAnimator final : public Animator {
 public:
     ImageAnimator(sk_sp<ImageAsset> asset,
                   sk_sp<sksg::Image> image_node,
@@ -39,15 +39,20 @@ public:
         , fTimeScale(time_scale)
         , fIsMultiframe(fAsset->isMultiFrame()) {}
 
-    void onTick(float t) override {
+    StateChanged onSeek(float t) override {
         if (!fIsMultiframe && fImageNode->getImage()) {
             // Single frame already resolved.
-            return;
+            return false;
         }
 
         auto frame = fAsset->getFrame((t + fTimeBias) * fTimeScale);
-        fImageTransformNode->setMatrix(image_matrix(frame, fAssetSize));
-        fImageNode->setImage(std::move(frame));
+        if (frame != fImageNode->getImage()) {
+            fImageTransformNode->setMatrix(image_matrix(frame, fAssetSize));
+            fImageNode->setImage(std::move(frame));
+            return true;
+        }
+
+        return false;
     }
 
 private:

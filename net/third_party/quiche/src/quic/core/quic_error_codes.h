@@ -356,11 +356,66 @@ enum QuicErrorCode {
   // Internal error codes for HTTP/3 errors.
   QUIC_HTTP_FRAME_TOO_LARGE = 131,
   QUIC_HTTP_FRAME_ERROR = 132,
+  // A frame that is never allowed on a request stream is received.
   QUIC_HTTP_FRAME_UNEXPECTED_ON_SPDY_STREAM = 133,
+  // A frame that is never allowed on the control stream is received.
   QUIC_HTTP_FRAME_UNEXPECTED_ON_CONTROL_STREAM = 134,
+  // An invalid sequence of frames normally allowed on a request stream is
+  // received.
+  QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM = 151,
+  // A second SETTINGS frame is received on the control stream.
+  QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_CONTROL_STREAM = 152,
+  // A second instance of a unidirectional stream of a certain type is created.
+  QUIC_HTTP_DUPLICATE_UNIDIRECTIONAL_STREAM = 153,
+  // Client receives a server-initiated bidirectional stream.
+  QUIC_HTTP_SERVER_INITIATED_BIDIRECTIONAL_STREAM = 154,
+  // Server opens stream with stream ID corresponding to client-initiated
+  // stream or vice versa.
+  QUIC_HTTP_STREAM_WRONG_DIRECTION = 155,
+  // Peer closes one of the six critical unidirectional streams (control, QPACK
+  // encoder or decoder, in either direction).
+  QUIC_HTTP_CLOSED_CRITICAL_STREAM = 156,
+  // The first frame received on the control stream is not a SETTINGS frame.
+  QUIC_HTTP_MISSING_SETTINGS_FRAME = 157,
+  // The received SETTINGS frame contains duplicate setting identifiers.
+  QUIC_HTTP_DUPLICATE_SETTING_IDENTIFIER = 158,
+
+  // HPACK header block decoding errors.
+  // Index varint beyond implementation limit.
+  QUIC_HPACK_INDEX_VARINT_ERROR = 135,
+  // Name length varint beyond implementation limit.
+  QUIC_HPACK_NAME_LENGTH_VARINT_ERROR = 136,
+  // Value length varint beyond implementation limit.
+  QUIC_HPACK_VALUE_LENGTH_VARINT_ERROR = 137,
+  // Name length exceeds buffer limit.
+  QUIC_HPACK_NAME_TOO_LONG = 138,
+  // Value length exceeds buffer limit.
+  QUIC_HPACK_VALUE_TOO_LONG = 139,
+  // Name Huffman encoding error.
+  QUIC_HPACK_NAME_HUFFMAN_ERROR = 140,
+  // Value Huffman encoding error.
+  QUIC_HPACK_VALUE_HUFFMAN_ERROR = 141,
+  // Next instruction should have been a dynamic table size update.
+  QUIC_HPACK_MISSING_DYNAMIC_TABLE_SIZE_UPDATE = 142,
+  // Invalid index in indexed header field representation.
+  QUIC_HPACK_INVALID_INDEX = 143,
+  // Invalid index in literal header field with indexed name representation.
+  QUIC_HPACK_INVALID_NAME_INDEX = 144,
+  // Dynamic table size update not allowed.
+  QUIC_HPACK_DYNAMIC_TABLE_SIZE_UPDATE_NOT_ALLOWED = 145,
+  // Initial dynamic table size update is above low water mark.
+  QUIC_HPACK_INITIAL_TABLE_SIZE_UPDATE_IS_ABOVE_LOW_WATER_MARK = 146,
+  // Dynamic table size update is above acknowledged setting.
+  QUIC_HPACK_TABLE_SIZE_UPDATE_IS_ABOVE_ACKNOWLEDGED_SETTING = 147,
+  // HPACK block ends in the middle of an instruction.
+  QUIC_HPACK_TRUNCATED_BLOCK = 148,
+  // Incoming data fragment exceeds buffer limit.
+  QUIC_HPACK_FRAGMENT_TOO_LONG = 149,
+  // Total compressed HPACK data size exceeds limit.
+  QUIC_HPACK_COMPRESSED_HEADER_SIZE_EXCEEDS_LIMIT = 150,
 
   // No error. Used as bound while iterating.
-  QUIC_LAST_ERROR = 135,
+  QUIC_LAST_ERROR = 159,
 };
 // QuicErrorCodes is encoded as four octets on-the-wire when doing Google QUIC,
 // or a varint62 when doing IETF QUIC. Ensure that its value does not exceed

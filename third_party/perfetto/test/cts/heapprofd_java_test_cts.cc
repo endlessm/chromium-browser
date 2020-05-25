@@ -34,6 +34,18 @@
 namespace perfetto {
 namespace {
 
+std::string RandomSessionName() {
+  std::random_device rd;
+  std::default_random_engine generator(rd());
+  std::uniform_int_distribution<char> distribution('a', 'z');
+
+  constexpr size_t kSessionNameLen = 20;
+  std::string result(kSessionNameLen, '\0');
+  for (size_t i = 0; i < kSessionNameLen; ++i)
+    result[i] = distribution(generator);
+  return result;
+}
+
 std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
   base::TestTaskRunner task_runner;
 
@@ -42,7 +54,7 @@ std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
     StopApp(app_name, "old.app.stopped", &task_runner);
     task_runner.RunUntilCheckpoint("old.app.stopped", 1000 /*ms*/);
   }
-  StartAppActivity(app_name, "target.app.running", &task_runner,
+  StartAppActivity(app_name, "MainActivity", "target.app.running", &task_runner,
                    /*delay_ms=*/100);
   task_runner.RunUntilCheckpoint("target.app.running", 1000 /*ms*/);
   // If we try to dump too early in app initialization, we sometimes deadlock.
@@ -56,6 +68,7 @@ std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
   TraceConfig trace_config;
   trace_config.add_buffers()->set_size_kb(20 * 1024);
   trace_config.set_duration_ms(6000);
+  trace_config.set_unique_session_name(RandomSessionName().c_str());
 
   auto* ds_config = trace_config.add_data_sources()->mutable_config();
   ds_config->set_name("android.java_hprof");
@@ -70,6 +83,7 @@ std::vector<protos::gen::TracePacket> ProfileRuntime(std::string app_name) {
   helper.WaitForTracingDisabled(10000 /*ms*/);
   helper.ReadData();
   helper.WaitForReadData();
+  PERFETTO_CHECK(IsAppRunning(app_name));
   StopApp(app_name, "new.app.stopped", &task_runner);
   task_runner.RunUntilCheckpoint("new.app.stopped", 1000 /*ms*/);
   return helper.trace();

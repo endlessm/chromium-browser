@@ -15,18 +15,18 @@ GrDawnProgramDataManager::GrDawnProgramDataManager(const UniformInfoArray& unifo
     , fUniformsDirty(false) {
     fUniformData.reset(uniformBufferSize);
     memset(fUniformData.get(), 0, fUniformBufferSize);
-    int count = uniforms.count();
-    fUniforms.push_back_n(count);
+    fUniforms.push_back_n(uniforms.count());
     // We must add uniforms in same order is the UniformInfoArray so that UniformHandles already
     // owned by other objects will still match up here.
-    for (int i = 0; i < count; i++) {
+    int i = 0;
+    for (const auto& uniformInfo : uniforms.items()) {
         Uniform& uniform = fUniforms[i];
-        const GrDawnUniformHandler::UniformInfo uniformInfo = uniforms[i];
         SkDEBUGCODE(
             uniform.fArrayCount = uniformInfo.fVar.getArrayCount();
             uniform.fType = uniformInfo.fVar.getType();
         )
         uniform.fOffset = uniformInfo.fUBOOffset;
+        ++i;
     }
 }
 
@@ -235,14 +235,8 @@ template<> struct set_uniform_matrix<4> {
     }
 };
 
-void GrDawnProgramDataManager::uploadUniformBuffers(GrDawnGpu* gpu,
-                                                    GrDawnRingBuffer::Slice slice) const {
-    auto copyEncoder = gpu->getCopyEncoder();
-    if (slice.fBuffer && fUniformsDirty) {
-        GrDawnStagingBuffer* stagingBuffer = gpu->getStagingBuffer(fUniformBufferSize);
-        memcpy(stagingBuffer->fData, fUniformData.get(), fUniformBufferSize);
-        stagingBuffer->fBuffer.Unmap();
-        copyEncoder.CopyBufferToBuffer(
-            stagingBuffer->fBuffer, 0, slice.fBuffer, slice.fOffset, fUniformBufferSize);
+void GrDawnProgramDataManager::uploadUniformBuffers(void* dest) const {
+    if (fUniformsDirty) {
+        memcpy(dest, fUniformData.get(), fUniformBufferSize);
     }
 }

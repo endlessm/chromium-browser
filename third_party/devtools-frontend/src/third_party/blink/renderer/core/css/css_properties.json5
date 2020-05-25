@@ -354,7 +354,7 @@
       physical_group: {
         valid_type: "str",
         valid_values: ["border", "border-color", "border-style", "border-width",
-                       "inset", "intrinsic-size", "margin", "max-size",
+                       "inset", "margin", "max-size",
                        "min-size", "overflow", "padding", "scroll-margin",
                        "scroll-padding", "size", "visited-border-color"],
       }
@@ -651,8 +651,8 @@
       inherited: true,
       field_group: "inherited",
       field_template: "external",
-      include_paths: ["third_party/blink/renderer/platform/graphics/color.h"],
-      default_value: "Color::kBlack",
+      include_paths: ["third_party/blink/renderer/core/layout/layout_theme.h"],
+      default_value: "LayoutTheme::GetTheme().SystemColor(CSSValueID::kCanvastext, WebColorScheme::kLight)",
       type_name: "Color",
       computed_style_custom_functions: ["getter", "setter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
@@ -1737,6 +1737,20 @@
       typedom_types: ["Keyword"],
     },
     {
+      name: "contain-intrinsic-size",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      is_slot: true,
+      interpolable: true,
+      field_group: "box",
+      field_template: "external",
+      keywords: ["auto"],
+      default_value: "LengthSize(Length::Auto(), Length::Auto())",
+      type_name: "LengthSize",
+      converter: "ConvertIntrinsicSize",
+      include_paths: ["third_party/blink/renderer/platform/geometry/length_size.h"],
+      runtime_flag: "CSSIntrinsicSize"
+    },
+    {
       name: "content",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       field_group: "*",
@@ -2147,52 +2161,6 @@
       name_for_methods: "RespectImageOrientation",
       type_name: "bool",
       converter: "ConvertImageOrientation",
-    },
-    {
-      name: "intrinsic-block-size",
-      property_methods: ["ParseSingleValue"],
-      direction_aware_options: {
-        resolver: "block",
-        physical_group: "intrinsic-size"
-      },
-      runtime_flag: "CSSIntrinsicSize"
-    },
-    {
-      name: "intrinsic-height",
-      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_slot: true,
-      interpolable: true,
-      field_group: "box",
-      field_template: "external",
-      keywords: ["auto", "legacy"],
-      default_value: "IntrinsicLength()",
-      type_name: "IntrinsicLength",
-      converter: "ConvertIntrinsicLength",
-      include_paths: ["third_party/blink/renderer/core/style/intrinsic_length.h"],
-      runtime_flag: "CSSIntrinsicSize"
-    },
-    {
-      name: "intrinsic-inline-size",
-      property_methods: ["ParseSingleValue"],
-      direction_aware_options: {
-        resolver: "inline",
-        physical_group: "intrinsic-size"
-      },
-      runtime_flag: "CSSIntrinsicSize"
-    },
-    {
-      name: "intrinsic-width",
-      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_slot: true,
-      interpolable: true,
-      field_group: "box",
-      field_template: "external",
-      keywords: ["auto", "legacy"],
-      default_value: "IntrinsicLength()",
-      type_name: "IntrinsicLength",
-      converter: "ConvertIntrinsicLength",
-      include_paths: ["third_party/blink/renderer/core/style/intrinsic_length.h"],
-      runtime_flag: "CSSIntrinsicSize"
     },
     {
       name: "isolation",
@@ -2939,18 +2907,13 @@
       typedom_types: ["Keyword"]
     },
     {
-      name: "render-subtree",
+      name: "subtree-visibility",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      field_group: "*",
-      field_size: 3,
-      field_template: "multi_keyword",
-      keywords: ["none", "invisible", "skip-activation", "skip-viewport-activation"],
-      default_value: "none",
-      name_for_methods: "RenderSubtree",
-      type_name: "RenderSubtreeFlags",
-      converter: "ConvertFlags<RenderSubtreeFlags>",
+      field_template: "keyword",
+      keywords: ["visible", "auto", "hidden", "hidden-matchable"],
+      default_value: "visible",
       typedom_types: ["Keyword"],
-      runtime_flag: "CSSRenderSubtree"
+      runtime_flag: "CSSSubtreeVisibility"
     },
     {
       name: "resize",
@@ -3008,8 +2971,8 @@
       field_group: "*",
       field_size: 2, // FIXME: Convert this to a keyword field
       field_template: "primitive",
-      default_value: "mojom::blink::ScrollIntoViewParams::Behavior::kAuto",
-      type_name: "mojom::blink::ScrollIntoViewParams::Behavior",
+      default_value: "mojom::blink::ScrollBehavior::kAuto",
+      type_name: "mojom::blink::ScrollBehavior",
       keywords: ["auto", "smooth"],
       typedom_types: ["Keyword"],
     },
@@ -5271,12 +5234,6 @@
       runtime_flag: "CSSLogical",
     },
     {
-      name: "intrinsic-size",
-      longhands: ["intrinsic-width", "intrinsic-height"],
-      property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
-      runtime_flag: "CSSIntrinsicSize"
-    },
-    {
       name: "list-style",
       longhands: ["list-style-position", "list-style-image", "list-style-type"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
@@ -5499,8 +5456,8 @@
       inherited: true,
       field_group: "inherited",
       field_template: "external",
-      include_paths: ["third_party/blink/renderer/platform/graphics/color.h"],
-      default_value: "Color::kBlack",
+      include_paths: ["third_party/blink/renderer/core/layout/layout_theme.h"],
+      default_value: "LayoutTheme::GetTheme().SystemColor(CSSValueID::kCanvastext, WebColorScheme::kLight)",
       type_name: "Color",
       computed_style_custom_functions: ["getter", "setter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
@@ -5782,6 +5739,28 @@
       priority: "High",
       style_builder_custom_functions: ["initial", "inherit", "value"],
       slots: ["zoom"],
+    },
+
+    // Name: -internal-empty-line-height:
+    // Value: none | fabricated
+    //    If the element is inline or contains visible text, this property has
+    //    no effect.
+    //
+    // 'none'
+    //   The box's intrinsic height is 0, and it defines no baseline.
+    // 'fabricated'
+    //   The box has intrinsic height and baseline, computed from the current
+    //   font metrics.
+    {
+      name: "-internal-empty-line-height",
+      property_methods: ["ParseSingleValue" ],
+      inherited: false,
+      field_group: "*",
+      field_template: "primitive",
+      type_name: "bool",
+      default_value: "false",
+      name_for_methods: "HasLineIfEmpty",
+      converter: "ConvertInternalEmptyLineHeight",
     },
 
     // Internal UA

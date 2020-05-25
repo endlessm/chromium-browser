@@ -242,6 +242,7 @@ class BuildStartStage(generic_stages.BuilderStage):
                    d['build_id'])
       return
 
+    buildbucket_id = self._run.options.buildbucket_id
     # Note: In other build stages we use self._run.GetCIDBHandle to fetch
     # a cidb handle. However, since we don't yet have a build_id, we can't
     # do that here.
@@ -256,7 +257,7 @@ class BuildStartStage(generic_stages.BuilderStage):
             master_build_id=d['master_build_id'],
             timeout_seconds=self._GetBuildTimeoutSeconds(),
             important=d['important'],
-            buildbucket_id=self._run.options.buildbucket_id,
+            buildbucket_id=buildbucket_id,
             branch=self._run.manifest_branch)
       except Exception as e:
         logging.error('Error: %s\n If the buildbucket_id to insert is '
@@ -267,8 +268,12 @@ class BuildStartStage(generic_stages.BuilderStage):
                       'crbug.com/679974 and crbug.com/685889', e)
         raise e
 
-      self._run.attrs.metadata.UpdateWithDict({'build_id': build_id,
-                                               'db_type': db_type})
+      master_bb_id = self._run.options.master_buildbucket_id
+      self._run.attrs.metadata.UpdateWithDict(
+          {'build_id': build_id,
+           'buildbucket_id': buildbucket_id,
+           'master_buildbucket_id': master_bb_id,
+           'db_type': db_type})
       logging.info('Inserted build_id %s into cidb database type %s.',
                    build_id, db_type)
       logging.PrintBuildbotStepText('database: %s, build_id: %s' %
@@ -617,22 +622,6 @@ class ReportStage(generic_stages.BuilderStage,
     return 'The builder named %s has failed %i consecutive times. See %s' % (
         self._run.config['name'], fail_count, self.ConstructDashboardURL())
 
-  def _SendPreCQInfraAlertMessageIfNeeded(self):
-    """Send alerts on Pre-CQ infra failures."""
-    msg = self.GetBuildFailureMessage()
-    pre_cq = self._run.config.pre_cq
-    if (pre_cq and
-        msg.HasExceptionCategories(
-            {constants.EXCEPTION_CATEGORY_INFRA,
-             constants.EXCEPTION_CATEGORY_LAB})):
-      name = self._run.config.name
-      title = 'pre-cq infra failures'
-      body = ['%s failed on %s' % (name, cros_build_lib.GetHostName()),
-              '%s' % msg]
-      extra_fields = {'X-cbuildbot-alert': 'pre-cq-infra-alert'}
-      alerts.SendHealthAlert(self._run, title, '\n\n'.join(body),
-                             extra_fields=extra_fields)
-
   def _LinkArtifacts(self, builder_run):
     """Upload an HTML index and uploaded.json for artifacts.
 
@@ -856,10 +845,6 @@ class ReportStage(generic_stages.BuilderStage,
     # run only. These aren't needed for the child builder runs.
     self.UploadMetadata(export=True)
     self._UpdateRunStreak(self._run, final_status)
-
-    # Alert if the Pre-CQ has infra failures.
-    if final_status == constants.BUILDER_STATUS_FAILED:
-      self._SendPreCQInfraAlertMessageIfNeeded()
 
     build_identifier, db = self._run.GetCIDBHandle()
     build_id = build_identifier.cidb_id

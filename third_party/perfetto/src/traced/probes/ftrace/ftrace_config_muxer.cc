@@ -152,6 +152,7 @@ std::set<GroupAndName> FtraceConfigMuxer::GetFtraceEvents(
         events.insert(GroupAndName("mdss", "mdp_sspp_change"));
         events.insert(GroupAndName("mdss", "mdp_sspp_set"));
         AddEventGroup(table, "mali_systrace", &events);
+
         AddEventGroup(table, "sde", &events);
         events.insert(GroupAndName("sde", "tracing_mark_write"));
         events.insert(GroupAndName("sde", "sde_perf_update_bus"));
@@ -389,6 +390,7 @@ std::set<GroupAndName> FtraceConfigMuxer::GetFtraceEvents(
         events.insert(GroupAndName("kmem", "rss_stat"));
         events.insert(GroupAndName("kmem", "ion_heap_grow"));
         events.insert(GroupAndName("kmem", "ion_heap_shrink"));
+        events.insert(GroupAndName("mm_event", "mm_event_record"));
         continue;
       }
     }
@@ -417,9 +419,15 @@ size_t ComputeCpuBufferSizeInPages(size_t requested_buffer_size_kb) {
   return pages;
 }
 
-FtraceConfigMuxer::FtraceConfigMuxer(FtraceProcfs* ftrace,
-                                     ProtoTranslationTable* table)
-    : ftrace_(ftrace), table_(table), current_state_(), ds_configs_() {}
+FtraceConfigMuxer::FtraceConfigMuxer(
+    FtraceProcfs* ftrace,
+    ProtoTranslationTable* table,
+    std::map<std::string, std::vector<GroupAndName>> vendor_events)
+    : ftrace_(ftrace),
+      table_(table),
+      current_state_(),
+      ds_configs_(),
+      vendor_events_(vendor_events) {}
 FtraceConfigMuxer::~FtraceConfigMuxer() = default;
 
 FtraceConfigId FtraceConfigMuxer::SetupConfig(const FtraceConfig& request) {
@@ -428,11 +436,11 @@ FtraceConfigId FtraceConfigMuxer::SetupConfig(const FtraceConfig& request) {
   if (ds_configs_.empty()) {
     PERFETTO_DCHECK(active_configs_.empty());
 
-    PERFETTO_DCHECK(!current_state_.tracing_on);
-
     // If someone outside of perfetto is using ftrace give up now.
-    if (is_ftrace_enabled)
+    if (is_ftrace_enabled) {
+      PERFETTO_ELOG("ftrace in use by non-Perfetto.");
       return 0;
+    }
 
     // Setup ftrace, without starting it. Setting buffers can be quite slow
     // (up to hundreds of ms).
@@ -440,11 +448,25 @@ FtraceConfigId FtraceConfigMuxer::SetupConfig(const FtraceConfig& request) {
     SetupBufferSize(request);
   } else {
     // Did someone turn ftrace off behind our back? If so give up.
-    if (!active_configs_.empty() && !is_ftrace_enabled)
+    if (!active_configs_.empty() && !is_ftrace_enabled) {
+      PERFETTO_ELOG("ftrace disabled by non-Perfetto.");
       return 0;
+    }
   }
 
   std::set<GroupAndName> events = GetFtraceEvents(request, table_);
+
+  // Vendors can provide a set of extra ftrace categories to be enabled when a
+  // specific atrace category is used (e.g. "gfx" -> ["my_hw/my_custom_event",
+  // "my_hw/my_special_gpu"]). Merge them with the hard coded events for each
+  // categories.
+  for (const std::string& category : request.atrace_categories()) {
+    if (vendor_events_.count(category)) {
+      for (const GroupAndName& event : vendor_events_[category]) {
+        events.insert(event);
+      }
+    }
+  }
 
   if (RequiresAtrace(request))
     UpdateAtrace(request);
@@ -493,20 +515,19 @@ bool FtraceConfigMuxer::ActivateConfig(FtraceConfigId id) {
     return false;
   }
 
+  if (active_configs_.empty()) {
+    if (ftrace_->IsTracingEnabled()) {
+      // If someone outside of perfetto is using ftrace give up now.
+      PERFETTO_ELOG("ftrace in use by non-Perfetto.");
+      return false;
+    }
+    if (!ftrace_->EnableTracing()) {
+      PERFETTO_ELOG("Failed to enable ftrace.");
+      return false;
+    }
+  }
+
   active_configs_.insert(id);
-  if (active_configs_.size() > 1) {
-    PERFETTO_DCHECK(current_state_.tracing_on);
-    return true;  // We are not the first, ftrace is already enabled. All done.
-  }
-
-  PERFETTO_DCHECK(!current_state_.tracing_on);
-  if (ftrace_->IsTracingEnabled()) {
-    // If someone outside of perfetto is using ftrace give up now.
-    return false;
-  }
-
-  ftrace_->EnableTracing();
-  current_state_.tracing_on = true;
   return true;
 }
 
@@ -554,12 +575,11 @@ bool FtraceConfigMuxer::RemoveConfig(FtraceConfigId config_id) {
   // If there aren't any more active configs, disable ftrace.
   auto active_it = active_configs_.find(config_id);
   if (active_it != active_configs_.end()) {
-    PERFETTO_DCHECK(current_state_.tracing_on);
     active_configs_.erase(active_it);
     if (active_configs_.empty()) {
       // This was the last active config, disable ftrace.
-      ftrace_->DisableTracing();
-      current_state_.tracing_on = false;
+      if (!ftrace_->DisableTracing())
+        PERFETTO_ELOG("Failed to disable ftrace.");
     }
   }
 

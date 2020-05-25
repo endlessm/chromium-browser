@@ -30,19 +30,24 @@ class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
       QuicStreamCount max_open_incoming_bidirectional_streams,
       QuicStreamCount max_open_incoming_unidirectional_streams);
 
-  // Sets the limits to max_open_streams.
-  void SetMaxOpenOutgoingBidirectionalStreams(QuicStreamCount max_open_streams);
-  void SetMaxOpenOutgoingUnidirectionalStreams(
+  // Called on |max_open_streams| outgoing streams can be created because of 1)
+  // config negotiated or 2) MAX_STREAMS received. Returns true if new
+  // streams can be created.
+  bool MaybeAllowNewOutgoingBidirectionalStreams(
       QuicStreamCount max_open_streams);
+  bool MaybeAllowNewOutgoingUnidirectionalStreams(
+      QuicStreamCount max_open_streams);
+
+  // Sets the limits to max_open_streams.
   void SetMaxOpenIncomingBidirectionalStreams(QuicStreamCount max_open_streams);
   void SetMaxOpenIncomingUnidirectionalStreams(
       QuicStreamCount max_open_streams);
 
   // Returns true if next outgoing bidirectional stream ID can be allocated.
-  bool CanOpenNextOutgoingBidirectionalStream();
+  bool CanOpenNextOutgoingBidirectionalStream() const;
 
   // Returns true if next outgoing unidirectional stream ID can be allocated.
-  bool CanOpenNextOutgoingUnidirectionalStream();
+  bool CanOpenNextOutgoingUnidirectionalStream() const;
 
   // Returns the next outgoing bidirectional stream id.
   QuicStreamId GetNextOutgoingBidirectionalStreamId();
@@ -51,16 +56,15 @@ class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
   QuicStreamId GetNextOutgoingUnidirectionalStreamId();
 
   // Returns true if the incoming |id| is within the limit.
-  bool MaybeIncreaseLargestPeerStreamId(QuicStreamId id);
+  bool MaybeIncreaseLargestPeerStreamId(QuicStreamId id,
+                                        std::string* error_details);
 
   // Called when |id| is released.
   void OnStreamClosed(QuicStreamId id);
 
-  // Called when a MAX_STREAMS frame is received.
-  bool OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame);
-
   // Called when a STREAMS_BLOCKED frame is received.
-  bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame);
+  bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame,
+                             std::string* error_details);
 
   // Return true if |id| is peer initiated.
   bool IsIncomingStream(QuicStreamId id) const;
@@ -71,9 +75,6 @@ class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
   QuicStreamCount GetMaxAllowdIncomingBidirectionalStreams() const;
 
   QuicStreamCount GetMaxAllowdIncomingUnidirectionalStreams() const;
-
-  void SetLargestPeerCreatedStreamId(
-      QuicStreamId largest_peer_created_stream_id);
 
   QuicStreamId GetLargestPeerCreatedStreamId(bool unidirectional) const;
 
@@ -88,11 +89,6 @@ class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
 
   QuicStreamCount advertised_max_incoming_bidirectional_streams() const;
   QuicStreamCount advertised_max_incoming_unidirectional_streams() const;
-
-  void OnConfigNegotiated() {
-    bidirectional_stream_id_manager_.OnConfigNegotiated();
-    unidirectional_stream_id_manager_.OnConfigNegotiated();
-  }
 
  private:
   friend class test::QuicSessionPeer;

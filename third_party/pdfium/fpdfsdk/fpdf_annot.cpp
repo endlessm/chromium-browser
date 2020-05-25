@@ -28,6 +28,7 @@
 #include "core/fpdfdoc/cpdf_interactiveform.h"
 #include "core/fpdfdoc/cpvt_generateap.h"
 #include "core/fxge/cfx_color.h"
+#include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "third_party/base/ptr_util.h"
@@ -189,14 +190,14 @@ void AppendQuadPoints(CPDF_Array* array, const FS_QUADPOINTSF* quad_points) {
   ASSERT(quad_points);
   ASSERT(array);
 
-  array->AddNew<CPDF_Number>(quad_points->x1);
-  array->AddNew<CPDF_Number>(quad_points->y1);
-  array->AddNew<CPDF_Number>(quad_points->x2);
-  array->AddNew<CPDF_Number>(quad_points->y2);
-  array->AddNew<CPDF_Number>(quad_points->x3);
-  array->AddNew<CPDF_Number>(quad_points->y3);
-  array->AddNew<CPDF_Number>(quad_points->x4);
-  array->AddNew<CPDF_Number>(quad_points->y4);
+  array->AppendNew<CPDF_Number>(quad_points->x1);
+  array->AppendNew<CPDF_Number>(quad_points->y1);
+  array->AppendNew<CPDF_Number>(quad_points->x2);
+  array->AppendNew<CPDF_Number>(quad_points->y2);
+  array->AppendNew<CPDF_Number>(quad_points->x3);
+  array->AppendNew<CPDF_Number>(quad_points->y3);
+  array->AppendNew<CPDF_Number>(quad_points->x4);
+  array->AppendNew<CPDF_Number>(quad_points->y4);
 }
 
 void UpdateBBox(CPDF_Dictionary* annot_dict) {
@@ -298,7 +299,7 @@ FPDFPage_CreateAnnot(FPDF_PAGE page, FPDF_ANNOTATION_SUBTYPE subtype) {
   CPDF_Array* pAnnotList = pPage->GetDict()->GetArrayFor("Annots");
   if (!pAnnotList)
     pAnnotList = pPage->GetDict()->SetNewFor<CPDF_Array>("Annots");
-  pAnnotList->Add(pDict);
+  pAnnotList->Append(pDict);
 
   // Caller takes ownership.
   return FPDFAnnotationFromCPDFAnnotContext(pNewAnnot.release());
@@ -561,9 +562,9 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_SetColor(FPDF_ANNOTATION annot,
   else
     pColor = pAnnotDict->SetNewFor<CPDF_Array>(key);
 
-  pColor->AddNew<CPDF_Number>(R / 255.f);
-  pColor->AddNew<CPDF_Number>(G / 255.f);
-  pColor->AddNew<CPDF_Number>(B / 255.f);
+  pColor->AppendNew<CPDF_Number>(R / 255.f);
+  pColor->AppendNew<CPDF_Number>(G / 255.f);
+  pColor->AppendNew<CPDF_Number>(B / 255.f);
 
   return true;
 }
@@ -1064,4 +1065,65 @@ FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV FPDFAnnot_IsChecked(FPDF_FORMHANDLE hHandle,
 
   CPDFSDK_Widget* pWidget = pForm->GetWidget(pFormControl);
   return pWidget && pWidget->IsChecked();
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFAnnot_SetFocusableSubtypes(FPDF_FORMHANDLE hHandle,
+                               const FPDF_ANNOTATION_SUBTYPE* subtypes,
+                               size_t count) {
+  CPDFSDK_FormFillEnvironment* pFormFillEnv =
+      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle);
+  if (!pFormFillEnv)
+    return false;
+
+  if (count > 0 && !subtypes)
+    return false;
+
+  std::vector<CPDF_Annot::Subtype> focusable_annot_types;
+  focusable_annot_types.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    focusable_annot_types.push_back(
+        static_cast<CPDF_Annot::Subtype>(subtypes[i]));
+  }
+
+  pFormFillEnv->SetFocusableAnnotSubtypes(focusable_annot_types);
+  return true;
+}
+
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFAnnot_GetFocusableSubtypesCount(FPDF_FORMHANDLE hHandle) {
+  CPDFSDK_FormFillEnvironment* pFormFillEnv =
+      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle);
+  if (!pFormFillEnv)
+    return -1;
+
+  return pdfium::CollectionSize<int>(pFormFillEnv->GetFocusableAnnotSubtypes());
+}
+
+FPDF_EXPORT FPDF_BOOL FPDF_CALLCONV
+FPDFAnnot_GetFocusableSubtypes(FPDF_FORMHANDLE hHandle,
+                               FPDF_ANNOTATION_SUBTYPE* subtypes,
+                               size_t count) {
+  CPDFSDK_FormFillEnvironment* pFormFillEnv =
+      CPDFSDKFormFillEnvironmentFromFPDFFormHandle(hHandle);
+  if (!pFormFillEnv)
+    return false;
+
+  if (!subtypes)
+    return false;
+
+  const std::vector<CPDF_Annot::Subtype>& focusable_annot_types =
+      pFormFillEnv->GetFocusableAnnotSubtypes();
+
+  // Host should allocate enough memory to get the list of currently supported
+  // focusable subtypes.
+  if (count < focusable_annot_types.size())
+    return false;
+
+  for (size_t i = 0; i < focusable_annot_types.size(); ++i) {
+    subtypes[i] =
+        static_cast<FPDF_ANNOTATION_SUBTYPE>(focusable_annot_types[i]);
+  }
+
+  return true;
 }

@@ -15,6 +15,7 @@
 #include "src/gpu/GrDefaultGeoProcFactory.h"
 #include "src/gpu/GrDrawOpTest.h"
 #include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrResourceProvider.h"
 #include "src/gpu/GrVertexWriter.h"
 #include "src/gpu/ops/GrFillRectOp.h"
@@ -90,7 +91,11 @@ public:
     const char* name() const override { return "NonAAStrokeRectOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -132,7 +137,8 @@ public:
     NonAAStrokeRectOp(const Helper::MakeArgs& helperArgs, const SkPMColor4f& color,
                       Helper::InputFlags inputFlags, const SkMatrix& viewMatrix, const SkRect& rect,
                       const SkStrokeRec& stroke, GrAAType aaType)
-            : INHERITED(ClassID()), fHelper(helperArgs, aaType, inputFlags) {
+            : INHERITED(ClassID())
+            , fHelper(helperArgs, aaType, inputFlags) {
         fColor = color;
         fViewMatrix = viewMatrix;
         fRect = rect;
@@ -175,7 +181,13 @@ public:
     }
 
 private:
-    void onPrepareDraws(Target* target) override {
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& clip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
         GrGeometryProcessor* gp;
         {
             using namespace GrDefaultGeoProcFactory;
@@ -183,12 +195,23 @@ private:
             LocalCoords::Type localCoordsType = fHelper.usesLocalCoords()
                                                         ? LocalCoords::kUsePosition_Type
                                                         : LocalCoords::kUnused_Type;
-            gp = GrDefaultGeoProcFactory::Make(target->allocator(), target->caps().shaderCaps(),
-                                               color, Coverage::kSolid_Type, localCoordsType,
+            gp = GrDefaultGeoProcFactory::Make(arena, color, Coverage::kSolid_Type, localCoordsType,
                                                fViewMatrix);
         }
 
-        size_t kVertexStride = gp->vertexStride();
+        GrPrimitiveType primType = (fStrokeWidth > 0) ? GrPrimitiveType::kTriangleStrip
+                                                      : GrPrimitiveType::kLineStrip;
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(clip),
+                                                 dstProxyView, gp, primType);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+        }
+
+        size_t kVertexStride = fProgramInfo->primProc().vertexStride();
         int vertexCount = kVertsPerHairlineRect;
         if (fStrokeWidth > 0) {
             vertexCount = kVertsPerStrokeRect;
@@ -207,13 +230,10 @@ private:
 
         SkPoint* vertex = reinterpret_cast<SkPoint*>(verts);
 
-        GrPrimitiveType primType;
         if (fStrokeWidth > 0) {
-            primType = GrPrimitiveType::kTriangleStrip;
             init_nonaa_stroke_rect_strip(vertex, fRect, fStrokeWidth);
         } else {
             // hairline
-            primType = GrPrimitiveType::kLineStrip;
             vertex[0].set(fRect.fLeft, fRect.fTop);
             vertex[1].set(fRect.fRight, fRect.fTop);
             vertex[2].set(fRect.fRight, fRect.fBottom);
@@ -221,27 +241,29 @@ private:
             vertex[4].set(fRect.fLeft, fRect.fTop);
         }
 
-        GrMesh* mesh = target->allocMesh(primType);
-        mesh->setNonIndexedNonInstanced(vertexCount);
-        mesh->setVertexData(std::move(vertexBuffer), firstVertex);
-        target->recordDraw(gp, mesh, 1, primType);
+        fMesh = target->allocMesh();
+        fMesh->set(std::move(vertexBuffer), vertexCount, firstVertex);
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
-                                                                 fHelper.detachProcessorSet(),
-                                                                 fHelper.pipelineFlags());
+        if (!fMesh) {
+            return;
+        }
 
-        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
     // TODO: override onCombineIfPossible
 
-    Helper fHelper;
-    SkPMColor4f fColor;
-    SkMatrix fViewMatrix;
-    SkRect fRect;
-    SkScalar fStrokeWidth;
+    Helper         fHelper;
+    SkPMColor4f    fColor;
+    SkMatrix       fViewMatrix;
+    SkRect         fRect;
+    SkScalar       fStrokeWidth;
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     const static int kVertsPerHairlineRect = 5;
     const static int kVertsPerStrokeRect = 10;
@@ -293,7 +315,7 @@ static void compute_aa_rects(SkRect* devOutside, SkRect* devOutsideAssist, SkRec
     {
         SkScalar w = devRect.width() - dx;
         SkScalar h = devRect.height() - dy;
-        spare = SkTMin(w, h);
+        spare = std::min(w, h);
     }
 
     *isDegenerate = spare <= 0;
@@ -312,7 +334,6 @@ static void compute_aa_rects(SkRect* devOutside, SkRect* devOutsideAssist, SkRec
 }
 
 static GrGeometryProcessor* create_aa_stroke_rect_gp(SkArenaAlloc* arena,
-                                                     const GrShaderCaps* shaderCaps,
                                                      bool tweakAlphaForCoverage,
                                                      const SkMatrix& viewMatrix,
                                                      bool usesLocalCoords,
@@ -326,8 +347,7 @@ static GrGeometryProcessor* create_aa_stroke_rect_gp(SkArenaAlloc* arena,
     Color::Type colorType =
         wideColor ? Color::kPremulWideColorAttribute_Type: Color::kPremulGrColorAttribute_Type;
 
-    return MakeForDeviceSpace(arena, shaderCaps, colorType, coverageType,
-                              localCoordsType, viewMatrix);
+    return MakeForDeviceSpace(arena, colorType, coverageType, localCoordsType, viewMatrix);
 }
 
 class AAStrokeRectOp final : public GrMeshDrawOp {
@@ -400,7 +420,11 @@ public:
     const char* name() const override { return "AAStrokeRect"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -434,6 +458,14 @@ public:
     }
 
 private:
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps*,
+                             SkArenaAlloc*,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&&,
+                             const GrXferProcessor::DstProxyView&) override;
+
     void onPrepareDraws(Target*) override;
     void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
@@ -473,18 +505,24 @@ private:
         bool        fDegenerate;
     };
 
-    Helper fHelper;
+    Helper         fHelper;
     SkSTArray<1, RectInfo, true> fRects;
-    SkMatrix fViewMatrix;
-    bool fMiterStroke;
-    bool fWideColor;
+    SkMatrix       fViewMatrix;
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
+    bool           fMiterStroke;
+    bool           fWideColor;
 
     typedef GrMeshDrawOp INHERITED;
 };
 
-void AAStrokeRectOp::onPrepareDraws(Target* target) {
-    GrGeometryProcessor* gp = create_aa_stroke_rect_gp(target->allocator(),
-                                                       target->caps().shaderCaps(),
+void AAStrokeRectOp::onCreateProgramInfo(const GrCaps* caps,
+                                         SkArenaAlloc* arena,
+                                         const GrSurfaceProxyView* outputView,
+                                         GrAppliedClip&& appliedClip,
+                                         const GrXferProcessor::DstProxyView& dstProxyView) {
+
+    GrGeometryProcessor* gp = create_aa_stroke_rect_gp(arena,
                                                        fHelper.compatibleWithCoverageAsAlpha(),
                                                        this->viewMatrix(),
                                                        fHelper.usesLocalCoords(),
@@ -492,6 +530,24 @@ void AAStrokeRectOp::onPrepareDraws(Target* target) {
     if (!gp) {
         SkDebugf("Couldn't create GrGeometryProcessor\n");
         return;
+    }
+
+    fProgramInfo = fHelper.createProgramInfo(caps,
+                                             arena,
+                                             outputView,
+                                             std::move(appliedClip),
+                                             dstProxyView,
+                                             gp,
+                                             GrPrimitiveType::kTriangles);
+}
+
+void AAStrokeRectOp::onPrepareDraws(Target* target) {
+
+    if (!fProgramInfo) {
+        this->createProgramInfo(target);
+        if (!fProgramInfo) {
+            return;
+        }
     }
 
     int innerVertexNum = 4;
@@ -507,9 +563,9 @@ void AAStrokeRectOp::onPrepareDraws(Target* target) {
         SkDebugf("Could not allocate indices\n");
         return;
     }
-    PatternHelper helper(target, GrPrimitiveType::kTriangles, gp->vertexStride(),
-                         std::move(indexBuffer), verticesPerInstance, indicesPerInstance,
-                         instanceCount, maxQuads);
+    PatternHelper helper(target, GrPrimitiveType::kTriangles,
+                         fProgramInfo->primProc().vertexStride(), std::move(indexBuffer),
+                         verticesPerInstance, indicesPerInstance, instanceCount, maxQuads);
     GrVertexWriter vertices{ helper.vertices() };
     if (!vertices.fPtr) {
         SkDebugf("Could not allocate vertices\n");
@@ -529,15 +585,17 @@ void AAStrokeRectOp::onPrepareDraws(Target* target) {
                                            fHelper.compatibleWithCoverageAsAlpha(),
                                            info.fDevHalfStrokeSize);
     }
-    helper.recordDraw(target, gp);
+    fMesh = helper.mesh();
 }
 
 void AAStrokeRectOp::onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) {
-    auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
-                                                             fHelper.detachProcessorSet(),
-                                                             fHelper.pipelineFlags());
+    if (!fProgramInfo || !fMesh) {
+        return;
+    }
 
-    flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
+    flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+    flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+    flushState->drawMesh(*fMesh);
 }
 
 sk_sp<const GrGpuBuffer> AAStrokeRectOp::GetIndexBuffer(GrResourceProvider* resourceProvider,
@@ -702,8 +760,8 @@ void AAStrokeRectOp::generateAAStrokeRectGeometry(GrVertexWriter& vertices,
 
     // For device-space stroke widths less than one we can't inset more than the original
     // device space stroke width if we want to keep the sizing of all the rects correct.
-    const SkScalar insetX = SkTMin(SK_ScalarHalf, devHalfStrokeSize.fX);
-    const SkScalar insetY = SkTMin(SK_ScalarHalf, devHalfStrokeSize.fY);
+    const SkScalar insetX = std::min(SK_ScalarHalf, devHalfStrokeSize.fX);
+    const SkScalar insetY = std::min(SK_ScalarHalf, devHalfStrokeSize.fY);
 
     // But, correspondingly, we always want to keep the AA picture frame one pixel wide.
     const SkScalar outsetX = SK_Scalar1 - insetX;
@@ -721,7 +779,7 @@ void AAStrokeRectOp::generateAAStrokeRectGeometry(GrVertexWriter& vertices,
                            maybe_coverage(0.0f));
     }
 
-    float innerCoverage = compute_inner_coverage(SkTMax(devHalfStrokeSize.fX,
+    float innerCoverage = compute_inner_coverage(std::max(devHalfStrokeSize.fX,
                                                         devHalfStrokeSize.fY));
 
     SkPMColor4f scaledColor = color * innerCoverage;
@@ -798,10 +856,9 @@ std::unique_ptr<GrDrawOp> MakeNested(GrRecordingContext* context,
         if (devOutside.isEmpty()) {
             return nullptr;
         }
-        return GrFillRectOp::Make(context, std::move(paint), GrAAType::kCoverage,
-                                  GrQuadAAFlags::kAll,
-                                  GrQuad::MakeFromRect(rects[0], viewMatrix),
-                                  GrQuad(rects[0]));
+        DrawQuad quad{GrQuad::MakeFromRect(rects[0], viewMatrix), GrQuad(rects[0]),
+                      GrQuadAAFlags::kAll};
+        return GrFillRectOp::Make(context, std::move(paint), GrAAType::kCoverage, &quad);
     }
 
     SkVector devHalfStrokeSize{ SkScalarHalf(devOutside.fRight - devInside.fRight),
@@ -838,7 +895,7 @@ GR_DRAW_OP_TEST_DEFINE(AAStrokeRectOp) {
     // Create either a empty rect or a non-empty rect.
     SkRect rect =
             random->nextBool() ? SkRect::MakeXYWH(10, 10, 50, 40) : SkRect::MakeXYWH(6, 7, 0, 0);
-    SkScalar minDim = SkMinScalar(rect.width(), rect.height());
+    SkScalar minDim = std::min(rect.width(), rect.height());
     SkScalar strokeWidth = random->nextUScalar1() * minDim;
 
     SkStrokeRec rec(SkStrokeRec::kFill_InitStyle);

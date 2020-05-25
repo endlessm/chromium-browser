@@ -11,6 +11,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "platform/test/fake_udp_socket.h"
+#include "platform/test/mock_udp_socket.h"
 
 namespace openscreen {
 namespace discovery {
@@ -18,20 +19,16 @@ namespace discovery {
 using testing::_;
 using testing::Args;
 using testing::Return;
+using testing::StrictMock;
+using testing::WithArgs;
 
 namespace {
 
-MATCHER_P(
-    VoidPointerMatchesBytes,
-    expected_data,
-    "Matches data at the pointer against the provided C-style byte array.") {
-  const uint8_t* actual_data = static_cast<const uint8_t*>(arg);
+ACTION_P(VoidPointerMatchesBytes, expected_data) {
+  const uint8_t* actual_data = static_cast<const uint8_t*>(arg0);
   for (size_t i = 0; i < expected_data.size(); ++i) {
-    if (actual_data[i] != expected_data[i]) {
-      return false;
-    }
+    EXPECT_EQ(actual_data[i], expected_data[i]);
   }
-  return true;
 }
 
 }  // namespace
@@ -105,37 +102,25 @@ class MdnsSenderTest : public testing::Test {
   IPEndpoint ipv6_multicast_endpoint_;
 };
 
-TEST_F(MdnsSenderTest, SendMulticastIPv4) {
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV4);
-  MdnsSender sender(socket_info.get());
-  socket_info->EnqueueSendResult(Error::Code::kNone);
-  EXPECT_CALL(*socket_info->client_mock(), OnSendError(_, _)).Times(0);
+TEST_F(MdnsSenderTest, SendMulticast) {
+  StrictMock<MockUdpSocket> socket;
+  EXPECT_CALL(socket, IsIPv4()).WillRepeatedly(Return(true));
+  EXPECT_CALL(socket, IsIPv6()).WillRepeatedly(Return(true));
+  MdnsSender sender(&socket);
+  EXPECT_CALL(socket, SendMessage(_, kQueryBytes.size(), _))
+      .WillOnce(WithArgs<0>(VoidPointerMatchesBytes(kQueryBytes)));
   EXPECT_EQ(sender.SendMulticast(query_message_), Error::Code::kNone);
-  EXPECT_EQ(socket_info->send_queue_size(), size_t{0});
-}
-
-TEST_F(MdnsSenderTest, SendMulticastIPv6) {
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV6);
-  MdnsSender sender(socket_info.get());
-  socket_info->EnqueueSendResult(Error::Code::kNone);
-  EXPECT_CALL(*socket_info->client_mock(), OnSendError(_, _)).Times(0);
-  EXPECT_EQ(sender.SendMulticast(query_message_), Error::Code::kNone);
-  EXPECT_EQ(socket_info->send_queue_size(), size_t{0});
 }
 
 TEST_F(MdnsSenderTest, SendUnicastIPv4) {
   IPEndpoint endpoint{.address = IPAddress{192, 168, 1, 1}, .port = 31337};
 
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV4);
-  MdnsSender sender(socket_info.get());
-  socket_info->EnqueueSendResult(Error::Code::kNone);
-  EXPECT_CALL(*socket_info->client_mock(), OnSendError(_, _)).Times(0);
-  EXPECT_EQ(sender.SendUnicast(response_message_, endpoint),
+  StrictMock<MockUdpSocket> socket;
+  MdnsSender sender(&socket);
+  EXPECT_CALL(socket, SendMessage(_, kResponseBytes.size(), _))
+      .WillOnce(WithArgs<0>(VoidPointerMatchesBytes(kResponseBytes)));
+  EXPECT_EQ(sender.SendMessage(response_message_, endpoint),
             Error::Code::kNone);
-  EXPECT_EQ(socket_info->send_queue_size(), size_t{0});
 }
 
 TEST_F(MdnsSenderTest, SendUnicastIPv6) {
@@ -144,14 +129,12 @@ TEST_F(MdnsSenderTest, SendUnicastIPv6) {
   };
   IPEndpoint endpoint{.address = IPAddress(kIPv6AddressHextets), .port = 31337};
 
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV6);
-  MdnsSender sender(socket_info.get());
-  socket_info->EnqueueSendResult(Error::Code::kNone);
-  EXPECT_CALL(*socket_info->client_mock(), OnSendError(_, _)).Times(0);
-  EXPECT_EQ(sender.SendUnicast(response_message_, endpoint),
+  StrictMock<MockUdpSocket> socket;
+  MdnsSender sender(&socket);
+  EXPECT_CALL(socket, SendMessage(_, kResponseBytes.size(), _))
+      .WillOnce(WithArgs<0>(VoidPointerMatchesBytes(kResponseBytes)));
+  EXPECT_EQ(sender.SendMessage(response_message_, endpoint),
             Error::Code::kNone);
-  EXPECT_EQ(socket_info->send_queue_size(), size_t{0});
 }
 
 TEST_F(MdnsSenderTest, MessageTooBig) {
@@ -160,25 +143,24 @@ TEST_F(MdnsSenderTest, MessageTooBig) {
     big_message_.AddQuestion(a_question_);
     big_message_.AddAnswer(a_record_);
   }
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV4);
-  MdnsSender sender(socket_info.get());
-  socket_info->EnqueueSendResult(Error::Code::kNone);
-  EXPECT_CALL(*socket_info->client_mock(), OnSendError(_, _)).Times(0);
+
+  StrictMock<MockUdpSocket> socket;
+  EXPECT_CALL(socket, IsIPv4()).WillRepeatedly(Return(true));
+  EXPECT_CALL(socket, IsIPv6()).WillRepeatedly(Return(true));
+  MdnsSender sender(&socket);
   EXPECT_EQ(sender.SendMulticast(big_message_),
             Error::Code::kInsufficientBuffer);
-  EXPECT_EQ(socket_info->send_queue_size(), size_t{1});
 }
 
 TEST_F(MdnsSenderTest, ReturnsErrorOnSocketFailure) {
-  std::unique_ptr<FakeUdpSocket> socket_info =
-      FakeUdpSocket::CreateDefault(IPAddress::Version::kV4);
-  MdnsSender sender(socket_info.get());
+  FakeUdpSocket::MockClient socket_client;
+  FakeUdpSocket socket(nullptr, &socket_client);
+  MdnsSender sender(&socket);
   Error error = Error(Error::Code::kConnectionFailed, "error message");
-  socket_info->EnqueueSendResult(error);
-  EXPECT_CALL(*socket_info->client_mock(), OnSendError(_, error)).Times(1);
+  socket.EnqueueSendResult(error);
+  EXPECT_CALL(socket_client, OnSendError(_, error)).Times(1);
   EXPECT_EQ(sender.SendMulticast(query_message_), Error::Code::kNone);
-  EXPECT_EQ(socket_info->send_queue_size(), size_t{0});
+  EXPECT_EQ(socket.send_queue_size(), size_t{0});
 }
 
 }  // namespace discovery

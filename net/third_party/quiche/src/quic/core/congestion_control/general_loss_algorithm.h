@@ -25,16 +25,9 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
   static const QuicPacketCount kNumberOfNacksBeforeRetransmission = 3;
 
   GeneralLossAlgorithm();
-  explicit GeneralLossAlgorithm(LossDetectionType loss_type);
   GeneralLossAlgorithm(const GeneralLossAlgorithm&) = delete;
   GeneralLossAlgorithm& operator=(const GeneralLossAlgorithm&) = delete;
   ~GeneralLossAlgorithm() override {}
-
-  LossDetectionType GetLossDetectionType() const override;
-
-  // Switches the loss detection type to |loss_type| and resets the loss
-  // algorithm.
-  void SetLossDetectionType(LossDetectionType loss_type);
 
   // Uses |largest_acked| and time to decide when packets are lost.
   void DetectLosses(const QuicUnackedPacketMap& unacked_packets,
@@ -54,12 +47,33 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
                             QuicPacketNumber packet_number,
                             QuicPacketNumber previous_largest_acked) override;
 
+  void OnConfigNegotiated() override {
+    DCHECK(false)
+        << "Unexpected call to GeneralLossAlgorithm::OnConfigNegotiated";
+  }
+
+  void OnMinRttAvailable() override {
+    DCHECK(false)
+        << "Unexpected call to GeneralLossAlgorithm::OnMinRttAvailable";
+  }
+
+  void OnConnectionClosed() override {
+    DCHECK(false)
+        << "Unexpected call to GeneralLossAlgorithm::OnConnectionClosed";
+  }
+
   void SetPacketNumberSpace(PacketNumberSpace packet_number_space);
+
+  void Reset();
 
   int reordering_shift() const { return reordering_shift_; }
 
   void set_reordering_shift(int reordering_shift) {
     reordering_shift_ = reordering_shift;
+  }
+
+  void set_reordering_threshold(QuicPacketCount reordering_threshold) {
+    reordering_threshold_ = reordering_threshold;
   }
 
   bool use_adaptive_reordering_threshold() const {
@@ -76,11 +90,16 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
 
   void enable_adaptive_time_threshold() { use_adaptive_time_threshold_ = true; }
 
+  bool use_packet_threshold_for_runt_packets() const {
+    return use_packet_threshold_for_runt_packets_;
+  }
+
+  void disable_packet_threshold_for_runt_packets() {
+    use_packet_threshold_for_runt_packets_ = false;
+  }
+
  private:
   QuicTime loss_detection_timeout_;
-  // TODO(fayang): remove loss_type_ when deprecating
-  // quic_default_on_ietf_loss_detection.
-  LossDetectionType loss_type_;
   // Fraction of a max(SRTT, latest_rtt) to permit reordering before declaring
   // loss.  Fraction calculated by shifting max(SRTT, latest_rtt) to the right
   // by reordering_shift.
@@ -91,8 +110,8 @@ class QUIC_EXPORT_PRIVATE GeneralLossAlgorithm : public LossDetectionInterface {
   bool use_adaptive_reordering_threshold_;
   // If true, uses adaptive time threshold for time based loss detection.
   bool use_adaptive_time_threshold_;
-  // The largest newly acked from the previous call to DetectLosses.
-  QuicPacketNumber largest_previously_acked_;
+  // If true, uses packet threshold when largest acked is a runt packet.
+  bool use_packet_threshold_for_runt_packets_;
   // The least in flight packet. Loss detection should start from this. Please
   // note, least_in_flight_ could be largest packet ever sent + 1.
   QuicPacketNumber least_in_flight_;

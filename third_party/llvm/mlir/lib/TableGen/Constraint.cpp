@@ -23,6 +23,8 @@ Constraint::Constraint(const llvm::Record *record)
     kind = CK_Attr;
   } else if (record->isSubClassOf("RegionConstraint")) {
     kind = CK_Region;
+  } else if (record->isSubClassOf("SuccessorConstraint")) {
+    kind = CK_Successor;
   } else {
     assert(record->isSubClassOf("Constraint"));
   }
@@ -57,4 +59,5 @@ llvm::StringRef Constraint::getDescription() const {
 AppliedConstraint::AppliedConstraint(Constraint &&constraint,
                                      llvm::StringRef self,
                                      std::vector<std::string> &&entities)
-    : constraint(constraint), self(self), entities(std::move(entities)) {}
+    : constraint(constraint), self(std::string(self)),
+      entities(std::move(entities)) {}

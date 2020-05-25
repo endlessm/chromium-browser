@@ -7,10 +7,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import time
-import functools
 import logging
 import sheriff_pb2
+from utils import LRUCacheWithTTL
 
 
 def IsPrivate(config):
@@ -31,21 +30,10 @@ def FilterSubscriptionsByPolicy(request, configs):
   return configs
 
 
-def LRUCacheWithTTL(ttl_seconds=60, **lru_args):
-  def Wrapper(func):
-    @functools.lru_cache(**lru_args)
-    # pylint: disable=unused-argument
-    def Cached(ttl, *args, **kargs):
-      return func(*args, **kargs)
-    def Wrapping(*args, **kargs):
-      ttl = int(time.time()) // ttl_seconds
-      return Cached(ttl, *args, **kargs)
-    return Wrapping
-  return Wrapper
-
-
 @LRUCacheWithTTL(ttl_seconds=60, maxsize=128)
 def IsGroupMember(auth_client, email, group):
+  if not email:
+    return False
   request = auth_client.membership(identity=email, group=group)
   response = request.execute()
   is_member = response['is_member']

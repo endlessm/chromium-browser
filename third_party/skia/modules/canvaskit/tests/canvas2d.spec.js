@@ -14,6 +14,14 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
         container.innerHTML = '';
     });
 
+    function expectColorCloseTo(a, b) {
+        expect(a.length).toEqual(4);
+        expect(b.length).toEqual(4);
+        for (let i=0; i<4; i++){
+            expect(a[i]).toBeCloseTo(b[i], 3);
+        }
+    }
+
     describe('color strings', function() {
         function hex(s) {
             return parseInt(s, 16);
@@ -21,46 +29,48 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
 
         it('parses hex color strings', function(done) {
             LoadCanvasKit.then(catchException(done, () => {
-                const parseColor = CanvasKit._testing.parseColor;
-                expect(parseColor('#FED')).toEqual(
+                const parseColor = CanvasKit.parseColorString;
+                expectColorCloseTo(parseColor('#FED'), 
                     CanvasKit.Color(hex('FF'), hex('EE'), hex('DD'), 1));
-                expect(parseColor('#FEDC')).toEqual(
+                expectColorCloseTo(parseColor('#FEDC'),
                     CanvasKit.Color(hex('FF'), hex('EE'), hex('DD'), hex('CC')/255));
-                expect(parseColor('#fed')).toEqual(
+                expectColorCloseTo(parseColor('#fed'),
                     CanvasKit.Color(hex('FF'), hex('EE'), hex('DD'), 1));
-                expect(parseColor('#fedc')).toEqual(
+                expectColorCloseTo(parseColor('#fedc'),
                     CanvasKit.Color(hex('FF'), hex('EE'), hex('DD'), hex('CC')/255));
                 done();
             }));
         });
         it('parses rgba color strings', function(done) {
             LoadCanvasKit.then(catchException(done, () => {
-                const parseColor = CanvasKit._testing.parseColor;
-                expect(parseColor('rgba(117, 33, 64, 0.75)')).toEqual(
+                const parseColor = CanvasKit.parseColorString;
+                expectColorCloseTo(parseColor('rgba(117, 33, 64, 0.75)'),
                     CanvasKit.Color(117, 33, 64, 0.75));
-                expect(parseColor('rgb(117, 33, 64, 0.75)')).toEqual(
+                expectColorCloseTo(parseColor('rgb(117, 33, 64, 0.75)'),
                     CanvasKit.Color(117, 33, 64, 0.75));
-                expect(parseColor('rgba(117,33,64)')).toEqual(
+                expectColorCloseTo(parseColor('rgba(117,33,64)'),
                     CanvasKit.Color(117, 33, 64, 1.0));
-                expect(parseColor('rgb(117,33, 64)')).toEqual(
+                expectColorCloseTo(parseColor('rgb(117,33, 64)'),
                     CanvasKit.Color(117, 33, 64, 1.0));
-                expect(parseColor('rgb(117,33, 64, 32%)')).toEqual(
+                expectColorCloseTo(parseColor('rgb(117,33, 64, 32%)'),
                     CanvasKit.Color(117, 33, 64, 0.32));
-                expect(parseColor('rgb(117,33, 64, 0.001)')).toEqual(
+                expectColorCloseTo(parseColor('rgb(117,33, 64, 0.001)'),
                     CanvasKit.Color(117, 33, 64, 0.001));
-                expect(parseColor('rgb(117,33,64,0)')).toEqual(
+                expectColorCloseTo(parseColor('rgb(117,33,64,0)'),
                     CanvasKit.Color(117, 33, 64, 0.0));
                 done();
             }));
         });
         it('parses named color strings', function(done) {
             LoadCanvasKit.then(catchException(done, () => {
+                // Keep this one as the _testing version, because we don't include the large
+                // color map by default.
                 const parseColor = CanvasKit._testing.parseColor;
-                expect(parseColor('grey')).toEqual(
+                expectColorCloseTo(parseColor('grey'),
                     CanvasKit.Color(128, 128, 128, 1.0));
-                expect(parseColor('blanchedalmond')).toEqual(
+                expectColorCloseTo(parseColor('blanchedalmond'),
                     CanvasKit.Color(255, 235, 205, 1.0));
-                expect(parseColor('transparent')).toEqual(
+                expectColorCloseTo(parseColor('transparent'),
                     CanvasKit.Color(0, 0, 0, 0));
                 done();
             }));
@@ -73,7 +83,7 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
                 expect(colorToString(CanvasKit.Color(102, 51, 153, 1.0))).toEqual('#663399');
 
                 expect(colorToString(CanvasKit.Color(255, 235, 205, 0.5))).toEqual(
-                                               'rgba(255, 235, 205, 0.50196078)');
+                                               'rgba(255, 235, 205, 0.50000000)');
 
                 done();
             }));
@@ -109,7 +119,7 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
                 for (let tc of testCases) {
                     // Print out the test case if the two don't match.
                     expect(multiplyByAlpha(tc.inColor, tc.inAlpha))
-                          .toBe(tc.outColor, JSON.stringify(tc));
+                          .toEqual(tc.outColor, JSON.stringify(tc));
                 }
 
                 done();
@@ -264,6 +274,18 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
         realCanvas._config = 'html_canvas';
         realCanvas.width = CANVAS_WIDTH;
         realCanvas.height = CANVAS_HEIGHT;
+
+        if (!done) {
+            console.log('debugging canvaskit');
+            test(realCanvas);
+            test(skcanvas);
+            const png = skcanvas.toDataURL();
+            const img = document.createElement('img');
+            document.body.appendChild(img);
+            img.src = png;
+            debugger;
+            return;
+        }
 
         let promises = [];
 
@@ -605,6 +627,33 @@ describe('CanvasKit\'s Canvas 2d Behavior', function() {
                     ctx.putImageData(biggerBox, 10, 350);
                     expect(biggerBox.width).toBe(iData.width);
                     expect(biggerBox.height).toBe(iData.height);
+                });
+            }));
+        });
+
+        it('apply shadows correctly when rotated', function(done) {
+            LoadCanvasKit.then(catchException(done, () => {
+                multipleCanvasTest('shadows_with_rotate_skbug_9947', done, (canvas) => {
+                    const ctx = canvas.getContext('2d');
+                    const angle = 240;
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    ctx.save();
+                    ctx.translate(80, 80);
+                    ctx.rotate((angle * Math.PI) / 180);
+                    ctx.shadowOffsetX = 10;
+                    ctx.shadowOffsetY = 10;
+                    ctx.shadowColor = 'rgba(100,100,100,0.5)';
+                    ctx.shadowBlur = 1;
+                    ctx.fillStyle = 'black';
+                    ctx.strokeStyle = 'red';
+                    ctx.beginPath();
+                    ctx.rect(-20, -20, 40, 40);
+                    ctx.fill();
+                    ctx.fillRect(30, 30, 40, 40);
+                    ctx.strokeRect(30, -20, 40, 40);
+                    ctx.fillText('text', -20, -30);
+                    ctx.restore();
                 });
             }));
         });

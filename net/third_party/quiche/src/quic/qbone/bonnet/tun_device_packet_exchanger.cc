@@ -26,7 +26,7 @@ TunDevicePacketExchanger::TunDevicePacketExchanger(
 bool TunDevicePacketExchanger::WritePacket(const char* packet,
                                            size_t size,
                                            bool* blocked,
-                                           string* error) {
+                                           std::string* error) {
   *blocked = false;
   if (fd_ < 0) {
     *error = quiche::QuicheStrCat("Invalid file descriptor of the TUN device: ",
@@ -48,13 +48,14 @@ bool TunDevicePacketExchanger::WritePacket(const char* packet,
     }
     return false;
   }
-  stats_->OnPacketWritten();
+  stats_->OnPacketWritten(result);
 
   return true;
 }
 
-std::unique_ptr<QuicData> TunDevicePacketExchanger::ReadPacket(bool* blocked,
-                                                               string* error) {
+std::unique_ptr<QuicData> TunDevicePacketExchanger::ReadPacket(
+    bool* blocked,
+    std::string* error) {
   *blocked = false;
   if (fd_ < 0) {
     *error = quiche::QuicheStrCat("Invalid file descriptor of the TUN device: ",
@@ -77,7 +78,7 @@ std::unique_ptr<QuicData> TunDevicePacketExchanger::ReadPacket(bool* blocked,
     }
     return nullptr;
   }
-  stats_->OnPacketRead();
+  stats_->OnPacketRead(result);
   return std::make_unique<QuicData>(read_buffer.release(), result, true);
 }
 

@@ -20,8 +20,8 @@
 #include <tuple>
 
 #include "perfetto/ext/base/string_view.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_processor_context.h"
-#include "src/trace_processor/trace_storage.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -51,6 +51,9 @@ class ProcessTracker {
   UniqueTid StartNewThread(base::Optional<int64_t> timestamp,
                            uint32_t tid,
                            StringId thread_name_id);
+
+  // Returns whether a thread is considered alive by the process tracker.
+  bool IsThreadAlive(UniqueTid utid);
 
   // Called when sched_process_exit is observed. This forces the tracker to
   // end the thread lifetime for the utid associated with the given tid.
@@ -125,15 +128,17 @@ class ProcessTracker {
   // is irrelevant, Associate(A, B) has the same effect of Associate(B, A).
   void AssociateThreads(UniqueTid, UniqueTid);
 
+  // Creates the mapping from tid 0 <-> utid 0 and pid 0 <-> upid 0. This is
+  // done for Linux-based system traces (proto or ftrace format) as for these
+  // traces, we always have the "swapper" (idle) process having tid/pid 0.
+  void SetPidZeroIgnoredForIdleProcess();
+
  private:
   // Returns the utid of a thread having |tid| and |pid| as the parent process.
   // pid == base::nullopt matches all processes.
   // Returns base::nullopt if such a thread doesn't exist.
   base::Optional<uint32_t> GetThreadOrNull(uint32_t tid,
                                            base::Optional<uint32_t> pid);
-
-  // Returns whether a thread is considered alive by the process tracker.
-  bool IsThreadAlive(UniqueTid utid);
 
   // Called whenever we discover that the passed thread belongs to the passed
   // process. The |pending_assocs_| vector is scanned to see if there are any

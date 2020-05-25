@@ -36,6 +36,7 @@
 #include "ash/shell.h"
 #include "ash/system/unified/unified_system_tray_test_api.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
@@ -45,6 +46,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/with_feature_override.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
@@ -291,6 +293,33 @@ TEST_F(AppListControllerImplTest, CheckTabOrderAfterDragIconToShelf) {
   // view after drag.
   EXPECT_EQ(item1, item2->GetPreviousFocusableView());
   EXPECT_EQ(item3, item2->GetNextFocusableView());
+}
+
+TEST_F(AppListControllerImplTest, PageResetByTimerInTabletMode) {
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  PopulateItem(30);
+
+  ShowAppListNow();
+
+  AppsGridView* apps_grid_view = GetAppsGridView();
+  apps_grid_view->pagination_model()->SelectPage(1, false /* animate */);
+
+  DismissAppListNow();
+
+  // When timer is not skipped the selected page should not change when app list
+  // is closed.
+  EXPECT_EQ(1, apps_grid_view->pagination_model()->selected_page());
+
+  // Skip the page reset timer to simulate timer exipration.
+  GetAppListView()->SetSkipPageResetTimerForTesting(true);
+
+  ShowAppListNow();
+  EXPECT_EQ(1, apps_grid_view->pagination_model()->selected_page());
+  DismissAppListNow();
+
+  // Once the app list is closed, the page should be reset when the timer is
+  // skipped.
+  EXPECT_EQ(0, apps_grid_view->pagination_model()->selected_page());
 }
 
 // Verifies that in clamshell mode the bounds of AppListView are correct when
@@ -548,6 +577,39 @@ TEST_F(AppListControllerImplTest,
             GetAppListView()->app_list_state());
 }
 
+// Regression test for https://crbug.com/1073548
+// Verifies that app list shown from overview after toggling tablet mode can be
+// closed.
+TEST_F(AppListControllerImplTest,
+       CloseAppListShownFromOverviewAfterTabletExit) {
+  // Move to tablet mode and back.
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(false);
+
+  std::unique_ptr<aura::Window> w(
+      AshTestBase::CreateTestWindow(gfx::Rect(0, 0, 400, 400)));
+  OverviewController* const overview_controller =
+      Shell::Get()->overview_controller();
+  overview_controller->StartOverview();
+
+  // Press home button - verify overview exits and the app list is shown.
+  PressHomeButton();
+
+  EXPECT_FALSE(overview_controller->InOverviewSession());
+  EXPECT_EQ(AppListViewState::kPeeking, GetAppListView()->app_list_state());
+  GetAppListTestHelper()->CheckVisibility(true);
+  ASSERT_TRUE(GetAppListView()->GetWidget());
+  EXPECT_TRUE(GetAppListView()->GetWidget()->GetNativeWindow()->IsVisible());
+
+  // Pressing home button again should close the app list.
+  PressHomeButton();
+
+  EXPECT_EQ(AppListViewState::kClosed, GetAppListView()->app_list_state());
+  GetAppListTestHelper()->CheckVisibility(false);
+  ASSERT_TRUE(GetAppListView()->GetWidget());
+  EXPECT_FALSE(GetAppListView()->GetWidget()->GetNativeWindow()->IsVisible());
+}
+
 class AppListControllerImplTestWithoutHotseat
     : public AppListControllerImplTest {
  public:
@@ -601,22 +663,12 @@ TEST_F(AppListControllerImplTestWithoutHotseat,
   EXPECT_FALSE(GetExpandArrowViewVisibility());
 }
 
-class HotseatAppListControllerImplTest
-    : public AppListControllerImplTest,
-      public testing::WithParamInterface<bool> {
+class HotseatAppListControllerImplTest : public base::test::WithFeatureOverride,
+                                         public AppListControllerImplTest {
  public:
-  HotseatAppListControllerImplTest() = default;
+  HotseatAppListControllerImplTest()
+      : WithFeatureOverride(chromeos::features::kShelfHotseat) {}
   ~HotseatAppListControllerImplTest() override = default;
-
-  // AshTestBase:
-  void SetUp() override {
-    if (GetParam()) {
-      feature_list_.InitAndEnableFeature(chromeos::features::kShelfHotseat);
-    } else {
-      feature_list_.InitAndDisableFeature(chromeos::features::kShelfHotseat);
-    }
-    AppListControllerImplTest::SetUp();
-  }
 
  private:
   base::test::ScopedFeatureList feature_list_;
@@ -624,9 +676,7 @@ class HotseatAppListControllerImplTest
 };
 
 // Tests with both hotseat disabled and enabled.
-INSTANTIATE_TEST_SUITE_P(All,
-                         HotseatAppListControllerImplTest,
-                         testing::Bool());
+INSTANTIATE_FEATURE_OVERRIDE_TEST_SUITE(HotseatAppListControllerImplTest);
 
 // Verifies that the pinned app should still show after canceling the drag from
 // AppsGridView to Shelf (https://crbug.com/1021768).
@@ -786,7 +836,7 @@ TEST_P(HotseatAppListControllerImplTest,
   EXPECT_FALSE(apps_grid_view_bounds.Intersects(
       shelf->shelf_widget()->GetWindowBoundsInScreen()));
   EXPECT_FALSE(apps_grid_view_bounds.Intersects(
-      shelf->shelf_widget()->hotseat_widget()->GetWindowBoundsInScreen()));
+      shelf->hotseat_widget()->GetWindowBoundsInScreen()));
 
   Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
 
@@ -797,7 +847,7 @@ TEST_P(HotseatAppListControllerImplTest,
   EXPECT_FALSE(apps_grid_view_bounds.Intersects(
       shelf->shelf_widget()->GetWindowBoundsInScreen()));
   EXPECT_FALSE(apps_grid_view_bounds.Intersects(
-      shelf->shelf_widget()->hotseat_widget()->GetWindowBoundsInScreen()));
+      shelf->hotseat_widget()->GetWindowBoundsInScreen()));
 }
 
 // The test parameter indicates whether the shelf should auto-hide. In either
@@ -950,6 +1000,55 @@ TEST_P(AppListAnimationTest, AppListShowPeekingWhileClosing) {
   ShowAppListNow();
 
   EXPECT_EQ(PeekingHeightTop(), GetAppListTargetTop());
+}
+
+// Tests that how search box opacity is animated when the app list is shown and
+// closed.
+TEST_P(AppListAnimationTest, SearchBoxOpacityDuringShowAndClose) {
+  // Set a transition duration that prevents the app list view from snapping to
+  // the final position.
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  ShowAppListNow();
+
+  SearchBoxView* const search_box = GetSearchBoxView();
+
+  // The search box opacity should start  at 0, and animate to 1.
+  EXPECT_EQ(0.0f, search_box->layer()->opacity());
+  EXPECT_EQ(1.0f, search_box->layer()->GetTargetOpacity());
+
+  // If the app list is closed while the animation is still in progress, the
+  // search box opacity should animate from the current opacity.
+  DismissAppListNow();
+
+  EXPECT_EQ(0.0f, search_box->layer()->opacity());
+  EXPECT_EQ(0.0f, search_box->layer()->GetTargetOpacity());
+
+  search_box->layer()->GetAnimator()->StopAnimating();
+
+  // When show again, verify the app list animates from 0 opacity again.
+  ShowAppListNow();
+
+  EXPECT_EQ(0.0f, search_box->layer()->opacity());
+  EXPECT_EQ(1.0f, search_box->layer()->GetTargetOpacity());
+
+  search_box->layer()->GetAnimator()->StopAnimating();
+  EXPECT_EQ(1.0f, search_box->layer()->opacity());
+
+  // Search box opacity animates from the current (full opacity) when closed
+  // from shown state.
+  DismissAppListNow();
+
+  EXPECT_EQ(1.0f, search_box->layer()->opacity());
+  EXPECT_EQ(0.0f, search_box->layer()->GetTargetOpacity());
+
+  // If the app list is show again during close animation, the search box
+  // opacity should animate from the current value.
+  ShowAppListNow();
+
+  EXPECT_EQ(1.0f, search_box->layer()->opacity());
+  EXPECT_EQ(1.0f, search_box->layer()->GetTargetOpacity());
 }
 
 class AppListControllerImplMetricsTest : public AshTestBase {

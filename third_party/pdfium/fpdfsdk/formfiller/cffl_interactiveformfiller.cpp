@@ -6,12 +6,11 @@
 
 #include "fpdfsdk/formfiller/cffl_interactiveformfiller.h"
 
+#include "constants/access_permissions.h"
 #include "constants/form_flags.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fxcrt/autorestorer.h"
-#include "core/fxge/cfx_graphstatedata.h"
-#include "core/fxge/cfx_pathdata.h"
-#include "core/fxge/cfx_renderdevice.h"
+#include "core/fxge/cfx_drawutils.h"
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_interactiveform.h"
 #include "fpdfsdk/cpdfsdk_pageview.h"
@@ -67,7 +66,6 @@ void CFFL_InteractiveFormFiller::OnDraw(CPDFSDK_PageView* pPageView,
   CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot);
   if (pFormFiller && pFormFiller->IsValid()) {
     pFormFiller->OnDraw(pPageView, pAnnot, pDevice, mtUser2Device);
-    pAnnot->GetPDFPage();
     if (m_pFormFillEnv->GetFocusAnnot() != pAnnot)
       return;
 
@@ -75,24 +73,8 @@ void CFFL_InteractiveFormFiller::OnDraw(CPDFSDK_PageView* pPageView,
     if (rcFocus.IsEmpty())
       return;
 
-    CFX_PathData path;
-    path.AppendPoint(CFX_PointF(rcFocus.left, rcFocus.top), FXPT_TYPE::MoveTo,
-                     false);
-    path.AppendPoint(CFX_PointF(rcFocus.left, rcFocus.bottom),
-                     FXPT_TYPE::LineTo, false);
-    path.AppendPoint(CFX_PointF(rcFocus.right, rcFocus.bottom),
-                     FXPT_TYPE::LineTo, false);
-    path.AppendPoint(CFX_PointF(rcFocus.right, rcFocus.top), FXPT_TYPE::LineTo,
-                     false);
-    path.AppendPoint(CFX_PointF(rcFocus.left, rcFocus.top), FXPT_TYPE::LineTo,
-                     false);
+    CFX_DrawUtils::DrawFocusRect(pDevice, mtUser2Device, rcFocus);
 
-    CFX_GraphStateData gsd;
-    gsd.m_DashArray = {1.0f};
-    gsd.m_DashPhase = 0;
-    gsd.m_LineWidth = 1.0f;
-    pDevice->DrawPath(&path, &mtUser2Device, &gsd, 0, ArgbEncode(255, 0, 0, 0),
-                      FXFILL_ALTERNATE);
     return;
   }
 
@@ -472,9 +454,10 @@ bool CFFL_InteractiveFormFiller::IsFillingAllowed(
   if (pWidget->GetFieldType() == FormFieldType::kPushButton)
     return false;
 
-  return m_pFormFillEnv->GetPermissions(FPDFPERM_FILL_FORM) ||
-         m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM) ||
-         m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY);
+  return m_pFormFillEnv->HasPermissions(
+      pdfium::access_permissions::kFillForm |
+      pdfium::access_permissions::kModifyAnnotation |
+      pdfium::access_permissions::kModifyContent);
 }
 
 CFFL_FormFiller* CFFL_InteractiveFormFiller::GetFormFiller(

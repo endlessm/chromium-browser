@@ -30,7 +30,7 @@
 }
 
 .oobe-tos-webview {
-  border: 0.5px solid rgb(218, 220, 224); /* #DADCE0 */
+  border: 1px solid rgb(218, 220, 224); /* #DADCE0 */
   border-radius: 4px;
   box-shadow: inset 0 0 4px 4px rgba(241, 243, 244, 0.5); /* #F1F3F4 */
 }
@@ -41,10 +41,15 @@
   text-decoration: none;
 }
 
+.oobe-local-link:focus {
+  outline-color: rgb(77, 144, 254); /* #4D90FE */
+  transition: outline-color 200ms;
+}
+
 /* -- WebviewScrollShadowsHelper --
  * Variables that are used for displaying scroll shadows in OOBE.
  */
- :host {
+:host {
   --oobe-scroll-shadow-common: {
     content: '';
     height: 100%;

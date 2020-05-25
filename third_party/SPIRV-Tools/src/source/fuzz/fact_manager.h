@@ -64,6 +64,18 @@ class FactManager {
   // Records the fact that |function_id| is livesafe.
   void AddFactFunctionIsLivesafe(uint32_t function_id);
 
+  // Records the fact that the value of the pointee associated with |pointer_id|
+  // is irrelevant: it does not affect the observable behaviour of the module.
+  void AddFactValueOfPointeeIsIrrelevant(uint32_t pointer_id);
+
+  // Records the fact that |lhs_id| is defined by the equation:
+  //
+  //   |lhs_id| = |opcode| |rhs_id[0]| ... |rhs_id[N-1]|
+  //
+  void AddFactIdEquation(uint32_t lhs_id, SpvOp opcode,
+                         const std::vector<uint32_t>& rhs_id,
+                         opt::IRContext* context);
+
   // The fact manager is responsible for managing a few distinct categories of
   // facts. In principle there could be different fact managers for each kind
   // of fact, but in practice providing one 'go to' place for facts is
@@ -153,7 +165,17 @@ class FactManager {
   // to be livesafe.
   bool FunctionIsLivesafe(uint32_t function_id) const;
 
-  // End of dead block facts
+  // End of dead livesafe function facts
+  //==============================
+
+  //==============================
+  // Querying facts about pointers with irrelevant pointee values
+
+  // Returns true if and ony if the value of the pointee associated with
+  // |pointer_id| is irrelevant.
+  bool PointeeValueIsIrrelevant(uint32_t pointer_id) const;
+
+  // End of irrelevant pointee value facts
   //==============================
 
  private:
@@ -165,9 +187,10 @@ class FactManager {
   std::unique_ptr<ConstantUniformFacts>
       uniform_constant_facts_;  // Unique pointer to internal data.
 
-  class DataSynonymFacts;  // Opaque class for management of data synonym facts.
-  std::unique_ptr<DataSynonymFacts>
-      data_synonym_facts_;  // Unique pointer to internal data.
+  class DataSynonymAndIdEquationFacts;  // Opaque class for management of data
+                                        // synonym and id equation facts.
+  std::unique_ptr<DataSynonymAndIdEquationFacts>
+      data_synonym_and_id_equation_facts_;  // Unique pointer to internal data.
 
   class DeadBlockFacts;  // Opaque class for management of dead block facts.
   std::unique_ptr<DeadBlockFacts>
@@ -177,6 +200,11 @@ class FactManager {
                                 // function facts.
   std::unique_ptr<LivesafeFunctionFacts>
       livesafe_function_facts_;  // Unique pointer to internal data.
+
+  class IrrelevantPointeeValueFacts;  // Opaque class for management of
+  // facts about pointers whose pointee values do not matter.
+  std::unique_ptr<IrrelevantPointeeValueFacts>
+      irrelevant_pointee_value_facts_;  // Unique pointer to internal data.
 };
 
 }  // namespace fuzz

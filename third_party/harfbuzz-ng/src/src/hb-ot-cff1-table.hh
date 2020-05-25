@@ -27,9 +27,9 @@
 #ifndef HB_OT_CFF1_TABLE_HH
 #define HB_OT_CFF1_TABLE_HH
 
-#include "hb-ot-head-table.hh"
 #include "hb-ot-cff-common.hh"
 #include "hb-subset-cff1.hh"
+#include "hb-draw.hh"
 
 #define HB_STRING_ARRAY_NAME cff1_std_strings
 #define HB_STRING_ARRAY_LIST "hb-ot-cff1-std-str.hh"
@@ -41,7 +41,7 @@ namespace CFF {
 
 /*
  * CFF -- Compact Font Format (CFF)
- * http://www.adobe.com/content/dam/acom/en/devnet/font/pdfs/5176.CFF.pdf
+ * https://www.adobe.com/content/dam/acom/en/devnet/font/pdfs/5176.CFF.pdf
  */
 #define HB_OT_TAG_cff1 HB_TAG('C','F','F',' ')
 
@@ -55,7 +55,6 @@ template <typename Type> struct CFF1IndexOf : CFFIndexOf<HBUINT16, Type> {};
 
 typedef CFFIndex<HBUINT16> CFF1Index;
 typedef CFF1Index          CFF1CharStrings;
-typedef FDArray<HBUINT16>  CFF1FDArray;
 typedef Subrs<HBUINT16>    CFF1Subrs;
 
 struct CFF1FDSelect : FDSelect {};
@@ -239,23 +238,6 @@ struct Encoding
     }
 
     return_trace (true);
-  }
-
-  /* parallel to above: calculate the size of a subset Encoding */
-  static unsigned int calculate_serialized_size (uint8_t format,
-						 unsigned int enc_count,
-						 unsigned int supp_count)
-  {
-    unsigned int size = min_size;
-    switch (format)
-    {
-    case 0: size += Encoding0::min_size + HBUINT8::static_size * enc_count; break;
-    case 1: size += Encoding1::min_size + Encoding1_Range::static_size * enc_count; break;
-    default:return 0;
-    }
-    if (supp_count > 0)
-      size += CFF1SuppEncData::min_size + SuppEncoding::static_size * supp_count;
-    return size;
   }
 
   unsigned int get_size () const
@@ -526,19 +508,6 @@ struct Charset
     return_trace (true);
   }
 
-  /* parallel to above: calculate the size of a subset Charset */
-  static unsigned int calculate_serialized_size (uint8_t format,
-						 unsigned int count)
-  {
-    switch (format)
-    {
-    case 0: return min_size + Charset0::min_size + HBUINT16::static_size * (count - 1);
-    case 1: return min_size + Charset1::min_size + Charset1_Range::static_size * count;
-    case 2: return min_size + Charset2::min_size + Charset2_Range::static_size * count;
-    default:return 0;
-    }
-  }
-
   unsigned int get_size (unsigned int num_glyphs) const
   {
     switch (format)
@@ -601,13 +570,13 @@ struct Charset
 struct CFF1StringIndex : CFF1Index
 {
   bool serialize (hb_serialize_context_t *c, const CFF1StringIndex &strings,
-		  unsigned int offSize_, const hb_inc_bimap_t &sidmap)
+                  const hb_inc_bimap_t &sidmap)
   {
     TRACE_SERIALIZE (this);
     if (unlikely ((strings.count == 0) || (sidmap.get_population () == 0)))
     {
       if (unlikely (!c->extend_min (this->count)))
-	return_trace (false);
+        return_trace (false);
       count = 0;
       return_trace (true);
     }
@@ -620,28 +589,12 @@ struct CFF1StringIndex : CFF1Index
     {
       hb_codepoint_t  j = sidmap[i];
       if (j != HB_MAP_VALUE_INVALID)
-	bytesArray[j] = strings[i];
+        bytesArray[j] = strings[i];
     }
 
-    bool result = CFF1Index::serialize (c, offSize_, bytesArray);
+    bool result = CFF1Index::serialize (c, bytesArray);
     bytesArray.fini ();
     return_trace (result);
-  }
-
-  /* in parallel to above */
-  unsigned int calculate_serialized_size (unsigned int &offSize_ /*OUT*/, const hb_inc_bimap_t &sidmap) const
-  {
-    offSize_ = 0;
-    if ((count == 0) || (sidmap.get_population () == 0))
-      return count.static_size;
-
-    unsigned int dataSize = 0;
-    for (unsigned int i = 0; i < count; i++)
-      if (sidmap[i] != HB_MAP_VALUE_INVALID)
-	dataSize += length_at (i);
-
-    offSize_ = calcOffSize(dataSize);
-    return CFF1Index::calculate_serialized_size (offSize_, sidmap.get_population (), dataSize);
   }
 };
 
@@ -745,7 +698,7 @@ struct cff1_top_dict_values_t : top_dict_values_t<cff1_top_dict_val_t>
   unsigned int    EncodingOffset;
   unsigned int    CharsetOffset;
   unsigned int    FDSelectOffset;
-  table_info_t       privateDictInfo;
+  table_info_t    privateDictInfo;
 };
 
 struct cff1_top_dict_opset_t : top_dict_opset_t<cff1_top_dict_val_t>
@@ -891,17 +844,6 @@ struct cff1_private_dict_values_base_t : dict_values_t<VAL>
   }
   void fini () { dict_values_t<VAL>::fini (); }
 
-  unsigned int calculate_serialized_size () const
-  {
-    unsigned int size = 0;
-    for (unsigned int i = 0; i < dict_values_t<VAL>::get_count; i++)
-      if (dict_values_t<VAL>::get_value (i).op == OpCode_Subrs)
-	size += OpCode_Size (OpCode_shortint) + 2 + OpCode_Size (OpCode_Subrs);
-      else
-	size += dict_values_t<VAL>::get_value (i).str.length;
-    return size;
-  }
-
   unsigned int      subrsOffset;
   const CFF1Subrs    *localSubrs;
 };
@@ -1003,6 +945,37 @@ typedef dict_interpreter_t<cff1_font_dict_opset_t, cff1_font_dict_values_t> cff1
 
 typedef CFF1Index CFF1NameIndex;
 typedef CFF1IndexOf<TopDict> CFF1TopDictIndex;
+
+struct cff1_font_dict_values_mod_t
+{
+  cff1_font_dict_values_mod_t() { init (); }
+
+  void init () { init ( &Null(cff1_font_dict_values_t), CFF_UNDEF_SID ); }
+
+  void init (const cff1_font_dict_values_t *base_,
+	     unsigned int fontName_)
+  {
+    base = base_;
+    fontName = fontName_;
+    privateDictInfo.init ();
+  }
+
+  unsigned get_count () const { return base->get_count (); }
+
+  const op_str_t &operator [] (unsigned int i) const { return (*base)[i]; }
+
+  const cff1_font_dict_values_t    *base;
+  table_info_t		   privateDictInfo;
+  unsigned int		fontName;
+};
+
+struct CFF1FDArray : FDArray<HBUINT16>
+{
+  /* FDArray::serialize() requires this partial specialization to compile */
+  template <typename ITER, typename OP_SERIALIZER>
+  bool serialize (hb_serialize_context_t *c, ITER it, OP_SERIALIZER& opszr)
+  { return FDArray<HBUINT16>::serialize<cff1_font_dict_values_mod_t, cff1_font_dict_values_mod_t> (c, it, opszr); }
+};
 
 } /* namespace CFF */
 
@@ -1347,8 +1320,9 @@ struct cff1
 
     HB_INTERNAL bool get_extents (hb_font_t *font, hb_codepoint_t glyph, hb_glyph_extents_t *extents) const;
     HB_INTERNAL bool get_seac_components (hb_codepoint_t glyph, hb_codepoint_t *base, hb_codepoint_t *accent) const;
-    HB_INTERNAL bool get_path (hb_font_t *font, hb_codepoint_t glyph,
-			       const hb_ot_glyph_decompose_funcs_t *funcs, void *user_data) const;
+#ifdef HB_EXPERIMENTAL_API
+    HB_INTERNAL bool get_path (hb_font_t *font, hb_codepoint_t glyph, draw_helper_t &draw_helper) const;
+#endif
 
     private:
     struct gname_t
@@ -1376,23 +1350,7 @@ struct cff1
 
   struct accelerator_subset_t : accelerator_templ_t<cff1_private_dict_opset_subset, cff1_private_dict_values_subset_t> {};
 
-  bool subset (hb_subset_plan_t *plan) const
-  {
-    hb_blob_t *cff_prime = nullptr;
-
-    bool success = true;
-    if (hb_subset_cff1 (plan, &cff_prime)) {
-      success = success && plan->add_table (HB_OT_TAG_cff1, cff_prime);
-      hb_blob_t *head_blob = hb_sanitize_context_t().reference_table<head> (plan->source);
-      success = success && head_blob && plan->add_table (HB_OT_TAG_head, head_blob);
-      hb_blob_destroy (head_blob);
-    } else {
-      success = false;
-    }
-    hb_blob_destroy (cff_prime);
-
-    return success;
-  }
+  bool subset (hb_subset_context_t *c) const { return hb_subset_cff1 (c); }
 
   protected:
   HB_INTERNAL static hb_codepoint_t lookup_standard_encoding_for_code (hb_codepoint_t sid);

@@ -47,45 +47,34 @@ protected:
 	Data *data;
 };
 
+// An LRU cache which can take a 'snapshot' of its current state. This is useful
+// for allowing concurrent read access without requiring a mutex to be locked.
 template<class Key, class Data, class Hasher = std::hash<Key>>
-class LRUConstCache : public LRUCache<Key, Data>
+class LRUSnapshotCache : public LRUCache<Key, Data>
 {
 	using LRUBase = LRUCache<Key, Data>;
 
 public:
-	LRUConstCache(int n)
+	LRUSnapshotCache(int n)
 	    : LRUBase(n)
 	{}
-	~LRUConstCache() { clearConstCache(); }
+	~LRUSnapshotCache() { clearSnapshot(); }
 
 	Data add(const Key &key, const Data &data) override
 	{
-		constCacheNeedsUpdate = true;
+		snapshotNeedsUpdate = true;
 		return LRUBase::add(key, data);
 	}
 
-	void updateConstCache();
-	const Data &queryConstCache(const Key &key) const;
+	void updateSnapshot();
+	const Data &querySnapshot(const Key &key) const;
 
 private:
-	void clearConstCache();
-	bool constCacheNeedsUpdate = false;
-	std::unordered_map<Key, Data, Hasher> constCache;
+	void clearSnapshot();
+	bool snapshotNeedsUpdate = false;
+	std::unordered_map<Key, Data, Hasher> snapshot;
 };
 
-// Traits-like helper class for checking if objects can be compared using memcmp().
-// Useful for statically asserting if a cache key can implement operator==() with memcmp().
-template<typename T>
-struct is_memcmparable
-{
-// std::is_trivially_copyable is not available in older GCC versions.
-#if !defined(__GNUC__) || __GNUC__ > 5
-	static const bool value = std::is_trivially_copyable<T>::value;
-#else
-	// At least check it doesn't have virtual methods.
-	static const bool value = !std::is_polymorphic<T>::value;
-#endif
-};
 }  // namespace sw
 
 namespace sw {
@@ -166,36 +155,36 @@ Data LRUCache<Key, Data>::add(const Key &key, const Data &data)
 }
 
 template<class Key, class Data, class Hasher>
-void LRUConstCache<Key, Data, Hasher>::clearConstCache()
+void LRUSnapshotCache<Key, Data, Hasher>::clearSnapshot()
 {
-	constCache.clear();
+	snapshot.clear();
 }
 
 template<class Key, class Data, class Hasher>
-void LRUConstCache<Key, Data, Hasher>::updateConstCache()
+void LRUSnapshotCache<Key, Data, Hasher>::updateSnapshot()
 {
-	if(constCacheNeedsUpdate)
+	if(snapshotNeedsUpdate)
 	{
-		clearConstCache();
+		clearSnapshot();
 
 		for(int i = 0; i < LRUBase::size; i++)
 		{
 			if(LRUBase::data[i])
 			{
-				constCache[*LRUBase::ref[i]] = LRUBase::data[i];
+				snapshot[*LRUBase::ref[i]] = LRUBase::data[i];
 			}
 		}
 
-		constCacheNeedsUpdate = false;
+		snapshotNeedsUpdate = false;
 	}
 }
 
 template<class Key, class Data, class Hasher>
-const Data &LRUConstCache<Key, Data, Hasher>::queryConstCache(const Key &key) const
+const Data &LRUSnapshotCache<Key, Data, Hasher>::querySnapshot(const Key &key) const
 {
-	auto it = constCache.find(key);
+	auto it = snapshot.find(key);
 	static Data null = {};
-	return (it != constCache.end()) ? it->second : null;
+	return (it != snapshot.end()) ? it->second : null;
 }
 
 }  // namespace sw

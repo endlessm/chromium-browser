@@ -36,6 +36,7 @@ LOCAL_SRC_FILES := \
 	external/vulkancts/framework/vulkan/vkDebugReportUtil.cpp \
 	external/vulkancts/framework/vulkan/vkDefs.cpp \
 	external/vulkancts/framework/vulkan/vkDeviceFeatures.cpp \
+	external/vulkancts/framework/vulkan/vkDeviceProperties.cpp \
 	external/vulkancts/framework/vulkan/vkDeviceUtil.cpp \
 	external/vulkancts/framework/vulkan/vkImageUtil.cpp \
 	external/vulkancts/framework/vulkan/vkImageWithMemory.cpp \
@@ -257,6 +258,7 @@ LOCAL_SRC_FILES := \
 	external/vulkancts/modules/vulkan/rasterization/vktRasterizationTests.cpp \
 	external/vulkancts/modules/vulkan/renderpass/vktRenderPassDepthStencilResolveTests.cpp \
 	external/vulkancts/modules/vulkan/renderpass/vktRenderPassFragmentDensityMapTests.cpp \
+	external/vulkancts/modules/vulkan/renderpass/vktRenderPassMultipleSubpassesMultipleCommandBuffersTests.cpp \
 	external/vulkancts/modules/vulkan/renderpass/vktRenderPassMultisampleResolveTests.cpp \
 	external/vulkancts/modules/vulkan/renderpass/vktRenderPassMultisampleTests.cpp \
 	external/vulkancts/modules/vulkan/renderpass/vktRenderPassSampleReadTests.cpp \
@@ -287,6 +289,7 @@ LOCAL_SRC_FILES := \
 	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderDerivateTests.cpp \
 	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderDiscardTests.cpp \
 	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderIndexingTests.cpp \
+	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderInvarianceTests.cpp \
 	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderLimitTests.cpp \
 	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderLoopTests.cpp \
 	external/vulkancts/modules/vulkan/shaderrender/vktShaderRenderMatrixTests.cpp \
@@ -322,6 +325,7 @@ LOCAL_SRC_FILES := \
 	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmComputeShaderTestUtil.cpp \
 	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmConditionalBranchTests.cpp \
 	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmCrossStageInterfaceTests.cpp \
+	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmFloatControlsExtensionlessTests.cpp \
 	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmFloatControlsTests.cpp \
 	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmFromHlslTests.cpp \
 	external/vulkancts/modules/vulkan/spirv_assembly/vktSpvAsmGraphicsShaderTestUtil.cpp \

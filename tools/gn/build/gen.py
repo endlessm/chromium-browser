@@ -47,7 +47,7 @@ class Platform(object):
 
   @staticmethod
   def known_platforms():
-    return ['linux', 'darwin', 'msvc', 'aix', 'fuchsia', 'freebsd', 'openbsd', 'haiku']
+    return ['linux', 'darwin', 'mingw', 'msvc', 'aix', 'fuchsia', 'freebsd', 'openbsd', 'haiku']
 
   def platform(self):
     return self._platform
@@ -138,10 +138,11 @@ def GenerateLastCommitPosition(host, header):
 #ifndef OUT_LAST_COMMIT_POSITION_H_
 #define OUT_LAST_COMMIT_POSITION_H_
 
+#define LAST_COMMIT_POSITION_NUM %s
 #define LAST_COMMIT_POSITION "%s (%s)"
 
 #endif  // OUT_LAST_COMMIT_POSITION_H_
-''' % (mo.group(1), mo.group(2))
+''' % (mo.group(1), mo.group(1), mo.group(2))
 
   # Only write/touch this file if the commit position has changed.
   old_contents = ''
@@ -177,6 +178,7 @@ def WriteGenericNinja(path, static_libraries, executables,
 
   template_filename = os.path.join(SCRIPT_DIR, {
       'msvc': 'build_win.ninja.template',
+      'mingw': 'build_linux.ninja.template',
       'darwin': 'build_mac.ninja.template',
       'linux': 'build_linux.ninja.template',
       'freebsd': 'build_linux.ninja.template',
@@ -333,14 +335,15 @@ def WriteGNNinja(path, platform, host, options):
         '-std=c++17'
     ])
 
-    if platform.is_linux():
+    if platform.is_linux() or platform.is_mingw():
       ldflags.append('-Wl,--as-needed')
 
       if not options.no_static_libstdcpp:
         ldflags.append('-static-libstdc++')
 
       # This is needed by libc++.
-      libs.append('-ldl')
+      if not platform.is_mingw():
+        libs.append('-ldl')
     elif platform.is_darwin():
       min_mac_version_flag = '-mmacosx-version-min=10.9'
       cflags.append(min_mac_version_flag)
@@ -355,6 +358,17 @@ def WriteGNNinja(path, platform, host, options):
     if platform.is_posix() and not platform.is_haiku():
       ldflags.append('-pthread')
 
+    if platform.is_mingw():
+      cflags.extend(['-DUNICODE',
+                     '-DNOMINMAX',
+                     '-DWIN32_LEAN_AND_MEAN',
+                     '-DWINVER=0x0A00',
+                     '-D_CRT_SECURE_NO_DEPRECATE',
+                     '-D_SCL_SECURE_NO_DEPRECATE',
+                     '-D_UNICODE',
+                     '-D_WIN32_WINNT=0x0A00',
+                     '-D_HAS_EXCEPTIONS=0'
+      ])
   elif platform.is_msvc():
     if not options.debug:
       cflags.extend(['/O2', '/DNDEBUG', '/Zc:inline'])
@@ -452,6 +466,7 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/command_help.cc',
         'src/gn/command_ls.cc',
         'src/gn/command_meta.cc',
+        'src/gn/command_outputs.cc',
         'src/gn/command_path.cc',
         'src/gn/command_refs.cc',
         'src/gn/commands.cc',
@@ -471,6 +486,7 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/filesystem_utils.cc',
         'src/gn/frameworks_utils.cc',
         'src/gn/function_exec_script.cc',
+        'src/gn/function_filter.cc',
         'src/gn/function_foreach.cc',
         'src/gn/function_forward_variables_from.cc',
         'src/gn/function_get_label_info.cc',
@@ -543,6 +559,7 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/source_dir.cc',
         'src/gn/source_file.cc',
         'src/gn/standard_out.cc',
+        'src/gn/string_atom.cc',
         'src/gn/string_utils.cc',
         'src/gn/substitution_list.cc',
         'src/gn/substitution_pattern.cc',
@@ -592,6 +609,7 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/exec_process_unittest.cc',
         'src/gn/filesystem_utils_unittest.cc',
         'src/gn/frameworks_utils_unittest.cc',
+        'src/gn/function_filter_unittest.cc',
         'src/gn/function_foreach_unittest.cc',
         'src/gn/function_forward_variables_from_unittest.cc',
         'src/gn/function_get_label_info_unittest.cc',
@@ -605,6 +623,7 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/functions_target_rust_unittest.cc',
         'src/gn/functions_target_unittest.cc',
         'src/gn/functions_unittest.cc',
+        'src/gn/hash_table_base_unittest.cc',
         'src/gn/header_checker_unittest.cc',
         'src/gn/inherited_libraries_unittest.cc',
         'src/gn/input_conversion_unittest.cc',
@@ -639,6 +658,7 @@ def WriteGNNinja(path, platform, host, options):
         'src/gn/setup_unittest.cc',
         'src/gn/source_dir_unittest.cc',
         'src/gn/source_file_unittest.cc',
+        'src/gn/string_atom_unittest.cc',
         'src/gn/string_utils_unittest.cc',
         'src/gn/substitution_pattern_unittest.cc',
         'src/gn/substitution_writer_unittest.cc',
@@ -677,19 +697,35 @@ def WriteGNNinja(path, platform, host, options):
         'src/base/win/scoped_process_information.cc',
     ])
 
-    libs.extend([
-        'advapi32.lib',
-        'dbghelp.lib',
-        'kernel32.lib',
-        'ole32.lib',
-        'shell32.lib',
-        'user32.lib',
-        'userenv.lib',
-        'version.lib',
-        'winmm.lib',
-        'ws2_32.lib',
-        'Shlwapi.lib',
-    ])
+    if platform.is_msvc():
+      libs.extend([
+          'advapi32.lib',
+          'dbghelp.lib',
+          'kernel32.lib',
+          'ole32.lib',
+          'shell32.lib',
+          'user32.lib',
+          'userenv.lib',
+          'version.lib',
+          'winmm.lib',
+          'ws2_32.lib',
+          'Shlwapi.lib',
+      ])
+    else:
+      libs.extend([
+          '-ladvapi32',
+          '-ldbghelp',
+          '-lkernel32',
+          '-lole32',
+          '-lshell32',
+          '-luser32',
+          '-luserenv',
+          '-lversion',
+          '-lwinmm',
+          '-lws2_32',
+          '-lshlwapi',
+      ])
+
 
   # we just build static libraries that GN needs
   executables['gn']['libs'].extend(static_libraries.keys())

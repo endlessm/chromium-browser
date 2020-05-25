@@ -21,6 +21,7 @@ import service_client
 import sheriff_config_pb2
 import sheriff_pb2
 import validator
+import time
 
 
 class Error(Exception):
@@ -107,11 +108,21 @@ def CreateApp(test_config=None):
         'validation': {
             'patterns': [{
                 'config_set': 'regex:projects/.+',
-                'path': 'regex:chromeperf-sheriff.cfg'
+                'path': 'regex:chromeperf-sheriffs.cfg'
             }],
             'url': 'https://%s/configs/validate' % (domain)
         }
     })
+
+  @app.route('/warmup')
+  def Warmup():  # pylint: disable=unused-variable
+    """Caching configs and compiled patterns for warmup."""
+    configs = luci_config.ListAllConfigs(
+        datastore_client,
+        _cache_timestamp=time.time() + 10)
+    for _, revision, subscription in configs:
+      luci_config.CompilePatterns(revision, subscription)
+    return jsonify({})
 
   @app.route('/configs/validate', methods=['POST'])
   def Validate():  # pylint: disable=unused-variable

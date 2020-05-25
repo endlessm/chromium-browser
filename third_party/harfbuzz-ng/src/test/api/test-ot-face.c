@@ -33,10 +33,9 @@
 
 
 static void
-test_face (hb_face_t *face,
-	   hb_codepoint_t cp)
+test_font (hb_font_t *font, hb_codepoint_t cp)
 {
-  hb_font_t *font = hb_font_create (face);
+  hb_face_t *face = hb_font_get_face (font);
   hb_set_t *set;
   hb_codepoint_t g;
   hb_position_t x, y;
@@ -121,20 +120,20 @@ test_face (hb_face_t *face,
   hb_ot_var_normalize_variations (face, NULL, 0, NULL, 0);
   hb_ot_var_normalize_coords (face, 0, NULL, NULL);
 
-  hb_ot_glyph_decompose_funcs_t *funcs = hb_ot_glyph_decompose_funcs_create ();
-  for (unsigned gid = 0; gid < 10; ++gid)
-    hb_ot_glyph_decompose (font, gid, funcs, NULL);
-  hb_ot_glyph_decompose_funcs_destroy (funcs);
+#ifdef HB_EXPERIMENTAL_API
+  hb_draw_funcs_t *funcs = hb_draw_funcs_create ();
+  hb_font_draw_glyph (font, cp, funcs, NULL);
+  hb_draw_funcs_destroy (funcs);
+#endif
 
   hb_set_destroy (set);
-  hb_font_destroy (font);
 }
 
 #ifndef TEST_OT_FACE_NO_MAIN
 static void
 test_ot_face_empty (void)
 {
-  test_face (hb_face_get_empty (), 0);
+  test_font (hb_font_get_empty (), 0);
 }
 
 static void

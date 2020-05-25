@@ -14,6 +14,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/system/sys_info.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/color_space.h"
 
@@ -42,6 +43,9 @@ using pASurfaceTransaction_delete = void (*)(ASurfaceTransaction*);
 using pASurfaceTransaction_apply = int64_t (*)(ASurfaceTransaction*);
 using pASurfaceTransaction_setOnComplete =
     void (*)(ASurfaceTransaction*, void* ctx, ASurfaceTransaction_OnComplete);
+using pASurfaceTransaction_reparent = void (*)(ASurfaceTransaction*,
+                                               ASurfaceControl* surface_control,
+                                               ASurfaceControl* new_parent);
 using pASurfaceTransaction_setVisibility = void (*)(ASurfaceTransaction*,
                                                     ASurfaceControl*,
                                                     int8_t visibility);
@@ -126,6 +130,7 @@ struct SurfaceControlMethods {
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_delete);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_apply);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setOnComplete);
+    LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_reparent);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setVisibility);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setZOrder);
     LOAD_FUNCTION(main_dl_handle, ASurfaceTransaction_setBuffer);
@@ -156,6 +161,7 @@ struct SurfaceControlMethods {
   pASurfaceTransaction_delete ASurfaceTransaction_deleteFn;
   pASurfaceTransaction_apply ASurfaceTransaction_applyFn;
   pASurfaceTransaction_setOnComplete ASurfaceTransaction_setOnCompleteFn;
+  pASurfaceTransaction_reparent ASurfaceTransaction_reparentFn;
   pASurfaceTransaction_setVisibility ASurfaceTransaction_setVisibilityFn;
   pASurfaceTransaction_setZOrder ASurfaceTransaction_setZOrderFn;
   pASurfaceTransaction_setBuffer ASurfaceTransaction_setBufferFn;
@@ -287,6 +293,12 @@ void OnTransactionCompletedOnAnyThread(void* context,
 bool SurfaceControl::IsSupported() {
   if (!base::android::BuildInfo::GetInstance()->is_at_least_q())
     return false;
+
+  // GLFence cannot be created successfully on emulator, and it is needed by
+  // Android surface control.
+  if (base::SysInfo::GetAndroidHardwareEGL() == "emulation")
+    return false;
+
   CHECK(SurfaceControlMethods::Get().supported);
   return true;
 }
@@ -322,8 +334,14 @@ SurfaceControl::Surface::Surface(ANativeWindow* parent, const char* name) {
 }
 
 SurfaceControl::Surface::~Surface() {
-  if (surface_)
+  if (surface_) {
+    // It is important to detach the surface from the tree before deleting it.
+    Transaction transaction;
+    transaction.SetParent(*this, nullptr);
+    transaction.Apply();
+
     SurfaceControlMethods::Get().ASurfaceControl_releaseFn(surface_);
+  }
 }
 
 SurfaceControl::SurfaceStats::SurfaceStats() = default;
@@ -440,6 +458,13 @@ void SurfaceControl::Transaction::SetOnCompleteCb(
 
   SurfaceControlMethods::Get().ASurfaceTransaction_setOnCompleteFn(
       transaction_, ack_ctx, &OnTransactionCompletedOnAnyThread);
+}
+
+void SurfaceControl::Transaction::SetParent(const Surface& surface,
+                                            const Surface* new_parent) {
+  SurfaceControlMethods::Get().ASurfaceTransaction_reparentFn(
+      transaction_, surface.surface(),
+      new_parent ? new_parent->surface() : nullptr);
 }
 
 void SurfaceControl::Transaction::Apply() {

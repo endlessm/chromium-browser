@@ -15,7 +15,6 @@
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
-#include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/layout/box_layout.h"
@@ -84,12 +83,17 @@ UnifiedSliderButton::UnifiedSliderButton(views::ButtonListener* listener,
   if (accessible_name_id)
     SetTooltipText(l10n_util::GetStringUTF16(accessible_name_id));
 
-  TrayPopupUtils::ConfigureTrayPopupButton(this);
-
   SetVectorIcon(icon);
   SetBorder(views::CreateEmptyBorder(kUnifiedCircularButtonFocusPadding));
-  views::InstallCircleHighlightPathGenerator(this);
+
+  // Focus ring is around the whole view's bounds, but the ink drop should be
+  // the same size as the content.
+  TrayPopupUtils::ConfigureTrayPopupButton(this);
   focus_ring()->SetColor(UnifiedSystemTrayView::GetFocusRingColor());
+  focus_ring()->SetPathGenerator(
+      std::make_unique<views::CircleHighlightPathGenerator>(gfx::Insets()));
+  views::InstallCircleHighlightPathGenerator(
+      this, kUnifiedCircularButtonFocusPadding);
 }
 
 UnifiedSliderButton::~UnifiedSliderButton() = default;
@@ -137,16 +141,10 @@ void UnifiedSliderButton::PaintButtonContents(gfx::Canvas* canvas) {
                 AshColorProvider::ControlsLayerType::kInactiveControlBackground,
                 AshColorProvider::AshColorMode::kDark));
   flags.setStyle(cc::PaintFlags::kFill_Style);
-  canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), kTrayItemSize / 2, flags);
+  canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), kTrayItemCornerRadius,
+                     flags);
 
   views::ImageButton::PaintButtonContents(canvas);
-}
-
-std::unique_ptr<views::InkDropMask> UnifiedSliderButton::CreateInkDropMask()
-    const {
-  gfx::Rect bounds = GetContentsBounds();
-  return std::make_unique<views::CircleInkDropMask>(
-      size(), bounds.CenterPoint(), bounds.width() / 2);
 }
 
 std::unique_ptr<views::InkDrop> UnifiedSliderButton::CreateInkDrop() {

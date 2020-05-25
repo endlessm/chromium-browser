@@ -24,7 +24,11 @@ DeviceDirs = collections.namedtuple(
 
 
 class DefaultFlavor(object):
-  def __init__(self, module):
+  def __init__(self, module, app_name):
+    # Name of the app we're going to run. May be used in various ways by
+    # different flavors.
+    self.app_name = app_name
+
     # Store a pointer to the parent recipe module (SkiaFlavorApi) so that
     # FlavorUtils objects can do recipe module-like things, like run steps or
     # access module-level resources.
@@ -168,9 +172,11 @@ class DefaultFlavor(object):
     if 'SwiftShader' in extra_tokens:
       ld_library_path.append(self.host_dirs.bin_dir.join('swiftshader_out'))
 
+    # Find the MSAN/TSAN-built libc++.
     if 'MSAN' in extra_tokens:
-      # Find the MSAN-built libc++.
       ld_library_path.append(clang_linux + '/msan')
+    elif 'TSAN' in extra_tokens:
+      ld_library_path.append(clang_linux + '/tsan')
 
     if any('SAN' in t for t in extra_tokens):
       # Sanitized binaries may want to run clang_linux/bin/llvm-symbolizer.

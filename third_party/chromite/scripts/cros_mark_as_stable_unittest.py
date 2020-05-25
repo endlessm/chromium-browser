@@ -23,6 +23,8 @@ from chromite.lib import portage_util
 from chromite.lib import repo_util
 from chromite.scripts import cros_mark_as_stable
 
+pytestmark = cros_test_lib.pytestmark_inside_only
+
 
 class RunGitMock(partial_mock.PartialCmdMock):
   """Partial mock for git.RunMock."""

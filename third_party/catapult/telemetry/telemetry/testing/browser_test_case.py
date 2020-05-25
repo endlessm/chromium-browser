@@ -59,7 +59,12 @@ class BrowserTestCase(unittest.TestCase):
   _device = None
 
   def setUp(self):
-    pass
+    if self._browser:
+      self._browser.CleanupUnsymbolizedMinidumps()
+
+  def tearDown(self):
+    if self._browser:
+      self._browser.CleanupUnsymbolizedMinidumps(fatal=True)
 
   @classmethod
   def setUpClass(cls):

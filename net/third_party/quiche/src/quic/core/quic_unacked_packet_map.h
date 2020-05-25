@@ -66,13 +66,13 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
   void RemoveFromInFlight(QuicPacketNumber packet_number);
 
   // Called to neuter all unencrypted packets to ensure they do not get
-  // retransmitted.
-  void NeuterUnencryptedPackets();
+  // retransmitted. Returns a vector of neutered packet numbers.
+  QuicInlinedVector<QuicPacketNumber, 2> NeuterUnencryptedPackets();
 
   // Called to neuter packets in handshake packet number space to ensure they do
-  // not get retransmitted.
+  // not get retransmitted. Returns a vector of neutered packet numbers.
   // TODO(fayang): Consider to combine this with NeuterUnencryptedPackets.
-  void NeuterHandshakePackets();
+  QuicInlinedVector<QuicPacketNumber, 2> NeuterHandshakePackets();
 
   // Returns true if |packet_number| has retransmittable frames. This will
   // return false if all frames of this packet are either non-retransmittable or
@@ -109,7 +109,7 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
   // been acked by the peer.  If there are no unacked packets, returns 0.
   QuicPacketNumber GetLeastUnacked() const;
 
-  // This can not be a QuicDeque since pointers into this are
+  // This can not be a QuicCircularDeque since pointers into this are
   // assumed to be stable.
   typedef std::deque<QuicTransmissionInfo> UnackedPacketMap;
 
@@ -214,6 +214,14 @@ class QUIC_EXPORT_PRIVATE QuicUnackedPacketMap {
 
   // Returns last in flight packet sent time of |packet_number_space|.
   QuicTime GetLastInFlightPacketSentTime(
+      PacketNumberSpace packet_number_space) const;
+
+  // Returns TransmissionInfo of the first in flight packet.
+  const QuicTransmissionInfo* GetFirstInFlightTransmissionInfo() const;
+
+  // Returns TransmissionInfo of first in flight packet in
+  // |packet_number_space|.
+  const QuicTransmissionInfo* GetFirstInFlightTransmissionInfoOfSpace(
       PacketNumberSpace packet_number_space) const;
 
   void SetSessionNotifier(SessionNotifierInterface* session_notifier);

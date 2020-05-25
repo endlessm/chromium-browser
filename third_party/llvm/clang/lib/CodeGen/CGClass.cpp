@@ -35,20 +35,37 @@ using namespace CodeGen;
 /// Return the best known alignment for an unknown pointer to a
 /// particular class.
 CharUnits CodeGenModule::getClassPointerAlignment(const CXXRecordDecl *RD) {
-  if (!RD->isCompleteDefinition())
+  if (!RD->hasDefinition())
     return CharUnits::One(); // Hopefully won't be used anywhere.
 
   auto &layout = getContext().getASTRecordLayout(RD);
 
   // If the class is final, then we know that the pointer points to an
   // object of that type and can use the full alignment.
-  if (RD->hasAttr<FinalAttr>()) {
+  if (RD->isEffectivelyFinal())
     return layout.getAlignment();
 
   // Otherwise, we have to assume it could be a subclass.
-  } else {
-    return layout.getNonVirtualAlignment();
-  }
+  return layout.getNonVirtualAlignment();
+}
+
+/// Return the smallest possible amount of storage that might be allocated
+/// starting from the beginning of an object of a particular class.
+///
+/// This may be smaller than sizeof(RD) if RD has virtual base classes.
+CharUnits CodeGenModule::getMinimumClassObjectSize(const CXXRecordDecl *RD) {
+  if (!RD->hasDefinition())
+    return CharUnits::One();
+
+  auto &layout = getContext().getASTRecordLayout(RD);
+
+  // If the class is final, then we know that the pointer points to an
+  // object of that type and can use the full alignment.
+  if (RD->isEffectivelyFinal())
+    return layout.getSize();
+
+  // Otherwise, we have to assume it could be a subclass.
+  return std::max(layout.getNonVirtualSize(), CharUnits::One());
 }
 
 /// Return the best known alignment for a pointer to a virtual base,
@@ -2852,7 +2869,9 @@ void CodeGenFunction::EmitForwardingCallToLambda(
   if (!resultType->isVoidType() &&
       calleeFnInfo.getReturnInfo().getKind() == ABIArgInfo::Indirect &&
       !hasScalarEvaluationKind(calleeFnInfo.getReturnType()))
-    returnSlot = ReturnValueSlot(ReturnValue, resultType.isVolatileQualified());
+    returnSlot =
+        ReturnValueSlot(ReturnValue, resultType.isVolatileQualified(),
+                        /*IsUnused=*/false, /*IsExternallyDestructed=*/true);
 
   // We don't need to separately arrange the call arguments because
   // the call can't be variadic anyway --- it's impossible to forward

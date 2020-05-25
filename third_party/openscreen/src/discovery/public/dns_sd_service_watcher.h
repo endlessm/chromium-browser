@@ -19,10 +19,37 @@
 
 namespace openscreen {
 namespace discovery {
+namespace {
+
+// NOTE: Must be inlined to avoid compilation failure for unused function when
+// DLOGs are disabled.
+template <typename T>
+inline std::string GetInstanceNames(
+    const std::unordered_map<std::string, T>& map) {
+  std::string s;
+  auto it = map.begin();
+  if (it == map.end()) {
+    return s;
+  }
+
+  s += it->first;
+  while (++it != map.end()) {
+    s += ", " + it->first;
+  }
+  return s;
+}
+
+}  // namespace
 
 // This class represents a top-level discovery API which sits on top of DNS-SD.
 // T is the service-specific type which stores information regarding a specific
 // service instance.
+// TODO(rwkeane): Include reporting client as ctor parameter once parallel CLs
+// are in.
+// NOTE: This class is not thread-safe and calls will be made to DnsSdService in
+// the same sequence and on the same threads from which these methods are
+// called. This is to avoid forcing design decisions on embedders who write
+// their own implementations of the DNS-SD layer.
 template <typename T>
 class DnsSdServiceWatcher : public DnsSdQuerier::Callback {
  public:
@@ -39,7 +66,8 @@ class DnsSdServiceWatcher : public DnsSdQuerier::Callback {
   // This function type is responsible for converting from a DNS service
   // instance (received from another mDNS endpoint) to a T type to be returned
   // to the caller.
-  using ServiceConverter = std::function<T(const DnsSdInstanceRecord&)>;
+  using ServiceConverter =
+      std::function<ErrorOr<T>(const DnsSdInstanceRecord&)>;
 
   DnsSdServiceWatcher(DnsSdService* service,
                       std::string service_name,
@@ -108,6 +136,11 @@ class DnsSdServiceWatcher : public DnsSdQuerier::Callback {
     for (const auto& pair : records_) {
       refs.push_back(*pair.second.get());
     }
+
+    OSP_DVLOG << "Currently " << records_.size()
+              << " known service instances: [" << GetInstanceNames(records_)
+              << "]";
+
     return refs;
   }
 
@@ -118,15 +151,27 @@ class DnsSdServiceWatcher : public DnsSdQuerier::Callback {
   void OnInstanceCreated(const DnsSdInstanceRecord& new_record) override {
     // NOTE: existence is not checked because records may be overwritten after
     // querier_->ReinitializeQueries() is called.
+    ErrorOr<T> record = conversion_(new_record);
+    if (record.is_error()) {
+      OSP_LOG << "Conversion of received record failed with error: "
+              << record.error();
+      return;
+    }
     records_[new_record.instance_id()] =
-        std::make_unique<T>(conversion_(new_record));
+        std::make_unique<T>(std::move(record.value()));
     callback_(GetServices());
   }
 
   void OnInstanceUpdated(const DnsSdInstanceRecord& modified_record) override {
     auto it = records_.find(modified_record.instance_id());
     if (it != records_.end()) {
-      auto ptr = std::make_unique<T>(conversion_(modified_record));
+      ErrorOr<T> record = conversion_(modified_record);
+      if (record.is_error()) {
+        OSP_LOG << "Conversion of received record failed with error: "
+                << record.error();
+        return;
+      }
+      auto ptr = std::make_unique<T>(std::move(record.value()));
       it->second.swap(ptr);
 
       callback_(GetServices());

@@ -51,6 +51,7 @@ public:
 	static size_t ComputeRequiredAllocationSize(const VkImageCreateInfo *pCreateInfo);
 
 	const VkMemoryRequirements getMemoryRequirements() const;
+	size_t getSizeInBytes(const VkImageSubresourceRange &subresourceRange) const;
 	void getSubresourceLayout(const VkImageSubresource *pSubresource, VkSubresourceLayout *pLayout) const;
 	void bind(DeviceMemory *pDeviceMemory, VkDeviceSize pMemoryOffset);
 	void copyTo(Image *dstImage, const VkImageCopy &pRegion) const;
@@ -113,6 +114,7 @@ private:
 	int borderSize() const;
 	void decodeETC2(const VkImageSubresourceRange &subresourceRange) const;
 	void decodeBC(const VkImageSubresourceRange &subresourceRange) const;
+	void decodeASTC(const VkImageSubresourceRange &subresourceRange) const;
 
 	const Device *const device = nullptr;
 	DeviceMemory *deviceMemory = nullptr;

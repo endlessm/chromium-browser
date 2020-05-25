@@ -43,7 +43,6 @@ type Conn struct {
 	didResume            bool // whether this connection was a session resumption
 	extendedMasterSecret bool // whether this session used an extended master secret
 	cipherSuite          *cipherSuite
-	earlyCipherSuite     *cipherSuite
 	ocspResponse         []byte // stapled OCSP response
 	sctList              []byte // signed certificate timestamp list
 	peerCertificates     []*x509.Certificate
@@ -1126,18 +1125,14 @@ func (c *Conn) writeRecord(typ recordType, data []byte) (n int, err error) {
 			msgType = typeHelloRetryRequest
 		}
 		if msgType != data[0] {
-			newData := make([]byte, len(data))
-			copy(newData, data)
-			newData[0] = msgType
-			data = newData
+			data = append([]byte{msgType}, data[1:]...)
 		}
 
 		if c.config.Bugs.SendTrailingMessageData != 0 && msgType == c.config.Bugs.SendTrailingMessageData {
-			newData := make([]byte, len(data))
+			// Add a 0 to the body.
+			newData := make([]byte, len(data)+1)
 			copy(newData, data)
 
-			// Add a 0 to the body.
-			newData = append(newData, 0)
 			// Fix the header.
 			newLen := len(newData) - 4
 			newData[1] = byte(newLen >> 16)
@@ -1145,6 +1140,12 @@ func (c *Conn) writeRecord(typ recordType, data []byte) (n int, err error) {
 			newData[3] = byte(newLen)
 
 			data = newData
+		}
+
+		if c.config.Bugs.TrailingDataWithFinished && msgType == typeFinished {
+			// Add a 0 to the record. Note unused bytes in |data| may be owned by the
+			// caller, so we force a new allocation.
+			data = append(data[:len(data):len(data)], 0)
 		}
 	}
 
@@ -1891,17 +1892,13 @@ func (c *Conn) VerifyHostname(host string) error {
 }
 
 func (c *Conn) exportKeyingMaterialTLS13(length int, secret, label, context []byte) []byte {
-	cipherSuite := c.cipherSuite
-	if cipherSuite == nil {
-		cipherSuite = c.earlyCipherSuite
-	}
-	hash := cipherSuite.hash()
+	hash := c.cipherSuite.hash()
 	exporterKeyingLabel := []byte("exporter")
 	contextHash := hash.New()
 	contextHash.Write(context)
 	exporterContext := hash.New().Sum(nil)
-	derivedSecret := hkdfExpandLabel(cipherSuite.hash(), secret, label, exporterContext, hash.Size())
-	return hkdfExpandLabel(cipherSuite.hash(), derivedSecret, exporterKeyingLabel, contextHash.Sum(nil), length)
+	derivedSecret := hkdfExpandLabel(c.cipherSuite.hash(), secret, label, exporterContext, hash.Size())
+	return hkdfExpandLabel(c.cipherSuite.hash(), derivedSecret, exporterKeyingLabel, contextHash.Sum(nil), length)
 }
 
 // ExportKeyingMaterial exports keying material from the current connection

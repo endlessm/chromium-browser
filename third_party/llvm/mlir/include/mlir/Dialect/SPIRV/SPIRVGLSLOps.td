@@ -14,6 +14,7 @@
 #define SPIRV_GLSL_OPS
 
 include "mlir/Dialect/SPIRV/SPIRVBase.td"
+include "mlir/Interfaces/SideEffects.td"
 
 //===----------------------------------------------------------------------===//
 // SPIR-V GLSL 4.50 opcode specification.
@@ -194,6 +195,38 @@ def SPV_GLSLCosOp : SPV_GLSLUnaryArithmeticOp<"Cos", 14, SPV_Float16or32> {
     ```
     %2 = spv.GLSL.Cos %0 : f32
     %3 = spv.GLSL.Cos %1 : vector<3xf16>
+    ```
+  }];
+}
+
+// -----
+
+def SPV_GLSLSinOp : SPV_GLSLUnaryArithmeticOp<"Sin", 13, SPV_Float16or32> {
+  let summary = "Sine of operand in radians";
+
+  let description = [{
+    The standard trigonometric sine of x radians.
+
+    The operand x must be a scalar or vector whose component type is 16-bit or
+    32-bit floating-point.
+
+    Result Type and the type of x must be the same type. Results are computed
+    per component.
+
+    ### Custom assembly format
+    ```
+    restricted-float-scalar-type ::=  `f16` | `f32`
+    restricted-float-scalar-vector-type ::=
+      restricted-float-scalar-type |
+      `vector<` integer-literal `x` restricted-float-scalar-type `>`
+    sin-op ::= ssa-id `=` `spv.GLSL.Sin` ssa-use `:`
+               restricted-float-scalar-vector-type
+    ```
+    For example:
+
+    ```
+    %2 = spv.GLSL.Sin %0 : f32
+    %3 = spv.GLSL.Sin %1 : vector<3xf16>
     ```
   }];
 }

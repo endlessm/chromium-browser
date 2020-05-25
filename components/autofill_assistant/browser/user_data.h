@@ -174,6 +174,7 @@ struct CollectUserDataOptions {
   std::string accept_terms_and_conditions_text;
   std::string terms_require_review_text;
   std::string info_section_text;
+  bool info_section_text_center = false;
   std::string privacy_notice_text;
   bool show_terms_as_checkbox = false;
 
@@ -193,6 +194,7 @@ struct CollectUserDataOptions {
   std::vector<UserFormSectionProto> additional_appended_sections;
   base::Optional<GenericUserInterfaceProto> generic_user_interface_prepended;
   base::Optional<GenericUserInterfaceProto> generic_user_interface_appended;
+  base::Optional<std::string> additional_model_identifier_to_check;
 
   base::OnceCallback<void(UserData*, const UserModel*)> confirm_callback;
   base::OnceCallback<void(int)> additional_actions_callback;

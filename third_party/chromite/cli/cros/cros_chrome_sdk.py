@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import re
+import sys
 
 from chromite.cbuildbot import archive_lib
 from chromite.cli import command
@@ -25,9 +26,13 @@ from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import path_util
+from chromite.lib import portage_util
 from chromite.lib import retry_util
 from chromite.utils import memoize
 from gn_helpers import gn_helpers
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 COMMAND_NAME = 'chrome-sdk'
@@ -698,8 +703,9 @@ class ChromeSDKCommand(command.CliCommand):
 
   _CHROME_CLANG_DIR = 'third_party/llvm-build/Release+Asserts/bin'
   _HOST_BINUTILS_DIR = 'third_party/binutils/Linux_x64/Release/bin/'
+  _BUILD_ARGS_DIR = 'build/args/chromeos/'
 
-  EBUILD_ENV = (
+  EBUILD_ENV_PATHS = (
       # Compiler tools.
       'CXX',
       'CC',
@@ -709,7 +715,9 @@ class ChromeSDKCommand(command.CliCommand):
       'NM',
       'RANLIB',
       'READELF',
+  )
 
+  EBUILD_ENV = EBUILD_ENV_PATHS + (
       # Compiler flags.
       'CFLAGS',
       'CXXFLAGS',
@@ -784,6 +792,13 @@ class ChromeSDKCommand(command.CliCommand):
         '--toolchain-path', type='local_or_gs_path',
         help='Provides a path, whether a local directory or a gs:// path, to '
              'pull toolchain components from.')
+    parser.add_argument(
+        '--no-shell', action='store_false', default=True, dest='use_shell',
+        help='Skips the interactive shell. When this arg is passed, the needed '
+             'toolchain will still be downloaded. However, no //out* dir will '
+             'automatically be created. The args.gn file will instead be '
+             'downloaded at a shareable location in //%s, and the SDK will '
+             'simply exit after that.' % cls._BUILD_ARGS_DIR)
     parser.add_argument(
         '--gn-extra-args',
         help='Provides extra args to "gn gen". Uses the same format as '
@@ -892,26 +907,14 @@ class ChromeSDKCommand(command.CliCommand):
     return os.path.join(self.options.chrome_src, 'out_%s' % self.board,
                         'Release')
 
-  def _FixGoldPath(self, var_contents, toolchain_path):
-    """Point to the gold linker in the toolchain tarball.
-
-    Accepts an already set environment variable in the form of '<cmd>
-    -B<gold_path>', and overrides the gold_path to the correct path in the
-    extracted toolchain tarball.
-
-    Args:
-      var_contents: The contents of the environment variable.
-      toolchain_path: Path to the extracted toolchain tarball contents.
-
-    Returns:
-      Environment string that has correct gold path.
-    """
-    cmd, _, gold_path = var_contents.partition(' -B')
-    gold_path = os.path.join(toolchain_path, gold_path.lstrip('/'))
-    return '%s -B%s' % (cmd, gold_path)
-
   def _UpdateGnArgsIfStale(self, out_dir, build_label, gn_args, board):
     """Runs 'gn gen' if gn args are stale or logs a warning."""
+    if not self.options.use_shell:
+      gn_args_file_path = os.path.join(
+          self.options.chrome_src, self._BUILD_ARGS_DIR, board + '.gni')
+      osutils.WriteFile(gn_args_file_path, gn_helpers.ToGNString(gn_args))
+      return
+
     gn_args_file_path = os.path.join(
         self.options.chrome_src, out_dir, build_label, 'args.gn')
 
@@ -961,15 +964,8 @@ class ChromeSDKCommand(command.CliCommand):
       if v_cur != v_new:
         logging.info('MISMATCHED ARG: %s: %s != %s', k, v_cur, v_new)
 
-  def _SetupTCEnvironment(self, sdk_ctx, options, env):
+  def _SetupTCEnvironment(self, options, env):
     """Sets up toolchain-related environment variables."""
-    target_tc_path = sdk_ctx.key_map[self.sdk.TARGET_TOOLCHAIN_KEY].path
-    tc_bin_path = os.path.join(target_tc_path, 'bin')
-    env['PATH'] = '%s:%s' % (tc_bin_path, os.environ['PATH'])
-
-    for var in ('CXX', 'CC', 'LD'):
-      env[var] = self._FixGoldPath(env[var], target_tc_path)
-
     chrome_clang_path = os.path.join(options.chrome_src, self._CHROME_CLANG_DIR)
 
     # For host compiler, we use the compiler that comes with Chrome
@@ -983,21 +979,25 @@ class ChromeSDKCommand(command.CliCommand):
     env['NM_host'] = os.path.join(binutils_path, 'nm')
     env['READELF_host'] = os.path.join(binutils_path, 'readelf')
 
-  def _ModifyPathForGomaBuild(self, compiler, tc_path=None):
+  def _AbsolutizeBinaryPath(self, binary, tc_path):
     """Modify toolchain path for goma build.
 
-    This function relativizes path of -B flag, but absolutize compiler path.
-    Compiler path will be relativized in build/toolchain/cros/BUILD.gn for
-    directory independent cache sharing in some distributed build system.
+    This function absolutizes the path to the given toolchain binary, which
+    will then be relativized in build/toolchain/cros/BUILD.gn. This ensures the
+    paths are the same across different machines & checkouts, which improves
+    cache hit rate in distributed build systems (i.e. goma).
+
+    Args:
+      binary: Name of toolchain binary.
+      tc_path: Path to toolchain directory.
+
+    Returns:
+      Absolute path to the binary in the toolchain dir.
     """
-    args = []
-    for i, v in enumerate(compiler.split()):
-      if v.startswith('-B'):
-        v = '-B' + os.path.relpath(v[len('-B'):], self._BuildDir())
-      elif i == 0 and os.path.basename(v) == v:
-        v = os.path.join(tc_path, 'bin', v)
-      args.append(v)
-    return ' '.join(args)
+    # If binary doesn't contain a '/', assume it's located in the toolchain dir.
+    if os.path.basename(binary) == binary:
+      return os.path.join(tc_path, 'bin', binary)
+    return binary
 
   def _SetupEnvironment(self, board, sdk_ctx, options, goma_dir=None,
                         goma_port=None):
@@ -1015,7 +1015,7 @@ class ChromeSDKCommand(command.CliCommand):
     if options.chroot:
       # Override with the environment from the chroot if available (i.e.
       # build_packages or emerge chromeos-chrome has been run for |board|).
-      env_path = os.path.join(sysroot, 'var', 'db', 'pkg', 'chromeos-base',
+      env_path = os.path.join(sysroot, portage_util.VDB_PATH, 'chromeos-base',
                               'chromeos-chrome-*')
       env_glob = glob.glob(env_path)
       if len(env_glob) != 1:
@@ -1038,31 +1038,23 @@ class ChromeSDKCommand(command.CliCommand):
 
     env = osutils.SourceEnvironment(environment, self.EBUILD_ENV)
     gn_args = gn_helpers.FromGNArgs(env['GN_ARGS'])
-    self._SetupTCEnvironment(sdk_ctx, options, env)
+    self._SetupTCEnvironment(options, env)
 
     # Add managed components to the PATH.
-    env['PATH'] = '%s:%s' % (constants.CHROMITE_BIN_DIR, env['PATH'])
+    env['PATH'] = '%s:%s' % (constants.CHROMITE_BIN_DIR, os.environ['PATH'])
     env['PATH'] = '%s:%s' % (os.path.dirname(self.sdk.gs_ctx.gsutil_bin),
                              env['PATH'])
-
-    # Get SDK version, falling back to previous versions as necessary.
-    full_version = sdk_ctx.version
-    if full_version != CUSTOM_VERSION:
-      full_version = self.sdk.GetFullVersion(sdk_ctx.version)
-    version = full_version
-    if version.startswith('R'):
-      version = version.split('-')[1]
 
     # Export internally referenced variables.
     os.environ[self.sdk.SDK_BOARD_ENV] = board
     if options.sdk_path:
       os.environ[self.sdk.SDK_PATH_ENV] = options.sdk_path
-    os.environ[self.sdk.SDK_VERSION_ENV] = version
+    os.environ[self.sdk.SDK_VERSION_ENV] = sdk_ctx.version
 
     # Add board and sdk version as gn args so that tests can bind them in
     # test wrappers generated at compile time.
     gn_args['cros_board'] = board
-    gn_args['cros_sdk_version'] = version
+    gn_args['cros_sdk_version'] = sdk_ctx.version
 
     # Export the board/version info in a more accessible way, so developers can
     # reference them in their chrome_sdk.bashrc files, as well as within the
@@ -1094,27 +1086,24 @@ class ChromeSDKCommand(command.CliCommand):
     gn_args['linux_use_bundled_binutils'] = True
 
     target_tc_path = sdk_ctx.key_map[self.sdk.TARGET_TOOLCHAIN_KEY].path
-    modified_env_cc = self._ModifyPathForGomaBuild(env['CC'], target_tc_path)
-    modified_env_cxx = self._ModifyPathForGomaBuild(env['CXX'], target_tc_path)
-    gn_args['cros_target_cc'] = modified_env_cc.split()[0]
-    gn_args['cros_target_cxx'] = modified_env_cxx.split()[0]
+    for env_path in self.EBUILD_ENV_PATHS:
+      env[env_path] = self._AbsolutizeBinaryPath(env[env_path], target_tc_path)
+    gn_args['cros_target_cc'] = env['CC']
+    gn_args['cros_target_cxx'] = env['CXX']
     gn_args['cros_target_ld'] = env['LD']
     gn_args['cros_target_nm'] = env['NM']
+    gn_args['cros_target_ar'] = env['AR']
     gn_args['cros_target_readelf'] = env['READELF']
-    gn_args['cros_target_extra_cflags'] = ' '.join(
-        [env.get('CFLAGS', '')] + modified_env_cc.split()[1:])
-    gn_args['cros_target_extra_cxxflags'] = ' '.join(
-        [env.get('CXXFLAGS', '')] + modified_env_cxx.split()[1:])
-    gn_args['cros_host_cc'] = self._ModifyPathForGomaBuild(env['CC_host'])
-    gn_args['cros_host_cxx'] = self._ModifyPathForGomaBuild(env['CXX_host'])
+    gn_args['cros_target_extra_cflags'] = env.get('CFLAGS', '')
+    gn_args['cros_target_extra_cxxflags'] = env.get('CXXFLAGS', '')
+    gn_args['cros_host_cc'] = env['CC_host']
+    gn_args['cros_host_cxx'] = env['CXX_host']
     gn_args['cros_host_ld'] = env['LD_host']
     gn_args['cros_host_nm'] = env['NM_host']
     gn_args['cros_host_ar'] = env['AR_host']
     gn_args['cros_host_readelf'] = env['READELF_host']
-    gn_args['cros_v8_snapshot_cc'] = self._ModifyPathForGomaBuild(
-        env['CC_host'])
-    gn_args['cros_v8_snapshot_cxx'] = self._ModifyPathForGomaBuild(
-        env['CXX_host'])
+    gn_args['cros_v8_snapshot_cc'] = env['CC_host']
+    gn_args['cros_v8_snapshot_cxx'] = env['CXX_host']
     gn_args['cros_v8_snapshot_ld'] = env['LD_host']
     gn_args['cros_v8_snapshot_nm'] = env['NM_host']
     gn_args['cros_v8_snapshot_ar'] = env['AR_host']
@@ -1128,25 +1117,19 @@ class ChromeSDKCommand(command.CliCommand):
       # If --nogoma option is explicitly set, disable goma, even if it is
       # used in the original GN_ARGS.
       gn_args['use_goma'] = False
+      gn_args.pop('goma_dir', None)
     elif goma_dir:
       gn_args['use_goma'] = True
-
-      # Disable automatic gomacc handling in gn since we handle it ourselves.
-      gn_args['has_gomacc_path'] = True
-      env['GOMACC_PATH'] = os.path.join(goma_dir, 'gomacc')
-
-      # This is used to invoke host compiler via gomacc (e.g. v8_snapshot).
       gn_args['goma_dir'] = goma_dir
 
     gn_args.pop('internal_khronos_glcts_tests', None)  # crbug.com/588080
 
     # Disable ThinLTO and CFI for simplechrome. Tryjob machines do not have
     # enough file descriptors to use. crbug.com/789607
-    if not options.thinlto and 'use_thin_lto' in gn_args:
+    if not options.thinlto:
       gn_args['use_thin_lto'] = False
-    if not options.cfi and 'is_cfi' in gn_args:
+    if not options.cfi:
       gn_args['is_cfi'] = False
-      gn_args['use_cfi_cast'] = False
     # We need to remove the flag -Wl,-plugin-opt,-import-instr-limit=$num
     # from cros_target_extra_ldflags if options.thinlto is not set.
     # The format of ld flags is something like
@@ -1182,6 +1165,9 @@ class ChromeSDKCommand(command.CliCommand):
     env['GN_ARGS'] = gn_args_env
 
     # PS1 sets the command line prompt and xterm window caption.
+    full_version = sdk_ctx.version
+    if full_version != CUSTOM_VERSION:
+      full_version = self.sdk.GetFullVersion(sdk_ctx.version)
     env['PS1'] = self._CreatePS1(self.board, full_version,
                                  chroot=options.chroot)
 
@@ -1302,7 +1288,7 @@ class ChromeSDKCommand(command.CliCommand):
           with osutils.ChdirContext(tempdir):
             try:
               result = retry_util.RunCurl(['--fail', self._GOMA_DOWNLOAD_URL],
-                                          stdout=True)
+                                          stdout=True, encoding='utf-8')
               if result.returncode:
                 raise GomaError('Failed to fetch Goma Download URL')
               download_url = result.output.strip()
@@ -1394,7 +1380,8 @@ class ChromeSDKCommand(command.CliCommand):
                           toolchain_url=self.options.toolchain_url) as ctx:
       env = self._SetupEnvironment(self.options.board, ctx, self.options,
                                    goma_dir=goma_dir, goma_port=goma_port)
-
+      if not self.options.use_shell:
+        return 0
       with self._GetRCFile(env, self.options.bashrc) as rcfile:
         bash_cmd = ['/bin/bash']
 

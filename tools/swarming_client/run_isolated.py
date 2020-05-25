@@ -114,7 +114,7 @@ ISOLATED_CLIENT_DIR = u'ic'
 # Take revision from
 # https://ci.chromium.org/p/infra-internal/g/infra-packagers/console
 ISOLATED_PACKAGE = 'infra/tools/luci/isolated/${platform}'
-ISOLATED_REVISION = 'git_revision:0c630715fe1307ec34118ec6d4160de489e0eca5'
+ISOLATED_REVISION = 'git_revision:a4b3b0f4436c8723f9d1b81af9db583c18ba939b'
 
 # Keep synced with task_request.py
 CACHE_NAME_RE = re.compile(r'^[a-z0-9_]{1,4096}$')
@@ -527,7 +527,7 @@ def _fetch_and_map_with_go(isolated_hash, storage, outdir, go_cache_dir,
       prefix=u'fetch-and-map-result-', suffix=u'.json')
   os.close(result_json_handle)
   try:
-    subprocess42.check_call([
+    proc = subprocess42.Popen([
         isolated_client,
         'download',
         '-isolate-server',
@@ -553,6 +553,18 @@ def _fetch_and_map_with_go(isolated_hash, storage, outdir, go_cache_dir,
         '-fetch-and-map-result-json',
         result_json_path,
     ])
+
+    while True:
+      # This is to prevent I/O timeout error during isolated setup.
+      try:
+        retcode = proc.wait(30)
+        if retcode != 0:
+          raise ValueError("retcode of isolated command is not 0: %s" % retcode)
+        break
+      except subprocess42.TimeoutExpired:
+        print('still running isolated')
+        continue
+
     with open(result_json_path) as json_file:
       result_json = json.load(json_file)
 
@@ -1275,7 +1287,11 @@ def process_named_cache_options(parser, options, time_fn=None):
         max_items=50,
         max_age_secs=MAX_AGE_SECS)
     root_dir = six.text_type(os.path.abspath(options.named_cache_root))
-    return local_caching.NamedCache(root_dir, policies, time_fn=time_fn)
+    cache = local_caching.NamedCache(root_dir, policies, time_fn=time_fn)
+    # Touch any named caches we're going to use to minimize thrashing
+    # between tasks that request some (but not all) of the same named caches.
+    cache.touch(*[name for name, _, _ in options.named_caches])
+    return cache
   return None
 
 
@@ -1339,8 +1355,9 @@ def main(args):
   # TODO(crbug.com/932396): Remove this.
   use_go_isolated = (
       options.cipd_enabled and
-      # TODO(crbug.com/1045281): win7 has flaky connection issue.
-      not (sys.platform == 'win32' and platform.release() == '7'))
+      # TODO(crbug.com/1045281): windows other than win10 has flaky connection
+      # issue.
+      (sys.platform != 'win32' or platform.release() == '10'))
 
   # TODO(maruel): CIPD caches should be defined at an higher level here too, so
   # they can be cleaned the same way.

@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from chromite.lib import constants
@@ -28,6 +29,11 @@ from chromite.lib import remote_access
 
 from chromite.lib.paygen import paygen_payload_lib
 from chromite.lib.paygen import paygen_stateful_payload_lib
+
+from chromite.lib.xbuddy import artifact_info
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 DEVSERVER_STATIC_DIR = path_util.FromChrootPath(
@@ -341,7 +347,7 @@ class RemoteDeviceUpdater(object):
   UPDATE_ENGINE_BIN = 'update_engine_client'
   # Root working directory on the device. This directory is in the
   # stateful partition and thus has enough space to store the payloads.
-  DEVICE_BASE_DIR = '/mnt/stateful_partition/cros-flash'
+  DEVICE_BASE_DIR = '/usr/local/tmp/cros-flash'
   UPDATE_CHECK_INTERVAL_PROGRESSBAR = 0.5
   UPDATE_CHECK_INTERVAL_NORMAL = 10
 
@@ -443,14 +449,14 @@ class RemoteDeviceUpdater(object):
       # fails, fallback to downloading the image.
       try:
         translated_path, _ = ds_wrapper.GetImagePathWithXbuddy(
-            os.path.join(self.image, 'full_payload'), self.board,
+            os.path.join(self.image, artifact_info.FULL_PAYLOAD), self.board,
             static_dir=DEVSERVER_STATIC_DIR, silent=True)
         payload_dir = os.path.dirname(
             ds_wrapper.TranslatedPathToLocalPath(translated_path,
                                                  DEVSERVER_STATIC_DIR))
         ds_wrapper.GetImagePathWithXbuddy(
-            os.path.join(self.image, 'stateful'), self.board,
-            static_dir=DEVSERVER_STATIC_DIR, silent=True)
+            os.path.join(self.image, artifact_info.STATEFUL_PAYLOAD),
+            self.board, static_dir=DEVSERVER_STATIC_DIR, silent=True)
         fetch_image = False
       except (ds_wrapper.ImagePathError, ds_wrapper.ArtifactDownloadError):
         logging.info('Could not find full_payload or stateful for "%s"',
@@ -510,7 +516,8 @@ class RemoteDeviceUpdater(object):
               clobber_stateful=self.clobber_stateful,
               yes=self.yes,
               send_payload_in_parallel=self.send_payload_in_parallel,
-              experimental_au=self.experimental_au)
+              experimental_au=self.experimental_au,
+              transfer_class=auto_updater_transfer.LocalTransfer)
           chromeos_AU.CheckPayloads()
           chromeos_AU.PreparePayloadPropsFile()
           chromeos_AU.RunUpdate()

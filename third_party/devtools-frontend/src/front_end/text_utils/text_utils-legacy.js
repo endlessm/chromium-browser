@@ -7,6 +7,19 @@ import * as TextUtilsModule from './text_utils.js';
 self.TextUtils = self.TextUtils || {};
 TextUtils = TextUtils || {};
 
+/**
+ * @interface
+ */
+TextUtils.ContentProvider = TextUtilsModule.ContentProvider.ContentProvider;
+
+/**
+ * @constructor
+ */
+TextUtils.ContentProvider.SearchMatch = TextUtilsModule.ContentProvider.SearchMatch;
+TextUtils.ContentProvider.contentAsDataURL = TextUtilsModule.ContentProvider.contentAsDataURL;
+TextUtils.StaticContentProvider = TextUtilsModule.StaticContentProvider.StaticContentProvider;
+
+
 /** @constructor */
 TextUtils.Text = TextUtilsModule.Text.Text;
 
@@ -34,9 +47,3 @@ TextUtils.BalancedJSONTokenizer = TextUtilsModule.TextUtils.BalancedJSONTokenize
 TextUtils.TokenizerFactory = TextUtilsModule.TextUtils.TokenizerFactory;
 
 TextUtils.isMinified = TextUtilsModule.TextUtils.isMinified;
-
-/** @typedef {{lineNumber: number, columnNumber: number}} */
-TextUtils.Text.Position;
-
-/** @typedef {{key:(string|undefined), text:(?string|undefined), regex:(!RegExp|undefined), negative:boolean}} */
-TextUtils.FilterParser.ParsedFilter;

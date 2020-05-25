@@ -24,7 +24,7 @@ using testing::_;
 using testing::Return;
 
 ParsedQuicVersionVector GetVersions() {
-  return {ParsedQuicVersion{PROTOCOL_TLS1_3, QUIC_VERSION_99}};
+  return {DefaultVersionForQuicTransport()};
 }
 
 class MockQuicTransportSessionInterface : public QuicTransportSessionInterface {
@@ -40,6 +40,7 @@ class QuicTransportStreamTest : public QuicTest {
                                            Perspective::IS_CLIENT,
                                            GetVersions())),
         session_(connection_) {
+    QuicEnableVersion(DefaultVersionForQuicTransport());
     session_.Initialize();
 
     stream_ = new QuicTransportStream(0, &session_, &interface_);
@@ -141,7 +142,7 @@ TEST_F(QuicTransportStreamTest, CannotSendFinTwice) {
   EXPECT_CALL(interface_, IsSessionReady()).WillRepeatedly(Return(true));
   ASSERT_TRUE(stream_->CanWrite());
 
-  EXPECT_CALL(session_, WritevData(stream_, stream_->id(), _, _, _))
+  EXPECT_CALL(session_, WritevData(stream_->id(), _, _, _, _, _))
       .WillOnce(Return(QuicConsumedData(0, /*fin_consumed=*/true)));
   EXPECT_TRUE(stream_->SendFin());
   EXPECT_FALSE(stream_->CanWrite());

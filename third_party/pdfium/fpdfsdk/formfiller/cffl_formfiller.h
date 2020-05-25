@@ -113,8 +113,6 @@ class CFFL_FormFiller : public CPWL_Wnd::ProviderIface,
   CFX_FloatRect PWLtoFFL(const CFX_FloatRect& rect);
   CFX_PointF FFLtoPWL(const CFX_PointF& point);
   CFX_PointF PWLtoFFL(const CFX_PointF& point);
-  CFX_PointF WndtoPWL(const CFX_PointF& pt);
-  CFX_FloatRect FFLtoWnd(const CFX_FloatRect& rect);
 
   bool CommitData(CPDFSDK_PageView* pPageView, uint32_t nFlag);
   virtual bool IsDataChanged(CPDFSDK_PageView* pPageView);
@@ -131,7 +129,7 @@ class CFFL_FormFiller : public CPWL_Wnd::ProviderIface,
   bool IsValid() const;
   CFX_FloatRect GetPDFAnnotRect() const;
 
-  CPDFSDK_PageView* GetCurPageView(bool renew);
+  CPDFSDK_PageView* GetCurPageView();
   void SetChangeMark();
 
   CPDFSDK_Annot* GetSDKAnnot() const { return m_pWidget.Get(); }

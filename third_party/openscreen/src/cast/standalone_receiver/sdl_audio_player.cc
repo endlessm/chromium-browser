@@ -11,6 +11,7 @@
 #include "cast/standalone_receiver/avcodec_glue.h"
 #include "util/big_endian.h"
 #include "util/logging.h"
+#include "util/trace_logging.h"
 
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
@@ -38,6 +39,7 @@ void InterleaveAudioSamples(const uint8_t* const planes[],
                             int num_channels,
                             int num_samples,
                             uint8_t* interleaved) {
+  TRACE_DEFAULT_SCOPED(TraceCategory::kStandaloneReceiver);
   // Note: This could be optimized with SIMD intrinsics for much better
   // performance.
   auto* dest = reinterpret_cast<Element*>(interleaved);
@@ -55,10 +57,12 @@ void InterleaveAudioSamples(const uint8_t* const planes[],
 SDLAudioPlayer::SDLAudioPlayer(ClockNowFunctionPtr now_function,
                                TaskRunner* task_runner,
                                Receiver* receiver,
+                               const std::string& codec_name,
                                std::function<void()> error_callback)
     : SDLPlayerBase(now_function,
                     task_runner,
                     receiver,
+                    codec_name,
                     std::move(error_callback),
                     kAudioMediaType) {}
 
@@ -70,6 +74,7 @@ SDLAudioPlayer::~SDLAudioPlayer() {
 
 ErrorOr<Clock::time_point> SDLAudioPlayer::RenderNextFrame(
     const SDLPlayerBase::PresentableFrame& next_frame) {
+  TRACE_DEFAULT_SCOPED(TraceCategory::kStandaloneReceiver);
   OSP_DCHECK(next_frame.decoded_frame);
   const AVFrame& frame = *next_frame.decoded_frame;
 
@@ -165,6 +170,7 @@ bool SDLAudioPlayer::RenderWhileIdle(const PresentableFrame* frame) {
 }
 
 void SDLAudioPlayer::Present() {
+  TRACE_DEFAULT_SCOPED(TraceCategory::kStandaloneReceiver);
   if (state() != kScheduledToPresent) {
     // In all other states, just do nothing. The SDL audio buffer will underrun
     // and result in silence.

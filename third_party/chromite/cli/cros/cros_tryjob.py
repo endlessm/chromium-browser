@@ -9,6 +9,7 @@ from __future__ import print_function
 
 import json
 import os
+import sys
 import time
 
 from chromite.lib import constants
@@ -20,6 +21,9 @@ from chromite.lib import git
 from chromite.lib import request_build
 
 from chromite.cbuildbot import trybot_patch_pool
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 REMOTE = 'remote'
@@ -595,6 +599,12 @@ List Examples:
     how_group.add_argument(
         '--debug-cidb', dest='passthrough', action='append_option',
         help='Force Debug CIDB to be used.')
+    how_group.add_argument(
+        '--no-publish-prebuilt-confs',
+        dest='passthrough',
+        action='append_option',
+        help='Force the tryjob to not publish commits to prebuilt.conf or '
+             'sdk_version.conf, even if run in production.')
 
     # Overrides for the build configs testing behaviors.
     test_group = parser.add_argument_group(

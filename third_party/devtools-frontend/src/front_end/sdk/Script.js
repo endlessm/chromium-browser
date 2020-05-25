@@ -24,13 +24,15 @@
  */
 
 import * as Common from '../common/common.js';
-import * as ProtocolModule from '../protocol/protocol.js';
+import * as ProtocolClient from '../protocol_client/protocol_client.js';
+import * as TextUtils from '../text_utils/text_utils.js';
 
 import {DebuggerModel, Location} from './DebuggerModel.js';  // eslint-disable-line no-unused-vars
-import {ExecutionContext} from './RuntimeModel.js';          // eslint-disable-line no-unused-vars
+import {ResourceTreeModel} from './ResourceTreeModel.js';
+import {ExecutionContext} from './RuntimeModel.js';  // eslint-disable-line no-unused-vars
 
 /**
- * @implements {Common.ContentProvider.ContentProvider}
+ * @implements {TextUtils.ContentProvider.ContentProvider}
  * @unrestricted
  */
 export class Script {
@@ -50,10 +52,12 @@ export class Script {
    * @param {boolean} hasSourceURL
    * @param {number} length
    * @param {?Protocol.Runtime.StackTrace} originStackTrace
+   * @param {?number} codeOffset
+   * @param {?string} scriptLanguage
    */
   constructor(
       debuggerModel, scriptId, sourceURL, startLine, startColumn, endLine, endColumn, executionContextId, hash,
-      isContentScript, isLiveEdit, sourceMapURL, hasSourceURL, length, originStackTrace) {
+      isContentScript, isLiveEdit, sourceMapURL, hasSourceURL, length, originStackTrace, codeOffset, scriptLanguage) {
     this.debuggerModel = debuggerModel;
     this.scriptId = scriptId;
     this.sourceURL = sourceURL;
@@ -72,6 +76,8 @@ export class Script {
     this._originalContentProvider = null;
     this._originalSource = null;
     this.originStackTrace = originStackTrace;
+    this._codeOffset = codeOffset;
+    this._language = scriptLanguage;
     this._lineMap = null;
   }
 
@@ -106,9 +112,23 @@ export class Script {
   }
 
   /**
+   * @return {?number}
+   */
+  codeOffset() {
+    return this._codeOffset;
+  }
+
+  /**
    * @return {boolean}
    */
-  isWasmDisassembly() {
+  isWasm() {
+    return this._language === Protocol.Debugger.ScriptLanguage.WebAssembly;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  hasWasmDisassembly() {
     return !!this._lineMap && !this.sourceMapURL;
   }
 
@@ -152,7 +172,7 @@ export class Script {
 
   /**
    * @override
-   * @return {!Promise<!Common.DeferredContent>}
+   * @return {!Promise<!TextUtils.ContentProvider.DeferredContent>}
    */
   async requestContent() {
     if (this._source) {
@@ -208,7 +228,7 @@ export class Script {
   }
 
   /**
-   * @return {!Common.ContentProvider.ContentProvider}
+   * @return {!TextUtils.ContentProvider.ContentProvider}
    */
   originalContentProvider() {
     if (!this._originalContentProvider) {
@@ -219,7 +239,7 @@ export class Script {
         };
       });
       this._originalContentProvider =
-          new Common.StaticContentProvider.StaticContentProvider(this.contentURL(), this.contentType(), lazyContent);
+          new TextUtils.StaticContentProvider.StaticContentProvider(this.contentURL(), this.contentType(), lazyContent);
     }
     return this._originalContentProvider;
   }
@@ -229,7 +249,7 @@ export class Script {
    * @param {string} query
    * @param {boolean} caseSensitive
    * @param {boolean} isRegex
-   * @return {!Promise<!Array<!Common.ContentProvider.SearchMatch>>}
+   * @return {!Promise<!Array<!TextUtils.ContentProvider.SearchMatch>>}
    */
   async searchInContent(query, caseSensitive, isRegex) {
     if (!this.scriptId) {
@@ -238,7 +258,7 @@ export class Script {
 
     const matches =
         await this.debuggerModel.target().debuggerAgent().searchInContent(this.scriptId, query, caseSensitive, isRegex);
-    return (matches || []).map(match => new Common.ContentProvider.SearchMatch(match.lineNumber, match.lineContent));
+    return (matches || []).map(match => new TextUtils.ContentProvider.SearchMatch(match.lineNumber, match.lineContent));
   }
 
   /**
@@ -254,7 +274,7 @@ export class Script {
 
   /**
    * @param {string} newSource
-   * @param {function(?ProtocolModule.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=, !Array.<!Protocol.Debugger.CallFrame>=, !Protocol.Runtime.StackTrace=, !Protocol.Runtime.StackTraceId=, boolean=)} callback
+   * @param {function(?ProtocolClient.InspectorBackend.ProtocolError, !Protocol.Runtime.ExceptionDetails=, !Array.<!Protocol.Debugger.CallFrame>=, !Protocol.Runtime.StackTrace=, !Protocol.Runtime.StackTraceId=, boolean=)} callback
    */
   async editSource(newSource, callback) {
     newSource = Script._trimSourceURLComment(newSource);
@@ -274,13 +294,13 @@ export class Script {
     const response = await this.debuggerModel.target().debuggerAgent().invoke_setScriptSource(
         {scriptId: this.scriptId, scriptSource: newSource});
 
-    if (!response[ProtocolModule.InspectorBackend.ProtocolError] && !response.exceptionDetails) {
+    if (!response[ProtocolClient.InspectorBackend.ProtocolError] && !response.exceptionDetails) {
       this._source = newSource;
     }
 
     const needsStepIn = !!response.stackChanged;
     callback(
-        response[ProtocolModule.InspectorBackend.ProtocolError], response.exceptionDetails, response.callFrames,
+        response[ProtocolClient.InspectorBackend.ProtocolError], response.exceptionDetails, response.callFrames,
         response.asyncStackTrace, response.asyncStackTraceId, needsStepIn);
   }
 
@@ -338,7 +358,7 @@ export class Script {
    */
   isInlineScript() {
     const startsAtZero = !this.lineOffset && !this.columnOffset;
-    return !!this.sourceURL && !startsAtZero;
+    return !this.isWasm() && !!this.sourceURL && !startsAtZero;
   }
 
   /**
@@ -362,7 +382,7 @@ export class Script {
   async setBlackboxedRanges(positions) {
     const response = await this.debuggerModel.target().debuggerAgent().invoke_setBlackboxedRanges(
         {scriptId: this.scriptId, positions});
-    return !response[ProtocolModule.InspectorBackend.ProtocolError];
+    return !response[ProtocolClient.InspectorBackend.ProtocolError];
   }
 
   containsLocation(lineNumber, columnNumber) {
@@ -386,7 +406,7 @@ export class Script {
 const frameIdSymbol = Symbol('frameid');
 
 /**
- * @param {!SDK.Script} script
+ * @param {!Script} script
  * @return {string}
  */
 function frameIdForScript(script) {
@@ -395,7 +415,7 @@ function frameIdForScript(script) {
     return executionContext.frameId || '';
   }
   // This is to overcome compilation cache which doesn't get reset.
-  const resourceTreeModel = script.debuggerModel.target().model(SDK.ResourceTreeModel);
+  const resourceTreeModel = script.debuggerModel.target().model(ResourceTreeModel);
   if (!resourceTreeModel || !resourceTreeModel.mainFrame) {
     return '';
   }

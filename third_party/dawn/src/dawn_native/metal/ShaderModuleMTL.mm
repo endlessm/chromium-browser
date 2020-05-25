@@ -52,25 +52,6 @@ namespace dawn_native { namespace metal {
                     return shaderc_spvc_execution_model_invalid;
             }
         }
-
-        shaderc_spvc::CompileOptions GetMSLCompileOptions() {
-            // If these options are changed, the values in DawnSPIRVCrossGLSLFastFuzzer.cpp need to
-            // be updated.
-            shaderc_spvc::CompileOptions options;
-
-            // Disable PointSize builtin for https://bugs.chromium.org/p/dawn/issues/detail?id=146
-            // Because Metal will reject PointSize builtin if the shader is compiled into a render
-            // pipeline that uses a non-point topology.
-            // TODO (hao.x.li@intel.com): Remove this once WebGPU requires there is no
-            // gl_PointSize builtin (https://github.com/gpuweb/gpuweb/issues/332).
-            options.SetMSLEnablePointSizeBuiltIn(false);
-
-            // Always use vertex buffer 30 (the last one in the vertex buffer table) to contain
-            // the shader storage buffer lengths.
-            options.SetMSLBufferSizeBufferIndex(kBufferLengthBufferSlot);
-
-            return options;
-        }
     }  // namespace
 
     // static
@@ -90,9 +71,10 @@ namespace dawn_native { namespace metal {
     MaybeError ShaderModule::Initialize(const ShaderModuleDescriptor* descriptor) {
         mSpirv.assign(descriptor->code, descriptor->code + descriptor->codeSize);
         if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
+            shaderc_spvc::CompileOptions options = GetMSLCompileOptions();
+
             DAWN_TRY(CheckSpvcSuccess(
-                mSpvcContext.InitializeForMsl(descriptor->code, descriptor->codeSize,
-                                              GetMSLCompileOptions()),
+                mSpvcContext.InitializeForMsl(descriptor->code, descriptor->codeSize, options),
                 "Unable to initialize instance of spvc"));
 
             spirv_cross::CompilerMSL* compiler;
@@ -149,26 +131,34 @@ namespace dawn_native { namespace metal {
 
         // Create one resource binding entry per stage per binding.
         for (uint32_t group : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
-            const auto& bgInfo = layout->GetBindGroupLayout(group)->GetBindingInfo();
-            for (uint32_t binding : IterateBitSet(bgInfo.mask)) {
-                for (auto stage : IterateStages(bgInfo.visibilities[binding])) {
-                    uint32_t index = layout->GetBindingIndexInfo(stage)[group][binding];
+            const BindGroupLayoutBase::BindingMap& bindingMap =
+                layout->GetBindGroupLayout(group)->GetBindingMap();
+
+            for (const auto& it : bindingMap) {
+                BindingNumber bindingNumber = it.first;
+                BindingIndex bindingIndex = it.second;
+
+                const BindingInfo& bindingInfo =
+                    layout->GetBindGroupLayout(group)->GetBindingInfo(bindingIndex);
+
+                for (auto stage : IterateStages(bindingInfo.visibility)) {
+                    uint32_t shaderIndex = layout->GetBindingIndexInfo(stage)[group][bindingIndex];
                     if (GetDevice()->IsToggleEnabled(Toggle::UseSpvc)) {
                         shaderc_spvc_msl_resource_binding mslBinding;
                         mslBinding.stage = ToSpvcExecutionModel(stage);
                         mslBinding.desc_set = group;
-                        mslBinding.binding = binding;
+                        mslBinding.binding = bindingNumber;
                         mslBinding.msl_buffer = mslBinding.msl_texture = mslBinding.msl_sampler =
-                            index;
+                            shaderIndex;
                         DAWN_TRY(CheckSpvcSuccess(mSpvcContext.AddMSLResourceBinding(mslBinding),
                                                   "Unable to add MSL Resource Binding"));
                     } else {
                         spirv_cross::MSLResourceBinding mslBinding;
                         mslBinding.stage = SpirvExecutionModelForStage(stage);
                         mslBinding.desc_set = group;
-                        mslBinding.binding = binding;
+                        mslBinding.binding = bindingNumber;
                         mslBinding.msl_buffer = mslBinding.msl_texture = mslBinding.msl_sampler =
-                            index;
+                            shaderIndex;
 
                         compiler->add_msl_resource_binding(mslBinding);
                     }
@@ -242,6 +232,25 @@ namespace dawn_native { namespace metal {
         }
 
         return {};
+    }
+
+    shaderc_spvc::CompileOptions ShaderModule::GetMSLCompileOptions() {
+        // If these options are changed, the values in DawnSPIRVCrossGLSLFastFuzzer.cpp need to
+        // be updated.
+        shaderc_spvc::CompileOptions options = GetCompileOptions();
+
+        // Disable PointSize builtin for https://bugs.chromium.org/p/dawn/issues/detail?id=146
+        // Because Metal will reject PointSize builtin if the shader is compiled into a render
+        // pipeline that uses a non-point topology.
+        // TODO (hao.x.li@intel.com): Remove this once WebGPU requires there is no
+        // gl_PointSize builtin (https://github.com/gpuweb/gpuweb/issues/332).
+        options.SetMSLEnablePointSizeBuiltIn(false);
+
+        // Always use vertex buffer 30 (the last one in the vertex buffer table) to contain
+        // the shader storage buffer lengths.
+        options.SetMSLBufferSizeBufferIndex(kBufferLengthBufferSlot);
+
+        return options;
     }
 
 }}  // namespace dawn_native::metal

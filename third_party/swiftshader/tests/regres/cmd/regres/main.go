@@ -32,6 +32,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"os"
@@ -46,40 +47,51 @@ import (
 
 	"../../cause"
 	"../../consts"
+	"../../cov"
 	"../../deqp"
 	"../../git"
+	"../../llvm"
 	"../../shell"
 	"../../testlist"
 	"../../util"
+
 	gerrit "github.com/andygrunwald/go-gerrit"
 )
 
 const (
-	gitURL                  = "https://swiftshader.googlesource.com/SwiftShader"
-	gerritURL               = "https://swiftshader-review.googlesource.com/"
-	reportHeader            = "Regres report:"
-	changeUpdateFrequency   = time.Minute * 5
-	changeQueryFrequency    = time.Minute * 5
-	testTimeout             = time.Minute * 2  // timeout for a single test
-	buildTimeout            = time.Minute * 10 // timeout for a build
-	dailyUpdateTestListHour = 5                // 5am
-	fullTestListRelPath     = "tests/regres/full-tests.json"
-	ciTestListRelPath       = "tests/regres/ci-tests.json"
-	deqpConfigRelPath       = "tests/regres/deqp.json"
+	gitURL                = "https://swiftshader.googlesource.com/SwiftShader"
+	gerritURL             = "https://swiftshader-review.googlesource.com/"
+	coverageURL           = "https://$USERNAME:$PASSWORD@github.com/swiftshader-regres/swiftshader-coverage.git"
+	coverageBranch        = "gh-pages"
+	coveragePath          = "coverage/coverage.zip"
+	reportHeader          = "Regres report:"
+	changeUpdateFrequency = time.Minute * 5
+	changeQueryFrequency  = time.Minute * 5
+	testTimeout           = time.Minute * 2  // timeout for a single test
+	buildTimeout          = time.Minute * 10 // timeout for a build
+	fullTestListRelPath   = "tests/regres/full-tests.json"
+	ciTestListRelPath     = "tests/regres/ci-tests.json"
+	deqpConfigRelPath     = "tests/regres/deqp.json"
 )
 
 var (
 	numParallelTests = runtime.NumCPU()
+	llvmVersion      = llvm.Version{Major: 10}
 
 	cacheDir      = flag.String("cache", "cache", "path to the output cache directory")
 	gerritEmail   = flag.String("email", "$SS_REGRES_EMAIL", "gerrit email address for posting regres results")
 	gerritUser    = flag.String("user", "$SS_REGRES_USER", "gerrit username for posting regres results")
 	gerritPass    = flag.String("pass", "$SS_REGRES_PASS", "gerrit password for posting regres results")
+	githubUser    = flag.String("gh-user", "$SS_GITHUB_USER", "github user for posting coverage results")
+	githubPass    = flag.String("gh-pass", "$SS_GITHUB_PASS", "github password for posting coverage results")
 	keepCheckouts = flag.Bool("keep", false, "don't delete checkout directories after use")
 	dryRun        = flag.Bool("dry", false, "don't post regres reports to gerrit")
 	maxProcMemory = flag.Uint64("max-proc-mem", shell.MaxProcMemory, "maximum virtual memory per child process")
 	dailyNow      = flag.Bool("dailynow", false, "Start by running the daily pass")
+	dailyOnly     = flag.Bool("dailyonly", false, "Run only the daily pass")
+	dailyChange   = flag.String("dailychange", "", "Change hash to use for daily pass, HEAD if not provided")
 	priority      = flag.String("priority", "", "Prioritize a single change with the given id")
+	limit         = flag.Int("limit", 0, "only run a maximum of this number of tests")
 )
 
 func main() {
@@ -93,9 +105,13 @@ func main() {
 		gerritEmail:   os.ExpandEnv(*gerritEmail),
 		gerritUser:    os.ExpandEnv(*gerritUser),
 		gerritPass:    os.ExpandEnv(*gerritPass),
+		githubUser:    os.ExpandEnv(*githubUser),
+		githubPass:    os.ExpandEnv(*githubPass),
 		keepCheckouts: *keepCheckouts,
 		dryRun:        *dryRun,
 		dailyNow:      *dailyNow,
+		dailyOnly:     *dailyOnly,
+		dailyChange:   *dailyChange,
 		priority:      *priority,
 	}
 
@@ -106,18 +122,86 @@ func main() {
 }
 
 type regres struct {
-	cmake         string // path to cmake executable
-	make          string // path to make executable
-	python        string // path to python executable
-	cacheRoot     string // path to the regres cache directory
-	gerritEmail   string // gerrit email address used for posting results
-	gerritUser    string // gerrit username used for posting results
-	gerritPass    string // gerrit password used for posting results
-	keepCheckouts bool   // don't delete source & build checkouts after testing
-	dryRun        bool   // don't post any reviews
-	maxProcMemory uint64 // max virtual memory for child processes
-	dailyNow      bool   // start with a daily run
-	priority      string // Prioritize a single change with the given id
+	cmake         string          // path to cmake executable
+	make          string          // path to make executable
+	python        string          // path to python executable
+	tar           string          // path to tar executable
+	cacheRoot     string          // path to the regres cache directory
+	toolchain     *llvm.Toolchain // the LLVM toolchain used to build SwiftShader
+	gerritEmail   string          // gerrit email address used for posting results
+	gerritUser    string          // gerrit username used for posting results
+	gerritPass    string          // gerrit password used for posting results
+	githubUser    string          // github username used for posting results
+	githubPass    string          // github password used for posting results
+	keepCheckouts bool            // don't delete source & build checkouts after testing
+	dryRun        bool            // don't post any reviews
+	maxProcMemory uint64          // max virtual memory for child processes
+	dailyNow      bool            // start with a daily run
+	dailyOnly     bool            // run only the daily run
+	dailyChange   string          // Change hash to use for daily pass, HEAD if not provided
+	priority      string          // Prioritize a single change with the given id
+}
+
+// getToolchain returns the LLVM toolchain, possibly downloading and
+// decompressing it if it wasn't found in the cache directory.
+func getToolchain(tarExe, cacheRoot string) (*llvm.Toolchain, error) {
+	path := filepath.Join(cacheRoot, "llvm")
+
+	if toolchain := llvm.Search(path).Find(llvmVersion); toolchain != nil {
+		return toolchain, nil
+	}
+
+	// LLVM toolchain may have been updated, remove the directory if it exists.
+	os.RemoveAll(path)
+
+	log.Printf("Downloading LLVM %v toolchain...\n", llvmVersion)
+	tar, err := llvmVersion.Download()
+	if err != nil {
+		return nil, fmt.Errorf("Couldn't download LLVM %v: %v", llvmVersion, err)
+	}
+
+	tarFile := filepath.Join(cacheRoot, "llvm.tar.xz")
+	if err := ioutil.WriteFile(tarFile, tar, 0666); err != nil {
+		return nil, fmt.Errorf("Couldn't write '%v': %v", tarFile, err)
+	}
+	defer os.Remove(tarFile)
+
+	log.Printf("Decompressing LLVM %v toolchain...\n", llvmVersion)
+	target := filepath.Join(cacheRoot, "llvm-tmp")
+	os.MkdirAll(target, 0755)
+	defer os.RemoveAll(target)
+	if err := exec.Command(tarExe, "-xf", tarFile, "-C", target).Run(); err != nil {
+		return nil, fmt.Errorf("Couldn't decompress LLVM tar download: %v", err)
+	}
+
+	// The tar, once decompressed, holds a single root directory with a name
+	// starting with 'clang+llvm'. Move this to path.
+	files, err := filepath.Glob(filepath.Join(target, "*"))
+	if err != nil {
+		return nil, fmt.Errorf("Couldn't glob decompressed files: %v", err)
+	}
+	if len(files) != 1 || !util.IsDir(files[0]) {
+		return nil, fmt.Errorf("Unexpected decompressed files: %+v", files)
+	}
+	if err := os.Rename(files[0], path); err != nil {
+		return nil, fmt.Errorf("Couldn't move %v to %v", files[0], path)
+	}
+
+	// We should now have everything in the right place.
+	toolchain := llvm.Search(path).Find(llvmVersion)
+	if toolchain == nil {
+		return nil, fmt.Errorf("Couldn't find LLVM toolchain after downloading")
+	}
+
+	return toolchain, nil
+}
+
+// toolchainEnv() returns the environment variables for executing CMake commands.
+func (r *regres) toolchainEnv() []string {
+	return append([]string{
+		"CC=" + r.toolchain.Clang(),
+		"CXX=" + r.toolchain.ClangXX(),
+	}, os.Environ()...)
 }
 
 // resolveDirs ensures that the necessary directories used can be found, and
@@ -140,8 +224,8 @@ func (r *regres) resolveDirs() error {
 	}
 
 	for _, path := range allDirs {
-		if _, err := os.Stat(*path); err != nil {
-			return cause.Wrap(err, "Couldn't find path '%v'", *path)
+		if !util.IsDir(*path) {
+			return fmt.Errorf("Couldn't find path '%v'", *path)
 		}
 	}
 
@@ -158,6 +242,7 @@ func (r *regres) resolveExes() error {
 		{"cmake", &r.cmake},
 		{"make", &r.make},
 		{"python", &r.python},
+		{"tar", &r.tar},
 	} {
 		path, err := exec.LookPath(e.name)
 		if err != nil {
@@ -185,6 +270,12 @@ func (r *regres) run() error {
 		return cause.Wrap(err, "Couldn't resolve all directories")
 	}
 
+	toolchain, err := getToolchain(r.tar, r.cacheRoot)
+	if err != nil {
+		return cause.Wrap(err, "Couldn't download LLVM toolchain")
+	}
+	r.toolchain = toolchain
+
 	client, err := gerrit.NewClient(gerritURL, nil)
 	if err != nil {
 		return cause.Wrap(err, "Couldn't create gerrit client")
@@ -197,16 +288,24 @@ func (r *regres) run() error {
 	lastUpdatedTestLists := toDate(time.Now())
 	lastQueriedChanges := time.Time{}
 
-	if r.dailyNow {
+	if r.dailyNow || r.dailyOnly {
 		lastUpdatedTestLists = date{}
 	}
 
 	for {
-		if now := time.Now(); toDate(now) != lastUpdatedTestLists && now.Hour() >= dailyUpdateTestListHour {
+		if now := time.Now(); toDate(now) != lastUpdatedTestLists {
 			lastUpdatedTestLists = toDate(now)
-			if err := r.updateTestLists(client); err != nil {
+			if err := r.runDaily(client, backendSubzero, true); err != nil {
 				log.Println(err.Error())
 			}
+			if err := r.runDaily(client, backendLLVM, false); err != nil {
+				log.Println(err.Error())
+			}
+		}
+
+		if r.dailyOnly {
+			log.Println("Daily finished with --dailyonly. Stopping")
+			return nil
 		}
 
 		// Update list of tracked changes.
@@ -330,14 +429,14 @@ type deqpBuild struct {
 }
 
 func (r *regres) getOrBuildDEQP(test *test) (deqpBuild, error) {
-	srcDir := test.srcDir
-	if p := path.Join(srcDir, deqpConfigRelPath); !util.IsFile(p) {
-		srcDir, _ = os.Getwd()
+	checkoutDir := test.checkoutDir
+	if p := path.Join(checkoutDir, deqpConfigRelPath); !util.IsFile(p) {
+		checkoutDir, _ = os.Getwd()
 		log.Printf("Couldn't open dEQP config file from change (%v), falling back to internal version\n", p)
 	} else {
 		log.Println("Using dEQP config file from change")
 	}
-	file, err := os.Open(path.Join(srcDir, deqpConfigRelPath))
+	file, err := os.Open(path.Join(checkoutDir, deqpConfigRelPath))
 	if err != nil {
 		return deqpBuild{}, cause.Wrap(err, "Couldn't open dEQP config file")
 	}
@@ -398,7 +497,7 @@ func (r *regres) getOrBuildDEQP(test *test) (deqpBuild, error) {
 
 		log.Println("Applying deqp patches")
 		for _, patch := range cfg.Patches {
-			fullPath := path.Join(srcDir, patch)
+			fullPath := path.Join(checkoutDir, patch)
 			if err := git.Apply(cacheDir, fullPath); err != nil {
 				return deqpBuild{}, cause.Wrap(err, "Couldn't apply deqp patch %v for %v @ %v", patch, cfg.Remote, cfg.SHA)
 			}
@@ -505,43 +604,72 @@ func (r *regres) testParent(change *changeInfo, testlists testlist.Lists, d deqp
 	return results, nil
 }
 
-func (r *regres) updateTestLists(client *gerrit.Client) error {
-	log.Println("Updating test lists")
+// runDaily runs a full deqp run on the HEAD change, posting the results to a
+// new or existing gerrit change. If genCov is true, then coverage
+// information will be generated for the run, and commiteed to the
+// coverageBranch.
+func (r *regres) runDaily(client *gerrit.Client, reactorBackend reactorBackend, genCov bool) error {
+	log.Printf("Updating test lists (Backend: %v)\n", reactorBackend)
 
-	headHash, err := git.FetchRefHash("HEAD", gitURL)
-	if err != nil {
-		return cause.Wrap(err, "Could not get hash of master HEAD")
+	if genCov {
+		if r.githubUser == "" {
+			log.Println("--gh-user not specified and SS_GITHUB_USER not set. Disabling code coverage generation")
+			genCov = false
+		} else if r.githubPass == "" {
+			log.Println("--gh-pass not specified and SS_GITHUB_PASS not set. Disabling code coverage generation")
+			genCov = false
+		}
 	}
 
-	// Get the full test results for latest master.
-	test := r.newTest(headHash)
+	dailyHash := git.Hash{}
+	if r.dailyChange == "" {
+		headHash, err := git.FetchRefHash("HEAD", gitURL)
+		if err != nil {
+			return cause.Wrap(err, "Could not get hash of master HEAD")
+		}
+		dailyHash = headHash
+	} else {
+		dailyHash = git.ParseHash(r.dailyChange)
+	}
+
+	// Get the full test results.
+	test := r.newTest(dailyHash).setReactorBackend(reactorBackend)
 	defer test.cleanup()
 
 	// Always need to checkout the change.
 	if err := test.checkout(); err != nil {
-		return cause.Wrap(err, "Failed to checkout '%s'", headHash)
+		return cause.Wrap(err, "Failed to checkout '%s'", dailyHash)
 	}
 
 	d, err := r.getOrBuildDEQP(test)
 	if err != nil {
-		return cause.Wrap(err, "Failed to build deqp for '%s'", headHash)
+		return cause.Wrap(err, "Failed to build deqp for '%s'", dailyHash)
 	}
 
 	// Load the test lists.
 	testLists, err := test.loadTestLists(fullTestListRelPath)
 	if err != nil {
-		return cause.Wrap(err, "Failed to load full test lists for '%s'", headHash)
+		return cause.Wrap(err, "Failed to load full test lists for '%s'", dailyHash)
+	}
+
+	if genCov {
+		test.coverageEnv = &cov.Env{
+			LLVM:     *r.toolchain,
+			RootDir:  test.checkoutDir,
+			ExePath:  filepath.Join(test.buildDir, "libvk_swiftshader.so"),
+			TurboCov: filepath.Join(test.buildDir, "turbo-cov"),
+		}
 	}
 
 	// Build the change.
 	if err := test.build(); err != nil {
-		return cause.Wrap(err, "Failed to build '%s'", headHash)
+		return cause.Wrap(err, "Failed to build '%s'", dailyHash)
 	}
 
 	// Run the tests on the change.
 	results, err := test.run(testLists, d)
 	if err != nil {
-		return cause.Wrap(err, "Failed to test '%s'", headHash)
+		return cause.Wrap(err, "Failed to test '%s'", dailyHash)
 	}
 
 	// Write out the test list status files.
@@ -553,7 +681,7 @@ func (r *regres) updateTestLists(client *gerrit.Client) error {
 	// Stage all the updated test files.
 	for _, path := range filePaths {
 		log.Println("Staging", path)
-		if err := git.Add(test.srcDir, path); err != nil {
+		if err := git.Add(test.checkoutDir, path); err != nil {
 			return err
 		}
 	}
@@ -565,14 +693,15 @@ func (r *regres) updateTestLists(client *gerrit.Client) error {
 	}
 
 	commitMsg := strings.Builder{}
-	commitMsg.WriteString(consts.TestListUpdateCommitSubjectPrefix + headHash.String()[:8])
+	commitMsg.WriteString(consts.TestListUpdateCommitSubjectPrefix + dailyHash.String()[:8])
+	commitMsg.WriteString("\n\nReactor backend: " + string(reactorBackend))
 	if existingChange != nil {
 		// Reuse gerrit change ID if there's already a change up for review.
 		commitMsg.WriteString("\n\n")
 		commitMsg.WriteString("Change-Id: " + existingChange.ChangeID + "\n")
 	}
 
-	if err := git.Commit(test.srcDir, commitMsg.String(), git.CommitFlags{
+	if err := git.Commit(test.checkoutDir, commitMsg.String(), git.CommitFlags{
 		Name:  "SwiftShader Regression Bot",
 		Email: r.gerritEmail,
 	}); err != nil {
@@ -583,7 +712,7 @@ func (r *regres) updateTestLists(client *gerrit.Client) error {
 		log.Printf("DRY RUN: post results for review")
 	} else {
 		log.Println("Pushing test results for review")
-		if err := git.Push(test.srcDir, gitURL, "HEAD", "refs/for/master", git.PushFlags{
+		if err := git.Push(test.checkoutDir, gitURL, "HEAD", "refs/for/master", git.PushFlags{
 			Username: r.gerritUser,
 			Password: r.gerritPass,
 		}); err != nil {
@@ -592,6 +721,14 @@ func (r *regres) updateTestLists(client *gerrit.Client) error {
 		log.Println("Test results posted for review")
 	}
 
+	// We've just pushed a new commit. Let's reset back to the parent commit
+	// (dailyHash), so that we can run runDaily again for another backend,
+	// and have it update the commit with the same change-id.
+	if err := git.CheckoutCommit(test.checkoutDir, dailyHash); err != nil {
+		return cause.Wrap(err, "Failed to checkout parent commit")
+	}
+	log.Println("Checked out parent commit")
+
 	change, err := r.findTestListChange(client)
 	if err != nil {
 		return err
@@ -599,6 +736,62 @@ func (r *regres) updateTestLists(client *gerrit.Client) error {
 
 	if err := r.postMostCommonFailures(client, change, results); err != nil {
 		return err
+	}
+
+	if genCov {
+		if err := r.commitCoverage(results.Coverage, dailyHash); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *regres) commitCoverage(cov *cov.Tree, revision git.Hash) error {
+	log.Printf("Committing coverage for %v\n", revision.String())
+
+	url := coverageURL
+	url = strings.ReplaceAll(url, "$USERNAME", r.githubUser)
+	url = strings.ReplaceAll(url, "$PASSWORD", r.githubPass)
+
+	dir := filepath.Join(r.cacheRoot, "coverage")
+	defer os.RemoveAll(dir)
+	if err := git.CheckoutRemoteBranch(dir, url, coverageBranch); err != nil {
+		return cause.Wrap(err, "Failed to checkout gh-pages branch")
+	}
+
+	filePath := filepath.Join(dir, "coverage.dat")
+	file, err := os.Create(filePath)
+	if err != nil {
+		return cause.Wrap(err, "Failed to create file '%s'", filePath)
+	}
+	defer file.Close()
+
+	if err := cov.Encode(revision.String(), file); err != nil {
+		return cause.Wrap(err, "Failed to encode coverage")
+	}
+	file.Close()
+
+	if err := git.Add(dir, filePath); err != nil {
+		return cause.Wrap(err, "Failed to git add '%s'", filePath)
+	}
+
+	shortHash := revision.String()[:8]
+
+	err = git.Commit(dir, "Update coverage data @ "+shortHash, git.CommitFlags{
+		Name:  "SwiftShader Regression Bot",
+		Email: r.gerritEmail,
+	})
+	if err != nil {
+		return cause.Wrap(err, "Failed to git commit")
+	}
+
+	if !r.dryRun {
+		err = git.Push(dir, url, coverageBranch, coverageBranch, git.PushFlags{})
+		if err != nil {
+			return cause.Wrap(err, "Failed to 'git push'")
+		}
+		log.Printf("Coverage for %v pushed to Github\n", shortHash)
 	}
 
 	return nil
@@ -782,42 +975,57 @@ func (c *changeInfo) update(client *gerrit.Client) error {
 }
 
 func (r *regres) newTest(commit git.Hash) *test {
-	srcDir := filepath.Join(r.cacheRoot, "src", commit.String())
+	checkoutDir := filepath.Join(r.cacheRoot, "checkout", commit.String())
 	resDir := filepath.Join(r.cacheRoot, "res", commit.String())
 	return &test{
-		r:        r,
-		commit:   commit,
-		srcDir:   srcDir,
-		resDir:   resDir,
-		buildDir: filepath.Join(srcDir, "build"),
+		r:              r,
+		commit:         commit,
+		checkoutDir:    checkoutDir,
+		resDir:         resDir,
+		buildDir:       filepath.Join(checkoutDir, "build"),
+		reactorBackend: backendLLVM,
 	}
 }
 
+func (t *test) setReactorBackend(reactorBackend reactorBackend) *test {
+	t.reactorBackend = reactorBackend
+	return t
+}
+
+type reactorBackend string
+
+const (
+	backendLLVM    reactorBackend = "LLVM"
+	backendSubzero reactorBackend = "Subzero"
+)
+
 type test struct {
-	r             *regres
-	commit        git.Hash // hash of the commit to test
-	srcDir        string   // directory for the SwiftShader checkout
-	resDir        string   // directory for the test results
-	buildDir      string   // directory for SwiftShader build
-	keepCheckouts bool     // don't delete source & build checkouts after testing
+	r              *regres
+	commit         git.Hash       // hash of the commit to test
+	checkoutDir    string         // directory for the SwiftShader checkout
+	resDir         string         // directory for the test results
+	buildDir       string         // directory for SwiftShader build
+	toolchain      llvm.Toolchain // the toolchain used for building
+	reactorBackend reactorBackend // backend for SwiftShader build
+	coverageEnv    *cov.Env       // coverage generation environment (optional).
 }
 
 // cleanup removes any temporary files used by the test.
 func (t *test) cleanup() {
-	if t.srcDir != "" && !t.keepCheckouts {
-		os.RemoveAll(t.srcDir)
+	if t.checkoutDir != "" && !t.r.keepCheckouts {
+		os.RemoveAll(t.checkoutDir)
 	}
 }
 
 // checkout clones the test's source commit into t.src.
 func (t *test) checkout() error {
-	if util.IsDir(t.srcDir) && t.keepCheckouts {
+	if util.IsDir(t.checkoutDir) && t.r.keepCheckouts {
 		log.Printf("Reusing source cache for commit '%s'\n", t.commit)
 		return nil
 	}
 	log.Printf("Checking out '%s'\n", t.commit)
-	os.RemoveAll(t.srcDir)
-	if err := git.CheckoutRemoteCommit(t.srcDir, gitURL, t.commit); err != nil {
+	os.RemoveAll(t.checkoutDir)
+	if err := git.CheckoutRemoteCommit(t.checkoutDir, gitURL, t.commit); err != nil {
 		return cause.Wrap(err, "Checking out commit '%s'", t.commit)
 	}
 	log.Printf("Checked out commit '%s'\n", t.commit)
@@ -853,12 +1061,21 @@ func (t *test) build() error {
 		return cause.Wrap(err, "Failed to create build directory")
 	}
 
-	if err := shell.Shell(buildTimeout, t.r.cmake, t.buildDir,
-		"-DCMAKE_BUILD_TYPE=Release",
-		"-DDCHECK_ALWAYS_ON=1",
-		"-DREACTOR_VERIFY_LLVM_IR=1",
-		"-DWARNINGS_AS_ERRORS=0",
-		".."); err != nil {
+	args := []string{
+		`..`,
+		`-DCMAKE_BUILD_TYPE=Release`,
+		`-DSWIFTSHADER_DCHECK_ALWAYS_ON=1`,
+		`-DREACTOR_VERIFY_LLVM_IR=1`,
+		`-DREACTOR_BACKEND=` + string(t.reactorBackend),
+		`-DSWIFTSHADER_LLVM_VERSION=10.0`,
+		`-DSWIFTSHADER_WARNINGS_AS_ERRORS=0`,
+	}
+
+	if t.coverageEnv != nil {
+		args = append(args, "-DSWIFTSHADER_EMIT_COVERAGE=1")
+	}
+
+	if err := shell.Env(buildTimeout, t.r.cmake, t.buildDir, t.r.toolchainEnv(), args...); err != nil {
 		return err
 	}
 
@@ -873,20 +1090,35 @@ func (t *test) run(testLists testlist.Lists, d deqpBuild) (*deqp.Results, error)
 	log.Printf("Running tests for '%s'\n", t.commit)
 
 	swiftshaderICDSo := filepath.Join(t.buildDir, "libvk_swiftshader.so")
-	if _, err := os.Stat(swiftshaderICDSo); err != nil {
+	if !util.IsFile(swiftshaderICDSo) {
 		return nil, fmt.Errorf("Couldn't find '%s'", swiftshaderICDSo)
 	}
 
 	swiftshaderICDJSON := filepath.Join(t.buildDir, "Linux", "vk_swiftshader_icd.json")
-	if _, err := os.Stat(swiftshaderICDJSON); err != nil {
+	if !util.IsFile(swiftshaderICDJSON) {
 		return nil, fmt.Errorf("Couldn't find '%s'", swiftshaderICDJSON)
 	}
+
+	if *limit != 0 {
+		log.Printf("Limiting tests to %d\n", *limit)
+		testLists = append(testlist.Lists{}, testLists...)
+		for i := range testLists {
+			testLists[i] = testLists[i].Limit(*limit)
+		}
+	}
+
+	// Directory for per-test small transient files, such as log files,
+	// coverage output, etc.
+	// TODO(bclayton): consider using tmpfs here.
+	tempDir := filepath.Join(t.buildDir, "temp")
+	os.MkdirAll(tempDir, 0777)
 
 	config := deqp.Config{
 		ExeEgl:    filepath.Join(d.path, "build", "modules", "egl", "deqp-egl"),
 		ExeGles2:  filepath.Join(d.path, "build", "modules", "gles2", "deqp-gles2"),
 		ExeGles3:  filepath.Join(d.path, "build", "modules", "gles3", "deqp-gles3"),
 		ExeVulkan: filepath.Join(d.path, "build", "external", "vulkancts", "modules", "vulkan", "deqp-vk"),
+		TempDir:   tempDir,
 		TestLists: testLists,
 		Env: []string{
 			"LD_LIBRARY_PATH=" + t.buildDir + ":" + os.Getenv("LD_LIBRARY_PATH"),
@@ -895,10 +1127,11 @@ func (t *test) run(testLists testlist.Lists, d deqpBuild) (*deqp.Results, error)
 			"LIBC_FATAL_STDERR_=1", // Put libc explosions into logs.
 		},
 		LogReplacements: map[string]string{
-			t.srcDir: "<SwiftShader>",
+			t.checkoutDir: "<SwiftShader>",
 		},
 		NumParallelTests: numParallelTests,
 		TestTimeout:      testTimeout,
+		CoverageEnv:      t.coverageEnv,
 	}
 
 	return config.Run()
@@ -910,7 +1143,7 @@ func (t *test) writeTestListsByStatus(testLists testlist.Lists, results *deqp.Re
 	for _, list := range testLists {
 		files := map[testlist.Status]*os.File{}
 		for _, status := range testlist.Statuses {
-			path := testlist.FilePathWithStatus(filepath.Join(t.srcDir, list.File), status)
+			path := testlist.FilePathWithStatus(filepath.Join(t.checkoutDir, list.File), status)
 			dir := filepath.Dir(path)
 			os.MkdirAll(dir, 0777)
 			f, err := os.Create(path)
@@ -1172,9 +1405,9 @@ func compare(old, new *deqp.Results) (msg string, alert bool) {
 // a default set.
 func (t *test) loadTestLists(relPath string) (testlist.Lists, error) {
 	// Seach for the test.json file in the checked out source directory.
-	if path := filepath.Join(t.srcDir, relPath); util.IsFile(path) {
+	if path := filepath.Join(t.checkoutDir, relPath); util.IsFile(path) {
 		log.Printf("Loading test list '%v' from commit\n", relPath)
-		return testlist.Load(t.srcDir, path)
+		return testlist.Load(t.checkoutDir, path)
 	}
 
 	// Not found there. Search locally.

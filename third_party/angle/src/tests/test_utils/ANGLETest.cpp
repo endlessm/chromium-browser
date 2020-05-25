@@ -271,6 +271,18 @@ GLColor32F ReadColor32F(GLint x, GLint y)
     EXPECT_GL_NO_ERROR();
     return actual;
 }
+
+void LoadEntryPointsWithUtilLoader()
+{
+#if defined(ANGLE_USE_UTIL_LOADER)
+    PFNEGLGETPROCADDRESSPROC getProcAddress;
+    ANGLETestEnvironment::GetEGLLibrary()->getAs("eglGetProcAddress", &getProcAddress);
+    ASSERT_NE(nullptr, getProcAddress);
+
+    LoadEGL(getProcAddress);
+    LoadGLES(getProcAddress);
+#endif  // defined(ANGLE_USE_UTIL_LOADER)
+}
 }  // namespace angle
 
 using namespace angle;
@@ -372,6 +384,12 @@ ANGLETestBase::ANGLETestBase(const PlatformParameters &params)
     PlatformParameters withMethods            = params;
     withMethods.eglParameters.platformMethods = &gDefaultPlatformMethods;
 
+    // We don't build vulkan debug layers on Mac (http://anglebug.com/4376)
+    if (IsOSX() && withMethods.getRenderer() == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE)
+    {
+        withMethods.eglParameters.debugLayersEnabled = false;
+    }
+
     auto iter = gFixtures.find(withMethods);
     if (iter != gFixtures.end())
     {
@@ -402,8 +420,9 @@ void ANGLETestBase::initOSWindow()
     windowNameStream << "ANGLE Tests - " << *mCurrentParams;
     std::string windowName = windowNameStream.str();
 
-    if (mAlwaysForceNewDisplay)
+    if (IsAndroid())
     {
+        // Only one window per test application on Android, shared among all fixtures
         mFixture->osWindow = mOSWindowSingleton;
     }
 
@@ -415,11 +434,15 @@ void ANGLETestBase::initOSWindow()
             std::cerr << "Failed to initialize OS Window.";
         }
 
-        mOSWindowSingleton = mFixture->osWindow;
+        if (IsAndroid())
+        {
+            // Initialize the single window on Andoird only once
+            mOSWindowSingleton = mFixture->osWindow;
+        }
     }
 
     // On Linux we must keep the test windows visible. On Windows it doesn't seem to need it.
-    mFixture->osWindow->setVisible(!IsWindows());
+    setWindowVisible(getOSWindow(), !IsWindows());
 
     switch (mCurrentParams->driver)
     {
@@ -506,14 +529,7 @@ void ANGLETestBase::ANGLETestSetUp()
 
     if (mCurrentParams->noFixture)
     {
-#if defined(ANGLE_USE_UTIL_LOADER)
-        PFNEGLGETPROCADDRESSPROC getProcAddress;
-        ANGLETestEnvironment::GetEGLLibrary()->getAs("eglGetProcAddress", &getProcAddress);
-        ASSERT_NE(nullptr, getProcAddress);
-
-        LoadEGL(getProcAddress);
-        LoadGLES(getProcAddress);
-#endif  // defined(ANGLE_USE_UTIL_LOADER)
+        LoadEntryPointsWithUtilLoader();
         return;
     }
 
@@ -1215,9 +1231,15 @@ bool ANGLETestBase::isMultisampleEnabled() const
     return mFixture->eglWindow->isMultisample();
 }
 
-void ANGLETestBase::setWindowVisible(bool isVisible)
+void ANGLETestBase::setWindowVisible(OSWindow *osWindow, bool isVisible)
 {
-    mFixture->osWindow->setVisible(isVisible);
+    // SwiftShader windows are not required to be visible for test correctness,
+    // moreover, making a SwiftShader window visible flaky hangs on Xvfb, so we keep them hidden.
+    if (isSwiftshader())
+    {
+        return;
+    }
+    osWindow->setVisible(isVisible);
 }
 
 ANGLETestBase::TestFixture::TestFixture()  = default;
@@ -1298,7 +1320,7 @@ void ANGLEProcessTestArgs(int *argc, char *argv[])
     {
         if (strncmp(argv[argIndex], kUseConfig, strlen(kUseConfig)) == 0)
         {
-            gSelectedConfig = std::string(argv[argIndex] + strlen(kUseConfig));
+            SetSelectedConfig(argv[argIndex] + strlen(kUseConfig));
         }
         if (strncmp(argv[argIndex], kSeparateProcessPerConfig, strlen(kSeparateProcessPerConfig)) ==
             0)
@@ -1309,7 +1331,7 @@ void ANGLEProcessTestArgs(int *argc, char *argv[])
 
     if (gSeparateProcessPerConfig)
     {
-        if (!gSelectedConfig.empty())
+        if (IsConfigSelected())
         {
             std::cout << "Cannot use both a single test config and separate processes.\n";
             exit(1);

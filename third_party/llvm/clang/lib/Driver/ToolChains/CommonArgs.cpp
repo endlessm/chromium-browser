@@ -50,6 +50,7 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/TargetParser.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/YAMLParser.h"
 
@@ -278,7 +279,7 @@ std::string tools::getCPUName(const ArgList &Args, const llvm::Triple &T,
     StringRef CPUName;
     StringRef ABIName;
     mips::getMipsCPUAndABI(Args, T, CPUName, ABIName);
-    return CPUName;
+    return std::string(CPUName);
   }
 
   case llvm::Triple::nvptx:
@@ -334,18 +335,18 @@ std::string tools::getCPUName(const ArgList &Args, const llvm::Triple &T,
 
   case llvm::Triple::wasm32:
   case llvm::Triple::wasm64:
-    return getWebAssemblyTargetCPU(Args);
+    return std::string(getWebAssemblyTargetCPU(Args));
   }
 }
 
-unsigned tools::getLTOParallelism(const ArgList &Args, const Driver &D) {
-  unsigned Parallelism = 0;
+llvm::StringRef tools::getLTOParallelism(const ArgList &Args, const Driver &D) {
   Arg *LtoJobsArg = Args.getLastArg(options::OPT_flto_jobs_EQ);
-  if (LtoJobsArg &&
-      StringRef(LtoJobsArg->getValue()).getAsInteger(10, Parallelism))
-    D.Diag(diag::err_drv_invalid_int_value) << LtoJobsArg->getAsString(Args)
-                                            << LtoJobsArg->getValue();
-  return Parallelism;
+  if (!LtoJobsArg)
+    return {};
+  if (!llvm::get_threadpool_strategy(LtoJobsArg->getValue()))
+    D.Diag(diag::err_drv_invalid_int_value)
+        << LtoJobsArg->getAsString(Args) << LtoJobsArg->getValue();
+  return LtoJobsArg->getValue();
 }
 
 // CloudABI uses -ffunction-sections and -fdata-sections by default.
@@ -353,28 +354,32 @@ bool tools::isUseSeparateSections(const llvm::Triple &Triple) {
   return Triple.getOS() == llvm::Triple::CloudABI;
 }
 
-void tools::AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
+void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
                           ArgStringList &CmdArgs, const InputInfo &Output,
                           const InputInfo &Input, bool IsThinLTO) {
-  // Tell the linker to load the plugin. This has to come before AddLinkerInputs
-  // as gold requires -plugin to come before any -plugin-opt that -Wl might
-  // forward.
-  CmdArgs.push_back("-plugin");
+  const char *Linker = Args.MakeArgString(ToolChain.GetLinkerPath());
+  if (llvm::sys::path::filename(Linker) != "ld.lld" &&
+      llvm::sys::path::stem(Linker) != "ld.lld") {
+    // Tell the linker to load the plugin. This has to come before
+    // AddLinkerInputs as gold requires -plugin to come before any -plugin-opt
+    // that -Wl might forward.
+    CmdArgs.push_back("-plugin");
 
 #if defined(_WIN32)
-  const char *Suffix = ".dll";
+    const char *Suffix = ".dll";
 #elif defined(__APPLE__)
-  const char *Suffix = ".dylib";
+    const char *Suffix = ".dylib";
 #else
-  const char *Suffix = ".so";
+    const char *Suffix = ".so";
 #endif
 
-  SmallString<1024> Plugin;
-  llvm::sys::path::native(Twine(ToolChain.getDriver().Dir) +
-                              "/../lib" CLANG_LIBDIR_SUFFIX "/LLVMgold" +
-                              Suffix,
-                          Plugin);
-  CmdArgs.push_back(Args.MakeArgString(Plugin));
+    SmallString<1024> Plugin;
+    llvm::sys::path::native(Twine(ToolChain.getDriver().Dir) +
+                                "/../lib" CLANG_LIBDIR_SUFFIX "/LLVMgold" +
+                                Suffix,
+                            Plugin);
+    CmdArgs.push_back(Args.MakeArgString(Plugin));
+  }
 
   // Try to pass driver level flags relevant to LTO code generation down to
   // the plugin.
@@ -406,7 +411,8 @@ void tools::AddGoldPlugin(const ToolChain &ToolChain, const ArgList &Args,
   if (IsThinLTO)
     CmdArgs.push_back("-plugin-opt=thinlto");
 
-  if (unsigned Parallelism = getLTOParallelism(Args, ToolChain.getDriver()))
+  StringRef Parallelism = getLTOParallelism(Args, ToolChain.getDriver());
+  if (!Parallelism.empty())
     CmdArgs.push_back(
         Args.MakeArgString("-plugin-opt=jobs=" + Twine(Parallelism)));
 
@@ -583,6 +589,11 @@ static bool addSanitizerDynamicList(const ToolChain &TC, const ArgList &Args,
 
 void tools::linkSanitizerRuntimeDeps(const ToolChain &TC,
                                      ArgStringList &CmdArgs) {
+  // Fuchsia never needs these.  Any sanitizer runtimes with system
+  // dependencies use the `.deplibs` feature instead.
+  if (TC.getTriple().isOSFuchsia())
+    return;
+
   // Force linking against the system libraries sanitizers depends on
   // (see PR15823 why this is necessary).
   CmdArgs.push_back("--no-as-needed");
@@ -1298,7 +1309,8 @@ void tools::AddHIPLinkerScript(const ToolChain &TC, Compilation &C,
 
   // Create temporary linker script. Keep it if save-temps is enabled.
   const char *LKS;
-  std::string Name = llvm::sys::path::filename(Output.getFilename());
+  std::string Name =
+      std::string(llvm::sys::path::filename(Output.getFilename()));
   if (C.getDriver().isSaveTempsEnabled()) {
     LKS = C.getArgs().MakeArgString(Name + ".lk");
   } else {

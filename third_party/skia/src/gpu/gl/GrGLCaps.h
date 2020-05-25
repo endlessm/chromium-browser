@@ -116,7 +116,6 @@ public:
     bool isFormatSRGB(const GrBackendFormat&) const override;
     SkImage::CompressionType compressionType(const GrBackendFormat&) const override;
 
-    bool isFormatTexturableAndUploadable(GrColorType, const GrBackendFormat&) const override;
     bool isFormatTexturable(const GrBackendFormat&) const override;
     bool isFormatTexturable(GrGLFormat) const;
 
@@ -438,13 +437,16 @@ public:
     /* Is there support for enabling/disabling sRGB writes for sRGB-capable color buffers? */
     bool srgbWriteControl() const { return fSRGBWriteControl; }
 
+    /** Skip checks for GL errors, shader compilation success, program link success. */
+    bool skipErrorChecks() const { return fSkipErrorChecks; }
+
     GrColorType getYUVAColorTypeFromBackendFormat(const GrBackendFormat&,
                                                   bool isAlphaChannel) const override;
 
     GrBackendFormat getBackendFormatFromCompressionType(SkImage::CompressionType) const override;
 
     GrSwizzle getReadSwizzle(const GrBackendFormat&, GrColorType) const override;
-    GrSwizzle getOutputSwizzle(const GrBackendFormat&, GrColorType) const override;
+    GrSwizzle getWriteSwizzle(const GrBackendFormat&, GrColorType) const override;
 
     uint64_t computeFormatKey(const GrBackendFormat&) const override;
 
@@ -498,7 +500,7 @@ private:
     bool onSurfaceSupportsWritePixels(const GrSurface*) const override;
     bool onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
                           const SkIRect& srcRect, const SkIPoint& dstPoint) const override;
-    GrBackendFormat onGetDefaultBackendFormat(GrColorType, GrRenderable) const override;
+    GrBackendFormat onGetDefaultBackendFormat(GrColorType) const override;
     bool onAreColorTypeAndFormatCompatible(GrColorType, const GrBackendFormat&) const override;
 
     SupportedRead onSupportedReadPixelsColorType(GrColorType, const GrBackendFormat&,
@@ -544,6 +546,7 @@ private:
     bool fTiledRenderingSupport : 1;
     bool fFBFetchRequiresEnablePerSample : 1;
     bool fSRGBWriteControl : 1;
+    bool fSkipErrorChecks : 1;
 
     // Driver workarounds
     bool fDoManualMipmapping : 1;
@@ -584,7 +587,7 @@ private:
         uint32_t fFlags = 0;
 
         GrSwizzle fReadSwizzle;
-        GrSwizzle fOutputSwizzle;
+        GrSwizzle fWriteSwizzle;
 
         struct ExternalIOFormats {
             GrColorType fColorType = GrColorType::kUnknown;

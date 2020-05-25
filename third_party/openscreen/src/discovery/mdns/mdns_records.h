@@ -16,6 +16,8 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/variant.h"
 #include "discovery/mdns/public/mdns_constants.h"
+#include "platform/base/error.h"
+#include "platform/base/interface_info.h"
 #include "platform/base/ip_address.h"
 #include "util/logging.h"
 
@@ -31,15 +33,31 @@ class DomainName {
   DomainName();
 
   template <typename IteratorType>
-  DomainName(IteratorType first, IteratorType last) {
-    labels_.reserve(std::distance(first, last));
+  static ErrorOr<DomainName> TryCreate(IteratorType first, IteratorType last) {
+    std::vector<std::string> labels;
+    size_t max_wire_size = 1;
+    labels.reserve(std::distance(first, last));
     for (IteratorType entry = first; entry != last; ++entry) {
-      OSP_DCHECK(IsValidDomainLabel(*entry));
-      labels_.emplace_back(*entry);
+      if (!IsValidDomainLabel(*entry)) {
+        return Error::Code::kParameterInvalid;
+      }
+      labels.emplace_back(*entry);
       // Include the length byte in the size calculation.
-      max_wire_size_ += entry->size() + 1;
+      max_wire_size += entry->size() + 1;
     }
-    OSP_DCHECK(max_wire_size_ <= kMaxDomainNameLength);
+
+    if (max_wire_size > kMaxDomainNameLength) {
+      return Error::Code::kIndexOutOfBounds;
+    } else {
+      return DomainName(std::move(labels), max_wire_size);
+    }
+  }
+
+  template <typename IteratorType>
+  DomainName(IteratorType first, IteratorType last) {
+    ErrorOr<DomainName> domain = TryCreate(first, last);
+    OSP_DCHECK(domain.is_value());
+    *this = std::move(domain.value());
   }
   explicit DomainName(std::vector<std::string> labels);
   explicit DomainName(const std::vector<absl::string_view>& labels);
@@ -72,6 +90,8 @@ class DomainName {
   }
 
  private:
+  DomainName(std::vector<std::string> labels, size_t max_wire_size);
+
   // max_wire_size_ starts at 1 for the terminating character length.
   size_t max_wire_size_ = 1;
   std::vector<std::string> labels_;
@@ -82,6 +102,8 @@ class DomainName {
 // distinguish a raw record type that we do not know the identity of.
 class RawRecordRdata {
  public:
+  static ErrorOr<RawRecordRdata> TryCreate(std::vector<uint8_t> rdata);
+
   RawRecordRdata();
   explicit RawRecordRdata(std::vector<uint8_t> rdata);
   RawRecordRdata(const uint8_t* begin, size_t size);
@@ -150,7 +172,8 @@ class SrvRecordRdata {
 class ARecordRdata {
  public:
   ARecordRdata();
-  explicit ARecordRdata(IPAddress ipv4_address);
+  explicit ARecordRdata(IPAddress ipv4_address,
+                        NetworkInterfaceIndex interface_index = 0);
   ARecordRdata(const ARecordRdata& other);
   ARecordRdata(ARecordRdata&& other);
 
@@ -161,6 +184,7 @@ class ARecordRdata {
 
   size_t MaxWireSize() const;
   const IPAddress& ipv4_address() const { return ipv4_address_; }
+  NetworkInterfaceIndex interface_index() const { return interface_index_; }
 
   template <typename H>
   friend H AbslHashValue(H h, const ARecordRdata& rdata) {
@@ -169,6 +193,7 @@ class ARecordRdata {
 
  private:
   IPAddress ipv4_address_{0, 0, 0, 0};
+  NetworkInterfaceIndex interface_index_;
 };
 
 // AAAA Record format (http://www.ietf.org/rfc/rfc1035.txt):
@@ -176,7 +201,8 @@ class ARecordRdata {
 class AAAARecordRdata {
  public:
   AAAARecordRdata();
-  explicit AAAARecordRdata(IPAddress ipv6_address);
+  explicit AAAARecordRdata(IPAddress ipv6_address,
+                           NetworkInterfaceIndex interface_index = 0);
   AAAARecordRdata(const AAAARecordRdata& other);
   AAAARecordRdata(AAAARecordRdata&& other);
 
@@ -187,6 +213,7 @@ class AAAARecordRdata {
 
   size_t MaxWireSize() const;
   const IPAddress& ipv6_address() const { return ipv6_address_; }
+  NetworkInterfaceIndex interface_index() const { return interface_index_; }
 
   template <typename H>
   friend H AbslHashValue(H h, const AAAARecordRdata& rdata) {
@@ -196,6 +223,7 @@ class AAAARecordRdata {
  private:
   IPAddress ipv6_address_{0x0000, 0x0000, 0x0000, 0x0000,
                           0x0000, 0x0000, 0x0000, 0x0000};
+  NetworkInterfaceIndex interface_index_;
 };
 
 // PTR record format (http://www.ietf.org/rfc/rfc1035.txt):
@@ -233,6 +261,9 @@ class PtrRecordRdata {
 class TxtRecordRdata {
  public:
   using Entry = std::vector<uint8_t>;
+
+  static ErrorOr<TxtRecordRdata> TryCreate(std::vector<Entry> texts);
+
   TxtRecordRdata();
   explicit TxtRecordRdata(std::vector<Entry> texts);
   TxtRecordRdata(const TxtRecordRdata& other);
@@ -253,6 +284,8 @@ class TxtRecordRdata {
   }
 
  private:
+  TxtRecordRdata(std::vector<std::string> texts, size_t max_wire_size);
+
   // max_wire_size_ is at least 3, uint16_t record length and at the
   // minimum a NULL byte character string is present.
   size_t max_wire_size_ = 3;
@@ -293,7 +326,7 @@ class NsecRecordRdata {
   NsecRecordRdata(DomainName next_domain_name, Types... types)
       : NsecRecordRdata(std::move(next_domain_name),
                         std::vector<DnsType>{types...}) {}
-  NsecRecordRdata(DomainName next_domain_name_, std::vector<DnsType> types);
+  NsecRecordRdata(DomainName next_domain_name, std::vector<DnsType> types);
   NsecRecordRdata(const NsecRecordRdata& other);
   NsecRecordRdata(NsecRecordRdata&& other);
 
@@ -338,6 +371,13 @@ class MdnsRecord {
  public:
   using ConstRef = std::reference_wrapper<const MdnsRecord>;
 
+  static ErrorOr<MdnsRecord> TryCreate(DomainName name,
+                                       DnsType dns_type,
+                                       DnsClass dns_class,
+                                       RecordType record_type,
+                                       std::chrono::seconds ttl,
+                                       Rdata rdata);
+
   MdnsRecord();
   MdnsRecord(DomainName name,
              DnsType dns_type,
@@ -373,6 +413,11 @@ class MdnsRecord {
   }
 
  private:
+  static bool IsValidConfig(const DomainName& name,
+                            DnsType dns_type,
+                            std::chrono::seconds ttl,
+                            const Rdata& rdata);
+
   DomainName name_;
   DnsType dns_type_ = static_cast<DnsType>(0);
   DnsClass dns_class_ = static_cast<DnsClass>(0);
@@ -392,6 +437,11 @@ MdnsRecord CreateAddressRecord(DomainName name, const IPAddress& address);
 // class: 2 bytes network-order RR CLASS code.
 class MdnsQuestion {
  public:
+  static ErrorOr<MdnsQuestion> TryCreate(DomainName name,
+                                         DnsType dns_type,
+                                         DnsClass dns_class,
+                                         ResponseType response_type);
+
   MdnsQuestion() = default;
   MdnsQuestion(DomainName name,
                DnsType dns_type,
@@ -434,6 +484,14 @@ class MdnsQuestion {
 // query
 class MdnsMessage {
  public:
+  static ErrorOr<MdnsMessage> TryCreate(
+      uint16_t id,
+      MessageType type,
+      std::vector<MdnsQuestion> questions,
+      std::vector<MdnsRecord> answers,
+      std::vector<MdnsRecord> authority_records,
+      std::vector<MdnsRecord> additional_records);
+
   MdnsMessage() = default;
   // Constructs a message with ID, flags and empty question, answer, authority
   // and additional record collections.

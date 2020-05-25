@@ -29,6 +29,7 @@ enum Tags : uint32_t {
   TAG_PROC_POLLERS = 1 << 1,
   TAG_TRACE_WRITER = 1 << 2,
   TAG_TRACE_SERVICE = 1 << 3,
+  TAG_PRODUCER = 1 << 4,
 };
 
 // The macros below generate matching enums and arrays of string literals.
@@ -60,18 +61,30 @@ enum Tags : uint32_t {
   F(FTRACE_READ_TICK), \
   F(FTRACE_CPU_READ_CYCLE), \
   F(FTRACE_CPU_READ_BATCH), \
-  F(KALLSYMS_PARSE)
+  F(KALLSYMS_PARSE), \
+  F(PROFILER_READ_TICK), \
+  F(PROFILER_READ_CPU), \
+  F(PROFILER_UNWIND_TICK), \
+  F(PROFILER_UNWIND_SAMPLE), \
+  F(PROFILER_UNWIND_INITIAL_ATTEMPT), \
+  F(PROFILER_UNWIND_ATTEMPT), \
+  F(PROFILER_MAPS_PARSE), \
+  F(PROFILER_MAPS_REPARSE)
 
 // Append only, see above.
 //
-// FTRACE_SERVICE_COMMIT_DATA is a bit-packed representation of an event, see
-// tracing_service_impl.cc for the format.
+// Values that aren't used as counters:
+// * FTRACE_SERVICE_COMMIT_DATA is a bit-packed representation of an event, see
+//   tracing_service_impl.cc for the format.
+// * PROFILER_UNWIND_CURRENT_PID represents the PID that is being unwound.
 //
 #define PERFETTO_METATRACE_COUNTERS(F) \
   F(COUNTER_ZERO_UNUSED),\
   F(FTRACE_PAGES_DRAINED), \
   F(PS_PIDS_SCANNED), \
-  F(TRACE_SERVICE_COMMIT_DATA)
+  F(TRACE_SERVICE_COMMIT_DATA), \
+  F(PROFILER_UNWIND_QUEUE_SZ), \
+  F(PROFILER_UNWIND_CURRENT_PID)
 
 // clang-format on
 

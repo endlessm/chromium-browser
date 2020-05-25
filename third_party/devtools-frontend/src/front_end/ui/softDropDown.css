@@ -20,3 +20,18 @@
     color: var(--selection-fg-color);
     background-color: var(--selection-bg-color);
 }
+
+@media (forced-colors: active) {
+    .item.disabled {
+        opacity: 1;
+    }
+    .item-list {
+        border: 1px solid ButtonText;
+        background-color: ButtonFace;
+    }
+    .item.highlighted {
+        forced-color-adjust: none;
+        color: HighlightText;
+        background-color: Highlight;
+    }
+}

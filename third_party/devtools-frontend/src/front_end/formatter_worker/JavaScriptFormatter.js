@@ -146,24 +146,35 @@ export class JavaScriptFormatter {
     }
     if (node.type === 'ContinueStatement' || node.type === 'BreakStatement') {
       return node.label && AT.keyword(token) ? 'ts' : 't';
-    } else if (node.type === 'Identifier') {
+    }
+    if (node.type === 'Identifier') {
       return 't';
-    } else if (node.type === 'ReturnStatement') {
+    }
+    if (node.type === 'ReturnStatement') {
       if (AT.punctuator(token, ';')) {
         return 't';
       }
       return node.argument ? 'ts' : 't';
-    } else if (node.type === 'Property') {
+    }
+    if (node.type === 'AwaitExpression') {
+      if (AT.punctuator(token, ';')) {
+        return 't';
+      }
+      return node.argument ? 'ts' : 't';
+    }
+    if (node.type === 'Property') {
       if (AT.punctuator(token, ':')) {
         return 'ts';
       }
       return 't';
-    } else if (node.type === 'ArrayExpression') {
+    }
+    if (node.type === 'ArrayExpression') {
       if (AT.punctuator(token, ',')) {
         return 'ts';
       }
       return 't';
-    } else if (node.type === 'LabeledStatement') {
+    }
+    if (node.type === 'LabeledStatement') {
       if (AT.punctuator(token, ':')) {
         return 'ts';
       }

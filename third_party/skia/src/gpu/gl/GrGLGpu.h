@@ -13,7 +13,6 @@
 #include "include/private/SkTArray.h"
 #include "src/core/SkLRUCache.h"
 #include "src/gpu/GrGpu.h"
-#include "src/gpu/GrMesh.h"
 #include "src/gpu/GrNativeRect.h"
 #include "src/gpu/GrProgramDesc.h"
 #include "src/gpu/GrWindowRectsState.h"
@@ -31,7 +30,7 @@ class GrGLOpsRenderPass;
 class GrPipeline;
 class GrSwizzle;
 
-class GrGLGpu final : public GrGpu, private GrMesh::SendToGpuImpl {
+class GrGLGpu final : public GrGpu {
 public:
     static sk_sp<GrGpu> Make(sk_sp<const GrGLInterface>, const GrContextOptions&, GrContext*);
     ~GrGLGpu() override;
@@ -40,7 +39,7 @@ public:
 
     const GrGLContext& glContext() const { return *fGLContext; }
 
-    const GrGLInterface* glInterface() const { return fGLContext->interface(); }
+    const GrGLInterface* glInterface() const { return fGLContext->glInterface(); }
     const GrGLContextInfo& ctxInfo() const { return *fGLContext; }
     GrGLStandard glStandard() const { return fGLContext->standard(); }
     GrGLVersion glVersion() const { return fGLContext->version(); }
@@ -73,20 +72,49 @@ public:
     // If the caller wishes to bind an index buffer to a specific VAO, it can call glBind directly.
     GrGLenum bindBuffer(GrGpuBufferType type, const GrBuffer*);
 
-    // The GrGLOpsRenderPass does not buffer up draws before submitting them to the gpu.
-    // Thus this is the implementation of the draw call for the corresponding passthrough function
-    // on GrGLOpsRenderPass.
-    void draw(GrRenderTarget*, const GrProgramInfo&, const GrMesh[], int meshCount);
+    // Flushes state from GrProgramInfo to GL. Returns false if the state couldn't be set.
+    bool flushGLState(GrRenderTarget*, const GrProgramInfo&);
+    void flushScissorRect(const SkIRect&, int rtWidth, int rtHeight, GrSurfaceOrigin);
 
-    // GrMesh::SendToGpuImpl methods. These issue the actual GL draw calls.
-    // Marked final as a hint to the compiler to not use virtual dispatch.
-    void sendArrayMeshToGpu(const GrMesh&, int vertexCount, int baseVertex) final;
-    void sendIndexedMeshToGpu(const GrMesh&, int indexCount, int baseIndex, uint16_t minIndexValue,
-                              uint16_t maxIndexValue, int baseVertex) final;
-    void sendInstancedMeshToGpu(const GrMesh&, int vertexCount, int baseVertex, int instanceCount,
-                                int baseInstance) final;
-    void sendIndexedInstancedMeshToGpu(const GrMesh&, int indexCount, int baseIndex, int baseVertex,
-                                       int instanceCount, int baseInstance) final;
+    // Returns the last program bound by flushGLState(), or nullptr if a different program has since
+    // been put into use via some other method (e.g., resetContext, copySurfaceAsDraw).
+    // The returned GrGLProgram can be used for binding textures and vertex attributes.
+    GrGLProgram* currentProgram() {
+        this->handleDirtyContext();
+        return fHWProgram.get();
+    }
+
+    // Binds the vertex array that should be used for internal draws, enables 'numAttribs' vertex
+    // arrays, and flushes the desired primitive restart settings. If an index buffer is provided,
+    // it will be bound to the vertex array. Otherwise the index buffer binding will be left
+    // unchanged.
+    //
+    // NOTE: This binds the default VAO (ID=zero) unless we are on a core profile, in which case we
+    // use a dummy array instead.
+    GrGLAttribArrayState* bindInternalVertexArray(const GrBuffer* indexBuffer, int numAttribs,
+                                                  GrPrimitiveRestart primitiveRestart) {
+        auto* attribState = fHWVertexArrayState.bindInternalVertexArray(this, indexBuffer);
+        attribState->enableVertexArrays(this, numAttribs, primitiveRestart);
+        return attribState;
+    }
+    GrGLAttribArrayState* bindInternalVertexArray(const GrBuffer* indexBuffer, GrPrimitiveRestart);
+
+    // These methods invoke their GL namesakes, with added bookkeeping and assertions. The caller is
+    // responsible to ensure the desired GL state is configured before calling:
+    //
+    //   - Call flushGLState()
+    //   - If scissor test got enabled, call flushScissorRect()
+    //   - If the pipeline has textures, call currentProgram()->bindTextures()
+    //   - Setup index and attrib arrays via currentProgram()
+    void drawArrays(GrPrimitiveType, GrGLint baseVertex, GrGLsizei vertexCount);
+    void drawElements(GrPrimitiveType, GrGLsizei indexCount, GrGLenum indexType,
+                      const void* indices);
+    void drawRangeElements(GrPrimitiveType, GrGLuint minIndexValue, GrGLuint maxIndexValue,
+                           GrGLsizei indexCount, GrGLenum indexType, const void* indices);
+    void drawArraysInstanced(GrPrimitiveType, GrGLint baseVertex, GrGLsizei vertexCount,
+                             GrGLsizei instanceCount);
+    void drawElementsInstanced(GrPrimitiveType, GrGLsizei indexCount, GrGLenum indexType,
+                               const void* indices, GrGLsizei instanceCount);
 
     // The GrGLOpsRenderPass does not buffer up draws before submitting them to the gpu.
     // Thus this is the implementation of the clear call for the corresponding passthrough function
@@ -123,6 +151,11 @@ public:
     GrStencilAttachment* createStencilAttachmentForRenderTarget(
             const GrRenderTarget* rt, int width, int height, int numStencilSamples) override;
     void deleteBackendTexture(const GrBackendTexture&) override;
+
+    bool compile(const GrProgramDesc& desc, const GrProgramInfo& programInfo) override {
+        sk_sp<GrGLProgram> tmp = fProgramCache->findOrCreateProgram(desc, programInfo);
+        return SkToBool(tmp);
+    }
 
     bool precompileShader(const SkData& key, const SkData& data) override {
         return fProgramCache->precompileShader(key, data);
@@ -191,7 +224,7 @@ private:
 
     void xferBarrier(GrRenderTarget*, GrXferBarrierType) override;
 
-    sk_sp<GrTexture> onCreateTexture(const GrSurfaceDesc&,
+    sk_sp<GrTexture> onCreateTexture(SkISize dimensions,
                                      const GrBackendFormat&,
                                      GrRenderable,
                                      int renderTargetSampleCnt,
@@ -209,17 +242,20 @@ private:
     sk_sp<GrGpuBuffer> onCreateBuffer(size_t size, GrGpuBufferType intendedType, GrAccessPattern,
                                       const void* data) override;
 
-    sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&, GrColorType, GrWrapOwnership,
-                                          GrWrapCacheable, GrIOType) override;
-    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&, GrWrapOwnership,
+    sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&,
+                                          GrWrapOwnership,
+                                          GrWrapCacheable,
+                                          GrIOType) override;
+    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&,
+                                                    GrWrapOwnership,
                                                     GrWrapCacheable) override;
-    sk_sp<GrTexture> onWrapRenderableBackendTexture(const GrBackendTexture&, int sampleCnt,
-                                                    GrColorType, GrWrapOwnership,
+    sk_sp<GrTexture> onWrapRenderableBackendTexture(const GrBackendTexture&,
+                                                    int sampleCnt,
+                                                    GrWrapOwnership,
                                                     GrWrapCacheable) override;
-    sk_sp<GrRenderTarget> onWrapBackendRenderTarget(const GrBackendRenderTarget&,
-                                                    GrColorType) override;
+    sk_sp<GrRenderTarget> onWrapBackendRenderTarget(const GrBackendRenderTarget&) override;
     sk_sp<GrRenderTarget> onWrapBackendTextureAsRenderTarget(const GrBackendTexture&,
-                                                             int sampleCnt, GrColorType) override;
+                                                             int sampleCnt) override;
 
     // Given a GL format return the index into the stencil format array on GrGLCaps to a
     // compatible stencil format, or negative if there is no compatible stencil format.
@@ -267,7 +303,7 @@ private:
     void unbindCpuToGpuXferBuffer();
 
     void onResolveRenderTarget(GrRenderTarget* target, const SkIRect& resolveRect,
-                               GrSurfaceOrigin resolveOrigin, ForExternalIO) override;
+                               ForExternalIO) override;
 
     bool onRegenerateMipMapLevels(GrTexture*) override;
 
@@ -277,21 +313,13 @@ private:
     // binds texture unit in GL
     void setTextureUnit(int unitIdx);
 
-    // Flushes state from GrPipeline to GL. Returns false if the state couldn't be set.
-    bool flushGLState(GrRenderTarget*, const GrProgramInfo&);
-
     void flushProgram(sk_sp<GrGLProgram>);
 
     // Version for programs that aren't GrGLProgram.
     void flushProgram(GrGLuint);
 
-    // Sets up vertex/instance attribute pointers and strides.
-    void setupGeometry(const GrBuffer* indexBuffer,
-                       const GrBuffer* vertexBuffer,
-                       int baseVertex,
-                       const GrBuffer* instanceBuffer,
-                       int baseInstance,
-                       GrPrimitiveRestart);
+    // Applies any necessary workarounds and returns the GL primitive type to use in draw calls.
+    GrGLenum prepareToDraw(GrPrimitiveType primitiveType);
 
     void flushBlendAndColorWrite(const GrXferProcessor::BlendInfo& blendInfo, const GrSwizzle&);
 
@@ -316,11 +344,28 @@ private:
 
         void abandon();
         void reset();
-        GrGLProgram* refProgram(GrGLGpu*, GrRenderTarget*, const GrProgramInfo&);
+        sk_sp<GrGLProgram> findOrCreateProgram(GrRenderTarget*, const GrProgramInfo&);
+        sk_sp<GrGLProgram> findOrCreateProgram(const GrProgramDesc& desc,
+                                               const GrProgramInfo& programInfo) {
+            Stats::ProgramCacheResult stat;
+            sk_sp<GrGLProgram> tmp = this->findOrCreateProgram(nullptr, desc, programInfo, &stat);
+            if (!tmp) {
+                fGpu->fStats.incNumPreCompilationFailures();
+            } else {
+                fGpu->fStats.incNumPreProgramCacheResult(stat);
+            }
+
+            return tmp;
+        }
         bool precompileShader(const SkData& key, const SkData& data);
 
     private:
         struct Entry;
+
+        sk_sp<GrGLProgram> findOrCreateProgram(GrRenderTarget*,
+                                               const GrProgramDesc&,
+                                               const GrProgramInfo&,
+                                               Stats::ProgramCacheResult*);
 
         struct DescHash {
             uint32_t operator()(const GrProgramDesc& desc) const {
@@ -340,10 +385,14 @@ private:
 
     // flushes the scissor. see the note on flushBoundTextureAndParams about
     // flushing the scissor after that function is called.
-    void flushScissor(const GrScissorState&, int rtWidth, int rtHeight, GrSurfaceOrigin rtOrigin);
-
-    // disables the scissor
-    void disableScissor();
+    void flushScissor(const GrScissorState& scissorState, int rtWidth, int rtHeight,
+                      GrSurfaceOrigin rtOrigin) {
+        this->flushScissorTest(GrScissorTest(scissorState.enabled()));
+        if (scissorState.enabled()) {
+            this->flushScissorRect(scissorState.rect(), rtWidth, rtHeight, rtOrigin);
+        }
+    }
+    void flushScissorTest(GrScissorTest);
 
     void flushWindowRectangles(const GrWindowRectsState&, const GrGLRenderTarget*, GrSurfaceOrigin);
     void disableWindowRectangles();
@@ -351,9 +400,9 @@ private:
     int numTextureUnits() const { return this->caps()->shaderCaps()->maxFragmentSamplers(); }
 
     // Binds a texture to a target on the "scratch" texture unit to use for texture operations
-    // other than usual draw flow (i.e. a GrGLProgram derived from a GrPipeline used to draw
-    // GrMesh). It ensures that such operations don't negatively interact with draws.
-    // The active texture unit and the binding for 'target' will change.
+    // other than usual draw flow (i.e. a GrGLProgram derived from a GrPipeline used to draw). It
+    // ensures that such operations don't negatively interact with draws. The active texture unit
+    // and the binding for 'target' will change.
     void bindTextureToScratchUnit(GrGLenum target, GrGLint textureID);
 
     // The passed bounds contains the render target's color values that will subsequently be
@@ -392,10 +441,13 @@ private:
                                  GrGLenum target,
                                  const void* data, size_t dataSize);
 
+    // Calls one of various versions of renderBufferStorageMultisample.
+    bool renderbufferStorageMSAA(const GrGLContext& ctx, int sampleCount, GrGLenum format,
+                                 int width, int height);
+
     bool createRenderTargetObjects(const GrGLTexture::Desc&,
                                    int sampleCount,
                                    GrGLRenderTarget::IDs*);
-
     enum TempFBOTarget {
         kSrc_TempFBOTarget,
         kDst_TempFBOTarget
@@ -420,7 +472,7 @@ private:
     std::unique_ptr<GrGLContext> fGLContext;
 
     // GL program-related state
-    ProgramCache*               fProgramCache;
+    std::unique_ptr<ProgramCache> fProgramCache;
 
     ///////////////////////////////////////////////////////////////////////////
     ///@name Caching of GL State
@@ -533,7 +585,7 @@ private:
          * state. This binds the default VAO (ID=zero) unless we are on a core profile, in which
          * case we use a dummy array instead.
          *
-         * If an index buffer is privided, it will be bound to the vertex array. Otherwise the
+         * If an index buffer is provided, it will be bound to the vertex array. Otherwise the
          * index buffer binding will be left unchanged.
          *
          * The returned GrGLAttribArrayState should be used to set vertex attribute arrays.

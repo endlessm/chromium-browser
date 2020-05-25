@@ -16,8 +16,8 @@
 
 #include "SamplerCore.hpp"  // TODO: Figure out what's needed.
 #include "Device/Config.hpp"
+#include "System/Debug.hpp"
 #include "System/Math.hpp"
-#include "Vulkan/VkDebug.hpp"
 #include "Vulkan/VkDescriptorSetLayout.hpp"
 #include "Vulkan/VkDevice.hpp"
 #include "Vulkan/VkImageView.hpp"
@@ -40,74 +40,71 @@ SpirvShader::ImageSampler *SpirvShader::getImageSampler(uint32_t inst, vk::Sampl
 
 	ASSERT(imageDescriptor->device);
 
-	if(auto routine = imageDescriptor->device->findInConstCache(key))
+	if(auto routine = imageDescriptor->device->querySnapshotCache(key))
 	{
 		return (ImageSampler *)(routine->getEntry());
 	}
 
-	std::unique_lock<std::mutex> lock(imageDescriptor->device->getSamplingRoutineCacheMutex());
 	vk::Device::SamplingRoutineCache *cache = imageDescriptor->device->getSamplingRoutineCache();
 
-	auto routine = cache->query(key);
-	if(routine)
-	{
-		return (ImageSampler *)(routine->getEntry());
-	}
+	auto createSamplingRoutine = [&](const vk::Device::SamplingRoutineCache::Key &key) {
+		auto type = imageDescriptor->type;
 
-	auto type = imageDescriptor->type;
+		Sampler samplerState = {};
+		samplerState.textureType = type;
+		samplerState.textureFormat = imageDescriptor->format;
 
-	Sampler samplerState = {};
-	samplerState.textureType = type;
-	samplerState.textureFormat = imageDescriptor->format;
-
-	samplerState.addressingModeU = convertAddressingMode(0, sampler, type);
-	samplerState.addressingModeV = convertAddressingMode(1, sampler, type);
-	samplerState.addressingModeW = convertAddressingMode(2, sampler, type);
-	samplerState.addressingModeY = convertAddressingMode(3, sampler, type);
-
-	samplerState.mipmapFilter = convertMipmapMode(sampler);
-	samplerState.swizzle = imageDescriptor->swizzle;
-	samplerState.gatherComponent = instruction.gatherComponent;
-	samplerState.highPrecisionFiltering = false;
-	samplerState.largeTexture = (imageDescriptor->extent.width > SHRT_MAX) ||
-	                            (imageDescriptor->extent.height > SHRT_MAX) ||
-	                            (imageDescriptor->extent.depth > SHRT_MAX);
-
-	if(sampler)
-	{
-		samplerState.textureFilter = (instruction.samplerMethod == Gather) ? FILTER_GATHER : convertFilterMode(sampler);
-		samplerState.border = sampler->borderColor;
+		samplerState.addressingModeU = convertAddressingMode(0, sampler, type);
+		samplerState.addressingModeV = convertAddressingMode(1, sampler, type);
+		samplerState.addressingModeW = convertAddressingMode(2, sampler, type);
+		samplerState.addressingModeY = convertAddressingMode(3, sampler, type);
 
 		samplerState.mipmapFilter = convertMipmapMode(sampler);
+		samplerState.swizzle = imageDescriptor->swizzle;
+		samplerState.gatherComponent = instruction.gatherComponent;
+		samplerState.highPrecisionFiltering = false;
+		samplerState.largeTexture = (imageDescriptor->extent.width > SHRT_MAX) ||
+		                            (imageDescriptor->extent.height > SHRT_MAX) ||
+		                            (imageDescriptor->extent.depth > SHRT_MAX);
 
-		samplerState.compareEnable = (sampler->compareEnable != VK_FALSE);
-		samplerState.compareOp = sampler->compareOp;
-		samplerState.unnormalizedCoordinates = (sampler->unnormalizedCoordinates != VK_FALSE);
-
-		if(sampler->ycbcrConversion)
+		if(sampler)
 		{
-			samplerState.ycbcrModel = sampler->ycbcrConversion->ycbcrModel;
-			samplerState.studioSwing = (sampler->ycbcrConversion->ycbcrRange == VK_SAMPLER_YCBCR_RANGE_ITU_NARROW);
-			samplerState.swappedChroma = (sampler->ycbcrConversion->components.r != VK_COMPONENT_SWIZZLE_R);
+			samplerState.textureFilter = (instruction.samplerMethod == Gather) ? FILTER_GATHER : convertFilterMode(sampler);
+			samplerState.border = sampler->borderColor;
+
+			samplerState.mipmapFilter = convertMipmapMode(sampler);
+
+			samplerState.compareEnable = (sampler->compareEnable != VK_FALSE);
+			samplerState.compareOp = sampler->compareOp;
+			samplerState.unnormalizedCoordinates = (sampler->unnormalizedCoordinates != VK_FALSE);
+
+			samplerState.ycbcrModel = sampler->ycbcrModel;
+			samplerState.studioSwing = sampler->studioSwing;
+			samplerState.swappedChroma = sampler->swappedChroma;
+
+			samplerState.mipLodBias = sampler->mipLodBias;
+			samplerState.maxAnisotropy = sampler->maxAnisotropy;
+			samplerState.minLod = sampler->minLod;
+			samplerState.maxLod = sampler->maxLod;
 		}
-	}
 
-	routine = emitSamplerRoutine(instruction, samplerState);
+		return emitSamplerRoutine(instruction, samplerState);
+	};
 
-	cache->add(key, routine);
+	auto routine = cache->getOrCreate(key, createSamplingRoutine);
+
 	return (ImageSampler *)(routine->getEntry());
 }
 
 std::shared_ptr<rr::Routine> SpirvShader::emitSamplerRoutine(ImageInstruction instruction, const Sampler &samplerState)
 {
 	// TODO(b/129523279): Hold a separate mutex lock for the sampler being built.
-	rr::Function<Void(Pointer<Byte>, Pointer<Byte>, Pointer<SIMD::Float>, Pointer<SIMD::Float>, Pointer<Byte>)> function;
+	rr::Function<Void(Pointer<Byte>, Pointer<SIMD::Float>, Pointer<SIMD::Float>, Pointer<Byte>)> function;
 	{
 		Pointer<Byte> texture = function.Arg<0>();
-		Pointer<Byte> sampler = function.Arg<1>();
-		Pointer<SIMD::Float> in = function.Arg<2>();
-		Pointer<SIMD::Float> out = function.Arg<3>();
-		Pointer<Byte> constants = function.Arg<4>();
+		Pointer<SIMD::Float> in = function.Arg<1>();
+		Pointer<SIMD::Float> out = function.Arg<2>();
+		Pointer<Byte> constants = function.Arg<3>();
 
 		SIMD::Float uvw[4] = { 0, 0, 0, 0 };
 		SIMD::Float q = 0;
@@ -198,7 +195,7 @@ std::shared_ptr<rr::Routine> SpirvShader::emitSamplerRoutine(ImageInstruction in
 					dPdy.y = Float(0.0f);
 				}
 
-				Vector4f sample = s.sampleTexture(texture, sampler, uvw, q, lod[i], dPdx, dPdy, offset, sampleId, samplerFunction);
+				Vector4f sample = s.sampleTexture(texture, uvw, q, lod[i], dPdx, dPdy, offset, sampleId, samplerFunction);
 
 				Pointer<Float> rgba = out;
 				rgba[0 * SIMD::Width + i] = Pointer<Float>(&sample.x)[i];
@@ -209,7 +206,7 @@ std::shared_ptr<rr::Routine> SpirvShader::emitSamplerRoutine(ImageInstruction in
 		}
 		else
 		{
-			Vector4f sample = s.sampleTexture(texture, sampler, uvw, q, lodOrBias.x, (dsx.x), (dsy.x), offset, sampleId, samplerFunction);
+			Vector4f sample = s.sampleTexture(texture, uvw, q, lodOrBias.x, (dsx.x), (dsy.x), offset, sampleId, samplerFunction);
 
 			Pointer<SIMD::Float> rgba = out;
 			rgba[0] = sample.x;
@@ -266,9 +263,10 @@ sw::MipmapType SpirvShader::convertMipmapMode(const vk::Sampler *sampler)
 		return MIPMAP_POINT;  // Samplerless operations (OpImageFetch) can take an integer Lod operand.
 	}
 
-	if(sampler->ycbcrConversion)
+	if(sampler->ycbcrModel != VK_SAMPLER_YCBCR_MODEL_CONVERSION_RGB_IDENTITY)
 	{
-		return MIPMAP_NONE;  // YCbCr images can only have one mipmap level.
+		// TODO(b/151263485): Check image view level count instead.
+		return MIPMAP_NONE;
 	}
 
 	switch(sampler->mipmapMode)

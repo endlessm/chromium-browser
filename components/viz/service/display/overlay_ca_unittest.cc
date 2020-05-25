@@ -66,7 +66,7 @@ class OverlayOutputSurface : public OutputSurface {
   void Reshape(const gfx::Size& size,
                float device_scale_factor,
                const gfx::ColorSpace& color_space,
-               bool has_alpha,
+               gfx::BufferFormat format,
                bool use_stencil) override {}
   void SwapBuffers(OutputSurfaceFrame frame) override {}
   uint32_t GetFramebufferCopyTextureFormat() override {
@@ -77,9 +77,6 @@ class OverlayOutputSurface : public OutputSurface {
   void ApplyExternalStencil() override {}
   bool IsDisplayedAsOverlayPlane() const override { return false; }
   unsigned GetOverlayTextureId() const override { return 10000; }
-  gfx::BufferFormat GetOverlayBufferFormat() const override {
-    return gfx::BufferFormat::RGBX_8888;
-  }
   unsigned UpdateGpuFence() override { return 0; }
   void SetUpdateVSyncParametersCallback(
       UpdateVSyncParametersCallback callback) override {}
@@ -91,6 +88,7 @@ class OverlayOutputSurface : public OutputSurface {
       override {
     return nullptr;
   }
+  gpu::MemoryTracker* GetMemoryTracker() override { return nullptr; }
 
   unsigned bind_framebuffer_count() const { return bind_framebuffer_count_; }
 
@@ -384,6 +382,28 @@ TEST_F(CALayerOverlayTest, SkipTransparent) {
   EXPECT_EQ(0U, output_surface_->bind_framebuffer_count());
 }
 
+TEST_F(CALayerOverlayTest, SkipNonVisible) {
+  std::unique_ptr<RenderPass> pass = CreateRenderPass();
+  CreateFullscreenCandidateQuad(
+      resource_provider_.get(), child_resource_provider_.get(),
+      child_provider_.get(), pass->shared_quad_state_list.back(), pass.get());
+  pass->quad_list.back()->visible_rect.set_size(gfx::Size());
+
+  gfx::Rect damage_rect;
+  CALayerOverlayList ca_layer_list;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_filters;
+  OverlayProcessorInterface::FilterOperationsMap render_pass_backdrop_filters;
+  RenderPassList pass_list;
+  pass_list.push_back(std::move(pass));
+  overlay_processor_->ProcessForOverlays(
+      resource_provider_.get(), &pass_list, GetIdentityColorMatrix(),
+      render_pass_filters, render_pass_backdrop_filters, nullptr,
+      &ca_layer_list, &damage_rect_, &content_bounds_);
+  EXPECT_EQ(gfx::Rect(), damage_rect);
+  EXPECT_EQ(0U, ca_layer_list.size());
+  EXPECT_EQ(0U, output_surface_->bind_framebuffer_count());
+}
+
 class CALayerOverlayRPDQTest : public CALayerOverlayTest {
  protected:
   void SetUp() override {
@@ -503,8 +523,10 @@ TEST_F(CALayerOverlayRPDQTest, RenderPassDrawQuadUnsupportedFilter) {
 TEST_F(CALayerOverlayRPDQTest, TooManyRenderPassDrawQuads) {
   filters_.Append(cc::FilterOperation::CreateBlurFilter(0.8f));
   int count = 35;
-
-  for (int i = 0; i < count; ++i) {
+  quad_->SetNew(pass_->shared_quad_state_list.back(), kOverlayRect,
+                kOverlayRect, render_pass_id_, 2, gfx::RectF(), gfx::Size(),
+                gfx::Vector2dF(1, 1), gfx::PointF(), gfx::RectF(), false, 1.0f);
+  for (int i = 1; i < count; ++i) {
     auto* quad = pass_->CreateAndAppendDrawQuad<RenderPassDrawQuad>();
     quad->SetNew(pass_->shared_quad_state_list.back(), kOverlayRect,
                  kOverlayRect, render_pass_id_, 2, gfx::RectF(), gfx::Size(),

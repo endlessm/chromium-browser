@@ -86,7 +86,7 @@ static const struct option long_opts[] = {
 #define ALLOWED_CPU_MASKS " or 'neon'"
 #elif ARCH_X86
 #define ALLOWED_CPU_MASKS \
-    ", 'sse2', 'ssse3', 'sse41', 'avx2', 'avx512' or 'avx512icl'"
+    ", 'sse2', 'ssse3', 'sse41', 'avx2' or 'avx512icl'"
 #else
 #define ALLOWED_CPU_MASKS "not yet implemented for this architecture"
 #endif
@@ -102,7 +102,7 @@ static void usage(const char *const app, const char *const reason, ...) {
     }
     fprintf(stderr, "Usage: %s [options]\n\n", app);
     fprintf(stderr, "Supported options:\n"
-            " --input/-i  $file:    input file\n"
+            " --input/-i $file:     input file\n"
             " --output/-o $file:    output file\n"
             " --demuxer $name:      force demuxer type ('ivf', 'section5' or 'annexb'; default: detect from extension)\n"
             " --muxer $name:        force muxer type ('md5', 'yuv', 'yuv4mpeg2' or 'null'; default: detect from extension)\n"

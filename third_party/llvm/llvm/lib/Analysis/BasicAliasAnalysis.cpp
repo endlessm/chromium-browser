@@ -723,7 +723,7 @@ FunctionModRefBehavior BasicAAResult::getModRefBehavior(const CallBase *Call) {
   if (Call->onlyReadsMemory())
     Min = FMRB_OnlyReadsMemory;
   else if (Call->doesNotReadMemory())
-    Min = FMRB_DoesNotReadMemory;
+    Min = FMRB_OnlyWritesMemory;
 
   if (Call->onlyAccessesArgMemory())
     Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesArgumentPointees);
@@ -756,7 +756,7 @@ FunctionModRefBehavior BasicAAResult::getModRefBehavior(const Function *F) {
   if (F->onlyReadsMemory())
     Min = FMRB_OnlyReadsMemory;
   else if (F->doesNotReadMemory())
-    Min = FMRB_DoesNotReadMemory;
+    Min = FMRB_OnlyWritesMemory;
 
   if (F->onlyAccessesArgMemory())
     Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesArgumentPointees);
@@ -960,7 +960,7 @@ ModRefInfo BasicAAResult::getModRefInfo(const CallBase *Call,
     }
   }
 
-  // If the call is to malloc or calloc, we can assume that it doesn't
+  // If the call is malloc/calloc like, we can assume that it doesn't
   // modify any IR visible value.  This is only valid because we assume these
   // routines do not read values visible in the IR.  TODO: Consider special
   // casing realloc and strdup routines which access only their arguments as
@@ -2059,12 +2059,13 @@ char BasicAAWrapperPass::ID = 0;
 void BasicAAWrapperPass::anchor() {}
 
 INITIALIZE_PASS_BEGIN(BasicAAWrapperPass, "basicaa",
-                      "Basic Alias Analysis (stateless AA impl)", false, true)
+                      "Basic Alias Analysis (stateless AA impl)", true, true)
 INITIALIZE_PASS_DEPENDENCY(AssumptionCacheTracker)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(PhiValuesWrapperPass)
 INITIALIZE_PASS_END(BasicAAWrapperPass, "basicaa",
-                    "Basic Alias Analysis (stateless AA impl)", false, true)
+                    "Basic Alias Analysis (stateless AA impl)", true, true)
 
 FunctionPass *llvm::createBasicAAWrapperPass() {
   return new BasicAAWrapperPass();

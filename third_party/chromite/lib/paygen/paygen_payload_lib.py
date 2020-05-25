@@ -23,7 +23,6 @@ from chromite.lib import chroot_util
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import cros_sdk_lib
 from chromite.lib import image_lib
 from chromite.lib import osutils
 from chromite.lib import path_util
@@ -983,8 +982,7 @@ def CreateAndUploadPayload(payload, sign=True, verify=True):
 
 
 def GenerateUpdatePayload(tgt_image, payload, src_image=None, work_dir=None,
-                          private_key=None, check=None,
-                          out_metadata_hash_file=None):
+                          private_key=None, check=None):
   """Generates output payload and verifies its integrity if needed.
 
   Args:
@@ -996,12 +994,9 @@ def GenerateUpdatePayload(tgt_image, payload, src_image=None, work_dir=None,
         responsibility to cleanup this directory after this function returns.
     private_key: The private key to sign the payload.
     check: If True, it will check the integrity of the generated payload.
-    out_metadata_hash_file: The output metadata hash file.
   """
-  chroot_dir = os.path.join(constants.SOURCE_ROOT,
-                            constants.DEFAULT_CHROOT_DIR)
-  if not cros_sdk_lib.MountChroot(chroot=chroot_dir, create=False):
-    raise Error('Need a chroot to generate payloads.')
+  if path_util.DetermineCheckout().type != path_util.CHECKOUT_TYPE_REPO:
+    raise Error('Need a chromeos checkout to generate payloads.')
 
   tgt_image = gspaths.Image(uri=tgt_image)
   src_image = gspaths.Image(uri=src_image) if src_image else None
@@ -1012,12 +1007,6 @@ def GenerateUpdatePayload(tgt_image, payload, src_image=None, work_dir=None,
     paygen = PaygenPayload(payload, work_dir, sign=private_key is not None,
                            verify=check, private_key=private_key)
     paygen.Run()
-
-    # TODO(ahassani): These are basically a hack because devserver is still need
-    # the metadata hash file to sign it. But signing logic has been moved to
-    # paygen and in the future this is not needed anymore.
-    if out_metadata_hash_file:
-      shutil.copy(paygen.metadata_hash_file, out_metadata_hash_file)
 
 
 def GenerateUpdatePayloadPropertiesFile(payload, output=None):

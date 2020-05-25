@@ -321,6 +321,17 @@ bool QuicUtils::IsHandshakeFrame(const QuicFrame& frame,
 }
 
 // static
+bool QuicUtils::ContainsFrameType(const QuicFrames& frames,
+                                  QuicFrameType type) {
+  for (const QuicFrame& frame : frames) {
+    if (frame.type == type) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// static
 SentPacketState QuicUtils::RetransmissionTypeToPacketState(
     TransmissionType retransmission_type) {
   switch (retransmission_type) {
@@ -537,13 +548,10 @@ bool QuicUtils::IsConnectionIdLengthValidForVersion(
     return false;
   }
 
-  if (GetQuicRestartFlag(quic_allow_very_long_connection_ids)) {
-    QUIC_RESTART_FLAG_COUNT_N(quic_allow_very_long_connection_ids, 5, 5);
-    if (transport_version == QUIC_VERSION_UNSUPPORTED ||
-        transport_version == QUIC_VERSION_RESERVED_FOR_NEGOTIATION) {
-      // Unknown versions could allow connection ID lengths up to 255.
-      return true;
-    }
+  if (transport_version == QUIC_VERSION_UNSUPPORTED ||
+      transport_version == QUIC_VERSION_RESERVED_FOR_NEGOTIATION) {
+    // Unknown versions could allow connection ID lengths up to 255.
+    return true;
   }
 
   const uint8_t connection_id_length8 =
@@ -578,12 +586,7 @@ QuicUint128 QuicUtils::GenerateStatelessResetToken(
 }
 
 // static
-QuicStreamCount QuicUtils::GetMaxStreamCount(bool unidirectional,
-                                             Perspective perspective) {
-  // gQUIC uses one client initiated bidi stream for the crypto stream.
-  if (!unidirectional && perspective == Perspective::IS_CLIENT) {
-    return kMaxQuicStreamCount >> 2;
-  }
+QuicStreamCount QuicUtils::GetMaxStreamCount() {
   return (kMaxQuicStreamCount >> 2) + 1;
 }
 

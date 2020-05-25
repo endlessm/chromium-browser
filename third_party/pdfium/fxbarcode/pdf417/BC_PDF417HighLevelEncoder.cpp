@@ -52,11 +52,11 @@ constexpr int8_t kPunctuation[128] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, 26, 21, 27, 9,  -1};
 
 bool IsAlphaUpperOrSpace(wchar_t ch) {
-  return ch == ' ' || (ch >= 'A' && ch <= 'Z');
+  return ch == ' ' || FXSYS_IsUpperASCII(ch);
 }
 
 bool IsAlphaLowerOrSpace(wchar_t ch) {
-  return ch == ' ' || (ch >= 'a' && ch <= 'z');
+  return ch == ' ' || FXSYS_IsLowerASCII(ch);
 }
 
 bool IsMixed(wchar_t ch) {

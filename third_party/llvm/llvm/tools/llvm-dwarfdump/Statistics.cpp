@@ -1,3 +1,11 @@
+//===-- Statistics.cpp - Debug Info quality metrics -----------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSet.h"
@@ -180,7 +188,7 @@ static std::string constructDieID(DWARFDie Die,
       if (LT->getFileNameByIndex(
               dwarf::toUnsigned(DeclFile, 0), U->getCompilationDir(),
               DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath, File))
-        File = sys::path::filename(File);
+        File = std::string(sys::path::filename(File));
   }
   ID << ":" << (File.empty() ? "/" : File);
   ID << ":"
@@ -494,7 +502,7 @@ static void printLocationStats(raw_ostream &OS,
 /// useful, only the delta between compiling the same program with different
 /// compilers is.
 bool collectStatsForObjectFile(ObjectFile &Obj, DWARFContext &DICtx,
-                               Twine Filename, raw_ostream &OS) {
+                               const Twine &Filename, raw_ostream &OS) {
   StringRef FormatName = Obj.getFileFormatName();
   GlobalStats GlobalStats;
   LocationStats LocStats;

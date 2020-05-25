@@ -95,7 +95,7 @@ VideoFrameResourceType ExternalResourceTypeForHardwarePlanes(
     case PIXEL_FORMAT_XR30:
     case PIXEL_FORMAT_XB30:
       buffer_formats[0] = (format == PIXEL_FORMAT_XR30)
-                              ? gfx::BufferFormat::BGRX_1010102
+                              ? gfx::BufferFormat::BGRA_1010102
                               : gfx::BufferFormat::RGBA_1010102;
       return VideoFrameResourceType::RGB;
     case PIXEL_FORMAT_I420:
@@ -121,6 +121,9 @@ VideoFrameResourceType ExternalResourceTypeForHardwarePlanes(
       buffer_formats[1] = gfx::BufferFormat::RG_88;
       return VideoFrameResourceType::YUV;
 
+    case PIXEL_FORMAT_UYVY:
+      NOTREACHED();
+      FALLTHROUGH;
     case PIXEL_FORMAT_YV12:
     case PIXEL_FORMAT_I422:
     case PIXEL_FORMAT_I444:

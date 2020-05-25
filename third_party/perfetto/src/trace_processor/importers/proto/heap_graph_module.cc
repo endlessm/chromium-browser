@@ -18,8 +18,8 @@
 
 #include "src/trace_processor/importers/proto/heap_graph_tracker.h"
 #include "src/trace_processor/process_tracker.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/trace_processor_context.h"
-#include "src/trace_processor/trace_storage.h"
 
 #include "protos/perfetto/trace/profiling/heap_graph.pbzero.h"
 
@@ -159,6 +159,15 @@ void HeapGraphModule::ParseHeapGraph(uint32_t seq_id,
     }
     heap_graph_tracker->AddObject(seq_id, upid, ts, std::move(obj));
   }
+  for (auto it = heap_graph.types(); it; ++it) {
+    protos::pbzero::HeapGraphType::Decoder entry(*it);
+    const char* str = reinterpret_cast<const char*>(entry.class_name().data);
+    auto str_view = base::StringView(str, entry.class_name().size);
+
+    heap_graph_tracker->AddInternedType(
+        seq_id, entry.id(), context_->storage->InternString(str_view),
+        entry.location_id());
+  }
   for (auto it = heap_graph.type_names(); it; ++it) {
     protos::pbzero::InternedString::Decoder entry(*it);
     const char* str = reinterpret_cast<const char*>(entry.str().data);
@@ -172,7 +181,14 @@ void HeapGraphModule::ParseHeapGraph(uint32_t seq_id,
     const char* str = reinterpret_cast<const char*>(entry.str().data);
     auto str_view = base::StringView(str, entry.str().size);
 
-    heap_graph_tracker->AddInternedFieldName(
+    heap_graph_tracker->AddInternedFieldName(seq_id, entry.iid(), str_view);
+  }
+  for (auto it = heap_graph.location_names(); it; ++it) {
+    protos::pbzero::InternedString::Decoder entry(*it);
+    const char* str = reinterpret_cast<const char*>(entry.str().data);
+    auto str_view = base::StringView(str, entry.str().size);
+
+    heap_graph_tracker->AddInternedLocationName(
         seq_id, entry.iid(), context_->storage->InternString(str_view));
   }
   for (auto it = heap_graph.roots(); it; ++it) {
@@ -217,22 +233,18 @@ void HeapGraphModule::ParseDeobfuscationMapping(protozero::ConstBytes blob) {
           heap_graph_tracker->RowsForType(*obfuscated_class_name_id);
 
       if (cls_objects) {
+        heap_graph_tracker->AddDeobfuscationMapping(
+            *obfuscated_class_name_id,
+            context_->storage->InternString(
+                base::StringView(cls.deobfuscated_name())));
         for (int64_t row : *cls_objects) {
-          const base::StringView obfuscated_type_name =
-              context_->storage->GetString(
-                  context_->storage->mutable_heap_graph_object_table()
-                      ->type_name()[static_cast<uint32_t>(row)]);
-          size_t array_count = NumberOfArrays(obfuscated_type_name);
-          std::string arrayed_deobfuscated_name =
-              cls.deobfuscated_name().ToStdString();
-          for (size_t i = 0; i < array_count; ++i)
-            arrayed_deobfuscated_name += "[]";
-          const StringId arrayed_deobfuscated_name_id =
-              context_->storage->InternString(
-                  base::StringView(arrayed_deobfuscated_name));
+          const StringPool::Id obfuscated_type_name =
+              context_->storage->mutable_heap_graph_object_table()
+                  ->type_name()[static_cast<uint32_t>(row)];
           context_->storage->mutable_heap_graph_object_table()
               ->mutable_deobfuscated_type_name()
-              ->Set(static_cast<uint32_t>(row), arrayed_deobfuscated_name_id);
+              ->Set(static_cast<uint32_t>(row),
+                    heap_graph_tracker->MaybeDeobfuscate(obfuscated_type_name));
         }
       } else {
         PERFETTO_DLOG("Class %s not found",
@@ -245,9 +257,17 @@ void HeapGraphModule::ParseDeobfuscationMapping(protozero::ConstBytes blob) {
       std::string merged_obfuscated = cls.obfuscated_name().ToStdString() +
                                       "." +
                                       member.obfuscated_name().ToStdString();
-      std::string merged_deobfuscated =
-          cls.deobfuscated_name().ToStdString() + "." +
+      std::string merged_deobfuscated;
+      std::string member_deobfuscated_name =
           member.deobfuscated_name().ToStdString();
+      if (member_deobfuscated_name.find('.') == std::string::npos) {
+        // Name relative to class.
+        merged_deobfuscated = cls.deobfuscated_name().ToStdString() + "." +
+                              member_deobfuscated_name;
+      } else {
+        // Fully qualified name.
+        merged_deobfuscated = std::move(member_deobfuscated_name);
+      }
 
       auto obfuscated_field_name_id = context_->storage->string_pool().GetId(
           base::StringView(merged_obfuscated));
@@ -271,6 +291,11 @@ void HeapGraphModule::ParseDeobfuscationMapping(protozero::ConstBytes blob) {
       }
     }
   }
+}
+
+void HeapGraphModule::NotifyEndOfFile() {
+  auto* heap_graph_tracker = HeapGraphTracker::GetOrCreate(context_);
+  heap_graph_tracker->NotifyEndOfFile();
 }
 
 }  // namespace trace_processor

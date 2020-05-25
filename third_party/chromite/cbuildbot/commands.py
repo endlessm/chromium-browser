@@ -63,7 +63,7 @@ _FACTORY_SHIM = 'factory_shim'
 _AUTOTEST_RPC_CLIENT = ('/b/build_internal/scripts/slave-internal/autotest_rpc/'
                         'autotest_rpc_client.py')
 _AUTOTEST_RPC_HOSTNAME = 'master2'
-LOCAL_BUILD_FLAGS = ['--nousepkg', '--reuse_pkgs_from_local_boards']
+LOCAL_BUILD_FLAGS = ['--nousepkg']
 UPLOADED_LIST_FILENAME = 'UPLOADED'
 STATEFUL_FILE = 'stateful.tgz'
 # For swarming proxy
@@ -559,7 +559,6 @@ def Build(buildroot,
           chrome_root=None,
           noretry=False,
           chroot_args=None,
-          event_file=None,
           run_goma=False,
           build_all_with_goma=False,
           disable_revdep_logic=False):
@@ -578,7 +577,6 @@ def Build(buildroot,
     chrome_root: The directory where chrome is stored.
     noretry: Do not retry package failures.
     chroot_args: The args to the chroot.
-    event_file: File name that events will be logged to.
     build_all_with_goma: Use goma to build all board packages.
     run_goma: Set ./build_package --run_goma option, which starts and stops
       goma server in chroot while building packages.
@@ -616,10 +614,6 @@ def Build(buildroot,
 
   if chrome_root:
     chroot_args.append('--chrome_root=%s' % chrome_root)
-
-  if event_file:
-    cmd.append('--withevents')
-    cmd.append('--eventfile=%s' % event_file)
 
   cmd.extend(packages)
   RunBuildScript(
@@ -902,7 +896,7 @@ def RunUnitTests(buildroot,
                  extra_env=None,
                  build_stage=True,
                  chroot_args=None):
-  cmd = ['cros_run_unit_tests', '--board=%s' % board]
+  cmd = ['cros_run_unit_tests', '--board=%s' % board, '--jobs=10']
 
   if blacklist:
     cmd += ['--blacklist_packages=%s' % ' '.join(blacklist)]
@@ -2192,15 +2186,12 @@ def RegenPortageCache(overlays):
 def UprevPush(buildroot,
               overlay_type,
               dryrun=True,
-              staging_branch=None,
               workspace=None):
   """Pushes uprev changes to the main line.
 
   Args:
     buildroot: Root directory where build occurs.
     dryrun: If True, do not actually push.
-    staging_branch: If not None, push uprev commits to this
-                    staging_branch.
     overlay_type: A value from constants.VALID_OVERLAYS.
     workspace: Alternative buildroot directory to uprev.
   """
@@ -2214,8 +2205,6 @@ def UprevPush(buildroot,
       '--overlay-type',
       overlay_type,
   ]
-  if staging_branch is not None:
-    cmd.append('--staging_branch=%s' % staging_branch)
   if dryrun:
     cmd.append('--dryrun')
   RunBuildScript(buildroot, cmd, chromite_cmd=True)
@@ -3357,14 +3346,15 @@ def BuildStrippedPackagesTarball(buildroot, board, package_globs, archive_dir):
                         cpv.cpf, len(files))
 
       tarball = sorted(files)[-1]
-      tarball_paths.append(os.path.abspath(tarball))
+      tarball_paths.append(os.path.relpath(tarball, board_path))
 
   if not tarball_paths:
     # tar barfs on an empty list of files, so skip tarring completely.
     return None
 
   tarball_output = os.path.join(archive_dir, 'stripped-packages.tar')
-  BuildTarball(buildroot, tarball_paths, tarball_output, compressed=False)
+  BuildTarball(buildroot, tarball_paths, tarball_output, compressed=False,
+               cwd=board_path)
   return os.path.basename(tarball_output)
 
 

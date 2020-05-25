@@ -20,11 +20,28 @@
 #include "perfetto/base/logging.h"
 #include "perfetto/ext/base/string_writer.h"
 #include "src/trace_processor/sqlite/db_sqlite_table.h"
-#include "src/trace_processor/trace_storage.h"
+#include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/types/variadic.h"
 
 namespace perfetto {
 namespace trace_processor {
+
+class SystraceSerializer {
+ public:
+  using ScopedCString = std::unique_ptr<char, void (*)(void*)>;
+
+  SystraceSerializer(const TraceStorage* storage);
+
+  ScopedCString SerializeToString(uint32_t raw_row);
+
+ private:
+  using StringIdMap = std::unordered_map<StringId, std::vector<uint32_t>>;
+
+  void SerializePrefix(uint32_t raw_row, base::StringWriter* writer);
+
+  StringIdMap proto_id_to_arg_index_by_event_;
+  const TraceStorage* storage_ = nullptr;
+};
 
 class SqliteRawTable : public DbSqliteTable {
  public:
@@ -39,13 +56,9 @@ class SqliteRawTable : public DbSqliteTable {
   static void RegisterTable(sqlite3* db, QueryCache*, const TraceStorage*);
 
  private:
-  void FormatSystraceArgs(NullTermStringView event_name,
-                          ArgSetId arg_set_id,
-                          base::StringWriter* writer);
   void ToSystrace(sqlite3_context* ctx, int argc, sqlite3_value** argv);
-  bool ParseGfpFlags(Variadic value, base::StringWriter* writer);
 
-  const TraceStorage* const storage_;
+  SystraceSerializer serializer_;
 };
 
 }  // namespace trace_processor

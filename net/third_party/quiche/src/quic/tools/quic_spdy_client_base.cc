@@ -70,8 +70,9 @@ void QuicSpdyClientBase::InitializeSession() {
   }
   client_session()->Initialize();
   client_session()->CryptoConnect();
-  if (max_allowed_push_id_ > 0) {
-    client_session()->SetMaxAllowedPushId(max_allowed_push_id_);
+  if (max_allowed_push_id_ > 0 &&
+      VersionUsesHttp3(client_session()->transport_version())) {
+    client_session()->SetMaxPushId(max_allowed_push_id_);
   }
 }
 
@@ -179,7 +180,12 @@ QuicSpdyClientStream* QuicSpdyClientBase::CreateClientStream() {
   if (!connected()) {
     return nullptr;
   }
-
+  if (VersionHasIetfQuicFrames(client_session()->transport_version())) {
+    // Process MAX_STREAMS from peer.
+    while (!client_session()->CanOpenNextOutgoingBidirectionalStream()) {
+      network_helper()->RunEventLoop();
+    }
+  }
   auto* stream = static_cast<QuicSpdyClientStream*>(
       client_session()->CreateOutgoingBidirectionalStream());
   if (stream) {
@@ -188,6 +194,14 @@ QuicSpdyClientStream* QuicSpdyClientBase::CreateClientStream() {
     stream->set_visitor(this);
   }
   return stream;
+}
+
+bool QuicSpdyClientBase::EarlyDataAccepted() {
+  return client_session()->EarlyDataAccepted();
+}
+
+bool QuicSpdyClientBase::ReceivedInchoateReject() {
+  return client_session()->ReceivedInchoateReject();
 }
 
 int QuicSpdyClientBase::GetNumSentClientHellosFromSession() {

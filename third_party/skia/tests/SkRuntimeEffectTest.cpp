@@ -14,9 +14,10 @@
 
 #include <algorithm>
 
-DEF_TEST(SkRuntimeEffectInvalidInputs, r) {
-    auto test = [r](const char* hdr, const char* expected) {
-        SkString src = SkStringPrintf("%s void main(float x, float y, inout half4 color) {}", hdr);
+DEF_TEST(SkRuntimeEffectInvalid, r) {
+    auto test = [r](const char* hdr, const char* body, const char* expected) {
+        SkString src = SkStringPrintf("%s void main(float2 p, inout half4 color) { %s }",
+                                      hdr, body);
         auto[effect, errorText] = SkRuntimeEffect::Make(src);
         REPORTER_ASSERT(r, !effect);
         REPORTER_ASSERT(r, errorText.contains(expected),
@@ -26,27 +27,29 @@ DEF_TEST(SkRuntimeEffectInvalidInputs, r) {
 
     // Features that are only allowed in .fp files (key, in uniform, ctype, when, tracked).
     // Ensure that these fail, and the error messages contain the relevant keyword.
-    test("layout(key) in bool Input;", "key");
-    test("in uniform float Input;", "in uniform");
-    test("layout(ctype=SkRect) float4 Input;", "ctype");
-    test("in bool Flag; layout(when=Flag) uniform float Input;", "when");
-    test("layout(tracked) uniform float Input;", "tracked");
+    test("layout(key) in bool Input;", "", "key");
+    test("in uniform float Input;", "", "in uniform");
+    test("layout(ctype=SkRect) float4 Input;", "", "ctype");
+    test("in bool Flag; layout(when=Flag) uniform float Input;", "", "when");
+    test("layout(tracked) uniform float Input;", "", "tracked");
 
     // Runtime SkSL supports a limited set of uniform types. No samplers, for example:
-    test("uniform sampler2D s;", "sampler2D");
+    test("uniform sampler2D s;", "", "sampler2D");
 
     // 'in' variables can't be arrays
-    test("in int Input[2];", "array");
+    test("in int Input[2];", "", "array");
 
     // Type specific restrictions:
 
     // 'bool', 'int' can't be 'uniform'
-    test("uniform bool Input;", "'uniform'");
-    test("uniform int Input;", "'uniform'");
+    test("uniform bool Input;", "", "'uniform'");
+    test("uniform int Input;", "", "'uniform'");
 
     // vector and matrix types can't be 'in'
-    test("in float2 Input;", "'in'");
-    test("in half3x3 Input;", "'in'");
+    test("in float2 Input;", "", "'in'");
+    test("in half3x3 Input;", "", "'in'");
+
+    test("half missing();", "color.r = missing();", "undefined function");
 }
 
 // Our packing rules and unit test code here relies on this:
@@ -55,7 +58,7 @@ static_assert(sizeof(bool) == 1);
 class TestEffect {
 public:
     TestEffect(skiatest::Reporter* r, const char* hdr, const char* body) {
-        SkString src = SkStringPrintf("%s void main(float x, float y, inout half4 color) { %s }",
+        SkString src = SkStringPrintf("%s void main(float2 p, inout half4 color) { %s }",
                                       hdr, body);
         auto[effect, errorText] = SkRuntimeEffect::Make(src);
         if (!effect) {
@@ -139,7 +142,7 @@ static void test_RuntimeEffect_Shaders(skiatest::Reporter* r, GrContext* context
     }
     REPORTER_ASSERT(r, surface);
 
-    TestEffect xy(r, "", "color = half4(half(x - 0.5), half(y - 0.5), 0, 1);");
+    TestEffect xy(r, "", "color = half4(half2(p - 0.5), 0, 1);");
     xy.test(r, surface, 0xFF000000, 0xFF0000FF, 0xFF00FF00, 0xFF00FFFF);
 
     using float4 = std::array<float, 4>;

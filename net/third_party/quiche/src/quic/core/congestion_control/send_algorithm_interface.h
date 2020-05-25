@@ -13,13 +13,13 @@
 
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
 #include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_config.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_unacked_packet_map.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 
 namespace quic {
@@ -78,7 +78,8 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
       CongestionControlType type,
       QuicRandom* random,
       QuicConnectionStats* stats,
-      QuicPacketCount initial_congestion_window);
+      QuicPacketCount initial_congestion_window,
+      SendAlgorithmInterface* old_send_algorithm);
 
   virtual ~SendAlgorithmInterface() {}
 
@@ -109,6 +110,9 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
                             QuicPacketNumber packet_number,
                             QuicByteCount bytes,
                             HasRetransmittableData is_retransmittable) = 0;
+
+  // Inform that |packet_number| has been neutered.
+  virtual void OnPacketNeutered(QuicPacketNumber packet_number) = 0;
 
   // Called when the retransmission timeout fires.  Neither OnPacketAbandoned
   // nor OnPacketLost will be called for these packets.

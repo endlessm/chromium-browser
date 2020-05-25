@@ -163,19 +163,12 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     return 'Cannot get standard output on CrOS'
 
   def PullMinidumps(self):
-    self._cri.PullDumps(self._tmp_minidump_dir)
-
-  def GetStackTrace(self):
-    """Returns a stack trace if a valid minidump is found, will return a tuple
-       (valid, output) where valid will be True if a valid minidump was found
-       and output will contain either an error message or the attempt to
-       symbolize the minidump if one was found.
-    """
-    most_recent_dump = self.GetMostRecentMinidumpPath()
-    if not most_recent_dump:
-      return (False, 'No crash dump found.')
-    logging.info('Minidump found: %s', most_recent_dump)
-    return self._InternalSymbolizeMinidump(most_recent_dump)
+    if self._cri:
+      self._cri.PullDumps(self._tmp_minidump_dir)
+    else:
+      logging.error(
+          'Attempted to pull minidumps without CrOSInterface. Either the '
+          'browser is already closed or was never started.')
 
   def SymbolizeMinidump(self, minidump_path):
     return self._SymbolizeMinidump(minidump_path)

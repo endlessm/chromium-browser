@@ -1,4 +1,4 @@
-#!/usr/bin/env vpython
+#!/usr/bin/env vpython3
 # Copyright (c) 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -42,10 +42,13 @@ import re
 
 import auth
 import fix_encoding
+import gclient_utils
 import gerrit_util
 
 
 if sys.version_info.major == 2:
+  logging.warning(
+      'Python 2 is deprecated. Run my_activity.py using vpython3.')
   import urllib as urllib_parse
 else:
   import urllib.parse as urllib_parse
@@ -72,6 +75,11 @@ class DefaultFormatter(Formatter):
 gerrit_instances = [
   {
     'url': 'android-review.googlesource.com',
+    'shorturl': 'r.android.com',
+    'short_url_protocol': 'https',
+  },
+  {
+    'url': 'gerrit-review.googlesource.com',
   },
   {
     'url': 'chrome-internal-review.googlesource.com',
@@ -129,7 +137,7 @@ def datetime_to_midnight(date):
 
 def get_quarter_of(date):
   begin = (datetime_to_midnight(date) -
-           relativedelta(months=(date.month % 3) - 1, days=(date.day - 1)))
+           relativedelta(months=(date.month - 1) % 3, days=(date.day - 1)))
   return begin, begin + relativedelta(months=3)
 
 
@@ -146,7 +154,7 @@ def get_week_of(date):
 
 def get_yes_or_no(msg):
   while True:
-    response = raw_input(msg + ' yes/no [no] ')
+    response = gclient_utils.AskForData(msg + ' yes/no [no] ')
     if response == 'y' or response == 'yes':
       return True
     elif not response or response == 'n' or response == 'no':
@@ -160,6 +168,24 @@ def datetime_from_gerrit(date_string):
 def datetime_from_monorail(date_string):
   return datetime.strptime(date_string, '%Y-%m-%dT%H:%M:%S')
 
+def extract_bug_numbers_from_description(issue):
+  # Getting the description for REST Gerrit
+  revision = issue['revisions'][issue['current_revision']]
+  description = revision['commit']['message']
+
+  bugs = []
+  # Handle both "Bug: 99999" and "BUG=99999" bug notations
+  # Multiple bugs can be noted on a single line or in multiple ones.
+  matches = re.findall(
+      r'^(BUG=|(Bug|Fixed):\s*)((((?:[a-zA-Z0-9-]+:)?\d+)(,\s?)?)+)',
+      description, flags=re.IGNORECASE | re.MULTILINE)
+  if matches:
+    for match in matches:
+      bugs.extend(match[2].replace(' ', '').split(','))
+    # Add default chromium: prefix if none specified.
+    bugs = [bug if ':' in bug else 'chromium:%s' % bug for bug in bugs]
+
+  return sorted(set(bugs))
 
 class MyActivity(object):
   def __init__(self, options):
@@ -179,32 +205,6 @@ class MyActivity(object):
     if sys.stdout.isatty():
       sys.stdout.write(how)
       sys.stdout.flush()
-
-  def extract_bug_numbers_from_description(self, issue):
-    description = None
-
-    if 'description' in issue:
-      # Getting the  description for Rietveld
-      description = issue['description']
-    elif 'revisions' in issue:
-      # Getting the description for REST Gerrit
-      revision = issue['revisions'][issue['current_revision']]
-      description = revision['commit']['message']
-
-    bugs = []
-    if description:
-      # Handle both "Bug: 99999" and "BUG=99999" bug notations
-      # Multiple bugs can be noted on a single line or in multiple ones.
-      matches = re.findall(
-          r'BUG[=:]\s?((((?:[a-zA-Z0-9-]+:)?\d+)(,\s?)?)+)', description,
-          flags=re.IGNORECASE)
-      if matches:
-        for match in matches:
-          bugs.extend(match[0].replace(' ', '').split(','))
-        # Add default chromium: prefix if none specified.
-        bugs = [bug if ':' in bug else 'chromium:%s' % bug for bug in bugs]
-
-    return sorted(set(bugs))
 
   def gerrit_changes_over_rest(self, instance, filters):
     # Convert the "key:value" filter to a list of (key, value) pairs.
@@ -272,7 +272,7 @@ class MyActivity(object):
       ret['replies'] = []
     ret['reviewers'] = set(r['author'] for r in ret['replies'])
     ret['reviewers'].discard(ret['author'])
-    ret['bugs'] = self.extract_bug_numbers_from_description(issue)
+    ret['bugs'] = extract_bug_numbers_from_description(issue)
     return ret
 
   @staticmethod

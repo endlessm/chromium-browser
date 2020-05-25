@@ -5,7 +5,13 @@
 #ifndef DISCOVERY_DNSSD_PUBLIC_DNS_SD_SERVICE_H_
 #define DISCOVERY_DNSSD_PUBLIC_DNS_SD_SERVICE_H_
 
+#include <functional>
 #include <memory>
+
+#include "platform/base/error.h"
+#include "platform/base/interface_info.h"
+#include "platform/base/ip_address.h"
+#include "util/serial_delete_ptr.h"
 
 namespace openscreen {
 
@@ -14,18 +20,16 @@ class TaskRunner;
 
 namespace discovery {
 
+struct Config;
 class DnsSdPublisher;
 class DnsSdQuerier;
+class ReportingClient;
 
 // This class provides a wrapper around DnsSdQuerier and DnsSdPublisher to
 // allow for an embedder-overridable factory method below.
 class DnsSdService {
  public:
   virtual ~DnsSdService() = default;
-
-  // Creates a new DnsSdService instance, to be owned by the caller. On failure,
-  // return nullptr.
-  static std::unique_ptr<DnsSdService> Create(TaskRunner* task_runner);
 
   // Returns the DnsSdQuerier owned by this DnsSdService. If queries are not
   // supported, returns nullptr.

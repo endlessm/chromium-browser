@@ -374,11 +374,7 @@ GLenum InternalFormat::getReadPixelsFormat(const Extensions &extensions) const
             {
                 return GL_RGBA;
             }
-            else
-            {
-                return GL_BGRA_EXT;
-            }
-            break;
+            return GL_BGRA_EXT;
 
         default:
             return format;
@@ -399,10 +395,7 @@ GLenum InternalFormat::getReadPixelsType(const Version &version) const
                 // as an IMPLEMENTATION_READ_TYPE.
                 return GL_HALF_FLOAT_OES;
             }
-            else
-            {
-                return GL_HALF_FLOAT;
-            }
+            return GL_HALF_FLOAT;
 
         default:
             return type;
@@ -852,7 +845,7 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT32F,    true, 32, 0,  0, GL_DEPTH_COMPONENT, GL_FLOAT,                          GL_FLOAT,               RequireES<3, 0>,                                                               RequireESOrExt<3, 0, &Extensions::depthTextureANGLE>,                                    RequireES<3, 0>,                                                                               RequireES<3, 0>,                                                                                             RequireES<3, 0>);
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT32_OES, true, 32, 0,  0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT,                   GL_UNSIGNED_NORMALIZED, RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>, AlwaysSupported,                                                                         RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,                 RequireExtOrExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES, &Extensions::depth32OES>, RequireExtOrExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES, &Extensions::depth32OES>);
     AddDepthStencilFormat(&map, GL_DEPTH24_STENCIL8,      true, 24, 8,  0, GL_DEPTH_STENCIL,   GL_UNSIGNED_INT_24_8,              GL_UNSIGNED_NORMALIZED, RequireESOrExt<3, 0, &Extensions::depthTextureANGLE>,                          AlwaysSupported,                                                                         RequireESOrExtOrExt<3, 0, &Extensions::depthTextureANGLE, &Extensions::packedDepthStencilOES>, RequireESOrExtOrExt<3, 0, &Extensions::depthTextureANGLE, &Extensions::packedDepthStencilOES>,               RequireESOrExtOrExt<3, 0, &Extensions::depthTextureANGLE, &Extensions::packedDepthStencilOES>);
-    AddDepthStencilFormat(&map, GL_DEPTH32F_STENCIL8,     true, 32, 8, 24, GL_DEPTH_STENCIL,   GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_FLOAT,               RequireES<3, 0>,                                                               AlwaysSupported,                                                                         RequireES<3, 0>,                                                                               RequireES<3, 0>,                                                                                             RequireES<3, 0>);
+    AddDepthStencilFormat(&map, GL_DEPTH32F_STENCIL8,     true, 32, 8, 24, GL_DEPTH_STENCIL,   GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_FLOAT,               RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>,                        AlwaysSupported,                                                                         RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>,                                        RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>,                                                      RequireESOrExt<3, 0, &Extensions::depthBufferFloat2NV>);
     // STENCIL_INDEX8 is special-cased, see around the bottom of the list.
 
     // Luminance alpha formats
@@ -954,6 +947,13 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     AddCompressedFormat(&map, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_6x5x5_OES,  6,  5, 5, 128, 4, true,  RequireExt<&Extensions::textureCompressionASTCOES>,    AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
     AddCompressedFormat(&map, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6x5_OES,  6,  6, 5, 128, 4, true,  RequireExt<&Extensions::textureCompressionASTCOES>,    AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
     AddCompressedFormat(&map, GL_COMPRESSED_SRGB8_ALPHA8_ASTC_6x6x6_OES,  6,  6, 6, 128, 4, true,  RequireExt<&Extensions::textureCompressionASTCOES>,    AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
+
+    // From EXT_texture_compression_rgtc
+    //                       | Internal format                        | W | H |D | BS |CC| SRGB | Texture supported                              | Filterable     | Texture attachment | Renderbuffer  | Blend
+    AddCompressedFormat(&map, GL_COMPRESSED_RED_RGTC1_EXT,              4,  4, 1,  64, 1, false, RequireExt<&Extensions::textureCompressionRGTC>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
+    AddCompressedFormat(&map, GL_COMPRESSED_SIGNED_RED_RGTC1_EXT,       4,  4, 1,  64, 1, false, RequireExt<&Extensions::textureCompressionRGTC>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
+    AddCompressedFormat(&map, GL_COMPRESSED_RED_GREEN_RGTC2_EXT,        4,  4, 1, 128, 2, false, RequireExt<&Extensions::textureCompressionRGTC>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
+    AddCompressedFormat(&map, GL_COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT, 4,  4, 1, 128, 2, false, RequireExt<&Extensions::textureCompressionRGTC>, AlwaysSupported, NeverSupported,      NeverSupported, NeverSupported);
 
     // From EXT_texture_compression_bptc
     //                       | Internal format                         | W | H |D | BS |CC| SRGB | Texture supported                              | Filterable     | Texture attachment | Renderbuffer  | Blend
@@ -1090,9 +1090,11 @@ static InternalFormatInfoMap BuildInternalFormatInfoMap()
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT, false, 16, 0,  0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT,                 GL_UNSIGNED_NORMALIZED, RequireES<1, 0>,                                          AlwaysSupported, RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,        RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,        RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>);
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT, false, 24, 0,  0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT,                   GL_UNSIGNED_NORMALIZED, RequireES<1, 0>,                                          AlwaysSupported, RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,        RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>,        RequireExtOrExt<&Extensions::depthTextureANGLE, &Extensions::depthTextureOES>);
     AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT, false, 32, 0,  0, GL_DEPTH_COMPONENT, GL_FLOAT,                          GL_FLOAT,               RequireES<1, 0>,                                          AlwaysSupported, RequireES<1, 0>,                                                                      RequireES<1, 0>,                                                                      RequireES<1, 0>);
+    AddDepthStencilFormat(&map, GL_DEPTH_COMPONENT, false, 24, 8,  0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT_24_8,              GL_UNSIGNED_NORMALIZED, RequireESOrExt<3, 0, &Extensions::packedDepthStencilOES>, AlwaysSupported, RequireExtAndExt<&Extensions::packedDepthStencilOES, &Extensions::depthTextureANGLE>, RequireExtAndExt<&Extensions::packedDepthStencilOES, &Extensions::depthTextureANGLE>, RequireExtAndExt<&Extensions::packedDepthStencilOES, &Extensions::depthTextureANGLE>);
     AddDepthStencilFormat(&map, GL_DEPTH_STENCIL,   false, 24, 8,  0, GL_DEPTH_STENCIL,   GL_UNSIGNED_INT_24_8,              GL_UNSIGNED_NORMALIZED, RequireESOrExt<3, 0, &Extensions::packedDepthStencilOES>, AlwaysSupported, RequireExtAndExt<&Extensions::packedDepthStencilOES, &Extensions::depthTextureANGLE>, RequireExtAndExt<&Extensions::packedDepthStencilOES, &Extensions::depthTextureANGLE>, RequireExtAndExt<&Extensions::packedDepthStencilOES, &Extensions::depthTextureANGLE>);
     AddDepthStencilFormat(&map, GL_DEPTH_STENCIL,   false, 32, 8, 24, GL_DEPTH_STENCIL,   GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_FLOAT,               RequireESOrExt<3, 0, &Extensions::packedDepthStencilOES>, AlwaysSupported, RequireExt<&Extensions::packedDepthStencilOES>,                                       RequireExt<&Extensions::packedDepthStencilOES>,                                       RequireExt<&Extensions::packedDepthStencilOES>);
     AddDepthStencilFormat(&map, GL_STENCIL,         false,  0, 8,  0, GL_STENCIL,         GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, RequireES<1, 0>,                                          NeverSupported , RequireES<1, 0>,                                                                      RequireES<1, 0>,                                                                      RequireES<1, 0>);
+    AddDepthStencilFormat(&map, GL_STENCIL_INDEX,   false,  0, 8,  0, GL_STENCIL_INDEX,   GL_UNSIGNED_BYTE,                  GL_UNSIGNED_NORMALIZED, RequireES<3, 1>,                                          NeverSupported , RequireES<3, 1>,                                                                      RequireES<3, 1>,                                                                      RequireES<3, 1>);
     // clang-format on
 
     return map;

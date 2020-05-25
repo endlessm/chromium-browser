@@ -16,8 +16,8 @@
 
 #include "Pipeline/Constants.hpp"
 #include "Pipeline/VertexProgram.hpp"
+#include "System/Debug.hpp"
 #include "System/Math.hpp"
-#include "Vulkan/VkDebug.hpp"
 
 #include <cstring>
 
@@ -51,8 +51,7 @@ bool VertexProcessor::State::operator==(const State &state) const
 		return false;
 	}
 
-	static_assert(is_memcmparable<State>::value, "Cannot memcmp States");
-	return memcmp(static_cast<const States *>(this), static_cast<const States *>(&state), sizeof(States)) == 0;
+	return *static_cast<const States *>(this) == static_cast<const States &>(state);
 }
 
 VertexProcessor::VertexProcessor()

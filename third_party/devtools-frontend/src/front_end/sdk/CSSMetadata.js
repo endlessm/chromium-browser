@@ -31,17 +31,17 @@
  */
 
 import * as Common from '../common/common.js';
-
-import {generatedProperties, generatedPropertyValues} from '../SupportedCSSProperties.js';
+import * as SupportedCSSProperties from '../generated/SupportedCSSProperties.js';
 
 /**
  * @unrestricted
  */
 export class CSSMetadata {
   /**
-   * @param {!Array.<!SDK.CSSMetadata.CSSPropertyDefinition>} properties
+   * @param {!Array.<!CSSPropertyDefinition>} properties
+   * @param {!Map<string, string>} aliasesFor
    */
-  constructor(properties) {
+  constructor(properties, aliasesFor) {
     this._values = /** !Array.<string> */ ([]);
     /** @type {!Map<string, !Array<string>>} */
     this._longhands = new Map();
@@ -53,6 +53,8 @@ export class CSSMetadata {
     this._svgProperties = new Set();
     /** @type {!Map<string, !Array<string>>} */
     this._propertyValues = new Map();
+    /** @type {!Map<string, string>} */
+    this._aliasesFor = aliasesFor;
     for (let i = 0; i < properties.length; ++i) {
       const property = properties[i];
       const propertyName = property.name;
@@ -88,7 +90,7 @@ export class CSSMetadata {
     // Reads in auto-generated property names and values from blink/public/renderer/core/css/css_properties.json5
     // treats _generatedPropertyValues as basis
     const propertyValueSets = new Map();
-    for (const [propertyName, basisValueObj] of Object.entries(generatedPropertyValues)) {
+    for (const [propertyName, basisValueObj] of Object.entries(SupportedCSSProperties.generatedPropertyValues)) {
       propertyValueSets.set(propertyName, new Set(basisValueObj.values));
     }
     // and add manually maintained map of extra prop-value pairs
@@ -108,7 +110,7 @@ export class CSSMetadata {
         }
       }
 
-      this._propertyValues.set(propertyName, values.valuesArray());
+      this._propertyValues.set(propertyName, [...values]);
     }
 
     /** @type {!Array<string>} */
@@ -260,6 +262,12 @@ export class CSSMetadata {
       return name;
     }
     name = name.toLowerCase();
+
+    const aliasFor = this._aliasesFor.get(name);
+    if (aliasFor) {
+      return aliasFor;
+    }
+
     if (!name || name.length < 9 || name.charAt(0) !== '-') {
       return name;
     }
@@ -380,7 +388,8 @@ export const GridAreaRowRegex = /((?:\[[\w\- ]+\]\s*)*(?:"[^"]+"|'[^']+'))[^'"\[
  */
 export function cssMetadata() {
   if (!CSSMetadata._instance) {
-    CSSMetadata._instance = new CSSMetadata(generatedProperties);
+    CSSMetadata._instance =
+        new CSSMetadata(SupportedCSSProperties.generatedProperties, SupportedCSSProperties.generatedAliasesFor);
   }
   return CSSMetadata._instance;
 }
@@ -1153,3 +1162,8 @@ const Weight = {
 
 // Common keywords to CSS properties
 const CommonKeywords = ['auto', 'none'];
+
+/**
+ * @typedef {{name: string, longhands: !Array.<string>, inherited: boolean, svg: boolean}}
+ */
+export let CSSPropertyDefinition;

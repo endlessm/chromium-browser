@@ -51,7 +51,7 @@ const std::string GetTestOriginClientIndication() {
 }
 
 ParsedQuicVersionVector GetVersions() {
-  return {ParsedQuicVersion{PROTOCOL_TLS1_3, QUIC_VERSION_99}};
+  return {DefaultVersionForQuicTransport()};
 }
 
 class QuicTransportServerSessionTest : public QuicTest {
@@ -67,6 +67,7 @@ class QuicTransportServerSessionTest : public QuicTest {
                        KeyExchangeSource::Default()),
         compressed_certs_cache_(
             QuicCompressedCertsCache::kQuicCompressedCertsCacheSize) {
+    QuicEnableVersion(DefaultVersionForQuicTransport());
     connection_.AdvanceTime(QuicTime::Delta::FromSeconds(100000));
     crypto_test_utils::SetupCryptoServerConfigForTest(
         helper_.GetClock(), helper_.GetRandomGenerator(), &crypto_config_);

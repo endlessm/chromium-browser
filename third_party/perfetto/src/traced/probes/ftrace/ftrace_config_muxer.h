@@ -68,7 +68,10 @@ class FtraceConfigMuxer {
  public:
   // The FtraceConfigMuxer and ProtoTranslationTable
   // should outlive this instance.
-  FtraceConfigMuxer(FtraceProcfs* ftrace, ProtoTranslationTable* table);
+  FtraceConfigMuxer(
+      FtraceProcfs* ftrace,
+      ProtoTranslationTable* table,
+      std::map<std::string, std::vector<GroupAndName>> vendor_events);
   virtual ~FtraceConfigMuxer();
 
   // Ask FtraceConfigMuxer to adjust ftrace procfs settings to
@@ -121,7 +124,6 @@ class FtraceConfigMuxer {
     std::vector<std::string> atrace_apps;
     std::vector<std::string> atrace_categories;
     size_t cpu_buffer_size_pages = 0;
-    bool tracing_on = false;
     bool atrace_on = false;
   };
 
@@ -153,6 +155,8 @@ class FtraceConfigMuxer {
   // be active. When a config is present but not active, we do setup buffer
   // sizes and events, but don't enable ftrace (i.e. tracing_on).
   std::map<FtraceConfigId, FtraceDataSourceConfig> ds_configs_;
+
+  std::map<std::string, std::vector<GroupAndName>> vendor_events_;
 
   // Subset of |ds_configs_| that are currently active. At any time ftrace is
   // enabled iff |active_configs_| is not empty.

@@ -1,6 +1,6 @@
 # ~~~
-# Copyright (c) 2014-2019 Valve Corporation
-# Copyright (c) 2014-2019 LunarG, Inc.
+# Copyright (c) 2014-2020 Valve Corporation
+# Copyright (c) 2014-2020 LunarG, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -61,6 +61,8 @@ if(BUILD_LAYER_SUPPORT_FILES)
         vk_layer_utils.h
         vk_layer_utils.cpp
         vk_loader_platform.h
+        xxhash.h
+        xxhash.c
         generated/vk_validation_error_messages.h
         generated/vk_layer_dispatch_table.h
         generated/vk_dispatch_table_helper.h
@@ -74,8 +76,7 @@ if(BUILD_LAYER_SUPPORT_FILES)
 endif()
 
 set(TARGET_NAMES
-    VkLayer_khronos_validation
-    VkLayer_standard_validation)
+    VkLayer_khronos_validation)
 
 if(BUILD_LAYERS)
     # Install the layer json files
@@ -140,7 +141,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/gene
 
 if(WIN32)
     # Applies to all configurations
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX)
     # Avoid: fatal error C1128: number of sections exceeded object file format limit: compile with /bigobj
     add_compile_options("/bigobj")
     # Allow Windows to use multiprocessor compilation
@@ -162,7 +163,12 @@ set(CHASSIS_LIBRARY_FILES
     generated/chassis.cpp
     generated/layer_chassis_dispatch.cpp
     generated/command_counter_helper.cpp
-    state_tracker.cpp)
+    state_tracker.cpp
+    image_layout_map.cpp
+    image_layout_map.h
+    range_vector.h
+    subresource_adapter.cpp
+    subresource_adapter.h)
 
 set(CORE_VALIDATION_LIBRARY_FILES
     core_validation.cpp
@@ -189,12 +195,22 @@ set(STATELESS_VALIDATION_LIBRARY_FILES
     parameter_validation_utils.cpp)
 
 set(BEST_PRACTICES_LIBRARY_FILES
-    best_practices.cpp
-    best_practices.h)
+    best_practices_utils.cpp
+    generated/best_practices.cpp
+    generated/best_practices.h
+    best_practices_validation.h)
 
 set(GPU_ASSISTED_LIBRARY_FILES
     gpu_validation.cpp
     gpu_validation.h)
+
+set(DEBUG_PRINTF_LIBRARY_FILES
+    debug_printf.cpp
+    debug_printf.h)
+
+set(GPU_UTILITY_LIBRARY_FILES
+    gpu_utils.cpp
+    gpu_utils.h)
 
 if(BUILD_LAYERS)
     AddVkLayer(khronos_validation ""
@@ -204,7 +220,9 @@ if(BUILD_LAYERS)
         ${THREAD_SAFETY_LIBRARY_FILES}
         ${STATELESS_VALIDATION_LIBRARY_FILES}
         ${BEST_PRACTICES_LIBRARY_FILES}
-        ${GPU_ASSISTED_LIBRARY_FILES})
+        ${GPU_UTILITY_LIBRARY_FILES}
+        ${GPU_ASSISTED_LIBRARY_FILES}
+        ${DEBUG_PRINTF_LIBRARY_FILES})
 
     # Khronos validation additional dependencies
     target_include_directories(VkLayer_khronos_validation PRIVATE ${GLSLANG_SPIRV_INCLUDE_DIR})

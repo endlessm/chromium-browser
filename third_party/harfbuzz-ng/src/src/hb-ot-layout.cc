@@ -764,7 +764,7 @@ hb_ot_layout_language_get_required_feature_index (hb_face_t    *face,
 						  hb_tag_t      table_tag,
 						  unsigned int  script_index,
 						  unsigned int  language_index,
-						  unsigned int *feature_index)
+						  unsigned int *feature_index /* OUT */)
 {
   return hb_ot_layout_language_get_required_feature (face,
 						     table_tag,
@@ -781,7 +781,7 @@ hb_ot_layout_language_get_required_feature_index (hb_face_t    *face,
  * @table_tag: HB_OT_TAG_GSUB or HB_OT_TAG_GPOS
  * @script_index: The index of the requested script tag
  * @language_index: The index of the requested language tag
- * @feature_index: The index of the requested feature
+ * @feature_index: (out): The index of the requested feature
  * @feature_tag: (out): The #hb_tag_t of the requested feature
  *
  * Fetches the tag of a requested feature index in the given face's GSUB or GPOS table,
@@ -796,8 +796,8 @@ hb_ot_layout_language_get_required_feature (hb_face_t    *face,
 					    hb_tag_t      table_tag,
 					    unsigned int  script_index,
 					    unsigned int  language_index,
-					    unsigned int *feature_index,
-					    hb_tag_t     *feature_tag)
+					    unsigned int *feature_index /* OUT */,
+					    hb_tag_t     *feature_tag   /* OUT */)
 {
   const OT::GSUBGPOS &g = get_gsubgpos_table (face, table_tag);
   const OT::LangSys &l = g.get_script (script_index).get_lang_sys (language_index);
@@ -983,7 +983,7 @@ struct hb_collect_features_context_t
 				 hb_set_t  *feature_indexes_)
     : g (get_gsubgpos_table (face, table_tag)),
       feature_indexes (feature_indexes_),
-      script_count(0),langsys_count(0) {}
+      script_count (0),langsys_count (0), feature_index_count (0) {}
 
   bool visited (const OT::Script &s)
   {
@@ -1012,6 +1012,12 @@ struct hb_collect_features_context_t
     return visited (l, visited_langsys);
   }
 
+  bool visited_feature_indices (unsigned count)
+  {
+    feature_index_count += count;
+    return feature_index_count > HB_MAX_FEATURE_INDICES;
+  }
+
   private:
   template <typename T>
   bool visited (const T &p, hb_set_t &visited_set)
@@ -1033,6 +1039,7 @@ struct hb_collect_features_context_t
   hb_set_t visited_langsys;
   unsigned int script_count;
   unsigned int langsys_count;
+  unsigned int feature_index_count;
 };
 
 static void
@@ -1045,10 +1052,11 @@ langsys_collect_features (hb_collect_features_context_t *c,
   if (!features)
   {
     /* All features. */
-    if (l.has_required_feature ())
+    if (l.has_required_feature () && !c->visited_feature_indices (1))
       c->feature_indexes->add (l.get_required_feature_index ());
 
-    l.add_feature_indexes_to (c->feature_indexes);
+    if (!c->visited_feature_indices (l.featureIndex.len))
+      l.add_feature_indexes_to (c->feature_indexes);
   }
   else
   {

@@ -110,6 +110,13 @@ static void check_readback(GrContext* context, sk_sp<SkImage> img,
                            SkImage::CompressionType compressionType,
                            const SkColor4f& expectedColor,
                            skiatest::Reporter* reporter, const char* label) {
+#ifdef SK_BUILD_FOR_IOS
+    // reading back ETC2 is broken on Metal/iOS (skbug.com/9839)
+    if (context->backend() == GrBackendApi::kMetal) {
+      return;
+    }
+#endif
+
     SkAutoPixmapStorage actual;
 
     SkImageInfo readBackII = SkImageInfo::Make(img->width(), img->height(),
@@ -137,7 +144,6 @@ static void test_compressed_color_init(GrContext* context,
                                        GrMipMapped mipMapped) {
     GrBackendTexture backendTex = create(context, color, mipMapped);
     if (!backendTex.isValid()) {
-        // errors here should be reported by the test_wrapping test
         return;
     }
 
@@ -179,7 +185,7 @@ static std::unique_ptr<const char[]> make_compressed_data(SkImage::CompressionTy
         GrFillInCompressedData(compression, dimensions,
                                GrMipMapped::kNo, &data[mipMapOffsets[level]], levelColors[level]);
 
-        dimensions = {SkTMax(1, dimensions.width() /2), SkTMax(1, dimensions.height()/2)};
+        dimensions = {std::max(1, dimensions.width() /2), std::max(1, dimensions.height()/2)};
     }
 
     return std::unique_ptr<const char[]>(data);

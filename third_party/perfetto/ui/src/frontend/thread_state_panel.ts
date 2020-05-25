@@ -46,11 +46,10 @@ export class ThreadStatePanel extends Panel<ThreadStateDetailsAttr> {
                           attrs.ts - globals.state.traceTime.startSec)}`)),
               m('tr',
                 m('th', `Duration`),
-                m('td',
-                  `${timeToCode(attrs.dur)} `,
-                  m('a',
-                    {href: 'http://b/140256335', target: '_blank'},
-                    '(b/140256335)'))),
+                m(
+                    'td',
+                    `${timeToCode(attrs.dur)} `,
+                    )),
               m('tr',
                 m('th', `State`),
                 m('td', this.getStateContent(attrs.state, attrs.cpu))),
@@ -74,7 +73,7 @@ export class ThreadStatePanel extends Panel<ThreadStateDetailsAttr> {
 
     return [
       `${translateState(state)} on CPU ${cpu}`,
-      m('i.material-icons',
+      m('i.material-icons.grey',
         {
           onclick: () => {
             if (globals.sliceDetails.id && globals.sliceDetails.ts) {

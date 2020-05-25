@@ -1023,6 +1023,7 @@ static void dealloc_compressor_data(VP9_COMP *cpi) {
 
 #if CONFIG_RATE_CTRL
   free_partition_info(cpi);
+  free_motion_vector_info(cpi);
 #endif
 
   vp9_free_ref_frame_buffers(cm->buffer_pool);
@@ -2310,7 +2311,7 @@ VP9_COMP *vp9_create_compressor(const VP9EncoderConfig *oxcf,
 
   vp9_rc_init(&cpi->oxcf, oxcf->pass, &cpi->rc);
 
-  cm->current_video_frame = 0;
+  init_frame_indexes(cm);
   cpi->partition_search_skippable_frame = 0;
   cpi->tile_data = NULL;
 
@@ -2654,6 +2655,7 @@ VP9_COMP *vp9_create_compressor(const VP9EncoderConfig *oxcf,
 #if CONFIG_RATE_CTRL
   encode_command_init(&cpi->encode_command);
   partition_info_init(cpi);
+  motion_vector_info_init(cpi);
 #endif
 
   return cpi;
@@ -3813,7 +3815,7 @@ static void set_frame_size(VP9_COMP *cpi) {
   set_ref_ptrs(cm, xd, LAST_FRAME, LAST_FRAME);
 }
 
-#if CONFIG_CONSISTENT_RECODE
+#if CONFIG_CONSISTENT_RECODE || CONFIG_RATE_CTRL
 static void save_encode_params(VP9_COMP *cpi) {
   VP9_COMMON *const cm = &cpi->common;
   const int tile_cols = 1 << cm->log2_tile_cols;
@@ -3844,7 +3846,7 @@ static void save_encode_params(VP9_COMP *cpi) {
       }
   }
 }
-#endif
+#endif  // CONFIG_CONSISTENT_RECODE || CONFIG_RATE_CTRL
 
 static INLINE void set_raw_source_frame(VP9_COMP *cpi) {
 #ifdef ENABLE_KF_DENOISE
@@ -4885,6 +4887,9 @@ static void set_frame_index(VP9_COMP *cpi, VP9_COMMON *cm) {
     const GF_GROUP *const gf_group = &cpi->twopass.gf_group;
     ref_buffer->frame_index =
         cm->current_video_frame + gf_group->arf_src_offset[gf_group->index];
+#if CONFIG_RATE_CTRL
+    ref_buffer->frame_coding_index = cm->current_frame_coding_index;
+#endif  // CONFIG_RATE_CTRL
   }
 }
 
@@ -5078,9 +5083,22 @@ static void set_mb_wiener_variance(VP9_COMP *cpi) {
   cpi->norm_wiener_variance = VPXMAX(1, cpi->norm_wiener_variance);
 }
 
-static void encode_frame_to_data_rate(VP9_COMP *cpi, size_t *size,
-                                      uint8_t *dest,
-                                      unsigned int *frame_flags) {
+#if !CONFIG_REALTIME_ONLY
+static void update_encode_frame_result(
+    int ref_frame_flags, FRAME_UPDATE_TYPE update_type,
+    const YV12_BUFFER_CONFIG *source_frame, const RefCntBuffer *coded_frame_buf,
+    RefCntBuffer *ref_frame_buf[MAX_INTER_REF_FRAMES], int quantize_index,
+    uint32_t bit_depth, uint32_t input_bit_depth, const FRAME_COUNTS *counts,
+#if CONFIG_RATE_CTRL
+    const PARTITION_INFO *partition_info,
+    const MOTION_VECTOR_INFO *motion_vector_info,
+#endif  // CONFIG_RATE_CTRL
+    ENCODE_FRAME_RESULT *encode_frame_result);
+#endif  // !CONFIG_REALTIME_ONLY
+
+static void encode_frame_to_data_rate(
+    VP9_COMP *cpi, size_t *size, uint8_t *dest, unsigned int *frame_flags,
+    ENCODE_FRAME_RESULT *encode_frame_result) {
   VP9_COMMON *const cm = &cpi->common;
   const VP9EncoderConfig *const oxcf = &cpi->oxcf;
   struct segmentation *const seg = &cm->seg;
@@ -5170,10 +5188,10 @@ static void encode_frame_to_data_rate(VP9_COMP *cpi, size_t *size,
   memset(cpi->mode_chosen_counts, 0,
          MAX_MODES * sizeof(*cpi->mode_chosen_counts));
 #endif
-#if CONFIG_CONSISTENT_RECODE
+#if CONFIG_CONSISTENT_RECODE || CONFIG_RATE_CTRL
   // Backup to ensure consistency between recodes
   save_encode_params(cpi);
-#endif
+#endif  // CONFIG_CONSISTENT_RECODE || CONFIG_RATE_CTRL
 
   if (cpi->sf.recode_loop == DISALLOW_RECODE) {
     if (!encode_without_recode_loop(cpi, size, dest)) return;
@@ -5245,6 +5263,44 @@ static void encode_frame_to_data_rate(VP9_COMP *cpi, size_t *size,
   // build the bitstream
   vp9_pack_bitstream(cpi, dest, size);
 
+#if CONFIG_REALTIME_ONLY
+  (void)encode_frame_result;
+  assert(encode_frame_result == NULL);
+#else  // CONFIG_REALTIME_ONLY
+  if (encode_frame_result != NULL) {
+    const int ref_frame_flags = get_ref_frame_flags(cpi);
+    const RefCntBuffer *coded_frame_buf =
+        get_ref_cnt_buffer(cm, cm->new_fb_idx);
+    RefCntBuffer *ref_frame_bufs[MAX_INTER_REF_FRAMES];
+    get_ref_frame_bufs(cpi, ref_frame_bufs);
+    // update_encode_frame_result() depends on twopass.gf_group.index and
+    // cm->new_fb_idx, cpi->Source, cpi->lst_fb_idx, cpi->gld_fb_idx and
+    // cpi->alt_fb_idx are updated for current frame and have
+    // not been updated for the next frame yet.
+    // The update locations are as follows.
+    // 1) twopass.gf_group.index is initialized at define_gf_group by vp9_zero()
+    // for the first frame in the gf_group and is updated for the next frame at
+    // vp9_twopass_postencode_update().
+    // 2) cpi->Source is updated at the beginning of vp9_get_compressed_data()
+    // 3) cm->new_fb_idx is updated at the beginning of
+    // vp9_get_compressed_data() by get_free_fb(cm).
+    // 4) cpi->lst_fb_idx/gld_fb_idx/alt_fb_idx will be updated for the next
+    // frame at vp9_update_reference_frames().
+    // This function needs to be called before vp9_update_reference_frames().
+    // TODO(angiebird): Improve the codebase to make the update of frame
+    // dependent variables more robust.
+    update_encode_frame_result(
+        ref_frame_flags,
+        cpi->twopass.gf_group.update_type[cpi->twopass.gf_group.index],
+        cpi->Source, coded_frame_buf, ref_frame_bufs, vp9_get_quantizer(cpi),
+        cpi->oxcf.input_bit_depth, cm->bit_depth, cpi->td.counts,
+#if CONFIG_RATE_CTRL
+        cpi->partition_info, cpi->motion_vector_info,
+#endif  // CONFIG_RATE_CTRL
+        encode_frame_result);
+  }
+#endif  // CONFIG_REALTIME_ONLY
+
   if (cpi->rc.use_post_encode_drop && cm->base_qindex < cpi->rc.worst_quality &&
       cpi->svc.spatial_layer_id == 0 && post_encode_drop_cbr(cpi, size)) {
     restore_coding_context(cpi);
@@ -5307,6 +5363,14 @@ static void encode_frame_to_data_rate(VP9_COMP *cpi, size_t *size,
 
   vp9_rc_postencode_update(cpi, *size);
 
+  if (oxcf->pass == 0 && !frame_is_intra_only(cm) &&
+      (!cpi->use_svc ||
+       (cpi->use_svc &&
+        !cpi->svc.layer_context[cpi->svc.temporal_layer_id].is_key_frame &&
+        cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 1))) {
+    vp9_compute_frame_low_motion(cpi);
+  }
+
   *size = VPXMAX(1, *size);
 
 #if 0
@@ -5338,11 +5402,9 @@ static void encode_frame_to_data_rate(VP9_COMP *cpi, size_t *size,
 
   if (cm->show_frame) {
     vp9_swap_mi_and_prev_mi(cm);
-    // Don't increment frame counters if this was an altref buffer
-    // update not a real frame
-    ++cm->current_video_frame;
     if (cpi->use_svc) vp9_inc_frame_in_layer(cpi);
   }
+  update_frame_indexes(cm, cm->show_frame);
 
   if (cpi->use_svc) {
     cpi->svc
@@ -5368,7 +5430,8 @@ static void encode_frame_to_data_rate(VP9_COMP *cpi, size_t *size,
 static void SvcEncode(VP9_COMP *cpi, size_t *size, uint8_t *dest,
                       unsigned int *frame_flags) {
   vp9_rc_get_svc_params(cpi);
-  encode_frame_to_data_rate(cpi, size, dest, frame_flags);
+  encode_frame_to_data_rate(cpi, size, dest, frame_flags,
+                            /*encode_frame_result = */ NULL);
 }
 
 static void Pass0Encode(VP9_COMP *cpi, size_t *size, uint8_t *dest,
@@ -5378,17 +5441,19 @@ static void Pass0Encode(VP9_COMP *cpi, size_t *size, uint8_t *dest,
   } else {
     vp9_rc_get_one_pass_vbr_params(cpi);
   }
-  encode_frame_to_data_rate(cpi, size, dest, frame_flags);
+  encode_frame_to_data_rate(cpi, size, dest, frame_flags,
+                            /*encode_frame_result = */ NULL);
 }
 
 #if !CONFIG_REALTIME_ONLY
 static void Pass2Encode(VP9_COMP *cpi, size_t *size, uint8_t *dest,
-                        unsigned int *frame_flags) {
+                        unsigned int *frame_flags,
+                        ENCODE_FRAME_RESULT *encode_frame_result) {
   cpi->allow_encode_breakout = ENCODE_BREAKOUT_ENABLED;
 #if CONFIG_MISMATCH_DEBUG
   mismatch_move_frame_idx_w();
 #endif
-  encode_frame_to_data_rate(cpi, size, dest, frame_flags);
+  encode_frame_to_data_rate(cpi, size, dest, frame_flags, encode_frame_result);
 }
 #endif  // !CONFIG_REALTIME_ONLY
 
@@ -7100,10 +7165,6 @@ static void setup_tpl_stats(VP9_COMP *cpi) {
 #endif  // CONFIG_NON_GREEDY_MV
 }
 
-static void init_encode_frame_result(ENCODE_FRAME_RESULT *encode_frame_result) {
-  encode_frame_result->show_idx = -1;  // Actual encoding doesn't happen.
-}
-
 #if !CONFIG_REALTIME_ONLY
 #if CONFIG_RATE_CTRL
 static void copy_frame_counts(const FRAME_COUNTS *input_counts,
@@ -7222,39 +7283,109 @@ static void copy_frame_counts(const FRAME_COUNTS *input_counts,
     }
   }
 }
-#endif  // CONFIG_RATE_CTRL
 
+static void yv12_buffer_to_image_buffer(const YV12_BUFFER_CONFIG *yv12_buffer,
+                                        IMAGE_BUFFER *image_buffer) {
+  const uint8_t *src_buf_ls[3] = { yv12_buffer->y_buffer, yv12_buffer->u_buffer,
+                                   yv12_buffer->v_buffer };
+  const int src_stride_ls[3] = { yv12_buffer->y_stride, yv12_buffer->uv_stride,
+                                 yv12_buffer->uv_stride };
+  const int w_ls[3] = { yv12_buffer->y_crop_width, yv12_buffer->uv_crop_width,
+                        yv12_buffer->uv_crop_width };
+  const int h_ls[3] = { yv12_buffer->y_crop_height, yv12_buffer->uv_crop_height,
+                        yv12_buffer->uv_crop_height };
+  int plane;
+  for (plane = 0; plane < 3; ++plane) {
+    const int src_stride = src_stride_ls[plane];
+    const int w = w_ls[plane];
+    const int h = h_ls[plane];
+    const uint8_t *src_buf = src_buf_ls[plane];
+    uint8_t *dst_buf = image_buffer->plane_buffer[plane];
+    int r;
+    assert(image_buffer->plane_width[plane] == w);
+    assert(image_buffer->plane_height[plane] == h);
+    for (r = 0; r < h; ++r) {
+      memcpy(dst_buf, src_buf, sizeof(*src_buf) * w);
+      src_buf += src_stride;
+      dst_buf += w;
+    }
+  }
+}
+#endif  // CONFIG_RATE_CTRL
 static void update_encode_frame_result(
-    int show_idx, FRAME_UPDATE_TYPE update_type,
-    const YV12_BUFFER_CONFIG *source_frame,
-    const YV12_BUFFER_CONFIG *coded_frame, int quantize_index,
+    int ref_frame_flags, FRAME_UPDATE_TYPE update_type,
+    const YV12_BUFFER_CONFIG *source_frame, const RefCntBuffer *coded_frame_buf,
+    RefCntBuffer *ref_frame_bufs[MAX_INTER_REF_FRAMES], int quantize_index,
     uint32_t bit_depth, uint32_t input_bit_depth, const FRAME_COUNTS *counts,
+#if CONFIG_RATE_CTRL
+    const PARTITION_INFO *partition_info,
+    const MOTION_VECTOR_INFO *motion_vector_info,
+#endif  // CONFIG_RATE_CTRL
     ENCODE_FRAME_RESULT *encode_frame_result) {
 #if CONFIG_RATE_CTRL
   PSNR_STATS psnr;
 #if CONFIG_VP9_HIGHBITDEPTH
-  vpx_calc_highbd_psnr(source_frame, coded_frame, &psnr, bit_depth,
+  vpx_calc_highbd_psnr(source_frame, coded_frame_buf->buf, &psnr, bit_depth,
                        input_bit_depth);
 #else   // CONFIG_VP9_HIGHBITDEPTH
   (void)bit_depth;
   (void)input_bit_depth;
-  vpx_calc_psnr(source_frame, coded_frame, &psnr);
+  vpx_calc_psnr(source_frame, &coded_frame_buf->buf, &psnr);
 #endif  // CONFIG_VP9_HIGHBITDEPTH
+  encode_frame_result->frame_coding_index = coded_frame_buf->frame_coding_index;
+
+  if (update_type != KF_UPDATE) {
+    const VP9_REFFRAME inter_ref_flags[MAX_INTER_REF_FRAMES] = { VP9_LAST_FLAG,
+                                                                 VP9_GOLD_FLAG,
+                                                                 VP9_ALT_FLAG };
+    int i;
+    for (i = 0; i < MAX_INTER_REF_FRAMES; ++i) {
+      assert(ref_frame_bufs[i] != NULL);
+      encode_frame_result->ref_frame_coding_indexes[i] =
+          ref_frame_bufs[i]->frame_coding_index;
+      encode_frame_result->ref_frame_valid_list[i] =
+          (ref_frame_flags & inter_ref_flags[i]) != 0;
+    }
+  } else {
+    // No reference frame is available when this is a key frame.
+    int i;
+    for (i = 0; i < MAX_INTER_REF_FRAMES; ++i) {
+      encode_frame_result->ref_frame_coding_indexes[i] = -1;
+      encode_frame_result->ref_frame_valid_list[i] = 0;
+    }
+  }
   encode_frame_result->psnr = psnr.psnr[0];
   encode_frame_result->sse = psnr.sse[0];
   copy_frame_counts(counts, &encode_frame_result->frame_counts);
+  encode_frame_result->partition_info = partition_info;
+  encode_frame_result->motion_vector_info = motion_vector_info;
+  if (encode_frame_result->coded_frame.allocated) {
+    yv12_buffer_to_image_buffer(&coded_frame_buf->buf,
+                                &encode_frame_result->coded_frame);
+  }
 #else   // CONFIG_RATE_CTRL
+  (void)ref_frame_flags;
   (void)bit_depth;
   (void)input_bit_depth;
   (void)source_frame;
-  (void)coded_frame;
+  (void)coded_frame_buf;
+  (void)ref_frame_bufs;
   (void)counts;
 #endif  // CONFIG_RATE_CTRL
-  encode_frame_result->show_idx = show_idx;
+  encode_frame_result->show_idx = coded_frame_buf->frame_index;
   encode_frame_result->update_type = update_type;
   encode_frame_result->quantize_index = quantize_index;
 }
 #endif  // !CONFIG_REALTIME_ONLY
+
+void vp9_init_encode_frame_result(ENCODE_FRAME_RESULT *encode_frame_result) {
+  encode_frame_result->show_idx = -1;  // Actual encoding doesn't happen.
+#if CONFIG_RATE_CTRL
+  encode_frame_result->frame_coding_index = -1;
+  vp9_zero(encode_frame_result->coded_frame);
+  encode_frame_result->coded_frame.allocated = 0;
+#endif  // CONFIG_RATE_CTRL
+}
 
 int vp9_get_compressed_data(VP9_COMP *cpi, unsigned int *frame_flags,
                             size_t *size, uint8_t *dest, int64_t *time_stamp,
@@ -7271,7 +7402,6 @@ int vp9_get_compressed_data(VP9_COMP *cpi, unsigned int *frame_flags,
   int arf_src_index;
   const int gf_group_index = cpi->twopass.gf_group.index;
   int i;
-  init_encode_frame_result(encode_frame_result);
 
   if (is_one_pass_cbr_svc(cpi)) {
     vp9_one_pass_cbr_svc_start_layer(cpi);
@@ -7509,6 +7639,7 @@ int vp9_get_compressed_data(VP9_COMP *cpi, unsigned int *frame_flags,
 
   cpi->td.mb.fp_src_pred = 0;
 #if CONFIG_REALTIME_ONLY
+  (void)encode_frame_result;
   if (cpi->use_svc) {
     SvcEncode(cpi, size, dest, frame_flags);
   } else {
@@ -7532,26 +7663,7 @@ int vp9_get_compressed_data(VP9_COMP *cpi, unsigned int *frame_flags,
     cpi->td.mb.inv_txfm_add = lossless ? vp9_iwht4x4_add : vp9_idct4x4_add;
     vp9_first_pass(cpi, source);
   } else if (oxcf->pass == 2 && !cpi->use_svc) {
-    Pass2Encode(cpi, size, dest, frame_flags);
-    // update_encode_frame_result() depends on twopass.gf_group.index and
-    // cm->new_fb_idx and cpi->Source are updated for current properly and have
-    // not been updated for the next frame yet.
-    // The update locations are as follows.
-    // 1) twopass.gf_group.index is initialized at define_gf_group by vp9_zero()
-    // for the first frame in the gf_group and is updated for the next frame at
-    // vp9_twopass_postencode_update().
-    // 2) cpi->Source is updated at the beginning of this function, i.e.
-    // vp9_get_compressed_data()
-    // 3) cm->new_fb_idx is updated at the beginning of this function by
-    // get_free_fb(cm)
-    // TODO(angiebird): Improve the codebase to make the update of frame
-    // dependent variables more robust.
-    update_encode_frame_result(
-        source->show_idx,
-        cpi->twopass.gf_group.update_type[cpi->twopass.gf_group.index],
-        cpi->Source, get_frame_new_buffer(cm), vp9_get_quantizer(cpi),
-        cpi->oxcf.input_bit_depth, cm->bit_depth, cpi->td.counts,
-        encode_frame_result);
+    Pass2Encode(cpi, size, dest, frame_flags, encode_frame_result);
     vp9_twopass_postencode_update(cpi);
   } else if (cpi->use_svc) {
     SvcEncode(cpi, size, dest, frame_flags);

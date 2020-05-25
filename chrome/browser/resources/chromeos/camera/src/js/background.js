@@ -6,6 +6,7 @@ import {
   BackgroundOps,  // eslint-disable-line no-unused-vars
   ForegroundOps,  // eslint-disable-line no-unused-vars
 } from './background_ops.js';
+import {browserProxy} from './browser_proxy/browser_proxy.js';
 import {Intent} from './intent.js';
 import {PerfEvent, PerfLogger} from './perf.js';
 
@@ -175,8 +176,9 @@ class CCAWindow {
           this.perfLogger_.start(PerfEvent.LAUNCHING_FROM_WINDOW_CREATION);
           this.appWindow_ = appWindow;
           this.appWindow_.onClosed.addListener(() => {
-            chrome.storage.local.set({maximized: appWindow.isMaximized()});
-            chrome.storage.local.set({fullscreen: appWindow.isFullscreen()});
+            browserProxy.localStorageSet({maximized: appWindow.isMaximized()});
+            browserProxy.localStorageSet(
+                {fullscreen: appWindow.isFullscreen()});
             this.state_ = WindowState.CLOSED;
             if (this.intent_ !== null && !this.intent_.done) {
               this.intent_.cancel();
@@ -234,6 +236,13 @@ class CCAWindow {
   }
 
   /**
+   * @override
+   */
+  isTesting() {
+    return onAppWindowCreatedForTesting !== null;
+  }
+
+  /**
    * Suspends the app window.
    */
   suspend() {
@@ -259,6 +268,18 @@ class CCAWindow {
   close() {
     this.state_ = WindowState.CLOSING;
     this.appWindow_.close();
+  }
+
+  /**
+   * Minimize or restore the app window.
+   */
+  minimizeOrRestore() {
+    if (this.appWindow_.isMinimized()) {
+      this.appWindow_.restore();
+      this.appWindow_.focus();
+    } else {
+      this.appWindow_.minimize();
+    }
   }
 }
 
@@ -407,6 +428,11 @@ class Background {
    */
   launchApp() {
     if (this.launcherWindow_ || this.intentWindow_) {
+      const activeWindow = [this.launcherWindow_, this.intentWindow_].find(
+          (wnd) => wnd !== null && wnd.state_ === WindowState.ACTIVE);
+      if (activeWindow !== undefined) {
+        activeWindow.minimizeOrRestore();
+      }
       return;
     }
     this.assert_(
@@ -552,6 +578,6 @@ chrome.app.runtime.onLaunched.addListener((launchData) => {
   }
 });
 
-chrome.runtime.onMessageExternal.addListener(handleExternalMessageFromTest);
+browserProxy.addOnMessageExternalListener(handleExternalMessageFromTest);
 
-chrome.runtime.onConnectExternal.addListener(handleExternalConnectionFromTest);
+browserProxy.addOnConnectExternalListener(handleExternalConnectionFromTest);

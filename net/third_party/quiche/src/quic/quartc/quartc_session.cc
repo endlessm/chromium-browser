@@ -155,27 +155,6 @@ bool QuartcSession::SendProbingData() {
   return true;
 }
 
-void QuartcSession::OnCryptoHandshakeEvent(CryptoHandshakeEvent event) {
-  QuicSession::OnCryptoHandshakeEvent(event);
-  switch (event) {
-    case ENCRYPTION_ESTABLISHED:
-      DCHECK(IsEncryptionEstablished());
-      DCHECK(session_delegate_);
-      session_delegate_->OnConnectionWritable();
-      break;
-    case EVENT_HANDSHAKE_CONFIRMED:
-      // On the server, handshake confirmed is the first time when you can start
-      // writing packets.
-      DCHECK(IsEncryptionEstablished());
-      DCHECK(OneRttKeysAvailable());
-
-      DCHECK(session_delegate_);
-      session_delegate_->OnConnectionWritable();
-      session_delegate_->OnCryptoHandshakeComplete();
-      break;
-  }
-}
-
 void QuartcSession::SetDefaultEncryptionLevel(EncryptionLevel level) {
   QuicSession::SetDefaultEncryptionLevel(level);
   switch (level) {
@@ -204,6 +183,18 @@ void QuartcSession::SetDefaultEncryptionLevel(EncryptionLevel level) {
       QUIC_BUG << "Unknown encryption level: "
                << EncryptionLevelToString(level);
   }
+}
+
+void QuartcSession::OnOneRttKeysAvailable() {
+  QuicSession::OnOneRttKeysAvailable();
+  // On the server, handshake confirmed is the first time when you can start
+  // writing packets.
+  DCHECK(IsEncryptionEstablished());
+  DCHECK(OneRttKeysAvailable());
+
+  DCHECK(session_delegate_);
+  session_delegate_->OnConnectionWritable();
+  session_delegate_->OnCryptoHandshakeComplete();
 }
 
 void QuartcSession::CancelStream(QuicStreamId stream_id) {
@@ -450,7 +441,7 @@ QuartcServerSession::QuartcServerSession(
     const QuicClock* clock,
     const QuicCryptoServerConfig* server_crypto_config,
     QuicCompressedCertsCache* const compressed_certs_cache,
-    QuicCryptoServerStream::Helper* const stream_helper)
+    QuicCryptoServerStreamBase::Helper* const stream_helper)
     : QuartcSession(std::move(connection),
                     visitor,
                     config,

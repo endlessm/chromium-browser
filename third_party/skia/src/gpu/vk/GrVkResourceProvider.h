@@ -13,13 +13,13 @@
 #include "src/core/SkLRUCache.h"
 #include "src/core/SkTDynamicHash.h"
 #include "src/core/SkTInternalLList.h"
+#include "src/gpu/GrManagedResource.h"
 #include "src/gpu/GrProgramDesc.h"
 #include "src/gpu/GrResourceHandle.h"
 #include "src/gpu/vk/GrVkDescriptorPool.h"
 #include "src/gpu/vk/GrVkDescriptorSetManager.h"
 #include "src/gpu/vk/GrVkPipelineStateBuilder.h"
 #include "src/gpu/vk/GrVkRenderPass.h"
-#include "src/gpu/vk/GrVkResource.h"
 #include "src/gpu/vk/GrVkSampler.h"
 #include "src/gpu/vk/GrVkSamplerYcbcrConversion.h"
 #include "src/gpu/vk/GrVkUtil.h"
@@ -148,11 +148,11 @@ public:
 
     // Creates or finds free uniform buffer resources of size GrVkUniformBuffer::kStandardSize.
     // Anything larger will need to be created and released by the client.
-    const GrVkResource* findOrCreateStandardUniformBufferResource();
+    const GrManagedResource* findOrCreateStandardUniformBufferResource();
 
     // Signals that the resource passed to it (which should be a uniform buffer resource)
     // can be reused by the next uniform buffer resource request.
-    void recycleStandardUniformBufferResource(const GrVkResource*);
+    void recycleStandardUniformBufferResource(const GrManagedResource*);
 
     void storePipelineCacheData();
 
@@ -184,12 +184,17 @@ private:
         ~PipelineStateCache();
 
         void release();
-        GrVkPipelineState* refPipelineState(GrRenderTarget*,
-                                            const GrProgramInfo&,
-                                            VkRenderPass compatibleRenderPass);
+        GrVkPipelineState* findOrCreatePipelineState(GrRenderTarget*,
+                                                     const GrProgramInfo&,
+                                                     VkRenderPass compatibleRenderPass);
 
     private:
         struct Entry;
+
+        GrVkPipelineState* findOrCreatePipeline(GrRenderTarget*,
+                                                const GrProgramDesc&,
+                                                const GrProgramInfo&,
+                                                VkRenderPass compatibleRenderPass);
 
         struct DescHash {
             uint32_t operator()(const GrProgramDesc& desc) const {
@@ -227,7 +232,7 @@ private:
                                       const GrVkRenderPass::LoadStoreOps& colorOps,
                                       const GrVkRenderPass::LoadStoreOps& stencilOps);
 
-        void releaseResources(GrVkGpu* gpu);
+        void releaseResources();
 
     private:
         SkSTArray<4, GrVkRenderPass*> fRenderPasses;
@@ -252,7 +257,7 @@ private:
     SkSTArray<4, GrVkCommandPool*, true> fAvailableCommandPools;
 
     // Array of available uniform buffer resources
-    SkSTArray<16, const GrVkResource*, true> fAvailableUniformBufferResources;
+    SkSTArray<16, const GrManagedResource*, true> fAvailableUniformBufferResources;
 
     // Stores GrVkSampler objects that we've already created so we can reuse them across multiple
     // GrVkPipelineStates

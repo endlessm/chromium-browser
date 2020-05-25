@@ -32,7 +32,8 @@ Column::Column(const Column& column,
              table,
              col_idx,
              row_map_idx,
-             column.sparse_vector_) {}
+             column.sparse_vector_,
+             nullptr) {}
 
 Column::Column(const char* name,
                ColumnType type,
@@ -40,8 +41,10 @@ Column::Column(const char* name,
                Table* table,
                uint32_t col_idx_in_table,
                uint32_t row_map_idx,
-               void* sparse_vector)
-    : type_(type),
+               SparseVectorBase* sparse_vector,
+               std::unique_ptr<SparseVectorBase> owned_sparse_vector)
+    : owned_sparse_vector_(std::move(owned_sparse_vector)),
+      type_(type),
       sparse_vector_(sparse_vector),
       name_(name),
       flags_(flags),
@@ -51,8 +54,8 @@ Column::Column(const char* name,
       string_pool_(table->string_pool_) {}
 
 Column Column::IdColumn(Table* table, uint32_t col_idx, uint32_t row_map_idx) {
-  return Column("id", ColumnType::kId, Flag::kSorted | Flag::kNonNull, table,
-                col_idx, row_map_idx, nullptr);
+  return Column("id", ColumnType::kId, kIdFlags, table, col_idx, row_map_idx,
+                nullptr, nullptr);
 }
 
 void Column::StableSort(bool desc, std::vector<uint32_t>* idx) const {
@@ -239,10 +242,6 @@ void Column::FilterIntoNumericWithComparatorSlow(FilterOp op,
         return cmp(sparse_vector<T>().GetNonNull(idx)) >= 0;
       });
       break;
-    case FilterOp::kGlob:
-    case FilterOp::kLike:
-      rm->Intersect(RowMap());
-      break;
     case FilterOp::kIsNull:
     case FilterOp::kIsNotNull:
       PERFETTO_FATAL("Should be handled above");
@@ -313,12 +312,6 @@ void Column::FilterIntoStringSlow(FilterOp op,
         return v.data() != nullptr && compare::String(v, str_value) >= 0;
       });
       break;
-    case FilterOp::kGlob:
-    case FilterOp::kLike:
-      // TODO(lalitm): either call through to SQLite or reimplement
-      // like ourselves.
-      PERFETTO_DLOG("Ignoring like/glob constraint on string column");
-      break;
     case FilterOp::kIsNull:
     case FilterOp::kIsNotNull:
       PERFETTO_FATAL("Should be handled above");
@@ -373,10 +366,6 @@ void Column::FilterIntoIdSlow(FilterOp op, SqlValue value, RowMap* rm) const {
       row_map().FilterInto(rm, [id_value](uint32_t idx) {
         return compare::Numeric(idx, id_value) >= 0;
       });
-      break;
-    case FilterOp::kGlob:
-    case FilterOp::kLike:
-      rm->Intersect(RowMap());
       break;
     case FilterOp::kIsNull:
     case FilterOp::kIsNotNull:

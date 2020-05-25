@@ -18,6 +18,10 @@ CXFA_FFSignature::~CXFA_FFSignature() = default;
 
 bool CXFA_FFSignature::LoadWidget() {
   ASSERT(!IsLoaded());
+
+  // Prevents destruction of the CXFA_ContentLayoutItem that owns |this|.
+  RetainPtr<CXFA_ContentLayoutItem> retain_layout(m_pLayoutItem.Get());
+
   return CXFA_FFField::LoadWidget();
 }
 
@@ -110,10 +114,6 @@ FWL_WidgetHit CXFA_FFSignature::HitTest(const CFX_PointF& point) {
   if (m_rtCaption.Contains(point))
     return FWL_WidgetHit::Titlebar;
   return FWL_WidgetHit::Client;
-}
-
-bool CXFA_FFSignature::OnSetCursor(const CFX_PointF& point) {
-  return false;
 }
 
 FormFieldType CXFA_FFSignature::GetFormFieldType() {

@@ -36,13 +36,22 @@ const base::Feature kCaptureSafetyNetId{"SafeBrowsingCaptureSafetyNetId",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kCommittedSBInterstitials{
-    "SafeBrowsingCommittedInterstitials", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SafeBrowsingCommittedInterstitials", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kContentComplianceEnabled{
-    "SafeBrowsingContentComplianceEnabled", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SafeBrowsingContentComplianceEnabled", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kDelayedWarnings{"SafeBrowsingDelayedWarnings",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kDownloadRequestWithToken{
+    "SafeBrowsingDownloadRequestWithToken", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kEnhancedProtection{"SafeBrowsingEnhancedProtection",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kMalwareScanEnabled{"SafeBrowsingMalwareScanEnabled",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable saved password protection by default only on desktop.
 #if BUILDFLAG(FULL_SAFE_BROWSING)
@@ -55,9 +64,16 @@ const base::Feature kPasswordProtectionForSavedPasswords{
     base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
+// Enable saved password protection with domains by default only on desktop.
+#if BUILDFLAG(FULL_SAFE_BROWSING)
+const base::Feature kPasswordProtectionShowDomainsForSavedPasswords{
+    "SafeBrowsingPasswordProtectionShowDomainsForSavedPasswords",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+#else
 const base::Feature kPasswordProtectionShowDomainsForSavedPasswords{
     "SafeBrowsingPasswordProtectionShowDomainsForSavedPasswords",
     base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 #if BUILDFLAG(FULL_SAFE_BROWSING)
 const base::Feature kPasswordProtectionForSignedInUsers{
@@ -75,23 +91,31 @@ const base::Feature kPromptAppForDeepScanning{
 const base::Feature kRealTimeUrlLookupEnabled{
     "SafeBrowsingRealTimeUrlLookupEnabled", base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kRealTimeUrlLookupEnabledForAllAndroidDevices{
+    "SafeBrowsingRealTimeUrlLookupEnabledForAllAndroidDevices",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kRealTimeUrlLookupEnabledForEP{
+    "SafeBrowsingRealTimeUrlLookupEnabledForEP",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kRealTimeUrlLookupEnabledForEPWithToken{
+    "SafeBrowsingRealTimeUrlLookupEnabledForEPWithToken",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
 const base::Feature kRealTimeUrlLookupEnabledWithToken{
     "SafeBrowsingRealTimeUrlLookupEnabledWithToken",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kSendOnFocusPing {
-  "SafeBrowsingSendOnFocusPing",
-      base::FEATURE_ENABLED_BY_DEFAULT
-};
-
-const base::Feature kSendPasswordReusePing {
-  "SafeBrowsingSendPasswordReusePing",
-      base::FEATURE_ENABLED_BY_DEFAULT
-};
-
-const base::Feature kSendSampledPingsForAllowlistDomains{
-    "SafeBrowsingSendSampledPingsForAllowlistDomain",
+const base::Feature kRealTimeUrlLookupNonMainframeEnabledForEP{
+    "SafeBrowsingRealTimeUrlLookupNonMainframeEnabledForEP",
     base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kSafeBrowsingAvailableOnIOS{
+    "SafeBrowsingAvailableOnIOS", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kSafeBrowsingSeparateNetworkContexts{
+    "SafeBrowsingSeparateNetworkContexts", base::FEATURE_DISABLED_BY_DEFAULT};
 
 constexpr base::FeatureParam<bool> kShouldFillOldPhishGuardProto{
     &kPasswordProtectionForSignedInUsers, "DeprecateOldProto", false};
@@ -105,10 +129,6 @@ const base::Feature kThreatDomDetailsTagAndAttributeFeature{
 const base::Feature kTriggerThrottlerDailyQuotaFeature{
     "SafeBrowsingTriggerThrottlerDailyQuota",
     base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kUseLocalBlacklistsV2{"SafeBrowsingUseLocalBlacklistsV2",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
-
 const base::Feature kUseNewDownloadWarnings{"UseNewDownloadWarnings",
                                             base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -128,20 +148,25 @@ constexpr struct {
     {&kCaptureSafetyNetId, true},
     {&kCommittedSBInterstitials, true},
     {&kContentComplianceEnabled, true},
+    {&kDelayedWarnings, true},
+    {&kDownloadRequestWithToken, true},
+    {&kEnhancedProtection, true},
     {&kMalwareScanEnabled, true},
     {&kPasswordProtectionForSavedPasswords, true},
     {&kPasswordProtectionShowDomainsForSavedPasswords, true},
     {&kPasswordProtectionForSignedInUsers, true},
     {&kPromptAppForDeepScanning, true},
     {&kRealTimeUrlLookupEnabled, true},
+    {&kRealTimeUrlLookupEnabledForAllAndroidDevices, true},
+    {&kRealTimeUrlLookupEnabledForEP, true},
+    {&kRealTimeUrlLookupEnabledForEPWithToken, true},
     {&kRealTimeUrlLookupEnabledWithToken, true},
-    {&kSendOnFocusPing, true},
-    {&kSendPasswordReusePing, true},
-    {&kSendSampledPingsForAllowlistDomains, false},
+    {&kRealTimeUrlLookupNonMainframeEnabledForEP, true},
+    {&kSafeBrowsingAvailableOnIOS, true},
+    {&kSafeBrowsingSeparateNetworkContexts, true},
     {&kSuspiciousSiteTriggerQuotaFeature, true},
     {&kThreatDomDetailsTagAndAttributeFeature, false},
     {&kTriggerThrottlerDailyQuotaFeature, false},
-    {&kUseLocalBlacklistsV2, true},
 };
 
 // Adds the name and the enabled/disabled status of a given feature.

@@ -192,6 +192,9 @@ QuicByteCount QuicFlowController::WindowUpdateThreshold() {
 }
 
 void QuicFlowController::MaybeSendWindowUpdate() {
+  if (!session_->connection()->connected()) {
+    return;
+  }
   // Send WindowUpdate to increase receive window if
   // (receive window offset - consumed bytes) < (max window / 2).
   // This is behaviour copied from SPDY.

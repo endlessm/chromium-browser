@@ -8,11 +8,11 @@
 #ifndef GrMockGpu_DEFINED
 #define GrMockGpu_DEFINED
 
-#include "include/gpu/GrTexture.h"
 #include "include/private/SkTHash.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrRenderTarget.h"
 #include "src/gpu/GrSemaphore.h"
+#include "src/gpu/GrTexture.h"
 
 class GrMockOpsRenderPass;
 struct GrMockOptions;
@@ -62,7 +62,7 @@ private:
 
     void xferBarrier(GrRenderTarget*, GrXferBarrierType) override {}
 
-    sk_sp<GrTexture> onCreateTexture(const GrSurfaceDesc&,
+    sk_sp<GrTexture> onCreateTexture(SkISize,
                                      const GrBackendFormat&,
                                      GrRenderable,
                                      int renderTargetSampleCnt,
@@ -78,22 +78,23 @@ private:
                                                GrProtected,
                                                const void* data, size_t dataSize) override;
 
-    sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&, GrColorType, GrWrapOwnership,
-                                          GrWrapCacheable, GrIOType) override;
-    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&, GrWrapOwnership,
+    sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&,
+                                          GrWrapOwnership,
+                                          GrWrapCacheable,
+                                          GrIOType) override;
+    sk_sp<GrTexture> onWrapCompressedBackendTexture(const GrBackendTexture&,
+                                                    GrWrapOwnership,
                                                     GrWrapCacheable) override;
 
     sk_sp<GrTexture> onWrapRenderableBackendTexture(const GrBackendTexture&,
                                                     int sampleCnt,
-                                                    GrColorType,
                                                     GrWrapOwnership,
                                                     GrWrapCacheable) override;
 
-    sk_sp<GrRenderTarget> onWrapBackendRenderTarget(const GrBackendRenderTarget&,
-                                                    GrColorType) override;
+    sk_sp<GrRenderTarget> onWrapBackendRenderTarget(const GrBackendRenderTarget&) override;
 
     sk_sp<GrRenderTarget> onWrapBackendTextureAsRenderTarget(const GrBackendTexture&,
-                                                             int sampleCnt, GrColorType) override;
+                                                             int sampleCnt) override;
 
     sk_sp<GrGpuBuffer> onCreateBuffer(size_t sizeInBytes, GrGpuBufferType, GrAccessPattern,
                                       const void*) override;
@@ -128,8 +129,7 @@ private:
 
     bool onRegenerateMipMapLevels(GrTexture*) override { return true; }
 
-    void onResolveRenderTarget(GrRenderTarget* target, const SkIRect&, GrSurfaceOrigin,
-                               ForExternalIO) override {}
+    void onResolveRenderTarget(GrRenderTarget* target, const SkIRect&, ForExternalIO) override {}
 
     bool onFinishFlush(GrSurfaceProxy*[], int n, SkSurface::BackendSurfaceAccess access,
                        const GrFlushInfo& info, const GrPrepareForExternalIORequests&) override {
@@ -153,6 +153,8 @@ private:
                                                       GrProtected,
                                                       const BackendTextureData*) override;
     void deleteBackendTexture(const GrBackendTexture&) override;
+
+    bool compile(const GrProgramDesc&, const GrProgramInfo&) override { return false; }
 
 #if GR_TEST_UTILS
     bool isTestingOnlyBackendTexture(const GrBackendTexture&) const override;

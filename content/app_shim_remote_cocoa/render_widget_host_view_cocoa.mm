@@ -949,8 +949,8 @@ void ExtractUnderlines(NSAttributedString* string,
   // Don't cancel child popups; the key events are probably what's triggering
   // the popup in the first place.
 
-
-  NativeWebKeyboardEvent event(theEvent);
+  NativeWebKeyboardEvent event =
+      NativeWebKeyboardEvent::CreateForRenderer(theEvent);
   ui::LatencyInfo latency_info;
   if (event.GetType() == blink::WebInputEvent::kRawKeyDown ||
       event.GetType() == blink::WebInputEvent::kChar) {
@@ -1314,9 +1314,6 @@ void ExtractUnderlines(NSAttributedString* string,
     if (handled)
       return;
   }
-
-  // Compute Event.Latency.OS.MOUSE_WHEEL histogram.
-  ui::ComputeEventLatencyOS(event);
 
   // Use an NSEvent monitor to listen for the wheel-end end. This ensures that
   // the event is received even when the mouse cursor is no longer over the view
@@ -2197,9 +2194,7 @@ extern NSString* NSTextInputReplacementRangeAttributeName;
 }
 
 - (NSTouchBar*)makeTouchBar {
-  if (_textInputType != ui::TEXT_INPUT_TYPE_NONE &&
-      !(_textInputFlags & blink::kWebTextInputFlagAutocorrectOff) &&
-      !(_textInputFlags & blink::kWebTextInputFlagSpellcheckOff)) {
+  if (_textInputType != ui::TEXT_INPUT_TYPE_NONE) {
     _candidateListTouchBarItem.reset([[NSCandidateListTouchBarItem alloc]
         initWithIdentifier:NSTouchBarItemIdentifierCandidateList]);
     auto* candidateListItem = _candidateListTouchBarItem.get();

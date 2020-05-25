@@ -48,7 +48,7 @@ TEST(PrintBackendCupsHelperTest, TestPpdParsingNoColorDuplexShortEdge) {
   EXPECT_TRUE(ParsePpdCapabilities("test", "", kTestPpdData, &caps));
   EXPECT_TRUE(caps.collate_capable);
   EXPECT_TRUE(caps.collate_default);
-  EXPECT_TRUE(caps.copies_capable);
+  EXPECT_GT(caps.copies_max, 1);
   EXPECT_THAT(caps.duplex_modes,
               testing::UnorderedElementsAre(SIMPLEX, LONG_EDGE, SHORT_EDGE));
   EXPECT_EQ(SHORT_EDGE, caps.duplex_default);
@@ -76,7 +76,7 @@ TEST(PrintBackendCupsHelperTest, TestPpdParsingNoColorDuplexSimples) {
   EXPECT_TRUE(ParsePpdCapabilities("test", "", kTestPpdData, &caps));
   EXPECT_TRUE(caps.collate_capable);
   EXPECT_TRUE(caps.collate_default);
-  EXPECT_TRUE(caps.copies_capable);
+  EXPECT_GT(caps.copies_max, 1);
   EXPECT_THAT(caps.duplex_modes,
               testing::UnorderedElementsAre(SIMPLEX, LONG_EDGE, SHORT_EDGE));
   EXPECT_EQ(SIMPLEX, caps.duplex_default);
@@ -101,7 +101,7 @@ TEST(PrintBackendCupsHelperTest, TestPpdParsingNoColorNoDuplex) {
   EXPECT_TRUE(ParsePpdCapabilities("test", "", kTestPpdData, &caps));
   EXPECT_TRUE(caps.collate_capable);
   EXPECT_TRUE(caps.collate_default);
-  EXPECT_TRUE(caps.copies_capable);
+  EXPECT_GT(caps.copies_max, 1);
   EXPECT_THAT(caps.duplex_modes, testing::UnorderedElementsAre());
   EXPECT_EQ(UNKNOWN_DUPLEX_MODE, caps.duplex_default);
   EXPECT_FALSE(caps.color_changeable);
@@ -134,7 +134,7 @@ TEST(PrintBackendCupsHelperTest, TestPpdParsingColorTrueDuplexShortEdge) {
   EXPECT_TRUE(ParsePpdCapabilities("test", "", kTestPpdData, &caps));
   EXPECT_TRUE(caps.collate_capable);
   EXPECT_TRUE(caps.collate_default);
-  EXPECT_TRUE(caps.copies_capable);
+  EXPECT_GT(caps.copies_max, 1);
   EXPECT_THAT(caps.duplex_modes,
               testing::UnorderedElementsAre(SIMPLEX, LONG_EDGE, SHORT_EDGE));
   EXPECT_EQ(SHORT_EDGE, caps.duplex_default);
@@ -174,7 +174,7 @@ TEST(PrintBackendCupsHelperTest, TestPpdParsingColorFalseDuplexLongEdge) {
   EXPECT_TRUE(ParsePpdCapabilities("test", "", kTestPpdData, &caps));
   EXPECT_TRUE(caps.collate_capable);
   EXPECT_TRUE(caps.collate_default);
-  EXPECT_TRUE(caps.copies_capable);
+  EXPECT_GT(caps.copies_max, 1);
   EXPECT_THAT(caps.duplex_modes,
               testing::UnorderedElementsAre(SIMPLEX, LONG_EDGE, SHORT_EDGE));
   EXPECT_EQ(LONG_EDGE, caps.duplex_default);
@@ -399,6 +399,27 @@ TEST(PrintBackendCupsHelperTest, TestPpdParsingSharpPrinters) {
   EXPECT_TRUE(caps.color_default);
   EXPECT_EQ(SHARP_ARCMODE_CMCOLOR, caps.color_model);
   EXPECT_EQ(SHARP_ARCMODE_CMBW, caps.bw_model);
+}
+
+TEST(PrintBackendCupsHelperTest, TestPpdParsingXeroxPrinters) {
+  constexpr char kTestPpdData[] =
+      R"(*PPD-Adobe: "4.3"
+*ColorDevice: True
+*OpenUI *XRXColor/Color Correction: PickOne
+*OrderDependency: 48.0 AnySetup *XRXColor
+*DefaultXRXColor: Automatic
+*XRXColor Automatic/Automatic: "
+  <</ProcessColorModel /DeviceCMYK>> setpagedevice"
+*XRXColor BW/Black and White:  "
+  <</ProcessColorModel /DeviceGray>> setpagedevice"
+*CloseUI: *XRXColor)";
+
+  PrinterSemanticCapsAndDefaults caps;
+  EXPECT_TRUE(ParsePpdCapabilities("test", "", kTestPpdData, &caps));
+  EXPECT_TRUE(caps.color_changeable);
+  EXPECT_TRUE(caps.color_default);
+  EXPECT_EQ(XEROX_XRXCOLOR_AUTOMATIC, caps.color_model);
+  EXPECT_EQ(XEROX_XRXCOLOR_BW, caps.bw_model);
 }
 
 }  // namespace printing

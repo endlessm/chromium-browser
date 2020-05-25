@@ -29,8 +29,9 @@
  */
 
 import * as Common from '../common/common.js';  // eslint-disable-line no-unused-vars
+import * as Platform from '../platform/platform.js';
 
-import {FormatResult, formatterWorkerPool} from './FormatterWorkerPool.js';  // eslint-disable-line no-unused-vars
+import {FormatMapping, FormatResult, formatterWorkerPool} from './FormatterWorkerPool.js';  // eslint-disable-line no-unused-vars
 
 /**
  * @interface
@@ -93,7 +94,7 @@ export class ScriptFormatter {
     this._originalContent = content;
 
     formatterWorkerPool()
-        .format(mimeType, content, self.Common.settings.moduleSetting('textEditorIndent').get())
+        .format(mimeType, content, Common.Settings.Settings.instance().moduleSetting('textEditorIndent').get())
         .then(this._didFormatContent.bind(this));
   }
 
@@ -101,8 +102,11 @@ export class ScriptFormatter {
    * @param {!FormatResult} formatResult
    */
   _didFormatContent(formatResult) {
-    const sourceMapping = new FormatterSourceMappingImpl(
-        this._originalContent.computeLineEndings(), formatResult.content.computeLineEndings(), formatResult.mapping);
+    const originalContentLineEndings = Platform.StringUtilities.findLineEndingIndexes(this._originalContent);
+    const formattedContentLineEndings = Platform.StringUtilities.findLineEndingIndexes(formatResult.content);
+
+    const sourceMapping =
+        new FormatterSourceMappingImpl(originalContentLineEndings, formattedContentLineEndings, formatResult.mapping);
     this._callback(formatResult.content, sourceMapping);
   }
 }
@@ -176,7 +180,7 @@ class FormatterSourceMappingImpl {
   /**
    * @param {!Array.<number>} originalLineEndings
    * @param {!Array.<number>} formattedLineEndings
-   * @param {!Formatter.FormatterWorkerPool.FormatMapping} mapping
+   * @param {!FormatMapping} mapping
    */
   constructor(originalLineEndings, formattedLineEndings, mapping) {
     this._originalLineEndings = originalLineEndings;

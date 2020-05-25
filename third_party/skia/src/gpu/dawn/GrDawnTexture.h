@@ -8,7 +8,7 @@
 #ifndef GrDawnTexture_DEFINED
 #define GrDawnTexture_DEFINED
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "dawn/webgpu_cpp.h"
 
 class GrDawnGpu;
@@ -21,7 +21,7 @@ public:
 
     static sk_sp<GrDawnTexture> MakeWrapped(GrDawnGpu*, SkISize dimensions,
                                             GrRenderable, int sampleCnt,
-                                            GrMipMapsStatus, GrWrapCacheable,
+                                            GrMipMapsStatus, GrWrapCacheable, GrIOType,
                                             const GrDawnTextureInfo&);
 
     ~GrDawnTexture() override;
@@ -52,8 +52,6 @@ protected:
     }
 
 private:
-    GrDawnTexture(GrDawnGpu*, const GrSurfaceDesc&, const GrDawnTextureInfo&, GrMipMapsStatus);
-
     GrDawnTextureInfo        fInfo;
     wgpu::TextureView        fTextureView;
 

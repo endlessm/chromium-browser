@@ -10,7 +10,6 @@ matrix:
   fast_finish: true
   allow_failures:
     - env: CHECK_COMMIT_FORMAT=ON
-    - env: VULKAN_BUILD_TARGET=GN
   include:
     # Android build.
     - os: linux
@@ -137,21 +136,44 @@ script:
     fi
   - |
     if [[ "$VULKAN_BUILD_TARGET" == "LINUX" ]]; then
-      # Build VulkanTools
-      # Note: VulkanTools has a build dependency on Vulkan-ValidationLayers so it must be built after V-VL is built
-      pushd ${TRAVIS_BUILD_DIR}/external/VulkanTools
+      # Build DevSim in VulkanTools to run Vulkan-ValidationLayer tests
+      cd ${TRAVIS_BUILD_DIR}/external
+      git clone https://github.com/LunarG/VulkanTools.git
+      cd VulkanTools
       ./update_external_sources.sh
       mkdir build
       cd build
       cmake -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_VIA=NO -DBUILD_VKTRACE=NO -DBUILD_VLF=NO -DBUILD_TESTS=NO -DBUILD_LAYERMGR=NO \
+            -DBUILD_MONITOR=NO -DBUILD_SCREENSHOT=NO -DBUILD_APIDUMP=NO \
             -DBUILD_VKTRACEVIEWER=NO -DBUILD_VKTRACE_LAYER=NO -DBUILD_VKTRACE_REPLAY=NO \
             -DVULKAN_HEADERS_INSTALL_DIR=${TRAVIS_BUILD_DIR}/external/Vulkan-Headers/build/install \
             -DVULKAN_LOADER_INSTALL_DIR=${TRAVIS_BUILD_DIR}/external/Vulkan-Loader/build/install \
             -DVULKAN_VALIDATIONLAYERS_INSTALL_DIR=${TRAVIS_BUILD_DIR}/build/install \
             ..
-      cmake --build . -- -j $core_count
+      cmake --build . --target VkLayer_device_simulation -- -j $core_count
+    fi
+  - |
+    if [[ "$VULKAN_BUILD_TARGET" == "LINUX" ]]; then
+      # Build MockICD in Vulkan-Tools to run Vulkan-ValidationLayer tests
+      cd ${TRAVIS_BUILD_DIR}/external
+      git clone https://github.com/KhronosGroup/Vulkan-Tools.git
+      cd Vulkan-Tools
+      mkdir build
+      cd build
+      cmake -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_CUBE=NO -DBUILD_VULKANINFO=NO -DINSTALL_ICD=OFF \
+            -DVULKAN_HEADERS_INSTALL_DIR=${TRAVIS_BUILD_DIR}/external/Vulkan-Headers/build/install \
+            ..
+      pushd ../icd/generated
+      VVL_REG_DIR=${TRAVIS_BUILD_DIR}/external/Vulkan-Headers/registry
+      VT_SCRIPTS_DIR=${TRAVIS_BUILD_DIR}/external/Vulkan-Tools/scripts
+      python3 ${TRAVIS_BUILD_DIR}/scripts/lvl_genvk.py -registry ${VVL_REG_DIR}/vk.xml vk_typemap_helper.h
+      python3 ${VT_SCRIPTS_DIR}/kvt_genvk.py -registry ${VVL_REG_DIR}/vk.xml mock_icd.cpp
+      python3 ${VT_SCRIPTS_DIR}/kvt_genvk.py -registry ${VVL_REG_DIR}/vk.xml mock_icd.h
       popd
+      cmake --build . --target VkICD_mock_icd -- -j $core_count
+      cp ../icd/linux/VkICD_mock_icd.json icd
     fi
   - |
     if [[ "$VULKAN_BUILD_TARGET" == "LINUX" ]]; then

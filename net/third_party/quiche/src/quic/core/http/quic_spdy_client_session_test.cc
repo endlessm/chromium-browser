@@ -14,6 +14,7 @@
 #include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_stream.h"
 #include "net/third_party/quiche/src/quic/core/http/spdy_server_push_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
@@ -231,10 +232,10 @@ TEST_P(QuicSpdyClientSessionTest, NoEncryptionAfterInitialEncryption) {
   EXPECT_TRUE(session_->CreateOutgoingBidirectionalStream() == nullptr);
   // Verify that no data may be send on existing streams.
   char data[] = "hello world";
-  QuicConsumedData consumed = session_->WritevData(
-      stream, stream->id(), QUICHE_ARRAYSIZE(data), 0, NO_FIN);
-  EXPECT_FALSE(consumed.fin_consumed);
-  EXPECT_EQ(0u, consumed.bytes_consumed);
+  EXPECT_QUIC_BUG(
+      session_->WritevData(stream->id(), QUICHE_ARRAYSIZE(data), 0, NO_FIN,
+                           NOT_RETRANSMISSION, QuicheNullOpt),
+      "Client: Try to send data of stream");
 }
 
 TEST_P(QuicSpdyClientSessionTest, MaxNumStreamsWithNoFinOrRst) {
@@ -582,8 +583,10 @@ TEST_P(QuicSpdyClientSessionTest, PushPromiseOnPromiseHeaders) {
   // Initialize crypto before the client session will create a stream.
   CompleteCryptoHandshake();
 
-  session_->SetMaxAllowedPushId(GetNthServerInitiatedUnidirectionalStreamId(
-      connection_->transport_version(), 10));
+  if (VersionHasIetfQuicFrames(connection_->transport_version())) {
+    session_->SetMaxPushId(GetNthServerInitiatedUnidirectionalStreamId(
+        connection_->transport_version(), 10));
+  }
 
   MockQuicSpdyClientStream* stream = static_cast<MockQuicSpdyClientStream*>(
       session_->CreateOutgoingBidirectionalStream());
@@ -602,9 +605,9 @@ TEST_P(QuicSpdyClientSessionTest, PushPromiseStreamIdTooHigh) {
       session_.get(), std::make_unique<QuicSpdyClientStream>(
                           stream_id, session_.get(), BIDIRECTIONAL));
 
-  session_->SetMaxAllowedPushId(GetNthServerInitiatedUnidirectionalStreamId(
-      connection_->transport_version(), 10));
   if (VersionHasIetfQuicFrames(connection_->transport_version())) {
+    session_->SetMaxPushId(GetNthServerInitiatedUnidirectionalStreamId(
+        connection_->transport_version(), 10));
     // TODO(b/136295430) Use PushId to represent Push IDs instead of
     // QuicStreamId.
     EXPECT_CALL(
@@ -643,8 +646,10 @@ TEST_P(QuicSpdyClientSessionTest, PushPromiseOutOfOrder) {
   // Initialize crypto before the client session will create a stream.
   CompleteCryptoHandshake();
 
-  session_->SetMaxAllowedPushId(GetNthServerInitiatedUnidirectionalStreamId(
-      connection_->transport_version(), 10));
+  if (VersionHasIetfQuicFrames(connection_->transport_version())) {
+    session_->SetMaxPushId(GetNthServerInitiatedUnidirectionalStreamId(
+        connection_->transport_version(), 10));
+  }
 
   MockQuicSpdyClientStream* stream = static_cast<MockQuicSpdyClientStream*>(
       session_->CreateOutgoingBidirectionalStream());
@@ -894,7 +899,9 @@ TEST_P(QuicSpdyClientSessionTest, PushPromiseInvalidHost) {
 TEST_P(QuicSpdyClientSessionTest,
        TryToCreateServerInitiatedBidirectionalStream) {
   if (VersionHasIetfQuicFrames(connection_->transport_version())) {
-    EXPECT_CALL(*connection_, CloseConnection(QUIC_INVALID_STREAM_ID, _, _));
+    EXPECT_CALL(
+        *connection_,
+        CloseConnection(QUIC_HTTP_SERVER_INITIATED_BIDIRECTIONAL_STREAM, _, _));
   } else {
     EXPECT_CALL(*connection_, CloseConnection(_, _, _)).Times(0);
   }
@@ -911,7 +918,9 @@ TEST_P(QuicSpdyClientSessionTest, TooManyPushPromises) {
       session_.get(), std::make_unique<QuicSpdyClientStream>(
                           stream_id, session_.get(), BIDIRECTIONAL));
 
-  session_->SetMaxAllowedPushId(kMaxQuicStreamId);
+  if (VersionHasIetfQuicFrames(connection_->transport_version())) {
+    session_->SetMaxPushId(kMaxQuicStreamId);
+  }
 
   EXPECT_CALL(*connection_, OnStreamReset(_, QUIC_REFUSED_STREAM));
 

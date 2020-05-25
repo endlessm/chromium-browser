@@ -111,7 +111,8 @@ TEST_F(AudioEncoderCopyRedTest, CheckPacketLossFractionPropagation) {
 }
 
 TEST_F(AudioEncoderCopyRedTest, CheckGetFrameLengthRangePropagation) {
-  auto expected_range = std::make_pair(TimeDelta::ms(20), TimeDelta::ms(20));
+  auto expected_range =
+      std::make_pair(TimeDelta::Millis(20), TimeDelta::Millis(20));
   EXPECT_CALL(*mock_encoder_, GetFrameLengthRange())
       .WillRepeatedly(Return(absl::make_optional(expected_range)));
   EXPECT_THAT(red_->GetFrameLengthRange(), Optional(Eq(expected_range)));

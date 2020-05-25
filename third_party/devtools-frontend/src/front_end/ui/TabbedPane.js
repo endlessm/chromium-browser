@@ -29,13 +29,16 @@
  */
 
 import * as Common from '../common/common.js';
+import * as Platform from '../platform/platform.js';
+
+import * as ARIAUtils from './ARIAUtils.js';
 import {ContextMenu} from './ContextMenu.js';
 import {Constraints, Size} from './Geometry.js';
 import {Icon} from './Icon.js';
 import {Toolbar} from './Toolbar.js';
 import {installDragHandle, invokeOnceAfterBatchUpdate} from './UIUtils.js';
 import {VBox, Widget} from './Widget.js';  // eslint-disable-line no-unused-vars
-import {Events as ZoomManagerEvents} from './ZoomManager.js';
+import {Events as ZoomManagerEvents, ZoomManager} from './ZoomManager.js';
 
 /**
  * @unrestricted
@@ -67,7 +70,7 @@ export class TabbedPane extends VBox {
 
     this._triggerDropDownTimeout = null;
     this._dropDownButton = this._createDropDownButton();
-    self.UI.zoomManager.addEventListener(ZoomManagerEvents.ZoomChanged, this._zoomChanged, this);
+    ZoomManager.instance().addEventListener(ZoomManagerEvents.ZoomChanged, this._zoomChanged, this);
     this.makeTabSlider();
   }
 
@@ -75,7 +78,7 @@ export class TabbedPane extends VBox {
    * @param {string} name
    */
   setAccessibleName(name) {
-    UI.ARIAUtils.setAccessibleName(this._tabsElement, name);
+    ARIAUtils.setAccessibleName(this._tabsElement, name);
   }
 
   /**
@@ -166,6 +169,13 @@ export class TabbedPane extends VBox {
       this.visibleView.focus();
     } else {
       this._defaultFocusedElement.focus(); /** _defaultFocusedElement defined in Widget.js */
+    }
+  }
+
+  focusSelectedTabHeader() {
+    const selectedTab = this._currentTab;
+    if (selectedTab) {
+      selectedTab.tabElement.focus();
     }
   }
 
@@ -274,7 +284,8 @@ export class TabbedPane extends VBox {
       this._hideTabElement(tab);
     }
 
-    const eventData = {tabId: id, view: tab.view, isUserGesture: userGesture};
+    /** @type {!EventData} */
+    const eventData = {prevTabId: undefined, tabId: id, view: tab.view, isUserGesture: userGesture};
     this.dispatchEventToListeners(Events.TabClosed, eventData);
     return true;
   }
@@ -343,6 +354,15 @@ export class TabbedPane extends VBox {
     if (!tab) {
       return false;
     }
+
+    /** @type {!EventData} */
+    const eventData = {
+      prevTabId: this._currentTab ? this._currentTab.id : undefined,
+      tabId: id,
+      view: tab.view,
+      isUserGesture: userGesture,
+    };
+    this.dispatchEventToListeners(Events.TabInvoked, eventData);
     if (this._currentTab && this._currentTab.id === id) {
       return true;
     }
@@ -361,20 +381,19 @@ export class TabbedPane extends VBox {
       this.focus();
     }
 
-    const eventData = {tabId: id, view: tab.view, isUserGesture: userGesture};
     this.dispatchEventToListeners(Events.TabSelected, eventData);
     return true;
   }
 
   selectNextTab() {
     const index = this._tabs.indexOf(this._currentTab);
-    const nextIndex = mod(index + 1, this._tabs.length);
+    const nextIndex = Platform.NumberUtilities.mod(index + 1, this._tabs.length);
     this.selectTab(this._tabs[nextIndex].id, true);
   }
 
   selectPrevTab() {
     const index = this._tabs.indexOf(this._currentTab);
-    const nextIndex = mod(index - 1, this._tabs.length);
+    const nextIndex = Platform.NumberUtilities.mod(index - 1, this._tabs.length);
     this.selectTab(this._tabs[nextIndex].id, true);
   }
 
@@ -422,7 +441,7 @@ export class TabbedPane extends VBox {
   }
 
   /**
-   * @param {!Common.Event} event
+   * @param {!Common.EventTarget.EventTargetEvent} event
    */
   _zoomChanged(event) {
     for (let i = 0; i < this._tabs.length; ++i) {
@@ -445,7 +464,7 @@ export class TabbedPane extends VBox {
     }
     if (tab.title !== tabTitle) {
       tab.title = tabTitle;
-      UI.ARIAUtils.setAccessibleName(tab.tabElement, tabTitle);
+      ARIAUtils.setAccessibleName(tab.tabElement, tabTitle);
       this._updateTabElements();
     }
   }
@@ -547,6 +566,10 @@ export class TabbedPane extends VBox {
     }
   }
 
+  async waitForTabElementUpdate() {
+    this._innerUpdateTabElements();
+  }
+
   _innerUpdateTabElements() {
     if (!this.isShowing()) {
       return;
@@ -601,8 +624,8 @@ export class TabbedPane extends VBox {
   _createDropDownButton() {
     const dropDownContainer = createElementWithClass('div', 'tabbed-pane-header-tabs-drop-down-container');
     const chevronIcon = Icon.create('largeicon-chevron', 'chevron-icon');
-    UI.ARIAUtils.markAsMenuButton(dropDownContainer);
-    UI.ARIAUtils.setAccessibleName(dropDownContainer, ls`More tabs`);
+    ARIAUtils.markAsMenuButton(dropDownContainer);
+    ARIAUtils.setAccessibleName(dropDownContainer, ls`More tabs`);
     dropDownContainer.tabIndex = 0;
     dropDownContainer.appendChild(chevronIcon);
     dropDownContainer.addEventListener('click', this._dropDownClicked.bind(this));
@@ -866,7 +889,7 @@ export class TabbedPane extends VBox {
   _showTab(tab) {
     tab.tabElement.tabIndex = 0;
     tab.tabElement.classList.add('selected');
-    UI.ARIAUtils.setSelected(tab.tabElement, true);
+    ARIAUtils.setSelected(tab.tabElement, true);
     tab.view.show(this.element);
     this._updateTabSlider();
   }
@@ -925,7 +948,10 @@ export class TabbedPane extends VBox {
       --index;
     }
     this._tabs.splice(index, 0, tab);
-    this.dispatchEventToListeners(Events.TabOrderChanged, {tabId: tab.id});
+
+    /** @type {!EventData} */
+    const eventData = {prevTabId: undefined, tabId: tab.id, view: tab.view, isUserGesture: undefined};
+    this.dispatchEventToListeners(Events.TabOrderChanged, eventData);
   }
 
   /**
@@ -999,8 +1025,18 @@ export class TabbedPane extends VBox {
   }
 }
 
+/** @typedef {{
+ *    prevTabId: (string|undefined),
+ *    tabId: string,
+ *    view: (!Widget|undefined),
+ *    isUserGesture: (boolean|undefined)
+ * }}
+ */
+export let EventData;
+
 /** @enum {symbol} */
 export const Events = {
+  TabInvoked: Symbol('TabInvoked'),
   TabSelected: Symbol('TabSelected'),
   TabClosed: Symbol('TabClosed'),
   TabOrderChanged: Symbol('TabOrderChanged')
@@ -1188,9 +1224,9 @@ export class TabbedPaneTab {
   _createTabElement(measuring) {
     const tabElement = createElementWithClass('div', 'tabbed-pane-header-tab');
     tabElement.id = 'tab-' + this._id;
-    UI.ARIAUtils.markAsTab(tabElement);
-    UI.ARIAUtils.setSelected(tabElement, false);
-    UI.ARIAUtils.setAccessibleName(tabElement, this.title);
+    ARIAUtils.markAsTab(tabElement);
+    ARIAUtils.setSelected(tabElement, false);
+    ARIAUtils.setAccessibleName(tabElement, this.title);
 
     const titleElement = tabElement.createChild('span', 'tabbed-pane-header-tab-title');
     titleElement.textContent = this.title;

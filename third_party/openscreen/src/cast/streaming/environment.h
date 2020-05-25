@@ -42,11 +42,15 @@ class Environment : public UdpSocket::Client {
   ~Environment() override;
 
   ClockNowFunctionPtr now_function() const { return now_function_; }
+  Clock::time_point now() const { return now_function_(); }
   TaskRunner* task_runner() const { return task_runner_; }
 
   // Returns the local endpoint the socket is bound to, or the zero IPEndpoint
   // if socket creation/binding failed.
-  IPEndpoint GetBoundLocalEndpoint() const;
+  //
+  // Note: This method is virtual to allow unit tests to fake that there really
+  // is a bound socket.
+  virtual IPEndpoint GetBoundLocalEndpoint() const;
 
   // Set a handler function to run whenever non-recoverable socket errors occur.
   // If never set, the default is to emit log messages at error priority.

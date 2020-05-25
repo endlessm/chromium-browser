@@ -16,6 +16,8 @@
 
 // If enabled, each instruction will be printed before processing.
 #define PRINT_EACH_PROCESSED_INSTRUCTION 0
+// If enabled, each instruction will be printed before executing.
+#define PRINT_EACH_EXECUTED_INSTRUCTION 0
 
 #ifdef ENABLE_VK_DEBUGGER
 
@@ -134,6 +136,32 @@ struct Object
 	static constexpr bool kindof(Object::Kind kind) { return true; }
 };
 
+// cstr() returns the c-string name of the given Object::Kind.
+constexpr const char *cstr(Object::Kind k)
+{
+	switch(k)
+	{
+		case Object::Kind::Object: return "Object";
+		case Object::Kind::Declare: return "Declare";
+		case Object::Kind::Expression: return "Expression";
+		case Object::Kind::Function: return "Function";
+		case Object::Kind::InlinedAt: return "InlinedAt";
+		case Object::Kind::LocalVariable: return "LocalVariable";
+		case Object::Kind::Member: return "Member";
+		case Object::Kind::Operation: return "Operation";
+		case Object::Kind::Source: return "Source";
+		case Object::Kind::SourceScope: return "SourceScope";
+		case Object::Kind::Value: return "Value";
+		case Object::Kind::CompilationUnit: return "CompilationUnit";
+		case Object::Kind::LexicalBlock: return "LexicalBlock";
+		case Object::Kind::BasicType: return "BasicType";
+		case Object::Kind::VectorType: return "VectorType";
+		case Object::Kind::FunctionType: return "FunctionType";
+		case Object::Kind::CompositeType: return "CompositeType";
+	}
+	return "<unknown>";
+}
+
 template<typename TYPE_, typename BASE, Object::Kind KIND_>
 struct ObjectImpl : public BASE
 {
@@ -153,12 +181,14 @@ struct ObjectImpl : public BASE
 template<typename TO, typename FROM>
 TO *cast(FROM *obj)
 {
+	if(obj == nullptr) { return nullptr; }  // None
 	return (TO::kindof(obj->kind)) ? static_cast<TO *>(obj) : nullptr;
 }
 
 template<typename TO, typename FROM>
 const TO *cast(const FROM *obj)
 {
+	if(obj == nullptr) { return nullptr; }  // None
 	return (TO::kindof(obj->kind)) ? static_cast<const TO *>(obj) : nullptr;
 }
 
@@ -177,10 +207,12 @@ struct Scope : public Object
 	static constexpr bool kindof(Kind kind)
 	{
 		return kind == Kind::CompilationUnit ||
+		       kind == Kind::Function ||
 		       kind == Kind::LexicalBlock;
 	}
 
 	struct Source *source = nullptr;
+	Scope *parent = nullptr;
 };
 
 struct Type : public Object
@@ -262,14 +294,12 @@ struct Member : ObjectImpl<Member, Object, Object::Kind::Member>
 	uint32_t flags = 0;   // OR'd from OpenCLDebugInfo100DebugInfoFlags
 };
 
-struct Function : ObjectImpl<Function, Object, Object::Kind::Function>
+struct Function : ObjectImpl<Function, Scope, Object::Kind::Function>
 {
 	std::string name;
 	FunctionType *type = nullptr;
-	Source *source = nullptr;
 	uint32_t line = 0;
 	uint32_t column = 0;
-	struct LexicalBlock *parent = nullptr;
 	std::string linkage;
 	uint32_t flags = 0;  // OR'd from OpenCLDebugInfo100DebugInfoFlags
 	uint32_t scopeLine = 0;
@@ -280,9 +310,7 @@ struct LexicalBlock : ObjectImpl<LexicalBlock, Scope, Object::Kind::LexicalBlock
 {
 	uint32_t line = 0;
 	uint32_t column = 0;
-	Scope *parent = nullptr;
 	std::string name;
-	Function *function = nullptr;
 };
 
 struct InlinedAt : ObjectImpl<InlinedAt, Object, Object::Kind::InlinedAt>
@@ -294,7 +322,7 @@ struct InlinedAt : ObjectImpl<InlinedAt, Object, Object::Kind::InlinedAt>
 
 struct SourceScope : ObjectImpl<SourceScope, Object, Object::Kind::SourceScope>
 {
-	LexicalBlock *scope = nullptr;
+	Scope *scope = nullptr;
 	InlinedAt *inlinedAt = nullptr;
 };
 
@@ -338,6 +366,22 @@ struct Value : ObjectImpl<Value, Object, Object::Kind::Value>
 };
 
 const Scope Scope::Root = CompilationUnit{};
+
+// find<T>() searches the nested scopes, returning for the first scope that is
+// castable to type T. If no scope can be found of type T, then nullptr is
+// returned.
+template<typename T>
+T *find(Scope *scope)
+{
+	if(auto out = cast<T>(scope)) { return out; }
+	return scope->parent ? find<T>(scope->parent) : nullptr;
+}
+
+bool hasDebuggerScope(debug::Scope *spirvScope)
+{
+	return debug::cast<debug::Function>(spirvScope) != nullptr ||
+	       debug::cast<debug::LexicalBlock>(spirvScope) != nullptr;
+}
 
 }  // namespace debug
 }  // anonymous namespace
@@ -383,7 +427,8 @@ struct SpirvShader::Impl::Debugger
 
 	void process(const SpirvShader *shader, const InsnIterator &insn, EmitState *state, Pass pass);
 
-	void setPosition(EmitState *state, const std::string &path, uint32_t line, uint32_t column);
+	void setLocation(EmitState *state, const std::shared_ptr<vk::dbg::File> &, int line, int column);
+	void setLocation(EmitState *state, const std::string &path, int line, int column);
 
 	// exposeVariable exposes the variable with the given ID to the debugger
 	// using the specified key.
@@ -419,15 +464,17 @@ private:
 	template<typename ID, typename T>
 	void add(ID id, T *);
 
+	// addNone() registers given id as a None value or type.
+	void addNone(debug::Object::ID id);
+
 	// get() returns the debug object with the given id.
 	// The object must exist and be of type (or derive from type) T.
+	// A returned nullptr represents a None value or type.
 	template<typename T>
 	T *get(SpirvID<T> id) const;
 
 	// use get() and add() to access this
 	std::unordered_map<debug::Object::ID, std::unique_ptr<debug::Object>> objects;
-
-	std::unordered_map<std::string, vk::dbg::File::ID> fileIDs;
 
 	// defineOrEmit() when called in Pass::Define, creates and stores a
 	// zero-initialized object into the Debugger::objects map using the
@@ -441,6 +488,8 @@ private:
 	// The object type is automatically inferred from the function signature.
 	template<typename F, typename T = typename std::remove_pointer<ArgTyT<F>>::type>
 	void defineOrEmit(InsnIterator insn, Pass pass, F &&emit);
+
+	std::unordered_map<std::string, std::shared_ptr<vk::dbg::File>> files;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -460,7 +509,7 @@ public:
 	void enter(vk::dbg::Context::Lock &lock, const char *name);
 	void exit();
 	void updateActiveLaneMask(int lane, bool enabled);
-	void update(vk::dbg::File::ID file, int line, int column);
+	void updateLocation(vk::dbg::File::ID file, int line, int column);
 	void createScope(const debug::Scope *);
 	void setScope(debug::SourceScope *newScope);
 
@@ -552,7 +601,7 @@ void SpirvShader::Impl::Debugger::State::updateActiveLaneMask(int lane, bool ena
 	rootScopes.localsByLane[lane]->put("enabled", vk::dbg::make_constant(enabled));
 }
 
-void SpirvShader::Impl::Debugger::State::update(vk::dbg::File::ID fileID, int line, int column)
+void SpirvShader::Impl::Debugger::State::updateLocation(vk::dbg::File::ID fileID, int line, int column)
 {
 	auto file = debugger->ctx->lock().get(fileID);
 	thread->update([&](vk::dbg::Frame &frame) {
@@ -597,21 +646,41 @@ void SpirvShader::Impl::Debugger::State::putRef(vk::dbg::VariableContainer *vc, 
 
 void SpirvShader::Impl::Debugger::State::createScope(const debug::Scope *spirvScope)
 {
-	ASSERT(spirvScope != nullptr);
+	// TODO(b/151338669): We're creating scopes per-shader invocation.
+	// This is all really static information, and should only be created
+	// once *per program*.
 
-	// TODO: Deal with scope nesting.
+	ASSERT(spirvScope != nullptr);
 
 	auto lock = debugger->ctx->lock();
 	Scopes s = {};
 	s.locals = lock.createScope(spirvScope->source->dbgFile);
 	s.hovers = lock.createScope(spirvScope->source->dbgFile);
+
 	for(int i = 0; i < sw::SIMD::Width; i++)
 	{
 		auto locals = lock.createVariableContainer();
-		locals->extend(builtinsByLane[i]);
 		s.localsByLane[i] = locals;
 		s.locals->variables->put(laneNames[i], locals);
 	}
+
+	if(hasDebuggerScope(spirvScope->parent))
+	{
+		auto parent = getScopes(spirvScope->parent);
+		for(int i = 0; i < sw::SIMD::Width; i++)
+		{
+			s.localsByLane[i]->extend(parent.localsByLane[i]);
+		}
+		s.hovers->variables->extend(parent.hovers->variables);
+	}
+	else
+	{
+		for(int i = 0; i < sw::SIMD::Width; i++)
+		{
+			s.localsByLane[i]->extend(builtinsByLane[i]);
+		}
+	}
+
 	scopes.emplace(spirvScope, std::move(s));
 }
 
@@ -621,23 +690,26 @@ void SpirvShader::Impl::Debugger::State::setScope(debug::SourceScope *newSrcScop
 	if(oldSrcScope == newSrcScope) { return; }
 	srcScope = newSrcScope;
 
-	auto lock = debugger->ctx->lock();
-	auto thread = lock.currentThread();
-
-	debug::Function *oldFunction = oldSrcScope ? oldSrcScope->scope->function : nullptr;
-	debug::Function *newFunction = newSrcScope ? newSrcScope->scope->function : nullptr;
-
-	if(oldFunction != newFunction)
+	if(hasDebuggerScope(srcScope->scope))
 	{
-		if(oldFunction) { thread->exit(); }
-		if(newFunction) { thread->enter(lock, newFunction->source->dbgFile, newFunction->name); }
-	}
+		auto lock = debugger->ctx->lock();
+		auto thread = lock.currentThread();
 
-	auto dbgScope = getScopes(srcScope->scope);
-	thread->update([&](vk::dbg::Frame &frame) {
-		frame.locals = dbgScope.locals;
-		frame.hovers = dbgScope.hovers;
-	});
+		debug::Function *oldFunction = oldSrcScope ? debug::find<debug::Function>(oldSrcScope->scope) : nullptr;
+		debug::Function *newFunction = newSrcScope ? debug::find<debug::Function>(newSrcScope->scope) : nullptr;
+
+		if(oldFunction != newFunction)
+		{
+			if(oldFunction) { thread->exit(); }
+			if(newFunction) { thread->enter(lock, newFunction->source->dbgFile, newFunction->name); }
+		}
+
+		auto dbgScope = getScopes(srcScope->scope);
+		thread->update([&](vk::dbg::Frame &frame) {
+			frame.locals = dbgScope.locals;
+			frame.hovers = dbgScope.hovers;
+		});
+	}
 }
 
 const SpirvShader::Impl::Debugger::State::Scopes &SpirvShader::Impl::Debugger::State::getScopes(const debug::Scope *scope)
@@ -648,7 +720,9 @@ const SpirvShader::Impl::Debugger::State::Scopes &SpirvShader::Impl::Debugger::S
 	}
 
 	auto dbgScopeIt = scopes.find(scope);
-	ASSERT_MSG(dbgScopeIt != scopes.end(), "createScope() not called for debug::Scope %p", scope);
+	ASSERT_MSG(dbgScopeIt != scopes.end(),
+	           "createScope() not called for debug::Scope %s %p",
+	           cstr(scope->kind), scope);
 	return dbgScopeIt->second;
 }
 
@@ -797,6 +871,12 @@ void SpirvShader::Impl::Debugger::process(const SpirvShader *shader, const InsnI
 	auto extInstIndex = insn.word(4);
 	switch(extInstIndex)
 	{
+		case OpenCLDebugInfo100DebugInfoNone:
+			if(pass == Pass::Define)
+			{
+				addNone(debug::Object::ID(insn.word(2)));
+			}
+			break;
 		case OpenCLDebugInfo100DebugCompilationUnit:
 			defineOrEmit(insn, pass, [&](debug::CompilationUnit *cu) {
 				cu->source = get(debug::Source::ID(insn.word(7)));
@@ -866,14 +946,14 @@ void SpirvShader::Impl::Debugger::process(const SpirvShader *shader, const InsnI
 				func->source = get(debug::Source::ID(insn.word(7)));
 				func->line = insn.word(8);
 				func->column = insn.word(9);
-				func->parent = get(debug::LexicalBlock::ID(insn.word(10)));
+				func->parent = get(debug::Scope::ID(insn.word(10)));
 				func->linkage = shader->getString(insn.word(11));
 				func->flags = insn.word(12);
 				func->scopeLine = insn.word(13);
 				func->function = Function::ID(insn.word(14));
 				// declaration: word(13)
 
-				func->parent->function = func;
+				rr::Call(&State::createScope, state->routine->dbgState, func);
 			});
 			break;
 		case OpenCLDebugInfo100DebugLexicalBlock:
@@ -887,15 +967,12 @@ void SpirvShader::Impl::Debugger::process(const SpirvShader *shader, const InsnI
 					scope->name = shader->getString(insn.word(9));
 				}
 
-				// TODO: We're creating scopes per-shader invocation.
-				// This is all really static information, and should only be created
-				// once *per program*.
 				rr::Call(&State::createScope, state->routine->dbgState, scope);
 			});
 			break;
 		case OpenCLDebugInfo100DebugScope:
 			defineOrEmit(insn, pass, [&](debug::SourceScope *ss) {
-				ss->scope = get(debug::LexicalBlock::ID(insn.word(5)));
+				ss->scope = get(debug::Scope::ID(insn.word(5)));
 				if(insn.wordCount() > 6)
 				{
 					ss->inlinedAt = get(debug::InlinedAt::ID(insn.word(6)));
@@ -905,6 +982,16 @@ void SpirvShader::Impl::Debugger::process(const SpirvShader *shader, const InsnI
 			});
 			break;
 		case OpenCLDebugInfo100DebugNoScope:
+			break;
+		case OpenCLDebugInfo100DebugInlinedAt:
+			defineOrEmit(insn, pass, [&](debug::InlinedAt *ia) {
+				ia->line = insn.word(5);
+				ia->scope = get(debug::Scope::ID(insn.word(6)));
+				if(insn.wordCount() > 7)
+				{
+					ia->inlined = get(debug::InlinedAt::ID(insn.word(7)));
+				}
+			});
 			break;
 		case OpenCLDebugInfo100DebugLocalVariable:
 			defineOrEmit(insn, pass, [&](debug::LocalVariable *var) {
@@ -963,27 +1050,61 @@ void SpirvShader::Impl::Debugger::process(const SpirvShader *shader, const InsnI
 
 				auto file = dbg->ctx->lock().createVirtualFile(source->file.c_str(), source->source.c_str());
 				source->dbgFile = file;
-				fileIDs.emplace(source->file.c_str(), file->id);
+				files.emplace(source->file.c_str(), file);
 			});
 			break;
+
+		case OpenCLDebugInfo100DebugTypePointer:
+		case OpenCLDebugInfo100DebugTypeQualifier:
+		case OpenCLDebugInfo100DebugTypeArray:
+		case OpenCLDebugInfo100DebugTypedef:
+		case OpenCLDebugInfo100DebugTypeEnum:
+		case OpenCLDebugInfo100DebugTypeInheritance:
+		case OpenCLDebugInfo100DebugTypePtrToMember:
+		case OpenCLDebugInfo100DebugTypeTemplate:
+		case OpenCLDebugInfo100DebugTypeTemplateParameter:
+		case OpenCLDebugInfo100DebugTypeTemplateTemplateParameter:
+		case OpenCLDebugInfo100DebugTypeTemplateParameterPack:
+		case OpenCLDebugInfo100DebugGlobalVariable:
+		case OpenCLDebugInfo100DebugFunctionDeclaration:
+		case OpenCLDebugInfo100DebugLexicalBlockDiscriminator:
+		case OpenCLDebugInfo100DebugInlinedVariable:
+		case OpenCLDebugInfo100DebugOperation:
+		case OpenCLDebugInfo100DebugMacroDef:
+		case OpenCLDebugInfo100DebugMacroUndef:
+		case OpenCLDebugInfo100DebugImportedEntity:
+			UNIMPLEMENTED("b/148401179 OpenCLDebugInfo100 instruction %d", int(extInstIndex));
+			break;
 		default:
-			UNSUPPORTED("Unsupported OpenCLDebugInfo100 instruction %d", int(extInstIndex));
+			UNSUPPORTED("OpenCLDebugInfo100 instruction %d", int(extInstIndex));
 	}
 }
 
-void SpirvShader::Impl::Debugger::setPosition(EmitState *state, const std::string &path, uint32_t line, uint32_t column)
+void SpirvShader::Impl::Debugger::setLocation(EmitState *state, const std::shared_ptr<vk::dbg::File> &file, int line, int column)
 {
-	auto it = fileIDs.find(path);
-	if(it != fileIDs.end())
+	rr::Call(&State::updateLocation, state->routine->dbgState, file->id, line, column);
+}
+
+void SpirvShader::Impl::Debugger::setLocation(EmitState *state, const std::string &path, int line, int column)
+{
+	auto it = files.find(path);
+	if(it != files.end())
 	{
-		rr::Call(&State::update, state->routine->dbgState, it->second, line, column);
+		setLocation(state, it->second, line, column);
 	}
 }
 
 template<typename ID, typename T>
 void SpirvShader::Impl::Debugger::add(ID id, T *obj)
 {
-	auto added = objects.emplace(debug::Object::ID(id.value()), obj).second;
+	ASSERT_MSG(obj != nullptr, "add() called with nullptr obj");
+	bool added = objects.emplace(debug::Object::ID(id.value()), obj).second;
+	ASSERT_MSG(added, "Debug object with %d already exists", id.value());
+}
+
+void SpirvShader::Impl::Debugger::addNone(debug::Object::ID id)
+{
+	bool added = objects.emplace(debug::Object::ID(id.value()), nullptr).second;
 	ASSERT_MSG(added, "Debug object with %d already exists", id.value());
 }
 
@@ -993,8 +1114,8 @@ T *SpirvShader::Impl::Debugger::get(SpirvID<T> id) const
 	auto it = objects.find(debug::Object::ID(id.value()));
 	ASSERT_MSG(it != objects.end(), "Unknown debug object %d", id.value());
 	auto ptr = debug::cast<T>(it->second.get());
-	ASSERT_MSG(ptr, "Debug object %d is not of the correct type. Got: %d, want: %d",
-	           id.value(), int(it->second->kind), int(T::KIND));
+	ASSERT_MSG(ptr, "Debug object %d is not of the correct type. Got: %s, want: %s",
+	           id.value(), cstr(it->second->kind), cstr(T::KIND));
 	return ptr;
 }
 
@@ -1361,24 +1482,45 @@ void SpirvShader::dbgEndEmit(EmitState *state) const
 void SpirvShader::dbgBeginEmitInstruction(InsnIterator insn, EmitState *state) const
 {
 #	if PRINT_EACH_PROCESSED_INSTRUCTION
-	auto instruction = spvtools::spvInstructionBinaryToText(
-	    SPV_ENV_VULKAN_1_1,
-	    insn.wordPointer(0),
-	    insn.wordCount(),
-	    insns.data(),
-	    insns.size(),
-	    SPV_BINARY_TO_TEXT_OPTION_NO_HEADER);
-	printf("%s\n", instruction.c_str());
+	{
+		auto instruction = spvtools::spvInstructionBinaryToText(
+		    SPV_ENV_VULKAN_1_1,
+		    insn.wordPointer(0),
+		    insn.wordCount(),
+		    insns.data(),
+		    insns.size(),
+		    SPV_BINARY_TO_TEXT_OPTION_NO_HEADER);
+		printf("%s\n", instruction.c_str());
+	}
 #	endif  // PRINT_EACH_PROCESSED_INSTRUCTION
 
-	if(extensionsImported.count(Extension::OpenCLDebugInfo100) == 0)
+#	if PRINT_EACH_EXECUTED_INSTRUCTION
 	{
-		auto dbg = impl.debugger;
-		if(!dbg) { return; }
+		auto instruction = spvtools::spvInstructionBinaryToText(
+		    SPV_ENV_VULKAN_1_1,
+		    insn.wordPointer(0),
+		    insn.wordCount(),
+		    insns.data(),
+		    insns.size(),
+		    SPV_BINARY_TO_TEXT_OPTION_NO_HEADER);
+		rr::Print("{0}\n", instruction);
+	}
+#	endif  // PRINT_EACH_EXECUTED_INSTRUCTION
 
-		auto line = dbg->spirvLineMappings.at(insn.wordPointer(0));
-		auto column = 0;
-		rr::Call(&Impl::Debugger::State::update, state->routine->dbgState, dbg->spirvFile->id, line, column);
+	// Only single line step over statement instructions.
+
+	if(auto dbg = impl.debugger)
+	{
+		if(extensionsImported.count(Extension::OpenCLDebugInfo100) == 0)
+		{
+			// We're emitting debugger logic for SPIR-V.
+			if(IsStatement(insn.opcode()))
+			{
+				auto line = dbg->spirvLineMappings.at(insn.wordPointer(0));
+				auto column = 0;
+				dbg->setLocation(state, dbg->spirvFile, line, column);
+			}
+		}
 	}
 }
 
@@ -1429,7 +1571,7 @@ SpirvShader::EmitResult SpirvShader::EmitLine(InsnIterator insn, EmitState *stat
 		auto path = getString(insn.word(1));
 		auto line = insn.word(2);
 		auto column = insn.word(3);
-		dbg->setPosition(state, path, line, column);
+		dbg->setLocation(state, path, line, column);
 	}
 	return EmitResult::Continue;
 }

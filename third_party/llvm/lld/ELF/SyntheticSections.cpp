@@ -22,6 +22,7 @@
 #include "Symbols.h"
 #include "Target.h"
 #include "Writer.h"
+#include "lld/Common/DWARF.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/Memory.h"
 #include "lld/Common/Strings.h"
@@ -36,6 +37,7 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/MD5.h"
+#include "llvm/Support/TimeProfiler.h"
 #include <cstdlib>
 #include <thread>
 
@@ -1400,7 +1402,7 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
   if (config->emachine == EM_AARCH64) {
     if (config->andFeatures & GNU_PROPERTY_AARCH64_FEATURE_1_BTI)
       addInt(DT_AARCH64_BTI_PLT, 0);
-    if (config->andFeatures & GNU_PROPERTY_AARCH64_FEATURE_1_PAC)
+    if (config->zPacPlt)
       addInt(DT_AARCH64_PAC_PLT, 0);
   }
 
@@ -2446,12 +2448,9 @@ PltSection::PltSection()
     : SyntheticSection(SHF_ALLOC | SHF_EXECINSTR, SHT_PROGBITS, 16, ".plt"),
       headerSize(target->pltHeaderSize) {
   // On PowerPC, this section contains lazy symbol resolvers.
-  if (config->emachine == EM_PPC || config->emachine == EM_PPC64) {
+  if (config->emachine == EM_PPC64) {
     name = ".glink";
     alignment = 4;
-    // PLTresolve is at the end.
-    if (config->emachine == EM_PPC)
-      footerSize = 64;
   }
 
   // On x86 when IBT is enabled, this section contains the second PLT (lazy
@@ -2467,11 +2466,6 @@ PltSection::PltSection()
 }
 
 void PltSection::writeTo(uint8_t *buf) {
-  if (config->emachine == EM_PPC) {
-    writePPC32GlinkSection(buf, entries.size());
-    return;
-  }
-
   // At beginning of PLT, we have code to call the dynamic
   // linker to resolve dynsyms at runtime. Write such code.
   target->writePltHeader(buf);
@@ -2489,7 +2483,7 @@ void PltSection::addEntry(Symbol &sym) {
 }
 
 size_t PltSection::getSize() const {
-  return headerSize + entries.size() * target->pltEntrySize + footerSize;
+  return headerSize + entries.size() * target->pltEntrySize;
 }
 
 bool PltSection::isNeeded() const {
@@ -2541,6 +2535,19 @@ void IpltSection::addSymbols() {
     target->addPltSymbols(*this, off);
     off += target->pltEntrySize;
   }
+}
+
+PPC32GlinkSection::PPC32GlinkSection() {
+  name = ".glink";
+  alignment = 4;
+}
+
+void PPC32GlinkSection::writeTo(uint8_t *buf) {
+  writePPC32GlinkSection(buf, entries.size());
+}
+
+size_t PPC32GlinkSection::getSize() const {
+  return headerSize + entries.size() * target->pltEntrySize + footerSize;
 }
 
 // This is an x86-only extra PLT section and used only when a security
@@ -2667,12 +2674,12 @@ readAddressAreas(DWARFContext &dwarf, InputSection *sec) {
   uint32_t cuIdx = 0;
   for (std::unique_ptr<DWARFUnit> &cu : dwarf.compile_units()) {
     if (Error e = cu->tryExtractDIEsIfNeeded(false)) {
-      error(toString(sec) + ": " + toString(std::move(e)));
+      warn(toString(sec) + ": " + toString(std::move(e)));
       return {};
     }
     Expected<DWARFAddressRangesVector> ranges = cu->collectAddressRanges();
     if (!ranges) {
-      error(toString(sec) + ": " + toString(ranges.takeError()));
+      warn(toString(sec) + ": " + toString(ranges.takeError()));
       return {};
     }
 
@@ -2680,15 +2687,11 @@ readAddressAreas(DWARFContext &dwarf, InputSection *sec) {
     for (DWARFAddressRange &r : *ranges) {
       if (r.SectionIndex == -1ULL)
         continue;
-      InputSectionBase *s = sections[r.SectionIndex];
-      if (!s || s == &InputSection::discarded || !s->isLive())
-        continue;
       // Range list with zero size has no effect.
-      if (r.LowPC == r.HighPC)
-        continue;
-      auto *isec = cast<InputSection>(s);
-      uint64_t offset = isec->getOffsetInFile();
-      ret.push_back({isec, r.LowPC - offset, r.HighPC - offset, cuIdx});
+      InputSectionBase *s = sections[r.SectionIndex];
+      if (s && s != &InputSection::discarded && s->isLive())
+        if (r.LowPC != r.HighPC)
+          ret.push_back({cast<InputSection>(s), r.LowPC, r.HighPC, cuIdx});
     }
     ++cuIdx;
   }
@@ -2746,8 +2749,9 @@ createSymbols(ArrayRef<std::vector<GdbIndexSection::NameAttrEntry>> nameAttrs,
   size_t numShards = 32;
   size_t concurrency = 1;
   if (threadsEnabled)
-    concurrency =
-        std::min<size_t>(PowerOf2Floor(hardware_concurrency()), numShards);
+    concurrency = std::min<size_t>(
+        PowerOf2Floor(hardware_concurrency().compute_thread_count()),
+        numShards);
 
   // A sharded map to uniquify symbols by name.
   std::vector<DenseMap<CachedHashStringRef, size_t>> map(numShards);
@@ -2819,6 +2823,8 @@ template <class ELFT> GdbIndexSection *GdbIndexSection::create() {
   std::vector<std::vector<NameAttrEntry>> nameAttrs(sections.size());
 
   parallelForEachN(0, sections.size(), [&](size_t i) {
+    // To keep memory usage low, we don't want to keep cached DWARFContext, so
+    // avoid getDwarf() here.
     ObjFile<ELFT> *file = sections[i]->getFile<ELFT>();
     DWARFContext dwarf(std::make_unique<LLDDwarfObj<ELFT>>(file));
 
@@ -3190,8 +3196,9 @@ void MergeNoTailSection::finalizeContents() {
   // operations in the following tight loop.
   size_t concurrency = 1;
   if (threadsEnabled)
-    concurrency =
-        std::min<size_t>(PowerOf2Floor(hardware_concurrency()), numShards);
+    concurrency = std::min<size_t>(
+        PowerOf2Floor(hardware_concurrency().compute_thread_count()),
+        numShards);
 
   // Add section pieces to the builders.
   parallelForEachN(0, concurrency, [&](size_t threadId) {
@@ -3237,6 +3244,7 @@ MergeSyntheticSection *createMergeSynthetic(StringRef name, uint32_t type,
 }
 
 template <class ELFT> void splitSections() {
+  llvm::TimeTraceScope timeScope("Split sections");
   // splitIntoPieces needs to be called on each MergeInputSection
   // before calling finalizeContents().
   parallelForEach(inputSections, [](InputSectionBase *sec) {

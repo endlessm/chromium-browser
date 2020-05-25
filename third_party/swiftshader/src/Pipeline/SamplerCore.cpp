@@ -16,7 +16,7 @@
 
 #include "Constants.hpp"
 #include "PixelRoutine.hpp"
-#include "Vulkan/VkDebug.hpp"
+#include "System/Debug.hpp"
 #include "Vulkan/VkSampler.hpp"
 
 #include <limits>
@@ -56,7 +56,7 @@ SamplerCore::SamplerCore(Pointer<Byte> &constants, const Sampler &state)
 {
 }
 
-Vector4f SamplerCore::sampleTexture(Pointer<Byte> &texture, Pointer<Byte> &sampler, Float4 uvw[4], Float4 &q, Float &&lodOrBias, Float4 &dsx, Float4 &dsy, Vector4f &offset, Int4 &sampleId, SamplerFunction function)
+Vector4f SamplerCore::sampleTexture(Pointer<Byte> &texture, Float4 uvw[4], Float4 &q, Float &&lodOrBias, Float4 &dsx, Float4 &dsy, Vector4f &offset, Int4 &sampleId, SamplerFunction function)
 {
 	Vector4f c;
 
@@ -84,19 +84,19 @@ Vector4f SamplerCore::sampleTexture(Pointer<Byte> &texture, Pointer<Byte> &sampl
 		{
 			if(!isCube())
 			{
-				computeLod(texture, sampler, lod, anisotropy, uDelta, vDelta, uuuu, vvvv, dsx, dsy, function);
+				computeLod(texture, lod, anisotropy, uDelta, vDelta, uuuu, vvvv, dsx, dsy, function);
 			}
 			else
 			{
-				computeLodCube(texture, sampler, lod, uvw[0], uvw[1], uvw[2], dsx, dsy, M, function);
+				computeLodCube(texture, lod, uvw[0], uvw[1], uvw[2], dsx, dsy, M, function);
 			}
 		}
 		else
 		{
-			computeLod3D(texture, sampler, lod, uuuu, vvvv, wwww, dsx, dsy, function);
+			computeLod3D(texture, lod, uuuu, vvvv, wwww, dsx, dsy, function);
 		}
 
-		Float bias = *Pointer<Float>(sampler + OFFSET(vk::Sampler, mipLodBias));
+		Float bias = state.mipLodBias;
 
 		if(function == Bias)
 		{
@@ -110,7 +110,7 @@ Vector4f SamplerCore::sampleTexture(Pointer<Byte> &texture, Pointer<Byte> &sampl
 	{
 		// Vulkan 1.1: "The absolute value of mipLodBias must be less than or equal to VkPhysicalDeviceLimits::maxSamplerLodBias"
 		// Hence no explicit clamping to maxSamplerLodBias is required in this case.
-		lod = lodOrBias + *Pointer<Float>(sampler + OFFSET(vk::Sampler, mipLodBias));
+		lod = lodOrBias + state.mipLodBias;
 	}
 	else if(function == Fetch)
 	{
@@ -131,8 +131,8 @@ Vector4f SamplerCore::sampleTexture(Pointer<Byte> &texture, Pointer<Byte> &sampl
 			c.y = Float4(lod);  // Unclamped LOD.
 		}
 
-		lod = Max(lod, *Pointer<Float>(sampler + OFFSET(vk::Sampler, minLod)));
-		lod = Min(lod, *Pointer<Float>(sampler + OFFSET(vk::Sampler, maxLod)));
+		lod = Max(lod, state.minLod);
+		lod = Min(lod, state.maxLod);
 
 		if(function == Query)
 		{
@@ -1160,7 +1160,7 @@ Float SamplerCore::log2(Float lod)
 	return lod;
 }
 
-void SamplerCore::computeLod(Pointer<Byte> &texture, Pointer<Byte> &sampler, Float &lod, Float &anisotropy, Float4 &uDelta, Float4 &vDelta, Float4 &uuuu, Float4 &vvvv, Float4 &dsx, Float4 &dsy, SamplerFunction function)
+void SamplerCore::computeLod(Pointer<Byte> &texture, Float &lod, Float &anisotropy, Float4 &uDelta, Float4 &vDelta, Float4 &uuuu, Float4 &vvvv, Float4 &dsx, Float4 &dsy, SamplerFunction function)
 {
 	Float4 duvdxy;
 
@@ -1198,7 +1198,7 @@ void SamplerCore::computeLod(Pointer<Byte> &texture, Pointer<Byte> &sampler, Flo
 		vDelta = As<Float4>((As<Int4>(dvdx) & mask) | ((As<Int4>(dvdy) & ~mask)));
 
 		anisotropy = lod * Rcp_pp(det);
-		anisotropy = Min(anisotropy, *Pointer<Float>(sampler + OFFSET(vk::Sampler, maxAnisotropy)));
+		anisotropy = Min(anisotropy, state.maxAnisotropy);
 
 		lod *= Rcp_pp(anisotropy * anisotropy);
 	}
@@ -1206,7 +1206,7 @@ void SamplerCore::computeLod(Pointer<Byte> &texture, Pointer<Byte> &sampler, Flo
 	lod = log2sqrt(lod);  // log2(sqrt(lod))
 }
 
-void SamplerCore::computeLodCube(Pointer<Byte> &texture, Pointer<Byte> &sampler, Float &lod, Float4 &u, Float4 &v, Float4 &w, Float4 &dsx, Float4 &dsy, Float4 &M, SamplerFunction function)
+void SamplerCore::computeLodCube(Pointer<Byte> &texture, Float &lod, Float4 &u, Float4 &v, Float4 &w, Float4 &dsx, Float4 &dsy, Float4 &M, SamplerFunction function)
 {
 	Float4 dudxy, dvdxy, dsdxy;
 
@@ -1247,7 +1247,7 @@ void SamplerCore::computeLodCube(Pointer<Byte> &texture, Pointer<Byte> &sampler,
 	lod = log2(lod);
 }
 
-void SamplerCore::computeLod3D(Pointer<Byte> &texture, Pointer<Byte> &sampler, Float &lod, Float4 &uuuu, Float4 &vvvv, Float4 &wwww, Float4 &dsx, Float4 &dsy, SamplerFunction function)
+void SamplerCore::computeLod3D(Pointer<Byte> &texture, Float &lod, Float4 &uuuu, Float4 &vvvv, Float4 &wwww, Float4 &dsx, Float4 &dsy, SamplerFunction function)
 {
 	Float4 dudxy, dvdxy, dsdxy;
 
@@ -1746,7 +1746,10 @@ Vector4s SamplerCore::sampleTexel(UInt index[4], Pointer<Byte> buffer)
 		{
 			if(isRGBComponent(i))
 			{
-				sRGBtoLinear16_8_16(c[i]);
+				// The current table-based sRGB conversion requires 0xFF00 to represent 1.0.
+				ASSERT(state.textureFormat.has8bitTextureComponents());
+
+				sRGBtoLinearFF00(c[i]);
 			}
 		}
 	}
@@ -2492,11 +2495,11 @@ void SamplerCore::convertUnsigned16(Float4 &cf, Short4 &cs)
 	cf = Float4(As<UShort4>(cs)) * Float4(1.0f / 0xFFFF);
 }
 
-void SamplerCore::sRGBtoLinear16_8_16(Short4 &c)
+void SamplerCore::sRGBtoLinearFF00(Short4 &c)
 {
 	c = As<UShort4>(c) >> 8;
 
-	Pointer<Byte> LUT = Pointer<Byte>(constants + OFFSET(Constants, sRGBtoLinear8_16));
+	Pointer<Byte> LUT = Pointer<Byte>(constants + OFFSET(Constants, sRGBtoLinearFF_FF00));
 
 	c = Insert(c, *Pointer<Short>(LUT + 2 * Int(Extract(c, 0))), 0);
 	c = Insert(c, *Pointer<Short>(LUT + 2 * Int(Extract(c, 1))), 1);

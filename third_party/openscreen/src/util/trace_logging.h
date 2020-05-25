@@ -30,27 +30,29 @@
 
 #define TRACE_SET_RESULT(result)                                      \
   do {                                                                \
-    if (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::Any)) {    \
+    if (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::kAny)) {   \
       openscreen::internal::ScopedTraceOperation::set_result(result); \
     }                                                                 \
   } while (false)
 #define TRACE_SET_HIERARCHY(ids) TRACE_SET_HIERARCHY_INTERNAL(__LINE__, ids)
 #define TRACE_HIERARCHY                                          \
-  (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::Any)       \
+  (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::kAny)      \
        ? openscreen::internal::ScopedTraceOperation::hierarchy() \
        : openscreen::TraceIdHierarchy::Empty())
 #define TRACE_CURRENT_ID                                          \
-  (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::Any)        \
+  (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::kAny)       \
        ? openscreen::internal::ScopedTraceOperation::current_id() \
        : kEmptyTraceId)
 #define TRACE_ROOT_ID                                          \
-  (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::Any)     \
+  (TRACE_IS_ENABLED(openscreen::TraceCategory::Value::kAny)    \
        ? openscreen::internal::ScopedTraceOperation::root_id() \
        : kEmptyTraceId)
 
-// Synchronous Trace Macro.
+// Synchronous Trace Macros.
 #define TRACE_SCOPED(category, name, ...) \
   TRACE_SCOPED_INTERNAL(__LINE__, category, name, ##__VA_ARGS__)
+#define TRACE_DEFAULT_SCOPED(category, ...) \
+  TRACE_SCOPED(category, __PRETTY_FUNCTION__, ##__VA_ARGS__)
 
 // Asynchronous Trace Macros.
 #define TRACE_ASYNC_START(category, name, ...) \

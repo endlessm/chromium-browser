@@ -28,15 +28,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import * as Common from '../common/common.js';
+import * as UI from '../ui/ui.js';
+
 import {IsolateSelector} from './IsolateSelector.js';
 import {ProfileType} from './ProfileHeader.js';  // eslint-disable-line no-unused-vars
 
 /**
  * @unrestricted
  */
-export class ProfileLauncherView extends UI.VBox {
+export class ProfileLauncherView extends UI.Widget.VBox {
   /**
-   * @param {!UI.PanelWithSidebar} profilesPanel
+   * @param {!UI.Panel.PanelWithSidebar} profilesPanel
    */
   constructor(profilesPanel) {
     super();
@@ -47,7 +50,7 @@ export class ProfileLauncherView extends UI.VBox {
     this._contentElement = this.element.createChild('div', 'profile-launcher-view-content vbox');
 
     const profileTypeSelectorElement = this._contentElement.createChild('div', 'vbox');
-    this._selectedProfileTypeSetting = self.Common.settings.createSetting('selectedProfileType', 'CPU');
+    this._selectedProfileTypeSetting = Common.Settings.Settings.instance().createSetting('selectedProfileType', 'CPU');
     this._profileTypeHeaderElement = profileTypeSelectorElement.createChild('h1');
     this._profileTypeSelectorForm = profileTypeSelectorElement.createChild('form');
     UI.ARIAUtils.markAsRadioGroup(this._profileTypeSelectorForm);
@@ -59,8 +62,9 @@ export class ProfileLauncherView extends UI.VBox {
     isolateSelectorElement.appendChild(isolateSelector.totalMemoryElement());
 
     const buttonsDiv = this._contentElement.createChild('div', 'hbox profile-launcher-buttons');
-    this._controlButton = UI.createTextButton('', this._controlButtonClicked.bind(this), '', /* primary */ true);
-    this._loadButton = UI.createTextButton(ls`Load`, this._loadButtonClicked.bind(this), '');
+    this._controlButton =
+        UI.UIUtils.createTextButton('', this._controlButtonClicked.bind(this), '', /* primary */ true);
+    this._loadButton = UI.UIUtils.createTextButton(ls`Load`, this._loadButtonClicked.bind(this), '');
     buttonsDiv.appendChild(this._controlButton);
     buttonsDiv.appendChild(this._loadButton);
     this._recordButtonEnabled = true;
@@ -79,19 +83,19 @@ export class ProfileLauncherView extends UI.VBox {
     } else {
       this._controlButton.setAttribute('disabled', '');
     }
-    this._controlButton.title = this._recordButtonEnabled ? '' : UI.anotherProfilerActiveLabel();
+    this._controlButton.title = this._recordButtonEnabled ? '' : UI.UIUtils.anotherProfilerActiveLabel();
     if (this._isInstantProfile) {
       this._controlButton.classList.remove('running');
       this._controlButton.classList.add('primary-button');
-      this._controlButton.textContent = Common.UIString('Take snapshot');
+      this._controlButton.textContent = Common.UIString.UIString('Take snapshot');
     } else if (this._isProfiling) {
       this._controlButton.classList.add('running');
       this._controlButton.classList.remove('primary-button');
-      this._controlButton.textContent = Common.UIString('Stop');
+      this._controlButton.textContent = Common.UIString.UIString('Stop');
     } else {
       this._controlButton.classList.remove('running');
       this._controlButton.classList.add('primary-button');
-      this._controlButton.textContent = Common.UIString('Start');
+      this._controlButton.textContent = Common.UIString.UIString('Start');
     }
     for (const item of this._typeIdToOptionElement.values()) {
       item.disabled = !!this._isProfiling;
@@ -123,7 +127,7 @@ export class ProfileLauncherView extends UI.VBox {
    * @param {!ProfileType} profileType
    */
   addProfileType(profileType) {
-    const labelElement = UI.createRadioLabel('profile-type', profileType.name);
+    const labelElement = UI.UIUtils.createRadioLabel('profile-type', profileType.name);
     this._profileTypeSelectorForm.appendChild(labelElement);
     const optionElement = labelElement.radioElement;
     this._typeIdToOptionElement.set(profileType.id, optionElement);

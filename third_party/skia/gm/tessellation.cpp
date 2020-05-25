@@ -10,7 +10,6 @@
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrMemoryPool.h"
-#include "src/gpu/GrMesh.h"
 #include "src/gpu/GrOpFlushState.h"
 #include "src/gpu/GrOpsRenderPass.h"
 #include "src/gpu/GrPipeline.h"
@@ -73,7 +72,7 @@ private:
             fViewMatrixUniform = args.fUniformHandler->addUniform(
                     kVertex_GrShaderFlag, kFloat3x3_GrSLType, "view_matrix", &viewMatrix);
             args.fVertBuilder->declareGlobal(
-                    GrShaderVar("P_", kFloat3_GrSLType, GrShaderVar::kOut_TypeModifier));
+                    GrShaderVar("P_", kFloat3_GrSLType, GrShaderVar::TypeModifier::Out));
             args.fVertBuilder->codeAppendf(R"(
                     P_.xy = (%s * float3(position.xy, 1)).xy;
                     P_.z = position.z;)", viewMatrix);
@@ -162,7 +161,7 @@ SkString TessellationTestTriShader::getTessEvaluationShaderGLSL(
 void TessellationTestTriShader::Impl::writeFragmentShader(
         GrGLSLFPFragmentBuilder* f, const char* color, const char* coverage) {
     f->declareGlobal(
-            GrShaderVar("barycentric_coord", kFloat3_GrSLType, GrShaderVar::kIn_TypeModifier));
+            GrShaderVar("barycentric_coord", kFloat3_GrSLType, GrShaderVar::TypeModifier::In));
     f->codeAppendf(R"(
             half3 d = half3(1 - barycentric_coord/fwidth(barycentric_coord));
             half coverage = max(max(d.x, d.y), d.z);
@@ -187,7 +186,7 @@ private:
             fViewMatrixUniform = args.fUniformHandler->addUniform(
                     kVertex_GrShaderFlag, kFloat3x3_GrSLType, "view_matrix", &viewMatrix);
             args.fVertBuilder->declareGlobal(
-                    GrShaderVar("M_", kFloat3x3_GrSLType, GrShaderVar::kOut_TypeModifier));
+                    GrShaderVar("M_", kFloat3x3_GrSLType, GrShaderVar::TypeModifier::Out));
             args.fVertBuilder->codeAppendf("M_ = %s;", viewMatrix);
             // GrGLProgramBuilder will call writeTess*ShaderGLSL when it is compiling.
             this->writeFragmentShader(args.fFragBuilder, args.fOutputColor, args.fOutputCoverage);
@@ -268,7 +267,7 @@ SkString TessellationTestRectShader::getTessEvaluationShaderGLSL(
 void TessellationTestRectShader::Impl::writeFragmentShader(
         GrGLSLFPFragmentBuilder* f, const char* color, const char* coverage) {
     f->declareGlobal(GrShaderVar("barycentric_coord", kFloat4_GrSLType,
-                                 GrShaderVar::kIn_TypeModifier));
+                                 GrShaderVar::TypeModifier::In));
     f->codeAppendf(R"(
             float4 fwidths = fwidth(barycentric_coord);
             half coverage = 0;
@@ -299,6 +298,11 @@ private:
         return GrProcessorSet::EmptySetAnalysis();
     }
 
+    void onPrePrepare(GrRecordingContext*,
+                      const GrSurfaceProxyView* outputView,
+                      GrAppliedClip*,
+                      const GrXferProcessor::DstProxyView&) override {}
+
     void onPrepare(GrOpFlushState* flushState) override {
         if (fTriPositions) {
             if (void* vertexData = flushState->makeVertexSpace(sizeof(float) * 3, 3, &fVertexBuffer,
@@ -310,33 +314,30 @@ private:
 
     void onExecute(GrOpFlushState* state, const SkRect& chainBounds) override {
         GrPipeline pipeline(GrScissorTest::kDisabled, SkBlendMode::kSrc,
-                            state->drawOpArgs().outputSwizzle());
-        GrPipeline::FixedDynamicState fixedDynamicState;
-
-        GrMesh mesh(GrPrimitiveType::kPatches);
+                            state->drawOpArgs().writeSwizzle());
+        int tessellationPatchVertexCount;
         std::unique_ptr<GrGeometryProcessor> shader;
         if (fTriPositions) {
             if (!fVertexBuffer) {
                 return;
             }
-            mesh.setTessellationPatchVertexCount(3);
-            mesh.setNonIndexedNonInstanced(3);
-            mesh.setVertexData(fVertexBuffer, fBaseVertex);
+            tessellationPatchVertexCount = 3;
             shader = std::make_unique<TessellationTestTriShader>(fViewMatrix);
         } else {
             // Use a mismatched number of vertices in the input patch vs output.
             // (The tessellation control shader will output one vertex per patch.)
-            mesh.setTessellationPatchVertexCount(5);
-            mesh.setNonIndexedNonInstanced(5);
+            tessellationPatchVertexCount = 5;
             shader = std::make_unique<TessellationTestRectShader>(fViewMatrix);
         }
 
         GrProgramInfo programInfo(state->proxy()->numSamples(), state->proxy()->numStencilSamples(),
-                                  state->proxy()->backendFormat(), state->view()->origin(),
-                                  &pipeline, shader.get(), &fixedDynamicState, nullptr, 0,
-                                  GrPrimitiveType::kPatches, mesh.tessellationPatchVertexCount());
+                                  state->proxy()->backendFormat(), state->outputView()->origin(),
+                                  &pipeline, shader.get(), GrPrimitiveType::kPatches,
+                                  tessellationPatchVertexCount);
 
-        state->opsRenderPass()->draw(programInfo, &mesh, 1, SkRect::MakeIWH(kWidth, kHeight));
+        state->bindPipeline(programInfo, SkRect::MakeIWH(kWidth, kHeight));
+        state->bindBuffers(nullptr, nullptr, fVertexBuffer.get());
+        state->draw(tessellationPatchVertexCount, fBaseVertex);
     }
 
     const SkMatrix fViewMatrix;

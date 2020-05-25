@@ -16,6 +16,7 @@
 
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_handshake.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_crypto_stream.h"
 #include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
 #include "net/third_party/quiche/src/quic/core/quic_default_packet_writer.h"
@@ -24,7 +25,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_reader.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/quic/platform/impl/quic_epoll_clock.h"
@@ -159,7 +159,7 @@ QuicDispatcher* QuicServer::CreateQuicDispatcher() {
       &config_, &crypto_config_, &version_manager_,
       std::unique_ptr<QuicEpollConnectionHelper>(new QuicEpollConnectionHelper(
           &epoll_server_, QuicAllocator::BUFFER_POOL)),
-      std::unique_ptr<QuicCryptoServerStream::Helper>(
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper>(
           new QuicSimpleCryptoServerStreamHelper()),
       std::unique_ptr<QuicEpollAlarmFactory>(
           new QuicEpollAlarmFactory(&epoll_server_)),

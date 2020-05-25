@@ -230,18 +230,6 @@ class GitWrapper(SCMWrapper):
       filter_kwargs['predicate'] = self.out_cb
     self.filter = gclient_utils.GitFilter(**filter_kwargs)
 
-  @staticmethod
-  def BinaryExists():
-    """Returns true if the command exists."""
-    try:
-      # We assume git is newer than 1.7.  See: crbug.com/114483
-      result, version = scm.GIT.AssertVersion('1.7')
-      if not result:
-        raise gclient_utils.Error('Git version is older than 1.7: %s' % version)
-      return result
-    except OSError:
-      return False
-
   def GetCheckoutRoot(self):
     return scm.GIT.GetCheckoutRoot(self.checkout_path)
 
@@ -885,8 +873,8 @@ class GitWrapper(SCMWrapper):
     except NoUsableRevError as e:
       # If the DEPS entry's url and hash changed, try to update the origin.
       # See also http://crbug.com/520067.
-      logging.warn(
-          'Couldn\'t find usable revision, will retrying to update instead: %s',
+      logging.warning(
+          "Couldn't find usable revision, will retrying to update instead: %s",
           e.message)
       return self.update(options, [], file_list)
 
@@ -1081,11 +1069,7 @@ class GitWrapper(SCMWrapper):
       raise gclient_utils.Error("Background task requires input. Rerun "
                                 "gclient with --jobs=1 so that\n"
                                 "interaction is possible.")
-    try:
-      return raw_input(prompt)
-    except KeyboardInterrupt:
-      # Hide the exception.
-      sys.exit(1)
+    return gclient_utils.AskForData(prompt)
 
 
   def _AttemptRebase(self, upstream, files, options, newbase=None,
@@ -1374,9 +1358,7 @@ class GitWrapper(SCMWrapper):
     """Attempts to fetch |revision| if not available in local repo.
 
     Returns possibly updated revision."""
-    try:
-      self._Capture(['rev-parse', revision])
-    except subprocess2.CalledProcessError:
+    if not scm.GIT.IsValidRevision(self.checkout_path, revision):
       self._Fetch(options, refspec=revision)
       revision = self._Capture(['rev-parse', 'FETCH_HEAD'])
     return revision

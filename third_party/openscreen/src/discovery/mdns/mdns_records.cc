@@ -4,7 +4,6 @@
 
 #include "discovery/mdns/mdns_records.h"
 
-#include <atomic>
 #include <cctype>
 
 #include "absl/strings/ascii.h"
@@ -16,6 +15,11 @@ namespace openscreen {
 namespace discovery {
 
 namespace {
+
+constexpr size_t kMaxRawRecordSize = std::numeric_limits<uint16_t>::max();
+
+constexpr size_t kMaxMessageFieldEntryCount =
+    std::numeric_limits<uint16_t>::max();
 
 inline int CompareIgnoreCase(const std::string& x, const std::string& y) {
   size_t i = 0;
@@ -100,6 +104,9 @@ DomainName::DomainName(const std::vector<absl::string_view>& labels)
 DomainName::DomainName(std::initializer_list<absl::string_view> labels)
     : DomainName(labels.begin(), labels.end()) {}
 
+DomainName::DomainName(std::vector<std::string> labels, size_t max_wire_size)
+    : max_wire_size_(max_wire_size), labels_(std::move(labels)) {}
+
 DomainName::DomainName(const DomainName& other) = default;
 
 DomainName::DomainName(DomainName&& other) = default;
@@ -161,12 +168,21 @@ size_t DomainName::MaxWireSize() const {
   return max_wire_size_;
 }
 
+// static
+ErrorOr<RawRecordRdata> RawRecordRdata::TryCreate(std::vector<uint8_t> rdata) {
+  if (rdata.size() > kMaxRawRecordSize) {
+    return Error::Code::kIndexOutOfBounds;
+  } else {
+    return RawRecordRdata(std::move(rdata));
+  }
+}
+
 RawRecordRdata::RawRecordRdata() = default;
 
 RawRecordRdata::RawRecordRdata(std::vector<uint8_t> rdata)
     : rdata_(std::move(rdata)) {
   // Ensure RDATA length does not exceed the maximum allowed.
-  OSP_DCHECK(rdata_.size() <= std::numeric_limits<uint16_t>::max());
+  OSP_DCHECK(rdata_.size() <= kMaxRawRecordSize);
 }
 
 RawRecordRdata::RawRecordRdata(const uint8_t* begin, size_t size)
@@ -229,8 +245,10 @@ size_t SrvRecordRdata::MaxWireSize() const {
 
 ARecordRdata::ARecordRdata() = default;
 
-ARecordRdata::ARecordRdata(IPAddress ipv4_address)
-    : ipv4_address_(std::move(ipv4_address)) {
+ARecordRdata::ARecordRdata(IPAddress ipv4_address,
+                           NetworkInterfaceIndex interface_index)
+    : ipv4_address_(std::move(ipv4_address)),
+      interface_index_(interface_index) {
   OSP_CHECK(ipv4_address_.IsV4());
 }
 
@@ -243,7 +261,8 @@ ARecordRdata& ARecordRdata::operator=(const ARecordRdata& rhs) = default;
 ARecordRdata& ARecordRdata::operator=(ARecordRdata&& rhs) = default;
 
 bool ARecordRdata::operator==(const ARecordRdata& rhs) const {
-  return ipv4_address_ == rhs.ipv4_address_;
+  return ipv4_address_ == rhs.ipv4_address_ &&
+         interface_index_ == rhs.interface_index_;
 }
 
 bool ARecordRdata::operator!=(const ARecordRdata& rhs) const {
@@ -257,8 +276,10 @@ size_t ARecordRdata::MaxWireSize() const {
 
 AAAARecordRdata::AAAARecordRdata() = default;
 
-AAAARecordRdata::AAAARecordRdata(IPAddress ipv6_address)
-    : ipv6_address_(std::move(ipv6_address)) {
+AAAARecordRdata::AAAARecordRdata(IPAddress ipv6_address,
+                                 NetworkInterfaceIndex interface_index)
+    : ipv6_address_(std::move(ipv6_address)),
+      interface_index_(interface_index) {
   OSP_CHECK(ipv6_address_.IsV6());
 }
 
@@ -272,7 +293,8 @@ AAAARecordRdata& AAAARecordRdata::operator=(const AAAARecordRdata& rhs) =
 AAAARecordRdata& AAAARecordRdata::operator=(AAAARecordRdata&& rhs) = default;
 
 bool AAAARecordRdata::operator==(const AAAARecordRdata& rhs) const {
-  return ipv6_address_ == rhs.ipv6_address_;
+  return ipv6_address_ == rhs.ipv6_address_ &&
+         interface_index_ == rhs.interface_index_;
 }
 
 bool AAAARecordRdata::operator!=(const AAAARecordRdata& rhs) const {
@@ -310,22 +332,38 @@ size_t PtrRecordRdata::MaxWireSize() const {
   return sizeof(uint16_t) + ptr_domain_.MaxWireSize();
 }
 
+// static
+ErrorOr<TxtRecordRdata> TxtRecordRdata::TryCreate(std::vector<Entry> texts) {
+  std::vector<std::string> str_texts;
+  size_t max_wire_size = 3;
+  if (texts.size() > 0) {
+    str_texts.reserve(texts.size());
+    // max_wire_size includes uint16_t record length field.
+    max_wire_size = sizeof(uint16_t);
+    for (const auto& text : texts) {
+      if (text.empty()) {
+        return Error::Code::kParameterInvalid;
+      }
+      str_texts.push_back(
+          std::string(reinterpret_cast<const char*>(text.data()), text.size()));
+      // Include the length byte in the size calculation.
+      max_wire_size += text.size() + 1;
+    }
+  }
+  return TxtRecordRdata(std::move(str_texts), max_wire_size);
+}
+
 TxtRecordRdata::TxtRecordRdata() = default;
 
 TxtRecordRdata::TxtRecordRdata(std::vector<Entry> texts) {
-  if (texts.size() > 0) {
-    texts_.reserve(texts.size());
-    // max_wire_size includes uint16_t record length field.
-    max_wire_size_ = sizeof(uint16_t);
-    for (const auto& text : texts) {
-      OSP_DCHECK(!text.empty());
-      texts_.push_back(
-          std::string(reinterpret_cast<const char*>(text.data()), text.size()));
-      // Include the length byte in the size calculation.
-      max_wire_size_ += text.size() + 1;
-    }
-  }
+  ErrorOr<TxtRecordRdata> rdata = TxtRecordRdata::TryCreate(std::move(texts));
+  OSP_DCHECK(rdata.is_value());
+  *this = std::move(rdata.value());
 }
+
+TxtRecordRdata::TxtRecordRdata(std::vector<std::string> texts,
+                               size_t max_wire_size)
+    : max_wire_size_(max_wire_size), texts_(std::move(texts)) {}
 
 TxtRecordRdata::TxtRecordRdata(const TxtRecordRdata& other) = default;
 
@@ -417,6 +455,21 @@ size_t NsecRecordRdata::MaxWireSize() const {
   return next_domain_name_.MaxWireSize() + encoded_types_.size();
 }
 
+// static
+ErrorOr<MdnsRecord> MdnsRecord::TryCreate(DomainName name,
+                                          DnsType dns_type,
+                                          DnsClass dns_class,
+                                          RecordType record_type,
+                                          std::chrono::seconds ttl,
+                                          Rdata rdata) {
+  if (!IsValidConfig(name, dns_type, ttl, rdata)) {
+    return Error::Code::kParameterInvalid;
+  } else {
+    return MdnsRecord(std::move(name), dns_type, dns_class, record_type, ttl,
+                      std::move(rdata));
+  }
+}
+
 MdnsRecord::MdnsRecord() = default;
 
 MdnsRecord::MdnsRecord(DomainName name,
@@ -431,21 +484,7 @@ MdnsRecord::MdnsRecord(DomainName name,
       record_type_(record_type),
       ttl_(ttl),
       rdata_(std::move(rdata)) {
-  OSP_DCHECK(!name_.empty());
-  OSP_DCHECK_LE(ttl_.count(), std::numeric_limits<uint32_t>::max());
-  OSP_DCHECK((dns_type == DnsType::kSRV &&
-              absl::holds_alternative<SrvRecordRdata>(rdata_)) ||
-             (dns_type == DnsType::kA &&
-              absl::holds_alternative<ARecordRdata>(rdata_)) ||
-             (dns_type == DnsType::kAAAA &&
-              absl::holds_alternative<AAAARecordRdata>(rdata_)) ||
-             (dns_type == DnsType::kPTR &&
-              absl::holds_alternative<PtrRecordRdata>(rdata_)) ||
-             (dns_type == DnsType::kTXT &&
-              absl::holds_alternative<TxtRecordRdata>(rdata_)) ||
-             (dns_type == DnsType::kNSEC &&
-              absl::holds_alternative<NsecRecordRdata>(rdata_)) ||
-             absl::holds_alternative<RawRecordRdata>(rdata_));
+  OSP_DCHECK(IsValidConfig(name_, dns_type, ttl_, rdata_));
 }
 
 MdnsRecord::MdnsRecord(const MdnsRecord& other) = default;
@@ -455,6 +494,27 @@ MdnsRecord::MdnsRecord(MdnsRecord&& other) = default;
 MdnsRecord& MdnsRecord::operator=(const MdnsRecord& rhs) = default;
 
 MdnsRecord& MdnsRecord::operator=(MdnsRecord&& rhs) = default;
+
+// static
+bool MdnsRecord::IsValidConfig(const DomainName& name,
+                               DnsType dns_type,
+                               std::chrono::seconds ttl,
+                               const Rdata& rdata) {
+  return !name.empty() && ttl.count() <= std::numeric_limits<uint32_t>::max() &&
+         ((dns_type == DnsType::kSRV &&
+           absl::holds_alternative<SrvRecordRdata>(rdata)) ||
+          (dns_type == DnsType::kA &&
+           absl::holds_alternative<ARecordRdata>(rdata)) ||
+          (dns_type == DnsType::kAAAA &&
+           absl::holds_alternative<AAAARecordRdata>(rdata)) ||
+          (dns_type == DnsType::kPTR &&
+           absl::holds_alternative<PtrRecordRdata>(rdata)) ||
+          (dns_type == DnsType::kTXT &&
+           absl::holds_alternative<TxtRecordRdata>(rdata)) ||
+          (dns_type == DnsType::kNSEC &&
+           absl::holds_alternative<NsecRecordRdata>(rdata)) ||
+          absl::holds_alternative<RawRecordRdata>(rdata));
+}
 
 bool MdnsRecord::operator==(const MdnsRecord& rhs) const {
   return dns_type_ == rhs.dns_type_ && dns_class_ == rhs.dns_class_ &&
@@ -520,6 +580,18 @@ MdnsRecord CreateAddressRecord(DomainName name, const IPAddress& address) {
                     ttl, std::move(rdata));
 }
 
+// static
+ErrorOr<MdnsQuestion> MdnsQuestion::TryCreate(DomainName name,
+                                              DnsType dns_type,
+                                              DnsClass dns_class,
+                                              ResponseType response_type) {
+  if (name.empty()) {
+    return Error::Code::kParameterInvalid;
+  }
+
+  return MdnsQuestion(std::move(name), dns_type, dns_class, response_type);
+}
+
 MdnsQuestion::MdnsQuestion(DomainName name,
                            DnsType dns_type,
                            DnsClass dns_class,
@@ -545,6 +617,26 @@ size_t MdnsQuestion::MaxWireSize() const {
   return name_.MaxWireSize() + 4;
 }
 
+// static
+ErrorOr<MdnsMessage> MdnsMessage::TryCreate(
+    uint16_t id,
+    MessageType type,
+    std::vector<MdnsQuestion> questions,
+    std::vector<MdnsRecord> answers,
+    std::vector<MdnsRecord> authority_records,
+    std::vector<MdnsRecord> additional_records) {
+  if (questions.size() >= kMaxMessageFieldEntryCount ||
+      answers.size() >= kMaxMessageFieldEntryCount ||
+      authority_records.size() >= kMaxMessageFieldEntryCount ||
+      additional_records.size() >= kMaxMessageFieldEntryCount) {
+    return Error::Code::kParameterInvalid;
+  }
+
+  return MdnsMessage(id, type, std::move(questions), std::move(answers),
+                     std::move(authority_records),
+                     std::move(additional_records));
+}
+
 MdnsMessage::MdnsMessage(uint16_t id, MessageType type)
     : id_(id), type_(type) {}
 
@@ -560,10 +652,10 @@ MdnsMessage::MdnsMessage(uint16_t id,
       answers_(std::move(answers)),
       authority_records_(std::move(authority_records)),
       additional_records_(std::move(additional_records)) {
-  OSP_DCHECK(questions_.size() < std::numeric_limits<uint16_t>::max());
-  OSP_DCHECK(answers_.size() < std::numeric_limits<uint16_t>::max());
-  OSP_DCHECK(authority_records_.size() < std::numeric_limits<uint16_t>::max());
-  OSP_DCHECK(additional_records_.size() < std::numeric_limits<uint16_t>::max());
+  OSP_DCHECK(questions_.size() < kMaxMessageFieldEntryCount);
+  OSP_DCHECK(answers_.size() < kMaxMessageFieldEntryCount);
+  OSP_DCHECK(authority_records_.size() < kMaxMessageFieldEntryCount);
+  OSP_DCHECK(additional_records_.size() < kMaxMessageFieldEntryCount);
 
   for (const MdnsQuestion& question : questions_) {
     max_wire_size_ += question.MaxWireSize();
@@ -617,25 +709,25 @@ size_t MdnsMessage::MaxWireSize() const {
 }
 
 void MdnsMessage::AddQuestion(MdnsQuestion question) {
-  OSP_DCHECK(questions_.size() < std::numeric_limits<uint16_t>::max());
+  OSP_DCHECK(questions_.size() < kMaxMessageFieldEntryCount);
   max_wire_size_ += question.MaxWireSize();
   questions_.emplace_back(std::move(question));
 }
 
 void MdnsMessage::AddAnswer(MdnsRecord record) {
-  OSP_DCHECK(answers_.size() < std::numeric_limits<uint16_t>::max());
+  OSP_DCHECK(answers_.size() < kMaxMessageFieldEntryCount);
   max_wire_size_ += record.MaxWireSize();
   answers_.emplace_back(std::move(record));
 }
 
 void MdnsMessage::AddAuthorityRecord(MdnsRecord record) {
-  OSP_DCHECK(authority_records_.size() < std::numeric_limits<uint16_t>::max());
+  OSP_DCHECK(authority_records_.size() < kMaxMessageFieldEntryCount);
   max_wire_size_ += record.MaxWireSize();
   authority_records_.emplace_back(std::move(record));
 }
 
 void MdnsMessage::AddAdditionalRecord(MdnsRecord record) {
-  OSP_DCHECK(additional_records_.size() < std::numeric_limits<uint16_t>::max());
+  OSP_DCHECK(additional_records_.size() < kMaxMessageFieldEntryCount);
   max_wire_size_ += record.MaxWireSize();
   additional_records_.emplace_back(std::move(record));
 }
@@ -645,7 +737,7 @@ bool MdnsMessage::CanAddRecord(const MdnsRecord& record) {
 }
 
 uint16_t CreateMessageId() {
-  static std::atomic<uint16_t> id(0);
+  static uint16_t id(0);
   return id++;
 }
 

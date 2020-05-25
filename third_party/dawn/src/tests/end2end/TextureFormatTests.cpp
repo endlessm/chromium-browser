@@ -17,6 +17,7 @@
 #include "common/Assert.h"
 #include "common/Math.h"
 #include "utils/ComboRenderPipelineDescriptor.h"
+#include "utils/TextureFormatUtils.h"
 #include "utils/WGPUHelpers.h"
 
 #include <type_traits>
@@ -185,21 +186,7 @@ class TextureFormatTest : public DawnTest {
             })");
 
         // Compute the prefix needed for GLSL types that handle our texture's data.
-        const char* prefix = nullptr;
-        switch (sampleFormatInfo.type) {
-            case wgpu::TextureComponentType::Float:
-                prefix = "";
-                break;
-            case wgpu::TextureComponentType::Sint:
-                prefix = "i";
-                break;
-            case wgpu::TextureComponentType::Uint:
-                prefix = "u";
-                break;
-            default:
-                UNREACHABLE();
-                break;
-        }
+        const char* prefix = utils::GetColorTextureComponentTypePrefix(sampleFormatInfo.format);
 
         std::ostringstream fsSource;
         fsSource << "#version 450\n";
@@ -291,7 +278,7 @@ class TextureFormatTest : public DawnTest {
         wgpu::RenderPassEncoder renderPass = encoder.BeginRenderPass(&renderPassDesc);
         renderPass.SetPipeline(pipeline);
         renderPass.SetBindGroup(0, bindGroup);
-        renderPass.Draw(3, 1, 0, 0);
+        renderPass.Draw(3);
         renderPass.EndPass();
 
         {
@@ -734,4 +721,4 @@ TEST_P(TextureFormatTest, RG11B10Float) {
 // TODO(cwallez@chromium.org): Add tests for depth-stencil formats when we know if they are copyable
 // in WebGPU.
 
-DAWN_INSTANTIATE_TEST(TextureFormatTest, D3D12Backend, MetalBackend, OpenGLBackend, VulkanBackend);
+DAWN_INSTANTIATE_TEST(TextureFormatTest, D3D12Backend(), MetalBackend(), OpenGLBackend(), VulkanBackend());

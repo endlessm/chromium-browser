@@ -82,9 +82,9 @@ public:
         SkFontMetrics metrics;
         info.fFont.getMetrics(&metrics);
         if (!fLineCount) {
-            fFirstLineAscent = SkTMin(fFirstLineAscent, metrics.fAscent);
+            fFirstLineAscent = std::min(fFirstLineAscent, metrics.fAscent);
         }
-        fLastLineDescent = SkTMax(fLastLineDescent, metrics.fDescent);
+        fLastLineDescent = std::max(fLastLineDescent, metrics.fDescent);
     }
 
     void commitRunInfo() override {}
@@ -141,12 +141,10 @@ public:
             // All glyphs are pending in a single blob.
             SkASSERT(fResult.fFragments.empty());
             fResult.fFragments.reserve(1);
-            fResult.fFragments.push_back({fBuilder.make(), {fBox.x(), fBox.y()}, 0, false});
+            fResult.fFragments.push_back({fBuilder.make(), {fBox.x(), fBox.y()}, 0, 0, 0, false});
         }
 
-        // Use the explicit ascent, when specified.
-        // Note: ascent values are negative (relative to the baseline).
-        const auto ascent = fDesc.fAscent ? fDesc.fAscent : fFirstLineAscent;
+        const auto ascent = this->ascent();
 
         // For visual VAlign modes, we use a hybrid extent box computed as the union of
         // actual visual bounds and the vertical typographical extent.
@@ -228,6 +226,16 @@ public:
             return;
         }
 
+        // In default paragraph mode (VAlign::kTop), AE clips out lines when the baseline
+        // goes below the box lower edge.
+        if (fDesc.fVAlign == Shaper::VAlign::kTop) {
+            // fOffset is relative to the first line baseline.
+            const auto max_offset = fBox.height() + this->ascent(); // NB: ascent is negative
+            if (fOffset.y() > max_offset) {
+                return;
+            }
+        }
+
         // When no text box is present, text is laid out on a single infinite line
         // (modulo explicit line breaks).
         const auto shape_width = fBox.isEmpty() ? SK_ScalarMax
@@ -254,6 +262,20 @@ private:
             return c == ' ' || c == '\t' || c == '\r' || c == '\n';
         };
 
+        float ascent = 0;
+
+        if (fDesc.fFlags & Shaper::Flags::kTrackFragmentAdvanceAscent) {
+            SkFontMetrics metrics;
+            rec.fFont.getMetrics(&metrics);
+            ascent = metrics.fAscent;
+
+            // Note: we use per-glyph advances for anchoring, but it's unclear whether this
+            // is exactly the same as AE.  E.g. are 'acute' glyphs anchored separately for fonts
+            // in which they're distinct?
+            fAdvanceBuffer.resize(rec.fGlyphCount);
+            fFont.getWidths(glyphs, SkToInt(rec.fGlyphCount), fAdvanceBuffer.data());
+        }
+
         // In fragmented mode we immediately push the glyphs to fResult,
         // one fragment (blob) per glyph.  Glyph positioning is externalized
         // (positions returned in Fragment::fPos).
@@ -262,10 +284,15 @@ private:
             blob_buffer.glyphs[0] = glyphs[i];
             blob_buffer.pos[0] = blob_buffer.pos[1] = 0;
 
+            const auto advance = (fDesc.fFlags & Shaper::Flags::kTrackFragmentAdvanceAscent)
+                    ? fAdvanceBuffer[SkToInt(i)]
+                    : 0.0f;
+
             // Note: we only check the first code point in the cluster for whitespace.
             // It's unclear whether thers's a saner approach.
             fResult.fFragments.push_back({fBuilder.make(),
                                           { fBox.x() + pos[i].fX, fBox.y() + pos[i].fY },
+                                          advance, ascent,
                                           line_index, is_whitespace(fUTF8[clusters[i]])
                                          });
             fResult.fMissingGlyphCount += (glyphs[i] == kMissingGlyphID);
@@ -297,6 +324,12 @@ private:
         return 0.0f; // go home, msvc...
     }
 
+    SkScalar ascent() const {
+        // Use the explicit ascent, when specified.
+        // Note: ascent values are negative (relative to the baseline).
+        return fDesc.fAscent ? fDesc.fAscent : fFirstLineAscent;
+    }
+
     static constexpr SkGlyphID kMissingGlyphID = 0;
 
     const Shaper::TextDesc&   fDesc;
@@ -312,6 +345,8 @@ private:
     SkAutoSTMalloc<64, uint32_t>  fLineClusters;
     SkSTArray<16, RunRec>         fLineRuns;
     size_t                        fLineGlyphCount = 0;
+
+    SkSTArray<64, float, true>    fAdvanceBuffer;
 
     SkPoint  fCurrentPosition{ 0, 0 };
     SkPoint  fOffset{ 0, 0 };

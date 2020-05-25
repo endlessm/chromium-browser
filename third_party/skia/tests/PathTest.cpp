@@ -8,12 +8,12 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkPaint.h"
-#include "include/core/SkPathEffect.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkStrokeRec.h"
 #include "include/core/SkSurface.h"
+#include "include/private/SkIDChangeListener.h"
 #include "include/private/SkTo.h"
 #include "include/utils/SkNullCanvas.h"
 #include "include/utils/SkParse.h"
@@ -792,8 +792,8 @@ static void add_corner_arc(SkPath* path, const SkRect& rect,
                            int startAngle)
 {
 
-    SkScalar rx = SkMinScalar(rect.width(), xIn);
-    SkScalar ry = SkMinScalar(rect.height(), yIn);
+    SkScalar rx = std::min(rect.width(), xIn);
+    SkScalar ry = std::min(rect.height(), yIn);
 
     SkRect arcRect;
     arcRect.setLTRB(-rx, -ry, rx, ry);
@@ -1817,7 +1817,7 @@ static void test_conservativelyContains(skiatest::Reporter* reporter) {
     static const SkRect kBaseRect = SkRect::MakeWH(SkIntToScalar(100), SkIntToScalar(100));
 
     // A circle that bounds kBaseRect (with a significant amount of slop)
-    SkScalar circleR = SkMaxScalar(kBaseRect.width(), kBaseRect.height());
+    SkScalar circleR = std::max(kBaseRect.width(), kBaseRect.height());
     circleR *= 1.75f / 2;
     static const SkPoint kCircleC = {kBaseRect.centerX(), kBaseRect.centerY()};
 
@@ -3908,6 +3908,20 @@ static void test_arcTo(skiatest::Reporter* reporter) {
     p.reset();
     p.arcTo(noOvalHeight, 0, 360, false);
     REPORTER_ASSERT(reporter, p.isEmpty());
+
+#ifndef SK_LEGACY_PATH_ARCTO_ENDPOINT
+    // Inspired by http://code.google.com/p/chromium/issues/detail?id=1001768
+    {
+      p.reset();
+      p.moveTo(216, 216);
+      p.arcTo(216, 108, 0, SkPath::ArcSize::kLarge_ArcSize, SkPathDirection::kCW, 216, 0);
+      p.arcTo(270, 135, 0, SkPath::ArcSize::kLarge_ArcSize, SkPathDirection::kCCW, 216, 216);
+
+      // The 'arcTo' call should end up exactly at the starting location.
+      int n = p.countPoints();
+      REPORTER_ASSERT(reporter, p.getPoint(0) == p.getPoint(n - 1));
+    }
+#endif
 }
 
 static void test_addPath(skiatest::Reporter* reporter) {
@@ -4333,13 +4347,12 @@ static void test_dump(skiatest::Reporter* reporter) {
 
 namespace {
 
-class ChangeListener : public SkPathRef::GenIDChangeListener {
+class ChangeListener : public SkIDChangeListener {
 public:
     ChangeListener(bool *changed) : fChanged(changed) { *fChanged = false; }
     ~ChangeListener() override {}
-    void onChange() override {
-        *fChanged = true;
-    }
+    void changed() override { *fChanged = true; }
+
 private:
     bool* fChanged;
 };

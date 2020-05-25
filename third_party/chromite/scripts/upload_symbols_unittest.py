@@ -54,6 +54,9 @@ from chromite.scripts import cros_generate_breakpad_symbols
 from chromite.scripts import upload_symbols
 
 
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
+
 class SymbolsTestBase(cros_test_lib.MockTempDirTestCase):
   """Base class for most symbols tests."""
 
@@ -443,9 +446,9 @@ class PerformSymbolFilesUploadTest(SymbolsTestBase):
     self.assertEqual(upload_symbols.GetUploadTimeout(self.sym_initial),
                      upload_symbols.UPLOAD_MIN_TIMEOUT)
 
-    # Timeout for 300M file.
-    large = self.createSymbolFile('large.sym', size=(300 * 1024 * 1024))
-    self.assertEqual(upload_symbols.GetUploadTimeout(large), 771)
+    # Timeout for 512M file.
+    large = self.createSymbolFile('large.sym', size=(512 * 1024 * 1024))
+    self.assertEqual(upload_symbols.GetUploadTimeout(large), 15 * 60)
 
   def testUploadSymbolFile(self):
     upload_symbols.UploadSymbolFile('fake_url', self.sym_initial,

@@ -39,18 +39,14 @@ struct IPSubnet {
 };
 
 struct InterfaceInfo {
-  enum class Type {
-    kEthernet = 0,
-    kWifi,
-    kOther,
-  };
+  enum class Type : uint32_t { kEthernet = 0, kWifi, kLoopback, kOther };
 
   // Interface index, typically as specified by the operating system,
   // identifying this interface on the host machine.
   NetworkInterfaceIndex index = kInvalidNetworkInterfaceIndex;
 
   // MAC address of the interface.  All 0s if unavailable.
-  uint8_t hardware_address[6] = {};
+  std::array<uint8_t, 6> hardware_address = {};
 
   // Interface name (e.g. eth0) if available.
   std::string name;
@@ -60,6 +56,12 @@ struct InterfaceInfo {
 
   // All IP addresses associated with the interface.
   std::vector<IPSubnet> addresses;
+
+  // Returns an IPAddress of the given type associated with this network
+  // interface, or the false IPAddress if the associated address family is not
+  // supported on this interface.
+  IPAddress GetIpAddressV4() const;
+  IPAddress GetIpAddressV6() const;
 
   InterfaceInfo();
   InterfaceInfo(NetworkInterfaceIndex index,
@@ -71,6 +73,7 @@ struct InterfaceInfo {
 };
 
 // Human-readable output (e.g., for logging).
+std::ostream& operator<<(std::ostream& out, InterfaceInfo::Type type);
 std::ostream& operator<<(std::ostream& out, const IPSubnet& subnet);
 std::ostream& operator<<(std::ostream& out, const InterfaceInfo& info);
 

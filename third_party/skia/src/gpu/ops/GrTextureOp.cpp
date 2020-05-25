@@ -9,7 +9,6 @@
 
 #include "include/core/SkPoint.h"
 #include "include/core/SkPoint3.h"
-#include "include/gpu/GrTexture.h"
 #include "include/private/GrRecordingContext.h"
 #include "include/private/SkFloatingPoint.h"
 #include "include/private/SkTo.h"
@@ -27,6 +26,7 @@
 #include "src/gpu/GrResourceProvider.h"
 #include "src/gpu/GrResourceProviderPriv.h"
 #include "src/gpu/GrShaderCaps.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTexturePriv.h"
 #include "src/gpu/GrTextureProxy.h"
 #include "src/gpu/SkGr.h"
@@ -120,19 +120,18 @@ static NormalizationParams proxy_normalization_params(const GrSurfaceProxy* prox
     }
 }
 
-static void correct_domain_for_bilerp(const NormalizationParams& params,
-                                      SkRect* domainRect) {
+static SkRect inset_domain_for_bilerp(const NormalizationParams& params, const SkRect& domainRect) {
     // Normalized pixel size is also equal to iw and ih, so the insets for bilerp are just
     // in those units and can be applied safely after normalization. However, if the domain is
     // smaller than a texel, it should clamp to the center of that axis.
-    float dw = domainRect->width() < params.fIW ? domainRect->width() : params.fIW;
-    float dh = domainRect->height() < params.fIH ? domainRect->height() : params.fIH;
-    domainRect->inset(0.5f * dw, 0.5f * dh);
+    float dw = domainRect.width() < params.fIW ? domainRect.width() : params.fIW;
+    float dh = domainRect.height() < params.fIH ? domainRect.height() : params.fIH;
+    return domainRect.makeInset(0.5f * dw, 0.5f * dh);
 }
 
-// Normalize the domain and inset for bilerp as necessary. If 'domainRect' is null, it is assumed
-// no domain constraint is desired, so a sufficiently large rect is returned even if the quad
-// ends up batched with an op that uses domains overall.
+// Normalize the domain. If 'domainRect' is null, it is assumed no domain constraint is desired,
+// so a sufficiently large rect is returned even if the quad ends up batched with an op that uses
+// domains overall.
 static SkRect normalize_domain(GrSamplerState::Filter filter,
                                const NormalizationParams& params,
                                const SkRect* domainRect) {
@@ -155,10 +154,6 @@ static SkRect normalize_domain(GrSamplerState::Filter filter,
 
     SkRect out;
     ltrb.store(&out);
-
-    if (filter != GrSamplerState::Filter::kNearest) {
-        correct_domain_for_bilerp(params, &out);
-    }
     return out;
 }
 
@@ -201,14 +196,11 @@ public:
                                           const SkPMColor4f& color,
                                           GrTextureOp::Saturate saturate,
                                           GrAAType aaType,
-                                          GrQuadAAFlags aaFlags,
-                                          const GrQuad& deviceQuad,
-                                          const GrQuad& localQuad,
+                                          DrawQuad* quad,
                                           const SkRect* domain) {
         GrOpMemoryPool* pool = context->priv().opMemoryPool();
         return pool->allocate<TextureOp>(std::move(proxyView), std::move(textureXform), filter,
-                                         color, saturate, aaType, aaFlags, deviceQuad, localQuad,
-                                         domain);
+                                         color, saturate, aaType, quad, domain);
     }
 
     static std::unique_ptr<GrDrawOp> Make(GrRecordingContext* context,
@@ -244,6 +236,9 @@ public:
         bool mipped = (GrSamplerState::Filter::kMipMap == fMetadata.filter());
         for (unsigned p = 0; p <  fMetadata.fProxyCount; ++p) {
             func(fViewCountPairs[p].fProxy.get(), GrMipMapped(mipped));
+        }
+        if (fDesc && fDesc->fProgramInfo) {
+            fDesc->fProgramInfo->visitFPProxies(func);
         }
     }
 
@@ -299,7 +294,7 @@ public:
         auto iter = fQuads.metadata();
         while(iter.next()) {
             auto colorType = GrQuadPerEdgeAA::MinColorType(iter->fColor);
-            fMetadata.fColorType = SkTMax(fMetadata.fColorType, static_cast<uint16_t>(colorType));
+            fMetadata.fColorType = std::max(fMetadata.fColorType, static_cast<uint16_t>(colorType));
         }
         return GrProcessorSet::EmptySetAnalysis();
     }
@@ -384,94 +379,64 @@ private:
     };
     static_assert(sizeof(Metadata) == 8);
 
-    // This descriptor is used in both onPrePrepareDraws and onPrepareDraws.
+    // This descriptor is used to store the draw info we decide on during on(Pre)PrepareDraws. We
+    // store the data in a separate struct in order to minimize the size of the TextureOp.
+    // Historically, increasing the TextureOp's size has caused surprising perf regressions, but we
+    // may want to re-evaluate whether this is still necessary.
     //
-    // In the onPrePrepareDraws case it is allocated in the creation-time opData
-    // arena. Both allocateCommon and allocatePrePrepareOnly are called and they also allocate
-    // their memory in the creation-time opData arena.
+    // In the onPrePrepareDraws case it is allocated in the creation-time opData arena, and
+    // allocatePrePreparedVertices is also called.
     //
-    // In the onPrepareDraws case this descriptor is created on the stack and only
-    // allocateCommon is called. In this case the common memory fields are allocated
-    // in the flush-time arena (i.e., as part of the flushState).
-    struct PrePreparedDesc {
-        VertexSpec                      fVertexSpec;
-        int                             fNumProxies = 0;
-        int                             fNumTotalQuads = 0;
-        GrPipeline::DynamicStateArrays* fDynamicStateArrays = nullptr;
-        GrPipeline::FixedDynamicState*  fFixedDynamicState = nullptr;
+    // In the onPrepareDraws case this descriptor is allocated in the flush-time arena (i.e., as
+    // part of the flushState).
+    struct Desc {
+        VertexSpec fVertexSpec;
+        int fNumProxies = 0;
+        int fNumTotalQuads = 0;
 
-        // This member variable is only used by 'onPrePrepareDraws'. The prior five are also
-        // used by 'onPrepareDraws'
-        char*                           fVertices = nullptr;
+        // This member variable is only used by 'onPrePrepareDraws'.
+        char* fPrePreparedVertices = nullptr;
+
+        GrProgramInfo* fProgramInfo = nullptr;
+
+        sk_sp<const GrBuffer> fIndexBuffer;
+        sk_sp<const GrBuffer> fVertexBuffer;
+        int fBaseVertex;
 
         // How big should 'fVertices' be to hold all the vertex data?
         size_t totalSizeInBytes() const {
-            return fNumTotalQuads * fVertexSpec.verticesPerQuad() * fVertexSpec.vertexSize();
+            return this->totalNumVertices() * fVertexSpec.vertexSize();
         }
 
         int totalNumVertices() const {
             return fNumTotalQuads * fVertexSpec.verticesPerQuad();
         }
 
-        // Helper to fill in the fFixedDynamicState and fDynamicStateArrays. If there is more
-        // than one mesh/proxy they are stored in fDynamicStateArrays but if there is only one
-        // it is stored in fFixedDynamicState.
-        void setMeshProxy(int index, GrSurfaceProxy* proxy) {
-            SkASSERT(index < fNumProxies);
-
-            if (fDynamicStateArrays) {
-                SkASSERT(fDynamicStateArrays->fPrimitiveProcessorTextures);
-                SkASSERT(fNumProxies > 1);
-
-                fDynamicStateArrays->fPrimitiveProcessorTextures[index] = proxy;
-            } else {
-                SkASSERT(fFixedDynamicState);
-                SkASSERT(fNumProxies == 1);
-
-                fFixedDynamicState->fPrimitiveProcessorTextures[index] = proxy;
-            }
-        }
-
-        // Allocate the fields required in both onPrePrepareDraws and onPrepareDraws
-        void allocateCommon(SkArenaAlloc* arena, const GrAppliedClip* clip) {
-            // We'll use a dynamic state array for the GP textures when there are multiple ops.
-            // Otherwise, we use fixed dynamic state to specify the single op's proxy.
-            if (fNumProxies > 1) {
-                fDynamicStateArrays = Target::AllocDynamicStateArrays(arena, fNumProxies, 1, false);
-                fFixedDynamicState = Target::MakeFixedDynamicState(arena, clip, 0);
-            } else {
-                fFixedDynamicState = Target::MakeFixedDynamicState(arena, clip, 1);
-            }
-        }
-
-        // Allocate the fields only needed by onPrePrepareDraws
-        void allocatePrePrepareOnly(SkArenaAlloc* arena) {
-            fVertices = arena->makeArrayDefault<char>(this->totalSizeInBytes());
+        void allocatePrePreparedVertices(SkArenaAlloc* arena) {
+            fPrePreparedVertices = arena->makeArrayDefault<char>(this->totalSizeInBytes());
         }
 
     };
 
-    // dstQuad should be the geometry transformed by the view matrix. If domainRect
-    // is not null it will be used to apply the strict src rect constraint.
+    // If domainRect is not null it will be used to apply a strict src rect-style constraint.
     TextureOp(GrSurfaceProxyView proxyView,
               sk_sp<GrColorSpaceXform> textureColorSpaceXform,
               GrSamplerState::Filter filter,
               const SkPMColor4f& color,
               GrTextureOp::Saturate saturate,
               GrAAType aaType,
-              GrQuadAAFlags aaFlags,
-              const GrQuad& dstQuad,
-              const GrQuad& srcQuad,
+              DrawQuad* quad,
               const SkRect* domainRect)
             : INHERITED(ClassID())
             , fQuads(1, true /* includes locals */)
             , fTextureColorSpaceXform(std::move(textureColorSpaceXform))
-            , fPrePreparedDesc(nullptr)
+            , fDesc(nullptr)
             , fMetadata(proxyView.swizzle(), filter, Domain(!!domainRect), saturate) {
 
         // Clean up disparities between the overall aa type and edge configuration and apply
         // optimizations based on the rect and matrix when appropriate
-        GrQuadUtils::ResolveAAType(aaType, aaFlags, dstQuad, &aaType, &aaFlags);
+        GrQuadUtils::ResolveAAType(aaType, quad->fEdgeFlags, quad->fDevice,
+                                   &aaType, &quad->fEdgeFlags);
         fMetadata.fAAType = static_cast<uint16_t>(aaType);
 
         // We expect our caller to have already caught this optimization.
@@ -490,15 +455,16 @@ private:
         // Normalize src coordinates and the domain (if set)
         NormalizationParams params = proxy_normalization_params(proxyView.proxy(),
                                                                 proxyView.origin());
-        GrQuad normalizedSrcQuad = srcQuad;
-        normalize_src_quad(params, &normalizedSrcQuad);
+        normalize_src_quad(params, &quad->fLocal);
         SkRect domain = normalize_domain(filter, params, domainRect);
 
-        fQuads.append(dstQuad, {color, domain, aaFlags}, &normalizedSrcQuad);
-        fViewCountPairs[0] = {proxyView.detachProxy(), 1};
-
-        this->setBounds(dstQuad.bounds(), HasAABloat(aaType == GrAAType::kCoverage),
+        // Set bounds before clipping so we don't have to worry about unioning the bounds of
+        // the two potential quads (GrQuad::bounds() is perspective-safe).
+        this->setBounds(quad->fDevice.bounds(), HasAABloat(aaType == GrAAType::kCoverage),
                         IsHairline::kNo);
+
+        int quadCount = this->appendQuad(quad, color, domain);
+        fViewCountPairs[0] = {proxyView.detachProxy(), quadCount};
     }
 
     TextureOp(GrRenderTargetContext::TextureSetEntry set[],
@@ -513,7 +479,7 @@ private:
             : INHERITED(ClassID())
             , fQuads(cnt, true /* includes locals */)
             , fTextureColorSpaceXform(std::move(textureColorSpaceXform))
-            , fPrePreparedDesc(nullptr)
+            , fDesc(nullptr)
             , fMetadata(set[0].fProxyView.swizzle(), GrSamplerState::Filter::kNearest,
                         Domain::kNo, saturate) {
         // Update counts to reflect the batch op
@@ -526,16 +492,12 @@ private:
         Domain netDomain = Domain::kNo;
         GrSamplerState::Filter netFilter = GrSamplerState::Filter::kNearest;
 
-        // Net domain and filter quality are being determined simultaneously while iterating through
-        // the entry set. When filter changes to bilerp, all prior normalized domains in the
-        // GrQuadBuffer must be updated to reflect the 1/2px inset required. All quads appended
-        // afterwards will properly take that into account.
-        int correctDomainUpToIndex = 0;
         const GrSurfaceProxy* curProxy = nullptr;
+
         // 'q' is the index in 'set' and fQuadBuffer; 'p' is the index in fViewCountPairs and only
         // increases when set[q]'s proxy changes.
-        unsigned p = 0;
-        for (unsigned q = 0; q < fMetadata.fTotalQuadCount; ++q) {
+        int p = 0;
+        for (int q = 0; q < cnt; ++q) {
             if (q == 0) {
                 // We do not placement new the first ViewCountPair since that one is allocated and
                 // initialized as part of the GrTextureOp creation.
@@ -560,42 +522,38 @@ private:
 
             // Use dstRect/srcRect unless dstClip is provided, in which case derive new source
             // coordinates by mapping dstClipQuad by the dstRect to srcRect transform.
-            GrQuad quad, srcQuad;
+            DrawQuad quad;
             if (set[q].fDstClipQuad) {
-                quad = GrQuad::MakeFromSkQuad(set[q].fDstClipQuad, ctm);
+                quad.fDevice = GrQuad::MakeFromSkQuad(set[q].fDstClipQuad, ctm);
 
                 SkPoint srcPts[4];
                 GrMapRectPoints(set[q].fDstRect, set[q].fSrcRect, set[q].fDstClipQuad, srcPts, 4);
-                srcQuad = GrQuad::MakeFromSkQuad(srcPts, SkMatrix::I());
+                quad.fLocal = GrQuad::MakeFromSkQuad(srcPts, SkMatrix::I());
             } else {
-                quad = GrQuad::MakeFromRect(set[q].fDstRect, ctm);
-                srcQuad = GrQuad(set[q].fSrcRect);
+                quad.fDevice = GrQuad::MakeFromRect(set[q].fDstRect, ctm);
+                quad.fLocal = GrQuad(set[q].fSrcRect);
             }
 
-            // Before normalizing the source coordinates, determine if bilerp is actually needed
-            if (netFilter != filter && filter_has_effect(srcQuad, quad)) {
+            if (netFilter != filter && filter_has_effect(quad.fLocal, quad.fDevice)) {
                 // The only way netFilter != filter is if bilerp is requested and we haven't yet
                 // found a quad that requires bilerp (so net is still nearest).
                 SkASSERT(netFilter == GrSamplerState::Filter::kNearest &&
                          filter == GrSamplerState::Filter::kBilerp);
                 netFilter = GrSamplerState::Filter::kBilerp;
-                // All quads index < q with domains were calculated as if there was no filtering,
-                // which is no longer true.
-                correctDomainUpToIndex = q;
             }
 
             // Normalize the src quads and apply origin
             NormalizationParams proxyParams = proxy_normalization_params(
                     curProxy, set[q].fProxyView.origin());
-            normalize_src_quad(proxyParams, &srcQuad);
+            normalize_src_quad(proxyParams, &quad.fLocal);
 
             // Update overall bounds of the op as the union of all quads
-            bounds.joinPossiblyEmptyRect(quad.bounds());
+            bounds.joinPossiblyEmptyRect(quad.fDevice.bounds());
 
             // Determine the AA type for the quad, then merge with net AA type
-            GrQuadAAFlags aaFlags;
             GrAAType aaForQuad;
-            GrQuadUtils::ResolveAAType(aaType, set[q].fAAFlags, quad, &aaForQuad, &aaFlags);
+            GrQuadUtils::ResolveAAType(aaType, set[q].fAAFlags, quad.fDevice,
+                                       &aaForQuad, &quad.fEdgeFlags);
             // Resolve sets aaForQuad to aaType or None, there is never a change between aa methods
             SkASSERT(aaForQuad == GrAAType::kNone || aaForQuad == aaType);
             if (netAAType == GrAAType::kNone && aaForQuad != GrAAType::kNone) {
@@ -607,7 +565,7 @@ private:
             if (constraint == SkCanvas::kStrict_SrcRectConstraint) {
                 // Check (briefly) if the strict constraint is needed for this set entry
                 if (!set[q].fSrcRect.contains(curProxy->backingStoreBoundsRect()) &&
-                    (netFilter == GrSamplerState::Filter::kBilerp ||
+                    (filter == GrSamplerState::Filter::kBilerp ||
                      aaForQuad == GrAAType::kCoverage)) {
                     // Can't rely on hardware clamping and the draw will access outer texels
                     // for AA and/or bilerp. Unlike filter quality, this op still has per-quad
@@ -616,37 +574,21 @@ private:
                     domainForQuad = &set[q].fSrcRect;
                 }
             }
-
-            // Always append a quad, it just may refer back to a prior ViewCountPair
-            // (this frequently happens when Chrome draws 9-patches).
+            // This domain may represent a no-op, otherwise it will have the origin and dimensions
+            // of the texture applied to it. Insetting for bilinear filtering is deferred until
+            // on[Pre]Prepare so that the overall filter can be lazily determined.
             SkRect domain = normalize_domain(filter, proxyParams, domainForQuad);
+
+            // Always append a quad (or 2 if perspective clipped), it just may refer back to a prior
+            // ViewCountPair (this frequently happens when Chrome draws 9-patches).
             float alpha = SkTPin(set[q].fAlpha, 0.f, 1.f);
-            fQuads.append(quad, {{alpha, alpha, alpha, alpha}, domain, aaFlags}, &srcQuad);
-            fViewCountPairs[p].fQuadCnt++;
+            fViewCountPairs[p].fQuadCnt += this->appendQuad(
+                    &quad, {alpha, alpha, alpha, alpha}, domain);
         }
         // The # of proxy switches should match what was provided (+1 because we incremented p
         // when a new proxy was encountered).
         SkASSERT((p + 1) == fMetadata.fProxyCount);
         SkASSERT(fQuads.count() == fMetadata.fTotalQuadCount);
-
-        // All the quads have been recorded, but some domains need to be fixed
-        if (netDomain == Domain::kYes && correctDomainUpToIndex > 0) {
-            int p = 0; // for fViewCountPairs
-            int q = 0; // for set/fQuads
-            int netVCt = 0;
-            auto iter = fQuads.metadata();
-            while(q < correctDomainUpToIndex && iter.next()) {
-                NormalizationParams proxyParams = proxy_normalization_params(
-                        fViewCountPairs[p].fProxy.get(), set[q].fProxyView.origin());
-                correct_domain_for_bilerp(proxyParams, &(iter->fDomainRect));
-                q++;
-                if (q - netVCt >= fViewCountPairs[p].fQuadCnt) {
-                    // Advance to the next view count pair
-                    netVCt += fViewCountPairs[p].fQuadCnt;
-                    p++;
-                }
-            }
-        }
 
         fMetadata.fAAType = static_cast<uint16_t>(netAAType);
         fMetadata.fFilter = static_cast<uint16_t>(netFilter);
@@ -655,68 +597,117 @@ private:
         this->setBounds(bounds, HasAABloat(netAAType == GrAAType::kCoverage), IsHairline::kNo);
     }
 
+    int appendQuad(DrawQuad* quad, const SkPMColor4f& color, const SkRect& domain) {
+        DrawQuad extra;
+        // Only clip when there's anti-aliasing. When non-aa, the GPU clips just fine and there's
+        // no inset/outset math that requires w > 0.
+        int quadCount = quad->fEdgeFlags != GrQuadAAFlags::kNone ?
+                GrQuadUtils::ClipToW0(quad, &extra) : 1;
+        if (quadCount == 0) {
+            // We can't discard the op at this point, but disable AA flags so it won't go through
+            // inset/outset processing
+            quad->fEdgeFlags = GrQuadAAFlags::kNone;
+            quadCount = 1;
+        }
+        fQuads.append(quad->fDevice, {color, domain, quad->fEdgeFlags},  &quad->fLocal);
+        if (quadCount > 1) {
+            fQuads.append(extra.fDevice, {color, domain, extra.fEdgeFlags}, &extra.fLocal);
+            fMetadata.fTotalQuadCount++;
+        }
+        return quadCount;
+    }
+
+    GrProgramInfo* programInfo() override {
+        // Although this Op implements its own onPrePrepareDraws it calls GrMeshDrawOps' version so
+        // this entry point will be called.
+        return (fDesc) ? fDesc->fProgramInfo : nullptr;
+    }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+        SkASSERT(fDesc);
+
+        GrGeometryProcessor* gp;
+
+        {
+            const GrBackendFormat& backendFormat =
+                    fViewCountPairs[0].fProxy->backendFormat();
+
+            GrSamplerState samplerState = GrSamplerState(GrSamplerState::WrapMode::kClamp,
+                                                         fMetadata.filter());
+
+            gp = GrQuadPerEdgeAA::MakeTexturedProcessor(
+                    arena, fDesc->fVertexSpec, *caps->shaderCaps(), backendFormat, samplerState,
+                    fMetadata.fSwizzle, std::move(fTextureColorSpaceXform), fMetadata.saturate());
+
+            SkASSERT(fDesc->fVertexSpec.vertexSize() == gp->vertexStride());
+        }
+
+        auto pipelineFlags = (GrAAType::kMSAA == fMetadata.aaType()) ?
+                GrPipeline::InputFlags::kHWAntialias : GrPipeline::InputFlags::kNone;
+
+        fDesc->fProgramInfo = GrSimpleMeshDrawOpHelper::CreateProgramInfo(
+                caps, arena, outputView, std::move(appliedClip), dstProxyView, gp,
+                GrProcessorSet::MakeEmptySet(), fDesc->fVertexSpec.primitiveType(),
+                pipelineFlags);
+    }
+
     void onPrePrepareDraws(GrRecordingContext* context,
-                           const GrSurfaceProxyView* dstView,
+                           const GrSurfaceProxyView* outputView,
                            GrAppliedClip* clip,
                            const GrXferProcessor::DstProxyView& dstProxyView) override {
         TRACE_EVENT0("skia.gpu", TRACE_FUNC);
 
         SkDEBUGCODE(this->validate();)
-        SkASSERT(!fPrePreparedDesc);
+        SkASSERT(!fDesc);
 
         SkArenaAlloc* arena = context->priv().recordTimeAllocator();
 
-        fPrePreparedDesc = arena->make<PrePreparedDesc>();
+        fDesc = arena->make<Desc>();
+        this->characterize(fDesc);
+        fDesc->allocatePrePreparedVertices(arena);
+        FillInVertices(*context->priv().caps(), this, fDesc, fDesc->fPrePreparedVertices);
 
-        this->characterize(fPrePreparedDesc);
-
-        fPrePreparedDesc->allocateCommon(arena, clip);
-
-        fPrePreparedDesc->allocatePrePrepareOnly(arena);
-
-        // At this juncture we only fill in the vertex data and state arrays. Filling in of
-        // the meshes is left until onPrepareDraws.
-        SkAssertResult(FillInData(*context->priv().caps(), this, fPrePreparedDesc,
-                                  fPrePreparedDesc->fVertices, nullptr, 0, nullptr, nullptr));
+        // This will call onCreateProgramInfo and register the created program with the DDL.
+        this->INHERITED::onPrePrepareDraws(context, outputView, clip, dstProxyView);
     }
 
-    static bool FillInData(const GrCaps& caps, TextureOp* texOp, PrePreparedDesc* desc,
-                           char* pVertexData, GrMesh* meshes, int absBufferOffset,
-                           sk_sp<const GrBuffer> vertexBuffer,
-                           sk_sp<const GrBuffer> indexBuffer) {
+    static void FillInVertices(const GrCaps& caps, TextureOp* texOp, Desc* desc, char* vertexData) {
+        SkASSERT(vertexData);
+
         int totQuadsSeen = 0;
         SkDEBUGCODE(int totVerticesSeen = 0;)
         SkDEBUGCODE(const size_t vertexSize = desc->fVertexSpec.vertexSize());
 
-        GrQuadPerEdgeAA::Tessellator tessellator(desc->fVertexSpec, pVertexData);
-        int meshIndex = 0;
+        GrQuadPerEdgeAA::Tessellator tessellator(desc->fVertexSpec, vertexData);
         for (const auto& op : ChainRange<TextureOp>(texOp)) {
             auto iter = op.fQuads.iterator();
             for (unsigned p = 0; p < op.fMetadata.fProxyCount; ++p) {
                 const int quadCnt = op.fViewCountPairs[p].fQuadCnt;
                 SkDEBUGCODE(int meshVertexCnt = quadCnt * desc->fVertexSpec.verticesPerQuad());
-                SkASSERT(meshIndex < desc->fNumProxies);
 
-                if (pVertexData) {
-                    for (int i = 0; i < quadCnt && iter.next(); ++i) {
-                        SkASSERT(iter.isLocalValid());
-                        const ColorDomainAndAA& info = iter.metadata();
-                        tessellator.append(iter.deviceQuad(), iter.localQuad(),
-                                           info.fColor, info.fDomainRect, info.aaFlags());
-                    }
-                    desc->setMeshProxy(meshIndex, op.fViewCountPairs[p].fProxy.get());
+                // Can just use top-left for origin here since we only need the dimensions to
+                // determine the texel size for insetting.
+                NormalizationParams params = proxy_normalization_params(
+                        op.fViewCountPairs[p].fProxy.get(), kTopLeft_GrSurfaceOrigin);
 
-                    SkASSERT((totVerticesSeen + meshVertexCnt) * vertexSize
-                             == (size_t)(tessellator.vertices() - pVertexData));
+                bool inset = texOp->fMetadata.filter() != GrSamplerState::Filter::kNearest;
+
+                for (int i = 0; i < quadCnt && iter.next(); ++i) {
+                    SkASSERT(iter.isLocalValid());
+                    const ColorDomainAndAA& info = iter.metadata();
+
+                    tessellator.append(iter.deviceQuad(), iter.localQuad(), info.fColor,
+                                       inset ? inset_domain_for_bilerp(params, info.fDomainRect)
+                                             : info.fDomainRect,
+                                       info.aaFlags());
                 }
 
-                if (meshes) {
-                    GrQuadPerEdgeAA::ConfigureMesh(caps, &(meshes[meshIndex]), desc->fVertexSpec,
-                                                   totQuadsSeen, quadCnt, desc->totalNumVertices(),
-                                                   vertexBuffer, indexBuffer, absBufferOffset);
-                }
-
-                ++meshIndex;
+                SkASSERT((totVerticesSeen + meshVertexCnt) * vertexSize
+                         == (size_t)(tessellator.vertices() - vertexData));
 
                 totQuadsSeen += quadCnt;
                 SkDEBUGCODE(totVerticesSeen += meshVertexCnt);
@@ -725,15 +716,12 @@ private:
 
             // If quad counts per proxy were calculated correctly, the entire iterator
             // should have been consumed.
-            SkASSERT(!pVertexData || !iter.next());
+            SkASSERT(!iter.next());
         }
 
-        SkASSERT(!pVertexData ||
-                 (desc->totalSizeInBytes() == (size_t)(tessellator.vertices() - pVertexData)));
-        SkASSERT(meshIndex == desc->fNumProxies);
+        SkASSERT(desc->totalSizeInBytes() == (size_t)(tessellator.vertices() - vertexData));
         SkASSERT(totQuadsSeen == desc->fNumTotalQuads);
         SkASSERT(totVerticesSeen == desc->totalNumVertices());
-        return true;
     }
 
 #ifdef SK_DEBUG
@@ -771,7 +759,7 @@ private:
     int numQuads() const final { return this->totNumQuads(); }
 #endif
 
-    void characterize(PrePreparedDesc* desc) const {
+    void characterize(Desc* desc) const {
         GrQuad::Type quadType = GrQuad::Type::kAxisAligned;
         ColorType colorType = ColorType::kNone;
         GrQuad::Type srcQuadType = GrQuad::Type::kAxisAligned;
@@ -792,11 +780,11 @@ private:
             if (op.fMetadata.domain() == Domain::kYes) {
                 domain = Domain::kYes;
             }
-            colorType = SkTMax(colorType, op.fMetadata.colorType());
+            colorType = std::max(colorType, op.fMetadata.colorType());
             desc->fNumProxies += op.fMetadata.fProxyCount;
 
             for (unsigned p = 0; p < op.fMetadata.fProxyCount; ++p) {
-                maxQuadsPerMesh = SkTMax(op.fViewCountPairs[p].fQuadCnt, maxQuadsPerMesh);
+                maxQuadsPerMesh = std::max(op.fViewCountPairs[p].fQuadCnt, maxQuadsPerMesh);
             }
             desc->fNumTotalQuads += op.totNumQuads();
 
@@ -851,93 +839,76 @@ private:
 
         SkDEBUGCODE(this->validate();)
 
-        PrePreparedDesc desc;
+        SkASSERT(!fDesc || fDesc->fPrePreparedVertices);
 
-        if (fPrePreparedDesc) {
-            desc = *fPrePreparedDesc;
-        } else {
+        if (!fDesc) {
             SkArenaAlloc* arena = target->allocator();
-
-            this->characterize(&desc);
-            desc.allocateCommon(arena, target->appliedClip());
-
-            SkASSERT(!desc.fVertices);
+            fDesc = arena->make<Desc>();
+            this->characterize(fDesc);
+            SkASSERT(!fDesc->fPrePreparedVertices);
         }
 
-        size_t vertexSize = desc.fVertexSpec.vertexSize();
+        size_t vertexSize = fDesc->fVertexSpec.vertexSize();
 
-        sk_sp<const GrBuffer> vbuffer;
-        int vertexOffsetInBuffer = 0;
-
-        void* vdata = target->makeVertexSpace(vertexSize, desc.totalNumVertices(),
-                                              &vbuffer, &vertexOffsetInBuffer);
+        void* vdata = target->makeVertexSpace(vertexSize, fDesc->totalNumVertices(),
+                                              &fDesc->fVertexBuffer, &fDesc->fBaseVertex);
         if (!vdata) {
             SkDebugf("Could not allocate vertices\n");
             return;
         }
 
-        sk_sp<const GrBuffer> indexBuffer;
-        if (desc.fVertexSpec.needsIndexBuffer()) {
-            indexBuffer = GrQuadPerEdgeAA::GetIndexBuffer(target,
-                                                          desc.fVertexSpec.indexBufferOption());
-            if (!indexBuffer) {
+        if (fDesc->fVertexSpec.needsIndexBuffer()) {
+            fDesc->fIndexBuffer = GrQuadPerEdgeAA::GetIndexBuffer(
+                    target, fDesc->fVertexSpec.indexBufferOption());
+            if (!fDesc->fIndexBuffer) {
                 SkDebugf("Could not allocate indices\n");
                 return;
             }
         }
 
-        // Note: this allocation is always in the flush-time arena (i.e., the flushState)
-        GrMesh* meshes = target->allocMeshes(desc.fNumProxies);
-
-        bool result;
-        if (fPrePreparedDesc) {
-            memcpy(vdata, desc.fVertices, desc.totalSizeInBytes());
-            // The above memcpy filled in the vertex data - just call FillInData to fill in the
-            // mesh data
-            result = FillInData(target->caps(), this, &desc, nullptr, meshes, vertexOffsetInBuffer,
-                                std::move(vbuffer), std::move(indexBuffer));
+        if (fDesc->fPrePreparedVertices) {
+            memcpy(vdata, fDesc->fPrePreparedVertices, fDesc->totalSizeInBytes());
         } else {
-            // Fills in both vertex data and mesh data
-            result = FillInData(target->caps(), this, &desc, (char*) vdata, meshes,
-                                vertexOffsetInBuffer, std::move(vbuffer), std::move(indexBuffer));
+            FillInVertices(target->caps(), this, fDesc, (char*) vdata);
         }
-
-        if (!result) {
-            return;
-        }
-
-        GrGeometryProcessor* gp;
-
-        {
-            const GrBackendFormat& backendFormat =
-                    fViewCountPairs[0].fProxy->backendFormat();
-
-            GrSamplerState samplerState = GrSamplerState(GrSamplerState::WrapMode::kClamp,
-                                                         fMetadata.filter());
-
-            gp = GrQuadPerEdgeAA::MakeTexturedProcessor(target->allocator(),
-                desc.fVertexSpec, *target->caps().shaderCaps(), backendFormat,
-                samplerState, fMetadata.fSwizzle, std::move(fTextureColorSpaceXform),
-                fMetadata.saturate());
-
-            SkASSERT(vertexSize == gp->vertexStride());
-        }
-
-        target->recordDraw(gp, meshes, desc.fNumProxies,
-                           desc.fFixedDynamicState, desc.fDynamicStateArrays,
-                           desc.fVertexSpec.primitiveType());
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        auto pipelineFlags = (GrAAType::kMSAA == fMetadata.aaType())
-                ? GrPipeline::InputFlags::kHWAntialias
-                : GrPipeline::InputFlags::kNone;
+        if (!fDesc->fVertexBuffer) {
+            return;
+        }
 
-        auto pipeline = GrSimpleMeshDrawOpHelper::CreatePipeline(flushState,
-                                                                 GrProcessorSet::MakeEmptySet(),
-                                                                 pipelineFlags);
+        if (fDesc->fVertexSpec.needsIndexBuffer() && !fDesc->fIndexBuffer) {
+            return;
+        }
 
-        flushState->executeDrawsAndUploadsForMeshDrawOp(this, chainBounds, pipeline);
+        if (!fDesc->fProgramInfo) {
+            this->createProgramInfo(flushState);
+            SkASSERT(fDesc->fProgramInfo);
+        }
+
+        flushState->bindPipelineAndScissorClip(*fDesc->fProgramInfo, chainBounds);
+        flushState->bindBuffers(fDesc->fIndexBuffer.get(), nullptr, fDesc->fVertexBuffer.get());
+
+        int totQuadsSeen = 0;
+        SkDEBUGCODE(int numDraws = 0;)
+        for (const auto& op : ChainRange<TextureOp>(this)) {
+            for (unsigned p = 0; p < op.fMetadata.fProxyCount; ++p) {
+                const int quadCnt = op.fViewCountPairs[p].fQuadCnt;
+                SkASSERT(numDraws < fDesc->fNumProxies);
+                flushState->bindTextures(fDesc->fProgramInfo->primProc(),
+                                         *op.fViewCountPairs[p].fProxy,
+                                         fDesc->fProgramInfo->pipeline());
+                GrQuadPerEdgeAA::IssueDraw(flushState->caps(), flushState->opsRenderPass(),
+                                           fDesc->fVertexSpec, totQuadsSeen, quadCnt,
+                                           fDesc->totalNumVertices(), fDesc->fBaseVertex);
+                totQuadsSeen += quadCnt;
+                SkDEBUGCODE(++numDraws;)
+            }
+        }
+
+        SkASSERT(totQuadsSeen == fDesc->fNumTotalQuads);
+        SkASSERT(numDraws == fDesc->fNumProxies);
     }
 
     CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
@@ -945,7 +916,7 @@ private:
         TRACE_EVENT0("skia.gpu", TRACE_FUNC);
         const auto* that = t->cast<TextureOp>();
 
-        if (fPrePreparedDesc || that->fPrePreparedDesc) {
+        if (fDesc || that->fDesc) {
             // This should never happen (since only DDL recorded ops should be prePrepared)
             // but, in any case, we should never combine ops that that been prePrepared
             return CombineResult::kCannotCombine;
@@ -997,7 +968,7 @@ private:
         }
 
         fMetadata.fDomain |= that->fMetadata.fDomain;
-        fMetadata.fColorType = SkTMax(fMetadata.fColorType, that->fMetadata.fColorType);
+        fMetadata.fColorType = std::max(fMetadata.fColorType, that->fMetadata.fColorType);
         if (upgradeToCoverageAAOnMerge) {
             fMetadata.fAAType = static_cast<uint16_t>(GrAAType::kCoverage);
         }
@@ -1012,13 +983,10 @@ private:
 
     GrQuadBuffer<ColorDomainAndAA> fQuads;
     sk_sp<GrColorSpaceXform> fTextureColorSpaceXform;
-    // 'fPrePreparedDesc' is only filled in when this op has been prePrepared. In that case,
-    // it - and the matching dynamic and fixed state - have been allocated in the opPOD arena
-    // not in the FlushState arena.
-    PrePreparedDesc* fPrePreparedDesc;
-    // All configurable state of TextureOp is packed into one field to minimize the op's size.
+    // Most state of TextureOp is packed into these two field to minimize the op's size.
     // Historically, increasing the size of TextureOp has caused surprising perf regressions, so
     // consider/measure changes with care.
+    Desc* fDesc;
     Metadata fMetadata;
 
     // This field must go last. When allocating this op, we will allocate extra space to hold
@@ -1046,9 +1014,7 @@ std::unique_ptr<GrDrawOp> GrTextureOp::Make(GrRecordingContext* context,
                                             Saturate saturate,
                                             SkBlendMode blendMode,
                                             GrAAType aaType,
-                                            GrQuadAAFlags aaFlags,
-                                            const GrQuad& deviceQuad,
-                                            const GrQuad& localQuad,
+                                            DrawQuad* quad,
                                             const SkRect* domain) {
     // Apply optimizations that are valid whether or not using GrTextureOp or GrFillRectOp
     if (domain && domain->contains(proxyView.proxy()->backingStoreBoundsRect())) {
@@ -1056,36 +1022,33 @@ std::unique_ptr<GrDrawOp> GrTextureOp::Make(GrRecordingContext* context,
         domain = nullptr;
     }
 
-    if (filter != GrSamplerState::Filter::kNearest && !filter_has_effect(localQuad, deviceQuad)) {
+    if (filter != GrSamplerState::Filter::kNearest &&
+        !filter_has_effect(quad->fLocal, quad->fDevice)) {
         filter = GrSamplerState::Filter::kNearest;
     }
 
     if (blendMode == SkBlendMode::kSrcOver) {
         return TextureOp::Make(context, std::move(proxyView), std::move(textureXform), filter,
-                               color, saturate, aaType, aaFlags, deviceQuad, localQuad, domain);
+                               color, saturate, aaType, std::move(quad), domain);
     } else {
         // Emulate complex blending using GrFillRectOp
         GrPaint paint;
         paint.setColor4f(color);
         paint.setXPFactory(SkBlendMode_AsXPFactory(blendMode));
 
-        GrSurfaceProxy* proxy = proxyView.proxy();
         std::unique_ptr<GrFragmentProcessor> fp;
         if (domain) {
-            // Update domain to match what GrTextureOp would do for bilerp, but don't do any
-            // normalization since GrTextureEffect handles that and the origin.
-            SkRect correctedDomain = normalize_domain(filter, {1.f, 1.f, 0.f}, domain);
             const auto& caps = *context->priv().caps();
             SkRect localRect;
-            if (localQuad.asRect(&localRect)) {
-                fp = GrTextureEffect::MakeSubset(sk_ref_sp(proxy), alphaType, SkMatrix::I(), filter,
-                                                 correctedDomain, localRect, caps);
+            if (quad->fLocal.asRect(&localRect)) {
+                fp = GrTextureEffect::MakeSubset(std::move(proxyView), alphaType, SkMatrix::I(), filter,
+                                                 *domain, localRect, caps);
             } else {
-                fp = GrTextureEffect::MakeSubset(sk_ref_sp(proxy), alphaType, SkMatrix::I(), filter,
-                                                 correctedDomain, caps);
+                fp = GrTextureEffect::MakeSubset(std::move(proxyView), alphaType, SkMatrix::I(), filter,
+                                                 *domain, caps);
             }
         } else {
-            fp = GrTextureEffect::Make(sk_ref_sp(proxy), alphaType, SkMatrix::I(), filter);
+            fp = GrTextureEffect::Make(std::move(proxyView), alphaType, SkMatrix::I(), filter);
         }
         fp = GrColorSpaceXformEffect::Make(std::move(fp), std::move(textureXform));
         paint.addColorFragmentProcessor(std::move(fp));
@@ -1093,8 +1056,7 @@ std::unique_ptr<GrDrawOp> GrTextureOp::Make(GrRecordingContext* context,
             paint.addColorFragmentProcessor(GrClampFragmentProcessor::Make(false));
         }
 
-        return GrFillRectOp::Make(context, std::move(paint), aaType, aaFlags,
-                                  deviceQuad, localQuad);
+        return GrFillRectOp::Make(context, std::move(paint), aaType, quad);
     }
 }
 
@@ -1185,16 +1147,17 @@ void GrTextureOp::AddTextureSetOps(GrRenderTargetContext* rtc,
                 ctm.preConcat(*set[i].fPreViewMatrix);
             }
 
-            GrQuad quad, srcQuad;
+            DrawQuad quad;
+            quad.fEdgeFlags = set[i].fAAFlags;
             if (set[i].fDstClipQuad) {
-                quad = GrQuad::MakeFromSkQuad(set[i].fDstClipQuad, ctm);
+                quad.fDevice = GrQuad::MakeFromSkQuad(set[i].fDstClipQuad, ctm);
 
                 SkPoint srcPts[4];
                 GrMapRectPoints(set[i].fDstRect, set[i].fSrcRect, set[i].fDstClipQuad, srcPts, 4);
-                srcQuad = GrQuad::MakeFromSkQuad(srcPts, SkMatrix::I());
+                quad.fLocal = GrQuad::MakeFromSkQuad(srcPts, SkMatrix::I());
             } else {
-                quad = GrQuad::MakeFromRect(set[i].fDstRect, ctm);
-                srcQuad = GrQuad(set[i].fSrcRect);
+                quad.fDevice = GrQuad::MakeFromRect(set[i].fDstRect, ctm);
+                quad.fLocal = GrQuad(set[i].fSrcRect);
             }
 
             const SkRect* domain = constraint == SkCanvas::kStrict_SrcRectConstraint
@@ -1202,7 +1165,7 @@ void GrTextureOp::AddTextureSetOps(GrRenderTargetContext* rtc,
 
             auto op = Make(context, set[i].fProxyView, set[i].fSrcAlphaType, textureColorSpaceXform,
                            filter, {alpha, alpha, alpha, alpha}, saturate, blendMode, aaType,
-                           set[i].fAAFlags, quad, srcQuad, domain);
+                           &quad, domain);
             rtc->addDrawOp(clip, std::move(op));
         }
         return;
@@ -1210,7 +1173,7 @@ void GrTextureOp::AddTextureSetOps(GrRenderTargetContext* rtc,
 
     // Second check if we can always just make a single op and avoid the extra iteration
     // needed to clump things together.
-    if (cnt <= SkTMin(GrResourceProvider::MaxNumNonAAQuads(),
+    if (cnt <= std::min(GrResourceProvider::MaxNumNonAAQuads(),
                       GrResourceProvider::MaxNumAAQuads())) {
         auto op = TextureOp::Make(context, set, cnt, proxyRunCnt, filter, saturate, aaType,
                                   constraint, viewMatrix, std::move(textureColorSpaceXform));
@@ -1225,7 +1188,7 @@ void GrTextureOp::AddTextureSetOps(GrRenderTargetContext* rtc,
     if (aaType == GrAAType::kNone || aaType == GrAAType::kMSAA) {
         // Clump these into series of MaxNumNonAAQuads-sized GrTextureOps
         while (state.numLeft() > 0) {
-            int clumpSize = SkTMin(state.numLeft(), GrResourceProvider::MaxNumNonAAQuads());
+            int clumpSize = std::min(state.numLeft(), GrResourceProvider::MaxNumNonAAQuads());
 
             state.createOp(set, clumpSize, aaType);
         }
@@ -1286,9 +1249,9 @@ void GrTextureOp::AddTextureSetOps(GrRenderTargetContext* rtc,
 #include "src/gpu/GrRecordingContextPriv.h"
 
 GR_DRAW_OP_TEST_DEFINE(TextureOp) {
-    GrSurfaceDesc desc;
-    desc.fHeight = random->nextULessThan(90) + 10;
-    desc.fWidth = random->nextULessThan(90) + 10;
+    SkISize dims;
+    dims.fHeight = random->nextULessThan(90) + 10;
+    dims.fWidth = random->nextULessThan(90) + 10;
     auto origin = random->nextBool() ? kTopLeft_GrSurfaceOrigin : kBottomLeft_GrSurfaceOrigin;
     GrMipMapped mipMapped = random->nextBool() ? GrMipMapped::kYes : GrMipMapped::kNo;
     SkBackingFit fit = SkBackingFit::kExact;
@@ -1298,12 +1261,10 @@ GR_DRAW_OP_TEST_DEFINE(TextureOp) {
     const GrBackendFormat format =
             context->priv().caps()->getDefaultBackendFormat(GrColorType::kRGBA_8888,
                                                             GrRenderable::kNo);
-    GrSwizzle swizzle = context->priv().caps()->getReadSwizzle(format, GrColorType::kRGBA_8888);
-
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
     sk_sp<GrTextureProxy> proxy = proxyProvider->createProxy(
-            format, desc, swizzle, GrRenderable::kNo, 1, origin, mipMapped, fit, SkBudgeted::kNo,
-            GrProtected::kNo, GrInternalSurfaceFlags::kNone);
+            format, dims, GrRenderable::kNo, 1, mipMapped, fit, SkBudgeted::kNo, GrProtected::kNo,
+            GrInternalSurfaceFlags::kNone);
 
     SkRect rect = GrTest::TestRect(random);
     SkRect srcRect;
@@ -1337,10 +1298,10 @@ GR_DRAW_OP_TEST_DEFINE(TextureOp) {
     auto alphaType = static_cast<SkAlphaType>(
             random->nextRangeU(kUnknown_SkAlphaType + 1, kLastEnum_SkAlphaType));
 
+    DrawQuad quad = {GrQuad::MakeFromRect(rect, viewMatrix), GrQuad(srcRect), aaFlags};
     return GrTextureOp::Make(context, std::move(proxyView), alphaType, std::move(texXform), filter,
-                             color, saturate, SkBlendMode::kSrcOver, aaType, aaFlags,
-                             GrQuad::MakeFromRect(rect, viewMatrix), GrQuad(srcRect),
-                             useDomain ? &srcRect : nullptr);
+                             color, saturate, SkBlendMode::kSrcOver, aaType,
+                             &quad, useDomain ? &srcRect : nullptr);
 }
 
 #endif

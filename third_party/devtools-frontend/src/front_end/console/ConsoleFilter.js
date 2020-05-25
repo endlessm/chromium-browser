@@ -2,13 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import * as SDK from '../sdk/sdk.js';
+import * as TextUtils from '../text_utils/text_utils.js';
+
 import {ConsoleViewMessage} from './ConsoleViewMessage.js';  // eslint-disable-line no-unused-vars
 
 export class ConsoleFilter {
   /**
    * @param {string} name
-   * @param {!Array<!TextUtils.FilterParser.ParsedFilter>} parsedFilters
-   * @param {?SDK.ExecutionContext} executionContext
+   * @param {!Array<!TextUtils.TextUtils.ParsedFilter>} parsedFilters
+   * @param {?SDK.RuntimeModel.ExecutionContext} executionContext
    * @param {!Object<string, boolean>=} levelsMask
    */
   constructor(name, parsedFilters, executionContext, levelsMask) {
@@ -23,7 +26,7 @@ export class ConsoleFilter {
    */
   static allLevelsFilterValue() {
     const result = {};
-    for (const name of Object.values(SDK.ConsoleMessage.MessageLevel)) {
+    for (const name of Object.values(SDK.ConsoleModel.MessageLevel)) {
       result[name] = true;
     }
     return result;
@@ -34,7 +37,7 @@ export class ConsoleFilter {
    */
   static defaultLevelsFilterValue() {
     const result = ConsoleFilter.allLevelsFilterValue();
-    result[SDK.ConsoleMessage.MessageLevel.Verbose] = false;
+    result[SDK.ConsoleModel.MessageLevel.Verbose] = false;
     return result;
   }
 
@@ -52,7 +55,7 @@ export class ConsoleFilter {
    * @return {!ConsoleFilter}
    */
   clone() {
-    const parsedFilters = this.parsedFilters.map(TextUtils.FilterParser.cloneFilter);
+    const parsedFilters = this.parsedFilters.map(TextUtils.TextUtils.FilterParser.cloneFilter);
     const levelsMask = Object.assign({}, this.levelsMask);
     return new ConsoleFilter(this.name, parsedFilters, this.executionContext, levelsMask);
   }
@@ -69,8 +72,8 @@ export class ConsoleFilter {
       return false;
     }
 
-    if (message.type === SDK.ConsoleMessage.MessageType.Command ||
-        message.type === SDK.ConsoleMessage.MessageType.Result || message.isGroupMessage()) {
+    if (message.type === SDK.ConsoleModel.MessageType.Command || message.type === SDK.ConsoleModel.MessageType.Result ||
+        message.isGroupMessage()) {
       return true;
     }
 
@@ -88,32 +91,35 @@ export class ConsoleFilter {
         }
       } else {
         switch (filter.key) {
-          case FilterType.Context:
+          case FilterType.Context: {
             if (!passesFilter(filter, message.context, false /* exactMatch */)) {
               return false;
             }
             break;
-          case FilterType.Source:
+          }
+          case FilterType.Source: {
             const sourceNameForMessage = message.source ?
-                SDK.ConsoleMessage.MessageSourceDisplayName.get(
-                    /** @type {!SDK.ConsoleMessage.MessageSource} */ (message.source)) :
+                SDK.ConsoleModel.MessageSourceDisplayName.get(
+                    /** @type {!SDK.ConsoleModel.MessageSource} */ (message.source)) :
                 message.source;
             if (!passesFilter(filter, sourceNameForMessage, true /* exactMatch */)) {
               return false;
             }
             break;
-          case FilterType.Url:
+          }
+          case FilterType.Url: {
             if (!passesFilter(filter, message.url, false /* exactMatch */)) {
               return false;
             }
             break;
+          }
         }
       }
     }
     return true;
 
     /**
-     * @param {!TextUtils.FilterParser.ParsedFilter} filter
+     * @param {!TextUtils.TextUtils.ParsedFilter} filter
      * @param {?string|undefined} value
      * @param {boolean} exactMatch
      * @return {boolean}
