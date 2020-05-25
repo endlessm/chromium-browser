@@ -16,7 +16,7 @@
 #include "util/msg_loop.h"
 #include "util/sys_info.h"
 
-#include "last_commit_position.h"
+#define LAST_COMMIT_POSITION "UNKNOWN"
 
 namespace {
 
