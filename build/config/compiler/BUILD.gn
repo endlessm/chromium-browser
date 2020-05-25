@@ -1511,21 +1511,6 @@ config("default_warnings") {
           # TODO(thakis): Only for no_chromium_code? http://crbug.com/912662
           "-Wno-ignored-pragma-optimize",
 
-          # TODO(https://crbug.com/989932): Evaluate and possibly enable.
-          "-Wno-implicit-int-float-conversion",
-
-          # TODO(https://crbug.com/999886): Clean up, enable.
-          "-Wno-final-dtor-non-final-class",
-
-          # TODO(https://crbug.com/1016945) Clean up, enable.
-          "-Wno-builtin-assume-aligned-alignment",
-
-          # TODO(https://crbug.com/1028110): Evaluate and possible enable.
-          "-Wno-deprecated-copy",
-
-          # TODO(https://crbug.com/1050281): Clean up, enable.
-          "-Wno-non-c-typedef-for-linkage",
-
           # TODO(https://crbug.com/1059231): Clean up, enable.
           "-Wno-pointer-to-int-cast",
         ]
@@ -1677,8 +1662,6 @@ config("no_chromium_code") {
     ]
     if (!is_nacl && (current_toolchain == host_toolchain || !use_xcode_clang)) {
       cflags += [
-        # TODO(https://crbug.com/1031169): Clean up and enable.
-        "-Wno-misleading-indentation",
       ]
     }
   }
