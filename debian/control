@@ -13,6 +13,7 @@ Build-Depends:
 	lsb-release,
 	quilt,
 	python,
+	python-pkg-resources,
 	bison,
 	clang-9,
 	llvm-9,
