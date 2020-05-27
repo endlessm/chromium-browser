@@ -33,9 +33,11 @@ base::queue<VideoDecoderPipeline::CreateVDFunc> GetCreateVDFunctions(
     &VaapiVideoDecoder::Create,
 #endif  // BUILDFLAG(USE_VAAPI)
 
+#if 0
 #if BUILDFLAG(USE_V4L2_CODEC)
     &V4L2SliceVideoDecoder::Create,
 #endif  // BUILDFLAG(USE_V4L2_CODEC)
+#endif
   };
 
   base::queue<VideoDecoderPipeline::CreateVDFunc> ret;
@@ -60,11 +62,13 @@ ChromeosVideoDecoderFactory::GetSupportedConfigs() {
                            configs.end());
 #endif  // BUILDFLAG(USE_VAAPI)
 
+#if 0
 #if BUILDFLAG(USE_V4L2_CODEC)
   configs = V4L2SliceVideoDecoder::GetSupportedConfigs();
   supported_configs.insert(supported_configs.end(), configs.begin(),
                            configs.end());
 #endif  // BUILDFLAG(USE_V4L2_CODEC)
+#endif
 
   return supported_configs;
 }
