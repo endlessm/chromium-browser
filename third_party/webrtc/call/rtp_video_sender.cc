@@ -30,6 +30,7 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/location.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/task_queue.h"
 #include "system_wrappers/include/field_trial.h"
 
 namespace webrtc {
@@ -274,6 +275,7 @@ std::vector<RtpStreamSender> CreateRtpStreamSenders(
       video_config.red_payload_type = rtp_config.ulpfec.red_payload_type;
     }
     video_config.frame_transformer = frame_transformer;
+    video_config.worker_queue = transport->GetWorkerQueue()->Get();
     auto sender_video = std::make_unique<RTPSenderVideo>(video_config);
     rtp_streams.emplace_back(std::move(rtp_rtcp), std::move(sender_video),
                              std::move(fec_generator));
