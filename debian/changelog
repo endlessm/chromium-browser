@@ -1,3 +1,10 @@
+chromium-browser (83.0.4103.116-0endless0) eos; urgency=medium
+
+  * Upstream release: 83.0.4103.116
+    - CVE-2020-6509: Use after free in extensions.
+
+ -- Andre Moreira Magalhaes <andre@endlessm.com>  Thu, 25 Jun 2020 17:58:16 -0300
+
 chromium-browser (83.0.4103.106-0ubuntu0.18.04.1) bionic; urgency=medium
 
   * Upstream release: 83.0.4103.106
