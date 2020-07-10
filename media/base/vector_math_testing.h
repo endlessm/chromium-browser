@@ -28,7 +28,7 @@ MEDIA_SHMEM_EXPORT std::pair<float, float> EWMAAndMaxPower_C(
     int len,
     float smoothing_factor);
 
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(OS_NACL)
+#if defined(__x86_64__) && !defined(OS_NACL)
 MEDIA_SHMEM_EXPORT void FMAC_SSE(const float src[],
                                  float scale,
                                  int len,
