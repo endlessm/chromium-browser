@@ -93,13 +93,15 @@ class GpuAssisted : public ValidationStateTracker {
     GpuAssistedAccelerationStructureBuildValidationState acceleration_structure_validation_state;
 
   public:
+    GpuAssisted() { container_type = LayerObjectTypeGpuAssisted; }
+
     bool aborted = false;
     VkDevice device;
     VkPhysicalDevice physicalDevice;
     uint32_t adjusted_max_desc_sets;
     uint32_t desc_set_bind_index;
-    VkDescriptorSetLayout debug_desc_layout;
-    VkDescriptorSetLayout dummy_desc_layout;
+    VkDescriptorSetLayout debug_desc_layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout dummy_desc_layout = VK_NULL_HANDLE;
     std::unique_ptr<UtilDescriptorSetManager> desc_set_manager;
     std::unordered_map<uint32_t, GpuAssistedShaderTracker> shader_map;
     PFN_vkSetDeviceLoaderData vkSetDeviceLoaderData;
@@ -123,6 +125,7 @@ class GpuAssisted : public ValidationStateTracker {
                                    safe_VkDeviceCreateInfo* modified_create_info);
     void PostCallRecordCreateDevice(VkPhysicalDevice gpu, const VkDeviceCreateInfo* pCreateInfo,
                                     const VkAllocationCallbacks* pAllocator, VkDevice* pDevice, VkResult result);
+    void PostCallRecordGetBufferDeviceAddress(VkDevice device, const VkBufferDeviceAddressInfoEXT* pInfo, VkDeviceAddress address);
     void PostCallRecordGetBufferDeviceAddressKHR(VkDevice device, const VkBufferDeviceAddressInfoEXT* pInfo,
                                                  VkDeviceAddress address);
     void PostCallRecordGetBufferDeviceAddressEXT(VkDevice device, const VkBufferDeviceAddressInfoEXT* pInfo,

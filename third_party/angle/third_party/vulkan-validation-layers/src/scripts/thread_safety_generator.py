@@ -258,7 +258,7 @@ public:
     vl_concurrent_unordered_map<T, std::shared_ptr<ObjectUseData>, 6> object_table;
 
     void CreateObject(T object) {
-        object_table.insert_or_assign(object, std::make_shared<ObjectUseData>());
+        object_table.insert(object, std::make_shared<ObjectUseData>());
     }
 
     void DestroyObject(T object) {
@@ -475,7 +475,9 @@ COUNTER_CLASS_INSTANCES_TEMPLATE
 #else   // DISTINCT_NONDISPATCHABLE_HANDLES
           c_uint64_t("NON_DISPATCHABLE_HANDLE", kVulkanObjectTypeUnknown, this)
 #endif  // DISTINCT_NONDISPATCHABLE_HANDLES
-              {};
+    {
+        container_type = LayerObjectTypeThreading;
+    };
 
 #define WRAPPER(type)                                                \\
     void StartWriteObject(type object, const char *api_name) {       \\

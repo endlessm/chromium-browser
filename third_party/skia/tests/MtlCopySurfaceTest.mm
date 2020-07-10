@@ -8,6 +8,7 @@
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrContext.h"
 #include "src/gpu/GrContextPriv.h"
+#include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/mtl/GrMtlGpu.h"
 #include "tests/Test.h"
 
@@ -43,16 +44,16 @@ DEF_GPUTEST_FOR_METAL_CONTEXT(MtlCopySurfaceTest, reporter, ctxInfo) {
     GrProxyProvider* proxyProvider = context->priv().proxyProvider();
     sk_sp<GrSurfaceProxy> srcProxy = proxyProvider->wrapBackendRenderTarget(backendRT);
 
-    GrSurfaceProxyView dstView = GrSurfaceProxy::Copy(context, srcProxy.get(),
-                                                      kTopLeft_GrSurfaceOrigin,
-                                                      GrColorType::kBGRA_8888,
-                                                      GrMipMapped::kNo,
-                                                      SkBackingFit::kExact,
-                                                      SkBudgeted::kYes);
+    auto dstProxy = GrSurfaceProxy::Copy(context,
+                                         srcProxy.get(),
+                                         kTopLeft_GrSurfaceOrigin,
+                                         GrMipMapped::kNo,
+                                         SkBackingFit::kExact,
+                                         SkBudgeted::kYes);
 
     // TODO: GrSurfaceProxy::Copy doesn't check to see if the framebufferOnly bit is set yet.
     // Update this when it does -- it should fail.
-    if (!dstView.proxy()) {
+    if (!dstProxy) {
         ERRORF(reporter, "Expected copy to succeed");
     }
 

@@ -32,6 +32,7 @@ import platform
 import re
 import sys
 import time
+import unicodedata
 from collections import defaultdict
 
 verbose_mode = False
@@ -45,8 +46,6 @@ header_filename = "vk_validation_error_messages.h"
 vuid_prefixes = ['VUID-', 'UNASSIGNED-', 'kVUID_']
 
 # Hard-coded flags that could be command line args, if we decide that's useful
-# replace KHR vuids with non-KHR during consistency checking
-dealias_khr = True
 ignore_unassigned = True # These are not found in layer code unless they appear explicitly (most don't), so produce false positives
 
 layer_source_files = [common_codegen.repo_relative(path) for path in [
@@ -69,76 +68,6 @@ unassigned_vuid_files = [common_codegen.repo_relative(path) for path in [
     'layers/core_validation_error_enums.h',
     'layers/object_lifetime_validation.h'
 ]]
-
-# This needs to be updated as new extensions roll in
-khr_aliases = {
-    'VUID-vkBindBufferMemory2KHR-device-parameter'                                        : 'VUID-vkBindBufferMemory2-device-parameter',
-    'VUID-vkBindBufferMemory2KHR-pBindInfos-parameter'                                    : 'VUID-vkBindBufferMemory2-pBindInfos-parameter',
-    'VUID-vkBindImageMemory2KHR-device-parameter'                                         : 'VUID-vkBindImageMemory2-device-parameter',
-    'VUID-vkBindImageMemory2KHR-pBindInfos-parameter'                                     : 'VUID-vkBindImageMemory2-pBindInfos-parameter',
-    'VUID-vkCmdDispatchBaseKHR-commandBuffer-parameter'                                   : 'VUID-vkCmdDispatchBase-commandBuffer-parameter',
-    'VUID-vkCmdSetDeviceMaskKHR-commandBuffer-parameter'                                  : 'VUID-vkCmdSetDeviceMask-commandBuffer-parameter',
-    'VUID-vkCreateDescriptorUpdateTemplateKHR-device-parameter'                           : 'VUID-vkCreateDescriptorUpdateTemplate-device-parameter',
-    'VUID-vkCreateDescriptorUpdateTemplateKHR-pDescriptorUpdateTemplate-parameter'        : 'VUID-vkCreateDescriptorUpdateTemplate-pDescriptorUpdateTemplate-parameter',
-    'VUID-vkCreateSamplerYcbcrConversionKHR-device-parameter'                             : 'VUID-vkCreateSamplerYcbcrConversion-device-parameter',
-    'VUID-vkCreateSamplerYcbcrConversionKHR-pYcbcrConversion-parameter'                   : 'VUID-vkCreateSamplerYcbcrConversion-pYcbcrConversion-parameter',
-    'VUID-vkDestroyDescriptorUpdateTemplateKHR-descriptorUpdateTemplate-parameter'        : 'VUID-vkDestroyDescriptorUpdateTemplate-descriptorUpdateTemplate-parameter',
-    'VUID-vkDestroyDescriptorUpdateTemplateKHR-descriptorUpdateTemplate-parent'           : 'VUID-vkDestroyDescriptorUpdateTemplate-descriptorUpdateTemplate-parent',
-    'VUID-vkDestroyDescriptorUpdateTemplateKHR-device-parameter'                          : 'VUID-vkDestroyDescriptorUpdateTemplate-device-parameter',
-    'VUID-vkDestroySamplerYcbcrConversionKHR-device-parameter'                            : 'VUID-vkDestroySamplerYcbcrConversion-device-parameter',
-    'VUID-vkDestroySamplerYcbcrConversionKHR-ycbcrConversion-parameter'                   : 'VUID-vkDestroySamplerYcbcrConversion-ycbcrConversion-parameter',
-    'VUID-vkDestroySamplerYcbcrConversionKHR-ycbcrConversion-parent'                      : 'VUID-vkDestroySamplerYcbcrConversion-ycbcrConversion-parent',
-    'VUID-vkEnumeratePhysicalDeviceGroupsKHR-instance-parameter'                          : 'VUID-vkEnumeratePhysicalDeviceGroups-instance-parameter',
-    'VUID-vkEnumeratePhysicalDeviceGroupsKHR-pPhysicalDeviceGroupProperties-parameter'    : 'VUID-vkEnumeratePhysicalDeviceGroups-pPhysicalDeviceGroupProperties-parameter',
-    'VUID-vkGetBufferMemoryRequirements2KHR-device-parameter'                             : 'VUID-vkGetBufferMemoryRequirements2-device-parameter',
-    'VUID-vkGetDescriptorSetLayoutSupportKHR-device-parameter'                            : 'VUID-vkGetDescriptorSetLayoutSupport-device-parameter',
-    'VUID-vkGetDeviceGroupPeerMemoryFeaturesKHR-device-parameter'                         : 'VUID-vkGetDeviceGroupPeerMemoryFeatures-device-parameter',
-    'VUID-vkGetDeviceGroupPeerMemoryFeaturesKHR-pPeerMemoryFeatures-parameter'            : 'VUID-vkGetDeviceGroupPeerMemoryFeatures-pPeerMemoryFeatures-parameter',
-    'VUID-vkGetImageMemoryRequirements2KHR-device-parameter'                              : 'VUID-vkGetImageMemoryRequirements2-device-parameter',
-    'VUID-vkGetImageSparseMemoryRequirements2KHR-device-parameter'                        : 'VUID-vkGetImageSparseMemoryRequirements2-device-parameter',
-    'VUID-vkGetImageSparseMemoryRequirements2KHR-pSparseMemoryRequirements-parameter'     : 'VUID-vkGetImageSparseMemoryRequirements2-pSparseMemoryRequirements-parameter',
-    'VUID-vkGetPhysicalDeviceExternalBufferPropertiesKHR-physicalDevice-parameter'        : 'VUID-vkGetPhysicalDeviceExternalBufferProperties-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceExternalFencePropertiesKHR-physicalDevice-parameter'         : 'VUID-vkGetPhysicalDeviceExternalFenceProperties-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceExternalSemaphorePropertiesKHR-physicalDevice-parameter'     : 'VUID-vkGetPhysicalDeviceExternalSemaphoreProperties-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceFeatures2KHR-physicalDevice-parameter'                       : 'VUID-vkGetPhysicalDeviceFeatures2-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceFormatProperties2KHR-format-parameter'                       : 'VUID-vkGetPhysicalDeviceFormatProperties2-format-parameter',
-    'VUID-vkGetPhysicalDeviceFormatProperties2KHR-physicalDevice-parameter'               : 'VUID-vkGetPhysicalDeviceFormatProperties2-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceImageFormatProperties2KHR-physicalDevice-parameter'          : 'VUID-vkGetPhysicalDeviceImageFormatProperties2-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceMemoryProperties2KHR-physicalDevice-parameter'               : 'VUID-vkGetPhysicalDeviceMemoryProperties2-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceProperties2KHR-physicalDevice-parameter'                     : 'VUID-vkGetPhysicalDeviceProperties2-physicalDevice-parameter',
-    'VUID-vkGetPhysicalDeviceQueueFamilyProperties2KHR-pQueueFamilyProperties-parameter'  : 'VUID-vkGetPhysicalDeviceQueueFamilyProperties2-pQueueFamilyProperties-parameter',
-    'VUID-vkGetPhysicalDeviceSparseImageFormatProperties2KHR-pProperties-parameter'       : 'VUID-vkGetPhysicalDeviceSparseImageFormatProperties2-pProperties-parameter',
-    'VUID-vkGetPhysicalDeviceSparseImageFormatProperties2KHR-physicalDevice-parameter'    : 'VUID-vkGetPhysicalDeviceSparseImageFormatProperties2-physicalDevice-parameter',
-    'VUID-vkTrimCommandPoolKHR-commandPool-parameter'                                     : 'VUID-vkTrimCommandPool-commandPool-parameter',
-    'VUID-vkTrimCommandPoolKHR-commandPool-parent'                                        : 'VUID-vkTrimCommandPool-commandPool-parent',
-    'VUID-vkTrimCommandPoolKHR-device-parameter'                                          : 'VUID-vkTrimCommandPool-device-parameter',
-    'VUID-vkTrimCommandPoolKHR-flags-zerobitmask'                                         : 'VUID-vkTrimCommandPool-flags-zerobitmask',
-    'VUID-vkUpdateDescriptorSetWithTemplateKHR-descriptorSet-parameter'                   : 'VUID-vkUpdateDescriptorSetWithTemplate-descriptorSet-parameter',
-    'VUID-vkUpdateDescriptorSetWithTemplateKHR-descriptorUpdateTemplate-parameter'        : 'VUID-vkUpdateDescriptorSetWithTemplate-descriptorUpdateTemplate-parameter',
-    'VUID-vkUpdateDescriptorSetWithTemplateKHR-descriptorUpdateTemplate-parent'           : 'VUID-vkUpdateDescriptorSetWithTemplate-descriptorUpdateTemplate-parent',
-    'VUID-vkUpdateDescriptorSetWithTemplateKHR-device-parameter'                          : 'VUID-vkUpdateDescriptorSetWithTemplate-device-parameter',
-    'VUID-vkCreateDescriptorUpdateTemplateKHR-pCreateInfo-parameter'                                : 'VUID-vkCreateDescriptorUpdateTemplate-pCreateInfo-parameter',
-    'VUID-vkCreateSamplerYcbcrConversionKHR-pCreateInfo-parameter'                                  : 'VUID-vkCreateSamplerYcbcrConversion-pCreateInfo-parameter',
-    'VUID-vkGetBufferMemoryRequirements2KHR-pInfo-parameter'                                        : 'VUID-vkGetBufferMemoryRequirements2-pInfo-parameter',
-    'VUID-vkGetBufferMemoryRequirements2KHR-pMemoryRequirements-parameter'                          : 'VUID-vkGetBufferMemoryRequirements2-pMemoryRequirements-parameter',
-    'VUID-vkGetDescriptorSetLayoutSupportKHR-pCreateInfo-parameter'                                 : 'VUID-vkGetDescriptorSetLayoutSupport-pCreateInfo-parameter',
-    'VUID-vkGetDescriptorSetLayoutSupportKHR-pSupport-parameter'                                    : 'VUID-vkGetDescriptorSetLayoutSupport-pSupport-parameter',
-    'VUID-vkGetImageMemoryRequirements2KHR-pInfo-parameter'                                         : 'VUID-vkGetImageMemoryRequirements2-pInfo-parameter',
-    'VUID-vkGetImageMemoryRequirements2KHR-pMemoryRequirements-parameter'                           : 'VUID-vkGetImageMemoryRequirements2-pMemoryRequirements-parameter',
-    'VUID-vkGetImageSparseMemoryRequirements2KHR-pInfo-parameter'                                   : 'VUID-vkGetImageSparseMemoryRequirements2-pInfo-parameter',
-    'VUID-vkGetPhysicalDeviceExternalBufferPropertiesKHR-pExternalBufferInfo-parameter'             : 'VUID-vkGetPhysicalDeviceExternalBufferProperties-pExternalBufferInfo-parameter',
-    'VUID-vkGetPhysicalDeviceExternalBufferPropertiesKHR-pExternalBufferProperties-parameter'       : 'VUID-vkGetPhysicalDeviceExternalBufferProperties-pExternalBufferProperties-parameter',
-    'VUID-vkGetPhysicalDeviceExternalFencePropertiesKHR-pExternalFenceInfo-parameter'               : 'VUID-vkGetPhysicalDeviceExternalFenceProperties-pExternalFenceInfo-parameter',
-    'VUID-vkGetPhysicalDeviceExternalFencePropertiesKHR-pExternalFenceProperties-parameter'         : 'VUID-vkGetPhysicalDeviceExternalFenceProperties-pExternalFenceProperties-parameter',
-    'VUID-vkGetPhysicalDeviceExternalSemaphorePropertiesKHR-pExternalSemaphoreInfo-parameter'       : 'VUID-vkGetPhysicalDeviceExternalSemaphoreProperties-pExternalSemaphoreInfo-parameter',
-    'VUID-vkGetPhysicalDeviceExternalSemaphorePropertiesKHR-pExternalSemaphoreProperties-parameter' : 'VUID-vkGetPhysicalDeviceExternalSemaphoreProperties-pExternalSemaphoreProperties-parameter',
-    'VUID-vkGetPhysicalDeviceFeatures2KHR-pFeatures-parameter'                                      : 'VUID-vkGetPhysicalDeviceFeatures2-pFeatures-parameter',
-    'VUID-vkGetPhysicalDeviceFormatProperties2KHR-pFormatProperties-parameter'                      : 'VUID-vkGetPhysicalDeviceFormatProperties2-pFormatProperties-parameter',
-    'VUID-vkGetPhysicalDeviceImageFormatProperties2KHR-pImageFormatInfo-parameter'                  : 'VUID-vkGetPhysicalDeviceImageFormatProperties2-pImageFormatInfo-parameter',
-    'VUID-vkGetPhysicalDeviceImageFormatProperties2KHR-pImageFormatProperties-parameter'            : 'VUID-vkGetPhysicalDeviceImageFormatProperties2-pImageFormatProperties-parameter',
-    'VUID-vkGetPhysicalDeviceMemoryProperties2KHR-pMemoryProperties-parameter'                      : 'VUID-vkGetPhysicalDeviceMemoryProperties2-pMemoryProperties-parameter',
-    'VUID-vkGetPhysicalDeviceProperties2KHR-pProperties-parameter'                                  : 'VUID-vkGetPhysicalDeviceProperties2-pProperties-parameter',
-    'VUID-vkGetPhysicalDeviceSparseImageFormatProperties2KHR-pFormatInfo-parameter'                 : 'VUID-vkGetPhysicalDeviceSparseImageFormatProperties2-pFormatInfo-parameter' }
 
 def printHelp():
     print ("Usage:")
@@ -193,15 +122,42 @@ class ValidationJSON:
         self.regex_dict[re.compile(r'\\\(\\lceil{\\frac{maxFramebufferWidth}{minFragmentDensityTexelSize_{width}}}\\rceil\\\)')] = "the ceiling of maxFramebufferWidth/minFragmentDensityTexelSize.width"
         self.regex_dict[re.compile(r'\\\(\\lceil\{\\mathit\{rasterizationSamples} \\over 32}\\rceil\\\)')] = "(rasterizationSamples/32)"
         self.regex_dict[re.compile(r'\\\(\\textrm\{codeSize} \\over 4\\\)')] = "(codeSize/4)"
-        self.regex_dict[re.compile('\u00b4')] = "'"         # Handle acute accent
-        self.regex_dict[re.compile('\u2032')] = "'"         # Handle prime
-        self.regex_dict[re.compile('"')] = '\\"'            # Handle \"
-        # Some fancy punctuation chars that break the Android build...
-        self.regex_dict[re.compile('&#8594;')] = "->"       # Arrow char
-        self.regex_dict[re.compile('&#8217;')] = "'"        # Left-slanting apostrophe to apostrophe
-        self.regex_dict[re.compile('&#822(0|1);')] = "'"    # L/R-slanting quotes to apostrophe
-        self.regex_dict[re.compile('&#8203;')] = ""          # Zero width space
-        self.regex_dict[re.compile('&#8230;')] = "..."       # Horizontal ellipsis
+
+        # Regular expression for characters outside ascii range
+        self.unicode_regex = re.compile('[^\x00-\x7f]')
+        # Mapping from unicode char to ascii approximation
+        self.unicode_dict = {
+            '\u002b' : '+',  # PLUS SIGN
+            '\u00b4' : "'",  # ACUTE ACCENT
+            '\u200b' : '',   # ZERO WIDTH SPACE
+            '\u2018' : "'",  # LEFT SINGLE QUOTATION MARK
+            '\u2019' : "'",  # RIGHT SINGLE QUOTATION MARK
+            '\u201c' : '"',  # LEFT DOUBLE QUOTATION MARK
+            '\u201d' : '"',  # RIGHT DOUBLE QUOTATION MARK
+            '\u2026' : '...',# HORIZONTAL ELLIPSIS
+            '\u2032' : "'",  # PRIME
+            '\u2192' : '->', # RIGHTWARDS ARROW
+        }
+
+    def sanitize(self, text, location):
+        # Strip leading/trailing whitespace
+        text = text.strip()
+        # Apply regex text substitutions
+        for regex, replacement in self.regex_dict.items():
+            text = re.sub(regex, replacement, text)
+        # Un-escape html entity codes, ie &#XXXX;
+        text = html.unescape(text)
+        # Apply unicode substitutions
+        for unicode in self.unicode_regex.findall(text):
+            try:
+                # Replace known chars
+                text = text.replace(unicode, self.unicode_dict[unicode])
+            except KeyError:
+                # Strip and warn on unrecognized chars
+                text = text.replace(unicode, '')
+                name = unicodedata.name(unicode, 'UNKNOWN')
+                print('Warning: Unknown unicode character \\u{:04x} ({}) at {}'.format(ord(unicode), name, location))
+        return text
 
     def read(self):
         self.json_dict = {}
@@ -222,7 +178,6 @@ class ValidationJSON:
 
         # Parse vuid from json into local databases
         for apiname in validation.keys():
-            # print("entrypoint:%s"%apiname)
             apidict = validation[apiname]
             for ext in apidict.keys():
                 vlist = apidict[ext]
@@ -234,10 +189,7 @@ class ValidationJSON:
                     else:
                         self.implicit_vuids.add(vuid_string)    # otherwise, implicit
                         vtype = 'implicit'
-                    vuid_text = ventry['text']
-                    for regex, replacement in self.regex_dict.items():
-                        vuid_text = re.sub(regex, replacement, vuid_text)   # do regex substitution
-                    vuid_text = html.unescape(vuid_text)                    # anything missed by the regex
+                    vuid_text = self.sanitize(ventry['text'], vuid_string)
                     self.vuid_db[vuid_string].append({'api':apiname, 'ext':ext, 'type':vtype, 'text':vuid_text})
         self.all_vuids = self.explicit_vuids | self.implicit_vuids
         self.duplicate_vuids = set({v for v in self.vuid_db if len(self.vuid_db[v]) > 1})
@@ -257,8 +209,8 @@ def buildKvuidDict():
                     continue
 
                 if 'kVUID_' in line:
-                    kvuid_pos = line.find('kVUID_'); assert(kvuid_pos >= 0);
-                    eq_pos = line.find('=', kvuid_pos);
+                    kvuid_pos = line.find('kVUID_'); assert(kvuid_pos >= 0)
+                    eq_pos = line.find('=', kvuid_pos)
                     if eq_pos >= 0:
                         kvuid = line[kvuid_pos:eq_pos].strip(' \t\n;"')
                         unassigned_str = line[eq_pos+1:].strip(' \t\n;"')
@@ -282,11 +234,12 @@ class ValidationSource:
         prepend = None
         for sf in self.source_files:
             line_num = 0
-            with open(sf) as f:
+            with open(sf, encoding='utf-8') as f:
                 for line in f:
                     line_num = line_num + 1
                     if True in [line.strip().startswith(comment) for comment in ['//', '/*']]:
-                        continue
+                        if 'VUID-' not in line or 'TODO:' in line:
+                            continue
                     # Find vuid strings
                     if prepend is not None:
                         line = prepend[:-2] + line.lstrip().lstrip('"') # join lines skipping CR, whitespace and trailing/leading quote char
@@ -412,23 +365,6 @@ class Consistency:
         self.valid = all_json
         self.checks = all_checks
         self.tests = all_tests
-
-        if (dealias_khr):
-            dk = set()
-            for vuid in self.checks:
-                if vuid in khr_aliases:
-                    dk.add(khr_aliases[vuid])
-                else:
-                    dk.add(vuid)
-            self.checks = dk
-
-            dk = set()
-            for vuid in self.tests:
-                if vuid in khr_aliases:
-                    dk.add(khr_aliases[vuid])
-                else:
-                    dk.add(vuid)
-            self.tests = dk
 
     # Report undefined VUIDs in source code
     def undef_vuids_in_layer_code(self):
@@ -697,7 +633,7 @@ static const vuid_spec_text_pair vuid_spec_text[] = {
     def export_header(self):
         if verbose_mode:
             print("\n Exporting header file to: %s" % header_filename)
-        with open (header_filename, 'w') as hfile:
+        with open (header_filename, 'w', newline='\n') as hfile:
             hfile.write(self.header_version)
             hfile.write(self.header_preamble)
             vuid_list = list(self.vj.all_vuids)
@@ -713,17 +649,18 @@ static const vuid_spec_text_pair vuid_spec_text[] = {
                 elif spec_list[0]['khr']: spec_url = self.spec_url_khr % (spec_list[0]['version'], vuid)
                 else: spec_url = self.spec_url_core % (spec_list[0]['version'], vuid)
 
-                db_text = db_entry['text'].strip(' ')
+                # Escape quotes when generating C strings for source code
+                db_text = db_entry['text'].replace('"', '\\"')
                 hfile.write('    {"%s", "%s (%s)"},\n' % (vuid, db_text, spec_url))
                 # For multiply-defined VUIDs, include versions with extension appended
                 if len(self.vj.vuid_db[vuid]) > 1:
                     print('Error: Found a duplicate VUID: %s' % vuid)
                     sys.exit(-1)
                 if 'commandBuffer must be in the recording state' in db_text:
-                    cmd_dict[vuid] = db_text 
+                    cmd_dict[vuid] = db_text
             hfile.write(self.header_postamble)
 
-            # Generate the information for validating recording state VUID's 
+            # Generate the information for validating recording state VUID's
             cmd_prefix = 'prefix##'
             cmd_regex = re.compile(r'VUID-vk(Cmd|End)(\w+)')
             cmd_vuid_vector = ['    "VUID_Undefined"']
@@ -960,4 +897,3 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
-

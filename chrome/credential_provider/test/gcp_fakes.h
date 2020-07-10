@@ -239,11 +239,7 @@ class FakeScopedLsaPolicy : public ScopedLsaPolicy {
                               wchar_t* value,
                               size_t length) override;
   bool PrivateDataExists(const wchar_t* key) override;
-  HRESULT AddAccountRights(PSID sid,
-                           const std::vector<base::string16>& rights) override;
-  HRESULT RemoveAccountRights(
-      PSID sid,
-      const std::vector<base::string16>& rights) override;
+  HRESULT AddAccountRights(PSID sid, const wchar_t* right) override;
   HRESULT RemoveAccount(PSID sid) override;
 
  private:

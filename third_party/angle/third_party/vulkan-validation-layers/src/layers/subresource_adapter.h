@@ -287,7 +287,7 @@ class SubresourceGenerator : public Subresource {
     // General purpose and slow, when we have no other information to update the generator
     void Seek(IndexType index) {
         // skip forward past discontinuities
-        *static_cast<Subresource* const>(this) = encoder_->Decode(index);
+        *static_cast<Subresource*>(this) = encoder_->Decode(index);
     }
 
     const VkImageSubresource& operator*() const { return *this; }
@@ -389,16 +389,21 @@ class BothRangeMap {
         }
         IteratorImpl& operator=(const IteratorImpl& other) {
             if (other.Tristate()) {
-                // Tranisition to tristate
-                *this = IteratorImpl();
-            } else {
-                if (other.SmallMode()) {
-                    small_it_ = other.small_it_;
-                } else {
-                    big_it_ = other.big_it_;
+                // Transition to tristate
+                small_it_ = SmallIt();
+                big_it_ = BigIt();
+            } else if (other.SmallMode()) {
+                small_it_ = other.small_it_;
+                if (mode_ != other.mode_) {
+                    big_it_ = BigIt();
                 }
-                mode_ = other.mode_;  // For transitions from Tristate.
+            } else {
+                big_it_ = other.big_it_;
+                if (mode_ != other.mode_) {
+                    small_it_ = SmallIt();
+                }
             }
+            mode_ = other.mode_;
             return *this;
         }
         bool operator==(const IteratorImpl& other) const {
@@ -415,6 +420,10 @@ class BothRangeMap {
         }
         bool operator!=(const IteratorImpl& other) const { return !(*this == other); }
         IteratorImpl() : small_it_(), big_it_(), mode_(BothRangeMapMode::kTristate) {}
+        IteratorImpl(const IteratorImpl& other)
+            : small_it_(other.SmallMode() ? other.small_it_ : SmallIt()),
+              big_it_(other.BigMode() ? other.big_it_ : BigIt()),
+              mode_(other.mode_){};
 
       private:
         IteratorImpl(BothRangeMapMode mode) : small_it_(), big_it_(), mode_(mode) {}

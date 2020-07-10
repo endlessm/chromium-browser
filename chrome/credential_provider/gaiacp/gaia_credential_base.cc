@@ -24,6 +24,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -896,8 +897,7 @@ HRESULT CGaiaCredentialBase::OnDllRegisterServer() {
   }
 
   // Add "logon as batch" right.
-  std::vector<base::string16> rights{SE_BATCH_LOGON_NAME};
-  hr = policy->AddAccountRights(sid, rights);
+  hr = policy->AddAccountRights(sid, SE_BATCH_LOGON_NAME);
   ::LocalFree(sid);
   if (FAILED(hr)) {
     LOGFN(ERROR) << "policy.AddAccountRights hr=" << putHR(hr);
@@ -1513,8 +1513,9 @@ bool CGaiaCredentialBase::CanProceedToLogonStub(wchar_t** status_text) {
     can_proceed_to_logon_stub = false;
     error_message = AllocErrorString(IDS_EMAIL_MISMATCH_BASE);
     LOGFN(ERROR) << "Restricted domains registry key must be set";
-  } else if (!InternetAvailabilityChecker::Get()->HasInternetConnection()) {
-    // If there is no internet connection, just abort right away.
+  }
+  // If there is no internet connection, just abort right away.
+  else if (!InternetAvailabilityChecker::Get()->HasInternetConnection()) {
     can_proceed_to_logon_stub = false;
     error_message = AllocErrorString(IDS_NO_NETWORK_BASE);
     LOGFN(VERBOSE) << "No internet connection";

@@ -35,8 +35,7 @@ class RemoteDeviceUpdaterMock(partial_mock.PartialCmdMock):
   """Mock out RemoteDeviceUpdater."""
   TARGET = 'chromite.lib.auto_updater.ChromiumOSUpdater'
   ATTRS = ('UpdateStateful', 'UpdateRootfs', 'SetupRootfsUpdate',
-           'RebootAndVerify', 'PreparePayloadPropsFile',
-           '_FixPayloadPropertiesFile')
+           'RebootAndVerify', '_FixPayloadPropertiesFile')
 
   def __init__(self):
     partial_mock.PartialCmdMock.__init__(self)
@@ -52,9 +51,6 @@ class RemoteDeviceUpdaterMock(partial_mock.PartialCmdMock):
 
   def RebootAndVerify(self, _inst, *_args, **_kwargs):
     """Mock out RebootAndVerify."""
-
-  def PreparePayloadPropsFile(self, _inst, *_args, **_kwargs):
-    """Mock out PreparePayloadPropsFile."""
 
   def _FixPayloadPropertiesFile(self, _inst, *_args, **_kwargs):
     """Mock out _FixPayloadPropertiesFile."""
@@ -111,7 +107,7 @@ class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
       ret for paths under devserver/static, and the expected value of
       os.path.exists otherwise.
     """
-    if path.startswith(flash.DEVSERVER_STATIC_DIR):
+    if path.startswith(dev_server_wrapper.DEFAULT_STATIC_DIR):
       return ret
     return os.access(path, os.F_OK)
 
@@ -155,10 +151,8 @@ class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
 
       # Call to download full_payload and stateful. No other calls.
       mock_xbuddy.assert_has_calls(
-          [mock.call('/path/to/image/full_payload', mock.ANY,
-                     static_dir=flash.DEVSERVER_STATIC_DIR, silent=True),
-           mock.call('/path/to/image/stateful', mock.ANY,
-                     static_dir=flash.DEVSERVER_STATIC_DIR, silent=True)])
+          [mock.call('/path/to/image/full_payload', 'board', None, silent=True),
+           mock.call('/path/to/image/stateful', 'board', None, silent=True)])
       self.assertEqual(mock_xbuddy.call_count, 2)
 
   def testTestImage(self):
@@ -174,10 +168,8 @@ class RemoteDeviceUpdaterTest(cros_test_lib.MockTempDirTestCase):
 
       # Call to download full_payload and image. No other calls.
       mock_xbuddy.assert_has_calls(
-          [mock.call('/path/to/image/full_payload', mock.ANY,
-                     static_dir=flash.DEVSERVER_STATIC_DIR, silent=True),
-           mock.call('/path/to/image', mock.ANY,
-                     static_dir=flash.DEVSERVER_STATIC_DIR)])
+          [mock.call('/path/to/image/full_payload', 'board', None, silent=True),
+           mock.call('/path/to/image', 'board', None)])
       self.assertEqual(mock_xbuddy.call_count, 2)
 
 
@@ -294,7 +286,7 @@ class UsbImagerOperationTest(cros_test_lib.RunCommandTestCase):
     """Test that flash.UsbImagerOperation is called when log level <= NOTICE."""
     expected_cmd = ['dd', 'if=foo', 'of=bar', 'bs=4M', 'iflag=fullblock',
                     'oflag=direct', 'conv=fdatasync']
-    usb_imager = flash.USBImager('dummy_device', 'board', 'foo')
+    usb_imager = flash.USBImager('dummy_device', 'board', 'foo', 'latest')
     run_mock = self.PatchObject(flash.UsbImagerOperation, 'Run')
     self.PatchObject(logging.Logger, 'getEffectiveLevel',
                      return_value=logging.NOTICE)
@@ -309,7 +301,7 @@ class UsbImagerOperationTest(cros_test_lib.RunCommandTestCase):
     """Test that sudo_run is called when log level > NOTICE."""
     expected_cmd = ['dd', 'if=foo', 'of=bar', 'bs=4M', 'iflag=fullblock',
                     'oflag=direct', 'conv=fdatasync']
-    usb_imager = flash.USBImager('dummy_device', 'board', 'foo')
+    usb_imager = flash.USBImager('dummy_device', 'board', 'foo', 'latest')
     run_mock = self.PatchObject(cros_build_lib, 'sudo_run')
     self.PatchObject(logging.Logger, 'getEffectiveLevel',
                      return_value=logging.WARNING)

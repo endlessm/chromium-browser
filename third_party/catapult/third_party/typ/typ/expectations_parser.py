@@ -77,6 +77,7 @@ class Expectation(object):
           results: List of outcomes for test. Example: ['Skip', 'Pass']
         """
         tags = tags or []
+        self._is_default_pass = not results
         results = results or {ResultType.Pass}
         reason = reason or ''
         trailing_comments = trailing_comments or ''
@@ -129,6 +130,14 @@ class Expectation(object):
         if self._trailing_comments:
             self._string_value += self._trailing_comments
 
+    def add_expectations(self, results, reason=None):
+        if reason:
+            self._reason = ' '.join(set(self._reason.split() + reason.split()))
+        if not results <= self._results:
+            self._results = frozenset(self._results | results)
+            self._raw_results = sorted(
+                [_RESULT_TAGS[t] for t in self._results])
+
     @property
     def raw_tags(self):
         if not self._raw_tags:
@@ -148,6 +157,10 @@ class Expectation(object):
     def to_string(self):
         self._set_string_value()
         return self._string_value
+
+    @property
+    def is_default_pass(self):
+        return self._is_default_pass
 
     @property
     def reason(self):
@@ -410,7 +423,7 @@ class TestExpectations(object):
         # expected results, so we store these in dicts ordered by the string
         # for ease of retrieve. glob_exps use an OrderedDict rather than
         # a regular dict for reasons given below.
-        self.individual_exps = {}
+        self.individual_exps = OrderedDict()
         self.glob_exps = OrderedDict()
         self._tags_conflict = _default_tags_conflict
 
@@ -505,7 +518,7 @@ class TestExpectations(object):
             self.glob_exps[pattern] = exps
 
     def expectations_for(self, test):
-        # Returns a tuple of (expectations, should_retry_on_failure)
+        # Returns an Expectation.
         #
         # A given test may have multiple expectations, each with different
         # sets of tags that apply and different expected results, e.g.:
@@ -532,7 +545,8 @@ class TestExpectations(object):
         def _update_expected_results(exp):
             if exp.tags.issubset(self._tags):
                 if exp.conflict_resolution == ConflictResolutionTypes.UNION:
-                    self._results.update(exp.results)
+                    if not exp.is_default_pass:
+                        self._results.update(exp.results)
                     self._should_retry_on_failure |= exp.should_retry_on_failure
                     self._is_slow_test |= exp.is_slow_test
                     if exp.trailing_comments:
@@ -551,7 +565,7 @@ class TestExpectations(object):
         for exp in self.individual_exps.get(test, []):
             _update_expected_results(exp)
 
-        if self._results or self._should_retry_on_failure:
+        if self._results or self._is_slow_test or self._should_retry_on_failure:
             return Expectation(
                     test=test, results=self._results,
                     retry_on_failure=self._should_retry_on_failure,
@@ -569,7 +583,7 @@ class TestExpectations(object):
                 # if *any* of the exps matched, results will be non-empty,
                 # and we're done. If not, keep looking through ever-shorter
                 # globs.
-                if self._results or self._should_retry_on_failure:
+                if self._results or self._is_slow_test or self._should_retry_on_failure:
                     return Expectation(
                             test=test, results=self._results,
                             retry_on_failure=self._should_retry_on_failure,

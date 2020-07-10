@@ -80,7 +80,7 @@ class LevelTest
 };
 
 TEST_P(LevelTest, TestTargetLevelApi) {
-  static const aom_codec_iface_t *codec = &aom_codec_av1_cx_algo;
+  static aom_codec_iface_t *codec = &aom_codec_av1_cx_algo;
   aom_codec_ctx_t enc;
   aom_codec_enc_cfg_t cfg;
   EXPECT_EQ(AOM_CODEC_OK, aom_codec_enc_config_default(codec, &cfg, 0));
@@ -134,7 +134,7 @@ TEST_P(LevelTest, TestLevelMonitoringHighBitrate) {
     target_level_ = kLevelKeepStats;
     cfg_.rc_target_bitrate = 4000;
     ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
-    ASSERT_EQ(level_[0], 1);
+    ASSERT_EQ(level_[0], 0);
   }
 }
 

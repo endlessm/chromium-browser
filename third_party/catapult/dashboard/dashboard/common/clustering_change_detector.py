@@ -31,6 +31,14 @@ from dashboard.pinpoint.models.compare import compare as pinpoint_compare
 # likely to spend finding these potential hidden change-points.
 _MAX_PERMUTATION_TESTING_ITERATIONS = 150
 
+# This is the threshold percentage that permutation testing must meet for us to
+# consider the sub-range that might contain a potential change-point.
+_MIN_PERCENTAGE_DIFFERENT = 0.05
+
+# The subsampling length is the maximum length we're letting the permutation
+# testing use to find potential rearrangements of the underlying data.
+_MAX_SUBSAMPLING_LENGTH = 40
+
 class Error(Exception):
   pass
 
@@ -41,9 +49,7 @@ class InsufficientData(Error):
 
 def Cluster(sequence, partition_point):
   """Return a tuple (left, right) where partition_point is part of right."""
-  cluster_a = sequence[:partition_point]
-  cluster_b = sequence[partition_point:]
-  return (cluster_a, cluster_b)
+  return (sequence[:partition_point], sequence[partition_point:])
 
 
 def Midpoint(sequence):
@@ -65,40 +71,48 @@ def ClusterAndCompare(sequence, partition_point):
                                    magnitude), cluster_a, cluster_b)
 
 
-def PermutationTest(sequence, min_segment_size, rand=None):
+def PermutationTest(sequence, rand=None):
   """Run permutation testing on a sequence.
 
   Determine whether there's a potential change point within the sequence,
   using randomised permutation testing.
+
+  Arguments:
+    - sequence: an iterable of values to perform permutation testing on.
+    - rand: an implementation of a pseudo-random generator (see random.Random))
+
+  Returns 'True' if there's a greater than 5% probability that a permutation of
+  the values in the sequence, in a re-clustering contains a change-point.
   """
-  if len(sequence) < (min_segment_size * 2) + 1:
+  if len(sequence) < 3:
     return False
 
   if rand is None:
     rand = random.Random()
 
-  def RandomPermutations(sequence, length, count):
+  def RandomPermutations(sequence, count):
     pool = tuple(sequence)
+    length = len(sequence)
     i = 0
     while i < count:
       i += 1
-      yield tuple(rand.sample(pool, length))
+      yield tuple(rand.sample(pool, min(length, _MAX_SUBSAMPLING_LENGTH)))
 
   sames = 0
   differences = 0
   unknowns = 0
   for permutation in RandomPermutations(
-      sequence, Midpoint(sequence),
+      sequence,
       min(_MAX_PERMUTATION_TESTING_ITERATIONS, math.factorial(len(sequence)))):
-    change_point, found = ChangePointEstimator(permutation, min_segment_size)
+    change_point, found = ChangePointEstimator(permutation)
     if not found:
       sames += 1
       continue
-    compare_result, unused_a, unused_b = ClusterAndCompare(
-        permutation, change_point)
-    if compare_result == pinpoint_compare.SAME:
+    comparison, unused_a, unused_b = ClusterAndCompare(permutation,
+                                                       change_point)
+    if comparison.result == pinpoint_compare.SAME:
       sames += 1
-    elif compare_result == pinpoint_compare.UNKNOWN:
+    elif comparison.result == pinpoint_compare.UNKNOWN:
       unknowns += 1
     else:
       differences += 1
@@ -108,13 +122,10 @@ def PermutationTest(sequence, min_segment_size, rand=None):
   # sequence).
   total = float(sames + unknowns + differences)
   probability = float(differences) / total if total > 0. else 0.
-  logging.debug(
-      'Computed probability: %s; sames = %s, differences = %s, unknowns = %s',
-      probability, sames, differences, unknowns)
-  return probability >= 0.05
+  return probability
 
 
-def ChangePointEstimator(sequence, min_segment_size):
+def ChangePointEstimator(sequence):
   # This algorithm does the following:
   #   - For each element in the sequence:
   #     - Partition the sequence into two clusters (X[a], X[b])
@@ -134,36 +145,44 @@ def ChangePointEstimator(sequence, min_segment_size):
   # This algorithm is O(N^2) to the size of the sequence.
   def Estimator(index):
     cluster_a, cluster_b = Cluster(sequence, index)
-    x_a = sum(abs(a - b)**2 for a, b in itertools.product(cluster_a, repeat=2))
-    x_b = sum(abs(a - b)**2 for a, b in itertools.product(cluster_b, repeat=2))
+    a_array = tuple(
+        abs(a - b)**2 for a, b in itertools.combinations(cluster_a, 2))
+    if not a_array:
+      a_array = (0.,)
+    b_array = tuple(
+        abs(a - b)**2 for a, b in itertools.combinations(cluster_b, 2))
+    if not b_array:
+      b_array = (0.,)
     y = sum(abs(a - b)**2 for a, b in itertools.product(cluster_a, cluster_b))
-    a_len_combinations = (
-        math.factorial(len(cluster_a)) /
-        (math.factorial(2) * math.factorial(len(cluster_a) - 1)))
-    b_len_combinations = (
-        math.factorial(len(cluster_b)) /
-        (math.factorial(2) * math.factorial(len(cluster_b) - 1)))
-    return (((y * 2.0) / (len(cluster_a) * len(cluster_b))) -
-            (x_a / a_len_combinations) - (x_b / b_len_combinations))
+    x_a = sum(a_array)
+    x_b = sum(b_array)
+    a_len_combinations = len(a_array)
+    b_len_combinations = len(b_array)
+    y_scaler = 2.0 / (len(cluster_a) * len(cluster_b))
+    a_estimate = (x_a / a_len_combinations)
+    b_estimate = (x_b / b_len_combinations)
+    e = (y_scaler * y) - a_estimate - b_estimate
+    return (e * a_len_combinations * b_len_combinations) / (
+        a_len_combinations + b_len_combinations)
 
-  margin = max(min_segment_size, 1)
+  margin = 1
+  max_estimate = None
+  max_index = 0
   estimates = [
       Estimator(i)
       for i, _ in enumerate(sequence)
-      if margin <= i < len(sequence) - margin
+      if margin <= i < len(sequence)
   ]
   if not estimates:
     return (0, False)
-  max_estimate = None
-  max_index = 0
   for index, estimate in enumerate(estimates):
     if max_estimate is None or estimate > max_estimate:
       max_estimate = estimate
       max_index = index
-  return (max_index + min_segment_size, True)
+  return (max_index + margin, True)
 
 
-def ClusterAndFindSplit(values, min_segment_size, rand=None):
+def ClusterAndFindSplit(values, rand=None):
   """Finds a list of indices where we can detect significant changes.
 
   This algorithm looks for the point at which clusterings of the "left" and
@@ -182,9 +201,6 @@ def ClusterAndFindSplit(values, min_segment_size, rand=None):
 
   Arguments:
     - values: a sequence of values in time series order.
-    - min_segment_size: the shortest segment of values to consider for
-      refinement -- this allows callers to control the minimum size of segments
-      to consider for finding potential change points.
     - rand: a callable which produces a value used for subsequence permutation
       testing.
 
@@ -198,61 +214,48 @@ def ClusterAndFindSplit(values, min_segment_size, rand=None):
 
   logging.debug('Starting change point detection.')
   length = len(values)
-  if length <= min_segment_size:
+  if length <= 3:
     raise InsufficientData(
-        'Sequence is not larger than min_segment_size (%s <= %s)' %
-        (length, min_segment_size))
-  start = 0
-  candidate_indices = []
-  while True:
+        'Sequence is not larger than minimum length (%s <= %s)' %
+        (length, 3))
+  candidate_indices = set()
+  exploration_queue = [(0, length)]
+  while exploration_queue:
     # Find the most likely change point in the whole range, only excluding the
     # first and last elements. We're doing this because we want to still be able
-    # to pick a candidate within the margins (of min_segment_size) if we have
+    # to pick a candidate within the margins (excluding the ends) if we have
     # enough confidence that it is a change point.
-    partition_point, _ = ChangePointEstimator(values[start:start + length], 1)
-    logging.debug('Values for start = %s, length = %s, partition_point = %s',
-                  start, length, partition_point)
+    start, end = exploration_queue.pop(0)
+    logging.debug('Exploring range seq[%s:%s]', start, end)
+    segment = values[start:end]
+    partition_point, _ = ChangePointEstimator(segment)
 
     # Compare the left and right part divided by the possible change point
-    compare_result, cluster_a, cluster_b = ClusterAndCompare(
-        values[start:start + length], partition_point)
-    if compare_result == pinpoint_compare.DIFFERENT:
-      candidate_indices.append(start + partition_point)
-
-    in_a = False
-    in_b = False
+    comparison, cluster_a, cluster_b = ClusterAndCompare(
+        segment, partition_point)
+    logging.debug('Comparison results = %s', comparison)
+    if comparison.result == pinpoint_compare.DIFFERENT:
+      logging.debug('p-value = %.4f < alpha = %.4f', comparison.p_value,
+                    comparison.low_threshold)
+      candidate_indices.add(start + partition_point)
 
     # Even though we have a likely partiion point, we want to be able to find
     # other potential change points in the A and B clusters by performing
     # permutation testing to see potentially hidden change points.
-    if len(cluster_a) > min_segment_size and PermutationTest(
-        cluster_a, min_segment_size, rand):
-      logging.debug('Permutation testing positive at seq[%s:%s]', start,
-                    partition_point)
-      _, in_a = ChangePointEstimator(cluster_a, min_segment_size)
+    a_probability = PermutationTest(cluster_a, rand)
+    if a_probability > _MIN_PERCENTAGE_DIFFERENT:
+      logging.debug(
+          'A: Permutation testing positive at seq[%s:%s]; probability = %.4f',
+          start, start + partition_point, a_probability)
+      exploration_queue.append((start, start + partition_point))
 
-    if len(cluster_b) > min_segment_size and PermutationTest(
-        cluster_b, min_segment_size, rand):
-      logging.debug('Permutation testing positive at seq[%s:%s]',
-                    start + partition_point, length)
-      _, in_b = ChangePointEstimator(cluster_b, min_segment_size)
+    b_probability = PermutationTest(cluster_b, rand)
+    if b_probability > _MIN_PERCENTAGE_DIFFERENT:
+      logging.debug(
+          'B: Permutation testing positive at seq[%s:%s]; probability = %.4f',
+          start + partition_point, end, b_probability)
+      exploration_queue.append((start + partition_point, end))
 
-    # Case 1: We haven't found alternative likely change points in either
-    # cluster.
-    if not in_a and not in_b:
-      if not candidate_indices:
-        raise InsufficientData('Not enough data to suggest a change point.')
-      break
-
-    # Case 2: We've found a likely change point in one of the clusters. In this
-    # implementation we're biased towards finding the change points in the A
-    # cluster (those earlier in time).
-    # TODO(crbug/1045595): Change this to explore both clusters, using an
-    # interval tree traversal algorithm.
-    if in_a:
-      length = min(partition_point + min_segment_size, len(values))
-    elif in_b:
-      length = min(len(cluster_b) + min_segment_size - 1, len(values))
-      start += max(partition_point - (min_segment_size - 1), 0)
-
-  return candidate_indices
+  if not candidate_indices:
+    raise InsufficientData('Not enough data to suggest a change point.')
+  return [c for c in sorted(candidate_indices)]

@@ -44,6 +44,14 @@ using std::unordered_map;
 using std::unordered_set;
 using std::vector;
 
+void ValidationStateTracker::InitDeviceValidationObject(bool add_obj, ValidationObject *inst_obj, ValidationObject *dev_obj) {
+    if (add_obj) {
+        instance_state = reinterpret_cast<ValidationStateTracker *>(GetValidationObject(inst_obj->object_dispatch, container_type));
+        // Call base class
+        ValidationObject::InitDeviceValidationObject(add_obj, inst_obj, dev_obj);
+    }
+}
+
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
 // Android-specific validation that uses types defined only with VK_USE_PLATFORM_ANDROID_KHR
 // This could also move into a seperate core_validation_android.cpp file... ?
@@ -51,20 +59,31 @@ using std::vector;
 void ValidationStateTracker::RecordCreateImageANDROID(const VkImageCreateInfo *create_info, IMAGE_STATE *is_node) {
     const VkExternalMemoryImageCreateInfo *emici = lvl_find_in_chain<VkExternalMemoryImageCreateInfo>(create_info->pNext);
     if (emici && (emici->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID)) {
-        is_node->imported_ahb = true;
+        is_node->external_ahb = true;
     }
     const VkExternalFormatANDROID *ext_fmt_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
     if (ext_fmt_android && (0 != ext_fmt_android->externalFormat)) {
         is_node->has_ahb_format = true;
         is_node->ahb_format = ext_fmt_android->externalFormat;
+        // VUID 01894 will catch if not found in map
+        auto it = ahb_ext_formats_map.find(ext_fmt_android->externalFormat);
+        if (it != ahb_ext_formats_map.end()) {
+            is_node->format_features = it->second;
+        }
     }
 }
 
 void ValidationStateTracker::RecordCreateSamplerYcbcrConversionANDROID(const VkSamplerYcbcrConversionCreateInfo *create_info,
-                                                                       VkSamplerYcbcrConversion ycbcr_conversion) {
+                                                                       VkSamplerYcbcrConversion ycbcr_conversion,
+                                                                       SAMPLER_YCBCR_CONVERSION_STATE *ycbcr_state) {
     const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
     if (ext_format_android && (0 != ext_format_android->externalFormat)) {
         ycbcr_conversion_ahb_fmt_map.emplace(ycbcr_conversion, ext_format_android->externalFormat);
+        // VUID 01894 will catch if not found in map
+        auto it = ahb_ext_formats_map.find(ext_format_android->externalFormat);
+        if (it != ahb_ext_formats_map.end()) {
+            ycbcr_state->format_features = it->second;
+        }
     }
 };
 
@@ -72,12 +91,22 @@ void ValidationStateTracker::RecordDestroySamplerYcbcrConversionANDROID(VkSample
     ycbcr_conversion_ahb_fmt_map.erase(ycbcr_conversion);
 };
 
+void ValidationStateTracker::PostCallRecordGetAndroidHardwareBufferPropertiesANDROID(
+    VkDevice device, const struct AHardwareBuffer *buffer, VkAndroidHardwareBufferPropertiesANDROID *pProperties, VkResult result) {
+    if (VK_SUCCESS != result) return;
+    auto ahb_format_props = lvl_find_in_chain<VkAndroidHardwareBufferFormatPropertiesANDROID>(pProperties->pNext);
+    if (ahb_format_props) {
+        ahb_ext_formats_map.insert({ahb_format_props->externalFormat, ahb_format_props->formatFeatures});
+    }
+}
+
 #else
 
 void ValidationStateTracker::RecordCreateImageANDROID(const VkImageCreateInfo *create_info, IMAGE_STATE *is_node) {}
 
 void ValidationStateTracker::RecordCreateSamplerYcbcrConversionANDROID(const VkSamplerYcbcrConversionCreateInfo *create_info,
-                                                                       VkSamplerYcbcrConversion ycbcr_conversion){};
+                                                                       VkSamplerYcbcrConversion ycbcr_conversion,
+                                                                       SAMPLER_YCBCR_CONVERSION_STATE *ycbcr_state){};
 
 void ValidationStateTracker::RecordDestroySamplerYcbcrConversionANDROID(VkSamplerYcbcrConversion ycbcr_conversion){};
 
@@ -92,10 +121,44 @@ std::shared_ptr<cvdescriptorset::DescriptorSetLayout const> GetDslFromPipelineLa
     return dsl;
 }
 
+void AddImageStateProps(IMAGE_STATE &image_state, const VkDevice device, const VkPhysicalDevice physical_device) {
+    // Add feature support according to Image Format Features (vkspec.html#resources-image-format-features)
+    // if format is AHB external format then the features are already set
+    if (image_state.has_ahb_format == false) {
+        const VkImageTiling image_tiling = image_state.createInfo.tiling;
+        const VkFormat image_format = image_state.createInfo.format;
+        if (image_tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT) {
+            VkImageDrmFormatModifierPropertiesEXT drm_format_properties = {
+                VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_PROPERTIES_EXT, nullptr};
+            DispatchGetImageDrmFormatModifierPropertiesEXT(device, image_state.image, &drm_format_properties);
+
+            VkFormatProperties2 format_properties_2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, nullptr};
+            VkDrmFormatModifierPropertiesListEXT drm_properties_list = {VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT,
+                                                                        nullptr};
+            format_properties_2.pNext = (void *)&drm_properties_list;
+            DispatchGetPhysicalDeviceFormatProperties2(physical_device, image_format, &format_properties_2);
+
+            for (uint32_t i = 0; i < drm_properties_list.drmFormatModifierCount; i++) {
+                if ((drm_properties_list.pDrmFormatModifierProperties[i].drmFormatModifier &
+                     drm_format_properties.drmFormatModifier) != 0) {
+                    image_state.format_features |=
+                        drm_properties_list.pDrmFormatModifierProperties[i].drmFormatModifierTilingFeatures;
+                }
+            }
+        } else {
+            VkFormatProperties format_properties;
+            DispatchGetPhysicalDeviceFormatProperties(physical_device, image_format, &format_properties);
+            image_state.format_features = (image_tiling == VK_IMAGE_TILING_LINEAR) ? format_properties.linearTilingFeatures
+                                                                                   : format_properties.optimalTilingFeatures;
+        }
+    }
+}
+
 void ValidationStateTracker::PostCallRecordCreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo,
                                                        const VkAllocationCallbacks *pAllocator, VkImage *pImage, VkResult result) {
     if (VK_SUCCESS != result) return;
     auto is_node = std::make_shared<IMAGE_STATE>(*pImage, pCreateInfo);
+    is_node->disjoint = ((pCreateInfo->flags & VK_IMAGE_CREATE_DISJOINT_BIT) != 0);
     if (device_extensions.vk_android_external_memory_android_hardware_buffer) {
         RecordCreateImageANDROID(pCreateInfo, is_node.get());
     }
@@ -104,17 +167,39 @@ void ValidationStateTracker::PostCallRecordCreateImage(VkDevice device, const Vk
         is_node->create_from_swapchain = swapchain_info->swapchain;
     }
 
-    bool pre_fetch_memory_reqs = true;
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
-    if (is_node->external_format_android) {
-        // Do not fetch requirements for external memory images
-        pre_fetch_memory_reqs = false;
-    }
-#endif
     // Record the memory requirements in case they won't be queried
-    if (pre_fetch_memory_reqs) {
-        DispatchGetImageMemoryRequirements(device, *pImage, &is_node->requirements);
+    // External AHB memory can't be quired until after memory is bound
+    if (is_node->external_ahb == false) {
+        if (is_node->disjoint == false) {
+            DispatchGetImageMemoryRequirements(device, *pImage, &is_node->requirements);
+        } else {
+            uint32_t plane_count = FormatPlaneCount(pCreateInfo->format);
+            VkImagePlaneMemoryRequirementsInfo image_plane_req = {VK_STRUCTURE_TYPE_IMAGE_PLANE_MEMORY_REQUIREMENTS_INFO, nullptr};
+            VkMemoryRequirements2 mem_reqs2 = {VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2, nullptr};
+            VkImageMemoryRequirementsInfo2 mem_req_info2 = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2};
+            mem_req_info2.pNext = &image_plane_req;
+            mem_req_info2.image = *pImage;
+
+            assert(plane_count != 0);  // assumes each format has at least first plane
+            image_plane_req.planeAspect = VK_IMAGE_ASPECT_PLANE_0_BIT;
+            DispatchGetImageMemoryRequirements2(device, &mem_req_info2, &mem_reqs2);
+            is_node->plane0_requirements = mem_reqs2.memoryRequirements;
+
+            if (plane_count >= 2) {
+                image_plane_req.planeAspect = VK_IMAGE_ASPECT_PLANE_1_BIT;
+                DispatchGetImageMemoryRequirements2(device, &mem_req_info2, &mem_reqs2);
+                is_node->plane1_requirements = mem_reqs2.memoryRequirements;
+            }
+            if (plane_count >= 3) {
+                image_plane_req.planeAspect = VK_IMAGE_ASPECT_PLANE_2_BIT;
+                DispatchGetImageMemoryRequirements2(device, &mem_req_info2, &mem_reqs2);
+                is_node->plane2_requirements = mem_reqs2.memoryRequirements;
+            }
+        }
     }
+
+    AddImageStateProps(*is_node, device, physical_device);
+
     imageMap.insert(std::make_pair(*pImage, std::move(is_node)));
 }
 
@@ -224,7 +309,42 @@ void ValidationStateTracker::PostCallRecordCreateImageView(VkDevice device, cons
                                                            VkResult result) {
     if (result != VK_SUCCESS) return;
     auto image_state = GetImageShared(pCreateInfo->image);
-    imageViewMap[*pView] = std::make_shared<IMAGE_VIEW_STATE>(image_state, *pView, pCreateInfo);
+    auto image_view_state = std::make_shared<IMAGE_VIEW_STATE>(image_state, *pView, pCreateInfo);
+
+    // Add feature support according to Image View Format Features (vkspec.html#resources-image-view-format-features)
+    const VkImageTiling image_tiling = image_state->createInfo.tiling;
+    const VkFormat image_view_format = pCreateInfo->format;
+    if (image_state->has_ahb_format == true) {
+        // The ImageView uses same Image's format feature since they share same AHB
+        image_view_state->format_features = image_state->format_features;
+    } else if (image_tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT) {
+        // Parameter validation should catch if this is used without VK_EXT_image_drm_format_modifier
+        assert(device_extensions.vk_ext_image_drm_format_modifier);
+        VkImageDrmFormatModifierPropertiesEXT drm_format_properties = {VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_PROPERTIES_EXT,
+                                                                       nullptr};
+        DispatchGetImageDrmFormatModifierPropertiesEXT(device, image_state->image, &drm_format_properties);
+
+        VkFormatProperties2 format_properties_2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, nullptr};
+        VkDrmFormatModifierPropertiesListEXT drm_properties_list = {VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT,
+                                                                    nullptr};
+        format_properties_2.pNext = (void *)&drm_properties_list;
+        DispatchGetPhysicalDeviceFormatProperties2(physical_device, image_view_format, &format_properties_2);
+
+        for (uint32_t i = 0; i < drm_properties_list.drmFormatModifierCount; i++) {
+            if ((drm_properties_list.pDrmFormatModifierProperties[i].drmFormatModifier & drm_format_properties.drmFormatModifier) !=
+                0) {
+                image_view_state->format_features |=
+                    drm_properties_list.pDrmFormatModifierProperties[i].drmFormatModifierTilingFeatures;
+            }
+        }
+    } else {
+        VkFormatProperties format_properties;
+        DispatchGetPhysicalDeviceFormatProperties(physical_device, image_view_format, &format_properties);
+        image_view_state->format_features = (image_tiling == VK_IMAGE_TILING_LINEAR) ? format_properties.linearTilingFeatures
+                                                                                     : format_properties.optimalTilingFeatures;
+    }
+
+    imageViewMap.insert(std::make_pair(*pView, std::move(image_view_state)));
 }
 
 void ValidationStateTracker::PreCallRecordCmdCopyBuffer(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer,
@@ -308,17 +428,25 @@ void ValidationStateTracker::PreCallRecordCmdCopyBufferToImage(VkCommandBuffer c
 }
 
 // Get the image viewstate for a given framebuffer attachment
-IMAGE_VIEW_STATE *ValidationStateTracker::GetAttachmentImageViewState(FRAMEBUFFER_STATE *framebuffer, uint32_t index) {
-    if (framebuffer->createInfo.flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR) return nullptr;
+IMAGE_VIEW_STATE *ValidationStateTracker::GetAttachmentImageViewState(CMD_BUFFER_STATE *cb, FRAMEBUFFER_STATE *framebuffer,
+                                                                      uint32_t index) {
+    if (framebuffer->createInfo.flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR) {
+        assert(index < cb->imagelessFramebufferAttachments.size());
+        return cb->imagelessFramebufferAttachments[index];
+    }
     assert(framebuffer && (index < framebuffer->createInfo.attachmentCount));
     const VkImageView &image_view = framebuffer->createInfo.pAttachments[index];
     return GetImageViewState(image_view);
 }
 
 // Get the image viewstate for a given framebuffer attachment
-const IMAGE_VIEW_STATE *ValidationStateTracker::GetAttachmentImageViewState(const FRAMEBUFFER_STATE *framebuffer,
+const IMAGE_VIEW_STATE *ValidationStateTracker::GetAttachmentImageViewState(const CMD_BUFFER_STATE *cb,
+                                                                            const FRAMEBUFFER_STATE *framebuffer,
                                                                             uint32_t index) const {
-    if (framebuffer->createInfo.flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR) return nullptr;
+    if (framebuffer->createInfo.flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR) {
+        assert(index < cb->imagelessFramebufferAttachments.size());
+        return cb->imagelessFramebufferAttachments[index];
+    }
     assert(framebuffer && (index < framebuffer->createInfo.attachmentCount));
     const VkImageView &image_view = framebuffer->createInfo.pAttachments[index];
     return GetImageViewState(image_view);
@@ -827,6 +955,30 @@ BASE_NODE *ValidationStateTracker::GetStateStructPtrFromObject(const VulkanTyped
     return base_ptr;
 }
 
+VkFormatFeatureFlags ValidationStateTracker::GetPotentialFormatFeatures(VkFormat format) const {
+    VkFormatFeatureFlags format_features = 0;
+
+    if (format != VK_FORMAT_UNDEFINED) {
+        VkFormatProperties format_properties;
+        DispatchGetPhysicalDeviceFormatProperties(physical_device, format, &format_properties);
+        format_features |= format_properties.linearTilingFeatures;
+        format_features |= format_properties.optimalTilingFeatures;
+        if (device_extensions.vk_ext_image_drm_format_modifier) {
+            // VK_KHR_get_physical_device_properties2 is required in this case
+            VkFormatProperties2 format_properties_2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2};
+            VkDrmFormatModifierPropertiesListEXT drm_properties_list = {VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_EXT,
+                                                                        nullptr};
+            format_properties_2.pNext = (void *)&drm_properties_list;
+            DispatchGetPhysicalDeviceFormatProperties2(physical_device, format, &format_properties_2);
+            for (uint32_t i = 0; i < drm_properties_list.drmFormatModifierCount; i++) {
+                format_features |= drm_properties_list.pDrmFormatModifierProperties[i].drmFormatModifierTilingFeatures;
+            }
+        }
+    }
+
+    return format_features;
+}
+
 // Tie the VulkanTypedHandle to the cmd buffer which includes:
 //  Add object_binding to cmd buffer
 //  Add cb_binding to object
@@ -975,7 +1127,15 @@ void ValidationStateTracker::PostCallRecordCreateDevice(VkPhysicalDevice gpu, co
     if (vulkan_12_features) {
         state_tracker->enabled_features.core12 = *vulkan_12_features;
     } else {
-        // These structs are only allowed in pNext chain if there is no kPhysicalDeviceVulkan12Features
+        // Set Extension Feature Aliases to false as there is no struct to check
+        state_tracker->enabled_features.core12.drawIndirectCount = VK_FALSE;
+        state_tracker->enabled_features.core12.samplerMirrorClampToEdge = VK_FALSE;
+        state_tracker->enabled_features.core12.descriptorIndexing = VK_FALSE;
+        state_tracker->enabled_features.core12.samplerFilterMinmax = VK_FALSE;
+        state_tracker->enabled_features.core12.shaderOutputLayer = VK_FALSE;
+        state_tracker->enabled_features.core12.shaderOutputViewportIndex = VK_FALSE;
+
+        // These structs are only allowed in pNext chain if there is no VkPhysicalDeviceVulkan12Features
 
         const auto *eight_bit_storage_features = lvl_find_in_chain<VkPhysicalDevice8BitStorageFeatures>(pCreateInfo->pNext);
         if (eight_bit_storage_features) {
@@ -1249,6 +1409,22 @@ void ValidationStateTracker::PostCallRecordCreateDevice(VkPhysicalDevice gpu, co
         state_tracker->enabled_features.ray_tracing_features = *ray_tracing_features;
     }
 
+    const auto *robustness2_features = lvl_find_in_chain<VkPhysicalDeviceRobustness2FeaturesEXT>(pCreateInfo->pNext);
+    if (robustness2_features) {
+        state_tracker->enabled_features.robustness2_features = *robustness2_features;
+    }
+
+    const auto *fragment_density_map_features =
+        lvl_find_in_chain<VkPhysicalDeviceFragmentDensityMapFeaturesEXT>(pCreateInfo->pNext);
+    if (fragment_density_map_features) {
+        state_tracker->enabled_features.fragment_density_map_features = *fragment_density_map_features;
+    }
+
+    const auto *custom_border_color_features = lvl_find_in_chain<VkPhysicalDeviceCustomBorderColorFeaturesEXT>(pCreateInfo->pNext);
+    if (custom_border_color_features) {
+        state_tracker->enabled_features.custom_border_color_features = *custom_border_color_features;
+    }
+
     // Store physical device properties and physical device mem limits into CoreChecks structs
     DispatchGetPhysicalDeviceMemoryProperties(gpu, &state_tracker->phys_dev_mem_props);
     DispatchGetPhysicalDeviceProperties(gpu, &state_tracker->phys_dev_props);
@@ -1338,6 +1514,8 @@ void ValidationStateTracker::PostCallRecordCreateDevice(VkPhysicalDevice gpu, co
     GetPhysicalDeviceExtProperties(gpu, dev_ext.vk_ext_texel_buffer_alignment, &phys_dev_props->texel_buffer_alignment_props);
     GetPhysicalDeviceExtProperties(gpu, dev_ext.vk_ext_fragment_density_map, &phys_dev_props->fragment_density_map_props);
     GetPhysicalDeviceExtProperties(gpu, dev_ext.vk_khr_performance_query, &phys_dev_props->performance_query_props);
+    GetPhysicalDeviceExtProperties(gpu, dev_ext.vk_ext_sample_locations, &phys_dev_props->sample_locations_props);
+    GetPhysicalDeviceExtProperties(gpu, dev_ext.vk_ext_custom_border_color, &phys_dev_props->custom_border_color_props);
 
     if (!state_tracker->device_extensions.vk_feature_version_1_2 && dev_ext.vk_khr_timeline_semaphore) {
         VkPhysicalDeviceTimelineSemaphorePropertiesKHR timeline_semaphore_props;
@@ -1401,8 +1579,11 @@ void ValidationStateTracker::PostCallRecordCreateDevice(VkPhysicalDevice gpu, co
     // Store queue family data
     if (pCreateInfo->pQueueCreateInfos != nullptr) {
         for (uint32_t i = 0; i < pCreateInfo->queueCreateInfoCount; ++i) {
+            const VkDeviceQueueCreateInfo &queue_create_info = pCreateInfo->pQueueCreateInfos[i];
             state_tracker->queue_family_index_map.insert(
-                std::make_pair(pCreateInfo->pQueueCreateInfos[i].queueFamilyIndex, pCreateInfo->pQueueCreateInfos[i].queueCount));
+                std::make_pair(queue_create_info.queueFamilyIndex, queue_create_info.queueCount));
+            state_tracker->queue_family_create_flags_map.insert(
+                std::make_pair(queue_create_info.queueFamilyIndex, queue_create_info.flags));
         }
     }
 }
@@ -1515,18 +1696,14 @@ void ValidationStateTracker::RetireWorkOnQueue(QUEUE_STATE *pQueue, uint64_t seq
                 }
             }
             QueryMap localQueryToStateMap;
+            VkQueryPool first_pool = VK_NULL_HANDLE;
             for (auto &function : cb_node->queryUpdates) {
-                function(nullptr, /*do_validate*/ false, &localQueryToStateMap);
+                function(nullptr, /*do_validate*/ false, first_pool, submission.perf_submit_pass, &localQueryToStateMap);
             }
 
             for (auto queryStatePair : localQueryToStateMap) {
                 if (queryStatePair.second == QUERYSTATE_ENDED) {
                     queryToStateMap[queryStatePair.first] = QUERYSTATE_AVAILABLE;
-
-                    const QUERY_POOL_STATE *qp_state = GetQueryPoolState(queryStatePair.first.pool);
-                    if (qp_state->createInfo.queryType == VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR)
-                        queryPassToStateMap[QueryObjectPass(queryStatePair.first, submission.perf_submit_pass)] =
-                            QUERYSTATE_AVAILABLE;
                 }
             }
             cb_node->in_use.fetch_sub(1);
@@ -1557,6 +1734,7 @@ static void SubmitFence(QUEUE_STATE *pQueue, FENCE_STATE *pFence, uint64_t submi
 
 void ValidationStateTracker::PostCallRecordQueueSubmit(VkQueue queue, uint32_t submitCount, const VkSubmitInfo *pSubmits,
                                                        VkFence fence, VkResult result) {
+    if (result != VK_SUCCESS) return;
     uint64_t early_retire_seq = 0;
     auto pQueue = GetQueueState(queue);
     auto pFence = GetFenceState(fence);
@@ -1642,6 +1820,9 @@ void ValidationStateTracker::PostCallRecordQueueSubmit(VkQueue queue, uint32_t s
                 }
             }
         }
+        const auto perf_submit = lvl_find_in_chain<VkPerformanceQuerySubmitInfoKHR>(submit->pNext);
+        uint32_t perf_pass = perf_submit ? perf_submit->counterPassIndex : 0;
+
         for (uint32_t i = 0; i < submit->commandBufferCount; i++) {
             auto cb_node = GetCBState(submit->pCommandBuffers[i]);
             if (cb_node) {
@@ -1652,16 +1833,17 @@ void ValidationStateTracker::PostCallRecordQueueSubmit(VkQueue queue, uint32_t s
                 }
                 IncrementResources(cb_node);
 
+                VkQueryPool first_pool = VK_NULL_HANDLE;
+                EventToStageMap localEventToStageMap;
                 QueryMap localQueryToStateMap;
                 for (auto &function : cb_node->queryUpdates) {
-                    function(nullptr, /*do_validate*/ false, &localQueryToStateMap);
+                    function(nullptr, /*do_validate*/ false, first_pool, perf_pass, &localQueryToStateMap);
                 }
 
                 for (auto queryStatePair : localQueryToStateMap) {
                     queryToStateMap[queryStatePair.first] = queryStatePair.second;
                 }
 
-                EventToStageMap localEventToStageMap;
                 for (auto &function : cb_node->eventUpdates) {
                     function(nullptr, /*do_validate*/ false, &localEventToStageMap);
                 }
@@ -1672,11 +1854,8 @@ void ValidationStateTracker::PostCallRecordQueueSubmit(VkQueue queue, uint32_t s
             }
         }
 
-        const auto perf_submit = lvl_find_in_chain<VkPerformanceQuerySubmitInfoKHR>(submit->pNext);
-
         pQueue->submissions.emplace_back(cbs, semaphore_waits, semaphore_signals, semaphore_externals,
-                                         submit_idx == submitCount - 1 ? fence : (VkFence)VK_NULL_HANDLE,
-                                         perf_submit ? perf_submit->counterPassIndex : 0);
+                                         submit_idx == submitCount - 1 ? fence : (VkFence)VK_NULL_HANDLE, perf_pass);
     }
 
     if (early_retire_seq) {
@@ -1922,24 +2101,40 @@ void ValidationStateTracker::RetireTimelineSemaphore(VkSemaphore semaphore, uint
     if (pSemaphore) {
         for (auto &pair : queueMap) {
             QUEUE_STATE &queueState = pair.second;
+            uint64_t max_seq = 0;
             for (const auto &submission : queueState.submissions) {
                 for (const auto &signalSemaphore : submission.signalSemaphores) {
                     if (signalSemaphore.semaphore == semaphore && signalSemaphore.payload <= until_payload) {
-                        RetireWorkOnQueue(&queueState, signalSemaphore.seq);
+                        if (signalSemaphore.seq > max_seq) {
+                            max_seq = signalSemaphore.seq;
+                        }
                     }
                 }
+            }
+            if (max_seq) {
+                RetireWorkOnQueue(&queueState, max_seq);
             }
         }
     }
 }
 
-void ValidationStateTracker::PostCallRecordWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo *pWaitInfo, uint64_t timeout,
-                                                          VkResult result) {
+void ValidationStateTracker::RecordWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo *pWaitInfo, uint64_t timeout,
+                                                  VkResult result) {
     if (VK_SUCCESS != result) return;
 
     for (uint32_t i = 0; i < pWaitInfo->semaphoreCount; i++) {
         RetireTimelineSemaphore(pWaitInfo->pSemaphores[i], pWaitInfo->pValues[i]);
     }
+}
+
+void ValidationStateTracker::PostCallRecordWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo *pWaitInfo, uint64_t timeout,
+                                                          VkResult result) {
+    RecordWaitSemaphores(device, pWaitInfo, timeout, result);
+}
+
+void ValidationStateTracker::PostCallRecordWaitSemaphoresKHR(VkDevice device, const VkSemaphoreWaitInfo *pWaitInfo,
+                                                             uint64_t timeout, VkResult result) {
+    RecordWaitSemaphores(device, pWaitInfo, timeout, result);
 }
 
 void ValidationStateTracker::PostCallRecordGetFenceStatus(VkDevice device, VkFence fence, VkResult result) {
@@ -2017,11 +2212,8 @@ void ValidationStateTracker::PreCallRecordDestroyQueryPool(VkDevice device, VkQu
 //  Track the newly bound memory range with given memoryOffset
 //  Also scan any previous ranges, track aliased ranges with new range, and flag an error if a linear
 //  and non-linear range incorrectly overlap.
-// Return true if an error is flagged and the user callback returns "true", otherwise false
-// is_image indicates an image object, otherwise handle is for a buffer
-// is_linear indicates a buffer or linear image
 void ValidationStateTracker::InsertMemoryRange(const VulkanTypedHandle &typed_handle, DEVICE_MEMORY_STATE *mem_info,
-                                               VkDeviceSize memoryOffset, VkMemoryRequirements memRequirements, bool is_linear) {
+                                               VkDeviceSize memoryOffset) {
     if (typed_handle.type == kVulkanObjectTypeImage) {
         mem_info->bound_images.insert(typed_handle.Cast<VkImage>());
     } else if (typed_handle.type == kVulkanObjectTypeBuffer) {
@@ -2034,19 +2226,17 @@ void ValidationStateTracker::InsertMemoryRange(const VulkanTypedHandle &typed_ha
     }
 }
 
-void ValidationStateTracker::InsertImageMemoryRange(VkImage image, DEVICE_MEMORY_STATE *mem_info, VkDeviceSize mem_offset,
-                                                    VkMemoryRequirements mem_reqs, bool is_linear) {
-    InsertMemoryRange(VulkanTypedHandle(image, kVulkanObjectTypeImage), mem_info, mem_offset, mem_reqs, is_linear);
+void ValidationStateTracker::InsertImageMemoryRange(VkImage image, DEVICE_MEMORY_STATE *mem_info, VkDeviceSize mem_offset) {
+    InsertMemoryRange(VulkanTypedHandle(image, kVulkanObjectTypeImage), mem_info, mem_offset);
 }
 
-void ValidationStateTracker::InsertBufferMemoryRange(VkBuffer buffer, DEVICE_MEMORY_STATE *mem_info, VkDeviceSize mem_offset,
-                                                     const VkMemoryRequirements &mem_reqs) {
-    InsertMemoryRange(VulkanTypedHandle(buffer, kVulkanObjectTypeBuffer), mem_info, mem_offset, mem_reqs, true);
+void ValidationStateTracker::InsertBufferMemoryRange(VkBuffer buffer, DEVICE_MEMORY_STATE *mem_info, VkDeviceSize mem_offset) {
+    InsertMemoryRange(VulkanTypedHandle(buffer, kVulkanObjectTypeBuffer), mem_info, mem_offset);
 }
 
 void ValidationStateTracker::InsertAccelerationStructureMemoryRange(VkAccelerationStructureNV as, DEVICE_MEMORY_STATE *mem_info,
-                                                                    VkDeviceSize mem_offset, const VkMemoryRequirements &mem_reqs) {
-    InsertMemoryRange(VulkanTypedHandle(as, kVulkanObjectTypeAccelerationStructureNV), mem_info, mem_offset, mem_reqs, true);
+                                                                    VkDeviceSize mem_offset) {
+    InsertMemoryRange(VulkanTypedHandle(as, kVulkanObjectTypeAccelerationStructureNV), mem_info, mem_offset);
 }
 
 // This function will remove the handle-to-index mapping from the appropriate map.
@@ -2081,7 +2271,7 @@ void ValidationStateTracker::UpdateBindBufferMemoryState(VkBuffer buffer, VkDevi
         // Track bound memory range information
         auto mem_info = GetDevMemState(mem);
         if (mem_info) {
-            InsertBufferMemoryRange(buffer, mem_info, memoryOffset, buffer_state->requirements);
+            InsertBufferMemoryRange(buffer, mem_info, memoryOffset);
         }
         // Track objects tied to memory
         SetMemBinding(mem, buffer_state, memoryOffset, VulkanTypedHandle(buffer, kVulkanObjectTypeBuffer));
@@ -2108,53 +2298,66 @@ void ValidationStateTracker::PostCallRecordBindBufferMemory2KHR(VkDevice device,
     }
 }
 
-void ValidationStateTracker::RecordGetBufferMemoryRequirementsState(VkBuffer buffer, VkMemoryRequirements *pMemoryRequirements) {
+void ValidationStateTracker::RecordGetBufferMemoryRequirementsState(VkBuffer buffer) {
     BUFFER_STATE *buffer_state = GetBufferState(buffer);
     if (buffer_state) {
-        buffer_state->requirements = *pMemoryRequirements;
         buffer_state->memory_requirements_checked = true;
     }
 }
 
 void ValidationStateTracker::PostCallRecordGetBufferMemoryRequirements(VkDevice device, VkBuffer buffer,
                                                                        VkMemoryRequirements *pMemoryRequirements) {
-    RecordGetBufferMemoryRequirementsState(buffer, pMemoryRequirements);
+    RecordGetBufferMemoryRequirementsState(buffer);
 }
 
 void ValidationStateTracker::PostCallRecordGetBufferMemoryRequirements2(VkDevice device,
                                                                         const VkBufferMemoryRequirementsInfo2KHR *pInfo,
                                                                         VkMemoryRequirements2KHR *pMemoryRequirements) {
-    RecordGetBufferMemoryRequirementsState(pInfo->buffer, &pMemoryRequirements->memoryRequirements);
+    RecordGetBufferMemoryRequirementsState(pInfo->buffer);
 }
 
 void ValidationStateTracker::PostCallRecordGetBufferMemoryRequirements2KHR(VkDevice device,
                                                                            const VkBufferMemoryRequirementsInfo2KHR *pInfo,
                                                                            VkMemoryRequirements2KHR *pMemoryRequirements) {
-    RecordGetBufferMemoryRequirementsState(pInfo->buffer, &pMemoryRequirements->memoryRequirements);
+    RecordGetBufferMemoryRequirementsState(pInfo->buffer);
 }
 
-void ValidationStateTracker::RecordGetImageMemoryRequiementsState(VkImage image, VkMemoryRequirements *pMemoryRequirements) {
+void ValidationStateTracker::RecordGetImageMemoryRequirementsState(VkImage image, const VkImageMemoryRequirementsInfo2 *pInfo) {
+    const VkImagePlaneMemoryRequirementsInfo *plane_info =
+        (pInfo == nullptr) ? nullptr : lvl_find_in_chain<VkImagePlaneMemoryRequirementsInfo>(pInfo->pNext);
     IMAGE_STATE *image_state = GetImageState(image);
     if (image_state) {
-        image_state->requirements = *pMemoryRequirements;
-        image_state->memory_requirements_checked = true;
+        if (plane_info != nullptr) {
+            // Multi-plane image
+            image_state->memory_requirements_checked = false;  // Each image plane needs to be checked itself
+            if (plane_info->planeAspect == VK_IMAGE_ASPECT_PLANE_0_BIT) {
+                image_state->plane0_memory_requirements_checked = true;
+            } else if (plane_info->planeAspect == VK_IMAGE_ASPECT_PLANE_1_BIT) {
+                image_state->plane1_memory_requirements_checked = true;
+            } else if (plane_info->planeAspect == VK_IMAGE_ASPECT_PLANE_2_BIT) {
+                image_state->plane2_memory_requirements_checked = true;
+            }
+        } else {
+            // Single Plane image
+            image_state->memory_requirements_checked = true;
+        }
     }
 }
 
 void ValidationStateTracker::PostCallRecordGetImageMemoryRequirements(VkDevice device, VkImage image,
                                                                       VkMemoryRequirements *pMemoryRequirements) {
-    RecordGetImageMemoryRequiementsState(image, pMemoryRequirements);
+    RecordGetImageMemoryRequirementsState(image, nullptr);
 }
 
 void ValidationStateTracker::PostCallRecordGetImageMemoryRequirements2(VkDevice device, const VkImageMemoryRequirementsInfo2 *pInfo,
                                                                        VkMemoryRequirements2 *pMemoryRequirements) {
-    RecordGetImageMemoryRequiementsState(pInfo->image, &pMemoryRequirements->memoryRequirements);
+    RecordGetImageMemoryRequirementsState(pInfo->image, pInfo);
 }
 
 void ValidationStateTracker::PostCallRecordGetImageMemoryRequirements2KHR(VkDevice device,
                                                                           const VkImageMemoryRequirementsInfo2 *pInfo,
                                                                           VkMemoryRequirements2 *pMemoryRequirements) {
-    RecordGetImageMemoryRequiementsState(pInfo->image, &pMemoryRequirements->memoryRequirements);
+    RecordGetImageMemoryRequirementsState(pInfo->image, pInfo);
 }
 
 static void RecordGetImageSparseMemoryRequirementsState(IMAGE_STATE *image_state,
@@ -2238,6 +2441,10 @@ void ValidationStateTracker::PreCallRecordDestroySampler(VkDevice device, VkSamp
     }
     sampler_state->destroyed = true;
     samplerMap.erase(sampler);
+    if (sampler_state->createInfo.borderColor == VK_BORDER_COLOR_INT_CUSTOM_EXT ||
+        sampler_state->createInfo.borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT) {
+        custom_border_color_sampler_count--;
+    }
 }
 
 void ValidationStateTracker::PreCallRecordDestroyDescriptorSetLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout,
@@ -2585,6 +2792,8 @@ void ValidationStateTracker::PostCallRecordCreateSampler(VkDevice device, const 
                                                          const VkAllocationCallbacks *pAllocator, VkSampler *pSampler,
                                                          VkResult result) {
     samplerMap[*pSampler] = std::make_shared<SAMPLER_STATE>(pSampler, pCreateInfo);
+    if (pCreateInfo->borderColor == VK_BORDER_COLOR_INT_CUSTOM_EXT || pCreateInfo->borderColor == VK_BORDER_COLOR_FLOAT_CUSTOM_EXT)
+        custom_border_color_sampler_count++;
 }
 
 void ValidationStateTracker::PostCallRecordCreateDescriptorSetLayout(VkDevice device,
@@ -2773,7 +2982,7 @@ void ValidationStateTracker::AddFramebufferBinding(CMD_BUFFER_STATE *cb_state, F
     if (fb_state->createInfo.flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR) return;
     const uint32_t attachmentCount = fb_state->createInfo.attachmentCount;
     for (uint32_t attachment = 0; attachment < attachmentCount; ++attachment) {
-        auto view_state = GetAttachmentImageViewState(fb_state, attachment);
+        auto view_state = GetAttachmentImageViewState(cb_state, fb_state, attachment);
         if (view_state) {
             AddCommandBufferBindingImageView(cb_state, view_state);
         }
@@ -2921,6 +3130,14 @@ void SetPipelineState(PIPELINE_STATE *pPipe) {
                     pPipe->blendConstantsEnabled = true;
                 }
             }
+        }
+    }
+    // Check if sample location is enabled
+    if (pPipe->graphicsPipelineCI.pMultisampleState) {
+        const VkPipelineSampleLocationsStateCreateInfoEXT *sample_location_state =
+            lvl_find_in_chain<VkPipelineSampleLocationsStateCreateInfoEXT>(pPipe->graphicsPipelineCI.pMultisampleState->pNext);
+        if (sample_location_state != nullptr) {
+            pPipe->sample_location_enabled = sample_location_state->sampleLocationsEnable;
         }
     }
 }
@@ -3073,8 +3290,7 @@ void ValidationStateTracker::PostCallRecordBindAccelerationStructureMemoryCommon
             // Track bound memory range information
             auto mem_info = GetDevMemState(info.memory);
             if (mem_info) {
-                InsertAccelerationStructureMemoryRange(info.accelerationStructure, mem_info, info.memoryOffset,
-                                                       as_state->requirements);
+                InsertAccelerationStructureMemoryRange(info.accelerationStructure, mem_info, info.memoryOffset);
             }
             // Track objects tied to memory
             SetMemBinding(info.memory, as_state, info.memoryOffset,
@@ -3411,7 +3627,9 @@ void ValidationStateTracker::PreCallRecordCmdBindVertexBuffers(VkCommandBuffer c
         vertex_buffer_binding.buffer = pBuffers[i];
         vertex_buffer_binding.offset = pOffsets[i];
         // Add binding for this vertex buffer to this commandbuffer
-        AddCommandBufferBindingBuffer(cb_state, GetBufferState(pBuffers[i]));
+        if (pBuffers[i]) {
+            AddCommandBufferBindingBuffer(cb_state, GetBufferState(pBuffers[i]));
+        }
     }
 }
 
@@ -3489,27 +3707,22 @@ bool ValidationStateTracker::SetQueryState(QueryObject object, QueryState value,
     return false;
 }
 
-bool ValidationStateTracker::SetQueryStateMulti(VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, QueryState value,
-                                                QueryMap *localQueryToStateMap) {
+bool ValidationStateTracker::SetQueryStateMulti(VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, uint32_t perfPass,
+                                                QueryState value, QueryMap *localQueryToStateMap) {
     for (uint32_t i = 0; i < queryCount; i++) {
-        QueryObject object = {queryPool, firstQuery + i};
+        QueryObject object = QueryObject(QueryObject(queryPool, firstQuery + i), perfPass);
         (*localQueryToStateMap)[object] = value;
     }
     return false;
 }
 
-QueryState ValidationStateTracker::GetQueryState(const QueryMap *localQueryToStateMap, VkQueryPool queryPool,
-                                                 uint32_t queryIndex) const {
-    QueryObject query = {queryPool, queryIndex};
+QueryState ValidationStateTracker::GetQueryState(const QueryMap *localQueryToStateMap, VkQueryPool queryPool, uint32_t queryIndex,
+                                                 uint32_t perfPass) const {
+    QueryObject query = QueryObject(QueryObject(queryPool, queryIndex), perfPass);
 
-    const std::array<const decltype(queryToStateMap) *, 2> map_list = {{localQueryToStateMap, &queryToStateMap}};
+    auto iter = localQueryToStateMap->find(query);
+    if (iter != localQueryToStateMap->end()) return iter->second;
 
-    for (const auto map : map_list) {
-        auto query_data = map->find(query);
-        if (query_data != map->end()) {
-            return query_data->second;
-        }
-    }
     return QUERYSTATE_UNKNOWN;
 }
 
@@ -3517,11 +3730,12 @@ void ValidationStateTracker::RecordCmdBeginQuery(CMD_BUFFER_STATE *cb_state, con
     if (disabled.query_validation) return;
     cb_state->activeQueries.insert(query_obj);
     cb_state->startedQueries.insert(query_obj);
-    cb_state->queryUpdates.emplace_back(
-        [query_obj](const ValidationStateTracker *device_data, bool do_validate, QueryMap *localQueryToStateMap) {
-            SetQueryState(query_obj, QUERYSTATE_RUNNING, localQueryToStateMap);
-            return false;
-        });
+    cb_state->queryUpdates.emplace_back([query_obj](const ValidationStateTracker *device_data, bool do_validate,
+                                                    VkQueryPool &firstPerfQueryPool, uint32_t perfQueryPass,
+                                                    QueryMap *localQueryToStateMap) {
+        SetQueryState(QueryObject(query_obj, perfQueryPass), QUERYSTATE_RUNNING, localQueryToStateMap);
+        return false;
+    });
     auto pool_state = GetQueryPoolState(query_obj.pool);
     AddCommandBufferBinding(pool_state->cb_bindings, VulkanTypedHandle(query_obj.pool, kVulkanObjectTypeQueryPool, pool_state),
                             cb_state);
@@ -3538,10 +3752,11 @@ void ValidationStateTracker::PostCallRecordCmdBeginQuery(VkCommandBuffer command
 void ValidationStateTracker::RecordCmdEndQuery(CMD_BUFFER_STATE *cb_state, const QueryObject &query_obj) {
     if (disabled.query_validation) return;
     cb_state->activeQueries.erase(query_obj);
-    cb_state->queryUpdates.emplace_back(
-        [query_obj](const ValidationStateTracker *device_data, bool do_validate, QueryMap *localQueryToStateMap) {
-            return SetQueryState(query_obj, QUERYSTATE_ENDED, localQueryToStateMap);
-        });
+    cb_state->queryUpdates.emplace_back([query_obj](const ValidationStateTracker *device_data, bool do_validate,
+                                                    VkQueryPool &firstPerfQueryPool, uint32_t perfQueryPass,
+                                                    QueryMap *localQueryToStateMap) {
+        return SetQueryState(QueryObject(query_obj, perfQueryPass), QUERYSTATE_ENDED, localQueryToStateMap);
+    });
     auto pool_state = GetQueryPoolState(query_obj.pool);
     AddCommandBufferBinding(pool_state->cb_bindings, VulkanTypedHandle(query_obj.pool, kVulkanObjectTypeQueryPool, pool_state),
                             cb_state);
@@ -3559,9 +3774,16 @@ void ValidationStateTracker::PostCallRecordCmdResetQueryPool(VkCommandBuffer com
     if (disabled.query_validation) return;
     CMD_BUFFER_STATE *cb_state = GetCBState(commandBuffer);
 
+    for (uint32_t slot = firstQuery; slot < (firstQuery + queryCount); slot++) {
+        QueryObject query = {queryPool, slot};
+        cb_state->resetQueries.insert(query);
+    }
+
     cb_state->queryUpdates.emplace_back([queryPool, firstQuery, queryCount](const ValidationStateTracker *device_data,
-                                                                            bool do_validate, QueryMap *localQueryToStateMap) {
-        return SetQueryStateMulti(queryPool, firstQuery, queryCount, QUERYSTATE_RESET, localQueryToStateMap);
+                                                                            bool do_validate, VkQueryPool &firstPerfQueryPool,
+                                                                            uint32_t perfQueryPass,
+                                                                            QueryMap *localQueryToStateMap) {
+        return SetQueryStateMulti(queryPool, firstQuery, queryCount, perfQueryPass, QUERYSTATE_RESET, localQueryToStateMap);
     });
     auto pool_state = GetQueryPoolState(queryPool);
     AddCommandBufferBinding(pool_state->cb_bindings, VulkanTypedHandle(queryPool, kVulkanObjectTypeQueryPool, pool_state),
@@ -3589,10 +3811,11 @@ void ValidationStateTracker::PostCallRecordCmdWriteTimestamp(VkCommandBuffer com
     AddCommandBufferBinding(pool_state->cb_bindings, VulkanTypedHandle(queryPool, kVulkanObjectTypeQueryPool, pool_state),
                             cb_state);
     QueryObject query = {queryPool, slot};
-    cb_state->queryUpdates.emplace_back(
-        [query](const ValidationStateTracker *device_data, bool do_validate, QueryMap *localQueryToStateMap) {
-            return SetQueryState(query, QUERYSTATE_ENDED, localQueryToStateMap);
-        });
+    cb_state->queryUpdates.emplace_back([query](const ValidationStateTracker *device_data, bool do_validate,
+                                                VkQueryPool &firstPerfQueryPool, uint32_t perfQueryPass,
+                                                QueryMap *localQueryToStateMap) {
+        return SetQueryState(QueryObject(query, perfQueryPass), QUERYSTATE_ENDED, localQueryToStateMap);
+    });
 }
 
 void ValidationStateTracker::PostCallRecordCreateFramebuffer(VkDevice device, const VkFramebufferCreateInfo *pCreateInfo,
@@ -3733,6 +3956,15 @@ void ValidationStateTracker::RecordCmdBeginRenderPassState(VkCommandBuffer comma
         } else {
             cb_state->active_render_pass_device_mask = cb_state->initial_device_mask;
         }
+
+        cb_state->imagelessFramebufferAttachments.clear();
+        auto attachment_info_struct = lvl_find_in_chain<VkRenderPassAttachmentBeginInfo>(pRenderPassBegin->pNext);
+        if (attachment_info_struct) {
+            for (uint32_t i = 0; i < attachment_info_struct->attachmentCount; i++) {
+                IMAGE_VIEW_STATE *img_view_state = GetImageViewState(attachment_info_struct->pAttachments[i]);
+                cb_state->imagelessFramebufferAttachments.push_back(img_view_state);
+            }
+        }
     }
 }
 
@@ -3781,6 +4013,7 @@ void ValidationStateTracker::RecordCmdEndRenderPassState(VkCommandBuffer command
     cb_state->activeRenderPass = nullptr;
     cb_state->activeSubpass = 0;
     cb_state->activeFramebuffer = VK_NULL_HANDLE;
+    cb_state->imagelessFramebufferAttachments.clear();
 }
 
 void ValidationStateTracker::PostCallRecordCmdEndRenderPass(VkCommandBuffer commandBuffer) {
@@ -3868,8 +4101,7 @@ void ValidationStateTracker::UpdateBindImageMemoryState(const VkBindImageMemoryI
             // Track bound memory range information
             auto mem_info = GetDevMemState(bindInfo.memory);
             if (mem_info) {
-                InsertImageMemoryRange(bindInfo.image, mem_info, bindInfo.memoryOffset, image_state->requirements,
-                                       image_state->createInfo.tiling == VK_IMAGE_TILING_LINEAR);
+                InsertImageMemoryRange(bindInfo.image, mem_info, bindInfo.memoryOffset);
             }
 
             // Track objects tied to memory
@@ -4313,6 +4545,14 @@ void ValidationStateTracker::PostCallRecordCreateXlibSurfaceKHR(VkInstance insta
 }
 #endif  // VK_USE_PLATFORM_XLIB_KHR
 
+void ValidationStateTracker::PostCallRecordCreateHeadlessSurfaceEXT(VkInstance instance,
+                                                                    const VkHeadlessSurfaceCreateInfoEXT *pCreateInfo,
+                                                                    const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface,
+                                                                    VkResult result) {
+    if (VK_SUCCESS != result) return;
+    RecordVulkanSurface(pSurface);
+}
+
 void ValidationStateTracker::PostCallRecordGetPhysicalDeviceFeatures(VkPhysicalDevice physicalDevice,
                                                                      VkPhysicalDeviceFeatures *pFeatures) {
     auto physical_device_state = GetPhysicalDeviceState(physicalDevice);
@@ -4674,9 +4914,22 @@ void ValidationStateTracker::PostCallRecordCmdEndQueryIndexedEXT(VkCommandBuffer
 
 void ValidationStateTracker::RecordCreateSamplerYcbcrConversionState(const VkSamplerYcbcrConversionCreateInfo *create_info,
                                                                      VkSamplerYcbcrConversion ycbcr_conversion) {
+    auto ycbcr_state = std::make_shared<SAMPLER_YCBCR_CONVERSION_STATE>();
+
     if (device_extensions.vk_android_external_memory_android_hardware_buffer) {
-        RecordCreateSamplerYcbcrConversionANDROID(create_info, ycbcr_conversion);
+        RecordCreateSamplerYcbcrConversionANDROID(create_info, ycbcr_conversion, ycbcr_state.get());
     }
+
+    const VkFormat conversion_format = create_info->format;
+
+    if (conversion_format != VK_FORMAT_UNDEFINED) {
+        // If format is VK_FORMAT_UNDEFINED, will be set by external AHB features
+        ycbcr_state->format_features = GetPotentialFormatFeatures(conversion_format);
+    }
+
+    ycbcr_state->chromaFilter = create_info->chromaFilter;
+    ycbcr_state->format = conversion_format;
+    samplerYcbcrConversionMap[ycbcr_conversion] = std::move(ycbcr_state);
 }
 
 void ValidationStateTracker::PostCallRecordCreateSamplerYcbcrConversion(VkDevice device,
@@ -4697,21 +4950,27 @@ void ValidationStateTracker::PostCallRecordCreateSamplerYcbcrConversionKHR(VkDev
     RecordCreateSamplerYcbcrConversionState(pCreateInfo, *pYcbcrConversion);
 }
 
+void ValidationStateTracker::RecordDestroySamplerYcbcrConversionState(VkSamplerYcbcrConversion ycbcr_conversion) {
+    if (device_extensions.vk_android_external_memory_android_hardware_buffer) {
+        RecordDestroySamplerYcbcrConversionANDROID(ycbcr_conversion);
+    }
+
+    auto ycbcr_state = GetSamplerYcbcrConversionState(ycbcr_conversion);
+    ycbcr_state->destroyed = true;
+    samplerYcbcrConversionMap.erase(ycbcr_conversion);
+}
+
 void ValidationStateTracker::PostCallRecordDestroySamplerYcbcrConversion(VkDevice device, VkSamplerYcbcrConversion ycbcrConversion,
                                                                          const VkAllocationCallbacks *pAllocator) {
     if (!ycbcrConversion) return;
-    if (device_extensions.vk_android_external_memory_android_hardware_buffer) {
-        RecordDestroySamplerYcbcrConversionANDROID(ycbcrConversion);
-    }
+    RecordDestroySamplerYcbcrConversionState(ycbcrConversion);
 }
 
 void ValidationStateTracker::PostCallRecordDestroySamplerYcbcrConversionKHR(VkDevice device,
                                                                             VkSamplerYcbcrConversion ycbcrConversion,
                                                                             const VkAllocationCallbacks *pAllocator) {
     if (!ycbcrConversion) return;
-    if (device_extensions.vk_android_external_memory_android_hardware_buffer) {
-        RecordDestroySamplerYcbcrConversionANDROID(ycbcrConversion);
-    }
+    RecordDestroySamplerYcbcrConversionState(ycbcrConversion);
 }
 
 void ValidationStateTracker::RecordResetQueryPool(VkDevice device, VkQueryPool queryPool, uint32_t firstQuery,
@@ -4725,17 +4984,14 @@ void ValidationStateTracker::RecordResetQueryPool(VkDevice device, VkQueryPool q
 
     // Reset the state of existing entries.
     QueryObject query_obj{queryPool, 0};
-    QueryObjectPass query_pass_obj{query_obj, 0};
     const uint32_t max_query_count = std::min(queryCount, query_pool_state->createInfo.queryCount - firstQuery);
     for (uint32_t i = 0; i < max_query_count; ++i) {
         query_obj.query = firstQuery + i;
-        auto query_it = queryToStateMap.find(query_obj);
-        if (query_it != queryToStateMap.end()) query_it->second = QUERYSTATE_RESET;
+        queryToStateMap[query_obj] = QUERYSTATE_RESET;
         if (query_pool_state->createInfo.queryType == VK_QUERY_TYPE_PERFORMANCE_QUERY_KHR) {
             for (uint32_t passIndex = 0; passIndex < query_pool_state->n_performance_passes; passIndex++) {
-                query_pass_obj.perf_pass = passIndex;
-                auto query_perf_it = queryPassToStateMap.find(query_pass_obj);
-                if (query_perf_it != queryPassToStateMap.end()) query_perf_it->second = QUERYSTATE_RESET;
+                query_obj.perf_pass = passIndex;
+                queryToStateMap[query_obj] = QUERYSTATE_RESET;
             }
         }
     }
@@ -5053,6 +5309,8 @@ void ValidationStateTracker::PostCallRecordGetSwapchainImagesKHR(VkDevice device
             image_state->is_swapchain_image = true;
             swapchain_state->images[i].image = pSwapchainImages[i];
             swapchain_state->images[i].bound_images.emplace(pSwapchainImages[i]);
+
+            AddImageStateProps(*image_state, device, physical_device);
         }
     }
 

@@ -7,6 +7,8 @@
 
 from __future__ import print_function
 
+import sys
+
 from chromite.lib import builder_status_lib
 from chromite.lib import cidb
 from chromite.lib import constants
@@ -15,6 +17,9 @@ from chromite.lib import fake_cidb
 from chromite.lib import failure_message_lib
 from chromite.lib import failure_message_lib_unittest
 from chromite.lib.buildstore import FakeBuildStore, BuildIdentifier
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 stage_failure_helper = failure_message_lib_unittest.StageFailureHelper
@@ -39,7 +44,6 @@ def ConstructFailureMessages(build_config):
 class BuilderStatusLibTests(cros_test_lib.MockTestCase):
   """Tests for builder_status_lib."""
 
-  @cros_test_lib.pytestmark_mock_error
   def testGetSlavesAbortedBySelfDestructedMaster(self):
     """Test GetSlavesAbortedBySelfDestructedMaster with aborted slaves."""
     db = fake_cidb.FakeCIDBConnection()

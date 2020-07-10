@@ -66,6 +66,8 @@ class BestPractices : public ValidationStateTracker {
   public:
     using StateTracker = ValidationStateTracker;
 
+    BestPractices() { container_type = LayerObjectTypeBestPractices; }
+
     std::string GetAPIVersionName(uint32_t version) const;
 
     bool ValidateCmdDrawType(VkCommandBuffer cmd_buffer, const char* caller) const;
@@ -93,12 +95,19 @@ class BestPractices : public ValidationStateTracker {
                                                   const VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchains) const;
     bool PreCallValidateCreateRenderPass(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo,
                                          const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass) const;
+    bool ValidateAttachments(const VkRenderPassCreateInfo2* rpci, uint32_t attachmentCount, const VkImageView* image_views) const;
     bool PreCallValidateCreateFramebuffer(VkDevice device, const VkFramebufferCreateInfo* pCreateInfo,
                                           const VkAllocationCallbacks* pAllocator, VkFramebuffer* pFramebuffer) const;
+    bool PreCallValidateAllocateDescriptorSets(VkDevice device, const VkDescriptorSetAllocateInfo* pAllocateInfo,
+                                               VkDescriptorSet* pDescriptorSets, void* ads_state_data) const;
+    void ManualPostCallRecordAllocateDescriptorSets(VkDevice device, const VkDescriptorSetAllocateInfo* pAllocateInfo,
+                                                    VkDescriptorSet* pDescriptorSets, VkResult result, void* ads_state);
+    void PostCallRecordFreeDescriptorSets(VkDevice device, VkDescriptorPool descriptorPool, uint32_t descriptorSetCount,
+                                          const VkDescriptorSet* pDescriptorSets, VkResult result);
     bool PreCallValidateAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
                                        const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory) const;
-    void PostCallRecordAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
-                                      const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory, VkResult result);
+    void ManualPostCallRecordAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
+                                            const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory, VkResult result);
     void PreCallRecordFreeMemory(VkDevice device, VkDeviceMemory memory, const VkAllocationCallbacks* pAllocator);
     bool ValidateBindBufferMemory(VkBuffer buffer, VkDeviceMemory memory, const char* api_name) const;
     bool PreCallValidateBindBufferMemory(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize memoryOffset) const;
@@ -152,6 +161,8 @@ class BestPractices : public ValidationStateTracker {
                                 uint32_t firstInstance) const;
     bool PreCallValidateCmdDrawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t instanceCount,
                                        uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) const;
+    bool ValidateIndexBufferArm(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
+                                int32_t vertexOffset, uint32_t firstInstance) const;
     void PreCallRecordCmdDrawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t instanceCount,
                                      uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance);
     bool PreCallValidateCmdDrawIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount,
@@ -188,27 +199,49 @@ class BestPractices : public ValidationStateTracker {
                                                           const VkBindAccelerationStructureMemoryInfoNV* pBindInfos) const;
     bool PreCallValidateQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo,
                                         VkFence fence) const;
-    void PostCallRecordQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo, VkFence fence,
-                                       VkResult result);
+    void ManualPostCallRecordQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo,
+                                             VkFence fence, VkResult result);
     bool PreCallValidateCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_t attachmentCount,
                                             const VkClearAttachment* pAttachments, uint32_t rectCount,
                                             const VkClearRect* pRects) const;
-    void ValidateReturnCodes(const char* api_name, VkResult result, const std::vector<VkResult>& success_codes,
-                             const std::vector<VkResult>& error_codes) const;
+    void ValidateReturnCodes(const char* api_name, VkResult result, const std::vector<VkResult>& error_codes,
+                             const std::vector<VkResult>& success_codes) const;
     bool PreCallValidateCmdResolveImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout,
                                         VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount,
                                         const VkImageResolve* pRegions) const;
     bool PreCallValidateCreateSampler(VkDevice device, const VkSamplerCreateInfo* pCreateInfo,
                                       const VkAllocationCallbacks* pAllocator, VkSampler* pSampler) const;
-    void PostCallRecordQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo, VkResult result);
+    void ManualPostCallRecordQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo, VkResult result);
 
 // Include code-generated functions
 #include "best_practices.h"
 
   private:
-    uint32_t instance_api_version;
+    uint32_t instance_api_version = 0;
     uint32_t num_mem_objects = 0;
 
     // Check that vendor-specific checks are enabled for at least one of the vendors
     bool VendorCheckEnabled(BPVendorFlags vendors) const;
+
+    // State for use in best practices:
+    std::unordered_map<VkDescriptorPool, uint32_t> descriptor_pool_freed_count = {};
+
+    struct CacheEntry {
+        uint32_t value;
+        uint32_t age;
+    };
+
+    class PostTransformLRUCacheModel {
+      public:
+        typedef std::vector<CacheEntry>::iterator cache_iterator;
+
+        void resize(size_t size);
+
+        // Returns true if there was a cache hit - also models LRU behavior which will effect subsequent calls.
+        bool query_cache(uint32_t value);
+
+      private:
+        std::vector<CacheEntry> _entries = {};
+        uint32_t iteration = 0;
+    };
 };

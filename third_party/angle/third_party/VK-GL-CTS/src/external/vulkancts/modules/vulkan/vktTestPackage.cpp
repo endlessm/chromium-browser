@@ -27,6 +27,7 @@
 #include "tcuTestCase.hpp"
 #include "tcuTestLog.hpp"
 #include "tcuCommandLine.hpp"
+#include "tcuWaiverUtil.hpp"
 
 #include "vkPlatform.hpp"
 #include "vkPrograms.hpp"
@@ -91,11 +92,13 @@
 #include "vktMemoryModelTests.hpp"
 #include "vktAmberExampleTests.hpp"
 #include "vktAmberGraphicsFuzzTests.hpp"
+#include "vktAmberGlslTests.hpp"
 #include "vktImagelessFramebufferTests.hpp"
 #include "vktTransformFeedbackTests.hpp"
 #include "vktDescriptorIndexingTests.hpp"
 #include "vktImagelessFramebufferTests.hpp"
 #include "vktFragmentShaderInterlockTests.hpp"
+#include "vktShaderClockTests.hpp"
 #include "vktShaderClockTests.hpp"
 
 #include <vector>
@@ -210,6 +213,8 @@ private:
 
 	const UniquePtr<vk::DebugReportRecorder>	m_debugReportRecorder;
 	const UniquePtr<vk::RenderDocUtil>			m_renderDoc;
+	vk::VkPhysicalDeviceProperties				m_deviceProperties;
+	tcu::WaiverUtil								m_waiverMechanism;
 
 	TestInstance*								m_instance;			//!< Current test case instance
 };
@@ -217,6 +222,16 @@ private:
 static MovePtr<vk::Library> createLibrary (tcu::TestContext& testCtx)
 {
 	return MovePtr<vk::Library>(testCtx.getPlatform().getVulkanPlatform().createLibrary());
+}
+
+static vk::VkPhysicalDeviceProperties getPhysicalDeviceProperties(vkt::Context& context)
+{
+	const vk::InstanceInterface&	vki				= context.getInstanceInterface();
+	const vk::VkPhysicalDevice		physicalDevice	= context.getPhysicalDevice();
+
+	vk::VkPhysicalDeviceProperties	properties;
+	vki.getPhysicalDeviceProperties(physicalDevice, &properties);
+	return properties;
 }
 
 TestCaseExecutor::TestCaseExecutor (tcu::TestContext& testCtx)
@@ -231,8 +246,18 @@ TestCaseExecutor::TestCaseExecutor (tcu::TestContext& testCtx)
 	, m_renderDoc			(testCtx.getCommandLine().isRenderDocEnabled()
 							 ? MovePtr<vk::RenderDocUtil>(new vk::RenderDocUtil())
 							 : MovePtr<vk::RenderDocUtil>(DE_NULL))
+	, m_deviceProperties	(getPhysicalDeviceProperties(m_context))
 	, m_instance			(DE_NULL)
 {
+	tcu::SessionInfo sessionInfo(m_deviceProperties.vendorID,
+								 m_deviceProperties.deviceID,
+								 testCtx.getCommandLine().getInitialCmdLine());
+	m_waiverMechanism.setup(testCtx.getCommandLine().getWaiverFileName(),
+							"dEQP-VK",
+							m_deviceProperties.vendorID,
+							m_deviceProperties.deviceID,
+							sessionInfo);
+	testCtx.getLog().writeSessionInfo(sessionInfo.get());
 }
 
 TestCaseExecutor::~TestCaseExecutor (void)
@@ -257,6 +282,9 @@ void TestCaseExecutor::init (tcu::TestCase* testCase, const std::string& casePat
 
 	if (!vktCase)
 		TCU_THROW(InternalError, "Test node not an instance of vkt::TestCase");
+
+	if (m_waiverMechanism.isOnWaiverList(casePath))
+		throw tcu::TestException("Waived test", QP_TEST_RESULT_WAIVER);
 
 	vktCase->checkSupport(m_context);
 
@@ -442,6 +470,9 @@ void createGlslTests (tcu::TestCaseGroup* glslTests)
 	glslTests->addChild(shaderexecutor::createOpaqueTypeIndexingTests	(testCtx));
 	glslTests->addChild(shaderexecutor::createAtomicOperationTests		(testCtx));
 	glslTests->addChild(shaderexecutor::createShaderClockTests			(testCtx));
+
+	// Amber GLSL tests.
+	glslTests->addChild(cts_amber::createCombinedOperationsGroup		(testCtx));
 }
 
 // TestPackage

@@ -46,15 +46,8 @@ from chromite.utils import outcap
 try:
   import pytest  # pylint: disable=import-error
   pytest_skip = pytest.skip
-  pytestmark_config_skew_test = pytest.mark.config_skew_test
   pytestmark_inside_only = pytest.mark.inside_only
-  pytestmark_legacy_slow = pytest.mark.legacy_slow
-  pytestmark_mock_error = pytest.mark.mock_error
   pytestmark_network_test = pytest.mark.network_test
-  pytestmark_output_test = pytest.mark.output_test
-  pytestmark_passes_when_run_alone = pytest.mark.passes_when_run_alone
-  pytestmark_redirected_stdin_error = pytest.mark.redirected_stdin_error
-  pytestmark_requires_portage = pytest.mark.requires_portage
   pytestmark_sigterm = pytest.mark.sigterm
   pytestmark_skip = pytest.mark.skip
   pytestmark_skipif = pytest.mark.skipif
@@ -63,15 +56,8 @@ except (ImportError, AttributeError):
   # define custom pytestmarks as null functions for test files to use.
   null_decorator = lambda obj: obj
   pytest_skip = lambda allow_module_level: True
-  pytestmark_config_skew_test = null_decorator
   pytestmark_inside_only = null_decorator
-  pytestmark_legacy_slow = null_decorator
-  pytestmark_mock_error = null_decorator
   pytestmark_network_test = null_decorator
-  pytestmark_output_test = null_decorator
-  pytestmark_passes_when_run_alone = null_decorator
-  pytestmark_redirected_stdin_error = null_decorator
-  pytestmark_requires_portage = null_decorator
   pytestmark_sigterm = null_decorator
   pytestmark_skip = null_decorator
   pytestmark_skipif = lambda condition, reason=None: None
@@ -87,9 +73,6 @@ class GlobalTestConfig(object):
   RUN_NETWORK_TESTS = False
   UPDATE_GENERATED_FILES = False
   NETWORK_TESTS_SKIPPED = 0
-  # By default, disable all config skew tests.
-  RUN_CONFIG_SKEW_TESTS = False
-  CONFIG_SKEW_TESTS_SKIPPED = 0
 
 
 def NetworkTest(reason='Skipping network test (re-run w/--network)'):
@@ -111,29 +94,6 @@ def NetworkTest(reason='Skipping network test (re-run w/--network)'):
       return test_item
     else:
       return NetworkWrapper
-
-  return Decorator
-
-
-def ConfigSkewTest(reason=''):
-  """Decorator for unit tests. Skip test if --config_skew is not specified."""
-  def Decorator(test_item):
-    @functools.wraps(test_item)
-    @pytestmark_config_skew_test
-    def ConfigSkewWrapper(*args, **kwargs):
-      if not GlobalTestConfig.RUN_CONFIG_SKEW_TESTS:
-        GlobalTestConfig.CONFIG_SKEW_TESTS_SKIPPED += 1
-        raise unittest.SkipTest(reason)
-      test_item(*args, **kwargs)
-
-    # We can't check GlobalTestConfig.RUN_CONFIG_SKEW_TESTS here because
-    # __main__ hasn't run yet. Wrap each test so that we check the flag before
-    # running it.
-    if isinstance(test_item, type) and issubclass(test_item, TestCase):
-      test_item.setUp = Decorator(test_item.setUp)
-      return test_item
-    else:
-      return ConfigSkewWrapper
 
   return Decorator
 
@@ -805,7 +765,6 @@ class LoggingTestCase(TestCase):
     return self.AssertLogsMatch(log_capturer, re.escape(msg), inverted=inverted)
 
 
-@pytestmark_output_test
 class OutputTestCase(TestCase):
   """Base class for cros unit tests with utility methods."""
 
@@ -1516,9 +1475,6 @@ class TestProgram(unittest.TestProgram):
     parser.add_argument('--network', default=False, action='store_true',
                         help='Run tests that depend on good network '
                              'connectivity')
-    parser.add_argument('--config_skew', default=False, action='store_true',
-                        help='Run tests that check if new config matches legacy'
-                             ' config')
     parser.add_argument('--no-wipe', default=True, action='store_false',
                         dest='wipe',
                         help='Do not wipe the temporary working directory '
@@ -1570,9 +1526,6 @@ class TestProgram(unittest.TestProgram):
     # Then handle the chromite extensions.
     if opts.network:
       GlobalTestConfig.RUN_NETWORK_TESTS = True
-
-    if opts.config_skew:
-      GlobalTestConfig.RUN_CONFIG_SKEW_TESTS = True
 
     if opts.update:
       GlobalTestConfig.UPDATE_GENERATED_FILES = True

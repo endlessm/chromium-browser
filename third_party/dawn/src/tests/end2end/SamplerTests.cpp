@@ -98,7 +98,7 @@ protected:
         wgpu::Texture texture = device.CreateTexture(&descriptor);
 
         // Create a 2x2 checkerboard texture, with black in the top left and bottom right corners.
-        const uint32_t rowPixels = kTextureRowPitchAlignment / sizeof(RGBA8);
+        const uint32_t rowPixels = kTextureBytesPerRowAlignment / sizeof(RGBA8);
         RGBA8 data[rowPixels * 2];
         data[0] = data[rowPixels + 1] = RGBA8::kBlack;
         data[1] = data[rowPixels] = RGBA8::kWhite;
@@ -122,16 +122,13 @@ protected:
     void TestAddressModes(AddressModeTestCase u, AddressModeTestCase v, AddressModeTestCase w) {
         wgpu::Sampler sampler;
         {
-            wgpu::SamplerDescriptor descriptor;
+            wgpu::SamplerDescriptor descriptor = {};
             descriptor.minFilter = wgpu::FilterMode::Nearest;
             descriptor.magFilter = wgpu::FilterMode::Nearest;
             descriptor.mipmapFilter = wgpu::FilterMode::Nearest;
             descriptor.addressModeU = u.mMode;
             descriptor.addressModeV = v.mMode;
             descriptor.addressModeW = w.mMode;
-            descriptor.lodMinClamp = kLodMin;
-            descriptor.lodMaxClamp = kLodMax;
-            descriptor.compare = wgpu::CompareFunction::Never;
             sampler = device.CreateSampler(&descriptor);
         }
 

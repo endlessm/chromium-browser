@@ -107,21 +107,35 @@ SpirvShader::EmitResult SpirvShader::EmitImageFetch(InsnIterator insn, EmitState
 
 SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instruction, InsnIterator insn, EmitState *state) const
 {
-	Type::ID resultTypeId = insn.word(1);
-	Object::ID resultId = insn.word(2);
+	auto &resultType = getType(insn.resultTypeId());
+	auto &result = state->createIntermediate(insn.resultId(), resultType.componentCount);
+	Array<SIMD::Float> out(4);
+
+	// TODO(b/153380916): When we're in a code path that is always executed,
+	// i.e. post-dominators of the entry block, we don't have to dynamically
+	// check whether any lanes are active, and can elide the jump.
+	If(AnyTrue(state->activeLaneMask()))
+	{
+		EmitImageSampleUnconditional(out, instruction, insn, state);
+	}
+
+	for(auto i = 0u; i < resultType.componentCount; i++) { result.move(i, out[i]); }
+
+	return EmitResult::Continue;
+}
+
+void SpirvShader::EmitImageSampleUnconditional(Array<SIMD::Float> &out, ImageInstruction instruction, InsnIterator insn, EmitState *state) const
+{
 	Object::ID sampledImageId = insn.word(3);  // For OpImageFetch this is just an Image, not a SampledImage.
 	Object::ID coordinateId = insn.word(4);
-	auto &resultType = getType(resultTypeId);
 
-	auto &result = state->createIntermediate(resultId, resultType.sizeInComponents);
 	auto imageDescriptor = state->getPointer(sampledImageId).base;  // vk::SampledImageDescriptor*
 
 	// If using a separate sampler, look through the OpSampledImage instruction to find the sampler descriptor
 	auto &sampledImage = getObject(sampledImageId);
 	auto samplerDescriptor = (sampledImage.opcode() == spv::OpSampledImage) ? state->getPointer(sampledImage.definition.word(4)).base : imageDescriptor;
 
-	auto coordinate = GenericValue(this, state, coordinateId);
-	auto &coordinateType = getType(coordinate.type);
+	auto coordinate = Operand(this, state, coordinateId);
 
 	Pointer<Byte> sampler = samplerDescriptor + OFFSET(vk::SampledImageDescriptor, sampler);  // vk::Sampler*
 	Pointer<Byte> texture = imageDescriptor + OFFSET(vk::SampledImageDescriptor, texture);    // sw::Texture*
@@ -129,7 +143,7 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 	// Above we assumed that if the SampledImage operand is not the result of an OpSampledImage,
 	// it must be a combined image sampler loaded straight from the descriptor set. For OpImageFetch
 	// it's just an Image operand, so there's no sampler descriptor data.
-	if(getType(sampledImage.type).opcode() != spv::OpTypeSampledImage)
+	if(getType(sampledImage).opcode() != spv::OpTypeSampledImage)
 	{
 		sampler = Pointer<Byte>(nullptr);
 	}
@@ -206,7 +220,7 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 
 	Array<SIMD::Float> in(16);  // Maximum 16 input parameter components.
 
-	uint32_t coordinates = coordinateType.sizeInComponents - instruction.isProj();
+	uint32_t coordinates = coordinate.componentCount - instruction.isProj();
 	instruction.coordinates = coordinates;
 
 	uint32_t i = 0;
@@ -224,7 +238,7 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 
 	if(instruction.isDref())
 	{
-		auto drefValue = GenericValue(this, state, insn.word(5));
+		auto drefValue = Operand(this, state, insn.word(5));
 
 		if(instruction.isProj())
 		{
@@ -240,25 +254,24 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 
 	if(lodOrBias)
 	{
-		auto lodValue = GenericValue(this, state, lodOrBiasId);
+		auto lodValue = Operand(this, state, lodOrBiasId);
 		in[i] = lodValue.Float(0);
 		i++;
 	}
 	else if(grad)
 	{
-		auto dxValue = GenericValue(this, state, gradDxId);
-		auto dyValue = GenericValue(this, state, gradDyId);
-		auto &dxyType = getType(dxValue.type);
-		ASSERT(dxyType.sizeInComponents == getType(dyValue.type).sizeInComponents);
+		auto dxValue = Operand(this, state, gradDxId);
+		auto dyValue = Operand(this, state, gradDyId);
+		ASSERT(dxValue.componentCount == dxValue.componentCount);
 
-		instruction.grad = dxyType.sizeInComponents;
+		instruction.grad = dxValue.componentCount;
 
-		for(uint32_t j = 0; j < dxyType.sizeInComponents; j++, i++)
+		for(uint32_t j = 0; j < dxValue.componentCount; j++, i++)
 		{
 			in[i] = dxValue.Float(j);
 		}
 
-		for(uint32_t j = 0; j < dxyType.sizeInComponents; j++, i++)
+		for(uint32_t j = 0; j < dxValue.componentCount; j++, i++)
 		{
 			in[i] = dyValue.Float(j);
 		}
@@ -274,12 +287,10 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 
 	if(constOffset)
 	{
-		auto offsetValue = GenericValue(this, state, offsetId);
-		auto &offsetType = getType(offsetValue.type);
+		auto offsetValue = Operand(this, state, offsetId);
+		instruction.offset = offsetValue.componentCount;
 
-		instruction.offset = offsetType.sizeInComponents;
-
-		for(uint32_t j = 0; j < offsetType.sizeInComponents; j++, i++)
+		for(uint32_t j = 0; j < offsetValue.componentCount; j++, i++)
 		{
 			in[i] = As<SIMD::Float>(offsetValue.Int(j));  // Integer values, but transfered as float.
 		}
@@ -287,11 +298,11 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 
 	if(sample)
 	{
-		auto sampleValue = GenericValue(this, state, sampleId);
+		auto sampleValue = Operand(this, state, sampleId);
 		in[i] = As<SIMD::Float>(sampleValue.Int(0));
 	}
 
-	auto cacheIt = state->routine->samplerCache.find(resultId);
+	auto cacheIt = state->routine->samplerCache.find(insn.resultId());
 	ASSERT(cacheIt != state->routine->samplerCache.end());
 	auto &cache = cacheIt->second;
 	auto cacheHit = cache.imageDescriptor == imageDescriptor && cache.sampler == sampler;
@@ -303,22 +314,16 @@ SpirvShader::EmitResult SpirvShader::EmitImageSample(ImageInstruction instructio
 		cache.sampler = sampler;
 	}
 
-	Array<SIMD::Float> out(4);
 	Call<ImageSampler>(cache.function, texture, &in[0], &out[0], state->routine->constants);
-
-	for(auto i = 0u; i < resultType.sizeInComponents; i++) { result.move(i, out[i]); }
-
-	return EmitResult::Continue;
 }
 
 SpirvShader::EmitResult SpirvShader::EmitImageQuerySizeLod(InsnIterator insn, EmitState *state) const
 {
-	auto &resultTy = getType(Type::ID(insn.word(1)));
-	auto resultId = Object::ID(insn.word(2));
+	auto &resultTy = getType(Type::ID(insn.resultTypeId()));
 	auto imageId = Object::ID(insn.word(3));
 	auto lodId = Object::ID(insn.word(4));
 
-	auto &dst = state->createIntermediate(resultId, resultTy.sizeInComponents);
+	auto &dst = state->createIntermediate(insn.resultId(), resultTy.componentCount);
 	GetImageDimensions(state, resultTy, imageId, lodId, dst);
 
 	return EmitResult::Continue;
@@ -326,12 +331,11 @@ SpirvShader::EmitResult SpirvShader::EmitImageQuerySizeLod(InsnIterator insn, Em
 
 SpirvShader::EmitResult SpirvShader::EmitImageQuerySize(InsnIterator insn, EmitState *state) const
 {
-	auto &resultTy = getType(Type::ID(insn.word(1)));
-	auto resultId = Object::ID(insn.word(2));
+	auto &resultTy = getType(Type::ID(insn.resultTypeId()));
 	auto imageId = Object::ID(insn.word(3));
 	auto lodId = Object::ID(0);
 
-	auto &dst = state->createIntermediate(resultId, resultTy.sizeInComponents);
+	auto &dst = state->createIntermediate(insn.resultId(), resultTy.componentCount);
 	GetImageDimensions(state, resultTy, imageId, lodId, dst);
 
 	return EmitResult::Continue;
@@ -346,22 +350,21 @@ void SpirvShader::GetImageDimensions(EmitState const *state, Type const &resultT
 {
 	auto routine = state->routine;
 	auto &image = getObject(imageId);
-	auto &imageType = getType(image.type);
+	auto &imageType = getType(image);
 
 	ASSERT(imageType.definition.opcode() == spv::OpTypeImage);
 	bool isArrayed = imageType.definition.word(5) != 0;
 	bool isCubeMap = imageType.definition.word(3) == spv::DimCube;
 
 	const DescriptorDecorations &d = descriptorDecorations.at(imageId);
-	auto setLayout = routine->pipelineLayout->getDescriptorSetLayout(d.DescriptorSet);
-	auto &bindingLayout = setLayout->getBindingLayout(d.Binding);
+	auto descriptorType = routine->pipelineLayout->getDescriptorType(d.DescriptorSet, d.Binding);
 
 	Pointer<Byte> descriptor = state->getPointer(imageId).base;
 
 	Pointer<Int> extent;
 	Int arrayLayers;
 
-	switch(bindingLayout.descriptorType)
+	switch(descriptorType)
 	{
 		case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
 		case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
@@ -379,15 +382,15 @@ void SpirvShader::GetImageDimensions(EmitState const *state, Type const &resultT
 			break;
 		}
 		default:
-			UNREACHABLE("Image descriptorType: %d", int(bindingLayout.descriptorType));
+			UNREACHABLE("Image descriptorType: %d", int(descriptorType));
 	}
 
-	auto dimensions = resultTy.sizeInComponents - (isArrayed ? 1 : 0);
+	auto dimensions = resultTy.componentCount - (isArrayed ? 1 : 0);
 	std::vector<Int> out;
 	if(lodId != 0)
 	{
-		auto lodVal = GenericValue(this, state, lodId);
-		ASSERT(getType(lodVal.type).sizeInComponents == 1);
+		auto lodVal = Operand(this, state, lodId);
+		ASSERT(lodVal.componentCount == 1);
 		auto lod = lodVal.Int(0);
 		auto one = SIMD::Int(1);
 		for(uint32_t i = 0; i < dimensions; i++)
@@ -412,18 +415,16 @@ void SpirvShader::GetImageDimensions(EmitState const *state, Type const &resultT
 
 SpirvShader::EmitResult SpirvShader::EmitImageQueryLevels(InsnIterator insn, EmitState *state) const
 {
-	auto &resultTy = getType(Type::ID(insn.word(1)));
-	ASSERT(resultTy.sizeInComponents == 1);
-	auto resultId = Object::ID(insn.word(2));
+	auto &resultTy = getType(Type::ID(insn.resultTypeId()));
+	ASSERT(resultTy.componentCount == 1);
 	auto imageId = Object::ID(insn.word(3));
 
 	const DescriptorDecorations &d = descriptorDecorations.at(imageId);
-	auto setLayout = state->routine->pipelineLayout->getDescriptorSetLayout(d.DescriptorSet);
-	auto &bindingLayout = setLayout->getBindingLayout(d.Binding);
+	auto descriptorType = state->routine->pipelineLayout->getDescriptorType(d.DescriptorSet, d.Binding);
 
 	Pointer<Byte> descriptor = state->getPointer(imageId).base;
 	Int mipLevels = 0;
-	switch(bindingLayout.descriptorType)
+	switch(descriptorType)
 	{
 		case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
 		case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
@@ -431,10 +432,10 @@ SpirvShader::EmitResult SpirvShader::EmitImageQueryLevels(InsnIterator insn, Emi
 			mipLevels = *Pointer<Int>(descriptor + OFFSET(vk::SampledImageDescriptor, mipLevels));  // uint32_t
 			break;
 		default:
-			UNREACHABLE("Image descriptorType: %d", int(bindingLayout.descriptorType));
+			UNREACHABLE("Image descriptorType: %d", int(descriptorType));
 	}
 
-	auto &dst = state->createIntermediate(resultId, 1);
+	auto &dst = state->createIntermediate(insn.resultId(), 1);
 	dst.move(0, SIMD::Int(mipLevels));
 
 	return EmitResult::Continue;
@@ -442,22 +443,20 @@ SpirvShader::EmitResult SpirvShader::EmitImageQueryLevels(InsnIterator insn, Emi
 
 SpirvShader::EmitResult SpirvShader::EmitImageQuerySamples(InsnIterator insn, EmitState *state) const
 {
-	auto &resultTy = getType(Type::ID(insn.word(1)));
-	ASSERT(resultTy.sizeInComponents == 1);
-	auto resultId = Object::ID(insn.word(2));
+	auto &resultTy = getType(Type::ID(insn.resultTypeId()));
+	ASSERT(resultTy.componentCount == 1);
 	auto imageId = Object::ID(insn.word(3));
-	auto imageTy = getType(getObject(imageId).type);
+	auto imageTy = getType(getObject(imageId));
 	ASSERT(imageTy.definition.opcode() == spv::OpTypeImage);
 	ASSERT(imageTy.definition.word(3) == spv::Dim2D);
 	ASSERT(imageTy.definition.word(6 /* MS */) == 1);
 
 	const DescriptorDecorations &d = descriptorDecorations.at(imageId);
-	auto setLayout = state->routine->pipelineLayout->getDescriptorSetLayout(d.DescriptorSet);
-	auto &bindingLayout = setLayout->getBindingLayout(d.Binding);
+	auto descriptorType = state->routine->pipelineLayout->getDescriptorType(d.DescriptorSet, d.Binding);
 
 	Pointer<Byte> descriptor = state->getPointer(imageId).base;
 	Int sampleCount = 0;
-	switch(bindingLayout.descriptorType)
+	switch(descriptorType)
 	{
 		case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
 			sampleCount = *Pointer<Int>(descriptor + OFFSET(vk::StorageImageDescriptor, sampleCount));  // uint32_t
@@ -468,26 +467,26 @@ SpirvShader::EmitResult SpirvShader::EmitImageQuerySamples(InsnIterator insn, Em
 			sampleCount = *Pointer<Int>(descriptor + OFFSET(vk::SampledImageDescriptor, sampleCount));  // uint32_t
 			break;
 		default:
-			UNREACHABLE("Image descriptorType: %d", int(bindingLayout.descriptorType));
+			UNREACHABLE("Image descriptorType: %d", int(descriptorType));
 	}
 
-	auto &dst = state->createIntermediate(resultId, 1);
+	auto &dst = state->createIntermediate(insn.resultId(), 1);
 	dst.move(0, SIMD::Int(sampleCount));
 
 	return EmitResult::Continue;
 }
 
-SIMD::Pointer SpirvShader::GetTexelAddress(EmitState const *state, SIMD::Pointer ptr, GenericValue const &coordinate, Type const &imageType, Pointer<Byte> descriptor, int texelSize, Object::ID sampleId, bool useStencilAspect) const
+SIMD::Pointer SpirvShader::GetTexelAddress(EmitState const *state, SIMD::Pointer basePtr, Operand const &coordinate, Type const &imageType, Pointer<Byte> descriptor, int texelSize, Object::ID sampleId, bool useStencilAspect, OutOfBoundsBehavior outOfBoundsBehavior) const
 {
 	auto routine = state->routine;
 	bool isArrayed = imageType.definition.word(5) != 0;
 	auto dim = static_cast<spv::Dim>(imageType.definition.word(3));
-	int dims = getType(coordinate.type).sizeInComponents - (isArrayed ? 1 : 0);
+	int dims = coordinate.componentCount - (isArrayed ? 1 : 0);
 
 	SIMD::Int u = coordinate.Int(0);
 	SIMD::Int v = SIMD::Int(0);
 
-	if(getType(coordinate.type).sizeInComponents > 1)
+	if(coordinate.componentCount > 1)
 	{
 		v = coordinate.Int(1);
 	}
@@ -510,33 +509,69 @@ SIMD::Pointer SpirvShader::GetTexelAddress(EmitState const *state, SIMD::Pointer
 	                                    ? OFFSET(vk::StorageImageDescriptor, stencilSamplePitchBytes)
 	                                    : OFFSET(vk::StorageImageDescriptor, samplePitchBytes))));
 
-	ptr += u * SIMD::Int(texelSize);
+	// If the out of bounds behavior is set to nullify, then out of bounds coordinates must be properly detected.
+	// Other out of bounds behaviors work properly without precise out of bounds coordinate detection.
+	bool nullifyOutOfBounds = (outOfBoundsBehavior == OutOfBoundsBehavior::Nullify);
+
+	SIMD::Int ptrOffset(0);
+	SIMD::Int oobMask(0);
+	if(nullifyOutOfBounds)
+	{
+		auto width = SIMD::Int(*Pointer<Int>(descriptor + OFFSET(vk::StorageImageDescriptor, extent.width)));
+		oobMask |= CmpLT(u, SIMD::Int(0)) | CmpNLT(u, width);
+	}
+	ptrOffset += u * SIMD::Int(texelSize);
 	if(dims > 1)
 	{
-		ptr += v * rowPitch;
+		if(nullifyOutOfBounds)
+		{
+			auto height = SIMD::Int(*Pointer<Int>(descriptor + OFFSET(vk::StorageImageDescriptor, extent.height)));
+			oobMask |= CmpLT(v, SIMD::Int(0)) | CmpNLT(v, height);
+		}
+		ptrOffset += v * rowPitch;
 	}
-	if(dims > 2)
+	if((dims > 2) || isArrayed)
 	{
-		ptr += coordinate.Int(2) * slicePitch;
-	}
-	if(isArrayed)
-	{
-		ptr += coordinate.Int(dims) * slicePitch;
+		SIMD::Int w(0);
+		if(dims > 2)
+		{
+			w += coordinate.Int(2);
+		}
+		if(isArrayed)
+		{
+			w += coordinate.Int(dims);
+		}
+		if(nullifyOutOfBounds)
+		{
+			auto depth = SIMD::Int(*Pointer<Int>(descriptor + OFFSET(vk::StorageImageDescriptor, extent.depth)));
+			auto arrayLayers = SIMD::Int(*Pointer<Int>(descriptor + OFFSET(vk::StorageImageDescriptor, arrayLayers)));
+			oobMask |= CmpLT(w, SIMD::Int(0)) | CmpNLT(w, depth * arrayLayers);
+		}
+		ptrOffset += w * slicePitch;
 	}
 
 	if(dim == spv::DimSubpassData)
 	{
 		// Multiview input attachment access is to the layer corresponding to the current view
-		ptr += SIMD::Int(routine->viewID) * slicePitch;
+		ptrOffset += SIMD::Int(routine->viewID) * slicePitch;
 	}
 
 	if(sampleId.value())
 	{
-		GenericValue sample(this, state, sampleId);
-		ptr += sample.Int(0) * samplePitch;
+		Operand sample(this, state, sampleId);
+		ptrOffset += sample.Int(0) * samplePitch;
 	}
 
-	return ptr;
+	if(nullifyOutOfBounds)
+	{
+		// Because pointers can be 32b, using 0xFFFFFFFF would wrap around to about the same point,
+		// so use a smaller number
+		static constexpr int FORCE_OOB = 0x3FFFFFFF;  // ~1 Gb, should be larger than any allocated image
+		// Push pointers out of bounds if they are oob in any dimension
+		ptrOffset += (oobMask & SIMD::Int(FORCE_OOB));
+	}
+
+	return basePtr + ptrOffset;
 }
 
 SpirvShader::EmitResult SpirvShader::EmitImageRead(InsnIterator insn, EmitState *state) const
@@ -544,8 +579,7 @@ SpirvShader::EmitResult SpirvShader::EmitImageRead(InsnIterator insn, EmitState 
 	auto &resultType = getType(Type::ID(insn.word(1)));
 	auto imageId = Object::ID(insn.word(3));
 	auto &image = getObject(imageId);
-	auto &imageType = getType(image.type);
-	Object::ID resultId = insn.word(2);
+	auto &imageType = getType(image);
 
 	Object::ID sampleId = 0;
 
@@ -566,7 +600,7 @@ SpirvShader::EmitResult SpirvShader::EmitImageRead(InsnIterator insn, EmitState 
 	ASSERT(imageType.definition.opcode() == spv::OpTypeImage);
 	auto dim = static_cast<spv::Dim>(imageType.definition.word(3));
 
-	auto coordinate = GenericValue(this, state, insn.word(4));
+	auto coordinate = Operand(this, state, insn.word(4));
 	const DescriptorDecorations &d = descriptorDecorations.at(imageId);
 
 	// For subpass data, format in the instruction is spv::ImageFormatUnknown. Get it from
@@ -593,16 +627,20 @@ SpirvShader::EmitResult SpirvShader::EmitImageRead(InsnIterator insn, EmitState 
 
 	auto imageSizeInBytes = *Pointer<Int>(binding + OFFSET(vk::StorageImageDescriptor, sizeInBytes));
 
-	auto &dst = state->createIntermediate(resultId, resultType.sizeInComponents);
-
-	auto texelSize = vk::Format(vkFormat).bytes();
-	auto basePtr = SIMD::Pointer(imageBase, imageSizeInBytes);
-	auto texelPtr = GetTexelAddress(state, basePtr, coordinate, imageType, binding, texelSize, sampleId, useStencilAspect);
+	auto &dst = state->createIntermediate(insn.resultId(), resultType.componentCount);
 
 	// "The value returned by a read of an invalid texel is undefined,
 	//  unless that read operation is from a buffer resource and the robustBufferAccess feature is enabled."
 	// TODO: Don't always assume a buffer resource.
-	auto robustness = OutOfBoundsBehavior::RobustBufferAccess;
+	//
+	// While we could be using OutOfBoundsBehavior::RobustBufferAccess for read operations from buffer resources,
+	// emulating the glsl function loadImage() requires that this function returns 0 when used with out of bounds
+	// coordinates, so we have to use OutOfBoundsBehavior::Nullify in that case.
+	auto robustness = OutOfBoundsBehavior::Nullify;
+
+	auto texelSize = vk::Format(vkFormat).bytes();
+	auto basePtr = SIMD::Pointer(imageBase, imageSizeInBytes);
+	auto texelPtr = GetTexelAddress(state, basePtr, coordinate, imageType, binding, texelSize, sampleId, useStencilAspect, robustness);
 
 	SIMD::Int packed[4];
 	// Round up texel size: for formats smaller than 32 bits per texel, we will emit a bunch
@@ -848,15 +886,15 @@ SpirvShader::EmitResult SpirvShader::EmitImageWrite(InsnIterator insn, EmitState
 {
 	auto imageId = Object::ID(insn.word(1));
 	auto &image = getObject(imageId);
-	auto &imageType = getType(image.type);
+	auto &imageType = getType(image);
 
 	ASSERT(imageType.definition.opcode() == spv::OpTypeImage);
 
 	// TODO(b/131171141): Not handling any image operands yet.
 	ASSERT(insn.wordCount() == 4);
 
-	auto coordinate = GenericValue(this, state, insn.word(2));
-	auto texel = GenericValue(this, state, insn.word(3));
+	auto coordinate = Operand(this, state, insn.word(2));
+	auto texel = Operand(this, state, insn.word(3));
 
 	Pointer<Byte> binding = state->getPointer(imageId).base;
 	Pointer<Byte> imageBase = *Pointer<Pointer<Byte>>(binding + OFFSET(vk::StorageImageDescriptor, ptr));
@@ -978,11 +1016,14 @@ SpirvShader::EmitResult SpirvShader::EmitImageWrite(InsnIterator insn, EmitState
 			break;
 	}
 
-	auto basePtr = SIMD::Pointer(imageBase, imageSizeInBytes);
-	auto texelPtr = GetTexelAddress(state, basePtr, coordinate, imageType, binding, texelSize, 0, false);
-
 	// SPIR-V 1.4: "If the coordinates are outside the image, the memory location that is accessed is undefined."
-	auto robustness = OutOfBoundsBehavior::UndefinedValue;
+
+	// Emulating the glsl function imageStore() requires that this function is noop when used with out of bounds
+	// coordinates, so we have to use OutOfBoundsBehavior::Nullify in that case.
+	auto robustness = OutOfBoundsBehavior::Nullify;
+
+	auto basePtr = SIMD::Pointer(imageBase, imageSizeInBytes);
+	auto texelPtr = GetTexelAddress(state, basePtr, coordinate, imageType, binding, texelSize, 0, false, robustness);
 
 	for(auto i = 0u; i < numPackedElements; i++)
 	{
@@ -1000,21 +1041,21 @@ SpirvShader::EmitResult SpirvShader::EmitImageTexelPointer(InsnIterator insn, Em
 	auto &image = getObject(imageId);
 	// Note: OpImageTexelPointer is unusual in that the image is passed by pointer.
 	// Look through to get the actual image type.
-	auto &imageType = getType(getType(image.type).element);
+	auto &imageType = getType(getType(image).element);
 	Object::ID resultId = insn.word(2);
 
 	ASSERT(imageType.opcode() == spv::OpTypeImage);
 	ASSERT(resultType.storageClass == spv::StorageClassImage);
 	ASSERT(getType(resultType.element).opcode() == spv::OpTypeInt);
 
-	auto coordinate = GenericValue(this, state, insn.word(4));
+	auto coordinate = Operand(this, state, insn.word(4));
 
 	Pointer<Byte> binding = state->getPointer(imageId).base;
 	Pointer<Byte> imageBase = *Pointer<Pointer<Byte>>(binding + OFFSET(vk::StorageImageDescriptor, ptr));
 	auto imageSizeInBytes = *Pointer<Int>(binding + OFFSET(vk::StorageImageDescriptor, sizeInBytes));
 
 	auto basePtr = SIMD::Pointer(imageBase, imageSizeInBytes);
-	auto ptr = GetTexelAddress(state, basePtr, coordinate, imageType, binding, sizeof(uint32_t), 0, false);
+	auto ptr = GetTexelAddress(state, basePtr, coordinate, imageType, binding, sizeof(uint32_t), 0, false, OutOfBoundsBehavior::UndefinedValue);
 
 	state->createPointer(resultId, ptr);
 

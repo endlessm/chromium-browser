@@ -4,11 +4,12 @@
 
 const {assert} = chai;
 
-import {Issue} from '../../../../front_end/sdk/Issue.js';
+import {StubIssue} from './StubIssue.js';
 
 describe('Issue', () => {
-  it('should always require a code', () => {
-    const issue = new Issue('code', undefined);
-    assert.equal(issue.code(), 'code');
+  it('should store the code', () => {
+    const code = 'anExampleIssueCodeString';
+    const issue = new StubIssue(code, [], []);
+    assert.strictEqual(issue.code(), code);
   });
 });

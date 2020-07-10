@@ -9,7 +9,7 @@ from __future__ import print_function
 from chromite.lib import cros_logging as logging
 
 # TODO(b/143241417): Use futility anytime flashing over ssh to avoid failures.
-use_futility_ssh = True
+DEPLOY_SSH_FORCE_FUTILITY = True
 
 
 def is_fast_required(_use_futility, servo):
@@ -27,10 +27,8 @@ def is_fast_required(_use_futility, servo):
   Returns:
     bool: True if fast is necessary, False otherwise.
   """
-  if servo.is_micro:
-    # servo_v4_with_servo_micro or servo_micro
-    return True
-  return False
+  # servo_v4_with_servo_micro or servo_micro
+  return servo.is_micro
 
 
 def get_commands(servo):
@@ -75,7 +73,7 @@ def get_commands(servo):
     dut_control_off.append(['spi2_vref:off', 'spi2_buf_en:off',
                             'spi2_buf_on_flex_en:off',
                             'cold_reset:off'])
-    programmer = 'ft2232_spi:type=servo-v2,serial=%s' % servo.serial
+    programmer = 'ft2232_spi:type=google-servo-v2,serial=%s' % servo.serial
   elif servo.is_micro:
     dut_control_on.append(['spi2_vref:pp3300', 'spi2_buf_en:on',
                            'cold_reset:on'])

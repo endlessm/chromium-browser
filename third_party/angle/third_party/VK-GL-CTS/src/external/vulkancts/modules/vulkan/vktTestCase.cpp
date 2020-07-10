@@ -58,7 +58,9 @@ namespace
 vector<string> filterExtensions (const vector<VkExtensionProperties>& extensions)
 {
 	vector<string>	enabledExtensions;
-	const char*		extensionGroups[] =
+	bool			khrBufferDeviceAddress	= false;
+
+	const char*		extensionGroups[]		=
 	{
 		"VK_KHR_",
 		"VK_EXT_",
@@ -69,10 +71,26 @@ vector<string> filterExtensions (const vector<VkExtensionProperties>& extensions
 		"VK_AMD_mixed_attachment_samples",
 		"VK_AMD_shader_fragment_mask",
 		"VK_AMD_buffer_marker",
+		"VK_AMD_shader_explicit_vertex_parameter",
+		"VK_AMD_shader_image_load_store_lod",
+		"VK_AMD_shader_trinary_minmax",
 	};
 
 	for (size_t extNdx = 0; extNdx < extensions.size(); extNdx++)
 	{
+		if (deStringEqual(extensions[extNdx].extensionName, "VK_KHR_buffer_device_address"))
+		{
+			khrBufferDeviceAddress = true;
+			break;
+		}
+	}
+
+	for (size_t extNdx = 0; extNdx < extensions.size(); extNdx++)
+	{
+		// VK_EXT_buffer_device_address is deprecated and must not be enabled if VK_KHR_buffer_device_address is enabled
+		if (khrBufferDeviceAddress && deStringEqual(extensions[extNdx].extensionName, "VK_EXT_buffer_device_address"))
+			continue;
+
 		for (int extGroupNdx = 0; extGroupNdx < DE_LENGTH_OF_ARRAY(extensionGroups); extGroupNdx++)
 		{
 			if (deStringBeginsWith(extensions[extNdx].extensionName, extensionGroups[extGroupNdx]))
@@ -425,7 +443,7 @@ bool Context::isDeviceFunctionalitySupported (const std::string& extension) cons
 {
 	// check if extension was promoted to core
 	deUint32 apiVersion = getUsedApiVersion();
-	if (isCoreDeviceExtension(getUsedApiVersion(), extension))
+	if (isCoreDeviceExtension(apiVersion, extension))
 	{
 		// all folowing checks are for vk12 and can be skipped for previous versions
 		if (apiVersion < VK_MAKE_VERSION(1, 2, 0))

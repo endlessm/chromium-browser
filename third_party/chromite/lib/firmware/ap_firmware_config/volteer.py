@@ -14,24 +14,7 @@ BUILD_WORKON_PACKAGES = None
 BUILD_PACKAGES = ('chromeos-bootimage',)
 
 # TODO: Remove this line once VBoot is working on Volteer.
-__use_flashrom__ = True
-
-
-def is_fast_required(_use_futility, _servo):
-  """Returns true if --fast is necessary to flash successfully.
-
-  The configurations in this function consistently fail on the verify step,
-  adding --fast removes verification of the flash and allows these configs to
-  flash properly. Meant to be a temporary hack until b/143240576 is fixed.
-
-  Args:
-    _use_futility (bool): True if futility is to be used, False if flashrom.
-    _servo (servo_lib.Servo): The servo connected to the target DUT.
-
-  Returns:
-    bool: True if fast is necessary, False otherwise.
-  """
-  return False
+DEPLOY_SERVO_FORCE_FLASHROM = True
 
 
 def get_commands(servo):
@@ -56,7 +39,7 @@ def get_commands(servo):
   dut_control_on = [['cpu_fw_spi:on']]
   dut_control_off = [['cpu_fw_spi:off']]
   if servo.is_v2:
-    programmer = 'ft2232_spi:type=servo-v2,serial=%s' % servo.serial
+    programmer = 'ft2232_spi:type=google-servo-v2,serial=%s' % servo.serial
   elif servo.is_micro:
     # TODO (jacobraz): remove warning once http://b/147679336 is resolved
     logging.warning('servo_micro has not been functioning properly consider '

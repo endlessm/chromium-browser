@@ -13,11 +13,12 @@
 *.xcodeproj*
 /.dev_profile
 /.test_cache
+/back_end/CXXDWARFSymbols/third_party/
 /front_end/protocol_externs.js
 /release
 /scripts/visualize_deps/out
 config.gypi
-karma-coverage
+/karma-coverage
 npm-debug.log
 /scripts/protocol_typescript/*.js
 
@@ -27,11 +28,13 @@ npm-debug.log
 /third_party/*
 !/third_party/axe-core
 !/third_party/blink
+!/third_party/i18n
 !/third_party/pyjson5
 !/third_party/typescript
 
 test/e2e/**/*.js
 !test/e2e/resources/**/*.js
+!test/e2e/.mocharc.js
 test/e2e/**/*.tsbuildinfo
 test/shared/**/*.js
 test/shared/**/helper.d.ts

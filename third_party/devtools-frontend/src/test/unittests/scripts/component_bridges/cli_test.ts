@@ -6,9 +6,9 @@ import {assert} from 'chai';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import {parseTypeScriptComponent} from '../../../../scripts/component_bridges/cli';
+import {parseTypeScriptComponent} from '../../../../scripts/component_bridges/cli.js';
 
-import {pathForFixture} from './test_utils';
+import {pathForFixture} from './test_utils.js';
 
 
 const runFixtureTestAndAssertMatch = (fixtureName: string) => {
@@ -20,7 +20,7 @@ const runFixtureTestAndAssertMatch = (fixtureName: string) => {
   const actualCode = fs.readFileSync(output, {encoding: 'utf8'});
   const expectedCode = fs.readFileSync(expectedPath, {encoding: 'utf8'});
 
-  assert.equal(actualCode, expectedCode, `Fixture did not match expected: ${fixtureName}`);
+  assert.strictEqual(actualCode, expectedCode, `Fixture did not match expected: ${fixtureName}`);
 
   return {actualCode, expectedCode};
 };
@@ -36,5 +36,13 @@ describe('bridges CLI fixture tests', () => {
 
   it('picks out the right interfaces for components with array parameters', () => {
     runFixtureTestAndAssertMatch('array-params');
+  });
+
+  it('correctly pulls out getters and setters into the public interface', () => {
+    runFixtureTestAndAssertMatch('getters-setters-component');
+  });
+
+  it('can handle setters with object literal data parameter', () => {
+    runFixtureTestAndAssertMatch('setters-object-literal');
   });
 });

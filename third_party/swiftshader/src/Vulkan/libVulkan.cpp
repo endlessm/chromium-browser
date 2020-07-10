@@ -16,17 +16,17 @@
 #include "VkBufferView.hpp"
 #include "VkCommandBuffer.hpp"
 #include "VkCommandPool.hpp"
-#include "VkConfig.h"
+#include "VkConfig.hpp"
 #include "VkDescriptorPool.hpp"
 #include "VkDescriptorSetLayout.hpp"
 #include "VkDescriptorUpdateTemplate.hpp"
-#include "VkDestroy.h"
+#include "VkDestroy.hpp"
 #include "VkDevice.hpp"
 #include "VkDeviceMemory.hpp"
 #include "VkEvent.hpp"
 #include "VkFence.hpp"
 #include "VkFramebuffer.hpp"
-#include "VkGetProcAddress.h"
+#include "VkGetProcAddress.hpp"
 #include "VkImage.hpp"
 #include "VkImageView.hpp"
 #include "VkInstance.hpp"
@@ -45,7 +45,7 @@
 #include "System/Debug.hpp"
 
 #if defined(VK_USE_PLATFORM_METAL_EXT) || defined(VK_USE_PLATFORM_MACOS_MVK)
-#	include "WSI/MetalSurface.h"
+#	include "WSI/MetalSurface.hpp"
 #endif
 
 #ifdef VK_USE_PLATFORM_XCB_KHR
@@ -71,8 +71,10 @@
 
 #include "Reactor/Nucleus.hpp"
 
+#include "marl/mutex.h"
 #include "marl/scheduler.h"
 #include "marl/thread.h"
+#include "marl/tsa.h"
 
 #include "System/CPUID.hpp"
 
@@ -133,21 +135,27 @@ void setCPUDefaults()
 
 std::shared_ptr<marl::Scheduler> getOrCreateScheduler()
 {
-	static std::mutex mutex;
-	static std::weak_ptr<marl::Scheduler> schedulerWeak;
-	std::unique_lock<std::mutex> lock(mutex);
-	auto scheduler = schedulerWeak.lock();
-	if(!scheduler)
+	struct Scheduler
 	{
-		scheduler = std::make_shared<marl::Scheduler>();
-		scheduler->setThreadInitializer([] {
+		marl::mutex mutex;
+		std::weak_ptr<marl::Scheduler> weakptr GUARDED_BY(mutex);
+	};
+
+	static Scheduler scheduler;
+
+	marl::lock lock(scheduler.mutex);
+	auto sptr = scheduler.weakptr.lock();
+	if(!sptr)
+	{
+		sptr = std::make_shared<marl::Scheduler>();
+		sptr->setThreadInitializer([] {
 			sw::CPUID::setFlushToZero(true);
 			sw::CPUID::setDenormalsAreZero(true);
 		});
-		scheduler->setWorkerThreadCount(std::min<size_t>(marl::Thread::numLogicalCPUs(), 16));
-		schedulerWeak = scheduler;
+		sptr->setWorkerThreadCount(std::min<size_t>(marl::Thread::numLogicalCPUs(), 16));
+		scheduler.weakptr = sptr;
 	}
-	return scheduler;
+	return sptr;
 }
 
 // initializeLibrary() is called by vkCreateInstance() to perform one-off global
@@ -267,6 +275,26 @@ VK_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vk_icdNegotiateLoaderICDInterfaceVersio
 	return VK_SUCCESS;
 }
 
+#if VK_USE_PLATFORM_FUCHSIA
+
+// This symbol must be exported by a Fuchsia Vulkan ICD. The Vulkan loader will
+// call it, passing the address of a global function pointer that can later be
+// used at runtime to connect to Fuchsia FIDL services, as required by certain
+// extensions. See https://fxbug.dev/13095 for more details.
+//
+// NOTE: This entry point has not been upstreamed to Khronos yet, which reserves
+//       all symbols starting with vk_icd. See https://fxbug.dev/13074 which
+//       tracks upstreaming progress.
+VK_EXPORT VKAPI_ATTR VkResult VKAPI_CALL vk_icdInitializeConnectToServiceCallback(
+    PFN_vkConnectToService callback)
+{
+	TRACE("(callback = %p)", callback);
+	vk::icdFuchsiaServiceConnectCallback = callback;
+	return VK_SUCCESS;
+}
+
+#endif  // VK_USE_PLATFORM_FUCHSIA
+
 static const VkExtensionProperties instanceExtensionProperties[] = {
 	{ VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME, VK_KHR_DEVICE_GROUP_CREATION_SPEC_VERSION },
 	{ VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_SPEC_VERSION },
@@ -348,8 +376,10 @@ static const VkExtensionProperties deviceExtensionProperties[] = {
 
 #if VK_USE_PLATFORM_FUCHSIA
 	{ VK_FUCHSIA_EXTERNAL_SEMAPHORE_EXTENSION_NAME, VK_FUCHSIA_EXTERNAL_SEMAPHORE_SPEC_VERSION },
+	{ VK_FUCHSIA_EXTERNAL_MEMORY_EXTENSION_NAME, VK_FUCHSIA_EXTERNAL_MEMORY_SPEC_VERSION },
 #endif
 	{ VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME, VK_EXT_PROVOKING_VERTEX_SPEC_VERSION },
+	{ VK_GOOGLE_SAMPLER_FILTERING_PRECISION_EXTENSION_NAME, VK_GOOGLE_SAMPLER_FILTERING_PRECISION_SPEC_VERSION },
 };
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkInstance *pInstance)
@@ -946,6 +976,10 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateMemory(VkDevice device, const VkMemoryA
 					case VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID:
 						break;
 #endif
+#if VK_USE_PLATFORM_FUCHSIA
+					case VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA:
+						break;
+#endif
 					default:
 						UNSUPPORTED("exportInfo->handleTypes %u", exportInfo->handleTypes);
 						return VK_ERROR_INVALID_EXTERNAL_HANDLE;
@@ -967,6 +1001,18 @@ VKAPI_ATTR VkResult VKAPI_CALL vkAllocateMemory(VkDevice device, const VkMemoryA
 				}
 				break;
 			}
+#if VK_USE_PLATFORM_FUCHSIA
+			case VK_STRUCTURE_TYPE_TEMP_IMPORT_MEMORY_ZIRCON_HANDLE_INFO_FUCHSIA:
+			{
+				auto *importInfo = reinterpret_cast<const VkImportMemoryZirconHandleInfoFUCHSIA *>(allocationInfo);
+				if(importInfo->handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA)
+				{
+					UNSUPPORTED("importInfo->handleType %u", importInfo->handleType);
+					return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+				}
+				break;
+			}
+#endif  // VK_USE_PLATFORM_FUCHSIA
 			default:
 				LOG_TRAP("pAllocateInfo->pNext sType = %s", vk::Stringify(allocationInfo->sType).c_str());
 				break;
@@ -1039,6 +1085,45 @@ VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryFdPropertiesKHR(VkDevice device, VkExt
 	return VK_SUCCESS;
 }
 #endif  // SWIFTSHADER_EXTERNAL_MEMORY_OPAQUE_FD
+#if VK_USE_PLATFORM_FUCHSIA
+VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryZirconHandleFUCHSIA(VkDevice device, const VkMemoryGetZirconHandleInfoFUCHSIA *pGetHandleInfo, zx_handle_t *pHandle)
+{
+	TRACE("(VkDevice device = %p, const VkMemoryGetZirconHandleInfoFUCHSIA* pGetHandleInfo = %p, zx_handle_t* pHandle = %p",
+	      device, pGetHandleInfo, pHandle);
+
+	if(pGetHandleInfo->handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA)
+	{
+		UNSUPPORTED("pGetHandleInfo->handleType %u", pGetHandleInfo->handleType);
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+	return vk::Cast(pGetHandleInfo->memory)->exportHandle(pHandle);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryZirconHandlePropertiesFUCHSIA(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, zx_handle_t handle, VkMemoryZirconHandlePropertiesFUCHSIA *pMemoryZirconHandleProperties)
+{
+	TRACE("(VkDevice device = %p, VkExternalMemoryHandleTypeFlagBits handleType = %x, zx_handle_t handle = %d, VkMemoryZirconHandlePropertiesFUCHSIA* pMemoryZirconHandleProperties = %p)",
+	      device, handleType, handle, pMemoryZirconHandleProperties);
+
+	if(handleType != VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA)
+	{
+		UNSUPPORTED("handleType %u", handleType);
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+
+	if(handle == ZX_HANDLE_INVALID)
+	{
+		return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+	}
+
+	const VkPhysicalDeviceMemoryProperties &memoryProperties =
+	    vk::Cast(device)->getPhysicalDevice()->getMemoryProperties();
+
+	// All SwiftShader memory types support this!
+	pMemoryZirconHandleProperties->memoryTypeBits = (1U << memoryProperties.memoryTypeCount) - 1U;
+
+	return VK_SUCCESS;
+}
+#endif  // VK_USE_PLATFORM_FUCHSIA
 
 VKAPI_ATTR VkResult VKAPI_CALL vkGetMemoryHostPointerPropertiesEXT(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, const void *pHostPointer, VkMemoryHostPointerPropertiesEXT *pMemoryHostPointerProperties)
 {
@@ -1838,15 +1923,23 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSampler(VkDevice device, const VkSamplerC
 
 	const VkBaseInStructure *extensionCreateInfo = reinterpret_cast<const VkBaseInStructure *>(pCreateInfo->pNext);
 	const vk::SamplerYcbcrConversion *ycbcrConversion = nullptr;
+	VkSamplerFilteringPrecisionModeGOOGLE filteringPrecision = VK_SAMPLER_FILTERING_PRECISION_MODE_LOW_GOOGLE;
 
 	while(extensionCreateInfo)
 	{
-		switch(extensionCreateInfo->sType)
+		switch(static_cast<long>(extensionCreateInfo->sType))
 		{
 			case VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO:
 			{
 				const VkSamplerYcbcrConversionInfo *samplerYcbcrConversionInfo = reinterpret_cast<const VkSamplerYcbcrConversionInfo *>(extensionCreateInfo);
 				ycbcrConversion = vk::Cast(samplerYcbcrConversionInfo->conversion);
+			}
+			break;
+			case VK_STRUCTURE_TYPE_SAMPLER_FILTERING_PRECISION_GOOGLE:
+			{
+				const VkSamplerFilteringPrecisionGOOGLE *filteringInfo =
+				    reinterpret_cast<const VkSamplerFilteringPrecisionGOOGLE *>(extensionCreateInfo);
+				filteringPrecision = filteringInfo->samplerFilteringPrecisionMode;
 			}
 			break;
 			default:
@@ -1857,7 +1950,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateSampler(VkDevice device, const VkSamplerC
 		extensionCreateInfo = extensionCreateInfo->pNext;
 	}
 
-	vk::SamplerState samplerState(pCreateInfo, ycbcrConversion);
+	vk::SamplerState samplerState(pCreateInfo, ycbcrConversion, filteringPrecision);
 	uint32_t samplerID = vk::Cast(device)->indexSampler(samplerState);
 
 	VkResult result = vk::Sampler::Create(pAllocator, pCreateInfo, pSampler, samplerState, samplerID);

@@ -267,7 +267,6 @@ for platform in [
     # Test with Breakpad tools only on basic Linux builds.
     if sys.platform.startswith('linux'):
       arch_flags += ' --use-breakpad-tools'
-      arch_flags += ' --no-gn'
     if 'win' in platform:
       arch_flags += ' --no-scons --no-clang'
     for mode in ['dbg', 'opt']:

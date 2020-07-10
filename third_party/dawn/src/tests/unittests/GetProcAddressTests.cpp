@@ -22,7 +22,7 @@
 
 namespace {
 
-    // libdawn_wire and libdawn_native contain duplicated code for the handling of GetProcAddress
+    // dawn_wire and dawn_native contain duplicated code for the handling of GetProcAddress
     // so we run the tests against both implementations. This enum is used as a test parameters to
     // know which implementation to test.
     enum class DawnFlavor {
@@ -90,7 +90,7 @@ namespace {
         }
 
       protected:
-        dawn_native::Ref<dawn_native::InstanceBase> mNativeInstance;
+        Ref<dawn_native::InstanceBase> mNativeInstance;
         dawn_native::null::Adapter mNativeAdapter;
 
         std::unique_ptr<utils::TerribleCommandBuffer> mC2sBuf;

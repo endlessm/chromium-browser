@@ -11,6 +11,7 @@ import copy
 import os
 
 import mock
+import pytest  # pylint: disable=import-error
 
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import commands
@@ -66,6 +67,7 @@ class UnitTestStageTest(generic_stages_unittest.AbstractStageTestCase,
 
     board_runattrs = self._run.GetBoardRunAttrs(self._current_board)
     board_runattrs.SetParallel('test_artifacts_uploaded', True)
+    board_runattrs.SetParallel('debug_symbols_completed', True)
     self.RunStage()
     makedirs_mock.assert_called_once_with(self._run.GetArchive().archive_path)
     self.rununittests_mock.assert_called_once_with(
@@ -389,6 +391,7 @@ class CbuildbotLaunchTestEndToEndTest(
     self.RunStage()
 
 
+@pytest.mark.usefixtures('singleton_manager')
 class HWTestPlanStageTest(cros_test_lib.MockTempDirTestCase):
   """Tests for the HWTestPlanStageTest."""
 

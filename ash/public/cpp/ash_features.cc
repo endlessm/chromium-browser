@@ -4,31 +4,14 @@
 
 #include "ash/public/cpp/ash_features.h"
 
-#include <vector>
-
 #include "ash/public/cpp/ash_switches.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/strings/string_split.h"
-#include "base/system/sys_info.h"
 #include "build/build_config.h"
 #include "chromeos/constants/chromeos_switches.h"
 
 namespace ash {
 namespace features {
-
-namespace {
-
-bool IsBoardKukui() {
-  std::vector<std::string> board =
-      base::SplitString(base::SysInfo::GetLsbReleaseBoard(), "-",
-                        base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-  if (board.empty())
-    return false;
-  return board[0] == "kukui";
-}
-
-}  // namespace
 
 const base::Feature kAllowAmbientEQ{"AllowAmbientEQ",
                                     base::FEATURE_DISABLED_BY_DEFAULT};
@@ -42,14 +25,23 @@ const base::Feature kCornerShortcuts{"CornerShortcuts",
 const base::Feature kContextualNudges{"ContextualNudges",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
 
+const base::Feature kDisplayAlignAssist{"DisplayAlignAssist",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kDisplayChangeModal{"DisplayChangeModal",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kDisplayIdentification{"DisplayIdentification",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kDockedMagnifier{"DockedMagnifier",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kDragToSnapInClamshellMode{
-    "DragToSnapInClamshellMode", base::FEATURE_DISABLED_BY_DEFAULT};
+    "DragToSnapInClamshellMode", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kMovablePartialScreenshot{
+    "MovablePartialScreenshot", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kEnableOverviewRoundedCorners{
     "EnableOverviewRoundedCorners", base::FEATURE_ENABLED_BY_DEFAULT};
@@ -80,7 +72,7 @@ const base::Feature kMediaSessionNotification{"MediaSessionNotification",
                                               base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kMultiDisplayOverviewAndSplitView{
-    "MultiDisplayOverviewAndSplitView", base::FEATURE_DISABLED_BY_DEFAULT};
+    "MultiDisplayOverviewAndSplitView", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kNightLight{"NightLight", base::FEATURE_ENABLED_BY_DEFAULT};
 
@@ -108,8 +100,6 @@ const base::Feature kTrilinearFiltering{"TrilinearFiltering",
 const base::Feature kUnlockWithExternalBinary{
     "UnlockWithExternalBinary", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kViewsLogin{"ViewsLogin", base::FEATURE_ENABLED_BY_DEFAULT};
-
 const base::Feature kUseBluetoothSystemInAsh{"UseBluetoothSystemInAsh",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -132,10 +122,16 @@ const base::Feature kDragFromShelfToHomeOrOverview{
     "DragFromShelfToHomeOrOverview", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kHideShelfControlsInTabletMode{
-    "HideShelfControlsInTabletMode", base::FEATURE_DISABLED_BY_DEFAULT};
+    "HideShelfControlsInTabletMode", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSystemTrayMicGainSetting{
     "SystemTrayMicGainSetting", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kWebUITabStripTabDragIntegration{
+    "WebUITabStripTabDragIntegration", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kShelfAppScaling{"ShelfAppScaling",
+                                     base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsAllowAmbientEQEnabled() {
   return base::FeatureList::IsEnabled(kAllowAmbientEQ);
@@ -197,15 +193,6 @@ bool IsTrilinearFilteringEnabled() {
   return use_trilinear_filtering;
 }
 
-bool IsViewsLoginEnabled() {
-  // Always show webui login if --show-webui-login is present, which is passed
-  // by session manager for automatic recovery. Otherwise, only show views
-  // login if the feature is enabled.
-  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
-             ash::switches::kShowWebUiLogin) &&
-         base::FeatureList::IsEnabled(kViewsLogin);
-}
-
 bool IsSupervisedUserDeprecationNoticeEnabled() {
   return base::FeatureList::IsEnabled(kSupervisedUserDeprecationNotice);
 }
@@ -250,17 +237,8 @@ bool IsReduceDisplayNotificationsEnabled() {
 }
 
 bool IsHideShelfControlsInTabletModeEnabled() {
-  if (!IsDragFromShelfToHomeOrOverviewEnabled())
-    return false;
-
-  // Enable shelf navigation buttons by default on kukui.
-  // TODO(https://crbug.com/1084226): A better approach would be to have login
-  // manager enable the feature by setting an appropriate enable_features flag.
-  static const bool is_kukui = IsBoardKukui();
-  if (is_kukui)
-    return true;
-
-  return base::FeatureList::IsEnabled(kHideShelfControlsInTabletMode);
+  return base::FeatureList::IsEnabled(kHideShelfControlsInTabletMode) &&
+         IsDragFromShelfToHomeOrOverviewEnabled();
 }
 
 bool IsDisplayChangeModalEnabled() {
@@ -268,8 +246,6 @@ bool IsDisplayChangeModalEnabled() {
 }
 
 bool AreContextualNudgesEnabled() {
-  if (!IsHideShelfControlsInTabletModeEnabled())
-    return false;
   return base::FeatureList::IsEnabled(kContextualNudges);
 }
 
@@ -279,6 +255,27 @@ bool IsCornerShortcutsEnabled() {
 
 bool IsSystemTrayMicGainSettingEnabled() {
   return base::FeatureList::IsEnabled(kSystemTrayMicGainSetting);
+}
+
+bool IsDisplayIdentificationEnabled() {
+  return base::FeatureList::IsEnabled(kDisplayIdentification);
+}
+
+bool IsWebUITabStripTabDragIntegrationEnabled() {
+  return base::FeatureList::IsEnabled(kWebUITabStripTabDragIntegration);
+}
+
+bool IsDisplayAlignmentAssistanceEnabled() {
+  return base::FeatureList::IsEnabled(kDisplayAlignAssist);
+}
+
+bool IsMovablePartialScreenshotEnabled() {
+  return base::FeatureList::IsEnabled(kMovablePartialScreenshot);
+}
+
+bool IsAppScalingEnabled() {
+  return base::FeatureList::IsEnabled(kShelfAppScaling) &&
+         chromeos::switches::ShouldShowShelfHotseat();
 }
 
 namespace {

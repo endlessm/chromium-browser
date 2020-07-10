@@ -55,6 +55,9 @@ from chromite.scripts import pushimage
 from chromite.service import artifacts as artifacts_service
 
 
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
+
 _PACKAGE_FILE = '%(buildroot)s/src/scripts/cbuildbot_package.list'
 CHROME_KEYWORDS_FILE = ('/build/%(board)s/etc/portage/package.keywords/chrome')
 CHROME_UNMASK_FILE = ('/build/%(board)s/etc/portage/package.unmask/chrome')
@@ -95,12 +98,12 @@ _TAST_SSP_SUBDIR = 'tast'
 # Tast files and directories to include in AUTOTEST_SERVER_PACKAGE relative to
 # the build root. Public so it can be used by commands_unittest.py.
 TAST_SSP_FILES = [
-    'chroot/usr/bin/tast',  # Main Tast executable.
+    'chroot/etc/tast/vars',  # Secret variables tast interprets.
     'chroot/usr/bin/remote_test_runner',  # Runs remote tests.
+    'chroot/usr/bin/tast',  # Main Tast executable.
     'chroot/usr/libexec/tast/bundles',  # Dir containing test bundles.
     'chroot/usr/share/tast/data',  # Dir containing test data.
     'src/platform/tast/tools/run_tast.sh',  # Helper script to run SSP tast.
-    'src/platform/tast-tests-private/vars',  # Secret variables tast interprets.
 ]
 
 # =========================== Command Helpers =================================
@@ -2030,8 +2033,7 @@ def MarkAndroidAsStable(buildroot,
                         android_package,
                         android_build_branch,
                         boards=None,
-                        android_version=None,
-                        android_gts_build_branch=None):
+                        android_version=None):
   """Returns the portage atom for the revved Android ebuild - see man emerge."""
   input_msg = android_pb2.MarkStableRequest()
   input_msg.tracking_branch = tracking_branch
@@ -2039,8 +2041,6 @@ def MarkAndroidAsStable(buildroot,
   input_msg.android_build_branch = android_build_branch
   if android_version:
     input_msg.android_version = android_version
-  if android_gts_build_branch:
-    input_msg.android_gts_build_branch = android_gts_build_branch
   if boards:
     for board in boards:
       input_msg.build_targets.add().name = board
@@ -2694,7 +2694,7 @@ def ExportToGCloud(build_root,
     cros_build_lib.run(cmd)
     success = True
   except cros_build_lib.RunCommandError as e:
-    logging.warn('Unable to export to datastore: %s', e)
+    logging.warning('Unable to export to datastore: %s', e)
     success = False
 
   metrics.Counter(constants.MON_EXPORT_TO_GCLOUD).increment(fields={
@@ -2832,7 +2832,7 @@ def BuildFactoryInstallImage(buildroot, board, extra_env):
   alias = _FACTORY_SHIM
   cmd = [
       './build_image',
-      '--board=%s' % board, '--replace',
+      '--board=%s' % board, '--replace', '--noeclean',
       '--symlink=%s' % alias, '--build_attempt=3', 'factory_install'
   ]
   RunBuildScript(

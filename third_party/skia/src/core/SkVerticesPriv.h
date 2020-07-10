@@ -10,8 +10,6 @@
 
 #include "include/core/SkVertices.h"
 
-struct SkVertices_DeprecatedBoneIndices { uint32_t values[4]; };
-struct SkVertices_DeprecatedBoneWeights {    float values[4]; };
 struct SkVertices_DeprecatedBone        {    float values[6]; };
 
 /** Class that adds methods to SkVertices that are only intended for use internal to Skia.
@@ -25,6 +23,8 @@ public:
     bool hasColors() const { return SkToBool(fVertices->fColors); }
     bool hasTexCoords() const { return SkToBool(fVertices->fTexs); }
     bool hasIndices() const { return SkToBool(fVertices->fIndices); }
+
+    bool hasUsage(SkVertices::Attribute::Usage) const;
 
     int vertexCount() const { return fVertices->fVertexCount; }
     int indexCount() const { return fVertices->fIndexCount; }

@@ -6,24 +6,21 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "PassDetail.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/LoopUtils.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
-#define PASS_NAME "parallel-loop-collapsing"
-#define DEBUG_TYPE PASS_NAME
+#define DEBUG_TYPE "parallel-loop-collapsing"
 
 using namespace mlir;
 
 namespace {
-struct ParallelLoopCollapsing : public OperationPass<ParallelLoopCollapsing> {
-  ParallelLoopCollapsing() = default;
-  ParallelLoopCollapsing(const ParallelLoopCollapsing &) {}
+struct ParallelLoopCollapsing
+    : public ParallelLoopCollapsingBase<ParallelLoopCollapsing> {
   void runOnOperation() override {
     Operation *module = getOperation();
 
@@ -37,33 +34,12 @@ struct ParallelLoopCollapsing : public OperationPass<ParallelLoopCollapsing> {
         combinedLoops.push_back(clCollapsedIndices1);
       if (clCollapsedIndices2.size())
         combinedLoops.push_back(clCollapsedIndices2);
-      collapsePLoops(op, combinedLoops);
+      collapseParallelLoops(op, combinedLoops);
     });
   }
-
-  ListOption<unsigned> clCollapsedIndices0{
-      *this, "collapsed-indices-0",
-      llvm::cl::desc("Which loop indices to combine 0th loop index"),
-      llvm::cl::MiscFlags::CommaSeparated};
-
-  ListOption<unsigned> clCollapsedIndices1{
-      *this, "collapsed-indices-1",
-      llvm::cl::desc(
-          "Which loop indices to combine into the position 1 loop index"),
-      llvm::cl::MiscFlags::CommaSeparated};
-
-  ListOption<unsigned> clCollapsedIndices2{
-      *this, "collapsed-indices-2",
-      llvm::cl::desc(
-          "Which loop indices to combine into the position 2 loop index"),
-      llvm::cl::MiscFlags::CommaSeparated};
 };
-
 } // namespace
 
 std::unique_ptr<Pass> mlir::createParallelLoopCollapsingPass() {
   return std::make_unique<ParallelLoopCollapsing>();
 }
-
-static PassRegistration<ParallelLoopCollapsing>
-    reg(PASS_NAME, "collapse parallel loops to use less induction variables.");

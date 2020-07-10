@@ -6,7 +6,10 @@
 android_mem_by_priority.py android_mem android_mem_by_priority.out
 android_lmk.py android_lmk android_mem_lmk.out
 android_lmk_reason.py android_lmk_reason android_lmk_reason.out
+../trace_processor/oom_kill.textproto android_lmk android_lmk_oom.out
+
 android_ion.py android_ion android_ion.out
+android_ion_stat.textproto android_ion android_ion_stat.out
 
 android_startup.py android_startup android_startup.out
 android_startup_breakdown.py android_startup android_startup_breakdown.out
@@ -29,3 +32,5 @@ obfuscated_heap_graph.textproto unmapped_java_symbols unmapped_java_symbols.out
 ../data/memory_counters.pb trace_metadata trace_metadata.json.out
 
 process_uids.textproto android_task_names android_task_names.out
+
+../trace_processor/thread_time_in_state.textproto android_thread_time_in_state android_thread_time_in_state.out

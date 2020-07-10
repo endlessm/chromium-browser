@@ -22,6 +22,7 @@ import threading
 import time
 import zlib
 
+from utils import net
 from utils import tools
 tools.force_local_third_party()
 
@@ -595,7 +596,7 @@ class Storage(object):
       signal.signal(s, h)
     return False
 
-  def upload_items(self, items):
+  def upload_items(self, items, verify_push=False):
     """Uploads a generator of Item to the isolate server.
 
     It figures out what items are missing from the server and uploads only them.
@@ -629,14 +630,19 @@ class Storage(object):
     Arguments:
       items: list of isolate_storage.Item instances that represents data to
              upload.
+      verify_push: verify files are uploaded correctly by fetching from server.
 
     Returns:
       List of items that were uploaded. All other items are already there.
+
+    Raises:
+      The first exception being raised in the worker threads.
     """
     incoming = Queue.Queue()
     batches_to_lookup = Queue.Queue()
     missing = Queue.Queue()
     uploaded = []
+    exc_channel = threading_utils.TaskChannel()
 
     def _create_items_batches_thread():
       """Creates batches for /contains RPC lookup from individual items.
@@ -664,6 +670,8 @@ class Storage(object):
             batch = []
           if item is None:
             break
+      except Exception:
+        exc_channel.send_exception()
       finally:
         # Unblock the next pipeline.
         batches_to_lookup.put(None)
@@ -701,6 +709,8 @@ class Storage(object):
           for missing_item, push_state in channel.next().items():
             missing.put((missing_item, push_state))
           pending_contains -= 1
+      except Exception:
+        exc_channel.send_exception()
       finally:
         # Unblock the next pipeline.
         missing.put((None, None))
@@ -711,36 +721,38 @@ class Storage(object):
       Input: missing
       Output: uploaded
       """
-      with threading_utils.DeadlockDetector(DEADLOCK_TIMEOUT) as detector:
-        channel = threading_utils.TaskChannel()
-        pending_upload = 0
-        while not self._aborted:
-          try:
-            missing_item, push_state = missing.get(True, timeout=5)
-            if missing_item is None:
-              break
-            self._async_push(channel, missing_item, push_state)
-            pending_upload += 1
-          except Queue.Empty:
-            pass
-          detector.ping()
-          while not self._aborted and pending_upload:
+      try:
+        with threading_utils.DeadlockDetector(DEADLOCK_TIMEOUT) as detector:
+          channel = threading_utils.TaskChannel()
+          pending_upload = 0
+          while not self._aborted:
             try:
-              item = channel.next(timeout=0)
-            except threading_utils.TaskChannel.Timeout:
-              break
+              missing_item, push_state = missing.get(True, timeout=5)
+              if missing_item is None:
+                break
+              self._async_push(channel, missing_item, push_state, verify_push)
+              pending_upload += 1
+            except Queue.Empty:
+              pass
+            detector.ping()
+            while not self._aborted and pending_upload:
+              try:
+                item = channel.next(timeout=0)
+              except threading_utils.TaskChannel.Timeout:
+                break
+              uploaded.append(item)
+              pending_upload -= 1
+              logging.debug('Uploaded %d; %d pending: %s (%d)', len(uploaded),
+                            pending_upload, item.digest, item.size)
+          while not self._aborted and pending_upload:
+            item = channel.next()
             uploaded.append(item)
             pending_upload -= 1
             logging.debug(
                 'Uploaded %d; %d pending: %s (%d)',
                 len(uploaded), pending_upload, item.digest, item.size)
-        while not self._aborted and pending_upload:
-          item = channel.next()
-          uploaded.append(item)
-          pending_upload -= 1
-          logging.debug(
-              'Uploaded %d; %d pending: %s (%d)',
-              len(uploaded), pending_upload, item.digest, item.size)
+      except Exception:
+        exc_channel.send_exception()
 
     threads = [
         threading.Thread(target=_create_items_batches_thread),
@@ -769,13 +781,18 @@ class Storage(object):
     finally:
       for t in threads:
         t.join()
+      exc_channel.send_done()
+      for _ in exc_channel:
+        # If there is no exception, this loop does nothing. Otherwise, it raises
+        # the first exception put onto |exc_channel|.
+        pass
 
     logging.info('All %s files are uploaded', len(uploaded))
     if seen:
       _print_upload_stats(seen.values(), uploaded)
     return uploaded
 
-  def _async_push(self, channel, item, push_state):
+  def _async_push(self, channel, item, push_state, verify_push=False):
     """Starts asynchronous push to the server in a parallel thread.
 
     Can be used only after |item| was checked for presence on a server with a
@@ -787,6 +804,7 @@ class Storage(object):
       push_state: push state returned by storage_api.contains(). It contains
           storage specific information describing how to upload the item (for
           example in case of cloud storage, it is signed upload URLs).
+      verify_push: verify files are uploaded correctly by fetching from server.
 
     Returns:
       None, but |channel| later receives back |item| when upload ends.
@@ -801,6 +819,12 @@ class Storage(object):
       if self._aborted:
         raise Aborted()
       self._storage_api.push(item, push_state, content)
+      if verify_push:
+        self._fetch(
+            item.digest,
+            item.size,
+            # this consumes all elements from given generator.
+            lambda gen: collections.deque(gen, maxlen=0))
       return item
 
     # If zipping is not required, just start a push task. Don't pass 'content'
@@ -817,7 +841,8 @@ class Storage(object):
         if self._aborted:
           raise Aborted()
         stream = zip_compress(item.content(), item.compression_level)
-        data = ''.join(stream)
+        # In Python3, zlib.compress returns a byte object instead of str.
+        data = six.b('').join(stream)
       except Exception as exc:
         logging.error('Failed to zip \'%s\': %s', item, exc)
         channel.send_exception()
@@ -851,6 +876,21 @@ class Storage(object):
       assert pushed is item
     return item
 
+  def _fetch(self, digest, size, sink):
+    try:
+      # Prepare reading pipeline.
+      stream = self._storage_api.fetch(digest, size, 0)
+      if self.server_ref.is_with_compression:
+        stream = zip_decompress(stream, isolated_format.DISK_FILE_CHUNK)
+      # Run |stream| through verifier that will assert its size.
+      verifier = FetchStreamVerifier(stream, self.server_ref.hash_algo, digest,
+                                     size)
+      # Verified stream goes to |sink|.
+      sink(verifier.run())
+    except Exception as err:
+      logging.error('Failed to fetch %s: %s', digest, err)
+      raise
+
   def async_fetch(self, channel, priority, digest, size, sink):
     """Starts asynchronous fetch from the server in a parallel thread.
 
@@ -862,19 +902,7 @@ class Storage(object):
       sink: function that will be called as sink(generator).
     """
     def fetch():
-      try:
-        # Prepare reading pipeline.
-        stream = self._storage_api.fetch(digest, size, 0)
-        if self.server_ref.is_with_compression:
-          stream = zip_decompress(stream, isolated_format.DISK_FILE_CHUNK)
-        # Run |stream| through verifier that will assert its size.
-        verifier = FetchStreamVerifier(
-            stream, self.server_ref.hash_algo, digest, size)
-        # Verified stream goes to |sink|.
-        sink(verifier.run())
-      except Exception as err:
-        logging.error('Failed to fetch %s: %s', digest, err)
-        raise
+      self._fetch(digest, size, sink)
       return digest
 
     # Don't bother with zip_thread_pool for decompression. Decompression is
@@ -1229,7 +1257,9 @@ def get_storage(server_ref):
   Returns:
     Instance of Storage.
   """
-  assert isinstance(server_ref, isolate_storage.ServerRef), repr(server_ref)
+  # Handle the specific internal use case.
+  assert (isinstance(server_ref, isolate_storage.ServerRef) or
+          type(server_ref).__name__ == 'ServerRef'), repr(server_ref)
   return Storage(isolate_storage.get_storage_api(server_ref))
 
 
@@ -1479,7 +1509,7 @@ def _enqueue_dir(dirpath, blacklist, hash_algo, hash_algo_name):
       tools.format_json(data, True), algo=hash_algo, high_priority=True)
 
 
-def archive_files_to_storage(storage, files, blacklist):
+def archive_files_to_storage(storage, files, blacklist, verify_push=False):
   """Stores every entry into remote storage and returns stats.
 
   Arguments:
@@ -1488,10 +1518,14 @@ def archive_files_to_storage(storage, files, blacklist):
           trailing slash), a .isolated file is created and its hash is returned.
           Duplicates are skipped.
     blacklist: function that returns True if a file should be omitted.
+    verify_push: verify files are uploaded correctly by fetching from server.
 
   Returns:
     tuple(OrderedDict(path: hash), list(FileItem cold), list(FileItem hot)).
     The first file in the first item is always the .isolated file.
+
+  Raises:
+    Re-raises the exception in upload_items(), if there is any.
   """
   # Dict of path to hash.
   results = collections.OrderedDict()
@@ -1499,10 +1533,16 @@ def archive_files_to_storage(storage, files, blacklist):
   hash_algo_name = storage.server_ref.hash_algo_name
   # Generator of FileItem to pass to upload_items() concurrent operation.
   channel = threading_utils.TaskChannel()
+  exc_channel = threading_utils.TaskChannel()
   uploaded_digests = set()
+
   def _upload_items():
-    results = storage.upload_items(channel)
-    uploaded_digests.update(f.digest for f in results)
+    try:
+      results = storage.upload_items(channel, verify_push)
+      uploaded_digests.update(f.digest for f in results)
+    except Exception:
+      exc_channel.send_exception()
+
   t = threading.Thread(target=_upload_items)
   t.start()
 
@@ -1544,6 +1584,9 @@ def archive_files_to_storage(storage, files, blacklist):
     # Stops the generator, so _upload_items() can exit.
     channel.send_done()
   t.join()
+  exc_channel.send_done()
+  for _ in exc_channel:
+    pass
 
   cold = []
   hot = []
@@ -1792,4 +1835,5 @@ if __name__ == '__main__':
   fix_encoding.fix_encoding()
   tools.disable_buffering()
   colorama.init()
+  net.set_user_agent('isolateserver.py/' + __version__)
   sys.exit(main(sys.argv[1:]))

@@ -29,10 +29,8 @@ class ContextualTooltipTest : public AshTestBase,
  public:
   ContextualTooltipTest() {
     if (GetParam()) {
-      scoped_feature_list_.InitWithFeatures(
-          {ash::features::kContextualNudges,
-           ash::features::kHideShelfControlsInTabletMode},
-          {});
+      scoped_feature_list_.InitAndEnableFeature(
+          ash::features::kContextualNudges);
 
     } else {
       scoped_feature_list_.InitAndDisableFeature(
@@ -70,32 +68,6 @@ INSTANTIATE_TEST_SUITE_P(All,
                          ContextualTooltipDisabledTest,
                          testing::Values(false));
 INSTANTIATE_TEST_SUITE_P(All, ContextualTooltipTest, testing::Values(true));
-
-TEST_P(ContextualTooltipTest, DisableNudgesForAccessibilityTabletMode) {
-  GetPrefService()->SetBoolean(
-      prefs::kAccessibilityTabletModeShelfNavigationButtonsEnabled, true);
-  EXPECT_FALSE(contextual_tooltip::ShouldShowNudge(
-      GetPrefService(), TooltipType::kInAppToHome, nullptr));
-}
-
-TEST_P(ContextualTooltipTest, DisableNudgesForAccessibilitySpokenFeedback) {
-  GetPrefService()->SetBoolean(prefs::kAccessibilitySpokenFeedbackEnabled,
-                               true);
-  EXPECT_FALSE(contextual_tooltip::ShouldShowNudge(
-      GetPrefService(), TooltipType::kInAppToHome, nullptr));
-}
-
-TEST_P(ContextualTooltipTest, DisableNudgesForAccessibilityAutoclick) {
-  GetPrefService()->SetBoolean(prefs::kAccessibilityAutoclickEnabled, true);
-  EXPECT_FALSE(contextual_tooltip::ShouldShowNudge(
-      GetPrefService(), TooltipType::kInAppToHome, nullptr));
-}
-
-TEST_P(ContextualTooltipTest, DisableNudgesForAccessibilitySwitchAccess) {
-  GetPrefService()->SetBoolean(prefs::kAccessibilitySwitchAccessEnabled, true);
-  EXPECT_FALSE(contextual_tooltip::ShouldShowNudge(
-      GetPrefService(), TooltipType::kInAppToHome, nullptr));
-}
 
 // Checks that nudges are not shown when the feature flag is disabled.
 TEST_P(ContextualTooltipDisabledTest, FeatureFlagDisabled) {

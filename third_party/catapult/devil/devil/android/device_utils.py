@@ -68,22 +68,27 @@ DEFAULT = object()
 # as_root param.
 _FORCE_SU = object()
 
-_RECURSIVE_DIRECTORY_LIST_SCRIPT = """
-  function list_subdirs() {
-    for f in "$1"/* ;
+# Lists all files for the specified directories.
+# In order to minimize data transfer, prints directories as absolute paths
+# followed by files within that directory without their path.
+_FILE_LIST_SCRIPT = """
+  function list_files() {
+    for f in "$1"/{.,}*
     do
-      if [ -d "$f" ] ;
+      if [ "$f" == "." ] || [ "$f" == ".." ] || [ "$f" == "${1}/.*" ] \
+          || [ "$f" == "${1}/*" ]
       then
-        if [ "$f" == "." ] || [ "$f" == ".." ] ;
-        then
-          continue ;
-        fi ;
-        echo "$f" ;
-        list_subdirs "$f" ;
-      fi ;
-    done ;
-  } ;
-  list_subdirs %s
+        continue
+      fi
+      base=${f##*/} # Get the basename for the file, dropping the path.
+      echo "$base"
+    done
+  }
+  for dir in %s
+  do
+    echo "$dir"
+    list_files "$dir"
+  done
 """
 
 _RESTART_ADBD_SCRIPT = """
@@ -164,6 +169,8 @@ _CURRENT_FOCUS_CRASH_RE = re.compile(
     r'\s*mCurrentFocus.*Application (Error|Not Responding): (\S+)}')
 
 _GETPROP_RE = re.compile(r'\[(.*?)\]: \[(.*?)\]')
+_VERSION_CODE_SDK_RE = re.compile(
+    r'\s*versionCode=(\d+).*minSdk=(\d+).*targetSdk=(.*)\s*')
 
 # Regex to parse the long (-l) output of 'ls' command, c.f.
 # https://github.com/landley/toybox/blob/master/toys/posix/ls.c#L446
@@ -824,6 +831,35 @@ class DeviceUtils(object):
         'Version name for %s not found on dumpsys output' % package, str(self))
 
   @decorators.WithTimeoutAndRetriesFromInstance()
+  def GetApplicationTargetSdk(self, package, timeout=None, retries=None):
+    """Get the targetSdkVersion of a package installed on the device.
+
+    Args:
+      package: Name of the package.
+
+    Returns:
+      A string with the targetSdkVersion or None if the package is not found on
+      the device. Note: this cannot always be cast to an integer. If this
+      application targets a pre-release SDK, this returns the version codename
+      instead (ex. "R").
+    """
+    if not self.IsApplicationInstalled(package):
+      return None
+    lines = self._GetDumpsysOutput(['package', package], 'targetSdk=')
+    for line in lines:
+      m = _VERSION_CODE_SDK_RE.match(line)
+      if m:
+        value = m.group(3)
+        # 10000 is the code used by Android for a pre-finalized SDK.
+        if value == '10000':
+          return self.GetProp('ro.build.version.codename', cache=True)
+        else:
+          return value
+    raise device_errors.CommandFailedError(
+        'targetSdkVersion for %s not found on dumpsys output' % package,
+        str(self))
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
   def GetPackageArchitecture(self, package, timeout=None, retries=None):
     """Get the architecture of a package installed on the device.
 
@@ -913,15 +949,23 @@ class DeviceUtils(object):
       self.PullFile(device_tmp_file.name, path)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
-  def WaitUntilFullyBooted(self, wifi=False, timeout=None, retries=None):
+  def WaitUntilFullyBooted(self,
+                           wifi=False,
+                           decrypt=False,
+                           timeout=None,
+                           retries=None):
     """Wait for the device to fully boot.
 
     This means waiting for the device to boot, the package manager to be
-    available, and the SD card to be ready. It can optionally mean waiting
-    for wifi to come up, too.
+    available, and the SD card to be ready.
+    It can optionally wait the following:
+     - Wait for wifi to come up.
+     - Wait for full-disk decryption to complete.
 
     Args:
       wifi: A boolean indicating if we should wait for wifi to come up or not.
+      decrypt: A boolean indicating if we should wait for full-disk decryption
+        to complete.
       timeout: timeout in seconds
       retries: number of retries
 
@@ -955,24 +999,49 @@ class DeviceUtils(object):
       return 'Wi-Fi is enabled' in self.RunShellCommand(['dumpsys', 'wifi'],
                                                         check_return=False)
 
+    def decryption_completed():
+      try:
+        decrypt = self.GetProp('vold.decrypt', cache=False)
+        # The prop "void.decrypt" will only be set when the device uses
+        # full-disk encryption (FDE).
+        # Return true when:
+        #  - The prop is empty, which means the device is unencrypted or uses
+        #    file-based encryption (FBE).
+        #  - or the prop has value "trigger_restart_framework", which means
+        #    the decription is finished.
+        return decrypt == '' or decrypt == 'trigger_restart_framework'
+      except device_errors.CommandFailedError:
+        return False
+
     self.adb.WaitForDevice()
     timeout_retry.WaitFor(sd_card_ready)
     timeout_retry.WaitFor(pm_ready)
     timeout_retry.WaitFor(boot_completed)
     if wifi:
       timeout_retry.WaitFor(wifi_enabled)
+    if decrypt:
+      timeout_retry.WaitFor(decryption_completed)
 
   REBOOT_DEFAULT_TIMEOUT = 10 * _DEFAULT_TIMEOUT
 
   @decorators.WithTimeoutAndRetriesFromInstance(
       min_default_timeout=REBOOT_DEFAULT_TIMEOUT)
-  def Reboot(self, block=True, wifi=False, timeout=None, retries=None):
+  def Reboot(self,
+             block=True,
+             wifi=False,
+             decrypt=False,
+             timeout=None,
+             retries=None):
     """Reboot the device.
 
     Args:
       block: A boolean indicating if we should wait for the reboot to complete.
       wifi: A boolean indicating if we should wait for wifi to be enabled after
-        the reboot. The option has no effect unless |block| is also True.
+        the reboot.
+        The option has no effect unless |block| is also True.
+      decrypt: A boolean indicating if we should wait for full-disk decryption
+        to complete after the reboot.
+        The option has no effect unless |block| is also True.
       timeout: timeout in seconds
       retries: number of retries
 
@@ -988,7 +1057,7 @@ class DeviceUtils(object):
     self.ClearCache()
     timeout_retry.WaitFor(device_offline, wait_period=1)
     if block:
-      self.WaitUntilFullyBooted(wifi=wifi)
+      self.WaitUntilFullyBooted(wifi=wifi, decrypt=decrypt)
 
   INSTALL_DEFAULT_TIMEOUT = 8 * _DEFAULT_TIMEOUT
   MODULES_SRC_DIRECTORY_PATH = '/data/local/tmp/modules'
@@ -1003,7 +1072,8 @@ class DeviceUtils(object):
               timeout=None,
               retries=None,
               modules=None,
-              fake_modules=None):
+              fake_modules=None,
+              additional_locales=None):
     """Install an APK or app bundle.
 
     Noop if an identical APK is already installed. If installing a bundle, the
@@ -1026,6 +1096,8 @@ class DeviceUtils(object):
           should have their apks copied to |MODULES_SRC_DIRECTORY_PATH| rather
           than installed. Thus the app can emulate SplitCompat while running.
           This should not have any overlap with |modules|.
+      additional_locales: An iterable with additional locales to install for a
+        bundle.
 
     Raises:
       CommandFailedError if the installation fails.
@@ -1038,7 +1110,9 @@ class DeviceUtils(object):
     assert modules_set.isdisjoint(fake_modules_set), (
         'These modules overlap: %s' % (modules_set & fake_modules_set))
     all_modules = modules_set | fake_modules_set
-    with apk.GetApkPaths(self, modules=all_modules) as apk_paths:
+    with apk.GetApkPaths(self,
+                         modules=all_modules,
+                         additional_locales=additional_locales) as apk_paths:
       fake_apk_paths = self._GetFakeInstallPaths(apk_paths, fake_modules)
       apk_paths_to_install = [p for p in apk_paths if p not in fake_apk_paths]
       self._FakeInstall(fake_apk_paths, fake_modules)
@@ -1167,7 +1241,7 @@ class DeviceUtils(object):
       try:
         apks_to_install, host_checksums = (self._ComputeStaleApks(
             package_name, apk_paths))
-      except EnvironmentError as e:
+      except device_errors.CommandFailedError as e:
         logger.warning('Error calculating md5: %s', e)
         apks_to_install, host_checksums = apk_paths, None
       if apks_to_install and not reinstall:
@@ -1754,52 +1828,12 @@ class DeviceUtils(object):
         # sync-unaware implementation.
         logging.warning(str(e))
 
-    all_changed_files = []
-    all_stale_files = []
-    missing_dirs = set()
-    cache_commit_funcs = []
-    for h, d in host_device_tuples:
-      assert os.path.isabs(h) and posixpath.isabs(d)
-      h = os.path.realpath(h)
-      changed_files, up_to_date_files, stale_files, cache_commit_func = (
-          self._GetChangedAndStaleFiles(h, d, delete_device_stale))
-      all_changed_files += changed_files
-      all_stale_files += stale_files
-      cache_commit_funcs.append(cache_commit_func)
-      if changed_files and not up_to_date_files and not stale_files:
-        if os.path.isdir(h):
-          missing_dirs.add(d)
-        else:
-          missing_dirs.add(posixpath.dirname(d))
+    changed_files, cache_commit_func = (
+        self._GetChangedFiles(host_device_tuples, delete_device_stale))
 
-    if delete_device_stale and all_stale_files:
-      self.RemovePath(all_stale_files, force=True, recursive=True)
-
-    if all_changed_files:
-      if missing_dirs:
-        try:
-          self.RunShellCommand(
-              ['mkdir', '-p'] + list(missing_dirs), check_return=True)
-        except device_errors.AdbShellCommandFailedError as e:
-          # TODO(crbug.com/739899): This is attempting to diagnose flaky EBUSY
-          # errors that have been popping up in single-device scenarios.
-          # Remove it once we've figured out what's causing them and how best
-          # to handle them.
-          m = _EBUSY_RE.search(e.output)
-          if m:
-            logging.error(
-                'Hit EBUSY while attempting to make missing directories.')
-            logging.error('lsof output:')
-            # Don't check for return below since grep exits with a non-zero when
-            # no match is found.
-            for l in self.RunShellCommand(
-                'lsof | grep %s' % cmd_helper.SingleQuote(m.group(1)),
-                check_return=False):
-              logging.error('  %s', l)
-          raise
-      self._PushFilesImpl(host_device_tuples, all_changed_files)
-    for func in cache_commit_funcs:
-      func()
+    if changed_files:
+      self._PushFilesImpl(host_device_tuples, changed_files)
+    cache_commit_func()
 
   def _PushChangedFilesSync(self, host_device_tuples):
     """Push changed files via `adb sync`.
@@ -1811,138 +1845,162 @@ class DeviceUtils(object):
       for ph, pd, _ in _IterPushableComponents(h, d):
         self.adb.Push(ph, pd, sync=True)
 
-  def _GetChangedAndStaleFiles(self, host_path, device_path, track_stale=False):
+
+  def _GetDeviceNodes(self, paths):
+    """Get the set of all files and directories on the device contained within
+    the provided list of paths, without recursively expanding directories.
+
+    Args:
+      paths: The list of paths for which to list files and directories.
+
+    Returns:
+      a set containing all files and directories contained within |paths| on the
+      device.
+    """
+    nodes = set()
+    paths = [p.replace(' ', r'\ ') for p in paths]
+    command = _FILE_LIST_SCRIPT % ' '.join(paths)
+    current_path = ""
+    # We use shell=True to evaluate the command as a script through the shell,
+    # otherwise RunShellCommand tries to interpret it as the name of a (non
+    # existent) command to run.
+    for line in self.RunShellCommand(command, shell=True, check_return=True):
+      # If the line is an absolute path it's a directory, otherwise it's a file
+      # within the most recent directory.
+      if posixpath.isabs(line):
+        current_path = line + '/'
+      else:
+        line = current_path + line
+      nodes.add(line)
+
+    return nodes
+
+  def _GetChangedFiles(self, host_device_tuples, delete_stale=False):
     """Get files to push and delete.
 
     Args:
-      host_path: an absolute path of a file or directory on the host
-      device_path: an absolute path of a file or directory on the device
-      track_stale: whether to bother looking for stale files (slower)
+      host_device_tuples: a list of (host_files_path, device_files_path) tuples
+        to find changed files from
+      delete_stale: Whether to delete stale files
 
     Returns:
       a four-element tuple
       1st element: a list of (host_files_path, device_files_path) tuples to push
-      2nd element: a list of host_files_path that are up-to-date
-      3rd element: a list of stale files under device_path, or [] when
-        track_stale == False
-      4th element: a cache commit function.
+      2nd element: a cache commit function.
     """
-    try:
-      # Length calculations below assume no trailing /.
-      host_path = host_path.rstrip('/')
-      device_path = device_path.rstrip('/')
+    # The fully expanded list of host/device tuples of files to push.
+    file_tuples = []
+    # All directories we're pushing files to.
+    device_dirs_to_push_to = set()
+    # All files and directories we expect to have on the device after pushing
+    # files.
+    expected_device_nodes = set()
 
-      specific_device_paths = [device_path]
-      ignore_other_files = not track_stale and os.path.isdir(host_path)
-      if ignore_other_files:
-        specific_device_paths = []
+    for h, d in host_device_tuples:
+      assert os.path.isabs(h) and posixpath.isabs(d)
+      h = os.path.realpath(h)
+      host_path = h.rstrip('/')
+      device_dir = d.rstrip('/')
+
+      expected_device_nodes.add(device_dir)
+
+      # Add all parent directories to the directories we expect to have so we
+      # don't delete empty nested directories.
+      parent = posixpath.dirname(device_dir)
+      while parent and parent != '/':
+        expected_device_nodes.add(parent)
+        parent = posixpath.dirname(parent)
+
+      if os.path.isdir(host_path):
+        device_dirs_to_push_to.add(device_dir)
         for root, _, filenames in os.walk(host_path):
-          relative_dir = root[len(host_path) + 1:]
-          specific_device_paths.extend(
-              posixpath.join(device_path, relative_dir, f) for f in filenames)
+          # ignore hidden directories
+          if os.path.sep + '.' in root:
+            continue
+          relative_dir = os.path.relpath(root, host_path).rstrip('.')
+          device_path = posixpath.join(device_dir, relative_dir).rstrip('/')
+          expected_device_nodes.add(device_path)
+          device_dirs_to_push_to.add(device_path)
+          files = (
+            [posixpath.join(device_dir, relative_dir, f) for f in filenames])
+          expected_device_nodes.update(files)
+          file_tuples.extend(zip(
+            (os.path.join(root, f) for f in filenames), files))
+      else:
+        device_dirs_to_push_to.add(posixpath.dirname(device_dir))
+        file_tuples.append((host_path, device_dir))
 
-      def calculate_host_checksums():
-        return md5sum.CalculateHostMd5Sums([host_path])
+    if file_tuples or delete_stale:
+      current_device_nodes = self._GetDeviceNodes(device_dirs_to_push_to)
+      nodes_to_delete = current_device_nodes - expected_device_nodes
 
-      def calculate_device_checksums():
-        if self._enable_device_files_cache:
-          cache_entry = self._cache['device_path_checksums'].get(device_path)
-          if cache_entry and cache_entry[0] == ignore_other_files:
-            return dict(cache_entry[1])
+    if not file_tuples:
+      if delete_stale and nodes_to_delete:
+        self.RemovePath(nodes_to_delete, force=True, recursive=True)
+      return (host_device_tuples, lambda: 0)
 
-        sums = md5sum.CalculateDeviceMd5Sums(specific_device_paths, self)
+    possibly_stale_device_nodes = current_device_nodes - nodes_to_delete
+    possibly_stale_tuples = (
+      [t for t in file_tuples if t[1] in possibly_stale_device_nodes])
 
-        cache_entry = [ignore_other_files, sums]
-        self._cache['device_path_checksums'][device_path] = cache_entry
-        return dict(sums)
+    def calculate_host_checksums():
+      # Need to compute all checksums when caching.
+      if self._enable_device_files_cache:
+        return md5sum.CalculateHostMd5Sums([t[0] for t in file_tuples])
+      else:
+        return md5sum.CalculateHostMd5Sums(
+            [t[0] for t in possibly_stale_tuples])
 
+    def calculate_device_checksums():
+      paths = set([t[1] for t in possibly_stale_tuples])
+      if not paths:
+        return dict()
+      sums = dict()
+      if self._enable_device_files_cache:
+        paths_not_in_cache = set()
+        for path in paths:
+          cache_entry = self._cache['device_path_checksums'].get(path)
+          if cache_entry:
+            sums[path] = cache_entry
+          else:
+            paths_not_in_cache.add(path)
+        paths = paths_not_in_cache
+      sums.update(dict(md5sum.CalculateDeviceMd5Sums(paths, self)))
+      if self._enable_device_files_cache:
+        for path, checksum in sums.iteritems():
+          self._cache['device_path_checksums'][path] = checksum
+      return sums
+    try:
       host_checksums, device_checksums = reraiser_thread.RunAsync(
           (calculate_host_checksums, calculate_device_checksums))
-    except EnvironmentError as e:
+    except device_errors.CommandFailedError as e:
       logger.warning('Error calculating md5: %s', e)
-      return ([(host_path, device_path)], [], [], lambda: 0)
+      return (host_device_tuples, lambda: 0)
 
-    to_push = []
-    up_to_date = []
-    to_delete = []
-    if os.path.isfile(host_path):
-      host_checksum = host_checksums.get(host_path)
-      device_checksum = device_checksums.get(device_path)
-      if host_checksum == device_checksum:
-        up_to_date.append(host_path)
+    up_to_date = set()
+
+    for host_path, device_path in possibly_stale_tuples:
+      device_checksum = device_checksums.get(device_path, None)
+      host_checksum = host_checksums.get(host_path, None)
+      if device_checksum == host_checksum and device_checksum is not None:
+        up_to_date.add(device_path)
       else:
-        to_push.append((host_path, device_path))
-    else:
-      for host_abs_path, host_checksum in host_checksums.iteritems():
-        device_abs_path = posixpath.join(
-            device_path, os.path.relpath(host_abs_path, host_path))
-        device_checksum = device_checksums.pop(device_abs_path, None)
-        if device_checksum == host_checksum:
-          up_to_date.append(host_abs_path)
-        else:
-          to_push.append((host_abs_path, device_abs_path))
-      to_delete = device_checksums.keys()
-    # We can't rely solely on the checksum approach since it does not catch
-    # stale directories, which can result in empty directories that cause issues
-    # during copying in efficient_android_directory_copy.sh. So, find any stale
-    # directories here so they can be removed in addition to stale files.
-    if track_stale:
-      to_delete.extend(self._GetStaleDirectories(host_path, device_path))
+        nodes_to_delete.add(device_path)
+
+    if delete_stale and nodes_to_delete:
+      self.RemovePath(nodes_to_delete, force=True, recursive=True)
+
+    to_push = (
+        [t for t in file_tuples if t[1] not in up_to_date])
 
     def cache_commit_func():
-      # When host_path is a not a directory, the path.join() call below would
-      # have an '' as the second argument, causing an unwanted / to be appended.
-      if os.path.isfile(host_path):
-        assert len(host_checksums) == 1
-        new_sums = {device_path: host_checksums[host_path]}
-      else:
-        new_sums = {
-            posixpath.join(device_path, path[len(host_path) + 1:]): val
-            for path, val in host_checksums.iteritems()
-        }
-      cache_entry = [ignore_other_files, new_sums]
-      self._cache['device_path_checksums'][device_path] = cache_entry
+      if not self._enable_device_files_cache:
+        return
+      for host_path, device_path in file_tuples:
+        host_checksum = host_checksums.get(host_path, None)
+        self._cache['device_path_checksums'][device_path] = host_checksum
 
-    return (to_push, up_to_date, to_delete, cache_commit_func)
-
-  def _GetStaleDirectories(self, host_path, device_path):
-    """Gets a list of stale directories on the device.
-
-    Args:
-      host_path: an absolute path of a directory on the host
-      device_path: an absolute path of a directory on the device
-
-    Returns:
-      A list containing absolute paths to directories on the device that are
-      considered stale.
-    """
-
-    def get_device_dirs(path):
-      directories = set()
-      command = _RECURSIVE_DIRECTORY_LIST_SCRIPT % cmd_helper.SingleQuote(path)
-      # We use shell=True to evaluate the command as a script through the shell,
-      # otherwise RunShellCommand tries to interpret it as the name of a (non
-      # existent) command to run.
-      for line in self.RunShellCommand(command, shell=True, check_return=True):
-        directories.add(posixpath.relpath(posixpath.normpath(line), path))
-      return directories
-
-    def get_host_dirs(path):
-      directories = set()
-      if not os.path.isdir(path):
-        return directories
-      for root, _, _ in os.walk(path):
-        if root != path:
-          # Strip off the top level directory so we can compare the device and
-          # host.
-          directories.add(
-              os.path.relpath(root, path).replace(os.sep, posixpath.sep))
-      return directories
-
-    host_dirs = get_host_dirs(host_path)
-    device_dirs = get_device_dirs(device_path)
-    stale_dirs = device_dirs - host_dirs
-    return [posixpath.join(device_path, d) for d in stale_dirs]
+    return (to_push, cache_commit_func)
 
   def _ComputeDeviceChecksumsForApks(self, package_name):
     ret = self._cache['package_apk_checksums'].get(package_name)
@@ -2273,15 +2331,18 @@ class DeviceUtils(object):
     def get_size(path):
       return self.FileSize(path, as_root=as_root)
 
-    if (not force_pull
-        and 0 < get_size(device_path) <= self._MAX_ADB_OUTPUT_LENGTH):
-      return _JoinLines(
-          self.RunShellCommand(['cat', device_path],
-                               as_root=as_root,
-                               check_return=True))
-    elif as_root and self.NeedsSU():
-      with self._CopyToReadableLocation(device_path) as readable_temp_file:
-        return self._ReadFileWithPull(readable_temp_file.name)
+    # Reading by pulling is faster than first getting the file size and cat-ing,
+    # so only read by cat when we need root.
+    if as_root and self.NeedsSU():
+      if (not force_pull
+          and 0 < get_size(device_path) <= self._MAX_ADB_OUTPUT_LENGTH):
+        return _JoinLines(
+            self.RunShellCommand(['cat', device_path],
+                                 as_root=as_root,
+                                 check_return=True))
+      else:
+        with self._CopyToReadableLocation(device_path) as readable_temp_file:
+          return self._ReadFileWithPull(readable_temp_file.name)
     else:
       return self._ReadFileWithPull(device_path)
 
@@ -3140,9 +3201,20 @@ class DeviceUtils(object):
               '%s does not declare a WebView native library, so it cannot '
               'be a WebView provider' % package_name, str(self))
         if re.search(r'SDK version too low', reason):
-          raise device_errors.CommandFailedError(
-              '%s needs a higher targetSdkVersion (must be >= %d)' %
-              (package_name, self.build_version_sdk), str(self))
+          app_target_sdk_version = self.GetApplicationTargetSdk(package_name)
+          is_preview_sdk = self.GetProp('ro.build.version.preview_sdk') == '1'
+          if is_preview_sdk:
+            codename = self.GetProp('ro.build.version.codename')
+            raise device_errors.CommandFailedError(
+                '%s targets a finalized SDK (%r), but valid WebView providers '
+                'must target a pre-finalized SDK (%r) on this device' %
+                (package_name, app_target_sdk_version, codename), str(self))
+          else:
+            raise device_errors.CommandFailedError(
+                '%s has targetSdkVersion %r, but valid WebView providers must '
+                'target >= %r on this device' %
+                (package_name, app_target_sdk_version, self.build_version_sdk),
+                str(self))
         if re.search(r'Version code too low', reason):
           raise device_errors.CommandFailedError(
               '%s needs a higher versionCode (must be >= %d)' %
@@ -3300,7 +3372,7 @@ class DeviceUtils(object):
         'package_apk_checksums': {},
         # Map of property_name -> value
         'getprop': {},
-        # Map of device_path -> [ignore_other_files, map of path->checksum]
+        # Map of device path -> checksum]
         'device_path_checksums': {},
         # Location of sdcard ($EXTERNAL_STORAGE).
         'external_storage': None,

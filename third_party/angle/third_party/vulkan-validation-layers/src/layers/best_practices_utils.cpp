@@ -23,6 +23,7 @@
 
 #include <string>
 #include <iomanip>
+#include <bitset>
 
 // get the API name is proper format
 std::string BestPractices::GetAPIVersionName(uint32_t version) const {
@@ -149,7 +150,11 @@ bool BestPractices::PreCallValidateCreateInstance(const VkInstanceCreateInfo* pC
 void BestPractices::PreCallRecordCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator,
                                                 VkInstance* pInstance) {
     ValidationStateTracker::PreCallRecordCreateInstance(pCreateInfo, pAllocator, pInstance);
-    instance_api_version = pCreateInfo->pApplicationInfo->apiVersion;
+
+    if (pCreateInfo != nullptr && pCreateInfo->pApplicationInfo != nullptr)
+        instance_api_version = pCreateInfo->pApplicationInfo->apiVersion;
+    else
+        instance_api_version = 0;
 }
 
 bool BestPractices::PreCallValidateCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo,
@@ -273,7 +278,7 @@ bool BestPractices::PreCallValidateCreateSwapchainKHR(VkDevice device, const VkS
     if ((pCreateInfo->queueFamilyIndexCount > 1) && (pCreateInfo->imageSharingMode == VK_SHARING_MODE_EXCLUSIVE)) {
         skip |=
             LogWarning(device, kVUID_BestPractices_SharingModeExclusive,
-                       "Warning: A Swapchain is being created which specifies a sharing mode of VK_SHARING_MODE_EXCULSIVE while "
+                       "Warning: A Swapchain is being created which specifies a sharing mode of VK_SHARING_MODE_EXCLUSIVE while "
                        "specifying multiple queues (queueFamilyIndexCount of %" PRIu32 ").",
                        pCreateInfo->queueFamilyIndexCount);
     }
@@ -354,65 +359,123 @@ bool BestPractices::PreCallValidateCreateRenderPass(VkDevice device, const VkRen
     return skip;
 }
 
+bool BestPractices::ValidateAttachments(const VkRenderPassCreateInfo2* rpci, uint32_t attachmentCount,
+                                        const VkImageView* image_views) const {
+    bool skip = false;
+
+    // Check for non-transient attachments that should be transient and vice versa
+    for (uint32_t i = 0; i < attachmentCount; ++i) {
+        auto& attachment = rpci->pAttachments[i];
+        bool attachment_should_be_transient =
+            (attachment.loadOp != VK_ATTACHMENT_LOAD_OP_LOAD && attachment.storeOp != VK_ATTACHMENT_STORE_OP_STORE);
+
+        if (FormatHasStencil(attachment.format)) {
+            attachment_should_be_transient &= (attachment.stencilLoadOp != VK_ATTACHMENT_LOAD_OP_LOAD &&
+                                               attachment.stencilStoreOp != VK_ATTACHMENT_STORE_OP_STORE);
+        }
+
+        auto view_state = GetImageViewState(image_views[i]);
+        if (view_state) {
+            auto& ivci = view_state->create_info;
+            auto& ici = GetImageState(ivci.image)->createInfo;
+
+            bool image_is_transient = (ici.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) != 0;
+
+            // The check for an image that should not be transient applies to all GPUs
+            if (!attachment_should_be_transient && image_is_transient) {
+                skip |= LogPerformanceWarning(
+                    device, kVUID_BestPractices_CreateFramebuffer_AttachmentShouldNotBeTransient,
+                    "Attachment %u in VkFramebuffer uses loadOp/storeOps which need to access physical memory, "
+                    "but the image backing the image view has VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT set. "
+                    "Physical memory will need to be backed lazily to this image, potentially causing stalls.",
+                    i);
+            }
+
+            bool supports_lazy = false;
+            for (uint32_t j = 0; j < phys_dev_mem_props.memoryTypeCount; j++) {
+                if (phys_dev_mem_props.memoryTypes[j].propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) {
+                    supports_lazy = true;
+                }
+            }
+
+            // The check for an image that should be transient only applies to GPUs supporting
+            // lazily allocated memory
+            if (supports_lazy && attachment_should_be_transient && !image_is_transient) {
+                skip |= LogPerformanceWarning(
+                    device, kVUID_BestPractices_CreateFramebuffer_AttachmentShouldBeTransient,
+                    "Attachment %u in VkFramebuffer uses loadOp/storeOps which never have to be backed by physical memory, "
+                    "but the image backing the image view does not have VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT set. "
+                    "You can save physical memory by using transient attachment backed by lazily allocated memory here.",
+                    i);
+            }
+        }
+    }
+    return skip;
+}
+
 bool BestPractices::PreCallValidateCreateFramebuffer(VkDevice device, const VkFramebufferCreateInfo* pCreateInfo,
                                                      const VkAllocationCallbacks* pAllocator, VkFramebuffer* pFramebuffer) const {
     bool skip = false;
 
-    // Check for non-transient attachments that should be transient and vice versa
     auto rp_state = GetRenderPassState(pCreateInfo->renderPass);
-    if (rp_state) {
-        const VkRenderPassCreateInfo2* rpci = rp_state->createInfo.ptr();
-        const VkImageView* image_views = pCreateInfo->pAttachments;
+    if (rp_state && !(pCreateInfo->flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR)) {
+        skip = ValidateAttachments(rp_state->createInfo.ptr(), pCreateInfo->attachmentCount, pCreateInfo->pAttachments);
+    }
 
-        for (uint32_t i = 0; i < pCreateInfo->attachmentCount; ++i) {
-            auto& attachment = rpci->pAttachments[i];
-            bool attachment_should_be_transient =
-                (attachment.loadOp != VK_ATTACHMENT_LOAD_OP_LOAD && attachment.storeOp != VK_ATTACHMENT_STORE_OP_STORE);
+    return skip;
+}
 
-            if (FormatHasStencil(attachment.format)) {
-                attachment_should_be_transient &= (attachment.stencilLoadOp != VK_ATTACHMENT_LOAD_OP_LOAD &&
-                                                   attachment.stencilStoreOp != VK_ATTACHMENT_STORE_OP_STORE);
-            }
+bool BestPractices::PreCallValidateAllocateDescriptorSets(VkDevice device, const VkDescriptorSetAllocateInfo* pAllocateInfo,
+                                                          VkDescriptorSet* pDescriptorSets, void* ads_state_data) const {
+    bool skip = false;
+    skip |= ValidationStateTracker::PreCallValidateAllocateDescriptorSets(device, pAllocateInfo, pDescriptorSets, ads_state_data);
 
-            auto view_state = GetImageViewState(image_views[i]);
-            if (view_state) {
-                auto& ivci = view_state->create_info;
-                auto& ici = GetImageState(ivci.image)->createInfo;
-
-                bool image_is_transient = (ici.usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) != 0;
-
-                // The check for an image that should not be transient applies to all GPUs
-                if (!attachment_should_be_transient && image_is_transient) {
-                    skip |= LogPerformanceWarning(
-                        device, kVUID_BestPractices_CreateFramebuffer_AttachmentShouldNotBeTransient,
-                        "Attachment %u in VkFramebuffer uses loadOp/storeOps which need to access physical memory, "
-                        "but the image backing the image view has VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT set. "
-                        "Physical memory will need to be backed lazily to this image, potentially causing stalls.",
-                        i);
-                }
-
-                bool supports_lazy = false;
-                for (uint32_t j = 0; j < phys_dev_mem_props.memoryTypeCount; j++) {
-                    if (phys_dev_mem_props.memoryTypes[j].propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) {
-                        supports_lazy = true;
-                    }
-                }
-
-                // The check for an image that should be transient only applies to GPUs supporting
-                // lazily allocated memory
-                if (supports_lazy && attachment_should_be_transient && !image_is_transient) {
-                    skip |= LogPerformanceWarning(
-                        device, kVUID_BestPractices_CreateFramebuffer_AttachmentShouldBeTransient,
-                        "Attachment %u in VkFramebuffer uses loadOp/storeOps which never have to be backed by physical memory, "
-                        "but the image backing the image view does not have VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT set. "
-                        "You can save physical memory by using transient attachment backed by lazily allocated memory here.",
-                        i);
-                }
-            }
+    if (!skip) {
+        const auto& pool_handle = pAllocateInfo->descriptorPool;
+        auto iter = descriptor_pool_freed_count.find(pool_handle);
+        // if the number of freed sets > 0, it implies they could be recycled instead if desirable
+        // this warning is specific to Arm
+        if (VendorCheckEnabled(kBPVendorArm) && iter != descriptor_pool_freed_count.end() && iter->second > 0) {
+            skip |= LogPerformanceWarning(
+                device, kVUID_BestPractices_AllocateDescriptorSets_SuboptimalReuse,
+                "%s Descriptor set memory was allocated via vkAllocateDescriptorSets() for sets which were previously freed in the "
+                "same logical device. On some drivers or architectures it may be most optimal to re-use existing descriptor sets.",
+                VendorSpecificTag(kBPVendorArm));
         }
     }
 
     return skip;
+}
+
+void BestPractices::ManualPostCallRecordAllocateDescriptorSets(VkDevice device, const VkDescriptorSetAllocateInfo* pAllocateInfo,
+                                                               VkDescriptorSet* pDescriptorSets, VkResult result, void* ads_state) {
+    if (result == VK_SUCCESS) {
+        // find the free count for the pool we allocated into
+        auto iter = descriptor_pool_freed_count.find(pAllocateInfo->descriptorPool);
+        if (iter != descriptor_pool_freed_count.end()) {
+            // we record successful allocations by subtracting the allocation count from the last recorded free count
+            const auto alloc_count = pAllocateInfo->descriptorSetCount;
+            // clamp the unsigned subtraction to the range [0, last_free_count]
+            if (iter->second > alloc_count)
+                iter->second -= alloc_count;
+            else
+                iter->second = 0;
+        }
+    }
+}
+
+void BestPractices::PostCallRecordFreeDescriptorSets(VkDevice device, VkDescriptorPool descriptorPool, uint32_t descriptorSetCount,
+                                                     const VkDescriptorSet* pDescriptorSets, VkResult result) {
+    ValidationStateTracker::PostCallRecordFreeDescriptorSets(device, descriptorPool, descriptorSetCount, pDescriptorSets, result);
+    if (result == VK_SUCCESS) {
+        // we want to track frees because we're interested in suggesting re-use
+        auto iter = descriptor_pool_freed_count.find(descriptorPool);
+        if (iter == descriptor_pool_freed_count.end()) {
+            descriptor_pool_freed_count.insert(std::make_pair(descriptorPool, descriptorSetCount));
+        } else {
+            iter->second += descriptorSetCount;
+        }
+    }
 }
 
 bool BestPractices::PreCallValidateAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
@@ -438,10 +501,9 @@ bool BestPractices::PreCallValidateAllocateMemory(VkDevice device, const VkMemor
     return skip;
 }
 
-void BestPractices::PostCallRecordAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
-                                                 const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory,
-                                                 VkResult result) {
-    ValidationStateTracker::PostCallRecordAllocateMemory(device, pAllocateInfo, pAllocator, pMemory, result);
+void BestPractices::ManualPostCallRecordAllocateMemory(VkDevice device, const VkMemoryAllocateInfo* pAllocateInfo,
+                                                       const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory,
+                                                       VkResult result) {
     if (result != VK_SUCCESS) {
         static std::vector<VkResult> error_codes = {VK_ERROR_OUT_OF_HOST_MEMORY, VK_ERROR_OUT_OF_DEVICE_MEMORY,
                                                     VK_ERROR_TOO_MANY_OBJECTS, VK_ERROR_INVALID_EXTERNAL_HANDLE,
@@ -453,17 +515,17 @@ void BestPractices::PostCallRecordAllocateMemory(VkDevice device, const VkMemory
     num_mem_objects++;
 }
 
-void BestPractices::ValidateReturnCodes(const char* api_name, VkResult result, const std::vector<VkResult>& success_codes,
-                                        const std::vector<VkResult>& error_codes) const {
+void BestPractices::ValidateReturnCodes(const char* api_name, VkResult result, const std::vector<VkResult>& error_codes,
+                                        const std::vector<VkResult>& success_codes) const {
     auto error = std::find(error_codes.begin(), error_codes.end(), result);
     if (error != error_codes.end()) {
-        LogWarning(instance, kVUID_BestPractices_NonSuccess_Result, "%s(): Returned error %s.", api_name, string_VkResult(result));
+        LogWarning(instance, kVUID_BestPractices_Error_Result, "%s(): Returned error %s.", api_name, string_VkResult(result));
         return;
     }
     auto success = std::find(success_codes.begin(), success_codes.end(), result);
     if (success != success_codes.end()) {
-        LogWarning(instance, kVUID_BestPractices_Error_Result, "%s(): Returned non-success return code %s.", api_name,
-                   string_VkResult(result));
+        LogInfo(instance, kVUID_BestPractices_NonSuccess_Result, "%s(): Returned non-success return code %s.", api_name,
+                string_VkResult(result));
     }
 }
 
@@ -557,10 +619,15 @@ bool BestPractices::ValidateBindImageMemory(VkImage image, VkDeviceMemory memory
     bool skip = false;
     const IMAGE_STATE* image_state = GetImageState(image);
 
-    if (!image_state->memory_requirements_checked && !image_state->external_memory_handle) {
-        skip |= LogWarning(device, kVUID_BestPractices_ImageMemReqNotCalled,
-                           "%s: Binding memory to %s but vkGetImageMemoryRequirements() has not been called on that image.",
-                           api_name, report_data->FormatHandle(image).c_str());
+    if (image_state->disjoint == false) {
+        if (!image_state->memory_requirements_checked && !image_state->external_memory_handle) {
+            skip |= LogWarning(device, kVUID_BestPractices_ImageMemReqNotCalled,
+                               "%s: Binding memory to %s but vkGetImageMemoryRequirements() has not been called on that image.",
+                               api_name, report_data->FormatHandle(image).c_str());
+        }
+    } else {
+        // TODO If binding disjoint image then this needs to check that VkImagePlaneMemoryRequirementsInfo was called for each
+        // plane.
     }
 
     const DEVICE_MEMORY_STATE* mem_state = GetDevMemState(memory);
@@ -625,7 +692,9 @@ bool BestPractices::PreCallValidateBindImageMemory2(VkDevice device, uint32_t bi
 
     for (uint32_t i = 0; i < bindInfoCount; i++) {
         sprintf(api_name, "vkBindImageMemory2() pBindInfos[%u]", i);
-        skip |= ValidateBindImageMemory(pBindInfos[i].image, pBindInfos[i].memory, api_name);
+        if (!lvl_find_in_chain<VkBindImageMemorySwapchainInfoKHR>(pBindInfos[i].pNext)) {
+            skip |= ValidateBindImageMemory(pBindInfos[i].image, pBindInfos[i].memory, api_name);
+        }
     }
 
     return skip;
@@ -703,6 +772,7 @@ bool BestPractices::PreCallValidateCreateGraphicsPipelines(VkDevice device, VkPi
                                                            void* cgpl_state_data) const {
     bool skip = StateTracker::PreCallValidateCreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos,
                                                                      pAllocator, pPipelines, cgpl_state_data);
+    create_graphics_pipeline_api_state* cgpl_state = reinterpret_cast<create_graphics_pipeline_api_state*>(cgpl_state_data);
 
     if ((createInfoCount > 1) && (!pipelineCache)) {
         skip |= LogPerformanceWarning(
@@ -714,20 +784,21 @@ bool BestPractices::PreCallValidateCreateGraphicsPipelines(VkDevice device, VkPi
     for (uint32_t i = 0; i < createInfoCount; i++) {
         auto& createInfo = pCreateInfos[i];
 
-        auto& vertexInput = *createInfo.pVertexInputState;
-        uint32_t count = 0;
-        for (uint32_t j = 0; j < vertexInput.vertexBindingDescriptionCount; j++) {
-            if (vertexInput.pVertexBindingDescriptions[j].inputRate == VK_VERTEX_INPUT_RATE_INSTANCE) {
-                count++;
+        if (!(cgpl_state->pipe_state[i]->active_shaders & VK_SHADER_STAGE_MESH_BIT_NV)) {
+            auto& vertexInput = *createInfo.pVertexInputState;
+            uint32_t count = 0;
+            for (uint32_t j = 0; j < vertexInput.vertexBindingDescriptionCount; j++) {
+                if (vertexInput.pVertexBindingDescriptions[j].inputRate == VK_VERTEX_INPUT_RATE_INSTANCE) {
+                    count++;
+                }
             }
-        }
-
-        if (count > kMaxInstancedVertexBuffers) {
-            skip |= LogPerformanceWarning(
-                device, kVUID_BestPractices_CreatePipelines_TooManyInstancedVertexBuffers,
-                "The pipeline is using %u instanced vertex buffers (current limit: %u), but this can be inefficient on the "
-                "GPU. If using instanced vertex attributes prefer interleaving them in a single buffer.",
-                count, kMaxInstancedVertexBuffers);
+            if (count > kMaxInstancedVertexBuffers) {
+                skip |= LogPerformanceWarning(
+                    device, kVUID_BestPractices_CreatePipelines_TooManyInstancedVertexBuffers,
+                    "The pipeline is using %u instanced vertex buffers (current limit: %u), but this can be inefficient on the "
+                    "GPU. If using instanced vertex attributes prefer interleaving them in a single buffer.",
+                    count, kMaxInstancedVertexBuffers);
+            }
         }
 
         skip |= VendorCheckEnabled(kBPVendorArm) && ValidateMultisampledBlendingArm(createInfoCount, pCreateInfos);
@@ -767,8 +838,7 @@ bool BestPractices::CheckPipelineStageFlags(std::string api_name, const VkPipeli
     return skip;
 }
 
-void BestPractices::PostCallRecordQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo, VkResult result) {
-    ValidationStateTracker::PostCallRecordQueuePresentKHR(queue, pPresentInfo, result);
+void BestPractices::ManualPostCallRecordQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPresentInfo, VkResult result) {
     for (uint32_t i = 0; i < pPresentInfo->swapchainCount; ++i) {
         auto swapchains_result = pPresentInfo->pResults ? pPresentInfo->pResults[i] : result;
         if (swapchains_result == VK_SUBOPTIMAL_KHR) {
@@ -918,6 +988,13 @@ bool BestPractices::ValidateCmdBeginRenderPass(VkCommandBuffer commandBuffer, Re
 
     auto rp_state = GetRenderPassState(pRenderPassBegin->renderPass);
     if (rp_state) {
+        if (rp_state->createInfo.flags & VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR) {
+            const VkRenderPassAttachmentBeginInfo* rpabi =
+                lvl_find_in_chain<VkRenderPassAttachmentBeginInfo>(pRenderPassBegin->pNext);
+            if (rpabi) {
+                skip = ValidateAttachments(rp_state->createInfo.ptr(), rpabi->attachmentCount, rpabi->pAttachments);
+            }
+        }
         // Check if any attachments have LOAD operation on them
         for (uint32_t att = 0; att < rp_state->createInfo.attachmentCount; att++) {
             auto& attachment = rp_state->createInfo.pAttachments[att];
@@ -1034,6 +1111,164 @@ bool BestPractices::PreCallValidateCmdDrawIndexed(VkCommandBuffer commandBuffer,
                                       "(at least %u drawcalls with less than %u indices each). This may cause pipeline bubbles. "
                                       "You can try batching drawcalls or instancing when applicable.",
                                       VendorSpecificTag(kBPVendorArm), kMaxSmallIndexedDrawcalls, kSmallIndexedDrawcallIndices);
+    }
+
+    if (VendorCheckEnabled(kBPVendorArm)) {
+        ValidateIndexBufferArm(commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+    }
+
+    return skip;
+}
+
+bool BestPractices::ValidateIndexBufferArm(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t instanceCount,
+                                           uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) const {
+    bool skip = false;
+
+    // check for sparse/underutilised index buffer, and post-transform cache thrashing
+    const auto* cmd_state = GetCBState(commandBuffer);
+    if (cmd_state == nullptr) return skip;
+
+    const auto* ib_state = GetBufferState(cmd_state->index_buffer_binding.buffer);
+    if (ib_state == nullptr) return skip;
+
+    const VkIndexType ib_type = cmd_state->index_buffer_binding.index_type;
+    const auto& ib_mem_state = *ib_state->binding.mem_state;
+    const VkDeviceSize ib_mem_offset = ib_mem_state.mapped_range.offset;
+    const void* ib_mem = ib_mem_state.p_driver_data;
+    bool primitive_restart_enable = false;
+
+    const auto& pipeline_binding_iter = cmd_state->lastBound.find(VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+    if (pipeline_binding_iter != cmd_state->lastBound.end()) {
+        const auto* pipeline_state = pipeline_binding_iter->second.pipeline_state;
+        if (pipeline_state != nullptr && pipeline_state->graphicsPipelineCI.pInputAssemblyState != nullptr)
+            primitive_restart_enable = pipeline_state->graphicsPipelineCI.pInputAssemblyState->primitiveRestartEnable == VK_TRUE;
+    }
+
+    // no point checking index buffer if the memory is nonexistant/unmapped, or if there is no graphics pipeline bound to this CB
+    if (ib_mem && pipeline_binding_iter != cmd_state->lastBound.end()) {
+        uint32_t scan_stride;
+        if (ib_type == VK_INDEX_TYPE_UINT8_EXT) {
+            scan_stride = sizeof(uint8_t);
+        } else if (ib_type == VK_INDEX_TYPE_UINT16) {
+            scan_stride = sizeof(uint16_t);
+        } else {
+            scan_stride = sizeof(uint32_t);
+        }
+
+        const uint8_t* scan_begin = static_cast<const uint8_t*>(ib_mem) + ib_mem_offset + firstIndex * scan_stride;
+        const uint8_t* scan_end = scan_begin + indexCount * scan_stride;
+
+        // Min and max are important to track for some Mali architectures. In older Mali devices without IDVS, all
+        // vertices corresponding to indices between the minimum and maximum may be loaded, and possibly shaded,
+        // irrespective of whether or not they're part of the draw call.
+
+        // start with minimum as 0xFFFFFFFF and adjust to indices in the buffer
+        uint32_t min_index = ~0u;
+        // start with maximum as 0 and adjust to indices in the buffer
+        uint32_t max_index = 0u;
+
+        // first scan-through, we're looking to simulate a model LRU post-transform cache, estimating the number of vertices shaded
+        // for the given index buffer
+        uint32_t vertex_shade_count = 0;
+
+        PostTransformLRUCacheModel post_transform_cache;
+
+        // The size of the cache being modelled positively correlates with how much behaviour it can capture about
+        // arbitrary ground-truth hardware/architecture cache behaviour. I.e. it's a good solution when we don't know the
+        // target architecture.
+        // However, modelling a post-transform cache with more than 32 elements gives diminishing returns in practice.
+        // http://eelpi.gotdns.org/papers/fast_vert_cache_opt.html
+        post_transform_cache.resize(32);
+
+        for (const uint8_t* scan_ptr = scan_begin; scan_ptr < scan_end; scan_ptr += scan_stride) {
+            uint32_t scan_index;
+            uint32_t primitive_restart_value;
+            if (ib_type == VK_INDEX_TYPE_UINT8_EXT) {
+                scan_index = *reinterpret_cast<const uint8_t*>(scan_ptr);
+                primitive_restart_value = 0xFF;
+            } else if (ib_type == VK_INDEX_TYPE_UINT16) {
+                scan_index = *reinterpret_cast<const uint16_t*>(scan_ptr);
+                primitive_restart_value = 0xFFFF;
+            } else {
+                scan_index = *reinterpret_cast<const uint32_t*>(scan_ptr);
+                primitive_restart_value = 0xFFFFFFFF;
+            }
+
+            max_index = std::max(max_index, scan_index);
+            min_index = std::min(min_index, scan_index);
+
+            if (!primitive_restart_enable || scan_index != primitive_restart_value) {
+                bool in_cache = post_transform_cache.query_cache(scan_index);
+                // if the shaded vertex corresponding to the index is not in the PT-cache, we need to shade again
+                if (!in_cache) vertex_shade_count++;
+            }
+        }
+
+        // if the max and min values were not set, then we either have no indices, or all primitive restarts, exit...
+        if (max_index < min_index) return skip;
+
+        if (max_index - min_index >= indexCount) {
+            skip |= LogPerformanceWarning(
+                device, kVUID_BestPractices_CmdDrawIndexed_SparseIndexBuffer,
+                "%s The indices which were specified for the draw call only utilise approximately %.02f%% of "
+                "index buffer value range. Arm Mali architectures before G71 do not have IDVS (Index-Driven "
+                "Vertex Shading), meaning all vertices corresponding to indices between the minimum and "
+                "maximum would be loaded, and possibly shaded, whether or not they are used.",
+                VendorSpecificTag(kBPVendorArm), (static_cast<float>(indexCount) / (max_index - min_index)) * 100.0f);
+            return skip;
+        }
+
+        // use a dynamic vector of bitsets as a memory-compact representation of which indices are included in the draw call
+        // each bit of the n-th bucket contains the inclusion information for indices (n*n_buckets) to ((n+1)*n_buckets)
+        const size_t n_buckets = 64;
+        std::vector<std::bitset<n_buckets>> vertex_reference_buckets;
+        vertex_reference_buckets.resize((max_index - min_index + 1) / n_buckets);
+
+        // To avoid using too much memory, we run over the indices again.
+        // Knowing the size from the last scan allows us to record index usage with bitsets
+        for (const uint8_t* scan_ptr = scan_begin; scan_ptr < scan_end; scan_ptr += scan_stride) {
+            uint32_t scan_index;
+            if (ib_type == VK_INDEX_TYPE_UINT8_EXT) {
+                scan_index = *reinterpret_cast<const uint8_t*>(scan_ptr);
+            } else if (ib_type == VK_INDEX_TYPE_UINT16) {
+                scan_index = *reinterpret_cast<const uint16_t*>(scan_ptr);
+            } else {
+                scan_index = *reinterpret_cast<const uint32_t*>(scan_ptr);
+            }
+            // keep track of the set of all indices used to reference vertices in the draw call
+            size_t index_offset = scan_index - min_index;
+            size_t bitset_bucket_index = index_offset / n_buckets;
+            uint64_t used_indices = 1ull << ((index_offset % n_buckets) & 0xFFFFFFFFu);
+            vertex_reference_buckets[bitset_bucket_index] |= used_indices;
+        }
+
+        uint32_t vertex_reference_count = 0;
+        for (const auto& bitset : vertex_reference_buckets) {
+            vertex_reference_count += static_cast<uint32_t>(bitset.count());
+        }
+
+        // low index buffer utilization implies that: of the vertices available to the draw call, not all are utilized
+        float utilization = static_cast<float>(vertex_reference_count) / (max_index - min_index + 1);
+        // low hit rate (high miss rate) implies the order of indices in the draw call may be possible to improve
+        float cache_hit_rate = static_cast<float>(vertex_reference_count) / vertex_shade_count;
+
+        if (utilization < 0.5f) {
+            skip |= LogPerformanceWarning(device, kVUID_BestPractices_CmdDrawIndexed_SparseIndexBuffer,
+                                          "%s The indices which were specified for the draw call only utilise approximately "
+                                          "%.02f%% of the bound vertex buffer.",
+                                          VendorSpecificTag(kBPVendorArm), utilization);
+        }
+
+        if (cache_hit_rate <= 0.5f) {
+            skip |=
+                LogPerformanceWarning(device, kVUID_BestPractices_CmdDrawIndexed_PostTransformCacheThrashing,
+                                      "%s The indices which were specified for the draw call are estimated to cause thrashing of "
+                                      "the post-transform vertex cache, with a hit-rate of %.02f%%. "
+                                      "I.e. the ordering of the index buffer may not make optimal use of indices associated with "
+                                      "recently shaded vertices.",
+                                      VendorSpecificTag(kBPVendorArm), cache_hit_rate * 100.0f);
+        }
     }
 
     return skip;
@@ -1345,15 +1580,9 @@ bool BestPractices::PreCallValidateQueueBindSparse(VkQueue queue, uint32_t bindI
     return skip;
 }
 
-void BestPractices::PostCallRecordQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo,
-                                                  VkFence fence, VkResult result) {
-    ValidationStateTracker::PostCallRecordQueueBindSparse(queue, bindInfoCount, pBindInfo, fence, result);
-
+void BestPractices::ManualPostCallRecordQueueBindSparse(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo,
+                                                        VkFence fence, VkResult result) {
     if (result != VK_SUCCESS) {
-        static std::vector<VkResult> error_codes = {VK_ERROR_OUT_OF_HOST_MEMORY, VK_ERROR_OUT_OF_DEVICE_MEMORY,
-                                                    VK_ERROR_DEVICE_LOST};
-        static std::vector<VkResult> success_codes = {};
-        ValidateReturnCodes("vkReleaseFullScreenExclusiveModeEXT", result, error_codes, success_codes);
         return;
     }
 
@@ -1527,4 +1756,29 @@ bool BestPractices::PreCallValidateCreateSampler(VkDevice device, const VkSample
     }
 
     return skip;
+}
+
+void BestPractices::PostTransformLRUCacheModel::resize(size_t size) { _entries.resize(size); }
+
+bool BestPractices::PostTransformLRUCacheModel::query_cache(uint32_t value) {
+    // look for a cache hit
+    auto hit = std::find_if(_entries.begin(), _entries.end(), [value](const CacheEntry& entry) { return entry.value == value; });
+    if (hit != _entries.end()) {
+        // mark the cache hit as being most recently used
+        hit->age = iteration++;
+        return true;
+    }
+
+    // if there's no cache hit, we need to model the entry being inserted into the cache
+    CacheEntry new_entry = {value, iteration};
+    if (iteration < static_cast<uint32_t>(std::distance(_entries.begin(), _entries.end()))) {
+        // if there is still space left in the cache, use the next available slot
+        *(_entries.begin() + iteration) = new_entry;
+    } else {
+        // otherwise replace the least recently used cache entry
+        auto lru = std::min_element(_entries.begin(), hit, [](const CacheEntry& a, const CacheEntry& b) { return a.age < b.age; });
+        *lru = new_entry;
+    }
+    iteration++;
+    return false;
 }

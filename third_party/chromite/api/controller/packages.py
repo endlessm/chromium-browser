@@ -17,6 +17,7 @@ from chromite.api.gen.chromiumos import common_pb2
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import portage_util
 from chromite.lib.uprev_lib import GitRef
 from chromite.service import packages
 
@@ -161,17 +162,17 @@ def GetTargetVersions(input_proto, output_proto, _config):
   """Returns the target versions."""
   build_target = controller_util.ParseBuildTarget(input_proto.build_target)
   # Android version.
-  android_version = packages.determine_android_version([build_target])
+  android_version = packages.determine_android_version([build_target.name])
   logging.info('Found android version: %s', android_version)
   if android_version:
     output_proto.android_version = android_version
   # Android branch version.
-  android_branch_version = packages.determine_android_branch(build_target)
+  android_branch_version = packages.determine_android_branch(build_target.name)
   logging.info('Found android branch version: %s', android_branch_version)
   if android_branch_version:
     output_proto.android_branch_version = android_branch_version
   # Android target version.
-  android_target_version = packages.determine_android_target(build_target)
+  android_target_version = packages.determine_android_target(build_target.name)
   logging.info('Found android target version: %s', android_target_version)
   if android_target_version:
     output_proto.android_target_version = android_target_version
@@ -190,6 +191,52 @@ def GetTargetVersions(input_proto, output_proto, _config):
   output_proto.platform_version = packages.determine_platform_version()
   output_proto.milestone_version = packages.determine_milestone_version()
   output_proto.full_version = packages.determine_full_version()
+
+
+def _GetBuilderMetadataResponse(input_proto, output_proto, _config):
+  """Add fake metadata fields to a successful response."""
+  # Populate only a few fields to validate faux testing.
+  build_target_metadata = output_proto.build_target_metadata.add()
+  build_target_metadata.build_target = input_proto.build_target.name
+  build_target_metadata.android_container_branch = 'git_pi-arc'
+  model_metadata = output_proto.model_metadata.add()
+  model_metadata.model_name = 'astronaut'
+  model_metadata.ec_firmware_version = 'coral_v1.1.1234-56789f'
+
+
+@faux.success(_GetBuilderMetadataResponse)
+@faux.empty_error
+@validate.require('build_target.name')
+@validate.validation_complete
+def GetBuilderMetadata(input_proto, output_proto, _config):
+  """Returns the target builder metadata."""
+  build_target = controller_util.ParseBuildTarget(input_proto.build_target)
+  build_target_metadata = output_proto.build_target_metadata.add()
+  build_target_metadata.build_target = build_target.name
+  # Android version.
+  android_version = packages.determine_android_version([build_target.name])
+  logging.info('Found android version: %s', android_version)
+  if android_version:
+    build_target_metadata.android_container_version = android_version
+  # Android branch version.
+  android_branch_version = packages.determine_android_branch(build_target.name)
+  logging.info('Found android branch version: %s', android_branch_version)
+  if android_branch_version:
+    build_target_metadata.android_container_branch = android_branch_version
+  # Android target version.
+  android_target_version = packages.determine_android_target(build_target.name)
+  logging.info('Found android target version: %s', android_target_version)
+  if android_target_version:
+    build_target_metadata.android_container_target = android_target_version
+
+  build_target_metadata.arc_use_set = 'arc' in portage_util.GetBoardUseFlags(
+      build_target.name)
+
+  # TODO(crbug/1071620): Add service layer calls to fill out the rest of
+  # build_target_metadata and model_metadata.
+  fw_versions = packages.determine_firmware_versions(build_target)
+  build_target_metadata.main_firmware_version = fw_versions.main_fw_version
+  build_target_metadata.ec_firmware_version = fw_versions.ec_fw_version
 
 
 def _HasPrebuiltSuccess(_input_proto, output_proto, _config):

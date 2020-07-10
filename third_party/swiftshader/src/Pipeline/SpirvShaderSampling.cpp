@@ -35,15 +35,9 @@ SpirvShader::ImageSampler *SpirvShader::getImageSampler(uint32_t inst, vk::Sampl
 	ImageInstruction instruction(inst);
 	const auto samplerId = sampler ? sampler->id : 0;
 	ASSERT(imageDescriptor->imageViewId != 0 && (samplerId != 0 || instruction.samplerMethod == Fetch));
-
-	vk::Device::SamplingRoutineCache::Key key = { inst, imageDescriptor->imageViewId, samplerId };
-
 	ASSERT(imageDescriptor->device);
 
-	if(auto routine = imageDescriptor->device->querySnapshotCache(key))
-	{
-		return (ImageSampler *)(routine->getEntry());
-	}
+	vk::Device::SamplingRoutineCache::Key key = { inst, imageDescriptor->imageViewId, samplerId };
 
 	vk::Device::SamplingRoutineCache *cache = imageDescriptor->device->getSamplingRoutineCache();
 
@@ -62,7 +56,6 @@ SpirvShader::ImageSampler *SpirvShader::getImageSampler(uint32_t inst, vk::Sampl
 		samplerState.mipmapFilter = convertMipmapMode(sampler);
 		samplerState.swizzle = imageDescriptor->swizzle;
 		samplerState.gatherComponent = instruction.gatherComponent;
-		samplerState.highPrecisionFiltering = false;
 		samplerState.largeTexture = (imageDescriptor->extent.width > SHRT_MAX) ||
 		                            (imageDescriptor->extent.height > SHRT_MAX) ||
 		                            (imageDescriptor->extent.depth > SHRT_MAX);
@@ -73,6 +66,7 @@ SpirvShader::ImageSampler *SpirvShader::getImageSampler(uint32_t inst, vk::Sampl
 			samplerState.border = sampler->borderColor;
 
 			samplerState.mipmapFilter = convertMipmapMode(sampler);
+			samplerState.highPrecisionFiltering = (sampler->filteringPrecision == VK_SAMPLER_FILTERING_PRECISION_MODE_HIGH_GOOGLE);
 
 			samplerState.compareEnable = (sampler->compareEnable != VK_FALSE);
 			samplerState.compareOp = sampler->compareOp;

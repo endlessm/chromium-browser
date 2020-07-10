@@ -51,7 +51,10 @@ extern const VkShaderStageFlags AllVkShaderStageFlagBits;
 extern const VkQueryControlFlags AllVkQueryControlFlagBits;
 extern const VkImageUsageFlags AllVkImageUsageFlagBits;
 extern const VkSampleCountFlags AllVkSampleCountFlagBits;
+extern const VkBuildAccelerationStructureFlagsNV AllVkBuildAccelerationStructureFlagBitsNV;
+extern const VkGeometryFlagsKHR AllVkGeometryFlagBitsKHR;
 
+extern const std::vector<VkGeometryTypeKHR> AllVkGeometryTypeKHREnums;
 extern const std::vector<VkCompareOp> AllVkCompareOpEnums;
 extern const std::vector<VkStencilOp> AllVkStencilOpEnums;
 extern const std::vector<VkBlendFactor> AllVkBlendFactorEnums;
@@ -62,6 +65,7 @@ extern const std::vector<VkImageLayout> AllVkImageLayoutEnums;
 extern const std::vector<VkFormat> AllVkFormatEnums;
 extern const std::vector<VkVertexInputRate> AllVkVertexInputRateEnums;
 extern const std::vector<VkPrimitiveTopology> AllVkPrimitiveTopologyEnums;
+extern const std::vector<VkIndexType> AllVkIndexTypeEnums;
 
 // String returned by string_VkStructureType for an unrecognized type.
 const std::string UnsupportedStructureTypeString = "Unhandled VkStructureType";
@@ -111,7 +115,13 @@ class StatelessValidation : public ValidationObject {
     std::unordered_map<VkRenderPass, SubpassesUsageStates> renderpasses_states;
 
     // Constructor for stateles validation tracking
-    // StatelessValidation() : {}
+    StatelessValidation() : device_createinfo_pnext(nullptr) { container_type = LayerObjectTypeParameterValidation; }
+    ~StatelessValidation() {
+        if (device_createinfo_pnext) {
+            FreePnextChain(device_createinfo_pnext);
+        }
+    }
+
     /**
      * Validate a minimum value.
      *
@@ -792,7 +802,7 @@ class StatelessValidation : public ValidationObject {
 
         // Check against the required list in the info
         std::vector<const char *> missing;
-        for (const auto &req : info.requires) {
+        for (const auto &req : info.requirements) {
             if (!(extensions.*(req.enabled))) {
                 missing.push_back(req.name);
             }
@@ -880,15 +890,17 @@ class StatelessValidation : public ValidationObject {
                                 reinterpret_cast<VkAttachmentDescription2KHR const *>(&pCreateInfo->pAttachments[i])->pNext)
                           : 0;
 
-            if (pCreateInfo->pAttachments[i].format == VK_FORMAT_UNDEFINED) {
+            const VkFormat attachment_format = pCreateInfo->pAttachments[i].format;
+            const VkImageLayout initial_layout = pCreateInfo->pAttachments[i].initialLayout;
+            const VkImageLayout final_layout = pCreateInfo->pAttachments[i].finalLayout;
+            if (attachment_format == VK_FORMAT_UNDEFINED) {
                 std::stringstream ss;
                 ss << (use_rp2 ? "vkCreateRenderPass2KHR" : "vkCreateRenderPass") << ": pCreateInfo->pAttachments[" << i
                    << "].format is VK_FORMAT_UNDEFINED. ";
                 vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-parameter" : "VUID-VkAttachmentDescription-format-parameter";
                 skip |= LogWarning(device, vuid, "%s", ss.str().c_str());
             }
-            if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_UNDEFINED ||
-                pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_PREINITIALIZED) {
+            if (final_layout == VK_IMAGE_LAYOUT_UNDEFINED || final_layout == VK_IMAGE_LAYOUT_PREINITIALIZED) {
                 vuid =
                     use_rp2 ? "VUID-VkAttachmentDescription2-finalLayout-03061" : "VUID-VkAttachmentDescription-finalLayout-00843";
                 skip |= LogError(device, vuid,
@@ -910,10 +922,10 @@ class StatelessValidation : public ValidationObject {
                         "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
                         i);
                 }
-                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                if (final_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-separateDepthStencilLayouts-03299"
                                    : "VUID-VkAttachmentDescription-separateDepthStencilLayouts-03285";
                     skip |= LogError(
@@ -924,11 +936,11 @@ class StatelessValidation : public ValidationObject {
                         i);
                 }
             }
-            if (!FormatIsDepthOrStencil(pCreateInfo->pAttachments[i].format)) {
-                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+            if (!FormatIsDepthOrStencil(attachment_format)) {
+                if (initial_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    initial_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    initial_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    initial_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03300" : "VUID-VkAttachmentDescription-format-03286";
                     skip |= LogError(
                         device, vuid,
@@ -937,10 +949,10 @@ class StatelessValidation : public ValidationObject {
                         "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMA_KHRL",
                         i);
                 }
-                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                if (final_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03301" : "VUID-VkAttachmentDescription-format-03287";
                     skip |= LogError(
                         device, vuid,
@@ -949,27 +961,27 @@ class StatelessValidation : public ValidationObject {
                         "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
                         i);
                 }
-            } else if (FormatIsDepthAndStencil(pCreateInfo->pAttachments[i].format)) {
+            } else if (FormatIsDepthAndStencil(attachment_format)) {
                 if (use_rp2) {
                     if (!attachment_description_stencil_layout) {
-                        if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                            pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                        if (initial_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                            initial_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
                             skip |=
                                 LogError(device, "VUID-VkAttachmentDescription2-format-03302",
                                          "pCreateInfo->pNext must include an instance of VkAttachmentDescriptionStencilLayoutKHR");
                         }
-                        if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                            pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                        if (final_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                            final_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
                             skip |=
                                 LogError(device, "VUID-VkAttachmentDescription2-format-03303",
                                          "pCreateInfo->pNext must include an instance of VkAttachmentDescriptionStencilLayoutKHR");
                         }
                     }
                 } else {
-                    if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                        pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
-                        pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                        pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    if (initial_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                        initial_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                        initial_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                        initial_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                         skip |= LogError(
                             device, "VUID-VkAttachmentDescription-format-03288",
                             "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
@@ -977,10 +989,10 @@ class StatelessValidation : public ValidationObject {
                             "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
                             i);
                     }
-                    if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                        pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
-                        pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                        pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                    if (final_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                        final_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR ||
+                        final_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                        final_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                         skip |= LogError(
                             device, "VUID-VkAttachmentDescription-format-03289",
                             "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR, "
@@ -989,9 +1001,9 @@ class StatelessValidation : public ValidationObject {
                             i);
                     }
                 }
-            } else if (FormatIsDepthOnly(pCreateInfo->pAttachments[i].format)) {
-                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+            } else if (FormatIsDepthOnly(attachment_format)) {
+                if (initial_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    initial_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03304" : "VUID-VkAttachmentDescription-format-03290";
                     skip |= LogError(
                         device, vuid,
@@ -999,8 +1011,8 @@ class StatelessValidation : public ValidationObject {
                         "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
                         i);
                 }
-                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
+                if (final_layout == VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03305" : "VUID-VkAttachmentDescription-format-03291";
                     skip |= LogError(
                         device, vuid,
@@ -1008,9 +1020,9 @@ class StatelessValidation : public ValidationObject {
                         "VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL_KHR",
                         i);
                 }
-            } else if (FormatIsStencilOnly(pCreateInfo->pAttachments[i].format)) {
-                if (pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+            } else if (FormatIsStencilOnly(attachment_format)) {
+                if (initial_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    initial_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03306" : "VUID-VkAttachmentDescription-format-03292";
                     skip |= LogError(
                         device, vuid,
@@ -1018,8 +1030,8 @@ class StatelessValidation : public ValidationObject {
                         "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR",
                         i);
                 }
-                if (pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
-                    pCreateInfo->pAttachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
+                if (final_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL_KHR ||
+                    final_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL_KHR) {
                     vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03307" : "VUID-VkAttachmentDescription-format-03293";
                     skip |= LogError(
                         device, vuid,
@@ -1073,6 +1085,51 @@ class StatelessValidation : public ValidationObject {
                         device, "VUID-VkAttachmentDescriptionStencilLayout-stencilFinalLayout-03310",
                         "VkAttachmentDescriptionStencilLayoutKHR.stencilFinalLayout must not be VK_IMAGE_LAYOUT_UNDEFINED, or "
                         "VK_IMAGE_LAYOUT_PREINITIALIZED.");
+                }
+            }
+
+            if (FormatIsDepthOrStencil(attachment_format)) {
+                if (initial_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03295" : "VUID-VkAttachmentDescription-format-03281";
+                    skip |= LogError(device, vuid,
+                                     "pCreateInfo->pAttachments[%d].initialLayout must not be "
+                                     "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when using a Depth or Stencil format",
+                                     i);
+                }
+                if (final_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03297" : "VUID-VkAttachmentDescription-format-03283";
+                    skip |= LogError(device, vuid,
+                                     "pCreateInfo->pAttachments[%d].finalLayout must not be "
+                                     "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL when using a Depth or Stencil format",
+                                     i);
+                }
+            }
+            if (FormatIsColor(attachment_format)) {
+                if (initial_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                    initial_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL ||
+                    initial_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL ||
+                    initial_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03294" : "VUID-VkAttachmentDescription-format-03280";
+                    skip |= LogError(
+                        device, vuid,
+                        "pCreateInfo->pAttachments[%d].initialLayout must not be VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, "
+                        "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, "
+                        "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL, or "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL when using a Color format",
+                        i);
+                }
+                if (final_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+                    final_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL ||
+                    final_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL ||
+                    final_layout == VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL) {
+                    vuid = use_rp2 ? "VUID-VkAttachmentDescription2-format-03296" : "VUID-VkAttachmentDescription-format-03282";
+                    skip |= LogError(
+                        device, vuid,
+                        "pCreateInfo->pAttachments[%d].finalLayout must not be VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, "
+                        "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, "
+                        "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL, or "
+                        "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL when using a Color format",
+                        i);
                 }
             }
         }
@@ -1166,6 +1223,10 @@ class StatelessValidation : public ValidationObject {
     bool ValidateCreateSamplerYcbcrConversion(VkDevice device, const VkSamplerYcbcrConversionCreateInfo *pCreateInfo,
                                               const VkAllocationCallbacks *pAllocator, VkSamplerYcbcrConversion *pYcbcrConversion,
                                               const char *apiName) const;
+    bool ValidateCmdDrawIndirectCount(VkCommandBuffer commandBuffer, VkDeviceSize offset, VkDeviceSize countBufferOffset,
+                                      bool khr) const;
+    bool ValidateCmdDrawIndexedIndirectCount(VkCommandBuffer commandBuffer, VkDeviceSize offset, VkDeviceSize countBufferOffset,
+                                             bool khr) const;
 
     bool OutputExtensionError(const std::string &api_name, const std::string &extension_name) const;
 
@@ -1194,6 +1255,9 @@ class StatelessValidation : public ValidationObject {
 
     bool manual_PreCallValidateCreateImage(VkDevice device, const VkImageCreateInfo *pCreateInfo,
                                            const VkAllocationCallbacks *pAllocator, VkImage *pImage) const;
+
+    bool manual_PreCallValidateCreateImageView(VkDevice device, const VkImageViewCreateInfo *pCreateInfo,
+                                               const VkAllocationCallbacks *pAllocator, VkImageView *pView) const;
 
     bool manual_PreCallValidateViewport(const VkViewport &viewport, const char *fn_name, const ParameterName &parameter_name,
                                         VkCommandBuffer object) const;
@@ -1246,6 +1310,22 @@ class StatelessValidation : public ValidationObject {
 
     bool manual_PreCallValidateCmdDrawIndexedIndirect(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
                                                       uint32_t count, uint32_t stride) const;
+
+    bool manual_PreCallValidateCmdDrawIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                                    VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
+                                                    uint32_t stride) const;
+
+    bool manual_PreCallValidateCmdDrawIndirectCountKHR(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                                       VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount,
+                                                       uint32_t stride) const;
+
+    bool manual_PreCallValidateCmdDrawIndexedIndirectCount(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                                           VkBuffer countBuffer, VkDeviceSize countBufferOffset,
+                                                           uint32_t maxDrawCount, uint32_t stride) const;
+
+    bool manual_PreCallValidateCmdDrawIndexedIndirectCountKHR(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset,
+                                                              VkBuffer countBuffer, VkDeviceSize countBufferOffset,
+                                                              uint32_t maxDrawCount, uint32_t stride) const;
 
     bool manual_PreCallValidateCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_t attachmentCount,
                                                    const VkClearAttachment *pAttachments, uint32_t rectCount,
@@ -1399,5 +1479,71 @@ class StatelessValidation : public ValidationObject {
                                                                VkSamplerYcbcrConversion *pYcbcrConversion) const;
     bool manual_PreCallValidateImportSemaphoreFdKHR(VkDevice device,
                                                     const VkImportSemaphoreFdInfoKHR *pImportSemaphoreFdInfo) const;
+
+    bool manual_PreCallValidateCopyAccelerationStructureToMemoryKHR(VkDevice device,
+                                                                    const VkCopyAccelerationStructureToMemoryInfoKHR *pInfo) const;
+
+    bool manual_PreCallValidateCmdCopyAccelerationStructureToMemoryKHR(
+        VkCommandBuffer commandBuffer, const VkCopyAccelerationStructureToMemoryInfoKHR *pInfo) const;
+
+    bool manual_PreCallValidateCopyAccelerationStructureKHR(VkDevice device, const VkCopyAccelerationStructureInfoKHR *pInfo) const;
+
+    bool manual_PreCallValidateCmdCopyAccelerationStructureKHR(VkCommandBuffer commandBuffer,
+                                                               const VkCopyAccelerationStructureInfoKHR *pInfo) const;
+    bool ValidateCopyAccelerationStructureInfoKHR(const VkCopyAccelerationStructureInfoKHR *pInfo, const char *api_name) const;
+    bool ValidateCopyMemoryToAccelerationStructureInfoKHR(const VkCopyMemoryToAccelerationStructureInfoKHR *pInfo,
+                                                          const char *api_name, bool is_cmd = false) const;
+
+    bool manual_PreCallValidateCopyMemoryToAccelerationStructureKHR(VkDevice device,
+                                                                    const VkCopyMemoryToAccelerationStructureInfoKHR *pInfo) const;
+    bool manual_PreCallValidateCmdCopyMemoryToAccelerationStructureKHR(
+        VkCommandBuffer commandBuffer, const VkCopyMemoryToAccelerationStructureInfoKHR *pInfo) const;
+
+    bool manual_PreCallValidateCmdWriteAccelerationStructuresPropertiesKHR(
+        VkCommandBuffer commandBuffer, uint32_t accelerationStructureCount,
+        const VkAccelerationStructureKHR *pAccelerationStructures, VkQueryType queryType, VkQueryPool queryPool,
+        uint32_t firstQuery) const;
+    bool manual_PreCallValidateWriteAccelerationStructuresPropertiesKHR(VkDevice device, uint32_t accelerationStructureCount,
+                                                                        const VkAccelerationStructureKHR *pAccelerationStructures,
+                                                                        VkQueryType queryType, size_t dataSize, void *pData,
+                                                                        size_t stride) const;
+    bool manual_PreCallValidateGetRayTracingCaptureReplayShaderGroupHandlesKHR(VkDevice device, VkPipeline pipeline,
+                                                                               uint32_t firstGroup, uint32_t groupCount,
+                                                                               size_t dataSize, void *pData) const;
+
+    bool manual_PreCallValidateCmdTraceRaysKHR(VkCommandBuffer commandBuffer,
+                                               const VkStridedBufferRegionKHR *pRaygenShaderBindingTable,
+                                               const VkStridedBufferRegionKHR *pMissShaderBindingTable,
+                                               const VkStridedBufferRegionKHR *pHitShaderBindingTable,
+                                               const VkStridedBufferRegionKHR *pCallableShaderBindingTable, uint32_t width,
+                                               uint32_t height, uint32_t depth) const;
+
+    bool manual_PreCallValidateCmdTraceRaysIndirectKHR(VkCommandBuffer commandBuffer,
+                                                       const VkStridedBufferRegionKHR *pRaygenShaderBindingTable,
+                                                       const VkStridedBufferRegionKHR *pMissShaderBindingTable,
+                                                       const VkStridedBufferRegionKHR *pHitShaderBindingTable,
+                                                       const VkStridedBufferRegionKHR *pCallableShaderBindingTable, VkBuffer buffer,
+                                                       VkDeviceSize offset) const;
+
+    bool manual_PreCallValidateCmdTraceRaysNV(VkCommandBuffer commandBuffer, VkBuffer raygenShaderBindingTableBuffer,
+                                              VkDeviceSize raygenShaderBindingOffset, VkBuffer missShaderBindingTableBuffer,
+                                              VkDeviceSize missShaderBindingOffset, VkDeviceSize missShaderBindingStride,
+                                              VkBuffer hitShaderBindingTableBuffer, VkDeviceSize hitShaderBindingOffset,
+                                              VkDeviceSize hitShaderBindingStride, VkBuffer callableShaderBindingTableBuffer,
+                                              VkDeviceSize callableShaderBindingOffset, VkDeviceSize callableShaderBindingStride,
+                                              uint32_t width, uint32_t height, uint32_t depth) const;
+
+    bool manual_PreCallValidateCmdBuildAccelerationStructureIndirectKHR(VkCommandBuffer commandBuffer,
+                                                                        const VkAccelerationStructureBuildGeometryInfoKHR *pInfo,
+                                                                        VkBuffer indirectBuffer, VkDeviceSize indirectOffset,
+                                                                        uint32_t indirectStride) const;
+
+    bool manual_PreCallValidateGetDeviceAccelerationStructureCompatibilityKHR(
+        VkDevice device, const VkAccelerationStructureVersionKHR *version) const;
+
+    bool manual_PreCallValidateBuildAccelerationStructureKHR(
+        VkDevice device, uint32_t infoCount, const VkAccelerationStructureBuildGeometryInfoKHR *pInfos,
+        const VkAccelerationStructureBuildOffsetInfoKHR *const *ppOffsetInfos) const;
+
 #include "parameter_validation.h"
 };  // Class StatelessValidation

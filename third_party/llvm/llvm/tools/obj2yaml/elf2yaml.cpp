@@ -51,6 +51,9 @@ class ELFDumper {
   const object::ELFFile<ELFT> &Obj;
   ArrayRef<Elf_Word> ShndxTable;
 
+  Expected<std::vector<ELFYAML::ProgramHeader>>
+  dumpProgramHeaders(ArrayRef<std::unique_ptr<ELFYAML::Chunk>> Sections);
+
   Error dumpSymbols(const Elf_Shdr *Symtab,
                     std::vector<ELFYAML::Symbol> &Symbols);
   Error dumpSymbol(const Elf_Sym *Sym, const Elf_Shdr *SymTab,
@@ -271,8 +274,15 @@ template <class ELFT> Expected<ELFYAML::Object *> ELFDumper<ELFT>::dump() {
       dumpSections();
   if (!ChunksOrErr)
     return ChunksOrErr.takeError();
-
   std::vector<std::unique_ptr<ELFYAML::Chunk>> Chunks = std::move(*ChunksOrErr);
+
+  // Dump program headers.
+  Expected<std::vector<ELFYAML::ProgramHeader>> PhdrsOrErr =
+      dumpProgramHeaders(Chunks);
+  if (!PhdrsOrErr)
+    return PhdrsOrErr.takeError();
+  Y->ProgramHeaders = std::move(*PhdrsOrErr);
+
   llvm::erase_if(Chunks, [this](const std::unique_ptr<ELFYAML::Chunk> &C) {
     const ELFYAML::Section &S = cast<ELFYAML::Section>(*C.get());
     return !shouldPrintSection(S, Sections[S.OriginalSecNdx]);
@@ -280,6 +290,76 @@ template <class ELFT> Expected<ELFYAML::Object *> ELFDumper<ELFT>::dump() {
 
   Y->Chunks = std::move(Chunks);
   return Y.release();
+}
+
+template <class ELFT>
+static bool isInSegment(const ELFYAML::Section &Sec,
+                        const typename ELFT::Shdr &SHdr,
+                        const typename ELFT::Phdr &Phdr) {
+  if (Sec.Type == ELF::SHT_NULL)
+    return false;
+
+  // A section is within a segment when its location in a file is within the
+  // [p_offset, p_offset + p_filesz] region.
+  bool FileOffsetsMatch =
+      SHdr.sh_offset >= Phdr.p_offset &&
+      (SHdr.sh_offset + SHdr.sh_size <= Phdr.p_offset + Phdr.p_filesz);
+
+  bool VirtualAddressesMatch = SHdr.sh_addr >= Phdr.p_vaddr &&
+                               SHdr.sh_addr <= Phdr.p_vaddr + Phdr.p_memsz;
+
+  if (FileOffsetsMatch) {
+    // An empty section on the edges of a program header can be outside of the
+    // virtual address space of the segment. This means it is not included in
+    // the segment and we should ignore it.
+    if (SHdr.sh_size == 0 && (SHdr.sh_offset == Phdr.p_offset ||
+                              SHdr.sh_offset == Phdr.p_offset + Phdr.p_filesz))
+      return VirtualAddressesMatch;
+    return true;
+  }
+
+  // SHT_NOBITS sections usually occupy no physical space in a file. Such
+  // sections belong to a segment when they reside in the segment's virtual
+  // address space.
+  if (Sec.Type != ELF::SHT_NOBITS)
+    return false;
+  return VirtualAddressesMatch;
+}
+
+template <class ELFT>
+Expected<std::vector<ELFYAML::ProgramHeader>>
+ELFDumper<ELFT>::dumpProgramHeaders(
+    ArrayRef<std::unique_ptr<ELFYAML::Chunk>> Chunks) {
+  std::vector<ELFYAML::ProgramHeader> Ret;
+  Expected<typename ELFT::PhdrRange> PhdrsOrErr = Obj.program_headers();
+  if (!PhdrsOrErr)
+    return PhdrsOrErr.takeError();
+
+  for (const typename ELFT::Phdr &Phdr : *PhdrsOrErr) {
+    ELFYAML::ProgramHeader PH;
+    PH.Type = Phdr.p_type;
+    PH.Flags = Phdr.p_flags;
+    PH.VAddr = Phdr.p_vaddr;
+    PH.PAddr = Phdr.p_paddr;
+
+    // yaml2obj sets the alignment of a segment to 1 by default.
+    // We do not print the default alignment to reduce noise in the output.
+    if (Phdr.p_align != 1)
+      PH.Align = static_cast<llvm::yaml::Hex64>(Phdr.p_align);
+
+    // Here we match sections with segments.
+    // It is not possible to have a non-Section chunk, because
+    // obj2yaml does not create Fill chunks.
+    for (const std::unique_ptr<ELFYAML::Chunk> &C : Chunks) {
+      ELFYAML::Section &S = cast<ELFYAML::Section>(*C.get());
+      if (isInSegment<ELFT>(S, Sections[S.OriginalSecNdx], Phdr))
+        PH.Sections.push_back({S.Name});
+    }
+
+    Ret.push_back(PH);
+  }
+
+  return Ret;
 }
 
 template <class ELFT>

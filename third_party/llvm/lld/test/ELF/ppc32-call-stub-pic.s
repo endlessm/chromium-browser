@@ -33,7 +33,7 @@
 
 ## .got2+0x8000-0x10004 = 0x30000+0x8000-0x10004 = 65536*2+32764
 # CHECK-LABEL: <_start>:
-# CHECK-NEXT:         bcl 20, 31, .+4
+# PIE-NEXT:           bcl 20, 31, 0x10210
 # PIE-NEXT:    10210: mflr 30
 # PIE-NEXT:           addis 30, 30, 3
 # PIE-NEXT:           addi 30, 30, -32412
@@ -52,6 +52,7 @@
 # PIE-NEXT:           bl 0x10274
 ## bl 00008000.plt_pic32.f
 # PIE-NEXT:           bl 0x10284
+# SHARED-NEXT:        bcl 20, 31, 0x10230
 # SHARED-NEXT: 10230: mflr 30
 # SHARED-NEXT:        addis 30, 30, 3
 # SHARED-NEXT:        addi 30, 30, -32420
@@ -106,19 +107,17 @@
 # HEX: 0x0004036c 00010294 00010298 0001029c
 
 ## These instructions are referenced by .plt entries.
-# PIE:    00010294 <.glink>:
-# SHARED: 000102b4 <.glink>:
-# CHECK-NEXT: b .+12
-# CHECK-NEXT: b .+8
-# CHECK-NEXT: b .+4
+# CHECK:      [[#%x,GLINK:]] <.glink>:
+# CHECK-NEXT: b 0x[[#%x,GLINK+12]]
+# CHECK-NEXT: b 0x[[#%x,GLINK+12]]
+# CHECK-NEXT: b 0x[[#%x,GLINK+12]]
 
 ## PLTresolve
 ## Operand of addi: 0x100a8-.glink = 24
 # CHECK-NEXT:         addis 11, 11, 0
 # CHECK-NEXT:         mflr 0
-# CHECK-NEXT:         bcl 20, 31, .+4
-# PIE-NEXT:    102ac: addi 11, 11, 24
-# SHARED-NEXT: 102cc: addi 11, 11, 24
+# CHECK-NEXT:         bcl 20, 31, 0x[[#%x,NEXT:]]
+# CHECK-NEXT: [[#%x,NEXT]]: addi 11, 11, 24
 
 # CHECK-NEXT: mflr 12
 # CHECK-NEXT: mtlr 0

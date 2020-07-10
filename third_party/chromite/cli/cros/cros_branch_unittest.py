@@ -37,8 +37,6 @@ from chromite.lib import partial_mock
 from chromite.lib import repo_manifest
 from chromite.lib import repo_util
 
-pytestmark = cros_test_lib.pytestmark_legacy_slow
-
 
 assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
@@ -596,7 +594,7 @@ class CrosCheckoutTest(ManifestTestCase, cros_test_lib.MockTestCase):
         VersionInfo, 'from_repo', return_value=VersionInfo('1.2.3'))
     self.increment_version = self.PatchObject(VersionInfo, 'IncrementVersion')
     self.update_version = self.PatchObject(VersionInfo, 'UpdateVersionFile')
-    constants.CHROMITE_DIR = '/run-root/chromite'
+    self.PatchObject(constants, 'CHROMITE_DIR', new='/run-root/chromite')
 
   def testInitialize(self):
     """Test Initialize calls the correct functions with the correct data."""
@@ -1594,7 +1592,7 @@ class FunctionalTest(ManifestTestCase, cros_test_lib.TempDirTestCase):
       right_dir: Path to the right dir.
     """
     result = cros_build_lib.run(['diff', '-rq', left_dir, right_dir],
-                                check=False, encoding='utf-8')
+                                check=False, encoding='utf-8', stdout=True)
     self.assertFalse(result.output)
 
   def AssertNoRemoteDiff(self):

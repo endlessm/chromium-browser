@@ -16,10 +16,15 @@ writing serialized data from a message instance out to a file.
 from __future__ import print_function
 
 import os
+import sys
 
 from google.protobuf import json_format
 
 from chromite.lib import osutils
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
+
 
 FORMAT_BINARY = 1
 FORMAT_JSON = 2
@@ -90,7 +95,6 @@ class Serializer(object):
       data (str): The message data to deserialize.
       message (google.protobuf.Message): The message to load the data into.
     """
-    pass
 
   # pylint: disable=unused-argument
   def serialize(self, message):
@@ -142,7 +146,7 @@ class JsonSerializer(Serializer):
     See: Serializer.serialize
     """
     return json_format.MessageToJson(
-        message, sort_keys=True, use_integers_for_enums=True)
+        message, sort_keys=True, use_integers_for_enums=True) or '{}'
 
 
 class MessageHandler(object):

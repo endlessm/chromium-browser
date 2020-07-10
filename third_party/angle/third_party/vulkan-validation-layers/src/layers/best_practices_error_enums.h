@@ -93,6 +93,8 @@ static const char DECORATE_UNUSED *kVUID_BestPractices_NonSuccess_Result = "UNAS
 static const char DECORATE_UNUSED *kVUID_BestPractices_SuboptimalSwapchain = "UNASSIGNED-BestPractices-SuboptimalSwapchain";
 
 // Arm-specific best practice
+static const char DECORATE_UNUSED *kVUID_BestPractices_AllocateDescriptorSets_SuboptimalReuse =
+    "UNASSIGNED-BestPractices-vkAllocateDescriptorSets-suboptimal-reuse";
 static const char DECORATE_UNUSED *kVUID_BestPractices_CreatePipelines_MultisampledBlending =
     "UNASSIGNED-BestPractices-vkCreatePipelines-multisampled-blending";
 static const char DECORATE_UNUSED *kVUID_BestPractices_CreateImage_TooLargeSampleCount =
@@ -114,6 +116,10 @@ static const char DECORATE_UNUSED *kVUID_BestPractices_CmdResolveImage_Resolving
     "UNASSIGNED-BestPractices-vkCmdResolveImage-resolving-image";
 static const char DECORATE_UNUSED *kVUID_BestPractices_CmdDrawIndexed_ManySmallIndexedDrawcalls =
     "UNASSIGNED-BestPractices-vkCmdDrawIndexed-many-small-indexed-drawcalls";
+static const char DECORATE_UNUSED *kVUID_BestPractices_CmdDrawIndexed_SparseIndexBuffer =
+    "UNASSIGNED-BestPractices-vkCmdDrawIndexed-sparse-index-buffer";
+static const char DECORATE_UNUSED *kVUID_BestPractices_CmdDrawIndexed_PostTransformCacheThrashing =
+    "UNASSIGNED-BestPractices-vkCmdDrawIndexed-post-transform-cache-thrashing";
 static const char DECORATE_UNUSED *kVUID_BestPractices_BeginCommandBuffer_OneTimeSubmit =
     "UNASSIGNED-BestPractices-vkBeginCommandBuffer-one-time-submit";
 static const char DECORATE_UNUSED *kVUID_BestPractices_BeginRenderPass_AttachmentNeedsReadback =

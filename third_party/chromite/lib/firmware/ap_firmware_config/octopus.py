@@ -34,9 +34,7 @@ def is_fast_required(use_futility, servo):
   Returns:
     bool: True if fast is necessary, False otherwise.
   """
-  if use_futility and servo.version == servo_lib.SERVO_V4_CCD:
-    return True
-  return False
+  return use_futility and servo.version == servo_lib.SERVO_V4_CCD
 
 
 def get_commands(servo):
@@ -69,7 +67,7 @@ def get_commands(servo):
         'spi2_vref:off', 'spi2_buf_en:off', 'spi2_buf_on_flex_en:off',
         'spi_hold:off'
     ])
-    programmer = 'ft2232_spi:type=servo-v2,serial=%s' % servo.serial
+    programmer = 'ft2232_spi:type=google-servo-v2,serial=%s' % servo.serial
   elif servo.is_micro:
     dut_control_on.append(
         ['spi2_vref:pp1800', 'spi2_buf_en:on', 'spi_hold:off'])

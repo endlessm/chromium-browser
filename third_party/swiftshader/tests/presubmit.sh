@@ -40,13 +40,14 @@ function check() {
 
 # Validate commit message
 function run_bug_in_commit_msg() {
-  git log -1 --pretty=%B | grep -E '^(Bug|Issue|Fixes):(\s?)(((b\/)|(\w+:))([0-9]+)|[^0-9]+)$|(^Regres:)|(^PiperOrigin-RevId:)'
+  git log -1 --pretty=%B | grep -E '^(Bug|Issue|Fixes):(\s?)((((b|fxb)\/)|(\w+:))([0-9]+)|[^0-9]+)$|(^Regres:)|(^PiperOrigin-RevId:)'
 
   if [ $? -ne 0 ]
   then
     echo "${red}Git commit message must have a Bug: line"
     echo "followed by a bug ID in the form b/# for Buganizer bugs or"
-    echo "project:# for Monorail bugs (e.g. 'Bug: chromium:123')."
+    echo "project:# for Monorail bugs (e.g. 'Bug: chromium:123') or"
+    echo "fxb/# For Fuchsia bugs (e.g. 'Bug: fxb/123')."
     echo "Omit any digits when no ID is required (e.g. 'Bug: fix build').${normal}"
     return 1
   fi
@@ -80,6 +81,10 @@ function run_gofmt() {
   find ${SRC_DIR} ${TESTS_DIR} -name "*.go" | xargs $GOFMT -w
 }
 
+function run_check_build_files() {
+  go run ${TESTS_DIR}/check_build_files/main.go --root="${ROOT_DIR}"
+}
+
 # Ensure we are clean to start out with.
 check "git workspace must be clean" true
 
@@ -94,6 +99,9 @@ check clang-format run_clang_format
 
 # Check gofmt.
 check gofmt run_gofmt
+
+# Check build files.
+check "build files don't reference non-existent files" run_check_build_files
 
 echo
 echo "${green}All check completed successfully.${normal}"

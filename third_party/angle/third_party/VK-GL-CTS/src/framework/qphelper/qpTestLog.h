@@ -61,6 +61,7 @@ typedef enum qpTestResult_e
 	QP_TEST_RESULT_INTERNAL_ERROR,			/*!< Error occurred within Tester Core													*/
 	QP_TEST_RESULT_CRASH,					/*!< Crash occurred in test execution.													*/
 	QP_TEST_RESULT_TIMEOUT,					/*!< Timeout occurred in test execution.												*/
+	QP_TEST_RESULT_WAIVER,					/*!< Status code reported by waived test.												*/
 
 	QP_TEST_RESULT_LAST
 } qpTestResult;
@@ -194,7 +195,8 @@ typedef struct qpEglConfigInfo_s
 } qpEglConfigInfo;
 
 
-qpTestLog*		qpTestLog_createFileLog			(const char* fileName, int argc, char** argv, deUint32 flags);
+qpTestLog*		qpTestLog_createFileLog			(const char* fileName, deUint32 flags);
+deBool			qpTestLog_beginSession			(qpTestLog* log, const char* additionalSessionInfo);
 void			qpTestLog_destroy				(qpTestLog* log);
 
 deBool			qpTestLog_startCase				(qpTestLog* log, const char* testCasePath, qpTestCaseType testCaseType);

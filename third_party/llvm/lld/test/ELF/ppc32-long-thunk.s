@@ -8,10 +8,12 @@
 # RUN: ld.lld -T %t.script %t.o -o %t
 # RUN: llvm-readelf -r %t | FileCheck --check-prefix=SEC %s
 # RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefixes=CHECK,PD %s
+# RUN: llvm-nm --no-sort %t | FileCheck --check-prefix=NM %s
 
 # RUN: ld.lld -T %t.script -pie %t.o -o %t
 # RUN: llvm-readelf -r %t | FileCheck --check-prefix=SEC %s
 # RUN: llvm-objdump -d --no-show-raw-insn %t | FileCheck --check-prefixes=CHECK,PI %s
+# RUN: llvm-nm --no-sort %t | FileCheck --check-prefix=NM %s
 
 # SEC: There are no relocations in this file.
 
@@ -40,7 +42,7 @@
 ## high-0x2028 = 0x02002008-0x2020 = 65536*512-24
 # PI:         <__LongThunk_high>:
 # PI-NEXT:        2018: mflr 0
-# PI-NEXT:              bcl 20, 31, .+4
+# PI-NEXT:              bcl 20, 31, 0x2020
 # PI-NEXT:        2020: mflr 12
 # PI-NEXT:              addis 12, 12, 512
 # PI-NEXT:              addi 12, 12, -24
@@ -51,7 +53,7 @@
 ## .text_high+16-0x2048 = 0x02002010-0x2048 = 65536*512-48
 # PI:         <__LongThunk_>:
 # PI-NEXT:        2038: mflr 0
-# PI-NEXT:              bcl 20, 31, .+4
+# PI-NEXT:              bcl 20, 31, 0x2040
 # PI-NEXT:        2040: mflr 12
 # PI-NEXT:              addis 12, 12, 512
 # PI-NEXT:              addi 12, 12, -48
@@ -85,3 +87,9 @@ nop
 high:
 bl .text_low+8
 bl .text_low+8    # Need a thunk
+
+# NM:      t __LongThunk_high
+# NM-NEXT: t __LongThunk_
+# NM-NEXT: t __LongThunk_
+# NM-NEXT: T _start
+# NM-NEXT: T high

@@ -4,7 +4,7 @@
 import {assert} from 'chai';
 import * as ts from 'typescript';
 
-import {valueForTypeNode} from '../../../../scripts/component_bridges/value_for_type_node';
+import {valueForTypeNode} from '../../../../scripts/component_bridges/value_for_type_node.js';
 
 const createNode = (type: ts.SyntaxKind): ts.TypeNode => {
   const node = ts.createNode(type);
@@ -26,12 +26,14 @@ describe('valueForTypeNode', () => {
     const stringNode = createNode(ts.SyntaxKind.StringKeyword);
     const numberNode = createNode(ts.SyntaxKind.NumberKeyword);
     const booleanNode = createNode(ts.SyntaxKind.BooleanKeyword);
-
     const voidNode = createNode(ts.SyntaxKind.VoidKeyword);
-    assert.equal(valueForTypeNode(stringNode), 'string');
-    assert.equal(valueForTypeNode(numberNode), 'number');
-    assert.equal(valueForTypeNode(booleanNode), 'boolean');
-    assert.equal(valueForTypeNode(voidNode), 'void');
+    const undefinedNode = createNode(ts.SyntaxKind.UndefinedKeyword);
+
+    assert.strictEqual(valueForTypeNode(stringNode), 'string');
+    assert.strictEqual(valueForTypeNode(numberNode), 'number');
+    assert.strictEqual(valueForTypeNode(booleanNode), 'boolean');
+    assert.strictEqual(valueForTypeNode(voidNode), 'void');
+    assert.strictEqual(valueForTypeNode(undefinedNode), 'undefined');
   });
 
   it('converts union types', () => {
@@ -39,7 +41,7 @@ describe('valueForTypeNode', () => {
     const numberNode = createNode(ts.SyntaxKind.NumberKeyword);
 
     const unionNode = ts.createUnionTypeNode([stringNode, numberNode]);
-    assert.equal(valueForTypeNode(unionNode), 'string|number');
+    assert.strictEqual(valueForTypeNode(unionNode), 'string|number');
   });
 
   describe('optional types from TS => Closure', () => {
@@ -48,7 +50,7 @@ describe('valueForTypeNode', () => {
       const nullNode = createNode(ts.SyntaxKind.NullKeyword);
 
       const unionNode = ts.createUnionTypeNode([stringNode, nullNode]);
-      assert.equal(valueForTypeNode(unionNode), '?string');
+      assert.strictEqual(valueForTypeNode(unionNode), '?string');
     });
 
     it('converts null unions with an interface into !X | null', () => {
@@ -56,7 +58,7 @@ describe('valueForTypeNode', () => {
       const nullNode = createNode(ts.SyntaxKind.NullKeyword);
 
       const unionNode = ts.createUnionTypeNode([interfaceNode, nullNode]);
-      assert.equal(valueForTypeNode(unionNode), '!ExampleInterface|null');
+      assert.strictEqual(valueForTypeNode(unionNode), '!ExampleInterface|null');
     });
 
     it('converts null unions into ?X if they are a func param', () => {
@@ -64,7 +66,7 @@ describe('valueForTypeNode', () => {
       const nullNode = createNode(ts.SyntaxKind.NullKeyword);
 
       const unionNode = ts.createUnionTypeNode([interfaceNode, nullNode]);
-      assert.equal(valueForTypeNode(unionNode, true), '?ExampleInterface');
+      assert.strictEqual(valueForTypeNode(unionNode, true), '?ExampleInterface');
     });
   });
 
@@ -72,26 +74,58 @@ describe('valueForTypeNode', () => {
     const anyNode = createNode(ts.SyntaxKind.AnyKeyword);
     const unknownNode = createNode(ts.SyntaxKind.UnknownKeyword);
 
-    assert.equal(valueForTypeNode(unknownNode), '*');
-    assert.equal(valueForTypeNode(anyNode), '*');
+    assert.strictEqual(valueForTypeNode(unknownNode), '*');
+    assert.strictEqual(valueForTypeNode(anyNode), '*');
   });
 
   it('uses the name for a typereference', () => {
     const node = ts.createTypeReferenceNode(ts.createIdentifier('ExampleInterface'), []);
-    assert.equal(valueForTypeNode(node), 'ExampleInterface');
+    assert.strictEqual(valueForTypeNode(node), 'ExampleInterface');
+  });
+
+  describe('converting type literals', () => {
+    it('converts objects into closure type objects', () => {
+      const node = ts.createTypeLiteralNode([
+        ts.createPropertySignature(
+            undefined, 'x', undefined, ts.createTypeReferenceNode(ts.createIdentifier('ExampleInterface'), []),
+            undefined),
+        ts.createPropertySignature(undefined, 'y', undefined, createNode(ts.SyntaxKind.StringKeyword), undefined),
+      ]);
+      assert.strictEqual(valueForTypeNode(node), '{x: !ExampleInterface, y: string}');
+    });
+
+    it('converts union types of type refs and null correctly', () => {
+      const nullNode = createNode(ts.SyntaxKind.NullKeyword);
+      const typeRefNode = ts.createTypeReferenceNode(ts.createIdentifier('ExampleInterface'), []);
+      const unionNode = ts.createUnionTypeNode([typeRefNode, nullNode]);
+      const node = ts.createTypeLiteralNode([
+        ts.createPropertySignature(undefined, 'x', undefined, unionNode, undefined),
+      ]);
+      assert.strictEqual(valueForTypeNode(node), '{x: !ExampleInterface|null}');
+    });
+
+    it('converts union types of type refs and null correctly when in function parameters', () => {
+      const nullNode = createNode(ts.SyntaxKind.NullKeyword);
+      const typeRefNode = ts.createTypeReferenceNode(ts.createIdentifier('ExampleInterface'), []);
+      const unionNode = ts.createUnionTypeNode([typeRefNode, nullNode]);
+      const node = ts.createTypeLiteralNode([
+        ts.createPropertySignature(undefined, 'x', undefined, unionNode, undefined),
+      ]);
+      assert.strictEqual(valueForTypeNode(node, true), '{x: ?ExampleInterface}');
+    });
   });
 
   describe('converting arrays', () => {
     it('converts primitive types without the non-null !', () => {
       const node = ts.createArrayTypeNode(createNode(ts.SyntaxKind.StringKeyword));
 
-      assert.equal(valueForTypeNode(node), 'Array.<string>');
+      assert.strictEqual(valueForTypeNode(node), 'Array.<string>');
     });
 
     it('converts complex types with the non null !', () => {
       const node = ts.createArrayTypeNode(ts.createTypeReferenceNode(ts.createIdentifier('ExampleInterface'), []));
 
-      assert.equal(valueForTypeNode(node), 'Array.<!ExampleInterface>');
+      assert.strictEqual(valueForTypeNode(node), 'Array.<!ExampleInterface>');
     });
   });
 
@@ -99,7 +133,7 @@ describe('valueForTypeNode', () => {
     it('converts functions with no parameters', () => {
       const returnTypeNode = createNode(ts.SyntaxKind.StringKeyword);
       const node = ts.createFunctionTypeNode([], [], returnTypeNode);
-      assert.equal(valueForTypeNode(node), 'function(): string');
+      assert.strictEqual(valueForTypeNode(node), 'function(): string');
     });
 
     it('converts a function with parameters', () => {
@@ -108,7 +142,18 @@ describe('valueForTypeNode', () => {
           [], [], undefined, ts.createIdentifier('foo'), undefined, createNode(ts.SyntaxKind.StringKeyword));
       const node = ts.createFunctionTypeNode([], [stringParam], returnTypeNode);
 
-      assert.equal(valueForTypeNode(node), 'function(string): string');
+      assert.strictEqual(valueForTypeNode(node), 'function(string): string');
+    });
+
+    it('can convert functions that return primitives or undefined', () => {
+      const stringNode = createNode(ts.SyntaxKind.StringKeyword);
+      const undefinedNode = createNode(ts.SyntaxKind.UndefinedKeyword);
+      const returnUnionNode = ts.createUnionTypeNode([stringNode, undefinedNode]);
+
+      const stringParam = ts.createParameter(
+          [], [], undefined, ts.createIdentifier('foo'), undefined, createNode(ts.SyntaxKind.StringKeyword));
+      const node = ts.createFunctionTypeNode([], [stringParam], returnUnionNode);
+      assert.strictEqual(valueForTypeNode(node), 'function(string): (string|undefined)');
     });
   });
 });

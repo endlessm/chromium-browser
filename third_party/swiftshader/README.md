@@ -5,7 +5,7 @@
 Introduction
 ------------
 
-SwiftShader is a high-performance CPU-based implementation of the Vulkan, OpenGL ES, and Direct3D 9 graphics APIs<sup>1</sup><sup>2</sup>. Its goal is to provide hardware independence for advanced 3D graphics.
+SwiftShader is a high-performance CPU-based implementation of the Vulkan and OpenGL ES graphics APIs<sup>1</sup><sup>2</sup>. Its goal is to provide hardware independence for advanced 3D graphics.
 
 Building
 --------
@@ -17,8 +17,6 @@ Android and Chrome (OS) build environments are also supported.
 \
   For building the Vulkan ICD library, use [Visual Studio 2019](https://visualstudio.microsoft.com/vs/community/) to open the project folder and wait for it to run CMake. Open the [CMake Targets View](https://docs.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio?view=vs-2019#ide-integration) in the Solution Explorer and select the vk_swiftshader project to [build](https://docs.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio?view=vs-2019#building-cmake-projects) it.
 
-  There is also a legacy [SwiftShader.sln](SwiftShader.sln) file for Visual Studio 2017 for building OpenGL ES and Direct3D libraries. Output DLLs will be placed in the _out_ subfolder. Sample executables such as _OGLES3ColourGrading_ can be found under the Tests solution folder and can be run from the IDE.
-
 * **CMake**
 
   [Install CMake](https://cmake.org/download/) for Linux, Mac OS X, or Windows and use either [the IDE](https://cmake.org/runningcmake/) or run the following terminal commands:
@@ -27,8 +25,7 @@ Android and Chrome (OS) build environments are also supported.
       cmake ..
       make --jobs=8
 
-      ./gles-unittests
-      ./OGLES2HelloAPI
+      ./vk-unittests
 
 Usage
 -----
@@ -111,5 +108,5 @@ Disclaimer
 ----------
 
 1. Trademarks are the property of their respective owners.
-2. We do not claim official conformance with the Direct3D and OpenGL graphics APIs at this moment.
+2. We do not claim official conformance with the OpenGL graphics API at this moment.
 3. This is not an official Google product.

@@ -42,10 +42,10 @@
       "configs": [
         {
           "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
+          "experimental": false,
+          "leader_board": true,
           "board_group": "asurada",
-          "arch": "ARM_INTERNAL"
+          "arch": "UNKNOWN"
         }
       ]
     },
@@ -154,6 +154,30 @@
           "leader_board": false,
           "board_group": "",
           "arch": "UNKNOWN"
+        }
+      ]
+    },
+    {
+      "name": "betty",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": false,
+          "leader_board": true,
+          "board_group": "vm builds",
+          "arch": "X86_INTERNAL"
+        }
+      ]
+    },
+    {
+      "name": "betty-arc-r",
+      "configs": [
+        {
+          "builder": "RELEASE",
+          "experimental": true,
+          "leader_board": false,
+          "board_group": "",
+          "arch": "X86_INTERNAL"
         }
       ]
     },
@@ -446,18 +470,6 @@
       ]
     },
     {
-      "name": "deltaur",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": false,
-          "board_group": "",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
       "name": "edgar",
       "configs": [
         {
@@ -525,18 +537,6 @@
           "experimental": true,
           "leader_board": false,
           "board_group": "",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "eve-arcnext",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": false,
-          "leader_board": false,
-          "board_group": "poppy",
           "arch": "X86_INTERNAL"
         }
       ]
@@ -679,18 +679,6 @@
         {
           "builder": "RELEASE",
           "experimental": true,
-          "leader_board": false,
-          "board_group": "",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "guado-kernelnext",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": false,
           "leader_board": false,
           "board_group": "",
           "arch": "X86_INTERNAL"
@@ -1178,18 +1166,6 @@
       ]
     },
     {
-      "name": "samus-kernelnext",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": false,
-          "leader_board": false,
-          "board_group": "",
-          "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
       "name": "sand",
       "configs": [
         {
@@ -1282,18 +1258,6 @@
           "leader_board": false,
           "board_group": "jecht",
           "arch": "X86_INTERNAL"
-        }
-      ]
-    },
-    {
-      "name": "trogdor",
-      "configs": [
-        {
-          "builder": "RELEASE",
-          "experimental": true,
-          "leader_board": true,
-          "board_group": "",
-          "arch": "UNKNOWN"
         }
       ]
     },
@@ -1633,11 +1597,7 @@
           "name": "bruce",
           "test_suites": [
             "bvt-inline",
-            "bvt-tast-cq",
-            "bvt-arc",
-            "bvt-cq",
-            "bvt-perbuild",
-            "bvt-tast-informational"
+            "bvt-tast-cq"
           ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
@@ -1760,6 +1720,14 @@
       "builder": "RELEASE",
       "experimental": true,
       "models": [
+        {
+          "board_name": "dedede",
+          "name": "waddledee",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 419,
+          "is_active": true
+        },
         {
           "board_name": "dedede",
           "name": "waddledoo",
@@ -2088,39 +2056,6 @@
       ]
     },
     {
-      "name": "flapjack",
-      "reference_board_name": "flapjack",
-      "arch": "UNKNOWN",
-      "builder": "RELEASE",
-      "experimental": false,
-      "models": [
-        {
-          "board_name": "flapjack",
-          "name": "c18",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt",
-          "board_id": 374,
-          "is_active": true
-        },
-        {
-          "board_name": "flapjack",
-          "name": "c19",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt",
-          "board_id": 374,
-          "is_active": true
-        },
-        {
-          "board_name": "flapjack",
-          "name": "flapjack",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt",
-          "board_id": 374,
-          "is_active": true
-        }
-      ]
-    },
-    {
       "name": "grunt",
       "reference_board_name": "grunt",
       "arch": "X86_INTERNAL",
@@ -2383,6 +2318,22 @@
         },
         {
           "board_name": "grunt-kernelnext",
+          "name": "nuwani",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 417,
+          "is_active": true
+        },
+        {
+          "board_name": "grunt-kernelnext",
+          "name": "nuwani360",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 417,
+          "is_active": true
+        },
+        {
+          "board_name": "grunt-kernelnext",
           "name": "treeya",
           "test_suites": [
             "sanity",
@@ -2445,6 +2396,7 @@
             "bvt-tast-cq",
             "bvt-installer",
             "bvt-arc",
+            "au",
             "bvt-cq",
             "bvt-perbuild",
             "bvt-tast-informational"
@@ -2457,7 +2409,18 @@
         {
           "board_name": "hatch",
           "name": "dratini",
-          "cq_test_enabled": false,
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-tast-cq",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild",
+            "bvt-tast-informational"
+          ],
+          "cq_test_enabled": true,
           "release_builder_test_pool": "bvt",
           "board_id": 372,
           "is_active": true
@@ -2732,6 +2695,119 @@
       ]
     },
     {
+      "name": "hatch-blueznext",
+      "reference_board_name": "hatch-blueznext",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": true,
+      "models": [
+        {
+          "board_name": "hatch-blueznext",
+          "name": "akemi",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "dragonair",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "dratini",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "hatch",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "helios",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "helios_diskswap",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "jinlon",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "kindred",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "kled",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "kohaku",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "nightfury",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "unprovisioned_dratini",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        },
+        {
+          "board_name": "hatch-blueznext",
+          "name": "unprovisioned_jinlon",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 443,
+          "is_active": true
+        }
+      ]
+    },
+    {
       "name": "hatch-diskswap",
       "reference_board_name": "hatch-diskswap",
       "arch": "X86_INTERNAL",
@@ -2934,7 +3010,18 @@
         {
           "board_name": "hatch-kernelnext",
           "name": "kohaku",
-          "cq_test_enabled": false,
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-tast-cq",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild",
+            "bvt-tast-informational"
+          ],
+          "cq_test_enabled": true,
           "release_builder_test_pool": "bvt",
           "board_id": 440,
           "is_active": true
@@ -3104,6 +3191,17 @@
         {
           "board_name": "jacuzzi",
           "name": "juniper",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-tast-cq",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild",
+            "bvt-tast-informational"
+          ],
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
           "board_id": 401,
@@ -3173,6 +3271,17 @@
       "models": [
         {
           "board_name": "kukui",
+          "name": "kakadu",
+          "test_suites": [
+            "au"
+          ],
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 364,
+          "is_active": true
+        },
+        {
+          "board_name": "kukui",
           "name": "kodama",
           "test_suites": [
             "sanity",
@@ -3215,6 +3324,47 @@
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
           "board_id": 364,
+          "is_active": true
+        }
+      ]
+    },
+    {
+      "name": "kukui-arc-r",
+      "reference_board_name": "kukui-arc-r",
+      "arch": "ARM_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": true,
+      "models": [
+        {
+          "board_name": "kukui-arc-r",
+          "name": "kakadu",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 442,
+          "is_active": true
+        },
+        {
+          "board_name": "kukui-arc-r",
+          "name": "kodama",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 442,
+          "is_active": true
+        },
+        {
+          "board_name": "kukui-arc-r",
+          "name": "krane",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 442,
+          "is_active": true
+        },
+        {
+          "board_name": "kukui-arc-r",
+          "name": "kukui",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 442,
           "is_active": true
         }
       ]
@@ -3813,6 +3963,25 @@
         {
           "board_name": "octopus",
           "name": "foob360",
+          "test_suites": [
+            "sanity",
+            "bvt-inline",
+            "bvt-tast-cq",
+            "bvt-installer",
+            "bvt-arc",
+            "au",
+            "bvt-cq",
+            "bvt-perbuild",
+            "bvt-tast-informational"
+          ],
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 354,
+          "is_active": true
+        },
+        {
+          "board_name": "octopus",
+          "name": "garfour",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
           "board_id": 354,
@@ -4264,7 +4433,39 @@
       "models": [
         {
           "board_name": "puff",
+          "name": "duffy",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 411,
+          "is_active": true
+        },
+        {
+          "board_name": "puff",
+          "name": "kaisa",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 411,
+          "is_active": true
+        },
+        {
+          "board_name": "puff",
           "name": "puff",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 411,
+          "is_active": true
+        },
+        {
+          "board_name": "puff",
+          "name": "unprovisioned_duffy",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 411,
+          "is_active": true
+        },
+        {
+          "board_name": "puff",
+          "name": "unprovisioned_kaisa",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
           "board_id": 411,
@@ -4322,6 +4523,31 @@
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
           "board_id": 365,
+          "is_active": true
+        }
+      ]
+    },
+    {
+      "name": "rammus-arc-r",
+      "reference_board_name": "rammus-arc-r",
+      "arch": "X86_INTERNAL",
+      "builder": "RELEASE",
+      "experimental": true,
+      "models": [
+        {
+          "board_name": "rammus-arc-r",
+          "name": "leona",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 445,
+          "is_active": true
+        },
+        {
+          "board_name": "rammus-arc-r",
+          "name": "shyvana",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 445,
           "is_active": true
         }
       ]
@@ -4531,50 +4757,6 @@
       ]
     },
     {
-      "name": "scarlet-arcnext",
-      "reference_board_name": "scarlet-arcnext",
-      "arch": "ARM_INTERNAL",
-      "builder": "RELEASE",
-      "experimental": true,
-      "models": [
-        {
-          "board_name": "scarlet-arcnext",
-          "name": "dru",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt",
-          "board_id": 355,
-          "is_active": true
-        },
-        {
-          "board_name": "scarlet-arcnext",
-          "name": "druwl",
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt",
-          "board_id": 355,
-          "is_active": true
-        },
-        {
-          "board_name": "scarlet-arcnext",
-          "name": "dumo",
-          "test_suites": [
-            "sanity",
-            "bvt-inline",
-            "bvt-tast-cq",
-            "bvt-installer",
-            "bvt-arc",
-            "au",
-            "bvt-cq",
-            "bvt-perbuild",
-            "bvt-tast-informational"
-          ],
-          "cq_test_enabled": false,
-          "release_builder_test_pool": "bvt",
-          "board_id": 355,
-          "is_active": true
-        }
-      ]
-    },
-    {
       "name": "soraka",
       "reference_board_name": "soraka",
       "arch": "X86_INTERNAL",
@@ -4603,12 +4785,45 @@
       ]
     },
     {
+      "name": "trogdor",
+      "reference_board_name": "trogdor",
+      "arch": "UNKNOWN",
+      "builder": "RELEASE",
+      "experimental": true,
+      "models": [
+        {
+          "board_name": "trogdor",
+          "name": "lazor",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 418,
+          "is_active": true
+        },
+        {
+          "board_name": "trogdor",
+          "name": "trogdor",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 418,
+          "is_active": true
+        }
+      ]
+    },
+    {
       "name": "volteer",
       "reference_board_name": "volteer",
       "arch": "X86_INTERNAL",
       "builder": "RELEASE",
       "experimental": false,
       "models": [
+        {
+          "board_name": "volteer",
+          "name": "halvor",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 405,
+          "is_active": true
+        },
         {
           "board_name": "volteer",
           "name": "malefor",
@@ -4620,6 +4835,14 @@
         {
           "board_name": "volteer",
           "name": "ripto",
+          "cq_test_enabled": false,
+          "release_builder_test_pool": "bvt",
+          "board_id": 405,
+          "is_active": true
+        },
+        {
+          "board_name": "volteer",
+          "name": "trondo",
           "cq_test_enabled": false,
           "release_builder_test_pool": "bvt",
           "board_id": 405,

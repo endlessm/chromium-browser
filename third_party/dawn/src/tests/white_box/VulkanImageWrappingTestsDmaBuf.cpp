@@ -99,7 +99,7 @@ namespace dawn_native { namespace vulkan {
                 return gbmBo;
             }
 
-            wgpu::Texture WrapVulkanImage(wgpu::Device device,
+            wgpu::Texture WrapVulkanImage(wgpu::Device dawnDevice,
                                           const wgpu::TextureDescriptor* textureDescriptor,
                                           int memoryFd,
                                           uint32_t stride,
@@ -117,7 +117,7 @@ namespace dawn_native { namespace vulkan {
                 descriptor.waitFDs = waitFDs;
 
                 WGPUTexture texture =
-                    dawn_native::vulkan::WrapVulkanImage(device.Get(), &descriptor);
+                    dawn_native::vulkan::WrapVulkanImage(dawnDevice.Get(), &descriptor);
 
                 if (expectValid) {
                     EXPECT_NE(texture, nullptr) << "Failed to wrap image, are external memory / "
@@ -132,8 +132,8 @@ namespace dawn_native { namespace vulkan {
             // Exports the signal from a wrapped texture and ignores it
             // We have to export the signal before destroying the wrapped texture else it's an
             // assertion failure
-            void IgnoreSignalSemaphore(wgpu::Device device, wgpu::Texture wrappedTexture) {
-                int fd = dawn_native::vulkan::ExportSignalSemaphoreOpaqueFD(device.Get(),
+            void IgnoreSignalSemaphore(wgpu::Device dawnDevice, wgpu::Texture wrappedTexture) {
+                int fd = dawn_native::vulkan::ExportSignalSemaphoreOpaqueFD(dawnDevice.Get(),
                                                                             wrappedTexture.Get());
                 ASSERT_NE(fd, -1);
                 close(fd);
@@ -289,7 +289,9 @@ namespace dawn_native { namespace vulkan {
         dawn_native::vulkan::Device* secondDeviceVk;
 
         // Clear a texture on a given device
-        void ClearImage(wgpu::Device device, wgpu::Texture wrappedTexture, wgpu::Color clearColor) {
+        void ClearImage(wgpu::Device dawnDevice,
+                        wgpu::Texture wrappedTexture,
+                        wgpu::Color clearColor) {
             wgpu::TextureView wrappedView = wrappedTexture.CreateView();
 
             // Submit a clear operation
@@ -297,19 +299,19 @@ namespace dawn_native { namespace vulkan {
             renderPassDescriptor.cColorAttachments[0].clearColor = clearColor;
             renderPassDescriptor.cColorAttachments[0].loadOp = wgpu::LoadOp::Clear;
 
-            wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
+            wgpu::CommandEncoder encoder = dawnDevice.CreateCommandEncoder();
             wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPassDescriptor);
             pass.EndPass();
 
             wgpu::CommandBuffer commands = encoder.Finish();
 
-            wgpu::Queue queue = device.CreateQueue();
+            wgpu::Queue queue = dawnDevice.GetDefaultQueue();
             queue.Submit(1, &commands);
         }
 
         // Submits a 1x1x1 copy from source to destination
-        void SimpleCopyTextureToTexture(wgpu::Device device,
-                                        wgpu::Queue queue,
+        void SimpleCopyTextureToTexture(wgpu::Device dawnDevice,
+                                        wgpu::Queue dawnQueue,
                                         wgpu::Texture source,
                                         wgpu::Texture destination) {
             wgpu::TextureCopyView copySrc;
@@ -326,11 +328,11 @@ namespace dawn_native { namespace vulkan {
 
             wgpu::Extent3D copySize = {1, 1, 1};
 
-            wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
+            wgpu::CommandEncoder encoder = dawnDevice.CreateCommandEncoder();
             encoder.CopyTextureToTexture(&copySrc, &copyDst, &copySize);
             wgpu::CommandBuffer commands = encoder.Finish();
 
-            queue.Submit(1, &commands);
+            dawnQueue.Submit(1, &commands);
         }
     };
 
@@ -480,7 +482,7 @@ namespace dawn_native { namespace vulkan {
         ClearImage(secondDevice, copySrcTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
 
         // Copy color B on |secondDevice|
-        wgpu::Queue secondDeviceQueue = secondDevice.CreateQueue();
+        wgpu::Queue secondDeviceQueue = secondDevice.GetDefaultQueue();
         SimpleCopyTextureToTexture(secondDevice, secondDeviceQueue, copySrcTexture,
                                    secondDeviceWrappedTexture);
 
@@ -534,8 +536,8 @@ namespace dawn_native { namespace vulkan {
         wgpu::BufferCopyView copyDst;
         copyDst.buffer = copyDstBuffer;
         copyDst.offset = 0;
-        copyDst.rowPitch = 256;
-        copyDst.imageHeight = 0;
+        copyDst.bytesPerRow = 256;
+        copyDst.rowsPerImage = 0;
 
         wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -576,7 +578,7 @@ namespace dawn_native { namespace vulkan {
             secondDevice, &defaultDescriptor, nextFd, defaultStride, defaultModifier, {signalFd});
 
         // Copy color B on |secondDevice|
-        wgpu::Queue secondDeviceQueue = secondDevice.CreateQueue();
+        wgpu::Queue secondDeviceQueue = secondDevice.GetDefaultQueue();
 
         // Create a buffer on |secondDevice|
         wgpu::Buffer copySrcBuffer =
@@ -586,8 +588,8 @@ namespace dawn_native { namespace vulkan {
         wgpu::BufferCopyView copySrc;
         copySrc.buffer = copySrcBuffer;
         copySrc.offset = 0;
-        copySrc.rowPitch = 256;
-        copySrc.imageHeight = 0;
+        copySrc.bytesPerRow = 256;
+        copySrc.rowsPerImage = 0;
 
         wgpu::TextureCopyView copyDst;
         copyDst.texture = secondDeviceWrappedTexture;
@@ -679,8 +681,8 @@ namespace dawn_native { namespace vulkan {
             wgpu::Device::Acquire(reinterpret_cast<WGPUDevice>(thirdDeviceVk));
 
         // Make queue for device 2 and 3
-        wgpu::Queue secondDeviceQueue = secondDevice.CreateQueue();
-        wgpu::Queue thirdDeviceQueue = thirdDevice.CreateQueue();
+        wgpu::Queue secondDeviceQueue = secondDevice.GetDefaultQueue();
+        wgpu::Queue thirdDeviceQueue = thirdDevice.GetDefaultQueue();
 
         // Create BOs for A, B, C
         gbm_bo* gbmBoA = CreateGbmBo(1, 1, true /* linear */);
@@ -771,7 +773,7 @@ namespace dawn_native { namespace vulkan {
             textures.push_back(device.CreateTexture(&descriptor));
         }
 
-        wgpu::Queue secondDeviceQueue = secondDevice.CreateQueue();
+        wgpu::Queue secondDeviceQueue = secondDevice.GetDefaultQueue();
 
         // Make an image on |secondDevice|
         gbm_bo* gbmBo = CreateGbmBo(640, 480, false /* linear */);
@@ -784,12 +786,12 @@ namespace dawn_native { namespace vulkan {
             WrapVulkanImage(secondDevice, &descriptor, fd, stride, modifier, {});
 
         // Draw a non-trivial picture
-        int width = 640, height = 480, pixelSize = 4;
-        uint32_t rowPitch = Align(width * pixelSize, kTextureRowPitchAlignment);
-        uint32_t size = rowPitch * (height - 1) + width * pixelSize;
-        unsigned char data[size];
-        for (int row = 0; row < height; row++) {
-            for (int col = 0; col < width; col++) {
+        uint32_t width = 640, height = 480, pixelSize = 4;
+        uint32_t bytesPerRow = Align(width * pixelSize, kTextureBytesPerRowAlignment);
+        std::vector<unsigned char> data(bytesPerRow * (height - 1) + width * pixelSize);
+
+        for (uint32_t row = 0; row < height; row++) {
+            for (uint32_t col = 0; col < width; col++) {
                 float normRow = static_cast<float>(row) / height;
                 float normCol = static_cast<float>(col) / width;
                 float dist = sqrt(normRow * normRow + normCol * normCol) * 3;
@@ -803,10 +805,10 @@ namespace dawn_native { namespace vulkan {
 
         // Write the picture
         {
-            wgpu::Buffer copySrcBuffer =
-                utils::CreateBufferFromData(secondDevice, data, size, wgpu::BufferUsage::CopySrc);
+            wgpu::Buffer copySrcBuffer = utils::CreateBufferFromData(
+                secondDevice, data.data(), data.size(), wgpu::BufferUsage::CopySrc);
             wgpu::BufferCopyView copySrc =
-                utils::CreateBufferCopyView(copySrcBuffer, 0, rowPitch, 0);
+                utils::CreateBufferCopyView(copySrcBuffer, 0, bytesPerRow, 0);
             wgpu::TextureCopyView copyDst =
                 utils::CreateTextureCopyView(wrappedTexture, 0, 0, {0, 0, 0});
             wgpu::Extent3D copySize = {width, height, 1};
@@ -827,14 +829,14 @@ namespace dawn_native { namespace vulkan {
 
         // Copy the image into a buffer for comparison
         wgpu::BufferDescriptor copyDesc;
-        copyDesc.size = size;
+        copyDesc.size = data.size();
         copyDesc.usage = wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst;
         wgpu::Buffer copyDstBuffer = device.CreateBuffer(&copyDesc);
         {
             wgpu::TextureCopyView copySrc =
                 utils::CreateTextureCopyView(nextWrappedTexture, 0, 0, {0, 0, 0});
             wgpu::BufferCopyView copyDst =
-                utils::CreateBufferCopyView(copyDstBuffer, 0, rowPitch, 0);
+                utils::CreateBufferCopyView(copyDstBuffer, 0, bytesPerRow, 0);
 
             wgpu::Extent3D copySize = {width, height, 1};
 
@@ -845,7 +847,8 @@ namespace dawn_native { namespace vulkan {
         }
 
         // Check the image is not corrupted on |device|
-        EXPECT_BUFFER_U32_RANGE_EQ(reinterpret_cast<uint32_t*>(data), copyDstBuffer, 0, size / 4);
+        EXPECT_BUFFER_U32_RANGE_EQ(reinterpret_cast<uint32_t*>(data.data()), copyDstBuffer, 0,
+                                   data.size() / 4);
 
         IgnoreSignalSemaphore(device, nextWrappedTexture);
     }

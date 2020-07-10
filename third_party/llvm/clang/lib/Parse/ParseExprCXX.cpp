@@ -1261,7 +1261,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   ParseScope TemplateParamScope(this, Scope::TemplateParamScope,
                                 /*EnteredScope=*/HasExplicitTemplateParams);
   if (HasExplicitTemplateParams) {
-    Diag(Tok, getLangOpts().CPlusPlus2a
+    Diag(Tok, getLangOpts().CPlusPlus20
                   ? diag::warn_cxx17_compat_lambda_template_parameter_list
                   : diag::ext_lambda_template_parameter_list);
 
@@ -2147,15 +2147,24 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
 
   // type-name
   case tok::annot_typename: {
-    if (getTypeAnnotation(Tok))
-      DS.SetTypeSpecType(DeclSpec::TST_typename, Loc, PrevSpec, DiagID,
-                         getTypeAnnotation(Tok), Policy);
-    else
-      DS.SetTypeSpecError();
-
+    DS.SetTypeSpecType(DeclSpec::TST_typename, Loc, PrevSpec, DiagID,
+                       getTypeAnnotation(Tok), Policy);
     DS.SetRangeEnd(Tok.getAnnotationEndLoc());
     ConsumeAnnotationToken();
 
+    DS.Finish(Actions, Policy);
+    return;
+  }
+
+  case tok::kw__ExtInt: {
+    ExprResult ER = ParseExtIntegerArgument();
+    if (ER.isInvalid())
+      DS.SetTypeSpecError();
+    else
+      DS.SetExtIntType(Loc, ER.get(), PrevSpec, DiagID, Policy);
+
+    // Do this here because we have already consumed the close paren.
+    DS.SetRangeEnd(PrevTokLocation);
     DS.Finish(Actions, Policy);
     return;
   }
@@ -3105,10 +3114,14 @@ Parser::ParseCXXNewExpression(bool UseGlobal, SourceLocation Start) {
       auto RunSignatureHelp = [&]() {
         ParsedType TypeRep =
             Actions.ActOnTypeName(getCurScope(), DeclaratorInfo).get();
-        assert(TypeRep && "invalid types should be handled before");
-        QualType PreferredType = Actions.ProduceConstructorSignatureHelp(
-            getCurScope(), TypeRep.get()->getCanonicalTypeInternal(),
-            DeclaratorInfo.getEndLoc(), ConstructorArgs, ConstructorLParen);
+        QualType PreferredType;
+        // ActOnTypeName might adjust DeclaratorInfo and return a null type even
+        // the passing DeclaratorInfo is valid, e.g. running SignatureHelp on
+        // `new decltype(invalid) (^)`.
+        if (TypeRep)
+          PreferredType = Actions.ProduceConstructorSignatureHelp(
+              getCurScope(), TypeRep.get()->getCanonicalTypeInternal(),
+              DeclaratorInfo.getEndLoc(), ConstructorArgs, ConstructorLParen);
         CalledSignatureHelp = true;
         return PreferredType;
       };

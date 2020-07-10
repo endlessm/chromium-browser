@@ -59,10 +59,15 @@ extern "C" void X86CompilationCallback()
 }
 #endif
 
+#if !LLVM_ENABLE_THREADS
+#	error "LLVM_ENABLE_THREADS needs to be enabled"
+#endif
+
 namespace {
 
-std::unique_ptr<rr::JITBuilder> jit;
-std::mutex codegenMutex;
+// This has to be a raw pointer because glibc 2.17 doesn't support __cxa_thread_atexit_impl
+// for destructing objects at exit. See crbug.com/1074222
+thread_local rr::JITBuilder *jit = nullptr;
 
 // Default configuration settings. Must be accessed under mutex lock.
 std::mutex defaultConfigLock;
@@ -417,7 +422,7 @@ llvm::Value *createGather(llvm::Value *base, llvm::Type *elTy, llvm::Value *offs
 	ASSERT(offsets->getType()->isVectorTy());
 	ASSERT(mask->getType()->isVectorTy());
 
-	auto numEls = mask->getType()->getVectorNumElements();
+	auto numEls = llvm::cast<llvm::VectorType>(mask->getType())->getNumElements();
 	auto i1Ty = ::llvm::Type::getInt1Ty(jit->context);
 	auto i32Ty = ::llvm::Type::getInt32Ty(jit->context);
 	auto i8Ty = ::llvm::Type::getInt8Ty(jit->context);
@@ -442,22 +447,51 @@ void createScatter(llvm::Value *base, llvm::Value *val, llvm::Value *offsets, ll
 	ASSERT(offsets->getType()->isVectorTy());
 	ASSERT(mask->getType()->isVectorTy());
 
-	auto numEls = mask->getType()->getVectorNumElements();
+	auto numEls = llvm::cast<llvm::VectorType>(mask->getType())->getNumElements();
 	auto i1Ty = ::llvm::Type::getInt1Ty(jit->context);
 	auto i32Ty = ::llvm::Type::getInt32Ty(jit->context);
 	auto i8Ty = ::llvm::Type::getInt8Ty(jit->context);
 	auto i8PtrTy = i8Ty->getPointerTo();
 	auto elVecTy = val->getType();
-	auto elTy = elVecTy->getVectorElementType();
+	auto elTy = llvm::cast<llvm::VectorType>(elVecTy)->getElementType();
 	auto elPtrTy = elTy->getPointerTo();
 	auto elPtrVecTy = ::llvm::VectorType::get(elPtrTy, numEls);
 	auto i8Base = jit->builder->CreatePointerCast(base, i8PtrTy);
 	auto i8Ptrs = jit->builder->CreateGEP(i8Base, offsets);
 	auto elPtrs = jit->builder->CreatePointerCast(i8Ptrs, elPtrVecTy);
-	auto i8Mask = jit->builder->CreateIntCast(mask, ::llvm::VectorType::get(i1Ty, numEls), false);  // vec<int, int, ...> -> vec<bool, bool, ...>
+	auto i1Mask = jit->builder->CreateIntCast(mask, ::llvm::VectorType::get(i1Ty, numEls), false);  // vec<int, int, ...> -> vec<bool, bool, ...>
 	auto align = ::llvm::ConstantInt::get(i32Ty, alignment);
 	auto func = ::llvm::Intrinsic::getDeclaration(jit->module.get(), llvm::Intrinsic::masked_scatter, { elVecTy, elPtrVecTy });
-	jit->builder->CreateCall(func, { val, elPtrs, align, i8Mask });
+	jit->builder->CreateCall(func, { val, elPtrs, align, i1Mask });
+
+#if __has_feature(memory_sanitizer)
+	// Mark memory writes as initialized by calling __msan_unpoison
+	{
+		// void __msan_unpoison(const volatile void *a, size_t size)
+		auto voidTy = ::llvm::Type::getVoidTy(jit->context);
+		auto voidPtrTy = voidTy->getPointerTo();
+		auto sizetTy = ::llvm::IntegerType::get(jit->context, sizeof(size_t) * 8);
+		auto funcTy = ::llvm::FunctionType::get(voidTy, { voidPtrTy, sizetTy }, false);
+		auto func = jit->module->getOrInsertFunction("__msan_unpoison", funcTy);
+		auto size = jit->module->getDataLayout().getTypeStoreSize(elTy);
+		for(unsigned i = 0; i < numEls; i++)
+		{
+			// Check mask for this element
+			auto idx = ::llvm::ConstantInt::get(i32Ty, i);
+			auto thenBlock = ::llvm::BasicBlock::Create(jit->context, "", jit->function);
+			auto mergeBlock = ::llvm::BasicBlock::Create(jit->context, "", jit->function);
+			jit->builder->CreateCondBr(jit->builder->CreateExtractElement(i1Mask, idx), thenBlock, mergeBlock);
+			jit->builder->SetInsertPoint(thenBlock);
+
+			// Insert __msan_unpoison call in conditional block
+			auto elPtr = jit->builder->CreateExtractElement(elPtrs, idx);
+			jit->builder->CreateCall(func, { jit->builder->CreatePointerCast(elPtr, voidPtrTy),
+			                                 ::llvm::ConstantInt::get(sizetTy, size) });
+			jit->builder->CreateBr(mergeBlock);
+			jit->builder->SetInsertPoint(mergeBlock);
+		}
+	}
+#endif
 }
 }  // namespace
 
@@ -599,16 +633,20 @@ static ::llvm::Function *createFunction(const char *name, ::llvm::Type *retTy, c
 
 Nucleus::Nucleus()
 {
-	::codegenMutex.lock();  // Reactor and LLVM are currently not thread safe
-
 	ASSERT(jit == nullptr);
-	jit.reset(new JITBuilder(Nucleus::getDefaultConfig()));
+	jit = new JITBuilder(Nucleus::getDefaultConfig());
+
+	ASSERT(Variable::unmaterializedVariables == nullptr);
+	Variable::unmaterializedVariables = new std::unordered_set<Variable *>();
 }
 
 Nucleus::~Nucleus()
 {
-	jit.reset();
-	::codegenMutex.unlock();
+	delete Variable::unmaterializedVariables;
+	Variable::unmaterializedVariables = nullptr;
+
+	delete jit;
+	jit = nullptr;
 }
 
 void Nucleus::setDefaultConfig(const Config &cfg)
@@ -632,24 +670,27 @@ Config Nucleus::getDefaultConfig()
 
 std::shared_ptr<Routine> Nucleus::acquireRoutine(const char *name, const Config::Edit &cfgEdit /* = Config::Edit::None */)
 {
+	if(jit->builder->GetInsertBlock()->empty() || !jit->builder->GetInsertBlock()->back().isTerminator())
+	{
+		llvm::Type *type = jit->function->getReturnType();
+
+		if(type->isVoidTy())
+		{
+			createRetVoid();
+		}
+		else
+		{
+			createRet(V(llvm::UndefValue::get(type)));
+		}
+	}
+
 	std::shared_ptr<Routine> routine;
 
-	auto acquire = [&]() {
+	auto acquire = [&](rr::JITBuilder *jit) {
+		// ::jit is thread-local, so when this is executed on a separate thread (see JIT_IN_SEPARATE_THREAD)
+		// it needs to only use the jit variable passed in as an argument.
+
 		auto cfg = cfgEdit.apply(jit->config);
-
-		if(jit->builder->GetInsertBlock()->empty() || !jit->builder->GetInsertBlock()->back().isTerminator())
-		{
-			llvm::Type *type = jit->function->getReturnType();
-
-			if(type->isVoidTy())
-			{
-				createRetVoid();
-			}
-			else
-			{
-				createRet(V(llvm::UndefValue::get(type)));
-			}
-		}
 
 #ifdef ENABLE_RR_DEBUG_INFO
 		if(jit->debugInfo != nullptr)
@@ -683,7 +724,6 @@ std::shared_ptr<Routine> Nucleus::acquireRoutine(const char *name, const Config:
 		}
 
 		routine = jit->acquireRoutine(&jit->function, 1, cfg);
-		jit.reset();
 	};
 
 #ifdef JIT_IN_SEPARATE_THREAD
@@ -691,10 +731,10 @@ std::shared_ptr<Routine> Nucleus::acquireRoutine(const char *name, const Config:
 	// FIXME(b/149829034): This is not a long-term solution. Reactor has no control
 	// over the threading and stack sizes of its users, so this should be addressed
 	// at a higher level instead.
-	std::thread thread(acquire);
+	std::thread thread(acquire, jit);
 	thread.join();
 #else
-	acquire();
+	acquire(jit);
 #endif
 
 	return routine;
@@ -1129,7 +1169,7 @@ Value *Nucleus::createMaskedLoad(Value *ptr, Type *elTy, Value *mask, unsigned i
 	ASSERT(V(ptr)->getType()->isPointerTy());
 	ASSERT(V(mask)->getType()->isVectorTy());
 
-	auto numEls = V(mask)->getType()->getVectorNumElements();
+	auto numEls = llvm::cast<llvm::VectorType>(V(mask)->getType())->getNumElements();
 	auto i1Ty = ::llvm::Type::getInt1Ty(jit->context);
 	auto i32Ty = ::llvm::Type::getInt32Ty(jit->context);
 	auto elVecTy = ::llvm::VectorType::get(T(elTy), numEls);
@@ -1149,15 +1189,44 @@ void Nucleus::createMaskedStore(Value *ptr, Value *val, Value *mask, unsigned in
 	ASSERT(V(val)->getType()->isVectorTy());
 	ASSERT(V(mask)->getType()->isVectorTy());
 
-	auto numEls = V(mask)->getType()->getVectorNumElements();
+	auto numEls = llvm::cast<llvm::VectorType>(V(mask)->getType())->getNumElements();
 	auto i1Ty = ::llvm::Type::getInt1Ty(jit->context);
 	auto i32Ty = ::llvm::Type::getInt32Ty(jit->context);
 	auto elVecTy = V(val)->getType();
 	auto elVecPtrTy = elVecTy->getPointerTo();
-	auto i8Mask = jit->builder->CreateIntCast(V(mask), ::llvm::VectorType::get(i1Ty, numEls), false);  // vec<int, int, ...> -> vec<bool, bool, ...>
+	auto i1Mask = jit->builder->CreateIntCast(V(mask), ::llvm::VectorType::get(i1Ty, numEls), false);  // vec<int, int, ...> -> vec<bool, bool, ...>
 	auto align = ::llvm::ConstantInt::get(i32Ty, alignment);
 	auto func = ::llvm::Intrinsic::getDeclaration(jit->module.get(), llvm::Intrinsic::masked_store, { elVecTy, elVecPtrTy });
-	jit->builder->CreateCall(func, { V(val), V(ptr), align, i8Mask });
+	jit->builder->CreateCall(func, { V(val), V(ptr), align, i1Mask });
+
+#if __has_feature(memory_sanitizer)
+	// Mark memory writes as initialized by calling __msan_unpoison
+	{
+		// void __msan_unpoison(const volatile void *a, size_t size)
+		auto voidTy = ::llvm::Type::getVoidTy(jit->context);
+		auto voidPtrTy = voidTy->getPointerTo();
+		auto sizetTy = ::llvm::IntegerType::get(jit->context, sizeof(size_t) * 8);
+		auto funcTy = ::llvm::FunctionType::get(voidTy, { voidPtrTy, sizetTy }, false);
+		auto func = jit->module->getOrInsertFunction("__msan_unpoison", funcTy);
+		auto size = jit->module->getDataLayout().getTypeStoreSize(llvm::cast<llvm::VectorType>(elVecTy)->getElementType());
+		for(unsigned i = 0; i < numEls; i++)
+		{
+			// Check mask for this element
+			auto idx = ::llvm::ConstantInt::get(i32Ty, i);
+			auto thenBlock = ::llvm::BasicBlock::Create(jit->context, "", jit->function);
+			auto mergeBlock = ::llvm::BasicBlock::Create(jit->context, "", jit->function);
+			jit->builder->CreateCondBr(jit->builder->CreateExtractElement(i1Mask, idx), thenBlock, mergeBlock);
+			jit->builder->SetInsertPoint(thenBlock);
+
+			// Insert __msan_unpoison call in conditional block
+			auto elPtr = jit->builder->CreateGEP(V(ptr), idx);
+			jit->builder->CreateCall(func, { jit->builder->CreatePointerCast(elPtr, voidPtrTy),
+			                                 ::llvm::ConstantInt::get(sizetTy, size) });
+			jit->builder->CreateBr(mergeBlock);
+			jit->builder->SetInsertPoint(mergeBlock);
+		}
+	}
+#endif
 }
 
 RValue<Float4> Gather(RValue<Pointer<Float>> base, RValue<Int4> offsets, RValue<Int4> mask, unsigned int alignment, bool zeroMaskedLanes /* = false */)
@@ -3412,7 +3481,7 @@ Value *Call(RValue<Pointer<Byte>> fptr, Type *retTy, std::initializer_list<Value
 
 	::llvm::SmallVector<::llvm::Value *, 8> arguments;
 	for(auto arg : args) { arguments.push_back(V(arg)); }
-	return V(jit->builder->CreateCall(funcPtr, arguments));
+	return V(jit->builder->CreateCall(funcTy, funcPtr, arguments));
 }
 
 void Breakpoint()
@@ -4283,8 +4352,11 @@ std::shared_ptr<Routine> Nucleus::acquireCoroutine(const char *name, const Confi
 	funcs[Nucleus::CoroutineEntryBegin] = jit->function;
 	funcs[Nucleus::CoroutineEntryAwait] = jit->coroutine.await;
 	funcs[Nucleus::CoroutineEntryDestroy] = jit->coroutine.destroy;
+
 	auto routine = jit->acquireRoutine(funcs, Nucleus::CoroutineEntryCount, cfg);
-	jit.reset();
+
+	delete jit;
+	jit = nullptr;
 
 	return routine;
 }

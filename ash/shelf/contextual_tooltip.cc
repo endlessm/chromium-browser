@@ -111,7 +111,8 @@ ContextualNudgeStatusTracker* GetStatusTracker(TooltipType type) {
 }  // namespace
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  registry->RegisterDictionaryPref(prefs::kContextualTooltips);
+  if (features::AreContextualNudgesEnabled())
+    registry->RegisterDictionaryPref(prefs::kContextualTooltips);
 }
 
 bool ShouldShowNudge(PrefService* prefs,
@@ -122,8 +123,7 @@ bool ShouldShowNudge(PrefService* prefs,
       *recheck_delay = delay;
   };
 
-  if (!features::AreContextualNudgesEnabled() ||
-      ShelfConfig::Get()->ShelfControlsForcedShownForAccessibility()) {
+  if (!features::AreContextualNudgesEnabled()) {
     set_recheck_delay(base::TimeDelta());
     return false;
   }

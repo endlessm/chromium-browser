@@ -187,8 +187,6 @@ struct LoggingLabelState {
     }
 };
 
-static inline int string_sprintf(std::string *output, const char *fmt, ...);
-
 typedef struct _debug_report_data {
     std::vector<VkLayerDbgFunctionState> debug_callback_list;
     VkDebugUtilsMessageSeverityFlagsEXT active_severities{0};
@@ -246,9 +244,9 @@ typedef struct _debug_report_data {
             handle_name = DebugReportGetMarkerObjectName(handle);
         }
 
-        std::string ret;
-        string_sprintf(&ret, "%s 0x%" PRIxLEAST64 "[%s]", handle_type_name, handle, handle_name.c_str());
-        return ret;
+        std::ostringstream str;
+        str << handle_type_name << " 0x" << std::hex << handle << "[" << handle_name.c_str() << "]";
+        return str.str();
     }
 
     std::string FormatHandle(const VulkanTypedHandle &handle) const {
@@ -468,23 +466,19 @@ static inline bool debug_log_msg(const debug_report_data *debug_data, VkFlags ms
     return bail;
 }
 
-static inline void DebugAnnotFlagsToReportFlags(VkDebugUtilsMessageSeverityFlagBitsEXT da_severity,
-                                                VkDebugUtilsMessageTypeFlagsEXT da_type, VkDebugReportFlagsEXT *dr_flags) {
-    *dr_flags = 0;
-
-    if ((da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0) {
-        *dr_flags |= VK_DEBUG_REPORT_ERROR_BIT_EXT;
-    } else if ((da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0) {
-        if ((da_type & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) != 0) {
-            *dr_flags |= VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
-        } else {
-            *dr_flags |= VK_DEBUG_REPORT_WARNING_BIT_EXT;
-        }
-    } else if ((da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0) {
-        *dr_flags |= VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
-    } else if ((da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) != 0) {
-        *dr_flags |= VK_DEBUG_REPORT_DEBUG_BIT_EXT;
+static inline VkDebugReportFlagsEXT DebugAnnotFlagsToReportFlags(VkDebugUtilsMessageSeverityFlagBitsEXT da_severity,
+                                                                 VkDebugUtilsMessageTypeFlagsEXT da_type) {
+    if (da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) return VK_DEBUG_REPORT_ERROR_BIT_EXT;
+    if (da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+        if (da_type & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
+            return VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+        else
+            return VK_DEBUG_REPORT_WARNING_BIT_EXT;
     }
+    if (da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) return VK_DEBUG_REPORT_INFORMATION_BIT_EXT;
+    if (da_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) return VK_DEBUG_REPORT_DEBUG_BIT_EXT;
+
+    return 0;
 }
 
 static inline LogMessageTypeFlags DebugAnnotFlagsToMsgTypeFlags(VkDebugUtilsMessageSeverityFlagBitsEXT da_severity,
@@ -613,25 +607,6 @@ static inline void DeactivateInstanceDebugCallbacks(debug_report_data *debug_dat
     for (auto item : instance_report_callback_handles) {
         layer_destroy_callback(debug_data, item, nullptr);
     }
-}
-
-#ifndef WIN32
-static inline int string_sprintf(std::string *output, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
-#endif
-static inline int string_sprintf(std::string *output, const char *fmt, ...) {
-    std::string &formatted = *output;
-    va_list argptr;
-    va_start(argptr, fmt);
-    int reserve = vsnprintf(nullptr, 0, fmt, argptr);
-    va_end(argptr);
-    formatted.reserve(reserve + 1);  // Set the storage length long enough to hold the output + null
-    formatted.resize(reserve);       // Set the *logical* length to be what vsprintf will write
-    va_start(argptr, fmt);
-    int result = vsnprintf((char *)formatted.data(), formatted.capacity(), fmt, argptr);
-    va_end(argptr);
-    assert(result == reserve);
-    assert((formatted.size() == strlen(formatted.c_str())));
-    return result;
 }
 
 #ifdef WIN32

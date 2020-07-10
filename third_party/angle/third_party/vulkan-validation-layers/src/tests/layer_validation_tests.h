@@ -55,7 +55,12 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <string>
 #include <unordered_set>
+#include <vector>
+
+using std::string;
+using std::vector;
 
 //--------------------------------------------------------------------------------------
 // Mesh and VertexFormat Data
@@ -198,6 +203,9 @@ bool CheckDescriptorIndexingSupportAndInitFramework(VkRenderFramework *renderFra
                                                     std::vector<const char *> &device_extension_names,
                                                     VkValidationFeaturesEXT *features, void *userData);
 
+// Helper for checking timeline semaphore support and initializing
+bool CheckTimelineSemaphoreSupportAndInitState(VkRenderFramework *renderFramework);
+
 // Dependent "false" type for the static assert, as GCC will evaluate
 // non-dependent static_asserts even for non-instantiated templates
 template <typename T>
@@ -223,6 +231,7 @@ T NearestSmaller(const T from) {
 class VkLayerTest : public VkRenderFramework {
   public:
     const char *kValidationLayerName = "VK_LAYER_KHRONOS_validation";
+
     void VKTriangleTest(BsoFailSelect failCase);
 
     void GenericDrawPreparation(VkCommandBufferObj *commandBuffer, VkPipelineObj &pipelineobj, VkDescriptorSetObj &descriptorSet,
@@ -233,6 +242,7 @@ class VkLayerTest : public VkRenderFramework {
     bool AddSurfaceInstanceExtension();
     bool AddSwapchainDeviceExtension();
     VkCommandBufferObj *CommandBuffer();
+    void OOBRayTracingShadersTestBody(bool gpu_assisted);
 
   protected:
     uint32_t m_instance_api_version = 0;
@@ -244,6 +254,9 @@ class VkLayerTest : public VkRenderFramework {
     bool LoadDeviceProfileLayer(
         PFN_vkSetPhysicalDeviceFormatPropertiesEXT &fpvkSetPhysicalDeviceFormatPropertiesEXT,
         PFN_vkGetOriginalPhysicalDeviceFormatPropertiesEXT &fpvkGetOriginalPhysicalDeviceFormatPropertiesEXT);
+    bool LoadDeviceProfileLayer(
+        PFN_vkSetPhysicalDeviceFormatProperties2EXT &fpvkSetPhysicalDeviceFormatProperties2EXT,
+        PFN_vkGetOriginalPhysicalDeviceFormatProperties2EXT &fpvkGetOriginalPhysicalDeviceFormatProperties2EXT);
 
     VkLayerTest();
 };
@@ -258,6 +271,9 @@ class VkBestPracticesLayerTest : public VkLayerTest {
     void InitBestPracticesFramework();
 
   protected:
+    VkValidationFeatureEnableEXT enables_[1] = {VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT};
+    VkValidationFeatureDisableEXT disables_[1] = {VK_VALIDATION_FEATURE_DISABLE_ALL_EXT};
+    VkValidationFeaturesEXT features_ = {VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT, nullptr, 1, enables_, 1, disables_};
 };
 
 class VkArmBestPracticesLayerTest : public VkBestPracticesLayerTest {};
@@ -266,6 +282,20 @@ class VkWsiEnabledLayerTest : public VkLayerTest {
   public:
   protected:
     VkWsiEnabledLayerTest() { m_enableWSI = true; }
+};
+
+class VkGpuAssistedLayerTest : public VkLayerTest {
+  public:
+    bool InitGpuAssistedFramework(bool request_descriptor_indexing);
+
+  protected:
+};
+
+class VkDebugPrintfTest : public VkLayerTest {
+  public:
+    void InitDebugPrintfFramework();
+
+  protected:
 };
 
 class VkBufferTest {
@@ -420,13 +450,13 @@ struct CreatePipelineHelper {
         info_override(helper);
         helper.InitState();
 
-        for (const auto &error : errors) test.Monitor()->SetDesiredFailureMsg(flags, error);
+        for (const auto &error : errors) test.Monitor().SetDesiredFailureMsg(flags, error);
         helper.CreateGraphicsPipeline();
 
         if (positive_test) {
-            test.Monitor()->VerifyNotFound();
+            test.Monitor().VerifyNotFound();
         } else {
-            test.Monitor()->VerifyFound();
+            test.Monitor().VerifyFound();
         }
     }
 
@@ -476,13 +506,13 @@ struct CreateComputePipelineHelper {
         info_override(helper);
         helper.InitState();
 
-        for (const auto &error : errors) test.Monitor()->SetDesiredFailureMsg(flags, error);
+        for (const auto &error : errors) test.Monitor().SetDesiredFailureMsg(flags, error);
         helper.CreateComputePipeline();
 
         if (positive_test) {
-            test.Monitor()->VerifyNotFound();
+            test.Monitor().VerifyNotFound();
         } else {
-            test.Monitor()->VerifyFound();
+            test.Monitor().VerifyFound();
         }
     }
 
@@ -505,10 +535,12 @@ struct CreateNVRayTracingPipelineHelper {
     VkPipelineLayoutCreateInfo pipeline_layout_ci_ = {};
     VkPipelineLayoutObj pipeline_layout_;
     VkRayTracingPipelineCreateInfoNV rp_ci_ = {};
+    VkRayTracingPipelineCreateInfoKHR rp_ci_KHR_ = {};
     VkPipelineCacheCreateInfo pc_ci_ = {};
     VkPipeline pipeline_ = VK_NULL_HANDLE;
     VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
     std::vector<VkRayTracingShaderGroupCreateInfoNV> groups_;
+    std::vector<VkRayTracingShaderGroupCreateInfoKHR> groups_KHR_;
     std::unique_ptr<VkShaderObj> rgs_;
     std::unique_ptr<VkShaderObj> chs_;
     std::unique_ptr<VkShaderObj> mis_;
@@ -519,16 +551,18 @@ struct CreateNVRayTracingPipelineHelper {
     static bool InitInstanceExtensions(VkLayerTest &test, std::vector<const char *> &instance_extension_names);
     static bool InitDeviceExtensions(VkLayerTest &test, std::vector<const char *> &device_extension_names);
     void InitShaderGroups();
+    void InitShaderGroupsKHR();
     void InitDescriptorSetInfo();
     void InitPipelineLayoutInfo();
     void InitShaderInfo();
     void InitNVRayTracingPipelineInfo();
+    void InitKHRRayTracingPipelineInfo();
     void InitPipelineCacheInfo();
-    void InitInfo();
+    void InitInfo(bool isKHR = false);
     void InitState();
-    void LateBindPipelineInfo();
+    void LateBindPipelineInfo(bool isKHR = false);
     VkResult CreateNVRayTracingPipeline(bool implicit_destroy = true, bool do_late_bind = true);
-
+    VkResult CreateKHRRayTracingPipeline(bool implicit_destroy = true, bool do_late_bind = true);
     // Helper function to create a simple test case (positive or negative)
     //
     // info_override can be any callable that takes a CreateNVRayTracingPipelineHelper &
@@ -541,9 +575,9 @@ struct CreateNVRayTracingPipelineHelper {
         info_override(helper);
         helper.InitState();
 
-        for (const auto &error : errors) test.Monitor()->SetDesiredFailureMsg(flags, error);
+        for (const auto &error : errors) test.Monitor().SetDesiredFailureMsg(flags, error);
         helper.CreateNVRayTracingPipeline();
-        test.Monitor()->VerifyFound();
+        test.Monitor().VerifyFound();
     }
 
     template <typename Test, typename OverrideFunc, typename Error>
@@ -558,9 +592,9 @@ struct CreateNVRayTracingPipelineHelper {
         info_override(helper);
         helper.InitState();
 
-        test.Monitor()->ExpectSuccess(message_flag_mask);
+        test.Monitor().ExpectSuccess(message_flag_mask);
         ASSERT_VK_SUCCESS(helper.CreateNVRayTracingPipeline());
-        test.Monitor()->VerifyNotFound();
+        test.Monitor().VerifyNotFound();
     }
 };
 
@@ -710,6 +744,9 @@ bool FindUnsupportedImage(VkPhysicalDevice gpu, VkImageCreateInfo &image_ci);
 VkFormat FindFormatWithoutFeatures(VkPhysicalDevice gpu, VkImageTiling tiling,
                                    VkFormatFeatureFlags undesired_features = UINT32_MAX);
 
+void AllocateDisjointMemory(VkDeviceObj *device, PFN_vkGetImageMemoryRequirements2KHR fp, VkImage mp_image,
+                            VkDeviceMemory *mp_image_mem, VkImageAspectFlagBits plane);
+
 void NegHeightViewportTests(VkDeviceObj *m_device, VkCommandBufferObj *m_commandBuffer, ErrorMonitor *m_errorMonitor);
 
 void CreateSamplerTest(VkLayerTest &test, const VkSamplerCreateInfo *pCreateInfo, std::string code = "");
@@ -721,6 +758,15 @@ void CreateImageTest(VkLayerTest &test, const VkImageCreateInfo *pCreateInfo, st
 void CreateBufferViewTest(VkLayerTest &test, const VkBufferViewCreateInfo *pCreateInfo, const std::vector<std::string> &codes);
 
 void CreateImageViewTest(VkLayerTest &test, const VkImageViewCreateInfo *pCreateInfo, std::string code = "");
+
+bool InitFrameworkForRayTracingTest(VkRenderFramework *renderFramework, bool isKHR,
+                                    std::vector<const char *> &instance_extension_names,
+                                    std::vector<const char *> &device_extension_names, void *user_data,
+                                    bool need_gpu_validation = false, bool need_push_descriptors = false,
+                                    bool deferred_state_init = false);
+
+void GetSimpleGeometryForAccelerationStructureTests(const VkDeviceObj &device, VkBufferObj *vbo, VkBufferObj *ibo,
+                                                    VkGeometryNV *geometry);
 
 void print_android(const char *c);
 #endif  // VKLAYERTEST_H

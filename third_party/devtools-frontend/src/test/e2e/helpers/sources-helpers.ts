@@ -71,7 +71,10 @@ export async function getOpenSources() {
 
 // We can't use the click helper, as it is not possible to select a particular
 // line number element in CodeMirror.
-export async function addBreakpointForLine(frontend: puppeteer.Page, index: number) {
+export async function addBreakpointForLine(frontend: puppeteer.Page, index: number, expectedFail: boolean = false) {
+  await frontend.waitForFunction(index => {
+    return document.querySelectorAll('.CodeMirror-linenumber').length >= index;
+  }, undefined, index);
   const breakpointLineNumber = await frontend.evaluate(index => {
     const element = document.querySelectorAll('.CodeMirror-linenumber')[index];
 
@@ -82,16 +85,34 @@ export async function addBreakpointForLine(frontend: puppeteer.Page, index: numb
     };
   }, index);
 
+  const currentBreakpointCount = await frontend.$$eval('.cm-breakpoint', nodes => nodes.length);
+
   await frontend.mouse.click(breakpointLineNumber.x, breakpointLineNumber.y);
 
-  await frontend.waitForFunction(() => {
-    return document.querySelectorAll('.cm-breakpoint').length !== 0;
-  });
+  if (expectedFail) {
+    return;
+  }
+
+  await frontend.waitForFunction(bpCount => {
+    return document.querySelectorAll('.cm-breakpoint').length > bpCount &&
+        document.querySelectorAll('.cm-breakpoint-unbound').length === 0;
+  }, undefined, currentBreakpointCount);
 }
 
 export async function getBreakpointDecorators(frontend: puppeteer.Page, disabledOnly = false) {
   const selector = `.cm-breakpoint${disabledOnly ? '-disabled' : ''} .CodeMirror-linenumber`;
   return await frontend.$$eval(selector, nodes => nodes.map(n => parseInt(n.textContent!, 10)));
+}
+
+export async function getNonBreakableLines(frontend: puppeteer.Page) {
+  const selector = '.cm-non-breakable-line .CodeMirror-linenumber';
+  await waitFor(selector, undefined, 1000);
+  return await frontend.$$eval(selector, nodes => nodes.map(n => parseInt(n.textContent!, 10)));
+}
+
+export async function getExecutionLine() {
+  const activeLine = await waitFor('.cm-execution-line-outline', undefined, 1000);
+  return await activeLine.asElement()!.evaluate(n => parseInt(n.textContent!, 10));
 }
 
 export async function retrieveTopCallFrameScriptLocation(script: string, target: puppeteer.Page) {
@@ -142,6 +163,10 @@ export function waitForAdditionalSourceFiles(frontend: puppeteer.Page, count = 1
   }, undefined, count);
 }
 
+export function clearSourceFilesAdded(frontend: puppeteer.Page) {
+  return frontend.evaluate(() => window.__sourceFilesAddedEvents = []);
+}
+
 export function retrieveSourceFilesAdded(frontend: puppeteer.Page) {
   // Strip hostname, to make it agnostic of which server port we use
   return frontend.evaluate(() => window.__sourceFilesAddedEvents.map(file => new URL(`http://${file}`).pathname));
@@ -170,14 +195,35 @@ export function createSelectorsForWorkerFile(
   };
 }
 
+async function expandSourceTreeItem(selector: string) {
+  const sourceTreeItem = await waitFor(selector, undefined, 1000);
+  const isExpanded = await sourceTreeItem.asElement()!.evaluate(element => {
+    return element.getAttribute('aria-expanded') === 'true';
+  });
+  if (!isExpanded) {
+    await doubleClickSourceTreeItem(selector);
+  }
+}
+
 export async function expandFileTree(selectors: NestedFileSelector) {
-  await doubleClickSourceTreeItem(selectors.rootSelector);
-  await doubleClickSourceTreeItem(selectors.domainSelector);
-  await doubleClickSourceTreeItem(selectors.folderSelector);
-  return await waitFor(selectors.fileSelector);
+  await expandSourceTreeItem(selectors.rootSelector);
+  await expandSourceTreeItem(selectors.domainSelector);
+  await expandSourceTreeItem(selectors.folderSelector);
+  return await waitFor(selectors.fileSelector, undefined, 1000);
 }
 
 export async function openNestedWorkerFile(selectors: NestedFileSelector) {
   await expandFileTree(selectors);
   await click(selectors.fileSelector);
+}
+
+export async function clickOnContextMenu(selector: string, label: string) {
+  // Find the selected node, right click.
+  const selectedNode = await $(selector);
+  await click(selectedNode, {clickOptions: {button: 'right'}});
+
+  // Wait for the context menu option, and click it.
+  const labelSelector = `[aria-label="${label}"]`;
+  await waitFor(labelSelector);
+  await click(labelSelector);
 }

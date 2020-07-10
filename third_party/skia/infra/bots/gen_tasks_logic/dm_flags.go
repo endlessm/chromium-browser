@@ -108,6 +108,13 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 		}
 		return rv
 	}
+	suffix := func(slice []string, sfx string) []string {
+		rv := make([]string, 0, len(slice))
+		for _, e := range slice {
+			rv = append(rv, e+sfx)
+		}
+		return rv
+	}
 
 	blacklist := func(quad ...string) {
 		if len(quad) == 1 {
@@ -188,6 +195,10 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 		args = append(args, "--nogpu")
 
 		configs = append(configs, "8888")
+
+		if b.extraConfig("SkVM") {
+			args = append(args, "--skvm")
+		}
 
 		if b.extraConfig("BonusConfigs") {
 			configs = []string{
@@ -278,15 +289,14 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 			configs = []string{"commandbuffer"}
 		}
 
-		// ANGLE bot *only* runs the angle configs
+		// Dawn bot *only* runs the dawn config
 		if b.extraConfig("Dawn") {
 			configs = []string{"dawn"}
 		}
 
-		// Dawn bot *only* runs the dawn config
+		// ANGLE bot *only* runs the angle configs
 		if b.extraConfig("ANGLE") {
 			configs = []string{"angle_d3d11_es2",
-				"angle_d3d9_es2",
 				"angle_gl_es2",
 				"angle_d3d11_es3"}
 			if sampleCount > 0 {
@@ -308,10 +318,20 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 					configs = append(configs, fmt.Sprintf("angle_gl_es3_msaa%d", sampleCount))
 				}
 			}
+			if !b.matchGpu("GTX", "Quadro", "GT610") {
+				// See skia:10149
+				configs = append(configs, "angle_d3d9_es2")
+			}
 			if b.model("NUC5i7RYH") {
 				// skbug.com/7376
 				blacklist("_ test _ ProcessorCloneTest")
 			}
+		}
+
+		if b.model("Pixelbook") {
+			// skbug.com/10232
+			blacklist("_ test _ ProcessorCloneTest")
+
 		}
 
 		if b.model("AndroidOne", "GalaxyS6") || (b.model("Nexus5", "Nexus7")) {
@@ -381,12 +401,18 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 				blacklist("gltestpersistentcache gm _ atlastext")
 				blacklist("gltestpersistentcache gm _ dftext")
 				blacklist("gltestpersistentcache gm _ glyph_pos_h_b")
+				blacklist("gltestpersistentcache gm _ glyph_pos_h_f")
+				blacklist("gltestpersistentcache gm _ glyph_pos_n_f")
 				blacklist("gltestglslcache gm _ atlastext")
 				blacklist("gltestglslcache gm _ dftext")
 				blacklist("gltestglslcache gm _ glyph_pos_h_b")
+				blacklist("gltestglslcache gm _ glyph_pos_h_f")
+				blacklist("gltestglslcache gm _ glyph_pos_n_f")
 				blacklist("gltestprecompile gm _ atlastext")
 				blacklist("gltestprecompile gm _ dftext")
 				blacklist("gltestprecompile gm _ glyph_pos_h_b")
+				blacklist("gltestprecompile gm _ glyph_pos_h_f")
+				blacklist("gltestprecompile gm _ glyph_pos_n_f")
 				// Tessellation shaders do not yet participate in the persistent cache.
 				blacklist("gltestpersistentcache gm _ tessellation")
 				blacklist("gltestglslcache gm _ tessellation")
@@ -431,15 +457,14 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 
 		// DDL is a GPU-only feature
 		if b.extraConfig("DDL1") {
-			// This bot generates gl and vk comparison images for the large skps
+			// This bot generates comparison images for the large skps and the gms
 			configs = filter(configs, "gl", "vk", "mtl")
 			args = append(args, "--skpViewportSize", "2048")
 			args = append(args, "--pr", "~small")
 		}
 		if b.extraConfig("DDL3") {
-			// This bot generates the ddl-gl and ddl-vk images for the
-			// large skps and the gms
-			ddlConfigs := prefix(filter(configs, "gl", "vk", "mtl"), "ddl-")
+			// This bot generates the real ddl images for the large skps and the gms
+			ddlConfigs := suffix(filter(configs, "gl", "vk", "mtl"), "ddl")
 			ddl2Configs := prefix(filter(configs, "gl", "vk", "mtl"), "ddl2-")
 			configs = append(ddlConfigs, ddl2Configs...)
 			args = append(args, "--skpViewportSize", "2048")
@@ -472,7 +497,7 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 	if b.gpu() {
 		// Don't run the "svgparse_*" svgs on GPU.
 		blacklist("_ svg _ svgparse_")
-	} else if b.Name == "Test-Debian9-Clang-GCE-CPU-AVX2-x86_64-Debug-All-ASAN" {
+	} else if b.Name == "Test-Debian10-Clang-GCE-CPU-AVX2-x86_64-Debug-All-ASAN" {
 		// Only run the CPU SVGs on 8888.
 		blacklist("~8888 svg _ _")
 	} else {
@@ -617,7 +642,7 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 		// This test crashes the N9 (perhaps because of large malloc/frees). It also
 		// is fairly slow and not platform-specific. So we just disable it on all of
 		// Android and iOS. skia:5438
-		blacklist("_ test _ GrShape")
+		blacklist("_ test _ GrStyledShape")
 	}
 
 	if internalHardwareLabel == "5" {
@@ -932,6 +957,11 @@ func (b *taskBuilder) dmFlags(internalHardwareLabel string) {
 	if b.matchOs("Mac") && b.gpu("IntelHD615") {
 		// skia:7603
 		match = append(match, "~^GrMeshTest$")
+	}
+
+	if b.extraConfig("Vulkan") && b.model("GalaxyS20") {
+		// skia:10247
+		match = append(match, "~VkPrepareForExternalIOQueueTransitionTest")
 	}
 
 	if b.model("LenovoYogaC630") && b.extraConfig("ANGLE") {

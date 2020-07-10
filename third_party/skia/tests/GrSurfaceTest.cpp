@@ -402,7 +402,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadOnlyTexture, reporter, context_info) {
         auto copySrc = maker.view(GrMipMapped::kNo);
 
         REPORTER_ASSERT(reporter, copySrc.proxy());
-        auto copyResult = surfContext->testCopy(copySrc.proxy(), copySrc.origin());
+        auto copyResult = surfContext->testCopy(copySrc.proxy());
         REPORTER_ASSERT(reporter, copyResult == (ioType == kRW_GrIOType));
         // Try the low level copy.
         context->flush();
@@ -433,9 +433,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ReadOnlyTexture, reporter, context_info) {
 static const int kSurfSize = 10;
 
 static sk_sp<GrTexture> make_wrapped_texture(GrContext* context, GrRenderable renderable) {
-    auto backendTexture = context->createBackendTexture(
-            kSurfSize, kSurfSize, kRGBA_8888_SkColorType, SkColors::kTransparent, GrMipMapped::kNo,
-            renderable, GrProtected::kNo);
+    GrBackendTexture backendTexture;
+    CreateBackendTexture(context, &backendTexture, kSurfSize, kSurfSize, kRGBA_8888_SkColorType,
+                         SkColors::kTransparent, GrMipMapped::kNo, renderable, GrProtected::kNo);
+    SkASSERT(backendTexture.isValid());
     sk_sp<GrTexture> texture;
     if (GrRenderable::kYes == renderable) {
         texture = context->priv().resourceProvider()->wrapRenderableBackendTexture(
@@ -544,7 +545,8 @@ DEF_GPUTEST(TextureIdleProcTest, reporter, options) {
                         SkImageInfo::Make(w, h, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
                 auto rt = SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info, 0, nullptr);
                 auto rtc = rt->getCanvas()->internal_private_accessTopLayerRenderTargetContext();
-                auto singleUseLazyCB = [&texture](GrResourceProvider* rp) {
+                auto singleUseLazyCB = [&texture](GrResourceProvider*,
+                                                  const GrSurfaceProxy::LazySurfaceDesc&) {
                     auto mode = GrSurfaceProxy::LazyInstantiationKeyMode::kSynced;
                     if (texture->getUniqueKey().isValid()) {
                         mode = GrSurfaceProxy::LazyInstantiationKeyMode::kUnsynced;
@@ -600,10 +602,10 @@ DEF_GPUTEST(TextureIdleProcTest, reporter, options) {
                 // one where the the texture was drawn but the context is not flushed.
                 // In each scenario we test holding a ref beyond the context shutdown and not.
 
-                // These tests are difficult to get working with Vulkan. See http://skbug.com/8705
-                // and http://skbug.com/8275
+                // These tests are difficult to get working with Vulkan and Direct3D.
+                // See http://skbug.com/8705 and http://skbug.com/8277
                 GrBackendApi api = sk_gpu_test::GrContextFactory::ContextTypeBackend(contextType);
-                if (api == GrBackendApi::kVulkan) {
+                if (api == GrBackendApi::kVulkan || api == GrBackendApi::kDirect3D) {
                     continue;
                 }
                 int id = 3;
@@ -792,7 +794,7 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(TextureIdleStateTest, reporter, contextInfo) {
         auto proxy =
                 context->priv().proxyProvider()->testingOnly_createWrapped(std::move(idleTexture));
         context->flush();
-        SkAssertResult(rtc->testCopy(proxy.get(), rtc->origin()));
+        SkAssertResult(rtc->testCopy(proxy.get()));
         proxy.reset();
         REPORTER_ASSERT(reporter, flags == 0);
 

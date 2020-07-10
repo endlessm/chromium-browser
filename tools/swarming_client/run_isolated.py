@@ -111,10 +111,11 @@ ISOLATED_TMP_DIR = u'it'
 ISOLATED_CLIENT_DIR = u'ic'
 
 # TODO(tikuta): take these parameter from luci-config?
-# Take revision from
+# Update tag by `./client/update_isolated.sh`.
+# Or take revision from
 # https://ci.chromium.org/p/infra-internal/g/infra-packagers/console
 ISOLATED_PACKAGE = 'infra/tools/luci/isolated/${platform}'
-ISOLATED_REVISION = 'git_revision:a4b3b0f4436c8723f9d1b81af9db583c18ba939b'
+ISOLATED_REVISION = 'git_revision:93b29af09a65b7139e1170925746870c0ce72805'
 
 # Keep synced with task_request.py
 CACHE_NAME_RE = re.compile(r'^[a-z0-9_]{1,4096}$')
@@ -494,7 +495,7 @@ def run_command(
             proc.kill()
       logging.info('Waiting for process exit')
       exit_code = proc.wait()
-    except OSError:
+    except OSError as e:
       # This is not considered to be an internal error. The executable simply
       # does not exit.
       sys.stderr.write(
@@ -502,7 +503,7 @@ def run_command(
           'the command line is too long>\n'
           '<Check for missing .so/.dll in the .isolate or GN file or length of '
           'command line args>\n'
-          '<Command: %s>\n' % command)
+          '<Command: %s, Exception: %s>\n' % (command, e))
       if os.environ.get('SWARMING_TASK_ID'):
         # Give an additional hint when running as a swarming task.
         sys.stderr.write(
@@ -527,7 +528,7 @@ def _fetch_and_map_with_go(isolated_hash, storage, outdir, go_cache_dir,
       prefix=u'fetch-and-map-result-', suffix=u'.json')
   os.close(result_json_handle)
   try:
-    proc = subprocess42.Popen([
+    cmd = [
         isolated_client,
         'download',
         '-isolate-server',
@@ -552,18 +553,36 @@ def _fetch_and_map_with_go(isolated_hash, storage, outdir, go_cache_dir,
         outdir,
         '-fetch-and-map-result-json',
         result_json_path,
-    ])
+    ]
+    proc = subprocess42.Popen(cmd)
+    cmd_str = ' '.join(cmd)
 
-    while True:
+    exceeded_max_timeout = True
+    check_period_sec = 30
+    max_checks = 100
+    # max timeout = max_checks * check_period_sec = 50 minutes
+    for i in range(max_checks):
       # This is to prevent I/O timeout error during isolated setup.
       try:
-        retcode = proc.wait(30)
+        retcode = proc.wait(check_period_sec)
         if retcode != 0:
-          raise ValueError("retcode of isolated command is not 0: %s" % retcode)
+          raise ValueError("retcode is not 0: %s (cmd=%s)" % (retcode, cmd_str))
+        exceeded_max_timeout = False
         break
       except subprocess42.TimeoutExpired:
-        print('still running isolated')
-        continue
+        print('still running isolated (after %d seconds)' % (
+            (i + 1) * check_period_sec))
+
+    if exceeded_max_timeout:
+      proc.terminate()
+      try:
+        proc.wait(check_period_sec)
+      except subprocess42.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+      # Raise unconditionally, because |proc| was forcefully terminated.
+      raise ValueError("timedout after %d seconds (cmd=%s)",
+                       (check_period_sec * max_checks, cmd_str))
 
     with open(result_json_path) as json_file:
       result_json = json.load(json_file)
@@ -677,7 +696,7 @@ def upload_then_delete(storage, out_dir, leak_temp_dir):
     with tools.Profiler('ArchiveOutput'):
       try:
         results, f_cold, f_hot = isolateserver.archive_files_to_storage(
-            storage, [out_dir], None)
+            storage, [out_dir], None, verify_push=True)
         outputs_ref = {
           'isolated': results.values()[0],
           'isolatedserver': storage.server_ref.url,

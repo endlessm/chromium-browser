@@ -483,9 +483,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrContext_colorTypeSupportedAsImage, reporter
         SkColorType colorType = static_cast<SkColorType>(ct);
         bool can = context->colorTypeSupportedAsImage(colorType);
 
-        GrBackendTexture backendTex = context->createBackendTexture(
-                kSize, kSize, colorType, SkColors::kTransparent,
-                GrMipMapped::kNo, GrRenderable::kNo, GrProtected::kNo);
+        GrBackendTexture backendTex;
+        CreateBackendTexture(context, &backendTex, kSize, kSize, colorType, SkColors::kTransparent,
+                             GrMipMapped::kNo, GrRenderable::kNo, GrProtected::kNo);
 
         auto img = SkImage::MakeFromTexture(context, backendTex, kTopLeft_GrSurfaceOrigin,
                                             colorType, kOpaque_SkAlphaType, nullptr);
@@ -822,7 +822,6 @@ DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SkImage_NewFromTextureRelease, reporter, c
     SkImageInfo ii = SkImageInfo::Make(kWidth, kHeight, SkColorType::kRGBA_8888_SkColorType,
                                        kPremul_SkAlphaType);
     GrBackendTexture backendTex;
-
     if (!CreateBackendTexture(ctx, &backendTex, ii, SkColors::kRed, GrMipMapped::kNo,
                               GrRenderable::kNo)) {
         ERRORF(reporter, "couldn't create backend texture\n");
@@ -1380,8 +1379,8 @@ DEF_GPUTEST_FOR_ALL_CONTEXTS(ImageFlush, reporter, ctxInfo) {
     // Flush all the setup work we did above and then make little lambda that reports the flush
     // count delta since the last time it was called.
     c->flush();
-    auto numFlushes = [c, flushCnt = c->priv().getGpu()->stats()->numFinishFlushes()]() mutable {
-        int curr = c->priv().getGpu()->stats()->numFinishFlushes();
+    auto numFlushes = [c, flushCnt = c->priv().getGpu()->stats()->numSubmitToGpus()]() mutable {
+        int curr = c->priv().getGpu()->stats()->numSubmitToGpus();
         int n = curr - flushCnt;
         flushCnt = curr;
         return n;

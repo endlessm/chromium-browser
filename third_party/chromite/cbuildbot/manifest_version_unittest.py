@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import os
+import sys
 import tempfile
 
 import mock
@@ -22,6 +23,9 @@ from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import timeout_util
 from chromite.lib.buildstore import FakeBuildStore, BuildIdentifier
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 FAKE_VERSION = """
@@ -231,6 +235,27 @@ class ResolveHelpersTest(cros_test_lib.TempDirTestCase):
     with self.assertRaises(manifest_version.BuildSpecsValueError):
       manifest_version.ResolveBuildspecVersion(
           self.mv_path, '1.2.0')
+
+
+class FilterManifestTest(cros_test_lib.TempDirTestCase):
+  """Test for FilterManifest."""
+
+  def testSimple(self):
+    """Basic check of functionality."""
+    path = os.path.join(self.tempdir, 'input.xml')
+    osutils.WriteFile(path, """\
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <include name="default.xml" />
+</manifest>
+""")
+    new_path = manifest_version.FilterManifest(path)
+    self.assertEqual("""\
+<?xml version="1.0" encoding="utf-8"?><manifest>
+<include name="default.xml"/>
+</manifest>\
+""", osutils.ReadFile(new_path))
+
 
 class BuildSpecFunctionsTest(cros_test_lib.MockTempDirTestCase):
   """Tests for methods related to publishing buildspecs."""

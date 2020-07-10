@@ -13,7 +13,6 @@ from __future__ import print_function
 import os
 import re
 import shutil
-import sys
 
 from chromite.cbuildbot import commands
 from chromite.lib import constants
@@ -24,9 +23,6 @@ from chromite.lib import image_lib
 from chromite.lib import moblab_vm
 from chromite.lib import osutils
 from chromite.lib import portage_util
-
-
-assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class Error(Exception):
@@ -233,7 +229,7 @@ def SimpleChromeWorkflowTest(sysroot_path, build_target_name, chrome_root,
   board_dir = 'out_%s' % build_target_name
 
   out_board_dir = os.path.join(chrome_root, board_dir, 'Release')
-  use_goma = goma != None
+  use_goma = goma is not None
   extra_args = []
 
   with osutils.TempDir(prefix='chrome-sdk-cache') as tempdir:

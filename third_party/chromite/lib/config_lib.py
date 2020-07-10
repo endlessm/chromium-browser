@@ -81,7 +81,6 @@ ALL_DISPLAY_LABEL = {
 # https://chrome-internal.googlesource.com/chromeos/
 #     infra/config/+/refs/heads/master/luci/cr-buildbucket.cfg
 LUCI_BUILDER_COMMITQUEUE = 'CommitQueue'
-LUCI_BUILDER_CQ = 'CQ'
 LUCI_BUILDER_FACTORY = 'Factory'
 LUCI_BUILDER_FULL = 'Full'
 LUCI_BUILDER_INCREMENTAL = 'Incremental'
@@ -90,8 +89,6 @@ LUCI_BUILDER_INFRA = 'Infra'
 LUCI_BUILDER_INFRA_TESTING = 'InfraTesting'
 LUCI_BUILDER_LEGACY_RELEASE = 'LegacyRelease'
 LUCI_BUILDER_PFQ = 'PFQ'
-LUCI_BUILDER_PRECQ = 'PreCQ'
-LUCI_BUILDER_PRECQ_LAUNCHER = 'PreCQLauncher'
 LUCI_BUILDER_PROD = 'Prod'
 LUCI_BUILDER_RELEASE = 'Release'
 LUCI_BUILDER_STAGING = 'Staging'
@@ -99,7 +96,6 @@ LUCI_BUILDER_TRY = 'Try'
 
 ALL_LUCI_BUILDER = {
     LUCI_BUILDER_COMMITQUEUE,
-    LUCI_BUILDER_CQ,
     LUCI_BUILDER_FACTORY,
     LUCI_BUILDER_FULL,
     LUCI_BUILDER_INCREMENTAL,
@@ -108,8 +104,6 @@ ALL_LUCI_BUILDER = {
     LUCI_BUILDER_INFRA_TESTING,
     LUCI_BUILDER_LEGACY_RELEASE,
     LUCI_BUILDER_PFQ,
-    LUCI_BUILDER_PRECQ,
-    LUCI_BUILDER_PRECQ_LAUNCHER,
     LUCI_BUILDER_PROD,
     LUCI_BUILDER_RELEASE,
     LUCI_BUILDER_STAGING,
@@ -126,7 +120,7 @@ def isTryjobConfig(build_config):
   Returns:
     Boolean. True if it's a tryjob config.
   """
-  return build_config.luci_builder in (LUCI_BUILDER_TRY, LUCI_BUILDER_PRECQ)
+  return build_config.luci_builder in {LUCI_BUILDER_TRY}
 
 
 # In the Json, this special build config holds the default values for all
@@ -189,15 +183,6 @@ def GetHWTestEnv(builder_run_config, model_config=None, suite_config=None):
   Returns:
     A string variable to indiate the hwtest environment.
   """
-  # arc-*ts-qual suites use a different logic because they use a separate pool
-  # on the release builder.
-  if suite_config and suite_config.suite in [
-      constants.HWTEST_CTS_QUAL_SUITE, constants.HWTEST_GTS_QUAL_SUITE
-  ]:
-    if builder_run_config.enable_skylab_cts_hw_tests:
-      return constants.ENV_SKYLAB
-    return constants.ENV_AUTOTEST
-
   enable_suite = True if suite_config is None else suite_config.enable_skylab
   enable_model = True if model_config is None else model_config.enable_skylab
   if (builder_run_config.enable_skylab_hw_tests and enable_suite and
@@ -626,6 +611,38 @@ class HWTestConfig(object):
     return self.__dict__ == other.__dict__
 
 
+class NotificationConfig(object):
+  """Config object for defining notification settings.
+
+  Attributes:
+    email: Email address that receives failure notifications.
+    threshold: Number of consecutive failures that should occur in order to
+              be notified. This number should be greater than or equal to 1. If
+              none is specified, default is 1.
+    template: Email template luci-notify should use when sending the email
+              notification. If none is specified, uses the default template.
+  """
+  DEFAULT_TEMPLATE = 'legacy_release'
+  DEFAULT_THRESHOLD = 1
+
+  def __init__(self,
+               email,
+               threshold=DEFAULT_THRESHOLD,
+               template=DEFAULT_TEMPLATE):
+    """Constructor -- see members above."""
+    self.email = email
+    self.threshold = threshold
+    self.template = template
+    self.threshold = threshold
+
+  @property
+  def email_notify(self):
+    return {'email': self.email, 'template': self.template}
+
+  def __eq__(self, other):
+    return self.__dict__ == other.__dict__
+
+
 def DefaultSettings():
   # Enumeration of valid settings; any/all config settings must be in this.
   # All settings must be documented.
@@ -682,6 +699,10 @@ def DefaultSettings():
 
       # Timeout for the build as a whole (in seconds).
       build_timeout=(5 * 60 + 30) * 60,
+
+      # A list of NotificationConfig objects describing who to notify of builder
+      # failures.
+      notification_configs=[],
 
       # An integer. If this builder fails this many times consecutively, send
       # an alert email to the recipients health_alert_recipients. This does
@@ -774,9 +795,6 @@ def DefaultSettings():
 
       # Android package name.
       android_package=None,
-
-      # Android GTS package branch name, if it is necessary to uprev.
-      android_gts_build_branch=None,
 
       # Uprev Chrome, values of 'tot', 'stable_release', or None.
       chrome_rev=None,
@@ -1850,8 +1868,8 @@ def GetNonUniBuildLabBoardName(board):
   # and should run on DUT without those string.
   # We strip those string from the board so that lab can handle it correctly.
   SPECIAL_SUFFIX = [
-      '-arcnext$', '-arcvm$', '-kernelnext$', '-kvm$', '-ndktranslation$',
-      '-cfm$', '-campfire$'
+      '-arcnext$', '-arcvm$', '-arc-r$', '-blueznext$', '-kernelnext$', '-kvm$',
+      '-ndktranslation$', '-cfm$', '-campfire$'
   ]
   # ARM64 userspace boards use 64 suffix but can't put that in list above
   # because of collisions with boards like kevin-arc64.
@@ -1925,11 +1943,11 @@ def LoadConfigFromString(json_string):
   # Use standard defaults, but allow the config to override.
   defaults = DefaultSettings()
   defaults.update(config_dict.pop(DEFAULT_BUILD_CONFIG))
-  _DeserializeTestConfigs(defaults)
+  _DeserializeConfigs(defaults)
 
   templates = config_dict.pop('_templates', {})
   for t in templates.values():
-    _DeserializeTestConfigs(t)
+    _DeserializeConfigs(t)
 
   defaultBuildConfig = BuildConfig(**defaults)
 
@@ -1945,56 +1963,58 @@ def LoadConfigFromString(json_string):
   return result
 
 
-def _DeserializeTestConfig(build_dict,
-                           config_key,
-                           test_class,
-                           preserve_none=False):
-  """Deserialize test config of given type inside build_dict.
+def _DeserializeConfig(build_dict,
+                       config_key,
+                       config_class,
+                       preserve_none=False):
+  """Deserialize config of given type inside build_dict.
 
   Args:
     build_dict: The build_dict to update (in place)
     config_key: Key for the config inside build_dict.
-    test_class: The class to instantiate for the config.
+    config_class: The class to instantiate for the config.
     preserve_none: If True, None values are preserved as is. By default, they
         are dropped.
   """
-  serialized_test_configs = build_dict.pop(config_key, None)
-  if serialized_test_configs is None:
+  serialized_configs = build_dict.pop(config_key, None)
+  if serialized_configs is None:
     if preserve_none:
       build_dict[config_key] = None
     return
 
-  test_configs = []
-  for test_config_string in serialized_test_configs:
-    if isinstance(test_config_string, test_class):
-      test_config = test_config_string
+  deserialized_configs = []
+  for config_string in serialized_configs:
+    if isinstance(config_string, config_class):
+      deserialized_config = config_string
     else:
       # Each test config is dumped as a json string embedded in json.
-      embedded_configs = json.loads(test_config_string)
-      test_config = test_class(**embedded_configs)
-    test_configs.append(test_config)
-  build_dict[config_key] = test_configs
+      embedded_configs = json.loads(config_string)
+      deserialized_config = config_class(**embedded_configs)
+    deserialized_configs.append(deserialized_config)
+  build_dict[config_key] = deserialized_configs
 
 
-def _DeserializeTestConfigs(build_dict):
+def _DeserializeConfigs(build_dict):
   """Updates a config dictionary with recreated objects.
 
-  Various test configs are serialized as strings (rather than JSON objects), so
-  we need to turn them into real objects before they can be consumed.
+  Notification configs and various test configs are serialized as strings
+  (rather than JSON objects), so we need to turn them into real objects before
+  they can be consumed.
 
   Args:
     build_dict: The config dictionary to update (in place).
   """
-  _DeserializeTestConfig(build_dict, 'vm_tests', VMTestConfig)
-  _DeserializeTestConfig(
+  _DeserializeConfig(build_dict, 'vm_tests', VMTestConfig)
+  _DeserializeConfig(
       build_dict, 'vm_tests_override', VMTestConfig, preserve_none=True)
-  _DeserializeTestConfig(build_dict, 'models', ModelTestConfig)
-  _DeserializeTestConfig(build_dict, 'hw_tests', HWTestConfig)
-  _DeserializeTestConfig(
+  _DeserializeConfig(build_dict, 'models', ModelTestConfig)
+  _DeserializeConfig(build_dict, 'hw_tests', HWTestConfig)
+  _DeserializeConfig(
       build_dict, 'hw_tests_override', HWTestConfig, preserve_none=True)
-  _DeserializeTestConfig(build_dict, 'gce_tests', GCETestConfig)
-  _DeserializeTestConfig(build_dict, 'tast_vm_tests', TastVMTestConfig)
-  _DeserializeTestConfig(build_dict, 'moblab_vm_tests', MoblabVMTestConfig)
+  _DeserializeConfig(build_dict, 'gce_tests', GCETestConfig)
+  _DeserializeConfig(build_dict, 'tast_vm_tests', TastVMTestConfig)
+  _DeserializeConfig(build_dict, 'moblab_vm_tests', MoblabVMTestConfig)
+  _DeserializeConfig(build_dict, 'notification_configs', NotificationConfig)
 
 
 def _CreateBuildConfig(name, default, build_dict, templates):
@@ -2012,7 +2032,7 @@ def _CreateBuildConfig(name, default, build_dict, templates):
     result.update(templates[template])
   result.update(build_dict)
 
-  _DeserializeTestConfigs(result)
+  _DeserializeConfigs(result)
 
   if child_configs is not None:
     result['child_configs'] = [

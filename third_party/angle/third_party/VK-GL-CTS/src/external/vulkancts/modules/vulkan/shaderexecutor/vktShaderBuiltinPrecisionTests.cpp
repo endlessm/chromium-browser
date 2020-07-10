@@ -1111,19 +1111,16 @@ struct EvalContext
 	EvalContext (const FloatFormat&	format_,
 				 Precision			floatPrecision_,
 				 Environment&		env_,
-				 int				callDepth_,
-				 bool				isShaderFloat16Int8_ = false)
+				 int				callDepth_)
 		: format				(format_)
 		, floatPrecision		(floatPrecision_)
 		, env					(env_)
-		, callDepth				(callDepth_)
-		, isShaderFloat16Int8	(isShaderFloat16Int8_) {}
+		, callDepth				(callDepth_) {}
 
 	FloatFormat		format;
 	Precision		floatPrecision;
 	Environment&	env;
 	int				callDepth;
-	bool			isShaderFloat16Int8;
 };
 
 /*--------------------------------------------------------------------*//*!
@@ -2060,7 +2057,7 @@ protected:
 		funEnv.bind(*m_var3, args.d);
 
 		{
-			EvalContext	funCtx(ctx.format, ctx.floatPrecision, funEnv, ctx.callDepth, ctx.isShaderFloat16Int8);
+			EvalContext	funCtx(ctx.format, ctx.floatPrecision, funEnv, ctx.callDepth);
 
 			for (size_t ndx = 0; ndx < m_body.size(); ++ndx)
 				m_body[ndx]->execute(funCtx);
@@ -2263,7 +2260,7 @@ protected:
 													  point = this->applyPoint(ctx, arg0)));
 
 		ret |= innerExtrema(ctx, iarg0);
-		ret &= (this->getCodomain() | TCU_NAN);
+		ret &= (this->getCodomain(ctx) | TCU_NAN);
 
 		return ctx.format.convert(ret);
 	}
@@ -2286,7 +2283,7 @@ protected:
 		TCU_THROW(InternalError, "Cannot apply");
 	}
 
-	virtual Interval	getCodomain		(void) const
+	virtual Interval	getCodomain		(const EvalContext&) const
 	{
 		return Interval::unbounded(true);
 	}
@@ -2336,7 +2333,7 @@ protected:
 									 TCU_SET_INTERVAL(ret, point,
 													  point = this->applyPoint(ctx, x, y)));
 		reti |= innerExtrema(ctx, xi, yi);
-		reti &= (this->getCodomain() | TCU_NAN);
+		reti &= (this->getCodomain(ctx) | TCU_NAN);
 
 		return ctx.format.convert(reti);
 	}
@@ -2363,7 +2360,7 @@ protected:
 		TCU_THROW(InternalError, "Cannot apply");
 	}
 
-	virtual Interval	getCodomain		(void) const
+	virtual Interval	getCodomain		(const EvalContext&) const
 	{
 		return Interval::unbounded(true);
 	}
@@ -2745,7 +2742,7 @@ protected:
 		return x <= 0 ? TCU_NAN : ctx.format.ulp(ret, 2.0);
 	}
 
-	Interval	getCodomain	(void) const
+	Interval	getCodomain	(const EvalContext&) const
 	{
 		return Interval(0.0, TCU_INFINITY);
 	}
@@ -2760,7 +2757,7 @@ public:
 				{}
 protected:
 	double		precision	(const EvalContext& ctx, double ret, double x) const;
-	Interval	getCodomain	(void) const
+	Interval	getCodomain	(const EvalContext&) const
 	{
 		return Interval(0.0, TCU_INFINITY);
 	}
@@ -2775,8 +2772,7 @@ double ExpFunc <Signature<float, float> >::precision (const EvalContext& ctx, do
 		return ctx.format.ulp(ret, 3.0 + 2.0 * deAbs(x));
 	case glu::PRECISION_MEDIUMP:
 	case glu::PRECISION_LAST:
-		return ctx.isShaderFloat16Int8 ?	ctx.format.ulp(ret, 1.0 + 2.0 * deAbs(x)) :
-											ctx.format.ulp(ret, 2.0 + 2.0 * deAbs(x));
+		return ctx.format.ulp(ret, 1.0 + 2.0 * deAbs(x));
 	default:
 		DE_FATAL("Impossible");
 	}
@@ -3078,7 +3074,7 @@ protected:
 		return Interval();
 	}
 
-	Interval	getCodomain				(void) const
+	Interval	getCodomain				(const EvalContext&) const
 	{
 		// Ensure that result is always within [-1, 1], or NaN (for +-inf)
 		return Interval(-1.0, 1.0) | TCU_NAN;
@@ -3220,15 +3216,17 @@ public:
 			ATan		(void) : CFloatFunc1<T>	("atan", deAtanOver) {}
 
 protected:
-	double	precision	(const EvalContext& ctx, double ret, double x) const
+	double	precision	(const EvalContext& ctx, double ret, double) const
 	{
-		if (x < -DE_PI_DOUBLE * 0.5 || x > DE_PI_DOUBLE * 0.5)
-		return TCU_NAN;
-
 		if (ctx.floatPrecision == glu::PRECISION_HIGHP)
 			return ctx.format.ulp(ret, 4096.0);
 		else
-			return ctx.format.ulp(ret, ctx.isShaderFloat16Int8 ? 5.0 : 2.0);
+			return ctx.format.ulp(ret, 5.0);
+	}
+
+	Interval getCodomain(const EvalContext& ctx) const
+	{
+		return ctx.format.roundOut(Interval(-0.5 * DE_PI_DOUBLE, 0.5 * DE_PI_DOUBLE), true);
 	}
 };
 
@@ -3270,7 +3268,10 @@ protected:
 			return ctx.format.ulp(ret, 5.0);
 	}
 
-	// Codomain could be [-pi, pi], but that would probably be too strict.
+	Interval getCodomain(const EvalContext& ctx) const
+	{
+		return ctx.format.roundOut(Interval(-DE_PI_DOUBLE, DE_PI_DOUBLE), true);
+	}
 };
 
 ExprP<float> atan2	(const ExprP<float>& x, const ExprP<float>& y)	{ return app<ATan2<Signature<float, float, float> > >(x, y); }
@@ -4521,6 +4522,22 @@ protected:
 	}
 };
 
+template <>
+Interval LdExp <Signature<double, double, int>>::doApply(const EvalContext& ctx, const IArgs& iargs) const
+{
+	const int minExp = ctx.format.getMinExp();
+	const int maxExp = ctx.format.getMaxExp();
+	// Restrictions from the GLSL.std.450 instruction set.
+	// See Khronos bugzilla 11180 for rationale.
+	bool any = iargs.a.hasNaN() || iargs.b.hi() > (maxExp + 1);
+	Interval ret(any, ldexp(iargs.a.lo(), (int)iargs.b.lo()), ldexp(iargs.a.hi(), (int)iargs.b.hi()));
+	// Add 1ULP precision tolerance to account for differing rounding modes between the GPU and deLdExp.
+	ret += Interval(-ctx.format.ulp(ret.lo()), ctx.format.ulp(ret.hi()));
+	if (iargs.b.lo() < minExp) ret |= 0.0;
+	if (!ret.isFinite()) ret |= TCU_NAN;
+	return ctx.format.convert(ret);
+}
+
 template<int Rows, int Columns, class T>
 class Transpose : public PrimitiveFunc<Signature<Matrix<T, Rows, Columns>,
 												 Matrix<T, Columns, Rows> > >
@@ -5641,46 +5658,38 @@ static bool isDenorm16(deFloat16 v)
 	return ((exponent & v) == 0 && (mantissa & v) != 0);
 }
 
-//! Generate a random float from a reasonable general-purpose distribution.
-float DefaultSampling<float>::genRandom (const FloatFormat&	format,
-										 Precision			prec,
-										 Random&			rnd,
-										 const Interval&	inputRange) const
+//! Generate a random double from a reasonable general-purpose distribution.
+double randomDouble(const FloatFormat& format, Random& rnd, const Interval& inputRange)
 {
-	DE_UNREF(prec);
 	// No testing of subnormals. TODO: Could integrate float controls for some operations.
 	const int		minExp			= format.getMinExp();
 	const int		maxExp			= format.getMaxExp();
 	const bool		haveSubnormal	= false;
-	const float		midpoint		= static_cast<float>(inputRange.midpoint());
+	const double	midpoint		= inputRange.midpoint();
 
 	// Choose exponent so that the cumulative distribution is cubic.
 	// This makes the probability distribution quadratic, with the peak centered on zero.
 	const double	minRoot			= deCbrt(minExp - 0.5 - (haveSubnormal ? 1.0 : 0.0));
 	const double	maxRoot			= deCbrt(maxExp + 0.5);
 	const int		fractionBits	= format.getFractionBits();
-	const int		exp				= int(deRoundEven(dePow(rnd.getDouble(minRoot, maxRoot),
-															3.0)));
-	float			base			= 0.0f; // integral power of two
-	float			quantum			= 0.0f; // smallest representable difference in the binade
-	float			significand		= 0.0f; // Significand.
-	float			value			= -1.0f;
-	DE_ASSERT(fractionBits < std::numeric_limits<float>::digits);
+	const int		exp				= int(deRoundEven(dePow(rnd.getDouble(minRoot, maxRoot), 3.0)));
 
 	// Generate some occasional special numbers
 	switch (rnd.getInt(0, 64))
 	{
-		case 0:		return inputRange.contains(0)				? 0				: midpoint; break;
-		case 1:		return inputRange.contains(TCU_INFINITY)	? TCU_INFINITY	: midpoint; break;
-		case 2:		return inputRange.contains(-TCU_INFINITY)	? -TCU_INFINITY	: midpoint; break;
-		case 3:		return inputRange.contains(TCU_NAN)			? TCU_NAN		: midpoint; break;
+		case 0:		return inputRange.contains(0)				? 0				: midpoint;
+		case 1:		return inputRange.contains(TCU_INFINITY)	? TCU_INFINITY	: midpoint;
+		case 2:		return inputRange.contains(-TCU_INFINITY)	? -TCU_INFINITY	: midpoint;
+		case 3:		return inputRange.contains(TCU_NAN)			? TCU_NAN		: midpoint;
 		default:	break;
 	}
 
-	// Normal number
-	base = deFloatLdExp(1.0f, exp);
-	quantum = deFloatLdExp(1.0f, exp - fractionBits);
+	DE_ASSERT(fractionBits < std::numeric_limits<double>::digits);
 
+	// Normal number
+	double base = deLdExp(1.0, exp);
+	double quantum = deLdExp(1.0, exp - fractionBits); // smallest representable difference in the binade
+	double significand = 0.0;
 	switch (rnd.getInt(0, 16))
 	{
 		case 0: // The highest number in this binade, significand is all bits one.
@@ -5695,14 +5704,23 @@ float DefaultSampling<float>::genRandom (const FloatFormat&	format,
 		default: // Random (evenly distributed) significand.
 		{
 			deUint64 intFraction = rnd.getUint64() & ((1 << fractionBits) - 1);
-			significand = float(intFraction) * quantum;
+			significand = double(intFraction) * quantum;
 		}
 	}
 
 	// Produce positive numbers more often than negative.
-	value = (rnd.getInt(0, 3) == 0 ? -1.0f : 1.0f) * (base + significand);
+	double value = (rnd.getInt(0, 3) == 0 ? -1.0 : 1.0) * (base + significand);
+	return inputRange.contains(value) ? value : midpoint;
+}
 
-	return inputRange.contains(static_cast<double>(value)) ? value : midpoint;
+//! Generate a random float from a reasonable general-purpose distribution.
+float DefaultSampling<float>::genRandom (const FloatFormat&	format,
+										 Precision			prec,
+										 Random&			rnd,
+										 const Interval&	inputRange) const
+{
+	DE_UNREF(prec);
+	return (float)randomDouble(format, rnd, inputRange);
 }
 
 //! Generate a standard set of floats that should always be tested.
@@ -5745,6 +5763,8 @@ void DefaultSampling<float>::removeNotInRange (vector<float>& dst, const Interva
 {
 	for (vector<float>::iterator it = dst.begin(); it < dst.end();)
 	{
+		// Remove out of range values. PRECISION_LAST means this is an FP16 test so remove any values that
+		// will be denorms when converted to FP16. (This is used in the precision_fp16_storage32b test group).
 		if ( !inputRange.contains(static_cast<double>(*it)) || (prec == glu::PRECISION_LAST && isDenorm16(deFloat32To16Round(*it, DE_ROUNDINGMODE_TO_ZERO))))
 			it = dst.erase(it);
 		else
@@ -5759,61 +5779,7 @@ double DefaultSampling<double>::genRandom (const FloatFormat&	format,
 										   const Interval&		inputRange) const
 {
 	DE_UNREF(prec);
-	// No testing of subnormals. TODO: Could integrate float controls for some operations.
-	const int		minExp			= format.getMinExp();
-	const int		maxExp			= format.getMaxExp();
-	const bool		haveSubnormal	= false;
-	const double	midpoint		= inputRange.midpoint();
-
-	// Choose exponent so that the cumulative distribution is cubic.
-	// This makes the probability distribution quadratic, with the peak centered on zero.
-	const double	minRoot			= deCbrt(minExp - 0.5 - (haveSubnormal ? 1.0 : 0.0));
-	const double	maxRoot			= deCbrt(maxExp + 0.5);
-	const int		fractionBits	= format.getFractionBits();
-	const int		exp				= int(deRoundEven(dePow(rnd.getDouble(minRoot, maxRoot),
-															3.0)));
-	double			base			= 0.0; // integral power of two
-	double			quantum			= 0.0; // smallest representable difference in the binade
-	double			significand		= 0.0; // Significand.
-	double			value			= -1.0;
-	DE_ASSERT(fractionBits < std::numeric_limits<double>::digits);
-
-	// Generate some occasional special numbers
-	switch (rnd.getInt(0, 64))
-	{
-		case 0:		return inputRange.contains(0)				? 0				: midpoint; break;
-		case 1:		return inputRange.contains(TCU_INFINITY)	? TCU_INFINITY	: midpoint; break;
-		case 2:		return inputRange.contains(-TCU_INFINITY)	? -TCU_INFINITY	: midpoint; break;
-		case 3:		return inputRange.contains(TCU_NAN)			? TCU_NAN		: midpoint; break;
-		default:	break;
-	}
-
-	// Normal number
-	base = deLdExp(1.0, exp);
-	quantum = deLdExp(1.0, exp - fractionBits);
-
-	switch (rnd.getInt(0, 16))
-	{
-		case 0: // The highest number in this binade, significand is all bits one.
-			significand = base - quantum;
-			break;
-		case 1: // Significand is one.
-			significand = quantum;
-			break;
-		case 2: // Significand is zero.
-			significand = 0.0;
-			break;
-		default: // Random (evenly distributed) significand.
-		{
-			deUint64 intFraction = rnd.getUint64() & ((1 << fractionBits) - 1);
-			significand = double(intFraction) * quantum;
-		}
-	}
-
-	// Produce positive numbers more often than negative.
-	value = (rnd.getInt(0, 3) == 0 ? -1.0 : 1.0) * (base + significand);
-
-	return inputRange.contains(value) ? value : midpoint;
+	return randomDouble(format, rnd, inputRange);
 }
 
 //! Generate a standard set of floats that should always be tested.
@@ -5851,11 +5817,11 @@ void DefaultSampling<double>::genFixeds (const FloatFormat& format, const Precis
 	removeNotInRange(dst, inputRange, prec);
 }
 
-void DefaultSampling<double>::removeNotInRange (vector<double>& dst, const Interval& inputRange, const Precision prec) const
+void DefaultSampling<double>::removeNotInRange (vector<double>& dst, const Interval& inputRange, const Precision) const
 {
 	for (vector<double>::iterator it = dst.begin(); it < dst.end();)
 	{
-		if ( !inputRange.contains(*it) || (prec == glu::PRECISION_LAST && isDenorm16(deFloat64To16Round(*it, DE_ROUNDINGMODE_TO_ZERO))))
+		if ( !inputRange.contains(*it) )
 			it = dst.erase(it);
 		else
 			++it;
@@ -5877,61 +5843,7 @@ deFloat16 DefaultSampling<deFloat16>::genRandom (const FloatFormat& format, cons
 												Random& rnd, const Interval& inputRange) const
 {
 	DE_UNREF(prec);
-	const int		minExp			= format.getMinExp();
-	const int		maxExp			= format.getMaxExp();
-	const bool		haveSubnormal	= false;
-	const deUint16	midpoint		= deFloat32To16Round(static_cast<float>(inputRange.midpoint()), DE_ROUNDINGMODE_TO_NEAREST_EVEN);
-
-	// Choose exponent so that the cumulative distribution is cubic.
-	// This makes the probability distribution quadratic, with the peak centered on zero.
-	const double	minRoot			= deCbrt(minExp - 0.5 - (haveSubnormal ? 1.0 : 0.0));
-	const double	maxRoot			= deCbrt(maxExp + 0.5);
-	const int		fractionBits	= format.getFractionBits();
-	const int		exp				= int(deRoundEven(dePow(rnd.getDouble(minRoot, maxRoot),
-															3.0)));
-	float			base			= 0.0f; // integral power of two
-	float			quantum			= 0.0f; // smallest representable difference in the binade
-	float			significand		= 0.0f; // Significand.
-
-	DE_ASSERT(fractionBits < std::numeric_limits<float>::digits);
-
-	// Generate some occasional special numbers
-	switch (rnd.getInt(0, 64))
-	{
-		case 0:		return inputRange.contains(static_cast<double>(deFloat16To32(0))) ? 0 : midpoint;
-		case 1:		return inputRange.contains(static_cast<double>(deFloat16To32(deUint16(0x7c00)))) ? deUint16(0x7c00) : midpoint;	//INFINITY
-		case 2:		return inputRange.contains(static_cast<double>(deFloat16To32(deUint16(0xfcf0)))) ? deUint16(0xfcf0) : midpoint;	//INFINITY
-		case 3:		return inputRange.contains(static_cast<double>(deFloat16To32(deUint16(0xfc0f)))) ? deUint16(0xfc0f) : midpoint;	//NaN
-		default:	break;
-	}
-
-	// Normal number
-	base = deFloatLdExp(1.0f, exp);
-	quantum = deFloatLdExp(1.0f, exp - fractionBits);
-
-	switch (rnd.getInt(0, 16))
-	{
-		case 0: // The highest number in this binade, significand is all bits one.
-			significand = base - quantum;
-			break;
-		case 1: // Significand is one.
-			significand = quantum;
-			break;
-		case 2: // Significand is zero.
-			significand = 0.0;
-			break;
-		default: // Random (evenly distributed) significand.
-		{
-			deUint64 intFraction = rnd.getUint64() & ((1 << fractionBits) - 1);
-			significand = deFloat16(intFraction) * quantum;
-		}
-	}
-
-	// Produce positive numbers more often than negative.
-	float value			= (rnd.getInt(0, 3) == 0 ? -1.0f : 1.0f) * (base + significand);
-	deFloat16 value16b	= deFloat32To16Round(value, DE_ROUNDINGMODE_TO_NEAREST_EVEN);
-
-	return inputRange.contains(static_cast<double>(value16b)) ? value16b : midpoint;
+	return deFloat64To16Round(randomDouble(format, rnd, inputRange), DE_ROUNDINGMODE_TO_NEAREST_EVEN);
 }
 
 //! Generate a standard set of floats that should always be tested.
@@ -6337,7 +6249,7 @@ tcu::TestStatus BuiltinPrecisionCaseTestInstance<In, Out>::iterate (void)
 		env.lookup(*m_variables.in3) = convert<In3>(fmt, round(fmt, inputs.in3[valueNdx]));
 
 		{
-			EvalContext	ctx (fmt, m_caseCtx.precision, env, 0, m_context.getShaderFloat16Int8Features().shaderFloat16 != 0u);
+			EvalContext	ctx (fmt, m_caseCtx.precision, env, 0);
 			m_stmt->execute(ctx);
 
 			switch (outCount)

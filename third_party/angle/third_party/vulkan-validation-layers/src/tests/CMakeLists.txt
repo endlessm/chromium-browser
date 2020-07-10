@@ -63,10 +63,12 @@ endif()
 set(LIBGLM_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/libs)
 
 set(COMMON_CPP
+    vklayertests_instanceless.cpp
     vklayertests_pipeline_shader.cpp
     vklayertests_buffer_image_memory_sampler.cpp
     vklayertests_others.cpp
     vklayertests_best_practices.cpp
+    vklayertests_gpu.cpp
     vklayertests_descriptor_renderpass_framebuffer.cpp
     vklayertests_command.cpp
     vklayertests_imageless_framebuffer.cpp
@@ -103,6 +105,7 @@ target_include_directories(vk_layer_validation_tests
                                   ${PROJECT_SOURCE_DIR}/layers/generated
                                   ${GLSLANG_SPIRV_INCLUDE_DIR}
                                   ${SPIRV_TOOLS_INCLUDE_DIR}
+                                  ${SPIRV_HEADERS_INCLUDE_DIR}
                                   ${CMAKE_CURRENT_BINARY_DIR}
                                   ${CMAKE_BINARY_DIR}
                                   ${PROJECT_BINARY_DIR}

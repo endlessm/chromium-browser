@@ -651,9 +651,9 @@ class HelperFileOutputGenerator(OutputGenerator):
                 '    };',
                 '    typedef std::vector<%s> %s;' % (req_type, req_vec_type),
                 '    struct %s {' % info_type,
-                '       %s(ExtEnabled %s::* state_, const %s requires_): state(state_), requires(requires_) {}' % ( info_type, struct_type, req_vec_type),
+                '       %s(ExtEnabled %s::* state_, const %s requirements_): state(state_), requirements(requirements_) {}' % ( info_type, struct_type, req_vec_type),
                 '       ExtEnabled %s::* state;' % struct_type,
-                '       %s requires;' % req_vec_type,
+                '       %s requirements;' % req_vec_type,
                 '    };',
                 '',
                 '    typedef std::unordered_map<std::string,%s> %s;' % (info_type, info_map_type),
@@ -1431,7 +1431,13 @@ class HelperFileOutputGenerator(OutputGenerator):
                                 decorated_length = member.len
                                 for other_member in item.members:
                                     decorated_length = re.sub(r'\b({})\b'.format(other_member.name), r'in_struct->\1', decorated_length)
-                                construct_txt += '    if (in_struct->%s) {\n' % member.name
+                                concurrent_clause = ''
+                                sharing_mode_name = 's'
+                                if member.name == 'pQueueFamilyIndices':
+                                    if item.name == 'VkSwapchainCreateInfoKHR':
+                                        sharing_mode_name = 'imageS'
+                                    concurrent_clause = '(in_struct->%sharingMode == VK_SHARING_MODE_CONCURRENT) && ' % sharing_mode_name
+                                construct_txt += '    if (%sin_struct->%s) {\n' % (concurrent_clause, member.name)
                                 construct_txt += '        %s = new %s[%s];\n' % (member.name, m_type, decorated_length)
                                 construct_txt += '        memcpy ((void *)%s, (void *)in_struct->%s, sizeof(%s)*%s);\n' % (member.name, member.name, m_type, decorated_length)
                                 construct_txt += '    }\n'

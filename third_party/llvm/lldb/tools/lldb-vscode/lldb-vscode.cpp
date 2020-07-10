@@ -418,7 +418,16 @@ void EventThreadFunction() {
               bp.MatchesName(BreakpointBase::GetBreakpointLabel())) {
             auto bp_event = CreateEventObject("breakpoint");
             llvm::json::Object body;
-            body.try_emplace("breakpoint", CreateBreakpoint(bp));
+            // As VSCode already knows the path of this breakpoint, we don't
+            // need to send it back as part of a "changed" event. This
+            // prevent us from sending to VSCode paths that should be source
+            // mapped. Note that CreateBreakpoint doesn't apply source mapping.
+            // Besides, the current implementation of VSCode ignores the
+            // "source" element of breakpoint events.
+            llvm::json::Value source_bp = CreateBreakpoint(bp);
+            source_bp.getAsObject()->erase("source");
+
+            body.try_emplace("breakpoint", source_bp);
             body.try_emplace("reason", "changed");
             bp_event.try_emplace("body", std::move(body));
             g_vsc.SendJSON(llvm::json::Value(std::move(bp_event)));
@@ -521,16 +530,17 @@ void request_attach(const llvm::json::Object &request) {
   g_vsc.stop_commands = GetStrings(arguments, "stopCommands");
   g_vsc.exit_commands = GetStrings(arguments, "exitCommands");
   auto attachCommands = GetStrings(arguments, "attachCommands");
-  g_vsc.stop_at_entry = GetBoolean(arguments, "stopOnEntry", false);
-  const auto debuggerRoot = GetString(arguments, "debuggerRoot");
+  llvm::StringRef core_file = GetString(arguments, "coreFile");
+  g_vsc.stop_at_entry =
+      core_file.empty() ? GetBoolean(arguments, "stopOnEntry", false) : true;
+  const llvm::StringRef debuggerRoot = GetString(arguments, "debuggerRoot");
 
   // This is a hack for loading DWARF in .o files on Mac where the .o files
   // in the debug map of the main executable have relative paths which require
   // the lldb-vscode binary to have its working directory set to that relative
   // root for the .o files in order to be able to load debug info.
-  if (!debuggerRoot.empty()) {
-    llvm::sys::fs::set_current_path(debuggerRoot.data());
-  }
+  if (!debuggerRoot.empty())
+    llvm::sys::fs::set_current_path(debuggerRoot);
 
   // Run any initialize LLDB commands the user specified in the launch.json
   g_vsc.RunInitCommands();
@@ -560,7 +570,10 @@ void request_attach(const llvm::json::Object &request) {
     // Disable async events so the attach will be successful when we return from
     // the launch call and the launch will happen synchronously
     g_vsc.debugger.SetAsync(false);
-    g_vsc.target.Attach(attach_info, error);
+    if (core_file.empty())
+      g_vsc.target.Attach(attach_info, error);
+    else
+      g_vsc.target.LoadCore(core_file.data(), error);
     // Reenable async events
     g_vsc.debugger.SetAsync(true);
   } else {
@@ -575,7 +588,7 @@ void request_attach(const llvm::json::Object &request) {
 
   SetSourceMapFromArguments(*arguments);
 
-  if (error.Success()) {
+  if (error.Success() && core_file.empty()) {
     auto attached_pid = g_vsc.target.GetProcess().GetProcessID();
     if (attached_pid == LLDB_INVALID_PROCESS_ID) {
       if (attachCommands.empty())
@@ -959,7 +972,7 @@ void request_completions(const llvm::json::Object &request) {
   for (size_t i = 0; i < count; i++) {
     std::string match = matches.GetStringAtIndex(i);
     std::string description = descriptions.GetStringAtIndex(i);
-    
+
     llvm::json::Object item;
 
     llvm::StringRef match_ref = match;
@@ -1262,7 +1275,7 @@ void request_initialize(const llvm::json::Object &request) {
   // The debug adapter supports the stepInTargetsRequest.
   body.try_emplace("supportsStepInTargetsRequest", false);
   // We need to improve the current implementation of completions in order to
-  // enable it again. For some context, this is how VSCode works: 
+  // enable it again. For some context, this is how VSCode works:
   // - VSCode sends a completion request whenever chars are added, the user
   //   triggers completion manually via CTRL-space or similar mechanisms, but
   //   not when there's a deletion. Besides, VSCode doesn't let us know which
@@ -1354,22 +1367,21 @@ void request_launch(const llvm::json::Object &request) {
   g_vsc.exit_commands = GetStrings(arguments, "exitCommands");
   auto launchCommands = GetStrings(arguments, "launchCommands");
   g_vsc.stop_at_entry = GetBoolean(arguments, "stopOnEntry", false);
-  const auto debuggerRoot = GetString(arguments, "debuggerRoot");
+  const llvm::StringRef debuggerRoot = GetString(arguments, "debuggerRoot");
 
   // This is a hack for loading DWARF in .o files on Mac where the .o files
   // in the debug map of the main executable have relative paths which require
   // the lldb-vscode binary to have its working directory set to that relative
   // root for the .o files in order to be able to load debug info.
-  if (!debuggerRoot.empty()) {
-    llvm::sys::fs::set_current_path(debuggerRoot.data());
-  }
-
-  SetSourceMapFromArguments(*arguments);
+  if (!debuggerRoot.empty())
+    llvm::sys::fs::set_current_path(debuggerRoot);
 
   // Run any initialize LLDB commands the user specified in the launch.json.
   // This is run before target is created, so commands can't do anything with
   // the targets - preRunCommands are run with the target.
   g_vsc.RunInitCommands();
+
+  SetSourceMapFromArguments(*arguments);
 
   lldb::SBError status;
   g_vsc.SetTarget(g_vsc.CreateTargetFromArguments(*arguments, status));
@@ -1595,6 +1607,24 @@ void request_scopes(const llvm::json::Object &request) {
   llvm::json::Object body;
   auto arguments = request.getObject("arguments");
   lldb::SBFrame frame = g_vsc.GetLLDBFrame(*arguments);
+  // As the user selects different stack frames in the GUI, a "scopes" request
+  // will be sent to the DAP. This is the only way we know that the user has
+  // selected a frame in a thread. There are no other notifications that are
+  // sent and VS code doesn't allow multiple frames to show variables
+  // concurrently. If we select the thread and frame as the "scopes" requests
+  // are sent, this allows users to type commands in the debugger console
+  // with a backtick character to run lldb commands and these lldb commands
+  // will now have the right context selected as they are run. If the user
+  // types "`bt" into the debugger console and we had another thread selected
+  // in the LLDB library, we would show the wrong thing to the user. If the
+  // users switches threads with a lldb command like "`thread select 14", the
+  // GUI will not update as there are no "event" notification packets that
+  // allow us to change the currently selected thread or frame in the GUI that
+  // I am aware of.
+  if (frame.IsValid()) {
+    frame.GetThread().GetProcess().SetSelectedThread(frame.GetThread());
+    frame.GetThread().SetSelectedFrame(frame.GetFrameID());
+  }
   g_vsc.variables.Clear();
   g_vsc.variables.Append(frame.GetVariables(true,   // arguments
                                             true,   // locals
@@ -1748,13 +1778,14 @@ void request_setBreakpoints(const llvm::json::Object &request) {
         const auto &existing_bp = existing_source_bps->second.find(src_bp.line);
         if (existing_bp != existing_source_bps->second.end()) {
           existing_bp->second.UpdateBreakpoint(src_bp);
-          AppendBreakpoint(existing_bp->second.bp, response_breakpoints);
+          AppendBreakpoint(existing_bp->second.bp, response_breakpoints, path,
+                           src_bp.line);
           continue;
         }
       }
       // At this point the breakpoint is new
       src_bp.SetBreakpoint(path.data());
-      AppendBreakpoint(src_bp.bp, response_breakpoints);
+      AppendBreakpoint(src_bp.bp, response_breakpoints, path, src_bp.line);
       g_vsc.source_breakpoints[path][src_bp.line] = std::move(src_bp);
     }
   }

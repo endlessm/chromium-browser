@@ -504,7 +504,7 @@ void HexagonSplitDoubleRegs::collectIndRegsForLoop(const MachineLoop *L,
 
   // Get the registers on which the loop controlling compare instruction
   // depends.
-  unsigned CmpR1 = 0, CmpR2 = 0;
+  Register CmpR1, CmpR2;
   const MachineInstr *CmpI = MRI->getVRegDef(PR);
   while (CmpI->getOpcode() == Hexagon::C2_not)
     CmpI = MRI->getVRegDef(CmpI->getOperand(1).getReg());
@@ -690,10 +690,10 @@ void HexagonSplitDoubleRegs::splitMemRef(MachineInstr *MI,
     MachineMemOperand::Flags F = MO->getFlags();
     Align A = MO->getAlign();
 
-    auto *Tmp1 = MF.getMachineMemOperand(Ptr, F, 4 /*size*/, A.value());
+    auto *Tmp1 = MF.getMachineMemOperand(Ptr, F, 4 /*size*/, A);
     LowI->addMemOperand(MF, Tmp1);
-    auto *Tmp2 = MF.getMachineMemOperand(Ptr, F, 4 /*size*/,
-                                         std::min(A, Align(4)).value());
+    auto *Tmp2 =
+        MF.getMachineMemOperand(Ptr, F, 4 /*size*/, std::min(A, Align(4)));
     HighI->addMemOperand(MF, Tmp2);
   }
 }

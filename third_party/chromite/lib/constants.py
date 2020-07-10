@@ -274,9 +274,9 @@ DEFAULT_CTS_APFE_GSURI = 'gs://chromeos-cts-apfe/'
 ANDROID_CONTAINER_PACKAGE_KEYWORD = 'android-container'
 ANDROID_VM_PACKAGE_KEYWORD = 'android-vm'
 
-ANDROID_INTERNAL_PATTERN = r'\.zip.internal$'
 ANDROID_BUCKET_URL = 'gs://android-build-chromeos/builds'
 ANDROID_MST_BUILD_BRANCH = 'git_master-arc-dev'
+# TODO(b/155088760): Remove once R80 PFQ is gone.
 ANDROID_NYC_BUILD_BRANCH = 'git_nyc-mr1-arc'
 ANDROID_PI_BUILD_BRANCH = 'git_pi-arc'
 ANDROID_QT_BUILD_BRANCH = 'git_qt-arc-dev'
@@ -287,10 +287,6 @@ ANDROID_VMMST_BUILD_BRANCH = 'git_master-arc-dev'
 assert ANDROID_VMMST_BUILD_BRANCH == ANDROID_MST_BUILD_BRANCH
 assert ANDROID_VMRVC_BUILD_BRANCH == ANDROID_RVC_BUILD_BRANCH
 
-ANDROID_GTS_BUILD_TARGETS = {
-    # "gts_arm64" is the build maintained by GMS team.
-    'XTS': ('linux-gts_arm64', r'\.zip$'),
-}
 ANDROID_MST_BUILD_TARGETS = {
     # For XkbToKcmConverter, see the comment in ANDROID_PI_BUILD_TARGETS.
     'ARM': ('linux-cheets_arm-user', r'(\.zip|/XkbToKcmConverter)$'),
@@ -302,22 +298,6 @@ ANDROID_MST_BUILD_TARGETS = {
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
-ANDROID_NYC_BUILD_TARGETS = {
-    # TODO(b/29509721): Workaround to roll adb with system image. We want to
-    # get rid of this.
-    'ARM': ('linux-cheets_arm-user', r'(\.zip|/adb)$'),
-    'X86': ('linux-cheets_x86-user', r'\.zip$'),
-    'X86_INTERNAL': ('linux-cheets_x86-user', ANDROID_INTERNAL_PATTERN),
-    'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
-    'AOSP_X86_USERDEBUG': ('linux-aosp_cheets_x86-userdebug', r'\.zip$'),
-    'SDK_TOOLS': ('linux-static_sdk_tools', r'/(aapt|adb|zipalign)$'),
-    'SDK_GOOGLE_X86_USERDEBUG': ('linux-sdk_google_cheets_x86-userdebug',
-                                 r'\.zip$'),
-    'SDK_GOOGLE_X86_64_USERDEBUG': ('linux-sdk_google_cheets_x86_64-userdebug',
-                                    r'\.zip$'),
-    'X86_64': ('linux-cheets_x86_64-user', r'\.zip$'),
-    'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
-}
 ANDROID_PI_BUILD_TARGETS = {
     # Roll XkbToKcmConverter with system image. It's a host executable and
     # doesn't depend on the target as long as it's pi-arc branch. The converter
@@ -326,6 +306,7 @@ ANDROID_PI_BUILD_TARGETS = {
     # X86 target as there's no other similar executables right now.
     # We put it in two buckets because we have separate ACLs for arm and x86.
     # http://b/128405786
+    'APPS': ('linux-apps', 'org.chromium.arc.cachebuilder.jar'),
     'ARM': ('linux-cheets_arm-user', r'(\.zip|/XkbToKcmConverter)$'),
     'ARM64': ('linux-cheets_arm64-user', r'(\.zip|/XkbToKcmConverter)$'),
     'X86': ('linux-cheets_x86-user', r'(\.zip|/XkbToKcmConverter)$'),
@@ -348,6 +329,7 @@ ANDROID_QT_BUILD_TARGETS = {
 }
 ANDROID_VMPI_BUILD_TARGETS = {
     # For XkbToKcmConverter, see the comment in ANDROID_PI_BUILD_TARGETS.
+    'APPS': ('linux-apps', 'org.chromium.arc.cachebuilder.jar'),
     'ARM_USERDEBUG': ('linux-bertha_arm-userdebug',
                       r'(\.zip|/XkbToKcmConverter)$'),
     'X86_USERDEBUG': ('linux-bertha_x86-userdebug',
@@ -366,6 +348,7 @@ ANDROID_VMMST_BUILD_TARGETS = {
 }
 ANDROID_RVC_BUILD_TARGETS = {
     # For XkbToKcmConverter, see the comment in ANDROID_PI_BUILD_TARGETS.
+    'APPS': ('linux-apps', 'org.chromium.arc.cachebuilder.jar'),
     'ARM': ('linux-cheets_arm-user', r'(\.zip|/XkbToKcmConverter)$'),
     'ARM64': ('linux-cheets_arm64-user', r'\.zip$'),
     'X86': ('linux-cheets_x86-user', r'(\.zip|/XkbToKcmConverter)$'),
@@ -375,9 +358,13 @@ ANDROID_RVC_BUILD_TARGETS = {
     'X86_USERDEBUG': ('linux-cheets_x86-userdebug', r'\.zip$'),
     'X86_64_USERDEBUG': ('linux-cheets_x86_64-userdebug', r'\.zip$'),
 }
-# TODO(b/147612469): add -user builds once they are available
 ANDROID_VMRVC_BUILD_TARGETS = {
     # For XkbToKcmConverter, see the comment in ANDROID_PI_BUILD_TARGETS.
+    'APPS': ('linux-apps', 'org.chromium.arc.cachebuilder.jar'),
+    'ARM64': ('linux-bertha_arm64-user', r'(\.zip|/XkbToKcmConverter)$'),
+    'X86': ('linux-bertha_x86-user', r'(\.zip|/XkbToKcmConverter)$'),
+    'X86_64': ('linux-bertha_x86_64-user', r'\.zip$'),
+    'ARM_USERDEBUG': ('linux-bertha_arm-userdebug', r'\.zip$'),
     'ARM64_USERDEBUG': ('linux-bertha_arm64-userdebug',
                         r'(\.zip|/XkbToKcmConverter)$'),
     'X86_USERDEBUG': ('linux-bertha_x86-userdebug',
@@ -387,6 +374,7 @@ ANDROID_VMRVC_BUILD_TARGETS = {
 
 ARC_BUCKET_URL = 'gs://chromeos-arc-images/builds'
 ARC_BUCKET_ACLS = {
+    'APPS': 'googlestorage_acl_public.txt',
     'ARM': 'googlestorage_acl_arm.txt',
     'ARM64': 'googlestorage_acl_arm.txt',
     'X86': 'googlestorage_acl_x86.txt',
@@ -395,14 +383,8 @@ ARC_BUCKET_ACLS = {
     'ARM64_USERDEBUG': 'googlestorage_acl_arm.txt',
     'X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
-    'AOSP_ARM_USERDEBUG': 'googlestorage_acl_arm.txt',
-    'AOSP_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
-    'AOSP_X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_USERDEBUG': 'googlestorage_acl_x86.txt',
     'SDK_GOOGLE_X86_64_USERDEBUG': 'googlestorage_acl_x86.txt',
-    'X86_INTERNAL': 'googlestorage_acl_internal.txt',
-    'SDK_TOOLS': 'googlestorage_acl_public.txt',
-    'XTS': 'googlestorage_acl_cts.txt',
 }
 ANDROID_SYMBOLS_URL_TEMPLATE = (
     ARC_BUCKET_URL +
@@ -420,16 +402,15 @@ ARC_BUILDS_NEED_ARTIFACTS_RENAMED = {
     'ARM64_USERDEBUG',
     'X86_USERDEBUG',
     'X86_64_USERDEBUG',
-    'AOSP_ARM_USERDEBUG',
-    'AOSP_X86_USERDEBUG',
-    'AOSP_X86_64_USERDEBUG',
     'SDK_GOOGLE_X86_USERDEBUG',
     'SDK_GOOGLE_X86_64_USERDEBUG',
 }
 # All builds will have the same name without target prefix.
 # Emerge checksum failures will be workarounded by ebuild rename symbol (->).
 ARC_ARTIFACTS_RENAME_NOT_NEEDED = [
+    'push_to_device.zip',
     'sepolicy.zip',
+    'XkbToKcmConverter',
 ]
 
 GOB_COOKIE_PATH = os.path.expanduser('~/.git-credential-cache/cookie')
@@ -641,8 +622,6 @@ HWTEST_MOBLAB_SUITE = 'moblab'
 HWTEST_MOBLAB_QUICK_SUITE = 'moblab_quick'
 HWTEST_SANITY_SUITE = 'sanity'
 HWTEST_TOOLCHAIN_SUITE = 'toolchain-tests'
-HWTEST_CTS_QUAL_SUITE = 'arc-cts-qual'
-HWTEST_GTS_QUAL_SUITE = 'arc-gts-qual'
 # Non-blocking informational hardware tests for Chrome, run throughout the
 # day on tip-of-trunk Chrome rather than on the daily Chrome branch.
 HWTEST_CHROME_INFORMATIONAL = 'chrome-informational'
@@ -935,7 +914,6 @@ CHROME_GARDENER_REVIEW_EMAIL = 'chrome-os-gardeners@google.com'
 # Useful config targets.
 CANARY_MASTER = 'master-release'
 PFQ_MASTER = 'master-chromium-pfq'
-MST_ANDROID_PFQ_MASTER = 'master-mst-android-pfq'
 VMMST_ANDROID_PFQ_MASTER = 'master-vmmst-android-pfq'
 PI_ANDROID_PFQ_MASTER = 'master-pi-android-pfq'
 VMPI_ANDROID_PFQ_MASTER = 'master-vmpi-android-pfq'
@@ -988,7 +966,11 @@ ACTIVE_BUCKETS = [
 ]
 
 # Build retry limit on buildbucket
-BUILDBUCKET_BUILD_RETRY_LIMIT = 2
+#
+# 2->1 on 2020-05-13 by engeg@: This is rarely effective, causes confusion,
+# higher bot utilization, and if the initial try was past uploading artifacts
+# then the retry is destined to fail with a difficult to parse error.
+BUILDBUCKET_BUILD_RETRY_LIMIT = 1
 
 # TODO(nxia): consolidate all run.metadata key constants,
 # add a unit test to avoid duplicated keys in run_metadata

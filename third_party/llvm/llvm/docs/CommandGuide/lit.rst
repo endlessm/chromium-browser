@@ -165,10 +165,8 @@ SELECTION OPTIONS
 .. option:: --max-time=N
 
  Spend at most ``N`` seconds (approximately) running tests and then terminate.
-
-.. option:: --shuffle
-
- Run the tests in a random order.
+ Note that this is not an alias for :option:`--timeout`; the two are
+ different kinds of maximums.
 
 .. option:: --num-shards=M
 
@@ -186,6 +184,16 @@ SELECTION OPTIONS
  provided. The two options must be used together, and the value of ``N``
  must be in the range ``1..M``. The environment variable
  ``LIT_RUN_SHARD`` can also be used in place of this option.
+
+.. option:: --shuffle
+
+ Run the tests in a random order.
+
+.. option:: --timeout=N
+
+ Spend at most ``N`` seconds (approximately) running each individual test.
+ ``0`` means no time limit, and ``0`` is the default. Note that this is not an
+ alias for :option:`--max-time`; the two are different kinds of maximums.
 
 .. option:: --filter=REGEXP
 
@@ -457,10 +465,10 @@ modules :ref:`local-configuration-files`.
 By default, substitutions are expanded exactly once, so that if e.g. a
 substitution ``%build`` is defined in top of another substitution ``%cxx``,
 ``%build`` will expand to ``%cxx`` textually, not to what ``%cxx`` expands to.
-However, if the ``recursiveExpansionLimit`` property of the ``LitConfig`` is
-set to a non-negative integer, substitutions will be expanded recursively until
-that limit is reached. It is an error if the limit is reached and expanding
-substitutions again would yield a different result.
+However, if the ``recursiveExpansionLimit`` property of the ``TestingConfig``
+is set to a non-negative integer, substitutions will be expanded recursively
+until that limit is reached. It is an error if the limit is reached and
+expanding substitutions again would yield a different result.
 
 More detailed information on substitutions can be found in the
 :doc:`../TestingGuide`.

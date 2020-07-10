@@ -74,7 +74,7 @@ void GrDrawOpAtlas::setMaxPages_TestingOnly(uint32_t maxPages) {
 
 class DummyEvict : public GrDrawOpAtlas::EvictionCallback {
 public:
-    void evict(GrDrawOpAtlas::PlotLocator plotLocator) override {
+    void evict(GrDrawOpAtlas::PlotLocator) override {
         SkASSERT(0); // The unit test shouldn't exercise this code path
     }
 };
@@ -114,7 +114,7 @@ private:
 static bool fill_plot(GrDrawOpAtlas* atlas,
                       GrResourceProvider* resourceProvider,
                       GrDeferredUploadTarget* target,
-                      GrDrawOpAtlas::PlotLocator* plotLocator,
+                      GrDrawOpAtlas::AtlasLocator* atlasLocator,
                       int alpha) {
     SkImageInfo ii = SkImageInfo::MakeA8(kPlotSize, kPlotSize);
 
@@ -122,10 +122,9 @@ static bool fill_plot(GrDrawOpAtlas* atlas,
     data.allocPixels(ii);
     data.eraseARGB(alpha, 0, 0, 0);
 
-    SkIPoint16 loc;
     GrDrawOpAtlas::ErrorCode code;
-    code = atlas->addToAtlas(resourceProvider, plotLocator, target, kPlotSize, kPlotSize,
-                              data.getAddr(0, 0), &loc);
+    code = atlas->addToAtlas(resourceProvider, target, kPlotSize, kPlotSize,
+                             data.getAddr(0, 0), atlasLocator);
     return GrDrawOpAtlas::ErrorCode::kSucceeded == code;
 }
 
@@ -160,10 +159,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BasicDrawOpAtlas, reporter, ctxInfo) {
     check(reporter, atlas.get(), 0, 4, 0);
 
     // Fill up the first level
-    GrDrawOpAtlas::PlotLocator plotLocators[kNumPlots * kNumPlots];
+    GrDrawOpAtlas::AtlasLocator atlasLocators[kNumPlots * kNumPlots];
     for (int i = 0; i < kNumPlots * kNumPlots; ++i) {
         bool result = fill_plot(
-                atlas.get(), resourceProvider, &uploadTarget, &plotLocators[i], i * 32);
+                atlas.get(), resourceProvider, &uploadTarget, &atlasLocators[i], i * 32);
         REPORTER_ASSERT(reporter, result);
         check(reporter, atlas.get(), 1, 4, 1);
     }
@@ -172,14 +171,14 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(BasicDrawOpAtlas, reporter, ctxInfo) {
     check(reporter, atlas.get(), 1, 4, 1);
 
     // Force allocation of a second level
-    GrDrawOpAtlas::PlotLocator plotLocator;
-    bool result = fill_plot(atlas.get(), resourceProvider, &uploadTarget, &plotLocator, 4 * 32);
+    GrDrawOpAtlas::AtlasLocator atlasLocator;
+    bool result = fill_plot(atlas.get(), resourceProvider, &uploadTarget, &atlasLocator, 4 * 32);
     REPORTER_ASSERT(reporter, result);
     check(reporter, atlas.get(), 2, 4, 2);
 
     // Simulate a lot of draws using only the first plot. The last texture should be compacted.
     for (int i = 0; i < 512; ++i) {
-        atlas->setLastUseToken(plotLocators[0], uploadTarget.tokenTracker()->nextDrawToken());
+        atlas->setLastUseToken(atlasLocators[0], uploadTarget.tokenTracker()->nextDrawToken());
         uploadTarget.issueDrawToken();
         uploadTarget.flushToken();
         atlas->compact(uploadTarget.tokenTracker()->nextTokenToFlush());
@@ -210,9 +209,11 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation, reporter, ctxInfo) 
     font.setEdging(SkFont::Edging::kAlias);
 
     const char* text = "a";
+    SkSimpleMatrixProvider matrixProvider(SkMatrix::I());
 
-    std::unique_ptr<GrDrawOp> op = textContext->createOp_TestingOnly(
-            context, textContext, rtc.get(), paint, font, SkMatrix::I(), text, 16, 16);
+    std::unique_ptr<GrDrawOp> op =
+            textContext->createOp_TestingOnly(context, textContext, rtc.get(), paint, font,
+                                              matrixProvider, text, 16, 16);
     bool hasMixedSampledCoverage = false;
     op->finalize(*context->priv().caps(), nullptr, hasMixedSampledCoverage, GrClampType::kAuto);
 
@@ -220,7 +221,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation, reporter, ctxInfo) 
 
     GrOpFlushState flushState(gpu, resourceProvider, uploadTarget.writeableTokenTracker());
 
-    GrSurfaceProxyView surfaceView = rtc->outputSurfaceView();
+    GrSurfaceProxyView surfaceView = rtc->writeSurfaceView();
     GrOpFlushState::OpArgs opArgs(op.get(),
                                   &surfaceView,
                                   nullptr,
