@@ -51,6 +51,12 @@ void ReleaseReservationOrTerminate() {
 
 }  // namespace
 
+#if !BUILDFLAG(USE_ALLOCATOR_SHIM) && defined(LIBC_GLIBC) && !defined(USE_TCMALLOC)
+extern "C" {
+void* __libc_malloc(size_t size);
+}  // extern C
+#endif
+
 void EnableTerminationOnHeapCorruption() {
   // On Linux, there nothing to do AFAIK.
 }
