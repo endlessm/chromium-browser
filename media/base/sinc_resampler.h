@@ -102,7 +102,7 @@ class MEDIA_EXPORT SincResampler {
   // ARM, NEON support is chosen at compile time based on compilation flags.
   static float Convolve_C(const float* input_ptr, const float* k1,
                           const float* k2, double kernel_interpolation_factor);
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
   static float Convolve_SSE(const float* input_ptr, const float* k1,
                             const float* k2,
                             double kernel_interpolation_factor);
