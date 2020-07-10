@@ -16,6 +16,7 @@
 #include "src/gpu/GrDrawOpTest.h"
 #include "src/gpu/GrDrawingManager.h"
 #include "src/gpu/GrPipeline.h"
+#include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/GrRenderTargetContextPriv.h"
 #include "src/gpu/GrXferProcessor.h"
 #include "src/gpu/effects/GrPorterDuffXferProcessor.h"
@@ -103,7 +104,7 @@ public:
         return std::unique_ptr<GrFragmentProcessor>(new BlockInputFragmentProcessor(std::move(fp)));
     }
 
-    const char* name() const override { return "Block Input"; }
+    const char* name() const override { return "Block_Input"; }
 
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override { return new GLFP; }
 
@@ -309,8 +310,10 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
         GrDrawRandomOp(&random, renderTargetContext.get(), std::move(paint));
     }
     // Flush everything, test passes if flush is successful(ie, no asserts are hit, no crashes)
-    drawingManager->flush(nullptr, 0, SkSurface::BackendSurfaceAccess::kNoAccess, GrFlushInfo(),
-                          GrPrepareForExternalIORequests());
+    if (drawingManager->flush(nullptr, 0, SkSurface::BackendSurfaceAccess::kNoAccess, GrFlushInfo(),
+                              GrPrepareForExternalIORequests())) {
+        drawingManager->submitToGpu(false);
+    }
 
     // Validate that GrFPs work correctly without an input.
     auto renderTargetContext = GrRenderTargetContext::Make(
@@ -333,8 +336,10 @@ bool GrDrawingManager::ProgramUnitTest(GrContext* context, int maxStages, int ma
             auto blockFP = BlockInputFragmentProcessor::Make(std::move(fp));
             paint.addColorFragmentProcessor(std::move(blockFP));
             GrDrawRandomOp(&random, renderTargetContext.get(), std::move(paint));
-            drawingManager->flush(nullptr, 0, SkSurface::BackendSurfaceAccess::kNoAccess,
-                                  GrFlushInfo(), GrPrepareForExternalIORequests());
+            if (drawingManager->flush(nullptr, 0, SkSurface::BackendSurfaceAccess::kNoAccess,
+                                      GrFlushInfo(), GrPrepareForExternalIORequests())) {
+                drawingManager->submitToGpu(false);
+            }
         }
     }
 
@@ -362,9 +367,12 @@ static int get_programs_max_stages(const sk_gpu_test::ContextInfo& ctxInfo) {
             maxStages = 3;
 #endif
         }
-        if (ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D9_ES2_ContextType ||
-            ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D11_ES2_ContextType) {
-            // On Angle D3D we will hit a limit of out variables if we use too many stages.
+        // On Angle D3D we will hit a limit of out variables if we use too many stages. This is
+        // particularly true on D3D9 with a low limit on varyings and the fact that every varying is
+        // packed as though it has 4 components.
+        if (ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D9_ES2_ContextType) {
+            maxStages = 2;
+        } else if (ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D11_ES2_ContextType) {
             maxStages = 3;
         }
     }

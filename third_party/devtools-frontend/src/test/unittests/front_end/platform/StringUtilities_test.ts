@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 import {StringUtilities} from '../../../../front_end/platform/platform.js';
+import {FORMATTER_TOKEN} from '../../../../front_end/platform/string-utilities.js';
 
 const {assert} = chai;
 
@@ -13,14 +14,14 @@ describe('StringUtilities', () => {
       const charsToEscape = '\'';
       const outputString = StringUtilities.escapeCharacters(inputString, charsToEscape);
 
-      assert.equal(outputString, 'My string with a single quote \\\' in the middle');
+      assert.strictEqual(outputString, 'My string with a single quote \\\' in the middle');
     });
 
     it('leaves the string alone if the characters are not found', () => {
       const inputString = 'Just a boring string';
       const charsToEscape = '\'';
       const outputString = StringUtilities.escapeCharacters(inputString, charsToEscape);
-      assert.equal(outputString, inputString);
+      assert.strictEqual(outputString, inputString);
     });
   });
 
@@ -37,7 +38,8 @@ describe('StringUtilities', () => {
         ['\u0444\u5555\u6666\u7777', '0YTllZXmmabnnbc='],
       ]);
       for (const [inputString, encodedString] of fixtures) {
-        assert.equal(encodedString, StringUtilities.toBase64(inputString), `failed to encode ${inputString} correctly`);
+        assert.strictEqual(
+            encodedString, StringUtilities.toBase64(inputString), `failed to encode ${inputString} correctly`);
       }
     });
   });
@@ -81,7 +83,7 @@ describe('StringUtilities', () => {
         ['https://example.com/foo[]', 'example.com/foo[]'],
       ]);
       for (const [url, expected] of fixtures) {
-        assert.equal(StringUtilities.trimURL(url, baseURLDomain), expected, url);
+        assert.strictEqual(StringUtilities.trimURL(url, baseURLDomain), expected, url);
       }
     });
   });
@@ -90,24 +92,24 @@ describe('StringUtilities', () => {
     it('collapses consecutive whitespace chars down to a single one', () => {
       const inputString = 'look                at this!';
       const outputString = StringUtilities.collapseWhitespace(inputString);
-      assert.equal(outputString, 'look at this!');
+      assert.strictEqual(outputString, 'look at this!');
     });
 
     it('matches globally and collapses all whitespace sections', () => {
       const inputString = 'a     b           c';
       const outputString = StringUtilities.collapseWhitespace(inputString);
-      assert.equal(outputString, 'a b c');
+      assert.strictEqual(outputString, 'a b c');
     });
   });
 
   describe('reverse', () => {
     it('reverses the string', () => {
       const inputString = 'abc';
-      assert.equal(StringUtilities.reverse(inputString), 'cba');
+      assert.strictEqual(StringUtilities.reverse(inputString), 'cba');
     });
 
     it('does nothing to an empty string', () => {
-      assert.equal('', StringUtilities.reverse(''));
+      assert.strictEqual('', StringUtilities.reverse(''));
     });
   });
 
@@ -126,13 +128,399 @@ describe('StringUtilities', () => {
 
       const replacementCharacter = '\uFFFD';
       const expectedString = charsThatShouldBeEscaped.fill(replacementCharacter).join('');
-      assert.equal(outputString, expectedString);
+      assert.strictEqual(outputString, expectedString);
     });
 
     it('does not replace \n \t or \r', () => {
       const inputString = '\nhello world\t\r';
       const outputString = StringUtilities.replaceControlCharacters(inputString);
-      assert.equal(inputString, outputString);
+      assert.strictEqual(inputString, outputString);
+    });
+  });
+
+  describe('countWtf8Bytes', () => {
+    it('produces the correct WTF-8 byte size', () => {
+      assert.strictEqual(StringUtilities.countWtf8Bytes('a'), 1);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\x7F'), 1);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\u07FF'), 2);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\uD800'), 3);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\uDBFF'), 3);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\uDC00'), 3);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\uDFFF'), 3);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\uFFFF'), 3);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('\u{10FFFF}'), 4);
+      assert.strictEqual(StringUtilities.countWtf8Bytes('Iñtërnâtiônàlizætiøn☃💩'), 34);
+
+      // An arbitrary lead surrogate (D800..DBFF).
+      const leadSurrogate = '\uDABC';
+      // An arbitrary trail surrogate (DC00..DFFF).
+      const trailSurrogate = '\uDEF0';
+      assert.strictEqual(StringUtilities.countWtf8Bytes(`${leadSurrogate}${trailSurrogate}`), 4);
+      assert.strictEqual(StringUtilities.countWtf8Bytes(`${trailSurrogate}${leadSurrogate}`), 6);
+      assert.strictEqual(StringUtilities.countWtf8Bytes(`${leadSurrogate}`), 3);
+      assert.strictEqual(StringUtilities.countWtf8Bytes(`${trailSurrogate}`), 3);
+    });
+  });
+
+  describe('stripLineBreaks', () => {
+    it('strips linebreaks from strings', () => {
+      assert.strictEqual(StringUtilities.stripLineBreaks('a\nb'), 'ab');
+      assert.strictEqual(StringUtilities.stripLineBreaks('a\r\nb'), 'ab');
+    });
+  });
+
+  describe('tokenizeFormatString', () => {
+    it('deals with tokenizers that return undefined', () => {
+      const tokens = StringUtilities.tokenizeFormatString('%c%s', {
+        c: () => {},
+        s: () => {},
+      });
+      assert.deepEqual(tokens, [
+        {
+          value: undefined,
+          precision: -1,
+          specifier: 'c',
+          substitutionIndex: 0,
+          type: 'specifier',
+        },
+        {
+          value: undefined,
+          precision: -1,
+          specifier: 's',
+          substitutionIndex: 1,
+          type: 'specifier',
+        },
+      ]);
+    });
+
+    it('deals with ANSI colors', () => {
+      const types = [3, 9, 4, 10];
+      const colors = [];
+      for (const type of types) {
+        for (let i = 0; i < 10; ++i) {
+          colors.push(type * 10 + i);
+        }
+      }
+
+      const tokens = StringUtilities.tokenizeFormatString(colors.map(c => `\u001b[${c}m`).join(''), {c: () => {}});
+
+      const expectedTokens: FORMATTER_TOKEN[] = [
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: black',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: red',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: green',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: yellow',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: blue',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: magenta',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: cyan',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightGray',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: default',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: darkGray',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightRed',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightGreen',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightYellow',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightBlue',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightMagenta',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: lightCyan',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'color: white',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : black',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : red',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : green',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : yellow',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : blue',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : magenta',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : cyan',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightGray',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : default',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : darkGray',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightRed',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightGreen',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightYellow',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightBlue',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightMagenta',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : lightCyan',
+          },
+        },
+        {
+          precision: undefined,
+          substitutionIndex: undefined,
+          specifier: 'c',
+          type: 'specifier',
+          value: {
+            description: 'background : white',
+          },
+        },
+      ];
+
+      assert.deepEqual(tokens, expectedTokens);
+    });
+  });
+
+  describe('toTitleCase', () => {
+    it('converts a string to title case', () => {
+      const output = StringUtilities.toTitleCase('foo bar baz');
+      assert.strictEqual(output, 'Foo bar baz');
     });
   });
 });

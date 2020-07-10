@@ -17,16 +17,6 @@
 #include "layer_validation_tests.h"
 
 void VkBestPracticesLayerTest::InitBestPracticesFramework() {
-    VkValidationFeatureEnableEXT enables[] = {VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT};
-    VkValidationFeatureDisableEXT disables[] = {VK_VALIDATION_FEATURE_DISABLE_ALL_EXT};
-
-    VkValidationFeaturesEXT features = {};
-    features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
-    features.enabledValidationFeatureCount = 1;
-    features.disabledValidationFeatureCount = 1;
-    features.pEnabledValidationFeatures = enables;
-    features.pDisabledValidationFeatures = disables;
-
     // Enable all vendor-specific checks
 #if defined(_WIN32)
     SetEnvironmentVariable("VK_LAYER_ENABLES", "VALIDATION_CHECK_ENABLE_VENDOR_SPECIFIC_ALL;");
@@ -34,15 +24,80 @@ void VkBestPracticesLayerTest::InitBestPracticesFramework() {
     setenv("VK_LAYER_ENABLES", "VALIDATION_CHECK_ENABLE_VENDOR_SPECIFIC_ALL:", true);
 #endif
 
-    InitFramework(m_errorMonitor, &features);
+    InitFramework(m_errorMonitor, &features_);
 }
 
-TEST_F(VkBestPracticesLayerTest, UseDeprecatedExtensions) {
-    TEST_DESCRIPTION("Create an instance and device with a deprecated extension.");
-
+TEST_F(VkBestPracticesLayerTest, ValidateReturnCodes) {
     uint32_t version = SetTargetApiVersion(VK_API_VERSION_1_2);
-    if (version <= VK_API_VERSION_1_0) {
-        printf("%s At least Vulkan version 1.1 is required for instance, skipping test.\n", kSkipPrefix);
+    if (version < VK_API_VERSION_1_1) {
+        printf("%s At least Vulkan version 1.2 is required, skipping test.\n", kSkipPrefix);
+        return;
+    }
+
+    if (!AddSurfaceInstanceExtension()) {
+        printf("%s surface extensions not supported, skipping test\n", kSkipPrefix);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitBestPracticesFramework());
+
+    if (!AddSwapchainDeviceExtension()) {
+        printf("%s swapchain extensions not supported, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    if (!InitSwapchain()) {
+        printf("%s Cannot create surface or swapchain, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    // Attempt to force an invalid return code for an unsupported format
+    VkImageFormatProperties2 image_format_prop = {};
+    image_format_prop.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+    VkPhysicalDeviceImageFormatInfo2 image_format_info = {};
+    image_format_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2;
+    image_format_info.format = VK_FORMAT_R32G32B32_SFLOAT;
+    image_format_info.tiling = VK_IMAGE_TILING_LINEAR;
+    image_format_info.type = VK_IMAGE_TYPE_3D;
+    image_format_info.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+
+    VkResult result = vk::GetPhysicalDeviceImageFormatProperties2(m_device->phy().handle(), &image_format_info, &image_format_prop);
+    // Only run this test if this super-wierd format is not supported
+    if (VK_SUCCESS != result) {
+        m_errorMonitor->SetDesiredFailureMsg(kWarningBit, "UNASSIGNED-BestPractices-Error-Result");
+        vk::GetPhysicalDeviceImageFormatProperties2(m_device->phy().handle(), &image_format_info, &image_format_prop);
+        m_errorMonitor->VerifyFound();
+    }
+
+    if (IsPlatform(kMockICD) || DeviceSimulation()) {
+        printf("%s Test not supported by MockICD, skipping test case.\n", kSkipPrefix);
+        return;
+    }
+
+    // Force a non-success success code by only asking for a subset of query results
+    uint32_t format_count;
+    std::vector<VkSurfaceFormatKHR> formats;
+    result = vk::GetPhysicalDeviceSurfaceFormatsKHR(gpu(), m_surface, &format_count, NULL);
+    if (result != VK_SUCCESS || format_count <= 1) {
+        printf("%s test requires 2 or more extensions available, skipping test.\n", kSkipPrefix);
+        return;
+    }
+    format_count -= 1;
+    formats.resize(format_count);
+
+    m_errorMonitor->SetDesiredFailureMsg(kInformationBit, "UNASSIGNED-BestPractices-NonSuccess-Result");
+    result = vk::GetPhysicalDeviceSurfaceFormatsKHR(gpu(), m_surface, &format_count, formats.data());
+    m_errorMonitor->VerifyFound();
+}
+
+TEST_F(VkBestPracticesLayerTest, UseDeprecatedInstanceExtensions) {
+    TEST_DESCRIPTION("Create an instance with a deprecated extension.");
+
+    uint32_t version = SetTargetApiVersion(VK_API_VERSION_1_1);
+    if (version < VK_API_VERSION_1_1) {
+        printf("%s At least Vulkan version 1.1 is required, skipping test.\n", kSkipPrefix);
         return;
     }
 
@@ -54,8 +109,32 @@ TEST_F(VkBestPracticesLayerTest, UseDeprecatedExtensions) {
     }
 
     m_errorMonitor->SetDesiredFailureMsg(kWarningBit, "UNASSIGNED-BestPractices-vkCreateInstance-deprecated-extension");
-    InitBestPracticesFramework();
+    VkInstance dummy;
+    auto features = features_;
+    auto ici = GetInstanceCreateInfo();
+    features.pNext = ici.pNext;
+    ici.pNext = &features;
+    vk::CreateInstance(&ici, nullptr, &dummy);
     m_errorMonitor->VerifyFound();
+}
+
+TEST_F(VkBestPracticesLayerTest, UseDeprecatedDeviceExtensions) {
+    TEST_DESCRIPTION("Create a device with a deprecated extension.");
+
+    uint32_t version = SetTargetApiVersion(VK_API_VERSION_1_2);
+    if (version < VK_API_VERSION_1_2) {
+        printf("%s At least Vulkan version 1.2 is required, skipping test.\n", kSkipPrefix);
+        return;
+    }
+
+    if (InstanceExtensionSupported(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME)) {
+        m_instance_extension_names.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    } else {
+        printf("%s Did not find %s extension, skipped.\n", kSkipPrefix, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitBestPracticesFramework());
 
     if (DeviceValidationVersion() < VK_API_VERSION_1_2) {
         printf("%s At least Vulkan version 1.2 is required for device, skipping test\n", kSkipPrefix);
@@ -657,7 +736,7 @@ TEST_F(VkArmBestPracticesLayerTest, MultisampledBlending) {
     rp_info.pSubpasses = &subpass;
 
     vk::CreateRenderPass(m_device->device(), &rp_info, nullptr, &m_renderPass);
-    renderPass_info_ = rp_info;
+    m_renderPass_info = rp_info;
 
     VkPipelineMultisampleStateCreateInfo pipe_ms_state_ci = {};
     pipe_ms_state_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -741,4 +820,238 @@ TEST_F(VkArmBestPracticesLayerTest, ManySmallIndexedDrawcalls) {
 
     m_commandBuffer->EndRenderPass();
     m_commandBuffer->end();
+}
+
+TEST_F(VkArmBestPracticesLayerTest, SuboptimalDescriptorReuseTest) {
+    TEST_DESCRIPTION("Test for validation warnings of potentially suboptimal re-use of descriptor set allocations");
+
+    InitBestPracticesFramework();
+    InitState();
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    VkDescriptorPoolSize ds_type_count = {};
+    ds_type_count.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    ds_type_count.descriptorCount = 3;
+
+    VkDescriptorPoolCreateInfo ds_pool_ci = {};
+    ds_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    ds_pool_ci.pNext = NULL;
+    ds_pool_ci.maxSets = 6;
+    ds_pool_ci.poolSizeCount = 1;
+    ds_pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    ds_pool_ci.pPoolSizes = &ds_type_count;
+
+    VkDescriptorPool ds_pool;
+    VkResult err = vk::CreateDescriptorPool(m_device->device(), &ds_pool_ci, NULL, &ds_pool);
+    ASSERT_VK_SUCCESS(err);
+
+    VkDescriptorSetLayoutBinding ds_binding = {};
+    ds_binding.binding = 0;
+    ds_binding.descriptorCount = 1;
+    ds_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+
+    VkDescriptorSetLayoutCreateInfo ds_layout_info = {};
+    ds_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    ds_layout_info.bindingCount = 1;
+    ds_layout_info.pBindings = &ds_binding;
+
+    VkDescriptorSetLayout ds_layout;
+    err = vk::CreateDescriptorSetLayout(m_device->device(), &ds_layout_info, nullptr, &ds_layout);
+    ASSERT_VK_SUCCESS(err);
+
+    auto ds_layouts = std::vector<VkDescriptorSetLayout>(ds_pool_ci.maxSets, ds_layout);
+
+    std::vector<VkDescriptorSet> descriptor_sets = {};
+    descriptor_sets.resize(ds_layouts.size());
+
+    // allocate N/2 descriptor sets
+    VkDescriptorSetAllocateInfo alloc_info = {};
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.descriptorPool = ds_pool;
+    alloc_info.descriptorSetCount = descriptor_sets.size() / 2;
+    alloc_info.pSetLayouts = ds_layouts.data();
+
+    err = vk::AllocateDescriptorSets(m_device->device(), &alloc_info, descriptor_sets.data());
+    ASSERT_VK_SUCCESS(err);
+
+    // free one descriptor set
+    VkDescriptorSet* ds = descriptor_sets.data();
+    err = vk::FreeDescriptorSets(m_device->device(), ds_pool, 1, ds);
+
+    // the previous allocate and free should not cause any warning
+    ASSERT_VK_SUCCESS(err);
+    m_errorMonitor->VerifyNotFound();
+
+    // allocate the previously freed descriptor set
+    alloc_info = {};
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.descriptorPool = ds_pool;
+    alloc_info.descriptorSetCount = 1;
+    alloc_info.pSetLayouts = ds_layouts.data();
+
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
+                                         "UNASSIGNED-BestPractices-vkAllocateDescriptorSets-suboptimal-reuse");
+
+    err = vk::AllocateDescriptorSets(m_device->device(), &alloc_info, ds);
+
+    // this should create a validation warning, in addition to the appropriate warning message
+    m_errorMonitor->VerifyFound();
+
+    // allocate the remaining descriptor sets (N - (N/2))
+    alloc_info.descriptorSetCount = descriptor_sets.size() - (descriptor_sets.size() / 2);
+    err = vk::AllocateDescriptorSets(m_device->device(), &alloc_info, ds);
+
+    // this should create no validation warnings
+    m_errorMonitor->VerifyNotFound();
+}
+
+TEST_F(VkArmBestPracticesLayerTest, SparseIndexBufferTest) {
+    TEST_DESCRIPTION(
+        "Test for appropriate warnings to be thrown when recording an indexed draw call with sparse/non-sparse index buffers.");
+
+    InitBestPracticesFramework();
+    InitState();
+    ASSERT_NO_FATAL_FAILURE(InitViewport());
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    if (IsPlatform(kMockICD) || DeviceSimulation()) {
+        printf("%s Test not supported by MockICD, skipping tests\n", kSkipPrefix);
+        return;
+    }
+
+    // create a non-sparse index buffer
+    std::vector<uint16_t> nonsparse_indices;
+    nonsparse_indices.resize(128);
+    for (unsigned i = 0; i < nonsparse_indices.size(); i++) {
+        nonsparse_indices[i] = i;
+    }
+
+    std::vector<uint16_t> sparse_indices = nonsparse_indices;
+    // The buffer (0, 1, 2, ..., n) is completely un-sparse. However, if n < 0xFFFF, by adding 0xFFFF at the end, we
+    // should trigger a warning due to loading all the indices in the range 0 to 0xFFFF, despite indices in the range
+    // (n+1) to (0xFFFF - 1) not being used.
+    sparse_indices[sparse_indices.size() - 1] = 0xFFFF;
+
+    VkConstantBufferObj nonsparse_ibo(m_device, nonsparse_indices.size() * sizeof(uint16_t), nonsparse_indices.data(),
+                                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    VkConstantBufferObj sparse_ibo(m_device, sparse_indices.size() * sizeof(uint16_t), sparse_indices.data(),
+                                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+    CreatePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.InitState();
+    pipe.ia_ci_.primitiveRestartEnable = VK_FALSE;
+    pipe.CreateGraphicsPipeline();
+
+    // pipeline with primitive restarts enabled
+    CreatePipelineHelper pr_pipe(*this);
+    pr_pipe.InitInfo();
+    pr_pipe.InitState();
+    pr_pipe.ia_ci_.primitiveRestartEnable = VK_TRUE;
+    pr_pipe.CreateGraphicsPipeline();
+
+    m_commandBuffer->begin();
+    m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
+
+    auto test_pipelines = [&](VkConstantBufferObj& ibo, size_t index_count, bool expect_error) -> void {
+        vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
+        m_commandBuffer->BindIndexBuffer(&ibo, static_cast<VkDeviceSize>(0), VK_INDEX_TYPE_UINT16);
+        m_errorMonitor->VerifyNotFound();
+
+        // the validation layer will only be able to analyse mapped memory, it's too expensive otherwise to do in the layer itself
+        ibo.memory().map();
+        if (expect_error)
+            m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
+                                                 "UNASSIGNED-BestPractices-vkCmdDrawIndexed-sparse-index-buffer");
+        m_commandBuffer->DrawIndexed(index_count, 0, 0, 0, 0);
+        m_errorMonitor->VerifyFound();
+        ibo.memory().unmap();
+
+        vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pr_pipe.pipeline_);
+        m_commandBuffer->BindIndexBuffer(&ibo, static_cast<VkDeviceSize>(0), VK_INDEX_TYPE_UINT16);
+        m_errorMonitor->VerifyNotFound();
+
+        ibo.memory().map();
+        if (expect_error)
+            m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
+                                                 "UNASSIGNED-BestPractices-vkCmdDrawIndexed-sparse-index-buffer");
+        m_commandBuffer->DrawIndexed(index_count, 0, 0, 0, 0);
+        m_errorMonitor->VerifyFound();
+        ibo.memory().unmap();
+    };
+
+    // our non-sparse indices should not trigger a warning for both pipelines in this case
+    test_pipelines(nonsparse_ibo, nonsparse_indices.size(), false);
+    // our sparse indices should trigger warnings for both pipelines in this case
+    test_pipelines(sparse_ibo, sparse_indices.size(), true);
+}
+
+TEST_F(VkArmBestPracticesLayerTest, PostTransformVertexCacheThrashingIndicesTest) {
+    TEST_DESCRIPTION(
+        "Test for appropriate warnings to be thrown when recording an indexed draw call where the indices thrash the "
+        "post-transform vertex cache.");
+
+    InitBestPracticesFramework();
+    InitState();
+    ASSERT_NO_FATAL_FAILURE(InitViewport());
+    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
+
+    if (IsPlatform(kMockICD) || DeviceSimulation()) {
+        printf("%s Test not supported by MockICD, skipping tests\n", kSkipPrefix);
+        return;
+    }
+
+    CreatePipelineHelper pipe(*this);
+    pipe.InitInfo();
+    pipe.InitState();
+    pipe.CreateGraphicsPipeline();
+
+    m_commandBuffer->begin();
+    m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
+    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline_);
+
+    std::vector<uint16_t> worst_indices;
+    worst_indices.resize(128 * 16);
+    for (size_t i = 0; i < 16; i++) {
+        for (size_t j = 0; j < 128; j++) {
+            // worst case index buffer sequence for re-use
+            // (0, 1, 2, 3, ..., 127, 0, 1, 2, 3, ..., 127, 0, 1, 2, ...<x16>)
+            worst_indices[j + i * 128] = j;
+        }
+    }
+
+    std::vector<uint16_t> best_indices;
+    best_indices.resize(128 * 16);
+    for (size_t i = 0; i < 16; i++) {
+        for (size_t j = 0; j < 128; j++) {
+            // best case index buffer sequence for re-use
+            // (0, 0, 0, ...<x16>, 1, 1, 1, ...<x16>, 2, 2, 2, ...<x16> , ..., 127)
+            best_indices[i + j * 16] = j;
+        }
+    }
+
+    // make sure the worst-case indices throw a warning
+    VkConstantBufferObj worst_ibo(m_device, worst_indices.size() * sizeof(uint16_t), worst_indices.data(),
+                                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    m_commandBuffer->BindIndexBuffer(&worst_ibo, static_cast<VkDeviceSize>(0), VK_INDEX_TYPE_UINT16);
+    m_errorMonitor->VerifyNotFound();
+
+    // the validation layer will only be able to analyse mapped memory, it's too expensive otherwise to do in the layer itself
+    worst_ibo.memory().map();
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT,
+                                         "UNASSIGNED-BestPractices-vkCmdDrawIndexed-post-transform-cache-thrashing");
+    m_commandBuffer->DrawIndexed(worst_indices.size(), 0, 0, 0, 0);
+    m_errorMonitor->VerifyFound();
+    worst_ibo.memory().unmap();
+
+    // make sure that the best-case indices don't throw a warning
+    VkConstantBufferObj best_ibo(m_device, best_indices.size() * sizeof(uint16_t), best_indices.data(),
+                                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    m_commandBuffer->BindIndexBuffer(&best_ibo, static_cast<VkDeviceSize>(0), VK_INDEX_TYPE_UINT16);
+    m_errorMonitor->VerifyNotFound();
+
+    best_ibo.memory().map();
+    m_commandBuffer->DrawIndexed(best_indices.size(), 0, 0, 0, 0);
+    m_errorMonitor->VerifyNotFound();
+    best_ibo.memory().unmap();
 }

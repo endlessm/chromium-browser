@@ -2785,6 +2785,8 @@ tcu::TextureFormat mapVkFormat (VkFormat format)
 		case VK_FORMAT_R32G32B32A32_SINT:		return TextureFormat(TextureFormat::RGBA,	TextureFormat::SIGNED_INT32);
 		case VK_FORMAT_R32G32B32A32_SFLOAT:		return TextureFormat(TextureFormat::RGBA,	TextureFormat::FLOAT);
 
+		case VK_FORMAT_R64_UINT:				return TextureFormat(TextureFormat::R,		TextureFormat::UNSIGNED_INT64);
+		case VK_FORMAT_R64_SINT:				return TextureFormat(TextureFormat::R,		TextureFormat::SIGNED_INT64);
 		case VK_FORMAT_R64_SFLOAT:				return TextureFormat(TextureFormat::R,		TextureFormat::FLOAT64);
 		case VK_FORMAT_R64G64_SFLOAT:			return TextureFormat(TextureFormat::RG,		TextureFormat::FLOAT64);
 		case VK_FORMAT_R64G64B64_SFLOAT:		return TextureFormat(TextureFormat::RGB,	TextureFormat::FLOAT64);
@@ -3490,7 +3492,7 @@ static VkBorderColor mapBorderColor (tcu::TextureChannelClass channelClass, cons
 	}
 
 	DE_FATAL("Unsupported border color");
-	return VK_BORDER_COLOR_LAST;
+	return VK_BORDER_COLOR_MAX_ENUM;
 }
 
 VkSamplerCreateInfo mapSampler (const tcu::Sampler& sampler, const tcu::TextureFormat& format, float minLod, float maxLod, bool unnormal)

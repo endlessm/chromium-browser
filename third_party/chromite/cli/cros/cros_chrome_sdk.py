@@ -10,6 +10,7 @@ from __future__ import print_function
 import argparse
 import collections
 import contextlib
+import datetime
 import glob
 import json
 import os
@@ -134,7 +135,6 @@ class SDKFetcher(object):
     if clear_cache:
       logging.warning('Clearing the SDK cache.')
       osutils.RmDir(self.cache_base, ignore_missing=True)
-      self._RemoveOldCacheDir()
     self.tarball_cache = cache.TarballCache(
         os.path.join(self.cache_base, self.TARBALL_CACHE))
     self.misc_cache = cache.DiskCache(
@@ -162,13 +162,6 @@ class SDKFetcher(object):
 
     if self.toolchain_path is None:
       self.toolchain_path = 'gs://%s' % constants.SDK_GS_BUCKET
-
-  def _RemoveOldCacheDir(self):
-    """Deletes old cache directory."""
-    checkout = path_util.DetermineCheckout()
-    if checkout.type == path_util.CHECKOUT_TYPE_GCLIENT:
-      old_path = os.path.join(checkout.root, path_util.OLD_CHROME_CACHE_DIR)
-      osutils.RmDir(old_path, ignore_missing=True)
 
   def _UpdateTarball(self, url, ref):
     """Worker function to fetch tarballs"""
@@ -242,6 +235,65 @@ class SDKFetcher(object):
     return version
 
   @classmethod
+  def _LookupMiscCache(cls, cache_dir, key):
+    """Looks up an item in the misc cache.
+
+    This should be used when inspecting an SDK that's already been initialized
+    elsewhere.
+
+    Args:
+      cache_dir: The toplevel cache dir to search in.
+      key: Key of item in the cache.
+
+    Returns:
+      Value of the item, or None if the item is missing.
+    """
+    misc_cache_path = os.path.join(cache_dir, COMMAND_NAME, cls.MISC_CACHE)
+    misc_cache = cache.DiskCache(misc_cache_path)
+    with misc_cache.Lookup(key) as ref:
+      if ref.Exists(lock=True):
+        return osutils.ReadFile(ref.path).strip()
+    return None
+
+  @classmethod
+  def GetSDKVersion(cls, cache_dir, board):
+    """Looks up the SDK version.
+
+    Look at the environment variable, and then the misc cache.
+
+    Args:
+      cache_dir: The toplevel cache dir to search in.
+      board: The board to search for.
+
+    Returns:
+      SDK version string, if found.
+    """
+    sdk_version = os.environ.get(cls.SDK_VERSION_ENV)
+    if sdk_version:
+      return sdk_version
+
+    assert board
+    return cls._LookupMiscCache(cache_dir, (board, 'latest'))
+
+  @classmethod
+  def GetCachedFullVersion(cls, cache_dir, board):
+    """Get full version from the misc cache.
+
+    Args:
+      cache_dir: The toplevel cache dir to search in.
+      board: The board to search for.
+
+    Returns:
+      Full version from the misc cache, if found.
+    """
+    assert board
+    sdk_version = cls.GetSDKVersion(cache_dir, board)
+    if not sdk_version:
+      return None
+
+    return cls._LookupMiscCache(cache_dir, ('full-version', board, sdk_version))
+
+  @classmethod
   def GetCachePath(cls, key, cache_dir, board):
     """Gets the path to an item in the cache.
 
@@ -260,18 +312,9 @@ class SDKFetcher(object):
     if board is None:
       return None
 
-    # Get the version by looking at the env var if we're in the SDK shell, and
-    # failing that, look at the misc cache.
-    sdk_version = os.environ.get(cls.SDK_VERSION_ENV)
+    sdk_version = cls.GetSDKVersion(cache_dir, board)
     if not sdk_version:
-      misc_cache_path = os.path.join(
-          cache_dir, COMMAND_NAME, cls.MISC_CACHE)
-      misc_cache = cache.DiskCache(misc_cache_path)
-      with misc_cache.Lookup((board, 'latest')) as ref:
-        if ref.Exists(lock=True):
-          sdk_version = osutils.ReadFile(ref.path).strip()
-      if not sdk_version:
-        return None
+      return None
 
     # Look up the cache entry in the symlink cache.
     symlink_cache_path = os.path.join(
@@ -282,6 +325,36 @@ class SDKFetcher(object):
       if ref.Exists():
         return ref.path
     return None
+
+  @classmethod
+  def ClearOldItems(cls, cache_dir, max_age_days=28):
+    """Removes old items from the tarball cache older than max_age_days.
+
+    Inspects the entire cache, not just a single board's items.
+
+    Args:
+      cache_dir: Location of the cache to be cleaned up.
+      max_age_days: Any item in the cache not created/modified within this
+        amount of time will be removed.
+    """
+    tarball_cache_path = os.path.join(
+        cache_dir, COMMAND_NAME, cls.TARBALL_CACHE)
+    tarball_cache = cache.TarballCache(tarball_cache_path)
+    tarball_cache.DeleteStale(datetime.timedelta(days=max_age_days))
+
+    # Now clean up any links in the symlink cache that are dangling due to the
+    # removal of items above.
+    symlink_cache_path = os.path.join(
+        cache_dir, COMMAND_NAME, cls.SYMLINK_CACHE)
+    symlink_cache = cache.DiskCache(symlink_cache_path)
+    removed_keys = set()
+    for key in symlink_cache.ListKeys():
+      link_path = symlink_cache.GetKeyPath(key)
+      if not os.path.exists(os.path.realpath(link_path)):
+        symlink_cache.Lookup(key).Remove()
+        removed_keys.add((key[0], key[1]))
+    for board, version in removed_keys:
+      logging.debug('Evicted SDK for %s-%s from the cache.', board, version)
 
   @memoize.Memoize
   def _GetSDKVersion(self, version):
@@ -404,8 +477,8 @@ class SDKFetcher(object):
       Version number in the format 'R30-3929.0.0' or None.
     """
     try:
-       # If the version doesn't exist in google storage,
-       # which isn't unlikely, don't waste time on retries.
+      # If the version doesn't exist in google storage,
+      # which isn't unlikely, don't waste time on retries.
       full_version = self.gs_ctx.Cat(version_file, retries=0, encoding='utf-8')
       assert full_version.startswith('R')
       return full_version
@@ -702,7 +775,6 @@ class ChromeSDKCommand(command.CliCommand):
   _GOMA_TGZ = 'goma-goobuntu.tgz'
 
   _CHROME_CLANG_DIR = 'third_party/llvm-build/Release+Asserts/bin'
-  _HOST_BINUTILS_DIR = 'third_party/binutils/Linux_x64/Release/bin/'
   _BUILD_ARGS_DIR = 'build/args/chromeos/'
 
   EBUILD_ENV_PATHS = (
@@ -755,7 +827,16 @@ class ChromeSDKCommand(command.CliCommand):
   def AddParser(cls, parser):
     super(ChromeSDKCommand, cls).AddParser(parser)
     parser.add_argument(
-        '--board', required=True, help='The board SDK to use.')
+        '--board', required=False, help='The board SDK to use.')
+    parser.add_argument(
+        '--boards', required=False,
+        help='Colon-separated list of boards to fetch SDKs for. Implies '
+             '--no-shell since a shell is tied to a single board. Used to '
+             'quickly setup cache and build dirs for multiple boards at once.')
+    parser.add_argument(
+        '--build-label', default='Release',
+        help='The label for this build. Used as a subdirectory name under '
+             'out_${BOARD}/')
     parser.add_argument(
         '--bashrc', type='path',
         default=constants.CHROME_SDK_BASHRC,
@@ -902,11 +983,6 @@ class ChromeSDKCommand(command.CliCommand):
     ps1_prefix = ChromeSDKCommand._PS1Prefix(board, version, chroot)
     return '%s %s' % (ps1_prefix, current_ps1)
 
-  def _BuildDir(self):
-    """Returns a full path build directory."""
-    return os.path.join(self.options.chrome_src, 'out_%s' % self.board,
-                        'Release')
-
   def _UpdateGnArgsIfStale(self, out_dir, build_label, gn_args, board):
     """Runs 'gn gen' if gn args are stale or logs a warning."""
     if not self.options.use_shell:
@@ -915,20 +991,21 @@ class ChromeSDKCommand(command.CliCommand):
       osutils.WriteFile(gn_args_file_path, gn_helpers.ToGNString(gn_args))
       return
 
+    build_dir = os.path.join(out_dir, build_label)
     gn_args_file_path = os.path.join(
-        self.options.chrome_src, out_dir, build_label, 'args.gn')
+        self.options.chrome_src, build_dir, 'args.gn')
 
     if not self._StaleGnArgs(gn_args, gn_args_file_path):
       return
 
     if not self.options.gn_gen:
       logging.warning('To update gn args run:')
-      logging.warning('gn gen out_$SDK_BOARD/Release --args="$GN_ARGS"')
+      logging.warning('gn gen %s --args="$GN_ARGS"', build_dir)
       return
 
     logging.warning('Running gn gen')
     cros_build_lib.run(
-        ['gn', 'gen', 'out_%s/Release' % board,
+        ['gn', 'gen', build_dir,
          '--args=%s' % gn_helpers.ToGNString(gn_args)],
         print_cmd=logging.getLogger().isEnabledFor(logging.DEBUG),
         cwd=self.options.chrome_src)
@@ -973,11 +1050,6 @@ class ChromeSDKCommand(command.CliCommand):
     env['CC_host'] = os.path.join(chrome_clang_path, 'clang')
     env['CXX_host'] = os.path.join(chrome_clang_path, 'clang++')
     env['LD_host'] = env['CXX_host']
-
-    binutils_path = os.path.join(options.chrome_src, self._HOST_BINUTILS_DIR)
-    env['AR_host'] = os.path.join(binutils_path, 'ar')
-    env['NM_host'] = os.path.join(binutils_path, 'nm')
-    env['READELF_host'] = os.path.join(binutils_path, 'readelf')
 
   def _AbsolutizeBinaryPath(self, binary, tc_path):
     """Modify toolchain path for goma build.
@@ -1081,10 +1153,6 @@ class ChromeSDKCommand(command.CliCommand):
       gn_args.pop('is_official_build', None)
       gn_args.pop('internal_gles2_conform_tests', None)
 
-    # For SimpleChrome, we use the binutils that comes bundled within Chrome.
-    # We should not use the binutils from the host system.
-    gn_args['linux_use_bundled_binutils'] = True
-
     target_tc_path = sdk_ctx.key_map[self.sdk.TARGET_TOOLCHAIN_KEY].path
     for env_path in self.EBUILD_ENV_PATHS:
       env[env_path] = self._AbsolutizeBinaryPath(env[env_path], target_tc_path)
@@ -1099,15 +1167,16 @@ class ChromeSDKCommand(command.CliCommand):
     gn_args['cros_host_cc'] = env['CC_host']
     gn_args['cros_host_cxx'] = env['CXX_host']
     gn_args['cros_host_ld'] = env['LD_host']
-    gn_args['cros_host_nm'] = env['NM_host']
-    gn_args['cros_host_ar'] = env['AR_host']
-    gn_args['cros_host_readelf'] = env['READELF_host']
     gn_args['cros_v8_snapshot_cc'] = env['CC_host']
     gn_args['cros_v8_snapshot_cxx'] = env['CXX_host']
     gn_args['cros_v8_snapshot_ld'] = env['LD_host']
-    gn_args['cros_v8_snapshot_nm'] = env['NM_host']
-    gn_args['cros_v8_snapshot_ar'] = env['AR_host']
-    gn_args['cros_v8_snapshot_readelf'] = env['READELF_host']
+    # Let Chromium's build files pick defaults for the following.
+    gn_args.pop('cros_host_nm', None)
+    gn_args.pop('cros_host_ar', None)
+    gn_args.pop('cros_host_readelf', None)
+    gn_args.pop('cros_v8_snapshot_nm', None)
+    gn_args.pop('cros_v8_snapshot_ar', None)
+    gn_args.pop('cros_v8_snapshot_readelf', None)
     # No need to adjust CFLAGS and CXXFLAGS for GN since the only
     # adjustment made in _SetupTCEnvironment is for split debug which
     # is done with 'use_debug_fission'.
@@ -1130,6 +1199,9 @@ class ChromeSDKCommand(command.CliCommand):
       gn_args['use_thin_lto'] = False
     if not options.cfi:
       gn_args['is_cfi'] = False
+    # When using Goma and ThinLTO, distribute ThinLTO code generation on Goma.
+    gn_args['use_goma_thin_lto'] = (
+        gn_args.get('use_goma', False) and gn_args.get('use_thin_lto', False))
     # We need to remove the flag -Wl,-plugin-opt,-import-instr-limit=$num
     # from cros_target_extra_ldflags if options.thinlto is not set.
     # The format of ld flags is something like
@@ -1178,14 +1250,13 @@ class ChromeSDKCommand(command.CliCommand):
     out_dir = 'out_%s' % self.board
     env['builddir_name'] = out_dir
 
-    build_label = 'Release'
-
     # This is used by landmines.py to prevent collisions when building both
     # chromeos and android from shared source.
     # For context, see crbug.com/407417
     env['CHROMIUM_OUT_DIR'] = os.path.join(options.chrome_src, out_dir)
 
-    self._UpdateGnArgsIfStale(out_dir, build_label, gn_args, env['SDK_BOARD'])
+    self._UpdateGnArgsIfStale(
+        out_dir, options.build_label, gn_args, env['SDK_BOARD'])
 
     return env
 
@@ -1279,6 +1350,14 @@ class ChromeSDKCommand(command.CliCommand):
 
     goma_dir = self.options.gomadir
     if not goma_dir:
+      goma_dir_cmd = ['goma_ctl', 'goma_dir']
+      goma_dir = cros_build_lib.run(
+          goma_dir_cmd, check=False, capture_output=True,
+          encoding='utf-8').stdout.strip()
+
+    # TODO(crbug.com/1072400): Remove use of Goma in legacy location.
+    if not goma_dir or not os.path.exists(os.path.join(goma_dir, 'gomacc')):
+      logging.warning('Falling back to legacy Goma location')
       ref = common_cache.Lookup(('goma', '2'))
       if not ref.Exists():
         Log('Installing Goma.', silent=self.silent)
@@ -1328,6 +1407,13 @@ class ChromeSDKCommand(command.CliCommand):
 
   def Run(self):
     """Perform the command."""
+    if bool(self.options.board) == bool(self.options.boards):
+      cros_build_lib.Die('Must specify either one of --board or --boards.')
+
+    if self.options.boards and self.options.use_shell:
+      cros_build_lib.Die(
+          'Must specify --no-shell when preparing multiple boards.')
+
     if os.environ.get(SDKFetcher.SDK_VERSION_ENV) is not None:
       cros_build_lib.Die('Already in an SDK shell.')
 
@@ -1343,11 +1429,23 @@ class ChromeSDKCommand(command.CliCommand):
     if self.options.cfi and not self.options.thinlto:
       cros_build_lib.Die('CFI requires ThinLTO.')
 
+    # Remove old SDKs from the cache to avoid wasting disk space.
+    SDKFetcher.ClearOldItems(self.options.cache_dir)
+
+    if self.options.board:
+      return self._RunOnceForBoard(self.options.board)
+    else:
+      self.options.boards = self.options.boards.split(':')
+      for board in self.options.boards:
+        self._RunOnceForBoard(board)
+
+  def _RunOnceForBoard(self, board):
+    """Internal implementation of Run() above for a single board."""
     self.silent = bool(self.options.cmd)
     # Lazy initialize because SDKFetcher creates a GSContext() object in its
     # constructor, which may block on user input.
     self.sdk = SDKFetcher(
-        self.options.cache_dir, self.options.board,
+        self.options.cache_dir, board,
         clear_cache=self.options.clear_sdk_cache,
         chrome_src=self.options.chrome_src,
         sdk_path=self.options.sdk_path,
@@ -1378,7 +1476,7 @@ class ChromeSDKCommand(command.CliCommand):
     with self.sdk.Prepare(components, version=prepare_version,
                           target_tc=self.options.target_tc,
                           toolchain_url=self.options.toolchain_url) as ctx:
-      env = self._SetupEnvironment(self.options.board, ctx, self.options,
+      env = self._SetupEnvironment(board, ctx, self.options,
                                    goma_dir=goma_dir, goma_port=goma_port)
       if not self.options.use_shell:
         return 0

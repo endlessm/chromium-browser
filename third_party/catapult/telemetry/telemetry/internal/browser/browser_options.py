@@ -64,6 +64,9 @@ class BrowserFinderOptions(optparse.Values):
     self.interval_profiler_options = ''
     self.capture_screen_video = False
 
+    self.experimental_system_tracing = False
+    self.experimental_system_data_sources = False
+
   def __repr__(self):
     return str(sorted(self.__dict__.items()))
 
@@ -141,6 +144,14 @@ class BrowserFinderOptions(optparse.Values):
         '--legacy-json-trace-format',
         action='store_true',
         help='Request traces from Chrome in legacy JSON format.')
+    parser.add_option(
+        '--experimental-system-tracing',
+        action='store_true',
+        help='Use system tracing from Perfetto to trace Chrome.')
+    parser.add_option(
+        '--experimental-system-data-sources',
+        action='store_true',
+        help='Use Perfetto tracing to collect power and CPU usage data.')
     identity = None
     testing_rsa = os.path.join(
         util.GetTelemetryThirdPartyDir(), 'chromite', 'ssh_keys', 'testing_rsa')
@@ -227,6 +238,14 @@ class BrowserFinderOptions(optparse.Values):
         help='The port on the host to which the ssh service running on the '
         'Fuchsia device was forwarded. Will skip using the device-finder tool '
         'if specified.')
+    group.add_option(
+        '--fuchsia-system-log-file',
+        default=None,
+        help='The file where Fuchsia system logs will be stored.')
+    group.add_option(
+        '--fuchsia-repo',
+        default="fuchsia.com",
+        help='The name of the Fuchsia repo used to serve required packages.')
     parser.add_option_group(group)
 
     # CPU profiling on Android/Linux/ChromeOS.

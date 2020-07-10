@@ -223,6 +223,9 @@ StringRef llvm::object::getELFSectionTypeName(uint32_t Machine, unsigned Type) {
       STRINGIFY_ENUM_CASE(ELF, SHT_MIPS_ABIFLAGS);
     }
     break;
+  case ELF::EM_RISCV:
+    switch (Type) { STRINGIFY_ENUM_CASE(ELF, SHT_RISCV_ATTRIBUTES); }
+    break;
   default:
     break;
   }
@@ -541,10 +544,6 @@ Expected<typename ELFT::DynRange> ELFFile<ELFT>::dynamicEntries() const {
   if (Dyn.empty())
     // TODO: this error is untested.
     return createError("invalid empty dynamic section");
-
-  if (DynSecSize % sizeof(Elf_Dyn) != 0)
-    // TODO: this error is untested.
-    return createError("malformed dynamic section");
 
   if (Dyn.back().d_tag != ELF::DT_NULL)
     // TODO: this error is untested.

@@ -133,7 +133,9 @@ private:
 	static void materializeAll();
 	static void killUnmaterialized();
 
-	static std::unordered_set<Variable *> unmaterializedVariables;
+	// This has to be a raw pointer because glibc 2.17 doesn't support __cxa_thread_atexit_impl
+	// for destructing objects at exit. See crbug.com/1074222
+	static thread_local std::unordered_set<Variable *> *unmaterializedVariables;
 
 	Type *const type;
 	mutable Value *rvalue = nullptr;
@@ -3540,6 +3542,11 @@ enum
 		ifElse__.elseClause();         \
 	}                                  \
 	else  // ELSE_BLOCK__
+
+// The OFFSET macro is a generalization of the offsetof() macro defined in <cstddef>.
+// It allows e.g. getting the offset of array elements, even when indexed dynamically.
+// We cast the address '32' and subtract it again, because null-dereference is undefined behavior.
+#define OFFSET(s, m) ((int)(size_t) & reinterpret_cast<const volatile char &>((((s *)32)->m)) - 32)
 
 }  // namespace rr
 

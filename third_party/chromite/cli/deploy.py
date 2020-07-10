@@ -954,7 +954,7 @@ def _ConfirmDeploy(num_updates):
   return True
 
 
-def _EmergePackages(pkgs, device, strip, sysroot, root, emerge_args):
+def _EmergePackages(pkgs, device, strip, sysroot, root, board, emerge_args):
   """Call _Emerge for each package in pkgs."""
   dlc_deployed = False
   for pkg_path in _GetPackagesPaths(pkgs, strip, sysroot):
@@ -964,7 +964,7 @@ def _EmergePackages(pkgs, device, strip, sysroot, root, emerge_args):
 
     dlc_id, dlc_package = _GetDLCInfo(device, pkg_path, from_dut=False)
     if dlc_id and dlc_package:
-      _DeployDLCImage(device, sysroot, dlc_id, dlc_package)
+      _DeployDLCImage(device, sysroot, board, dlc_id, dlc_package)
       dlc_deployed = True
       # Clean up empty directories created by emerging DLCs.
       device.run(['test', '-d', '/build/rootfs', '&&', 'rmdir',
@@ -997,22 +997,21 @@ def _UninstallDLCImage(device, pkg_attrs):
     dlc_id = pkg_attrs[_DLC_ID]
     logging.notice('Uninstalling DLC image for %s', dlc_id)
 
-    device.run(['sudo', '-u', 'chronos', 'dlcservice_util', '--uninstall',
-                '--dlc_ids=%s' % dlc_id])
+    device.run(['dlcservice_util', '--uninstall', '--dlc_ids=%s' % dlc_id])
     return True
   else:
     logging.debug('DLC_ID not found in package')
     return False
 
 
-def _DeployDLCImage(device, sysroot, dlc_id, dlc_package):
+def _DeployDLCImage(device, sysroot, board, dlc_id, dlc_package):
   """Deploy (install and mount) a DLC image."""
   # Build the DLC image if the image is outdated or doesn't exist.
-  build_dlc.InstallDlcImages(sysroot=sysroot, dlc_id=dlc_id)
+  build_dlc.InstallDlcImages(sysroot=sysroot, dlc_id=dlc_id, board=board)
 
   logging.debug('Uninstall DLC %s if it is installed.', dlc_id)
   try:
-    device.run(['dlcservice_util', '--dlc_ids=%s' % dlc_id, '--uninstall'])
+    device.run(['dlcservice_util', '--uninstall', '--dlc_ids=%s' % dlc_id])
   except cros_build_lib.RunCommandError as e:
     logging.info('Failed to uninstall DLC:%s. Continue anyway.',
                  e.result.error)
@@ -1193,7 +1192,7 @@ def Deploy(device, packages, board=None, emerge=True, update=False, deep=False,
       # Select function (emerge or unmerge) and bind args.
       if emerge:
         func = functools.partial(_EmergePackages, pkgs, device, strip,
-                                 sysroot, root, emerge_args)
+                                 sysroot, root, board, emerge_args)
       else:
         func = functools.partial(_UnmergePackages, pkgs, device, root,
                                  pkgs_attrs)

@@ -16,7 +16,7 @@
 
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/LLVM.h"
-#include "clang/Basic/CodeGenOptions.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetCXXABI.h"
 #include "clang/Basic/TargetOptions.h"
@@ -546,6 +546,12 @@ public:
   virtual bool hasInt128Type() const {
     return (getPointerWidth(0) >= 64) || getTargetOpts().ForceEnableInt128;
   } // FIXME
+
+  /// Determine whether the _ExtInt type is supported on this target. This
+  /// limitation is put into place for ABI reasons.
+  virtual bool hasExtIntType() const {
+    return false;
+  }
 
   /// Determine whether _Float16 is supported on this target.
   virtual bool hasLegalHalfType() const { return HasLegalHalfType; }
@@ -1138,10 +1144,10 @@ public:
   }
 
   struct BranchProtectionInfo {
-    CodeGenOptions::SignReturnAddressScope SignReturnAddr =
-        CodeGenOptions::SignReturnAddressScope::None;
-    CodeGenOptions::SignReturnAddressKeyValue SignKey =
-        CodeGenOptions::SignReturnAddressKeyValue::AKey;
+    LangOptions::SignReturnAddressScopeKind SignReturnAddr =
+        LangOptions::SignReturnAddressScopeKind::None;
+    LangOptions::SignReturnAddressKeyKind SignKey =
+        LangOptions::SignReturnAddressKeyKind::AKey;
     bool BranchTargetEnforcement = false;
   };
 

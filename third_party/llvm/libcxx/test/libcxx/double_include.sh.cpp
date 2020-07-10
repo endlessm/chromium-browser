@@ -9,6 +9,7 @@
 
 // Test that we can include each header in two TU's and link them together.
 
+// FILE_DEPENDENCIES: %t.exe
 // RUN: %{cxx} -c %s -o %t.first.o %{flags} %{compile_flags}
 // RUN: %{cxx} -c %s -o %t.second.o -DWITH_MAIN %{flags} %{compile_flags}
 // RUN: %{cxx} -o %t.exe %t.first.o %t.second.o %{flags} %{link_flags}
@@ -48,6 +49,7 @@
 #include <compare>
 #include <complex>
 #include <complex.h>
+#include <concepts>
 #include <condition_variable>
 #include <csetjmp>
 #include <csignal>

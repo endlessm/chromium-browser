@@ -52,6 +52,24 @@ class DNSFailureException(LoginException):
   pass
 
 
+def _Unquote(s):
+  """Removes any trailing/leading single/double quotes from a string.
+
+  No-ops if the given object is not a string or otherwise does not have a
+  .strip() method.
+
+  Args:
+    s: The string to remove quotes from.
+
+  Returns:
+    |s| with trailing/leading quotes removed.
+  """
+  if not hasattr(s, 'strip'):
+    return s
+  # Repeated to handle both "'foo'" and '"foo"'
+  return s.strip("'").strip('"').strip("'")
+
+
 class CrOSInterface(object):
 
   CROS_MINIDUMP_DIR = '/var/log/chrome/Crash Reports/'
@@ -66,7 +84,6 @@ class CrOSInterface(object):
     self._reserved_ports = []
 
     self._device_host_clock_offset = None
-    self._root_is_writable = False
     self._master_connection_open = False
     self._disable_strict_filenames = False
     self._board = None
@@ -106,15 +123,6 @@ class CrOSInterface(object):
   @property
   def ssh_port(self):
     return self._ssh_port
-
-  @property
-  def root_is_writable(self):
-    return self._root_is_writable
-
-  # TODO(https://crbug.com/1043953): Remove this once the issue with the root
-  # partition randomly becoming read-only is fixed.
-  def ResetRootIsWritable(self):
-    self._root_is_writable = False
 
   def OpenConnection(self):
     """Opens a master connection to the device."""
@@ -309,6 +317,8 @@ class CrOSInterface(object):
     """
     logging.debug("GetFile(%s, %s)" % (filename, destfile))
     if self.local:
+      filename = _Unquote(filename)
+      destfile = _Unquote(destfile)
       if destfile is not None and destfile != filename:
         shutil.copyfile(filename, destfile)
         return
@@ -380,26 +390,37 @@ class CrOSInterface(object):
     device_dumps = stdout.splitlines()
     for dump_filename in device_dumps:
       host_path = os.path.join(host_dir, dump_filename)
-      if not os.path.exists(host_path):
-        device_path = cmd_helper.SingleQuote(
-            posixpath.join(self.CROS_MINIDUMP_DIR, dump_filename))
-        # Skip any directories that happen to be in the list.
-        stdout, _ = self.RunCmdOnDevice(
-            ['test', '-f', device_path, '&&',
-             'echo', 'true', '||', 'echo', 'false'])
-        if 'false' in stdout:
-          continue
-        self.GetFile(device_path, host_path)
-        # Set the local version's modification time to the device's.
-        stdout, _ = self.RunCmdOnDevice(
-            ['ls', '--time-style', '+%s', '-l', device_path])
-        stdout = stdout.strip()
-        # We expect whitespace-separated fields in this order:
-        # mode, links, owner, group, size, mtime, filename.
-        # Offset by the difference of the device and host clocks.
-        device_mtime = int(stdout.split()[5])
-        host_mtime = device_mtime - time_offset
-        os.utime(host_path, (host_mtime, host_mtime))
+      # Skip any .lock files since they're not useful and could be deleted by
+      # the time we try to pull them.
+      if dump_filename.endswith('.lock'):
+        continue
+      if os.path.exists(host_path):
+        continue
+      device_path = cmd_helper.SingleQuote(
+          posixpath.join(self.CROS_MINIDUMP_DIR, dump_filename))
+      # Skip any directories that happen to be in the list.
+      stdout, _ = self.RunCmdOnDevice(['test', '-f', device_path, '&&',
+                                       'echo', 'true', '||', 'echo', 'false'])
+      if 'false' in stdout:
+        continue
+      # Skip any files that have a corresponding .lock file, as that implies the
+      # file hasn't been fully written to disk yet.
+      device_lock_path = device_path + '.lock'
+      if self.FileExistsOnDevice(device_lock_path):
+        logging.debug('Not pulling file %s because a .lock file exists for it',
+                      device_path)
+        continue
+      self.GetFile(device_path, host_path)
+      # Set the local version's modification time to the device's.
+      stdout, _ = self.RunCmdOnDevice(
+          ['ls', '--time-style', '+%s', '-l', device_path])
+      stdout = stdout.strip()
+      # We expect whitespace-separated fields in this order:
+      # mode, links, owner, group, size, mtime, filename.
+      # Offset by the difference of the device and host clocks.
+      device_mtime = int(stdout.split()[5])
+      host_mtime = device_mtime - time_offset
+      os.utime(host_path, (host_mtime, host_mtime))
 
   def GetDeviceHostClockOffset(self):
     """Returns the difference between the device and host clocks."""
@@ -542,13 +563,26 @@ class CrOSInterface(object):
     return True
 
   def _GetMountSourceAndTarget(self, path, ns=None):
-    cmd = []
+    def _RunAndSplit(cmd):
+      cmd_out, _ = self.RunCmdOnDevice(cmd)
+      return cmd_out.split('\n')
+
+    cmd = ['/bin/df', '--output=source,target', path]
+    df_ary = []
     if ns:
-      cmd.extend(['nsenter', '--mount=%s' % ns])
-    cmd.extend(['/bin/df', '--output=source,target', path])
-    df_out, _ = self.RunCmdOnDevice(cmd)
-    df_ary = df_out.split('\n')
-    # 3 lines for title, mount info, and empty line.
+      ns_cmd = ['nsenter', '--mount=%s' % ns]
+      ns_cmd.extend(cmd)
+      # Try running 'df' in the non-root mount namespace.
+      df_ary = _RunAndSplit(ns_cmd)
+
+    if len(df_ary) < 3:
+      df_ary = _RunAndSplit(cmd)
+
+    # 3 lines for title, mount info, and empty line:
+    # # df --output=source,target `cryptohome-path user '$guest'`
+    # Filesystem     Mounted on\n
+    # /dev/loop6     /home/user/a5715c406109752ce7c31dad219c85c4e812728f\n
+    #
     if len(df_ary) == 3:
       line_ary = df_ary[1].split()
       return line_ary if len(line_ary) == 2 else None
@@ -675,33 +709,6 @@ class CrOSInterface(object):
             stdout=devnull,
             stderr=devnull)
       self._master_connection_open = False
-
-  def MakeRootReadWriteIfNecessary(self):
-    """Remounts / as read-write if it is currently read-only."""
-    if self._root_is_writable:
-      return
-    write_check_cmd = ['touch', '/testfile', '&&', 'rm', '/testfile']
-    _, stderr = self.RunCmdOnDevice(write_check_cmd)
-    if stderr == '':
-      self._root_is_writable = True
-      return
-    if self.local:
-      logging.error('Root is read-only, and running in local mode, so cannot '
-                    'remount as read-write. Functionality such as stack '
-                    'symbolization will be broken.')
-      return
-    logging.warning('Root is currently read-only. Attempting to remount as '
-                    'read-write, which will disable rootfs verification and '
-                    'require a reboot.')
-    self._DisableRootFsVerification()
-    self._RemountRootAsReadWrite()
-
-    _, stderr = self.RunCmdOnDevice(write_check_cmd)
-    if stderr != '':
-      logging.error('Failed to set root to read-write. Functionality such as '
-                    'stack symbolization will be broken.')
-      return
-    self._root_is_writable = True
 
   def _DisableRootFsVerification(self):
     """Disables rootfs verification on the device, requiring a reboot."""

@@ -265,6 +265,9 @@ class SigningStage(generic_stages.BoardSpecificBuilderStage):
         if status != constants.SIGNER_STATUS_PASSED:
           failures.append(result_description)
           logging.error('Signing failed for: %s', result_description)
+          details = signer_result.get('status', {}).get('details')
+          if details:
+            logging.info('Details:\n%s', details)
 
     if failures:
       logging.error('Failure summary:')
@@ -393,6 +396,10 @@ class PaygenStage(generic_stages.BoardSpecificBuilderStage):
 
     with parallel.BackgroundTaskRunner(self._RunPaygenInProcess) as per_channel:
       logging.info('Using channels: %s', self.channels)
+
+      # Set an metadata with the channels we've had configured.
+      self._run.attrs.metadata.UpdateWithDict({'channels':
+                                               ','.join(self.channels)})
 
       # If we have an explicit list of channels, use it.
       for channel in self.channels:

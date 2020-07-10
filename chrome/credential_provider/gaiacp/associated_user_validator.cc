@@ -139,28 +139,7 @@ HRESULT ModifyUserAccess(const std::unique_ptr<ScopedLsaPolicy>& policy,
     return hr;
   }
 
-  PSID psid;
-  if (!::ConvertStringSidToSidW(sid.c_str(), &psid)) {
-    hr = HRESULT_FROM_WIN32(::GetLastError());
-    LOGFN(ERROR) << "ConvertStringSidToSidW sid=" << sid << " hr=" << putHR(hr);
-    return hr;
-  }
-
-  std::vector<base::string16> account_rights{
-      SE_DENY_INTERACTIVE_LOGON_NAME, SE_DENY_NETWORK_LOGON_NAME,
-      SE_DENY_REMOTE_INTERACTIVE_LOGON_NAME};
-  if (!allow) {
-    return policy->AddAccountRights(psid, account_rights);
-  } else {
-    // Note: We are still going to keep this time restrictions flow to avoid
-    // any cornercase scenario where user is blocked on login UI because
-    // time restrictions were set but were never added back.
-    hr = manager->ModifyUserAccessWithLogonHours(domain, username, allow);
-    if (FAILED(hr))
-      LOGFN(ERROR) << "Failed to remove time restrictions for sid : " << sid;
-
-    return policy->RemoveAccountRights(psid, account_rights);
-  }
+  return manager->ModifyUserAccessWithLogonHours(domain, username, allow);
 }
 
 }  // namespace
@@ -519,6 +498,10 @@ AssociatedUserValidator::GetAuthEnforceReason(const base::string16& sid) {
   if (!IsUserAssociated(sid))
     return AssociatedUserValidator::EnforceAuthReason::NOT_ENFORCED;
 
+  // Check if online sign in is enforced.
+  if (IsOnlineLoginEnforced(sid))
+    return AssociatedUserValidator::EnforceAuthReason::ONLINE_LOGIN_ENFORCED;
+
   // All token handles are valid when no internet connection is available.
   if (!HasInternetConnection()) {
     if (!IsOnlineLoginStale(sid)) {
@@ -618,25 +601,6 @@ bool AssociatedUserValidator::IsTokenHandleValidForUser(
   }
 
   return validity_it->second->is_valid;
-}
-
-bool AssociatedUserValidator::IsAuthEnforcedOnAssociatedUsers() {
-  std::map<base::string16, UserTokenHandleInfo> sids_to_handle_info;
-  HRESULT hr = GetUserTokenHandles(&sids_to_handle_info);
-  if (FAILED(hr)) {
-    LOGFN(ERROR) << "GetUserTokenHandles hr=" << putHR(hr);
-    return hr;
-  }
-
-  for (const auto& sid_to_association : sids_to_handle_info) {
-    const base::string16& sid = sid_to_association.first;
-    // Return true even if one of the associated user sid
-    // has an auth enforced.
-    if (IsAuthEnforcedForUser(sid)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 void AssociatedUserValidator::BlockDenyAccessUpdate() {

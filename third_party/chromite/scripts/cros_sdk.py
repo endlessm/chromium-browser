@@ -247,7 +247,7 @@ def EnterChroot(chroot_path, cache_dir, chrome_root, chrome_root_mount,
 
   # ThinLTO opens lots of files at the same time.
   resource.setrlimit(resource.RLIMIT_NOFILE, (32768, 32768))
-  ret = cros_build_lib.dbg_run(cmd, check=False, mute_output=False)
+  ret = cros_build_lib.dbg_run(cmd, check=False)
   # If we were in interactive mode, ignore the exit code; it'll be whatever
   # they last ran w/in the chroot and won't matter to us one way or another.
   # Note this does allow chroot entrance to fail and be ignored during
@@ -439,7 +439,7 @@ def ListChrootSnapshots(chroot_vg, chroot_lv):
   ]
   try:
     result = cros_build_lib.run(
-        cmd, print_cmd=False, stdout=True)
+        cmd, print_cmd=False, stdout=True, encoding='utf-8')
   except cros_build_lib.RunCommandError:
     raise SystemExit('Running %r failed!' % cmd)
 
@@ -527,7 +527,7 @@ def _ProxySimSetup(options):
   # Find the apache module directory, and make sure it has the modules we need.
   module_dirs = {}
   for g in PROXY_APACHE_MODULE_GLOBS:
-    for mod, so in apache_modules:
+    for _, so in apache_modules:
       for f in glob.glob(os.path.join(g, so)):
         module_dirs.setdefault(os.path.dirname(f), []).append(so)
   for apache_module_path, modules_found in module_dirs.items():

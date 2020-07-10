@@ -94,6 +94,13 @@ class QUERY_POOL_STATE : public BASE_NODE {
     uint32_t n_performance_passes = 0;
 };
 
+class SAMPLER_YCBCR_CONVERSION_STATE : public BASE_NODE {
+  public:
+    VkFormatFeatureFlags format_features;
+    VkFormat format;
+    VkFilter chromaFilter;
+};
+
 class QUEUE_FAMILY_PERF_COUNTERS {
   public:
     std::vector<VkPerformanceCounterKHR> counters;
@@ -243,8 +250,8 @@ class ValidationStateTracker : public ValidationObject {
 
     std::unordered_set<VkQueue> queues;  // All queues under given device
     QueryMap queryToStateMap;
-    QueryPassMap queryPassToStateMap;
     unordered_map<VkSamplerYcbcrConversion, uint64_t> ycbcr_conversion_ahb_fmt_map;
+    unordered_map<uint64_t, VkFormatFeatureFlags> ahb_ext_formats_map;
 
     // Traits for State function resolution.  Specializations defined in the macro.
     // NOTE: The Dummy argument allows for *partial* specialization at class scope, as full specialization at class scope
@@ -264,6 +271,9 @@ class ValidationStateTracker : public ValidationObject {
         using MappedType = std::shared_ptr<StateType>;
         using MapType = unordered_map<HandleType, MappedType>;
     };
+
+    // Override base class, we have some extra work to do here
+    void InitDeviceValidationObject(bool add_obj, ValidationObject* inst_obj, ValidationObject* dev_obj);
 
     VALSTATETRACK_MAP_AND_TRAITS(VkRenderPass, RENDER_PASS_STATE, renderPassMap)
     VALSTATETRACK_MAP_AND_TRAITS(VkDescriptorSetLayout, cvdescriptorset::DescriptorSetLayout, descriptorSetLayoutMap)
@@ -286,6 +296,7 @@ class ValidationStateTracker : public ValidationObject {
     VALSTATETRACK_MAP_AND_TRAITS(VkFence, FENCE_STATE, fenceMap)
     VALSTATETRACK_MAP_AND_TRAITS(VkQueryPool, QUERY_POOL_STATE, queryPoolMap)
     VALSTATETRACK_MAP_AND_TRAITS(VkSemaphore, SEMAPHORE_STATE, semaphoreMap)
+    VALSTATETRACK_MAP_AND_TRAITS(VkSamplerYcbcrConversion, SAMPLER_YCBCR_CONVERSION_STATE, samplerYcbcrConversionMap)
     VALSTATETRACK_MAP_AND_TRAITS(VkAccelerationStructureNV, ACCELERATION_STRUCTURE_STATE, accelerationStructureMap)
     VALSTATETRACK_MAP_AND_TRAITS_INSTANCE_SCOPE(VkSurfaceKHR, SURFACE_STATE, surface_map)
 
@@ -462,6 +473,12 @@ class ValidationStateTracker : public ValidationObject {
     QUERY_POOL_STATE* GetQueryPoolState(VkQueryPool query_pool) { return Get<QUERY_POOL_STATE>(query_pool); }
     const SEMAPHORE_STATE* GetSemaphoreState(VkSemaphore semaphore) const { return Get<SEMAPHORE_STATE>(semaphore); }
     SEMAPHORE_STATE* GetSemaphoreState(VkSemaphore semaphore) { return Get<SEMAPHORE_STATE>(semaphore); }
+    const SAMPLER_YCBCR_CONVERSION_STATE* GetSamplerYcbcrConversionState(VkSamplerYcbcrConversion samplerYcbcrConversion) const {
+        return Get<SAMPLER_YCBCR_CONVERSION_STATE>(samplerYcbcrConversion);
+    }
+    SAMPLER_YCBCR_CONVERSION_STATE* GetSamplerYcbcrConversionState(VkSamplerYcbcrConversion samplerYcbcrConversion) {
+        return Get<SAMPLER_YCBCR_CONVERSION_STATE>(samplerYcbcrConversion);
+    }
     const ACCELERATION_STRUCTURE_STATE* GetAccelerationStructureState(VkAccelerationStructureNV as) const {
         return Get<ACCELERATION_STRUCTURE_STATE>(as);
     }
@@ -472,8 +489,9 @@ class ValidationStateTracker : public ValidationObject {
     SURFACE_STATE* GetSurfaceState(VkSurfaceKHR surface) { return Get<SURFACE_STATE>(surface); }
 
     // Class Declarations for helper functions
-    IMAGE_VIEW_STATE* GetAttachmentImageViewState(FRAMEBUFFER_STATE* framebuffer, uint32_t index);
-    const IMAGE_VIEW_STATE* GetAttachmentImageViewState(const FRAMEBUFFER_STATE* framebuffer, uint32_t index) const;
+    IMAGE_VIEW_STATE* GetAttachmentImageViewState(CMD_BUFFER_STATE* cb, FRAMEBUFFER_STATE* framebuffer, uint32_t index);
+    const IMAGE_VIEW_STATE* GetAttachmentImageViewState(const CMD_BUFFER_STATE* cb, const FRAMEBUFFER_STATE* framebuffer,
+                                                        uint32_t index) const;
     const EVENT_STATE* GetEventState(VkEvent event) const;
     EVENT_STATE* GetEventState(VkEvent event);
     const QUEUE_STATE* GetQueueState(VkQueue queue) const;
@@ -802,6 +820,7 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordWaitForFences(VkDevice device, uint32_t fenceCount, const VkFence* pFences, VkBool32 waitAll,
                                      uint64_t timeout, VkResult result);
     void PostCallRecordWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout, VkResult result);
+    void PostCallRecordWaitSemaphoresKHR(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout, VkResult result);
     void PostCallRecordAcquireProfilingLockKHR(VkDevice device, const VkAcquireProfilingLockInfoKHR* pInfo, VkResult result);
     void PostCallRecordReleaseProfilingLockKHR(VkDevice device);
 
@@ -970,6 +989,11 @@ class ValidationStateTracker : public ValidationObject {
                                          VkQueryPool queryPool, uint32_t slot);
     void PreCallRecordCmdSetViewportWScalingNV(VkCommandBuffer commandBuffer, uint32_t firstViewport, uint32_t viewportCount,
                                                const VkViewportWScalingNV* pViewportWScalings);
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    void PostCallRecordGetAndroidHardwareBufferPropertiesANDROID(VkDevice device, const struct AHardwareBuffer* buffer,
+                                                                 VkAndroidHardwareBufferPropertiesANDROID* pProperties,
+                                                                 VkResult result);
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
 
     // WSI
     void PostCallRecordAcquireNextImageKHR(VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout, VkSemaphore semaphore,
@@ -1008,6 +1032,8 @@ class ValidationStateTracker : public ValidationObject {
     void PostCallRecordCreateXlibSurfaceKHR(VkInstance instance, const VkXlibSurfaceCreateInfoKHR* pCreateInfo,
                                             const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface, VkResult result);
 #endif  // VK_USE_PLATFORM_XLIB_KHR
+    void PostCallRecordCreateHeadlessSurfaceEXT(VkInstance instance, const VkHeadlessSurfaceCreateInfoEXT* pCreateInfo,
+                                                const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface, VkResult result);
 
     // State Utilty functions
     bool AddCommandBufferMem(small_unordered_map<CMD_BUFFER_STATE*, int, 8>& cb_bindings, VkDeviceMemory obj,
@@ -1030,16 +1056,14 @@ class ValidationStateTracker : public ValidationObject {
                                  const VkCommandBuffer* command_buffers);
     void FreeDescriptorSet(cvdescriptorset::DescriptorSet* descriptor_set);
     BASE_NODE* GetStateStructPtrFromObject(const VulkanTypedHandle& object_struct);
+    VkFormatFeatureFlags GetPotentialFormatFeatures(VkFormat format) const;
     void IncrementBoundObjects(CMD_BUFFER_STATE const* cb_node);
     void IncrementResources(CMD_BUFFER_STATE* cb_node);
     void InsertAccelerationStructureMemoryRange(VkAccelerationStructureNV as, DEVICE_MEMORY_STATE* mem_info,
-                                                VkDeviceSize mem_offset, const VkMemoryRequirements& mem_reqs);
-    void InsertBufferMemoryRange(VkBuffer buffer, DEVICE_MEMORY_STATE* mem_info, VkDeviceSize mem_offset,
-                                 const VkMemoryRequirements& mem_reqs);
-    void InsertImageMemoryRange(VkImage image, DEVICE_MEMORY_STATE* mem_info, VkDeviceSize mem_offset,
-                                VkMemoryRequirements mem_reqs, bool is_linear);
-    void InsertMemoryRange(const VulkanTypedHandle& typed_handle, DEVICE_MEMORY_STATE* mem_info, VkDeviceSize memoryOffset,
-                           VkMemoryRequirements memRequirements, bool is_linear);
+                                                VkDeviceSize mem_offset);
+    void InsertBufferMemoryRange(VkBuffer buffer, DEVICE_MEMORY_STATE* mem_info, VkDeviceSize mem_offset);
+    void InsertImageMemoryRange(VkImage image, DEVICE_MEMORY_STATE* mem_info, VkDeviceSize mem_offset);
+    void InsertMemoryRange(const VulkanTypedHandle& typed_handle, DEVICE_MEMORY_STATE* mem_info, VkDeviceSize memoryOffset);
     void InvalidateCommandBuffers(small_unordered_map<CMD_BUFFER_STATE*, int, 8>& cb_nodes, const VulkanTypedHandle& obj,
                                   bool unlink = true);
     void InvalidateLinkedCommandBuffers(std::unordered_set<CMD_BUFFER_STATE*>& cb_nodes, const VulkanTypedHandle& obj);
@@ -1064,19 +1088,21 @@ class ValidationStateTracker : public ValidationObject {
     void RecordCreateSamplerYcbcrConversionState(const VkSamplerYcbcrConversionCreateInfo* create_info,
                                                  VkSamplerYcbcrConversion ycbcr_conversion);
     void RecordCreateSamplerYcbcrConversionANDROID(const VkSamplerYcbcrConversionCreateInfo* create_info,
-                                                   VkSamplerYcbcrConversion ycbcr_conversion);
+                                                   VkSamplerYcbcrConversion ycbcr_conversion,
+                                                   SAMPLER_YCBCR_CONVERSION_STATE* ycbcr_state);
     void RecordCreateSwapchainState(VkResult result, const VkSwapchainCreateInfoKHR* pCreateInfo, VkSwapchainKHR* pSwapchain,
                                     SURFACE_STATE* surface_state, SWAPCHAIN_NODE* old_swapchain_state);
+    void RecordDestroySamplerYcbcrConversionState(VkSamplerYcbcrConversion ycbcr_conversion);
     void RecordDestroySamplerYcbcrConversionANDROID(VkSamplerYcbcrConversion ycbcr_conversion);
     void RecordEnumeratePhysicalDeviceGroupsState(uint32_t* pPhysicalDeviceGroupCount,
                                                   VkPhysicalDeviceGroupPropertiesKHR* pPhysicalDeviceGroupProperties);
     void RecordEnumeratePhysicalDeviceQueueFamilyPerformanceQueryCounters(VkPhysicalDevice physicalDevice,
                                                                           uint32_t queueFamilyIndex, uint32_t* pCounterCount,
                                                                           VkPerformanceCounterKHR* pCounters);
-    void RecordGetBufferMemoryRequirementsState(VkBuffer buffer, VkMemoryRequirements* pMemoryRequirements);
+    void RecordGetBufferMemoryRequirementsState(VkBuffer buffer);
     void RecordGetDeviceQueueState(uint32_t queue_family_index, VkQueue queue);
     void RecordGetExternalFenceState(VkFence fence, VkExternalFenceHandleTypeFlagBitsKHR handle_type);
-    void RecordGetImageMemoryRequiementsState(VkImage image, VkMemoryRequirements* pMemoryRequirements);
+    void RecordGetImageMemoryRequirementsState(VkImage image, const VkImageMemoryRequirementsInfo2* pInfo);
     void RecordImportSemaphoreState(VkSemaphore semaphore, VkExternalSemaphoreHandleTypeFlagBitsKHR handle_type,
                                     VkSemaphoreImportFlagsKHR flags);
     void RecordGetPhysicalDeviceDisplayPlanePropertiesState(VkPhysicalDevice physicalDevice, uint32_t* pPropertyCount,
@@ -1100,15 +1126,17 @@ class ValidationStateTracker : public ValidationObject {
     void ResetCommandBufferState(const VkCommandBuffer cb);
     void RetireFence(VkFence fence);
     void RetireTimelineSemaphore(VkSemaphore semaphore, uint64_t until_payload);
+    void RecordWaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout, VkResult result);
     void RetireWorkOnQueue(QUEUE_STATE* pQueue, uint64_t seq);
     static bool SetEventStageMask(VkEvent event, VkPipelineStageFlags stageMask, EventToStageMap* localEventToStageMap);
     void ResetCommandBufferPushConstantDataIfIncompatible(CMD_BUFFER_STATE* cb_state, VkPipelineLayout layout);
     void SetMemBinding(VkDeviceMemory mem, BINDABLE* mem_binding, VkDeviceSize memory_offset,
                        const VulkanTypedHandle& typed_handle);
     static bool SetQueryState(QueryObject object, QueryState value, QueryMap* localQueryToStateMap);
-    static bool SetQueryStateMulti(VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, QueryState value,
-                                   QueryMap* localQueryToStateMap);
-    QueryState GetQueryState(const QueryMap* localQueryToStateMap, VkQueryPool queryPool, uint32_t queryIndex) const;
+    static bool SetQueryStateMulti(VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, uint32_t perfPass,
+                                   QueryState value, QueryMap* localQueryToStateMap);
+    QueryState GetQueryState(const QueryMap* localQueryToStateMap, VkQueryPool queryPool, uint32_t queryIndex,
+                             uint32_t perfPass) const;
     bool SetSparseMemBinding(const VkDeviceMemory mem, const VkDeviceSize mem_offset, const VkDeviceSize mem_size,
                              const VulkanTypedHandle& typed_handle);
     void UpdateBindBufferMemoryState(VkBuffer buffer, VkDeviceMemory mem, VkDeviceSize memoryOffset);
@@ -1129,6 +1157,7 @@ class ValidationStateTracker : public ValidationObject {
     VkPhysicalDeviceVulkan11Properties phys_dev_props_core11 = {};
     VkPhysicalDeviceVulkan12Properties phys_dev_props_core12 = {};
     uint32_t physical_device_count;
+    uint32_t custom_border_color_sampler_count = 0;
 
     // Device extension properties -- storing properties gathered from VkPhysicalDeviceProperties2KHR::pNext chain
     struct DeviceExtensionProperties {
@@ -1140,16 +1169,19 @@ class ValidationStateTracker : public ValidationObject {
         VkPhysicalDeviceCooperativeMatrixPropertiesNV cooperative_matrix_props;
         VkPhysicalDeviceTransformFeedbackPropertiesEXT transform_feedback_props;
         VkPhysicalDeviceRayTracingPropertiesNV ray_tracing_propsNV;
-        VkPhysicalDeviceRayTracingPropertiesNV ray_tracing_propsKHR;
+        VkPhysicalDeviceRayTracingPropertiesKHR ray_tracing_propsKHR;
         VkPhysicalDeviceTexelBufferAlignmentPropertiesEXT texel_buffer_alignment_props;
         VkPhysicalDeviceFragmentDensityMapPropertiesEXT fragment_density_map_props;
         VkPhysicalDevicePerformanceQueryPropertiesKHR performance_query_props;
+        VkPhysicalDeviceSampleLocationsPropertiesEXT sample_locations_props;
+        VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color_props;
     };
     DeviceExtensionProperties phys_dev_ext_props = {};
     std::vector<VkCooperativeMatrixPropertiesNV> cooperative_matrix_properties;
 
     // Map for queue family index to queue count
     unordered_map<uint32_t, uint32_t> queue_family_index_map;
+    unordered_map<uint32_t, VkDeviceQueueCreateFlags> queue_family_create_flags_map;
     bool performance_lock_acquired = false;
 
     template <typename ExtProp>

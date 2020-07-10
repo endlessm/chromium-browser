@@ -8,6 +8,7 @@
 from __future__ import print_function
 
 import json
+import sys
 
 from chromite.lib import cros_logging as logging
 from chromite.lib import iter_utils
@@ -19,6 +20,9 @@ try:
 except ImportError:
   from gcloud import datastore  # pylint: disable=import-error
   import gcloud  # pylint: disable=import-error
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 _BATCH_CHUNK_SIZE = 500
@@ -65,5 +69,5 @@ def ChunkedBatchWrite(entities, client, batch_size=_BATCH_CHUNK_SIZE):
     try:
       batch.commit()
     except gcloud.exceptions.BadRequest:
-      logging.warn('Unexportable entities:\n%s', entities)
+      logging.warning('Unexportable entities:\n%s', entities)
       raise

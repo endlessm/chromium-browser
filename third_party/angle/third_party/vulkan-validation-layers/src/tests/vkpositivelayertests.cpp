@@ -24,12 +24,43 @@
  * Author: John Zulauf <jzulauf@lunarg.com>
  */
 
-#include "cast_utils.h"
 #include "layer_validation_tests.h"
+
+#include <array>
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <thread>
+
+#include "cast_utils.h"
+
 //
 // POSITIVE VALIDATION TESTS
 //
 // These tests do not expect to encounter ANY validation errors pass only if this is true
+
+TEST_F(VkPositiveLayerTest, TwoInstances) {
+    TEST_DESCRIPTION("Create two instances before destroy");
+
+    ASSERT_NO_FATAL_FAILURE(InitFramework(m_errorMonitor));
+
+    VkInstance i1, i2, i3;
+
+    VkInstanceCreateInfo ici = {};
+    ici.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    ici.enabledLayerCount = instance_layers_.size();
+    ici.ppEnabledLayerNames = instance_layers_.data();
+
+    ASSERT_VK_SUCCESS(vk::CreateInstance(&ici, nullptr, &i1));
+
+    ASSERT_VK_SUCCESS(vk::CreateInstance(&ici, nullptr, &i2));
+    ASSERT_NO_FATAL_FAILURE(vk::DestroyInstance(i2, nullptr));
+
+    ASSERT_VK_SUCCESS(vk::CreateInstance(&ici, nullptr, &i3));
+    ASSERT_NO_FATAL_FAILURE(vk::DestroyInstance(i3, nullptr));
+
+    ASSERT_NO_FATAL_FAILURE(vk::DestroyInstance(i1, nullptr));
+}
 
 TEST_F(VkPositiveLayerTest, ToolingExtension) {
     TEST_DESCRIPTION("Call Tooling Extension and verify layer results");
@@ -412,7 +443,10 @@ TEST_F(VkPositiveLayerTest, RenderPassBeginTransitionsAttachmentUnused) {
         "Ensure that layout transitions work correctly without errors, when an attachment reference is VK_ATTACHMENT_UNUSED");
 
     ASSERT_NO_FATAL_FAILURE(Init());
-
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     m_errorMonitor->ExpectSuccess();
 
     // A renderpass with no attachments
@@ -544,7 +578,7 @@ TEST_F(VkPositiveLayerTest, RenderPassBeginStencilLoadOp) {
     VkImageObj destImage(m_device);
     destImage.Init(100, 100, 1, depth_stencil_fmt, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                    VK_IMAGE_TILING_OPTIMAL, 0);
-    fence.wait(VK_TRUE, UINT64_MAX);
+    fence.wait(UINT64_MAX);
     VkCommandBufferObj cmdbuf(m_device, m_commandPool);
     cmdbuf.begin();
 
@@ -703,6 +737,10 @@ TEST_F(VkPositiveLayerTest, DestroyPipelineRenderPass) {
     TEST_DESCRIPTION("Draw using a pipeline whose create renderPass has been destroyed.");
     m_errorMonitor->ExpectSuccess();
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
     VkResult err;
@@ -2382,6 +2420,10 @@ TEST_F(VkPositiveLayerTest, EmptyDescriptorUpdateTest) {
     VkResult err;
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     m_errorMonitor->ExpectSuccess();
 
     // Create layout with two uniform buffer descriptors w/ empty binding between them
@@ -2764,9 +2806,6 @@ TEST_F(VkPositiveLayerTest, PushDescriptorSetUpdatingSetNumber) {
 
 // This is a positive test. No failures are expected.
 TEST_F(VkPositiveLayerTest, TestAliasedMemoryTracking) {
-    VkResult err;
-    bool pass;
-
     TEST_DESCRIPTION(
         "Create a buffer, allocate memory, bind memory, destroy the buffer, create an image, and bind the same memory to it");
 
@@ -2774,120 +2813,58 @@ TEST_F(VkPositiveLayerTest, TestAliasedMemoryTracking) {
 
     ASSERT_NO_FATAL_FAILURE(Init());
 
-    VkBuffer buffer;
-    VkImage image;
-    VkDeviceMemory mem;
-    VkMemoryRequirements mem_reqs;
+    auto buffer = std::unique_ptr<VkBufferObj>(new VkBufferObj());
+    VkDeviceSize buff_size = 256;
+    buffer->init_no_mem(*DeviceObj(), VkBufferObj::create_info(buff_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
 
-    VkBufferCreateInfo buf_info = {};
-    buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_info.pNext = NULL;
-    buf_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    buf_info.size = 256;
-    buf_info.queueFamilyIndexCount = 0;
-    buf_info.pQueueFamilyIndices = NULL;
-    buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    buf_info.flags = 0;
-    err = vk::CreateBuffer(m_device->device(), &buf_info, NULL, &buffer);
-    ASSERT_VK_SUCCESS(err);
-
-    vk::GetBufferMemoryRequirements(m_device->device(), buffer, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info = {};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.pNext = NULL;
-    alloc_info.memoryTypeIndex = 0;
-
-    // Ensure memory is big enough for both bindings
-    alloc_info.allocationSize = 0x10000;
-
-    pass = m_device->phy().set_memory_type(mem_reqs.memoryTypeBits, &alloc_info, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-    if (!pass) {
-        printf("%s Failed to allocate memory.\n", kSkipPrefix);
-        vk::DestroyBuffer(m_device->device(), buffer, NULL);
-        return;
-    }
-
-    err = vk::AllocateMemory(m_device->device(), &alloc_info, NULL, &mem);
-    ASSERT_VK_SUCCESS(err);
-
-    uint8_t *pData;
-    err = vk::MapMemory(m_device->device(), mem, 0, mem_reqs.size, 0, (void **)&pData);
-    ASSERT_VK_SUCCESS(err);
-
-    memset(pData, 0xCADECADE, static_cast<size_t>(mem_reqs.size));
-
-    vk::UnmapMemory(m_device->device(), mem);
-
-    err = vk::BindBufferMemory(m_device->device(), buffer, mem, 0);
-    ASSERT_VK_SUCCESS(err);
-
-    // NOW, destroy the buffer. Obviously, the resource no longer occupies this
-    // memory. In fact, it was never used by the GPU.
-    // Just be sure, wait for idle.
-    vk::DestroyBuffer(m_device->device(), buffer, NULL);
-    vk::DeviceWaitIdle(m_device->device());
-
-    // Use optimal as some platforms report linear support but then fail image creation
-    VkImageTiling image_tiling = VK_IMAGE_TILING_OPTIMAL;
-    VkImageFormatProperties image_format_properties;
-    vk::GetPhysicalDeviceImageFormatProperties(gpu(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TYPE_2D, image_tiling,
-                                               VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 0, &image_format_properties);
-    if (image_format_properties.maxExtent.width == 0) {
-        printf("%s Image format not supported; skipped.\n", kSkipPrefix);
-        vk::FreeMemory(m_device->device(), mem, NULL);
-        return;
-    }
     VkImageCreateInfo image_create_info = {};
     image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_create_info.pNext = NULL;
     image_create_info.imageType = VK_IMAGE_TYPE_2D;
-    image_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-    image_create_info.extent.width = 64;
+    image_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;  // mandatory format
+    image_create_info.extent.width = 64;                  // at least 4096x4096 is supported
     image_create_info.extent.height = 64;
     image_create_info.extent.depth = 1;
     image_create_info.mipLevels = 1;
     image_create_info.arrayLayers = 1;
     image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_create_info.tiling = image_tiling;
+    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
     image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    image_create_info.queueFamilyIndexCount = 0;
-    image_create_info.pQueueFamilyIndices = NULL;
-    image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    image_create_info.flags = 0;
+    VkImageObj image(DeviceObj());
+    image.init_no_mem(*DeviceObj(), image_create_info);
 
-    /* Create a mappable image.  It will be the texture if linear images are OK
-     * to be textures or it will be the staging image if they are not.
-     */
-    err = vk::CreateImage(m_device->device(), &image_create_info, NULL, &image);
-    ASSERT_VK_SUCCESS(err);
+    const auto buffer_memory_requirements = buffer->memory_requirements();
+    const auto image_memory_requirements = image.memory_requirements();
 
-    vk::GetImageMemoryRequirements(m_device->device(), image, &mem_reqs);
-
-    VkMemoryAllocateInfo mem_alloc = {};
-    mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    mem_alloc.pNext = NULL;
-    mem_alloc.allocationSize = 0;
-    mem_alloc.memoryTypeIndex = 0;
-    mem_alloc.allocationSize = mem_reqs.size;
-
-    pass = m_device->phy().set_memory_type(mem_reqs.memoryTypeBits, &mem_alloc, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-    if (!pass) {
-        printf("%s Failed to allocate memory.\n", kSkipPrefix);
-        vk::FreeMemory(m_device->device(), mem, NULL);
-        vk::DestroyImage(m_device->device(), image, NULL);
+    vk_testing::DeviceMemory mem;
+    VkMemoryAllocateInfo alloc_info = {};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = (std::max)(buffer_memory_requirements.size, image_memory_requirements.size);
+    bool has_memtype =
+        m_device->phy().set_memory_type(buffer_memory_requirements.memoryTypeBits & image_memory_requirements.memoryTypeBits,
+                                        &alloc_info, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    if (!has_memtype) {
+        printf("%s Failed to find a host visible memory type for both a buffer and an image. Test skipped.\n", kSkipPrefix);
         return;
     }
+    mem.init(*DeviceObj(), alloc_info);
+
+    auto pData = mem.map();
+    std::memset(pData, 0xCADECADE, static_cast<size_t>(buff_size));
+    mem.unmap();
+
+    buffer->bind_memory(mem, 0);
+
+    // NOW, destroy the buffer. Obviously, the resource no longer occupies this
+    // memory. In fact, it was never used by the GPU.
+    // Just be sure, wait for idle.
+    buffer.reset(nullptr);
+    vk::DeviceWaitIdle(m_device->device());
 
     // VALIDATION FAILURE:
-    err = vk::BindImageMemory(m_device->device(), image, mem, 0);
-    ASSERT_VK_SUCCESS(err);
+    image.bind_memory(mem, 0);
 
     m_errorMonitor->VerifyNotFound();
-
-    vk::FreeMemory(m_device->device(), mem, NULL);
-    vk::DestroyImage(m_device->device(), image, NULL);
 }
 
 // This is a positive test. No failures are expected.
@@ -3089,6 +3066,14 @@ TEST_F(VkPositiveLayerTest, DynamicOffsetWithInactiveBinding) {
     m_errorMonitor->ExpectSuccess();
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kPixel3)) {
+        printf("%s This test should not run on Pixel 3\n", kSkipPrefix);
+        return;
+    }
+    if (IsPlatform(kPixel3aXL)) {
+        printf("%s This test should not run on Pixel 3a XL\n", kSkipPrefix);
+        return;
+    }
     ASSERT_NO_FATAL_FAILURE(InitViewport());
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
@@ -4074,8 +4059,20 @@ TEST_F(VkPositiveLayerTest, QueryAndCopySecondaryCommandBuffers) {
     TEST_DESCRIPTION("Issue a query on a secondary command buffer and copy it on a primary.");
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     if ((m_device->queue_props.empty()) || (m_device->queue_props[0].queueCount < 2)) {
         printf("%s Queue family needs to have multiple queues to run this test.\n", kSkipPrefix);
+        return;
+    }
+    uint32_t queue_count;
+    vk::GetPhysicalDeviceQueueFamilyProperties(gpu(), &queue_count, NULL);
+    VkQueueFamilyProperties *queue_props = new VkQueueFamilyProperties[queue_count];
+    vk::GetPhysicalDeviceQueueFamilyProperties(gpu(), &queue_count, queue_props);
+    if (queue_props[m_device->graphics_queue_node_index_].timestampValidBits == 0) {
+        printf("%s Device graphic queue has timestampValidBits of 0, skipping.\n", kSkipPrefix);
         return;
     }
 
@@ -4142,8 +4139,20 @@ TEST_F(VkPositiveLayerTest, QueryAndCopyMultipleCommandBuffers) {
     TEST_DESCRIPTION("Issue a query and copy from it on a second command buffer.");
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     if ((m_device->queue_props.empty()) || (m_device->queue_props[0].queueCount < 2)) {
         printf("%s Queue family needs to have multiple queues to run this test.\n", kSkipPrefix);
+        return;
+    }
+    uint32_t queue_count;
+    vk::GetPhysicalDeviceQueueFamilyProperties(gpu(), &queue_count, NULL);
+    VkQueueFamilyProperties *queue_props = new VkQueueFamilyProperties[queue_count];
+    vk::GetPhysicalDeviceQueueFamilyProperties(gpu(), &queue_count, queue_props);
+    if (queue_props[m_device->graphics_queue_node_index_].timestampValidBits == 0) {
+        printf("%s Device graphic queue has timestampValidBits of 0, skipping.\n", kSkipPrefix);
         return;
     }
 
@@ -5836,470 +5845,6 @@ TEST_F(VkPositiveLayerTest, CreateDescriptorSetBindingWithIgnoredSamplers) {
         m_errorMonitor->VerifyNotFound();
     }
 }
-TEST_F(VkPositiveLayerTest, GpuValidationInlineUniformBlockAndMiscGpu) {
-    TEST_DESCRIPTION(
-        "GPU validation: Make sure inline uniform blocks don't generate false validation errors, verify reserved descriptor slot "
-        "and verify pipeline recovery");
-    m_errorMonitor->ExpectSuccess();
-    VkValidationFeatureEnableEXT enables[] = {VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
-                                              VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT};
-    VkValidationFeaturesEXT features = {};
-    features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
-    features.enabledValidationFeatureCount = 2;
-    features.pEnabledValidationFeatures = enables;
-    bool descriptor_indexing = CheckDescriptorIndexingSupportAndInitFramework(this, m_instance_extension_names,
-                                                                              m_device_extension_names, &features, m_errorMonitor);
-    if (DeviceIsMockICD() || DeviceSimulation()) {
-        printf("%s Test not supported by MockICD, skipping tests\n", kSkipPrefix);
-        return;
-    }
-    VkPhysicalDeviceFeatures2KHR features2 = {};
-    auto indexing_features = lvl_init_struct<VkPhysicalDeviceDescriptorIndexingFeaturesEXT>();
-    auto inline_uniform_block_features = lvl_init_struct<VkPhysicalDeviceInlineUniformBlockFeaturesEXT>(&indexing_features);
-    bool inline_uniform_block = DeviceExtensionSupported(gpu(), nullptr, VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
-    if (!(descriptor_indexing && inline_uniform_block)) {
-        printf("Descriptor indexing and/or inline uniform block not supported Skipping test\n");
-        return;
-    }
-    m_device_extension_names.push_back(VK_KHR_MAINTENANCE1_EXTENSION_NAME);
-    m_device_extension_names.push_back(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
-    PFN_vkGetPhysicalDeviceFeatures2KHR vkGetPhysicalDeviceFeatures2KHR =
-        (PFN_vkGetPhysicalDeviceFeatures2KHR)vk::GetInstanceProcAddr(instance(), "vkGetPhysicalDeviceFeatures2KHR");
-    ASSERT_TRUE(vkGetPhysicalDeviceFeatures2KHR != nullptr);
-
-    features2 = lvl_init_struct<VkPhysicalDeviceFeatures2KHR>(&inline_uniform_block_features);
-    vkGetPhysicalDeviceFeatures2KHR(gpu(), &features2);
-    if (!indexing_features.descriptorBindingPartiallyBound || !inline_uniform_block_features.inlineUniformBlock) {
-        printf("Not all features supported, skipping test\n");
-        return;
-    }
-    auto inline_uniform_props = lvl_init_struct<VkPhysicalDeviceInlineUniformBlockPropertiesEXT>();
-    auto prop2 = lvl_init_struct<VkPhysicalDeviceProperties2KHR>(&inline_uniform_props);
-    vk::GetPhysicalDeviceProperties2(gpu(), &prop2);
-
-    VkCommandPoolCreateFlags pool_flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    ASSERT_NO_FATAL_FAILURE(InitState(nullptr, &features2, pool_flags));
-    if (m_device->props.apiVersion < VK_API_VERSION_1_1) {
-        printf("%s GPU-Assisted validation test requires Vulkan 1.1+.\n", kSkipPrefix);
-        return;
-    }
-    auto c_queue = m_device->GetDefaultComputeQueue();
-    if (nullptr == c_queue) {
-        printf("Compute not supported, skipping test\n");
-        return;
-    }
-
-    uint32_t qfi = 0;
-    VkBufferCreateInfo bci = {};
-    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    bci.size = 4;
-    bci.queueFamilyIndexCount = 1;
-    bci.pQueueFamilyIndices = &qfi;
-    VkBufferObj buffer0;
-    VkMemoryPropertyFlags mem_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    buffer0.init(*m_device, bci, mem_props);
-
-    VkDescriptorBindingFlagsEXT ds_binding_flags[2] = {};
-    ds_binding_flags[1] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT;
-    VkDescriptorSetLayoutBindingFlagsCreateInfoEXT layout_createinfo_binding_flags[1] = {};
-    layout_createinfo_binding_flags[0].sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
-    layout_createinfo_binding_flags[0].pNext = NULL;
-    layout_createinfo_binding_flags[0].bindingCount = 2;
-    layout_createinfo_binding_flags[0].pBindingFlags = ds_binding_flags;
-
-    OneOffDescriptorSet descriptor_set(m_device,
-                                       {
-                                           {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr},
-                                           {1, VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT, 20, VK_SHADER_STAGE_ALL,
-                                            nullptr},  // 16 bytes for ivec4, 4 more for int
-                                       },
-                                       0, layout_createinfo_binding_flags, 0);
-    const VkPipelineLayoutObj pipeline_layout(m_device, {&descriptor_set.layout_});
-
-    VkDescriptorBufferInfo buffer_info[1] = {};
-    buffer_info[0].buffer = buffer0.handle();
-    buffer_info[0].offset = 0;
-    buffer_info[0].range = sizeof(uint32_t);
-
-    const uint32_t test_data = 0xdeadca7;
-    VkWriteDescriptorSetInlineUniformBlockEXT write_inline_uniform = {};
-    write_inline_uniform.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT;
-    write_inline_uniform.dataSize = 4;
-    write_inline_uniform.pData = &test_data;
-
-    VkWriteDescriptorSet descriptor_writes[2] = {};
-    descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptor_writes[0].dstSet = descriptor_set.set_;
-    descriptor_writes[0].dstBinding = 0;
-    descriptor_writes[0].descriptorCount = 1;
-    descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    descriptor_writes[0].pBufferInfo = buffer_info;
-
-    descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptor_writes[1].dstSet = descriptor_set.set_;
-    descriptor_writes[1].dstBinding = 1;
-    descriptor_writes[1].dstArrayElement = 16;  // Skip first 16 bytes (dummy)
-    descriptor_writes[1].descriptorCount = 4;   // Write 4 bytes to val
-    descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
-    descriptor_writes[1].pNext = &write_inline_uniform;
-    vk::UpdateDescriptorSets(m_device->device(), 2, descriptor_writes, 0, NULL);
-
-    char const *csSource =
-        "#version 450\n"
-        "#extension GL_EXT_nonuniform_qualifier : enable\n "
-        "layout(set = 0, binding = 0) buffer StorageBuffer { uint index; } u_index;"
-        "layout(set = 0, binding = 1) uniform inlineubodef { ivec4 dummy; int val; } inlineubo;\n"
-
-        "void main() {\n"
-        "    u_index.index = inlineubo.val;\n"
-        "}\n";
-
-    auto shader_module = new VkShaderObj(m_device, csSource, VK_SHADER_STAGE_COMPUTE_BIT, this);
-
-    VkPipelineShaderStageCreateInfo stage;
-    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stage.pNext = nullptr;
-    stage.flags = 0;
-    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    stage.module = shader_module->handle();
-    stage.pName = "main";
-    stage.pSpecializationInfo = nullptr;
-
-    // CreateComputePipelines
-    VkComputePipelineCreateInfo pipeline_info = {};
-    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = nullptr;
-    pipeline_info.flags = 0;
-    pipeline_info.layout = pipeline_layout.handle();
-    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
-    pipeline_info.basePipelineIndex = -1;
-    pipeline_info.stage = stage;
-
-    VkPipeline c_pipeline;
-    vk::CreateComputePipelines(device(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &c_pipeline);
-
-    m_commandBuffer->begin();
-    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, c_pipeline);
-    vk::CmdBindDescriptorSets(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout.handle(), 0, 1,
-                              &descriptor_set.set_, 0, nullptr);
-    vk::CmdDispatch(m_commandBuffer->handle(), 1, 1, 1);
-    m_commandBuffer->end();
-
-    VkSubmitInfo submit_info = {};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &m_commandBuffer->handle();
-    vk::QueueSubmit(c_queue->handle(), 1, &submit_info, VK_NULL_HANDLE);
-    vk::QueueWaitIdle(m_device->m_queue);
-    m_errorMonitor->VerifyNotFound();
-    vk::DestroyPipeline(m_device->handle(), c_pipeline, NULL);
-
-    uint32_t *data = (uint32_t *)buffer0.memory().map();
-    ASSERT_TRUE(*data = test_data);
-    *data = 0;
-    buffer0.memory().unmap();
-
-    // Also verify that binding slot reservation is working
-    VkInstanceCreateInfo inst_info = {};
-    VkInstance test_inst;
-    inst_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    vk::CreateInstance(&inst_info, NULL, &test_inst);
-    uint32_t gpu_count;
-    VkPhysicalDevice objs[4];
-    vk::EnumeratePhysicalDevices(test_inst, &gpu_count, NULL);
-    if (gpu_count > 4) gpu_count = 4;
-    vk::EnumeratePhysicalDevices(test_inst, &gpu_count, objs);
-    VkPhysicalDeviceProperties properties;
-    vk::GetPhysicalDeviceProperties(objs[0], &properties);
-    if (m_device->props.limits.maxBoundDescriptorSets != properties.limits.maxBoundDescriptorSets - 1)
-        m_errorMonitor->SetError("VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT not functioning as expected");
-    vk::DestroyInstance(test_inst, NULL);
-
-    auto set_count = properties.limits.maxBoundDescriptorSets;
-    // Now be sure that recovery from an unavailable descriptor set works and that uninstrumented shaders are used
-    VkDescriptorSetLayoutBinding dsl_binding[2] = {};
-    dsl_binding[0].binding = 0;
-    dsl_binding[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    dsl_binding[0].descriptorCount = 1;
-    dsl_binding[0].stageFlags = VK_SHADER_STAGE_ALL;
-    dsl_binding[1].binding = 1;
-    dsl_binding[1].descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
-    dsl_binding[1].descriptorCount = 20;
-    dsl_binding[1].stageFlags = VK_SHADER_STAGE_ALL;
-    VkDescriptorSetLayout *layouts{new VkDescriptorSetLayout[set_count]{}};
-    VkDescriptorSetLayoutCreateInfo dsl_create_info = {};
-    dsl_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    dsl_create_info.pNext = layout_createinfo_binding_flags;
-    dsl_create_info.pBindings = dsl_binding;
-    dsl_create_info.bindingCount = 2;
-    for (uint32_t i = 0; i < set_count; i++) {
-        vk::CreateDescriptorSetLayout(m_device->handle(), &dsl_create_info, NULL, &layouts[i]);
-    }
-    VkPipelineLayoutCreateInfo pl_create_info = {};
-    VkPipelineLayout pl_layout;
-    pl_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pl_create_info.setLayoutCount = set_count;
-    pl_create_info.pSetLayouts = layouts;
-    vk::CreatePipelineLayout(m_device->handle(), &pl_create_info, NULL, &pl_layout);
-    pipeline_info.layout = pl_layout;
-    vk::CreateComputePipelines(device(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &c_pipeline);
-    m_commandBuffer->begin();
-    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, c_pipeline);
-    vk::CmdBindDescriptorSets(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_COMPUTE, pl_layout, 0, 1, &descriptor_set.set_, 0,
-                              nullptr);
-    vk::CmdDispatch(m_commandBuffer->handle(), 1, 1, 1);
-    m_commandBuffer->end();
-    vk::QueueSubmit(c_queue->handle(), 1, &submit_info, VK_NULL_HANDLE);
-    vk::QueueWaitIdle(m_device->m_queue);
-    vk::DestroyShaderModule(m_device->handle(), shader_module->handle(), NULL);
-    vk::DestroyPipelineLayout(m_device->handle(), pl_layout, NULL);
-    vk::DestroyPipeline(m_device->handle(), c_pipeline, NULL);
-    for (uint32_t i = 0; i < set_count; i++) {
-        vk::DestroyDescriptorSetLayout(m_device->handle(), layouts[i], NULL);
-    }
-    m_errorMonitor->VerifyNotFound();
-    data = (uint32_t *)buffer0.memory().map();
-    if (*data != test_data) m_errorMonitor->SetError("Pipeline recovery when resources unavailable not functioning as expected");
-    buffer0.memory().unmap();
-    delete[] layouts;
-}
-
-TEST_F(VkPositiveLayerTest, GpuDebugPrintf) {
-    TEST_DESCRIPTION("Verify that calls to debugPrintfEXT are received in debug stream");
-    VkValidationFeatureEnableEXT enables[] = {VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT};
-    VkValidationFeaturesEXT validation_features = {};
-    validation_features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
-    validation_features.enabledValidationFeatureCount = 1;
-    validation_features.pEnabledValidationFeatures = enables;
-    m_device_extension_names.push_back(VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME);
-    InitFramework(m_errorMonitor, &validation_features);
-    if (!DeviceExtensionSupported(gpu(), nullptr, VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME)) {
-        printf("%s Extension %s not supported, skipping this pass. \n", kSkipPrefix,
-               VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME);
-        return;
-    }
-    ASSERT_NO_FATAL_FAILURE(InitState(nullptr, nullptr, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT));
-    if (m_device->props.apiVersion < VK_API_VERSION_1_1) {
-        printf("%s GPU-Assisted printf test requires Vulkan 1.1+.\n", kSkipPrefix);
-        return;
-    }
-    auto features = m_device->phy().features();
-    if (!features.vertexPipelineStoresAndAtomics || !features.fragmentStoresAndAtomics) {
-        printf("%s GPU-Assisted printf test requires vertexPipelineStoresAndAtomics and fragmentStoresAndAtomics.\n", kSkipPrefix);
-        return;
-    }
-    ASSERT_NO_FATAL_FAILURE(InitViewport());
-    ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
-
-    if (DeviceIsMockICD() || DeviceSimulation()) {
-        printf("%s GPU-Assisted printf test requires a driver that can draw.\n", kSkipPrefix);
-        return;
-    }
-    // Make a uniform buffer to be passed to the shader that contains the test number
-    uint32_t qfi = 0;
-    VkBufferCreateInfo bci = {};
-    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bci.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    bci.size = 8;
-    bci.queueFamilyIndexCount = 1;
-    bci.pQueueFamilyIndices = &qfi;
-    VkBufferObj buffer0;
-    VkMemoryPropertyFlags mem_props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    buffer0.init(*m_device, bci, mem_props);
-    OneOffDescriptorSet descriptor_set(m_device, {{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr}});
-
-    const VkPipelineLayoutObj pipeline_layout(m_device, {&descriptor_set.layout_});
-    VkDescriptorBufferInfo buffer_info[2] = {};
-    buffer_info[0].buffer = buffer0.handle();
-    buffer_info[0].offset = 0;
-    buffer_info[0].range = sizeof(uint32_t);
-
-    VkWriteDescriptorSet descriptor_writes[1] = {};
-    descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptor_writes[0].dstSet = descriptor_set.set_;
-    descriptor_writes[0].dstBinding = 0;
-    descriptor_writes[0].descriptorCount = 1;
-    descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor_writes[0].pBufferInfo = buffer_info;
-    vk::UpdateDescriptorSets(m_device->device(), 1, descriptor_writes, 0, NULL);
-
-    char const *shader_source =
-        "#version 450\n"
-        "#extension GL_EXT_debug_printf : enable\n"
-        "layout(set = 0, binding = 0) uniform ufoo {\n"
-        "    int whichtest;\n"
-        "} u_info;\n"
-        "void main() {\n"
-        "    float myfloat = 3.1415f;\n"
-        "    int foo = -135;\n"
-        "    if (gl_VertexIndex == 0) {\n"
-        "        switch(u_info.whichtest) {\n"
-        "            case 0:\n"
-        "                debugPrintfEXT(\"Here are two float values %f, %f\", 1.0, myfloat);\n"
-        "                break;\n"
-        "            case 1:\n"
-        "                debugPrintfEXT(\"Here's a smaller float value %1.2f\", myfloat);\n"
-        "                break;\n"
-        "            case 2:\n"
-        "                debugPrintfEXT(\"Here's an integer %i with text before and after it\", foo);\n"
-        "                break;\n"
-        "            case 3:\n"
-        "                foo = 256;\n"
-        "                debugPrintfEXT(\"Here's an integer in octal %o and hex 0x%x\", foo, foo);\n"
-        "                break;\n"
-        "            case 4:\n"
-        "                debugPrintfEXT(\"%d is a negative integer\", foo);\n"
-        "                break;\n"
-        "            case 5:\n"
-        "                vec4 floatvec = vec4(1.2f, 2.2f, 3.2f, 4.2f);\n"
-        "                debugPrintfEXT(\"Here's a vector of floats %1.2v4f\", floatvec);\n"
-        "                break;\n"
-        "            case 6:\n"
-        "                debugPrintfEXT(\"Here's a float in sn %e\", myfloat);\n"
-        "                break;\n"
-        "            case 7:\n"
-        "                debugPrintfEXT(\"Here's a float in sn %1.2e\", myfloat);\n"
-        "                break;\n"
-        "            case 8:\n"
-        "                debugPrintfEXT(\"Here's a float in shortest %g\", myfloat);\n"
-        "                break;\n"
-        "            case 9:\n"
-        "                debugPrintfEXT(\"Here's a float in hex %1.9a\", myfloat);\n"
-        "                break;\n"
-        "            case 10:\n"
-        "                debugPrintfEXT(\"First printf with a %% and no value\");\n"
-        "                debugPrintfEXT(\"Second printf with a value %i\", foo);\n"
-        "                break;\n"
-        "        }\n"
-        "    }\n"
-        "    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);\n"
-        "}\n";
-    std::vector<char const *> messages;
-    messages.push_back("Here are two float values 1.000000, 3.141500");
-    messages.push_back("Here's a smaller float value 3.14");
-    messages.push_back("Here's an integer -135 with text before and after it");
-    messages.push_back("Here's an integer in octal 400 and hex 0x100");
-    messages.push_back("-135 is a negative integer");
-    messages.push_back("Here's a vector of floats 1.20, 2.20, 3.20, 4.20");
-    messages.push_back("Here's a float in sn 3.141500e+00");
-    messages.push_back("Here's a float in sn 3.14e+00");
-    messages.push_back("Here's a float in shortest 3.1415");
-    messages.push_back("Here's a float in hex 0x1.921cac000p+1");
-    // Two error messages have to be last in the vector
-    messages.push_back("First printf with a % and no value");
-    messages.push_back("Second printf with a value -135");
-    VkShaderObj vs(m_device, shader_source, VK_SHADER_STAGE_VERTEX_BIT, this, "main", true);
-
-    VkViewport viewport = m_viewports[0];
-    VkRect2D scissors = m_scissors[0];
-
-    VkSubmitInfo submit_info = {};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &m_commandBuffer->handle();
-
-    VkPipelineObj pipe(m_device);
-    pipe.AddShader(&vs);
-    pipe.AddDefaultColorAttachment();
-    VkResult err = pipe.CreateVKPipeline(pipeline_layout.handle(), renderPass());
-    ASSERT_VK_SUCCESS(err);
-
-    VkCommandBufferBeginInfo begin_info = {};
-    VkCommandBufferInheritanceInfo hinfo = {};
-    hinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.pInheritanceInfo = &hinfo;
-
-    m_commandBuffer->begin(&begin_info);
-    m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
-    vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle());
-    vk::CmdBindDescriptorSets(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.handle(), 0, 1,
-                              &descriptor_set.set_, 0, nullptr);
-    vk::CmdSetViewport(m_commandBuffer->handle(), 0, 1, &viewport);
-    vk::CmdSetScissor(m_commandBuffer->handle(), 0, 1, &scissors);
-    vk::CmdDraw(m_commandBuffer->handle(), 3, 1, 0, 0);
-    vk::CmdEndRenderPass(m_commandBuffer->handle());
-    m_commandBuffer->end();
-
-    for (uint32_t i = 0; i < messages.size(); i++) {
-        VkDeviceAddress *data = (VkDeviceAddress *)buffer0.memory().map();
-        data[0] = i;
-        buffer0.memory().unmap();
-        m_errorMonitor->SetDesiredFailureMsg(kInformationBit, messages[i]);
-        if (10 == i) {
-            m_errorMonitor->SetDesiredFailureMsg(kInformationBit, messages[i + 1]);
-            i++;
-        }
-        err = vk::QueueSubmit(m_device->m_queue, 1, &submit_info, VK_NULL_HANDLE);
-        ASSERT_VK_SUCCESS(err);
-        err = vk::QueueWaitIdle(m_device->m_queue);
-        ASSERT_VK_SUCCESS(err);
-        m_errorMonitor->VerifyFound();
-    }
-
-    if (features.shaderInt64) {
-        char const *shader_source_int64 =
-            "#version 450\n"
-            "#extension GL_EXT_debug_printf : enable\n"
-            "#extension GL_ARB_gpu_shader_int64 : enable\n"
-            "layout(set = 0, binding = 0) uniform ufoo {\n"
-            "    int whichtest;\n"
-            "} u_info;\n"
-            "void main() {\n"
-            "    uint64_t bigvar = 0x2000000000000001ul;\n"
-            "    if (gl_VertexIndex == 0) {\n"
-            "        switch(u_info.whichtest) {\n"
-            "            case 0:\n"
-            "                debugPrintfEXT(\"Here's an unsigned long 0x%ul\", bigvar);\n"
-            "                break;\n"
-            "            case 1:\n"
-            "                u64vec4 vecul = u64vec4(bigvar, bigvar, bigvar, bigvar);"
-            "                debugPrintfEXT(\"Here's a vector of ul %v4ul\", vecul);\n"
-            "                break;\n"
-            "        }\n"
-            "    }\n"
-            "    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);\n"
-            "}\n";
-        VkShaderObj vs_int64(m_device, shader_source_int64, VK_SHADER_STAGE_VERTEX_BIT, this, "main", true);
-        VkPipelineObj pipe2(m_device);
-        pipe2.AddShader(&vs_int64);
-        pipe2.AddDefaultColorAttachment();
-        err = pipe2.CreateVKPipeline(pipeline_layout.handle(), renderPass());
-        ASSERT_VK_SUCCESS(err);
-
-        m_commandBuffer->begin(&begin_info);
-        m_commandBuffer->BeginRenderPass(m_renderPassBeginInfo);
-        vk::CmdBindPipeline(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipe2.handle());
-        vk::CmdBindDescriptorSets(m_commandBuffer->handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout.handle(), 0, 1,
-                                  &descriptor_set.set_, 0, nullptr);
-        vk::CmdSetViewport(m_commandBuffer->handle(), 0, 1, &viewport);
-        vk::CmdSetScissor(m_commandBuffer->handle(), 0, 1, &scissors);
-        vk::CmdDraw(m_commandBuffer->handle(), 3, 1, 0, 0);
-        vk::CmdEndRenderPass(m_commandBuffer->handle());
-        m_commandBuffer->end();
-
-        VkDeviceAddress *data = (VkDeviceAddress *)buffer0.memory().map();
-        data[0] = 0;
-        buffer0.memory().unmap();
-        m_errorMonitor->SetDesiredFailureMsg(kInformationBit, "Here's an unsigned long 0x2000000000000001");
-        err = vk::QueueSubmit(m_device->m_queue, 1, &submit_info, VK_NULL_HANDLE);
-        ASSERT_VK_SUCCESS(err);
-        err = vk::QueueWaitIdle(m_device->m_queue);
-        ASSERT_VK_SUCCESS(err);
-        m_errorMonitor->VerifyFound();
-        data = (VkDeviceAddress *)buffer0.memory().map();
-        data[0] = 1;
-        buffer0.memory().unmap();
-        m_errorMonitor->SetDesiredFailureMsg(
-            kInformationBit, "Here's a vector of ul 2000000000000001, 2000000000000001, 2000000000000001, 2000000000000001");
-        err = vk::QueueSubmit(m_device->m_queue, 1, &submit_info, VK_NULL_HANDLE);
-        ASSERT_VK_SUCCESS(err);
-        err = vk::QueueWaitIdle(m_device->m_queue);
-        ASSERT_VK_SUCCESS(err);
-        m_errorMonitor->VerifyFound();
-    }
-}
 
 TEST_F(VkPositiveLayerTest, Maintenance1Tests) {
     TEST_DESCRIPTION("Validate various special cases for the Maintenance1_KHR extension");
@@ -6393,6 +5938,10 @@ TEST_F(VkPositiveLayerTest, PSOPolygonModeValid) {
     TEST_DESCRIPTION("Verify that using a solid polygon fill mode works correctly.");
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
     std::vector<const char *> device_extension_names;
@@ -6834,6 +6383,10 @@ TEST_F(VkPositiveLayerTest, CreateGraphicsPipelineWithIgnoredPointers) {
     TEST_DESCRIPTION("Create Graphics Pipeline with pointers that must be ignored by layers");
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
 
     m_depth_stencil_fmt = FindSupportedDepthStencilFormat(gpu());
     ASSERT_TRUE(m_depth_stencil_fmt != 0);
@@ -7948,7 +7501,7 @@ TEST_F(VkPositiveLayerTest, MultiplaneImageTests) {
 TEST_F(VkPositiveLayerTest, ApiVersionZero) {
     TEST_DESCRIPTION("Check that apiVersion = 0 is valid.");
     m_errorMonitor->ExpectSuccess();
-    app_info.apiVersion = 0U;
+    app_info_.apiVersion = 0U;
     ASSERT_NO_FATAL_FAILURE(InitFramework(m_errorMonitor));
     m_errorMonitor->VerifyNotFound();
 }
@@ -8192,6 +7745,10 @@ TEST_F(VkPositiveLayerTest, CreatePipelineAttachmentUnused) {
     TEST_DESCRIPTION("Make sure unused attachments are correctly ignored.");
 
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
     char const *fsSource =
@@ -8782,6 +8339,10 @@ TEST_F(VkPositiveLayerTest, SampleMaskOverrideCoverageNV) {
 TEST_F(VkPositiveLayerTest, TestRasterizationDiscardEnableTrue) {
     TEST_DESCRIPTION("Ensure it doesn't crash and trigger error msg when rasterizerDiscardEnable = true");
     ASSERT_NO_FATAL_FAILURE(Init());
+    if (IsPlatform(kNexusPlayer)) {
+        printf("%s This test should not run on Nexus Player\n", kSkipPrefix);
+        return;
+    }
     ASSERT_NO_FATAL_FAILURE(InitRenderTarget());
 
     VkAttachmentDescription att[1] = {{}};
@@ -9109,7 +8670,7 @@ TEST_F(VkPositiveLayerTest, SwapchainImageLayout) {
         printf("%s Cannot create surface or swapchain, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
         return;
     }
-    uint32_t image_index = 0, image_count;
+    uint32_t image_index, image_count;
     PFN_vkGetSwapchainImagesKHR fpGetSwapchainImagesKHR =
         (PFN_vkGetSwapchainImagesKHR)vk::GetDeviceProcAddr(m_device->handle(), "vkGetSwapchainImagesKHR");
     fpGetSwapchainImagesKHR(m_device->handle(), m_swapchain, &image_count, NULL);
@@ -9119,9 +8680,7 @@ TEST_F(VkPositiveLayerTest, SwapchainImageLayout) {
     VkFence fence;
     VkResult ret = vk::CreateFence(m_device->device(), &fenceci, nullptr, &fence);
     ASSERT_VK_SUCCESS(ret);
-    PFN_vkAcquireNextImageKHR fpAcquireNextImageKHR =
-        (PFN_vkAcquireNextImageKHR)vk::GetDeviceProcAddr(m_device->handle(), "vkAcquireNextImageKHR");
-    ret = fpAcquireNextImageKHR(m_device->handle(), m_swapchain, UINT64_MAX, VK_NULL_HANDLE, fence, &image_index);
+    ret = vk::AcquireNextImageKHR(m_device->handle(), m_swapchain, UINT64_MAX, VK_NULL_HANDLE, fence, &image_index);
     ASSERT_VK_SUCCESS(ret);
     VkAttachmentDescription attach[] = {
         {0, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -9195,9 +8754,11 @@ TEST_F(VkPositiveLayerTest, SwapchainImageLayout) {
     submit_info.signalSemaphoreCount = 0;
     submit_info.pSignalSemaphores = NULL;
     vk::WaitForFences(m_device->device(), 1, &fence, VK_TRUE, UINT64_MAX);
+    vk::ResetFences(m_device->device(), 1, &fence);
     m_errorMonitor->ExpectSuccess();
-    vk::QueueSubmit(m_device->m_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vk::QueueSubmit(m_device->m_queue, 1, &submit_info, fence);
     m_errorMonitor->VerifyNotFound();
+    vk::WaitForFences(m_device->device(), 1, &fence, VK_TRUE, UINT64_MAX);
 
     free(swapchainImages);
     vk::DestroyFramebuffer(m_device->device(), fb1, NULL);
@@ -9206,6 +8767,7 @@ TEST_F(VkPositiveLayerTest, SwapchainImageLayout) {
     vk::DestroyRenderPass(m_device->device(), rp2, NULL);
     vk::DestroyFence(m_device->device(), fence, NULL);
     vk::DestroyImageView(m_device->device(), view, NULL);
+    DestroySwapchain();
 }
 
 TEST_F(VkPositiveLayerTest, PipelineStageConditionalRendering) {
@@ -9842,4 +9404,253 @@ TEST_F(VkPositiveLayerTest, ImagelessLayoutTracking) {
     vk::DestroyRenderPass(m_device->device(), renderPass, nullptr);
     vk::DestroySemaphore(m_device->device(), image_acquired, nullptr);
     vk::DestroyFramebuffer(m_device->device(), framebuffer, nullptr);
+}
+
+TEST_F(VkPositiveLayerTest, QueueThreading) {
+    TEST_DESCRIPTION("Test concurrent Queue access from vkGet and vkSubmit");
+
+    using namespace std::chrono;
+    using std::thread;
+    ASSERT_NO_FATAL_FAILURE(InitFramework());
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    const auto queue_family = DeviceObj()->GetDefaultQueue()->get_family_index();
+    constexpr uint32_t queue_index = 0;
+    VkCommandPoolObj command_pool(DeviceObj(), queue_family);
+
+    const VkDevice device_h = device();
+    VkQueue queue_h;
+    vk::GetDeviceQueue(device(), queue_family, queue_index, &queue_h);
+    VkQueueObj queue_o(queue_h, queue_family);
+
+    const VkCommandBufferAllocateInfo cbai = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, command_pool.handle(),
+                                              VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1};
+    vk_testing::CommandBuffer mock_cmdbuff(*DeviceObj(), cbai);
+    const VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
+                                        VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT, nullptr};
+    mock_cmdbuff.begin(&cbbi);
+    mock_cmdbuff.end();
+
+    std::mutex queue_mutex;
+
+    constexpr auto test_duration = seconds{2};
+    const auto timer_begin = steady_clock::now();
+
+    const auto &testing_thread1 = [&]() {
+        for (auto timer_now = steady_clock::now(); timer_now - timer_begin < test_duration; timer_now = steady_clock::now()) {
+            VkQueue dummy_q;
+            vk::GetDeviceQueue(device_h, queue_family, queue_index, &dummy_q);
+        }
+    };
+
+    const auto &testing_thread2 = [&]() {
+        for (auto timer_now = steady_clock::now(); timer_now - timer_begin < test_duration; timer_now = steady_clock::now()) {
+            VkSubmitInfo si = {};
+            si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &mock_cmdbuff.handle();
+            queue_mutex.lock();
+            ASSERT_VK_SUCCESS(vk::QueueSubmit(queue_h, 1, &si, VK_NULL_HANDLE));
+            queue_mutex.unlock();
+        }
+    };
+
+    const auto &testing_thread3 = [&]() {
+        for (auto timer_now = steady_clock::now(); timer_now - timer_begin < test_duration; timer_now = steady_clock::now()) {
+            queue_mutex.lock();
+            ASSERT_VK_SUCCESS(vk::QueueWaitIdle(queue_h));
+            queue_mutex.unlock();
+        }
+    };
+
+    Monitor().ExpectSuccess();
+    std::array<thread, 3> threads = {thread(testing_thread1), thread(testing_thread2), thread(testing_thread3)};
+    for (auto &t : threads) t.join();
+    Monitor().VerifyNotFound();
+
+    vk::QueueWaitIdle(queue_h);
+}
+
+TEST_F(VkPositiveLayerTest, SwapchainImageFormatProps) {
+    TEST_DESCRIPTION("Try using special format props on a swapchain image");
+
+    if (!AddSurfaceInstanceExtension()) {
+        printf("%s surface extensions not supported, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitFramework());
+
+    if (!AddSwapchainDeviceExtension()) {
+        printf("%s swapchain extensions not supported, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    if (!InitSwapchain()) {
+        printf("%s Cannot create surface or swapchain, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    // HACK: I know InitSwapchain() will pick first supported format
+    VkSurfaceFormatKHR format_tmp;
+    {
+        uint32_t format_count = 1;
+        const VkResult err = vk::GetPhysicalDeviceSurfaceFormatsKHR(gpu(), m_surface, &format_count, &format_tmp);
+        ASSERT_TRUE(err == VK_SUCCESS || err == VK_INCOMPLETE) << vk_result_string(err);
+    }
+    const VkFormat format = format_tmp.format;
+
+    VkFormatProperties format_props;
+    vk::GetPhysicalDeviceFormatProperties(gpu(), format, &format_props);
+    if (!(format_props.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)) {
+        printf("%s We need VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT feature. Skipping test.\n", kSkipPrefix);
+        return;
+    }
+
+    VkShaderObj vs(DeviceObj(), bindStateVertShaderText, VK_SHADER_STAGE_VERTEX_BIT, this);
+    VkShaderObj fs(DeviceObj(), bindStateFragShaderText, VK_SHADER_STAGE_FRAGMENT_BIT, this);
+
+    VkPipelineLayoutObj pipeline_layout(DeviceObj());
+    VkRenderpassObj render_pass(DeviceObj(), format);
+
+    VkPipelineObj pipeline(DeviceObj());
+    pipeline.AddShader(&vs);
+    pipeline.AddShader(&fs);
+    VkPipelineColorBlendAttachmentState pcbas = {};
+    pcbas.blendEnable = VK_TRUE;  // !!!
+    pcbas.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    pipeline.AddColorAttachment(0, pcbas);
+    pipeline.MakeDynamic(VK_DYNAMIC_STATE_VIEWPORT);
+    pipeline.MakeDynamic(VK_DYNAMIC_STATE_SCISSOR);
+
+    ASSERT_VK_SUCCESS(pipeline.CreateVKPipeline(pipeline_layout.handle(), render_pass.handle()));
+
+    uint32_t image_count;
+    ASSERT_VK_SUCCESS(vk::GetSwapchainImagesKHR(device(), m_swapchain, &image_count, nullptr));
+    std::vector<VkImage> swapchain_images(image_count);
+    ASSERT_VK_SUCCESS(vk::GetSwapchainImagesKHR(device(), m_swapchain, &image_count, swapchain_images.data()));
+
+    VkFenceObj fence;
+    fence.init(*DeviceObj(), VkFenceObj::create_info());
+
+    uint32_t image_index;
+    ASSERT_VK_SUCCESS(vk::AcquireNextImageKHR(device(), m_swapchain, UINT64_MAX, VK_NULL_HANDLE, fence.handle(), &image_index));
+    fence.wait(UINT32_MAX);
+
+    VkImageViewCreateInfo ivci = {};
+    ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ivci.image = swapchain_images[image_index];
+    ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    ivci.format = format;
+    ivci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkImageView image_view;
+    ASSERT_VK_SUCCESS(vk::CreateImageView(device(), &ivci, nullptr, &image_view));
+
+    VkFramebufferCreateInfo fbci = {};
+    fbci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbci.renderPass = render_pass.handle();
+    fbci.attachmentCount = 1;
+    fbci.pAttachments = &image_view;
+    fbci.width = 1;
+    fbci.height = 1;
+    fbci.layers = 1;
+    VkFramebuffer framebuffer;
+    ASSERT_VK_SUCCESS(vk::CreateFramebuffer(device(), &fbci, nullptr, &framebuffer));
+
+    VkCommandBufferObj cmdbuff(DeviceObj(), m_commandPool);
+    cmdbuff.begin();
+    VkRenderPassBeginInfo rpbi = {};
+    rpbi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpbi.renderPass = render_pass.handle();
+    rpbi.framebuffer = framebuffer;
+    rpbi.renderArea = {{0, 0}, {1, 1}};
+    cmdbuff.BeginRenderPass(rpbi);
+
+    Monitor().ExpectSuccess();
+    vk::CmdBindPipeline(cmdbuff.handle(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle());
+    Monitor().VerifyNotFound();
+
+    // teardown
+    vk::DestroyImageView(device(), image_view, nullptr);
+    vk::DestroyFramebuffer(device(), framebuffer, nullptr);
+    DestroySwapchain();
+}
+
+TEST_F(VkPositiveLayerTest, SwapchainExclusiveModeQueueFamilyPropertiesReferences) {
+    TEST_DESCRIPTION("Try using special format props on a swapchain image");
+
+    if (!AddSurfaceInstanceExtension()) {
+        printf("%s surface extensions not supported, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitFramework());
+
+    if (!AddSwapchainDeviceExtension()) {
+        printf("%s swapchain extensions not supported, skipping CmdCopySwapchainImage test\n", kSkipPrefix);
+        return;
+    }
+
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    if (InitSurface()) {
+        auto surface = m_surface;
+        VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        VkSurfaceTransformFlagBitsKHR preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+
+        VkSurfaceCapabilitiesKHR capabilities;
+        vk::GetPhysicalDeviceSurfaceCapabilitiesKHR(m_device->phy().handle(), surface, &capabilities);
+
+        uint32_t format_count;
+        vk::GetPhysicalDeviceSurfaceFormatsKHR(m_device->phy().handle(), surface, &format_count, nullptr);
+        vector<VkSurfaceFormatKHR> formats;
+        if (format_count != 0) {
+            formats.resize(format_count);
+            vk::GetPhysicalDeviceSurfaceFormatsKHR(m_device->phy().handle(), surface, &format_count, formats.data());
+        }
+
+        uint32_t present_mode_count;
+        vk::GetPhysicalDeviceSurfacePresentModesKHR(m_device->phy().handle(), surface, &present_mode_count, nullptr);
+        vector<VkPresentModeKHR> present_modes;
+        if (present_mode_count != 0) {
+            present_modes.resize(present_mode_count);
+            vk::GetPhysicalDeviceSurfacePresentModesKHR(m_device->phy().handle(), surface, &present_mode_count,
+                                                        present_modes.data());
+        }
+
+        VkSwapchainCreateInfoKHR swapchain_create_info = {};
+        swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swapchain_create_info.pNext = 0;
+        swapchain_create_info.surface = surface;
+        swapchain_create_info.minImageCount = capabilities.minImageCount;
+        swapchain_create_info.imageFormat = formats[0].format;
+        swapchain_create_info.imageColorSpace = formats[0].colorSpace;
+        swapchain_create_info.imageExtent = {capabilities.minImageExtent.width, capabilities.minImageExtent.height};
+        swapchain_create_info.imageArrayLayers = 1;
+        swapchain_create_info.imageUsage = imageUsage;
+        swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapchain_create_info.preTransform = preTransform;
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+        swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+#else
+        swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+#endif
+        swapchain_create_info.presentMode = present_modes[0];
+        swapchain_create_info.clipped = VK_FALSE;
+        swapchain_create_info.oldSwapchain = 0;
+
+        swapchain_create_info.queueFamilyIndexCount = 4094967295;  // This SHOULD get ignored
+        uint32_t bogus_int = 99;
+        swapchain_create_info.pQueueFamilyIndices = &bogus_int;
+
+        vk::CreateSwapchainKHR(device(), &swapchain_create_info, nullptr, &m_swapchain);
+
+        if (m_surface != VK_NULL_HANDLE) {
+            vk::DestroySurfaceKHR(instance(), m_surface, nullptr);
+            m_surface = VK_NULL_HANDLE;
+        }
+    }
 }

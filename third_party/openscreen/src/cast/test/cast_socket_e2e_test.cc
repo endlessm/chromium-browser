@@ -10,16 +10,17 @@
 
 #include "cast/common/certificate/cast_trust_store.h"
 #include "cast/common/certificate/testing/test_helpers.h"
-#include "cast/common/channel/cast_socket.h"
 #include "cast/common/channel/connection_namespace_handler.h"
 #include "cast/common/channel/message_util.h"
 #include "cast/common/channel/virtual_connection_manager.h"
 #include "cast/common/channel/virtual_connection_router.h"
+#include "cast/common/public/cast_socket.h"
 #include "cast/receiver/channel/device_auth_namespace_handler.h"
-#include "cast/receiver/channel/receiver_socket_factory.h"
 #include "cast/receiver/channel/testing/device_auth_test_helpers.h"
-#include "cast/sender/channel/sender_socket_factory.h"
+#include "cast/receiver/public/receiver_socket_factory.h"
+#include "cast/sender/public/sender_socket_factory.h"
 #include "gtest/gtest.h"
+#include "platform/api/serial_delete_ptr.h"
 #include "platform/api/tls_connection_factory.h"
 #include "platform/base/tls_connect_options.h"
 #include "platform/base/tls_credentials.h"
@@ -28,11 +29,12 @@
 #include "platform/impl/network_interface.h"
 #include "platform/impl/platform_client_posix.h"
 #include "util/crypto/certificate_utils.h"
-#include "util/logging.h"
-#include "util/serial_delete_ptr.h"
+#include "util/osp_logging.h"
 
 namespace openscreen {
 namespace cast {
+
+using std::chrono::milliseconds;
 
 constexpr auto kCertificateDuration = std::chrono::hours(24);
 
@@ -49,7 +51,7 @@ class SenderSocketsClient final
   void OnConnected(SenderSocketFactory* factory,
                    const IPEndpoint& endpoint,
                    std::unique_ptr<CastSocket> socket) {
-    OSP_DCHECK(!socket_);
+    OSP_CHECK(!socket_);
     OSP_LOG_INFO << "\tSender connected to endpoint: " << endpoint;
     socket_ = socket.get();
     router_->TakeSocket(this, std::move(socket));
@@ -87,7 +89,7 @@ class ReceiverSocketsClient final
   void OnConnected(ReceiverSocketFactory* factory,
                    const IPEndpoint& endpoint,
                    std::unique_ptr<CastSocket> socket) override {
-    OSP_DCHECK(!socket_);
+    OSP_CHECK(!socket_);
     OSP_LOG_INFO << "\tReceiver got connection from endpoint: " << endpoint;
     endpoint_ = endpoint;
     socket_ = socket.get();
@@ -113,9 +115,7 @@ class ReceiverSocketsClient final
 class CastSocketE2ETest : public ::testing::Test {
  public:
   void SetUp() override {
-    SetLogLevel(LogLevel::kInfo);
-
-    PlatformClientPosix::Create(Clock::duration{50}, Clock::duration{50});
+    PlatformClientPosix::Create(milliseconds{10}, Clock::duration{0});
     task_runner_ = PlatformClientPosix::GetInstance()->GetTaskRunner();
 
     sender_router_ = MakeSerialDelete<VirtualConnectionRouter>(
@@ -255,17 +255,16 @@ class CastSocketE2ETest : public ::testing::Test {
  protected:
   IPAddress GetLoopbackV4Address() {
     absl::optional<InterfaceInfo> loopback = GetLoopbackInterfaceForTesting();
-    OSP_DCHECK(loopback);
-    auto address = loopback->GetIpAddressV4();
-    OSP_DCHECK(address);
+    OSP_CHECK(loopback);
+    IPAddress address = loopback->GetIpAddressV4();
+    OSP_CHECK(address);
     return address;
   }
 
   IPAddress GetLoopbackV6Address() {
     absl::optional<InterfaceInfo> loopback = GetLoopbackInterfaceForTesting();
-    OSP_DCHECK(loopback);
-    auto address = loopback->GetIpAddressV6();
-    OSP_DCHECK(address);
+    OSP_CHECK(loopback);
+    IPAddress address = loopback->GetIpAddressV6();
     return address;
   }
 
@@ -338,8 +337,12 @@ TEST_F(CastSocketE2ETest, ConnectV4) {
 TEST_F(CastSocketE2ETest, ConnectV6) {
   OSP_LOG_INFO << "Getting loopback IPv6 address";
   IPAddress loopback_address = GetLoopbackV6Address();
-  OSP_LOG_INFO << "Connecting CastSockets";
-  Connect(loopback_address);
+  if (loopback_address) {
+    OSP_LOG_INFO << "Connecting CastSockets";
+    Connect(loopback_address);
+  } else {
+    OSP_LOG_WARN << "Test skipped due to missing IPv6 loopback address";
+  }
 }
 
 }  // namespace cast

@@ -155,7 +155,7 @@ Parser::DeclGroupPtrTy Parser::ParseNamespace(DeclaratorContext Context,
     // Normal namespace definition, not a nested-namespace-definition.
   } else if (InlineLoc.isValid()) {
     Diag(InlineLoc, diag::err_inline_nested_namespace_definition);
-  } else if (getLangOpts().CPlusPlus2a) {
+  } else if (getLangOpts().CPlusPlus20) {
     Diag(ExtraNSs[0].NamespaceLoc,
          diag::warn_cxx14_compat_nested_namespace_definition);
     if (FirstNestedInlineLoc.isValid())
@@ -1151,13 +1151,10 @@ TypeResult Parser::ParseBaseTypeSpecifier(SourceLocation &BaseLoc,
       AnnotateTemplateIdTokenAsType(SS, /*IsClassName*/true);
 
       assert(Tok.is(tok::annot_typename) && "template-id -> type failed");
-      ParsedType Type = getTypeAnnotation(Tok);
+      TypeResult Type = getTypeAnnotation(Tok);
       EndLocation = Tok.getAnnotationEndLoc();
       ConsumeAnnotationToken();
-
-      if (Type)
-        return Type;
-      return true;
+      return Type;
     }
 
     // Fall through to produce an error below.
@@ -1204,7 +1201,7 @@ TypeResult Parser::ParseBaseTypeSpecifier(SourceLocation &BaseLoc,
     // Retrieve the type from the annotation token, consume that token, and
     // return.
     EndLocation = Tok.getAnnotationEndLoc();
-    ParsedType Type = getTypeAnnotation(Tok);
+    TypeResult Type = getTypeAnnotation(Tok);
     ConsumeAnnotationToken();
     return Type;
   }
@@ -1286,7 +1283,8 @@ bool Parser::isValidAfterTypeSpecifier(bool CouldBeBitfield) {
   case tok::annot_pragma_ms_pointers_to_members:
     return true;
   case tok::colon:
-    return CouldBeBitfield;     // enum E { ... }   :         2;
+    return CouldBeBitfield ||   // enum E { ... }   :         2;
+           ColonIsSacred;       // _Generic(..., enum E :     2);
   // Microsoft compatibility
   case tok::kw___cdecl:         // struct foo {...} __cdecl      x;
   case tok::kw___fastcall:      // struct foo {...} __fastcall   x;
@@ -1683,7 +1681,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
 
   const PrintingPolicy &Policy = Actions.getASTContext().getPrintingPolicy();
   Sema::TagUseKind TUK;
-  if (DSC == DeclSpecContext::DSC_trailing)
+  if (isDefiningTypeSpecifierContext(DSC) == AllowDefiningTypeSpec::No)
     TUK = Sema::TUK_Reference;
   else if (Tok.is(tok::l_brace) ||
            (getLangOpts().CPlusPlus && Tok.is(tok::colon)) ||
@@ -2790,7 +2788,7 @@ Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
                  !DS.isFriendSpecified()) {
         // It's a default member initializer.
         if (BitfieldSize.get())
-          Diag(Tok, getLangOpts().CPlusPlus2a
+          Diag(Tok, getLangOpts().CPlusPlus20
                         ? diag::warn_cxx17_compat_bitfield_member_init
                         : diag::ext_bitfield_member_init);
         HasInClassInit = Tok.is(tok::equal) ? ICIS_CopyInit : ICIS_ListInit;
@@ -2995,7 +2993,7 @@ ExprResult Parser::ParseCXXMemberInitializer(Decl *D, bool IsFunction,
           << 0 /* default */;
       else
         Diag(ConsumeToken(), diag::err_default_special_members)
-            << getLangOpts().CPlusPlus2a;
+            << getLangOpts().CPlusPlus20;
       return ExprError();
     }
   }
@@ -3342,6 +3340,7 @@ void Parser::ParseCXXMemberSpecification(SourceLocation RecordLoc,
       // Each iteration of this loop reads one member-declaration.
       ParseCXXClassMemberDeclarationWithPragmas(
           CurAS, AccessAttrs, static_cast<DeclSpec::TST>(TagType), TagDecl);
+      MaybeDestroyTemplateIds();
     }
     T.consumeClose();
   } else {
@@ -3367,6 +3366,14 @@ void Parser::ParseCXXMemberSpecification(SourceLocation RecordLoc,
     // are complete and we can parse the delayed portions of method
     // declarations and the lexed inline method definitions, along with any
     // delayed attributes.
+
+    // Save the state of Sema.FPFeatures, and change the setting
+    // to the levels specified on the command line.  Previous level
+    // will be restored when the RAII object is destroyed.
+    Sema::FPFeaturesStateRAII SaveFPFeaturesState(Actions);
+    FPOptions fpOptions(getLangOpts());
+    Actions.CurFPFeatures.getFromOpaqueInt(fpOptions.getAsOpaqueInt());
+
     SourceLocation SavedPrevTokLocation = PrevTokLocation;
     ParseLexedPragmas(getCurrentClass());
     ParseLexedAttributes(getCurrentClass());
@@ -3510,7 +3517,7 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
   // : declype(...)
   DeclSpec DS(AttrFactory);
   // : template_name<...>
-  ParsedType TemplateTypeTy;
+  TypeResult TemplateTypeTy;
 
   if (Tok.is(tok::identifier)) {
     // Get the identifier. This may be a member name or a class name,
@@ -3532,8 +3539,6 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
       assert(Tok.is(tok::annot_typename) && "template-id -> type failed");
       TemplateTypeTy = getTypeAnnotation(Tok);
       ConsumeAnnotationToken();
-      if (!TemplateTypeTy)
-        return true;
     } else {
       Diag(Tok, diag::err_expected_member_or_base_name);
       return true;
@@ -3552,8 +3557,10 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
     SourceLocation EllipsisLoc;
     TryConsumeToken(tok::ellipsis, EllipsisLoc);
 
+    if (TemplateTypeTy.isInvalid())
+      return true;
     return Actions.ActOnMemInitializer(ConstructorDecl, getCurScope(), SS, II,
-                                       TemplateTypeTy, DS, IdLoc,
+                                       TemplateTypeTy.get(), DS, IdLoc,
                                        InitList.get(), EllipsisLoc);
   } else if(Tok.is(tok::l_paren)) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
@@ -3563,8 +3570,10 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
     ExprVector ArgExprs;
     CommaLocsTy CommaLocs;
     auto RunSignatureHelp = [&] {
+      if (TemplateTypeTy.isInvalid())
+        return QualType();
       QualType PreferredType = Actions.ProduceCtorInitMemberSignatureHelp(
-          getCurScope(), ConstructorDecl, SS, TemplateTypeTy, ArgExprs, II,
+          getCurScope(), ConstructorDecl, SS, TemplateTypeTy.get(), ArgExprs, II,
           T.getOpenLocation());
       CalledSignatureHelp = true;
       return PreferredType;
@@ -3585,11 +3594,16 @@ MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
     SourceLocation EllipsisLoc;
     TryConsumeToken(tok::ellipsis, EllipsisLoc);
 
+    if (TemplateTypeTy.isInvalid())
+      return true;
     return Actions.ActOnMemInitializer(ConstructorDecl, getCurScope(), SS, II,
-                                       TemplateTypeTy, DS, IdLoc,
+                                       TemplateTypeTy.get(), DS, IdLoc,
                                        T.getOpenLocation(), ArgExprs,
                                        T.getCloseLocation(), EllipsisLoc);
   }
+
+  if (TemplateTypeTy.isInvalid())
+    return true;
 
   if (getLangOpts().CPlusPlus11)
     return Diag(Tok, diag::err_expected_either) << tok::l_paren << tok::l_brace;

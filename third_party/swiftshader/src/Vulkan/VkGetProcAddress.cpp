@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "VkGetProcAddress.h"
+#include "VkGetProcAddress.hpp"
 #include "VkDevice.hpp"
 
 #include <string>
@@ -397,6 +397,16 @@ static const std::vector<std::pair<const char *, std::unordered_map<std::string,
 	        MAKE_VULKAN_DEVICE_ENTRY(vkGetMemoryAndroidHardwareBufferANDROID),
 	    } },
 #endif
+
+#if VK_USE_PLATFORM_FUCHSIA
+	// VK_FUCHSIA_external_memory
+	{
+	    VK_FUCHSIA_EXTERNAL_MEMORY_EXTENSION_NAME,
+	    {
+	        MAKE_VULKAN_DEVICE_ENTRY(vkGetMemoryZirconHandleFUCHSIA),
+	        MAKE_VULKAN_DEVICE_ENTRY(vkGetMemoryZirconHandlePropertiesFUCHSIA),
+	    } },
+#endif
 };
 
 #undef MAKE_VULKAN_DEVICE_ENTRY
@@ -507,4 +517,8 @@ extern "C" hwvulkan_module_t HAL_MODULE_INFO_SYM = {
 	}
 };
 
+#endif  // __ANDROID__
+
+#if VK_USE_PLATFORM_FUCHSIA
+PFN_vkConnectToService vk::icdFuchsiaServiceConnectCallback = nullptr;
 #endif

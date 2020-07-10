@@ -361,10 +361,13 @@ struct SAMPLER_STATE : public BASE_NODE {
     VkSampler sampler;
     VkSamplerCreateInfo createInfo;
     VkSamplerYcbcrConversion samplerConversion = VK_NULL_HANDLE;
+    VkSamplerCustomBorderColorCreateInfoEXT customCreateInfo = {};
 
     SAMPLER_STATE(const VkSampler *ps, const VkSamplerCreateInfo *pci) : sampler(*ps), createInfo(*pci) {
         auto *conversionInfo = lvl_find_in_chain<VkSamplerYcbcrConversionInfo>(pci->pNext);
         if (conversionInfo) samplerConversion = conversionInfo->conversion;
+        auto cbci = lvl_find_in_chain<VkSamplerCustomBorderColorCreateInfoEXT>(pci->pNext);
+        if (cbci) customCreateInfo = *cbci;
     }
 };
 
@@ -380,7 +383,7 @@ class IMAGE_STATE : public BINDABLE {
     bool get_sparse_reqs_called;         // Track if GetImageSparseMemoryRequirements() has been called for this image
     bool sparse_metadata_required;       // Track if sparse metadata aspect is required for this image
     bool sparse_metadata_bound;          // Track if sparse metadata aspect is bound to this image
-    bool imported_ahb;                   // True if image was imported from an Android Hardware Buffer
+    bool external_ahb;                   // True if image will be imported/exported from/to an Android Hardware Buffer
     bool has_ahb_format;                 // True if image was created with an external Android format
     bool is_swapchain_image;             // True if image is a swapchain image
     uint64_t ahb_format;                 // External Android format, if provided
@@ -389,10 +392,15 @@ class IMAGE_STATE : public BINDABLE {
     VkSwapchainKHR bind_swapchain;
     uint32_t bind_swapchain_imageIndex;
     image_layout_map::Encoder range_encoder;
-
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
-    uint64_t external_format_android;
-#endif  // VK_USE_PLATFORM_ANDROID_KHR
+    VkFormatFeatureFlags format_features = 0;
+    // Need to memory requirments for each plane if image is disjoint
+    bool disjoint;  // True if image was created with VK_IMAGE_CREATE_DISJOINT_BIT
+    VkMemoryRequirements plane0_requirements;
+    bool plane0_memory_requirements_checked;
+    VkMemoryRequirements plane1_requirements;
+    bool plane1_memory_requirements_checked;
+    VkMemoryRequirements plane2_requirements;
+    bool plane2_memory_requirements_checked;
 
     std::vector<VkSparseImageMemoryRequirements> sparse_requirements;
     IMAGE_STATE(VkImage img, const VkImageCreateInfo *pCreateInfo);
@@ -458,6 +466,7 @@ class IMAGE_VIEW_STATE : public BASE_NODE {
     VkSampleCountFlagBits samples;
     unsigned descriptor_format_bits;
     VkSamplerYcbcrConversion samplerConversion;  // Handle of the ycbcr sampler conversion the image was created with, if any
+    VkFormatFeatureFlags format_features;
     std::shared_ptr<IMAGE_STATE> image_state;
     IMAGE_VIEW_STATE(const std::shared_ptr<IMAGE_STATE> &image_state, VkImageView iv, const VkImageViewCreateInfo *ci);
     IMAGE_VIEW_STATE(const IMAGE_VIEW_STATE &rh_obj) = delete;
@@ -509,8 +518,6 @@ class SWAPCHAIN_NODE : public BASE_NODE {
     SWAPCHAIN_NODE(const VkSwapchainCreateInfoKHR *pCreateInfo, VkSwapchainKHR swapchain)
         : createInfo(pCreateInfo), swapchain(swapchain) {}
 };
-
-std::string FormatDebugLabel(const char *prefix, const LoggingLabel &label);
 
 extern bool ImageLayoutMatches(const VkImageAspectFlags aspect_mask, VkImageLayout a, VkImageLayout b);
 
@@ -573,35 +580,38 @@ struct QueryObject {
     uint32_t query;
     // These next two fields are *not* used in hash or comparison, they are effectively a data payload
     uint32_t index;  // must be zero if !indexed
+    uint32_t perf_pass;
     bool indexed;
     // Command index in the command buffer where the end of the query was
     // recorded (equal to the number of commands in the command buffer before
     // the end of the query).
     uint64_t endCommandIndex;
 
-    QueryObject(VkQueryPool pool_, uint32_t query_) : pool(pool_), query(query_), index(0), indexed(false), endCommandIndex(0) {}
+    QueryObject(VkQueryPool pool_, uint32_t query_)
+        : pool(pool_), query(query_), index(0), perf_pass(0), indexed(false), endCommandIndex(0) {}
     QueryObject(VkQueryPool pool_, uint32_t query_, uint32_t index_)
-        : pool(pool_), query(query_), index(index_), indexed(true), endCommandIndex(0) {}
+        : pool(pool_), query(query_), index(index_), perf_pass(0), indexed(true), endCommandIndex(0) {}
     QueryObject(const QueryObject &obj)
-        : pool(obj.pool), query(obj.query), index(obj.index), indexed(obj.indexed), endCommandIndex(obj.endCommandIndex) {}
-    bool operator<(const QueryObject &rhs) const { return (pool == rhs.pool) ? query < rhs.query : pool < rhs.pool; }
+        : pool(obj.pool),
+          query(obj.query),
+          index(obj.index),
+          perf_pass(obj.perf_pass),
+          indexed(obj.indexed),
+          endCommandIndex(obj.endCommandIndex) {}
+    QueryObject(const QueryObject &obj, uint32_t perf_pass_)
+        : pool(obj.pool),
+          query(obj.query),
+          index(obj.index),
+          perf_pass(perf_pass_),
+          indexed(obj.indexed),
+          endCommandIndex(obj.endCommandIndex) {}
+    bool operator<(const QueryObject &rhs) const {
+        return (pool == rhs.pool) ? ((query == rhs.query) ? (perf_pass < rhs.perf_pass) : (query < rhs.query)) : pool < rhs.pool;
+    }
 };
 
 inline bool operator==(const QueryObject &query1, const QueryObject &query2) {
-    return ((query1.pool == query2.pool) && (query1.query == query2.query));
-}
-
-struct QueryObjectPass {
-    QueryObject obj;
-    uint32_t perf_pass;
-
-    QueryObjectPass(const QueryObject &obj_, uint32_t perf_pass_) : obj(obj_), perf_pass(perf_pass_) {}
-    QueryObjectPass(const QueryObjectPass &obj_) : obj(obj_.obj), perf_pass(obj_.perf_pass) {}
-    bool operator<(const QueryObjectPass &rhs) const { return (obj == rhs.obj) ? perf_pass < rhs.perf_pass : obj < rhs.obj; }
-};
-
-inline bool operator==(const QueryObjectPass &query1, const QueryObjectPass &query2) {
-    return ((query1.obj == query2.obj) && (query1.perf_pass == query2.perf_pass));
+    return ((query1.pool == query2.pool) && (query1.query == query2.query) && (query1.perf_pass == query2.perf_pass));
 }
 
 enum QueryState {
@@ -641,16 +651,11 @@ namespace std {
 template <>
 struct hash<QueryObject> {
     size_t operator()(QueryObject query) const throw() {
-        return hash<uint64_t>()((uint64_t)(query.pool)) ^ hash<uint32_t>()(query.query);
+        return hash<uint64_t>()((uint64_t)(query.pool)) ^
+               hash<uint64_t>()(static_cast<uint64_t>(query.query) | (static_cast<uint64_t>(query.perf_pass) << 32));
     }
 };
 
-template <>
-struct hash<QueryObjectPass> {
-    size_t operator()(QueryObjectPass query) const throw() {
-        return hash<QueryObject>()(query.obj) ^ hash<uint32_t>()(query.perf_pass);
-    }
-};
 }  // namespace std
 
 struct CBVertexBufferBindingInfo {
@@ -804,6 +809,7 @@ class PIPELINE_STATE : public BASE_NODE {
     bool blendConstantsEnabled;  // Blend constants enabled for any attachments
     std::shared_ptr<const PIPELINE_LAYOUT_STATE> pipeline_layout;
     VkPrimitiveTopology topology_at_rasterizer;
+    VkBool32 sample_location_enabled;
 
     // Default constructor
     PIPELINE_STATE()
@@ -822,7 +828,8 @@ class PIPELINE_STATE : public BASE_NODE {
           attachments(),
           blendConstantsEnabled(false),
           pipeline_layout(),
-          topology_at_rasterizer{} {}
+          topology_at_rasterizer{},
+          sample_location_enabled(VK_FALSE) {}
 
     void reset() {
         VkGraphicsPipelineCreateInfo emptyGraphicsCI = {};
@@ -1057,7 +1064,6 @@ struct QFOTransferCBScoreboards {
 };
 
 typedef std::map<QueryObject, QueryState> QueryMap;
-typedef std::map<QueryObjectPass, QueryState> QueryPassMap;
 typedef std::unordered_map<VkEvent, VkPipelineStageFlags> EventToStageMap;
 typedef ImageSubresourceLayoutMap::LayoutMap GlobalImageLayoutRangeMap;
 typedef std::unordered_map<VkImage, std::unique_ptr<GlobalImageLayoutRangeMap>> GlobalImageLayoutMap;
@@ -1118,6 +1124,7 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     std::vector<VkEvent> events;
     std::unordered_set<QueryObject> activeQueries;
     std::unordered_set<QueryObject> startedQueries;
+    std::unordered_set<QueryObject> resetQueries;
     CommandBufferImageLayoutMap image_layout_map;
     CBVertexBufferBindingInfo current_vertex_buffer_binding_info;
     bool vertex_buffer_used;  // Track for perf warning to make sure any bound vtx buffer used
@@ -1133,7 +1140,8 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
     std::vector<
         std::function<bool(const ValidationStateTracker *device_data, bool do_validate, EventToStageMap *localEventToStageMap)>>
         eventUpdates;
-    std::vector<std::function<bool(const ValidationStateTracker *device_data, bool do_validate, QueryMap *localQueryToStateMap)>>
+    std::vector<std::function<bool(const ValidationStateTracker *device_data, bool do_validate, VkQueryPool &firstPerfQueryPool,
+                                   uint32_t perfQueryPass, QueryMap *localQueryToStateMap)>>
         queryUpdates;
     std::unordered_set<cvdescriptorset::DescriptorSet *> validated_descriptor_sets;
     // Contents valid only after an index buffer is bound (CBSTATUS_INDEX_BUFFER_BOUND set)
@@ -1149,6 +1157,8 @@ struct CMD_BUFFER_STATE : public BASE_NODE {
 
     // Used for Best Practices tracking
     uint32_t small_indexed_draw_call_count;
+
+    std::vector<IMAGE_VIEW_STATE *> imagelessFramebufferAttachments;
 };
 
 static inline const QFOTransferBarrierSets<VkImageMemoryBarrier> &GetQFOBarrierSets(
@@ -1242,6 +1252,9 @@ struct DeviceFeatures {
     VkPhysicalDeviceCoherentMemoryFeaturesAMD device_coherent_memory_features;
     VkPhysicalDeviceYcbcrImageArraysFeaturesEXT ycbcr_image_array_features;
     VkPhysicalDeviceRayTracingFeaturesKHR ray_tracing_features;
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness2_features;
+    VkPhysicalDeviceFragmentDensityMapFeaturesEXT fragment_density_map_features;
+    VkPhysicalDeviceCustomBorderColorFeaturesEXT custom_border_color_features;
 };
 
 enum RenderPassCreateVersion { RENDER_PASS_VERSION_1 = 0, RENDER_PASS_VERSION_2 = 1 };

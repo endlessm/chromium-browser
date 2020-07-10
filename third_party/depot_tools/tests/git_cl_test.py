@@ -337,8 +337,8 @@ class TestGitClBasic(unittest.TestCase):
 
 
 class TestParseIssueURL(unittest.TestCase):
-  def _validate(self, parsed, issue=None, patchset=None, hostname=None,
-                fail=False):
+  def _test(self, arg, issue=None, patchset=None, hostname=None, fail=False):
+    parsed = git_cl.ParseIssueNumberArgument(arg)
     self.assertIsNotNone(parsed)
     if fail:
       self.assertFalse(parsed.valid)
@@ -348,39 +348,40 @@ class TestParseIssueURL(unittest.TestCase):
     self.assertEqual(parsed.patchset, patchset)
     self.assertEqual(parsed.hostname, hostname)
 
-  def test_ParseIssueNumberArgument(self):
-    def test(arg, *args, **kwargs):
-      self._validate(git_cl.ParseIssueNumberArgument(arg), *args, **kwargs)
+  def test_basic(self):
+    self._test('123', 123)
+    self._test('', fail=True)
+    self._test('abc', fail=True)
+    self._test('123/1', fail=True)
+    self._test('123a', fail=True)
+    self._test('ssh://chrome-review.source.com/#/c/123/4/', fail=True)
+    self._test('ssh://chrome-review.source.com/c/123/1/', fail=True)
 
-    test('123', 123)
-    test('', fail=True)
-    test('abc', fail=True)
-    test('123/1', fail=True)
-    test('123a', fail=True)
-    test('ssh://chrome-review.source.com/#/c/123/4/', fail=True)
+  def test_gerrit_url(self):
+    self._test('https://codereview.source.com/123', 123, None,
+               'codereview.source.com')
+    self._test('http://chrome-review.source.com/c/123', 123, None,
+               'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/c/123/', 123, None,
+               'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/c/123/4', 123, 4,
+               'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/#/c/123/4', 123, 4,
+               'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/c/123/4', 123, 4,
+               'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/123', 123, None,
+               'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/123/4', 123, 4,
+               'chrome-review.source.com')
 
-    test('https://codereview.source.com/123',
-         123, None, 'codereview.source.com')
-    test('http://chrome-review.source.com/c/123',
-         123, None, 'chrome-review.source.com')
-    test('https://chrome-review.source.com/c/123/',
-         123, None, 'chrome-review.source.com')
-    test('https://chrome-review.source.com/c/123/4',
-         123, 4, 'chrome-review.source.com')
-    test('https://chrome-review.source.com/#/c/123/4',
-         123, 4, 'chrome-review.source.com')
-    test('https://chrome-review.source.com/c/123/4',
-         123, 4, 'chrome-review.source.com')
-    test('https://chrome-review.source.com/123',
-         123, None, 'chrome-review.source.com')
-    test('https://chrome-review.source.com/123/4',
-         123, 4, 'chrome-review.source.com')
+    self._test('https://chrome-review.source.com/bad/123/4', fail=True)
+    self._test('https://chrome-review.source.com/c/123/1/whatisthis', fail=True)
+    self._test('https://chrome-review.source.com/c/abc/', fail=True)
 
-    test('https://chrome-review.source.com/bad/123/4', fail=True)
-    test('https://chrome-review.source.com/c/123/1/whatisthis', fail=True)
-    test('https://chrome-review.source.com/c/abc/', fail=True)
-    test('ssh://chrome-review.source.com/c/123/1/', fail=True)
-
+  def test_short_urls(self):
+    self._test('https://crrev.com/c/2151934', 2151934, None,
+               'chromium-review.googlesource.com')
 
 
 class GitCookiesCheckerTest(unittest.TestCase):
@@ -777,7 +778,7 @@ class TestGitCl(unittest.TestCase):
       metrics_arguments.append('m')
 
     if short_hostname == 'chromium':
-      # All reviwers and ccs get into ref_suffix.
+      # All reviewers and ccs get into ref_suffix.
       for r in sorted(reviewers):
         ref_suffix += ',r=%s' % r
         metrics_arguments.append('r')
@@ -857,9 +858,6 @@ class TestGitCl(unittest.TestCase):
 
     final_description = final_description or post_amend_description.strip()
 
-    date_format = ('03/16/17 20:00:41'
-                   if sys.platform == 'win32' and sys.version_info.major == 2
-                   else 'Thu Mar 16 20:00:41 2017')
     trace_name = os.path.join('TRACES_DIR', '20170316T200041.000000')
 
     # Trace-related calls
@@ -876,7 +874,7 @@ class TestGitCl(unittest.TestCase):
                 '1000\n'
                 '0\n'
                 '%(trace_name)s' % {
-                    'date': date_format,
+                    'date': '2017-03-16T20:00:41.000000',
                     'short_hostname': short_hostname,
                     'change_id': change_id,
                     'description': final_description,
@@ -3437,7 +3435,7 @@ class MakeRequestsHelperTestCase(unittest.TestCase):
         ])
 
   def testMakeRequestsHelperCategorySet(self):
-    # The category property can be overriden with options.
+    # The category property can be overridden with options.
     changelist = ChangelistMock(gerrit_change=self.exampleGerritChange())
     jobs = [('chromium', 'try', 'my-builder')]
     options = optparse.Values({'category': 'my-special-category'})

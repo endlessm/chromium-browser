@@ -132,6 +132,7 @@ class SDKFetcherMock(partial_mock.PartialMock):
 }"""
 
   BOARD = 'eve'
+  BOARDS = ['amd64-generic', 'arm-generic']
   VERSION = '4567.8.9'
 
   def __init__(self, external_mocks=None):
@@ -218,9 +219,17 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
       'CXXFLAGS': '-O2',
   }
 
-  def SetupCommandMock(self, extra_args=None, default_cache_dir=False):
-    cmd_args = ['--board', SDKFetcherMock.BOARD, '--chrome-src',
-                self.chrome_src_dir, 'true']
+  def SetupCommandMock(self, many_boards=False, extra_args=None,
+                       default_cache_dir=False):
+
+    cmd_args = ['--chrome-src', self.chrome_src_dir, 'true']
+    if many_boards:
+      cmd_args += ['--boards', ':'.join(SDKFetcherMock.BOARDS), '--no-shell']
+      # --no-shell drops gni files in //build/args/chromeos/.
+      osutils.SafeMakedirs(
+          os.path.join(self.chrome_root, 'src', 'build', 'args', 'chromeos'))
+    else:
+      cmd_args += ['--board', SDKFetcherMock.BOARD]
     if extra_args:
       cmd_args.extend(extra_args)
 
@@ -270,6 +279,11 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
     with cros_test_lib.LoggingCapturer() as logs:
       self.cmd_mock.inst.Run()
       self.AssertLogsContain(logs, 'Goma:', inverted=True)
+
+  def testManyBoards(self):
+    """Test a runthrough when multiple boards are specified via --boards."""
+    self.SetupCommandMock(many_boards=True)
+    self.cmd_mock.inst.Run()
 
   def testErrorCodePassthrough(self):
     """Test that error codes are passed through."""
@@ -401,15 +415,10 @@ class RunThroughTest(cros_test_lib.MockTempDirTestCase,
     # Use the default cache location.
     self.SetupCommandMock(extra_args=['--clear-sdk-cache'],
                           default_cache_dir=True)
-    # Old chrome cache location.
-    old_chrome_cache = os.path.join(self.chrome_root, '.cros_cache')
     chrome_cache = os.path.join(self.chrome_src_dir, 'build/cros_cache')
-    osutils.SafeMakedirs(old_chrome_cache)
     self.assertNotExists(chrome_cache)
 
     self.cmd_mock.inst.Run()
-    # Old chrome cache should be gone and the new one should now exist.
-    self.assertNotExists(old_chrome_cache)
     self.assertExists(chrome_cache)
 
   def testSeabiosDownload(self):
@@ -756,3 +765,36 @@ class PathVerifyTest(cros_test_lib.MockTempDirTestCase,
 
     for msg in ['managed Goma', 'default Chromite']:
       self.AssertLogsMatch(logs, msg)
+
+
+class ClearOldItemsTest(cros_test_lib.MockTempDirTestCase,
+                        cros_test_lib.LoggingTestCase):
+  """Tests SDKFetcher.ClearOldItems() behavior."""
+
+  def setUp(self):
+    """Sets up a temporary symlink & tarball cache."""
+    self.gs_mock = self.StartPatcher(gs_unittest.GSContextMock())
+    self.gs_mock.SetDefaultCmdResult()
+
+    self.sdk_fetcher = cros_chrome_sdk.SDKFetcher(self.tempdir, None)
+
+  def testBrokenSymlinkCleared(self):
+    """Adds a broken symlink and ensures it gets removed."""
+    osutils.Touch(os.path.join(self.tempdir, 'some-file'))
+    valid_link_ref = self.sdk_fetcher.symlink_cache.Lookup('some-valid-link')
+    with valid_link_ref:
+      self.sdk_fetcher._UpdateCacheSymlink(
+          valid_link_ref, os.path.join(self.tempdir, 'some-file'))
+
+    broken_link_ref = self.sdk_fetcher.symlink_cache.Lookup('some-broken-link')
+    with broken_link_ref:
+      self.sdk_fetcher._UpdateCacheSymlink(
+          broken_link_ref, '/some/invalid/file')
+
+    # Broken symlink should exist before the ClearOldItems() call, and be
+    # removed after.
+    self.assertTrue(valid_link_ref.Exists())
+    self.assertTrue(broken_link_ref.Exists())
+    cros_chrome_sdk.SDKFetcher.ClearOldItems(self.tempdir)
+    self.assertTrue(valid_link_ref.Exists())
+    self.assertFalse(broken_link_ref.Exists())

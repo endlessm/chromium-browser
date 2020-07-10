@@ -22,59 +22,8 @@ from dashboard.pinpoint.models.quest import quest
 from dashboard.services import swarming
 
 
-# TODO(dberris): Move these into configuration instead of being in code.
-_CIPD_VERSION = 'git_revision:66410e06ff82b4e79e849977e4e58c0a261d9953'
-_CPYTHON_VERSION = 'version:2.7.14.chromium14'
-_LOGDOG_BUTLER_VERSION = 'git_revision:e1abc57be62d198b5c2f487bfb2fa2d2eb0e867c'
-_VPYTHON_VERSION = 'git_revision:00e2d8b49a4e7505d1c71f19d15c9e7c5b9245a5'
-VPYTHON_PARAMS = {
-    'caches': [
-        {
-            'name': 'swarming_module_cache_vpython',
-            'path': '.swarming_module_cache/vpython',
-        },
-    ],
-    'cipd_input': {
-        'client_package': {
-            'version': _CIPD_VERSION,
-            'package_name': 'infra/tools/cipd/${platform}',
-        },
-        'packages': [
-            {
-                'package_name': 'infra/python/cpython/${platform}',
-                'path': '.swarming_module',
-                'version': _CPYTHON_VERSION,
-            },
-            {
-                'package_name': 'infra/tools/luci/logdog/butler/${platform}',
-                'path': '.swarming_module',
-                'version': _LOGDOG_BUTLER_VERSION,
-            },
-            {
-                'package_name': 'infra/tools/luci/vpython/${platform}',
-                'path': '.swarming_module',
-                'version': _VPYTHON_VERSION,
-            },
-            {
-                'package_name': 'infra/tools/luci/vpython-native/${platform}',
-                'path': '.swarming_module',
-                'version': _VPYTHON_VERSION,
-            },
-        ],
-        'server': 'https://chrome-infra-packages.appspot.com',
-    },
-    'env_prefixes': [
-        {
-            'key': 'PATH',
-            'value': ['.swarming_module', '.swarming_module/bin'],
-        },
-        {
-            'key': 'VPYTHON_VIRTUALENV_ROOT',
-            'value': ['.swarming_module_cache/vpython'],
-        },
-    ],
-}
-
+_TESTER_SERVICE_ACCOUNT = (
+    'chrome-tester@chops-service-accounts.iam.gserviceaccount.com')
 
 def SwarmingTagsFromJob(job):
   return {
@@ -260,16 +209,14 @@ class _RunTestExecution(execution_module.Execution):
 
     if result['failure']:
       if 'outputs_ref' not in result:
-        task_url = 'https://%s/task?id=%s' % (self._swarming_server,
-                                              self._task_id)
-        raise errors.SwarmingTaskFailed('<a href="%s">%s</a>' %
-                                        (task_url, task_url))
+        task_url = '%s/task?id=%s' % (self._swarming_server, self._task_id)
+        raise errors.SwarmingTaskFailed('%s' % (task_url,))
       else:
-        isolate_output_url = 'https://%s/browse?digest=%s' % (
+        isolate_output_url = '%s/browse?digest=%s' % (
             result['outputs_ref']['isolatedserver'],
             result['outputs_ref']['isolated'])
         raise errors.SwarmingTaskFailed(
-            '<a href="%s">%s</a>' % (isolate_output_url, isolate_output_url))
+            '%s' % (isolate_output_url,))
 
     result_arguments = {
         'isolate_server': result['outputs_ref']['isolatedserver'],
@@ -296,11 +243,11 @@ class _RunTestExecution(execution_module.Execution):
         'execution_timeout_secs': '2700',  # 45 minutes for all tasks.
         'io_timeout_secs': '2700',  # Also set 45 minutes for all tasks.
     }
-    properties.update(VPYTHON_PARAMS)
     body = {
         'name': 'Pinpoint job',
         'user': 'Pinpoint',
         'priority': '100',
+        'service_account': _TESTER_SERVICE_ACCOUNT,
         'task_slices': [{
             'properties': properties,
             'expiration_secs': '86400',  # 1 day.

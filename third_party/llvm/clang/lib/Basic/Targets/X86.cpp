@@ -857,6 +857,10 @@ bool X86TargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
       HasINVPCID = true;
     } else if (Feature == "+enqcmd") {
       HasENQCMD = true;
+    } else if (Feature == "+serialize") {
+      HasSERIALIZE = true;
+    } else if (Feature == "+tsxldtrk") {
+      HasTSXLDTRK = true;
     }
 
     X86SSEEnum Level = llvm::StringSwitch<X86SSEEnum>(Feature)
@@ -1247,6 +1251,10 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("__INVPCID__");
   if (HasENQCMD)
     Builder.defineMacro("__ENQCMD__");
+  if (HasSERIALIZE)
+    Builder.defineMacro("__SERIALIZE__");
+  if (HasTSXLDTRK)
+    Builder.defineMacro("__TSXLDTRK__");
 
   // Each case falls through to the previous one here.
   switch (SSELevel) {
@@ -1390,6 +1398,7 @@ bool X86TargetInfo::isValidFeatureName(StringRef Name) const {
       .Case("rdseed", true)
       .Case("rtm", true)
       .Case("sahf", true)
+      .Case("serialize", true)
       .Case("sgx", true)
       .Case("sha", true)
       .Case("shstk", true)
@@ -1402,6 +1411,7 @@ bool X86TargetInfo::isValidFeatureName(StringRef Name) const {
       .Case("sse4.2", true)
       .Case("sse4a", true)
       .Case("tbm", true)
+      .Case("tsxldtrk", true)
       .Case("vaes", true)
       .Case("vpclmulqdq", true)
       .Case("wbnoinvd", true)
@@ -1474,6 +1484,7 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("retpoline-external-thunk", HasRetpolineExternalThunk)
       .Case("rtm", HasRTM)
       .Case("sahf", HasLAHFSAHF)
+      .Case("serialize", HasSERIALIZE)
       .Case("sgx", HasSGX)
       .Case("sha", HasSHA)
       .Case("shstk", HasSHSTK)
@@ -1485,6 +1496,7 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("sse4.2", SSELevel >= SSE42)
       .Case("sse4a", XOPLevel >= SSE4A)
       .Case("tbm", HasTBM)
+      .Case("tsxldtrk", HasTSXLDTRK)
       .Case("vaes", HasVAES)
       .Case("vpclmulqdq", HasVPCLMULQDQ)
       .Case("wbnoinvd", HasWBNOINVD)
@@ -1679,8 +1691,7 @@ bool X86TargetInfo::validateAsmConstraint(
     switch (*Name) {
     default:
       return false;
-    case 'z':
-    case '0': // First SSE register.
+    case 'z': // First SSE register.
     case '2':
     case 't': // Any SSE register, when SSE2 is enabled.
     case 'i': // Any SSE register, when SSE2 and inter-unit moves enabled.
@@ -1885,9 +1896,14 @@ bool X86TargetInfo::validateOperandSize(const llvm::StringMap<bool> &FeatureMap,
     case 'k':
       return Size <= 64;
     case 'z':
-    case '0':
-      // XMM0
-      if (FeatureMap.lookup("sse"))
+      // XMM0/YMM/ZMM0
+      if (FeatureMap.lookup("avx512f"))
+        // ZMM0 can be used if target supports AVX512F.
+        return Size <= 512U;
+      else if (FeatureMap.lookup("avx"))
+        // YMM0 can be used if target supports AVX.
+        return Size <= 256U;
+      else if (FeatureMap.lookup("sse"))
         return Size <= 128U;
       return false;
     case 'i':
@@ -1898,7 +1914,7 @@ bool X86TargetInfo::validateOperandSize(const llvm::StringMap<bool> &FeatureMap,
         return false;
       break;
     }
-    LLVM_FALLTHROUGH;
+    break;
   case 'v':
   case 'x':
     if (FeatureMap.lookup("avx512f"))
@@ -1953,7 +1969,6 @@ std::string X86TargetInfo::convertConstraint(const char *&Constraint) const {
     case 'i':
     case 't':
     case 'z':
-    case '0':
     case '2':
       // "^" hints llvm that this is a 2 letter constraint.
       // "Constraint++" is used to promote the string iterator

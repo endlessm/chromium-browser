@@ -117,9 +117,11 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
                         -fno-builtin-memcmp
                         -fvisibility=hidden)
 
-    # Treat warnings as errors for versions of GCC and Clang that are shipped on Ubuntu 18.04 or older.
+    # Treat warnings as errors for versions of GCC and c++11-compliant Clang versions that are shipped on Ubuntu 18.04 or older.
     if((CMAKE_COMPILER_IS_GNUCXX AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.3.0)) OR
-       (("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0.0)))
+       (("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") AND
+        (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 6.0.0) AND
+        (CMAKE_CXX_COMPILER_VERSION VERSION_LESS_EQUAL 7.0.0)))
         add_compile_options(-Werror)
     endif()
 
@@ -171,11 +173,17 @@ if(BUILD_TESTS OR BUILD_LAYERS)
         set(GLSLANG_INSTALL_DIR $ENV{GLSLANG_INSTALL_DIR})
     endif()
 
+    # CMake command line option overrides environment variable
+    if(NOT SPIRV_HEADERS_INSTALL_DIR)
+        set(SPIRV_HEADERS_INSTALL_DIR $ENV{SPIRV_HEADERS_INSTALL_DIR})
+    endif()
+
     if (NOT TARGET glslang)
         message(STATUS "Using glslang install located at ${GLSLANG_INSTALL_DIR}")
         set(GLSLANG_SEARCH_PATH "${GLSLANG_INSTALL_DIR}/lib")
         set(GLSLANG_DEBUG_SEARCH_PATH "${GLSLANG_INSTALL_DIR}/lib")
         set(GLSLANG_SPIRV_INCLUDE_DIR "${GLSLANG_INSTALL_DIR}/include/glslang" CACHE PATH "Path to glslang spirv headers")
+        set(SPIRV_HEADERS_INCLUDE_DIR "${SPIRV_HEADERS_INSTALL_DIR}/include" CACHE PATH "Path to spirv-headers")
 
         find_library(GLSLANG_LIB NAMES glslang HINTS ${GLSLANG_SEARCH_PATH})
         find_library(OGLCompiler_LIB NAMES OGLCompiler HINTS ${GLSLANG_SEARCH_PATH})

@@ -10,6 +10,7 @@
 #include "src/gpu/GrMemoryPool.h"
 #include "src/gpu/GrOpFlushState.h"
 #include "src/gpu/GrOpsTask.h"
+#include "src/gpu/GrProxyProvider.h"
 #include "src/gpu/ops/GrOp.h"
 #include "tests/Test.h"
 
@@ -123,7 +124,7 @@ private:
     }
 
     void onPrePrepare(GrRecordingContext*,
-                      const GrSurfaceProxyView* outputView,
+                      const GrSurfaceProxyView* writeView,
                       GrAppliedClip*,
                       const GrXferProcessor::DstProxyView&) override {}
 
@@ -184,7 +185,7 @@ DEF_GPUTEST(OpChainTest, reporter, /*ctxInfo*/) {
     SkASSERT(proxy);
     proxy->instantiate(context->priv().resourceProvider());
 
-    GrSwizzle outSwizzle = context->priv().caps()->getWriteSwizzle(format, GrColorType::kRGBA_8888);
+    GrSwizzle writeSwizzle = context->priv().caps()->getWriteSwizzle(format, GrColorType::kRGBA_8888);
 
     int result[result_width()];
     int validResult[result_width()];
@@ -216,7 +217,7 @@ DEF_GPUTEST(OpChainTest, reporter, /*ctxInfo*/) {
                                           context->priv().resourceProvider(),
                                           &tracker);
                 GrOpsTask opsTask(context->priv().arenas(),
-                                  GrSurfaceProxyView(proxy, kOrigin, outSwizzle),
+                                  GrSurfaceProxyView(proxy, kOrigin, writeSwizzle),
                                   context->priv().auditTrail());
                 // This assumes the particular values of kRanges.
                 std::fill_n(result, result_width(), -1);

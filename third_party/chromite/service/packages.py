@@ -34,9 +34,6 @@ if cros_build_lib.IsInsideChroot():
   from chromite.service import dependency
 
 
-assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
-
-
 # Registered handlers for uprevving versioned packages.
 _UPREV_FUNCS = {}
 
@@ -165,8 +162,7 @@ def uprev_android(tracking_branch,
                   android_build_branch,
                   chroot,
                   build_targets=None,
-                  android_version=None,
-                  android_gts_build_branch=None):
+                  android_version=None):
   """Returns the portage atom for the revved Android ebuild - see man emerge."""
   command = [
       'cros_mark_android_as_stable',
@@ -178,8 +174,6 @@ def uprev_android(tracking_branch,
     command.append('--boards=%s' % ':'.join(bt.name for bt in build_targets))
   if android_version:
     command.append('--force_version=%s' % android_version)
-  if android_gts_build_branch:
-    command.append('--android_gts_build_branch=%s' % android_gts_build_branch)
 
   result = cros_build_lib.run(
       command,
@@ -440,12 +434,25 @@ def uprev_chrome(build_targets, refs, chroot):
   # Determine the version from the refs (tags), i.e. the chrome versions are the
   # tag names.
   chrome_version = uprev_lib.get_chrome_version_from_refs(refs)
+  logging.debug('Chrome version determined from refs: %s', chrome_version)
 
   uprev_manager = uprev_lib.UprevChromeManager(
       chrome_version, build_targets=build_targets, chroot=chroot)
   result = UprevVersionedPackageResult()
   # Start with chrome itself, as we can't do anything else unless chrome
   # uprevs successfully.
+  # TODO(crbug.com/1080429): Handle all possible outcomes of a Chrome uprev
+  #     attempt. The expected behavior is documented in the following table:
+  #
+  #     Outcome of Chrome uprev attempt:
+  #     NEWER_VERSION_EXISTS:
+  #       Do nothing.
+  #     SAME_VERSION_EXISTS or REVISION_BUMP:
+  #       Uprev followers
+  #       Assert not VERSION_BUMP (any other outcome is fine)
+  #     VERSION_BUMP or NEW_EBUILD_CREATED:
+  #       Uprev followers
+  #       Assert that Chrome & followers are at same package version
   if not uprev_manager.uprev(constants.CHROME_CP):
     return result
 
@@ -795,3 +802,110 @@ def determine_full_version():
   platform_version = determine_platform_version()
   full_version = ('R%s-%s' % (milestone_version, platform_version))
   return full_version
+
+
+FirmwareVersions = collections.namedtuple(
+    'FirmwareVersions', ['model', 'main', 'main_rw', 'ec', 'ec_rw'])
+
+
+def get_firmware_versions(build_target):
+  """Extract version information from the firmware updater, if one exists.
+
+  Args:
+    build_target (build_target_lib.BuildTarget): The build target.
+
+  Returns:
+    A FirmwareVersions namedtuple instance.
+    Each element will either be set to the string output by the firmware
+    updater shellball, or None if there is no firmware updater.
+  """
+  cros_build_lib.AssertInsideChroot()
+  cmd_result = _get_firmware_version_cmd_result(build_target)
+  if cmd_result:
+    return _find_firmware_versions(cmd_result)
+  else:
+    return FirmwareVersions(None, None, None, None, None)
+
+
+def _get_firmware_version_cmd_result(build_target):
+  """Gets the raw result output of the firmware updater version command.
+
+  Args:
+    build_target (build_target_lib.BuildTarget): The build target.
+
+  Returns:
+    Command execution result.
+  """
+  updater = os.path.join(build_target.root,
+                         'usr/sbin/chromeos-firmwareupdate')
+  logging.info('Calling updater %s', updater)
+  # Call the updater using the chroot-based path.
+  return cros_build_lib.run([updater, '-V'],
+                            capture_output=True, log_output=True,
+                            encoding='utf-8').stdout
+
+
+def _find_firmware_versions(cmd_output):
+  """Finds firmware version output via regex matches against the cmd_output.
+
+  Args:
+    cmd_output: The raw output to search against.
+
+  Returns:
+    FirmwareVersions namedtuple with results.
+    Each element will either be set to the string output by the firmware
+    updater shellball, or None if there is no match.
+  """
+
+  # Sometimes a firmware bundle includes a special combination of RO+RW
+  # firmware.  In this case, the RW firmware version is indicated with a "(RW)
+  # version" field.  In other cases, the "(RW) version" field is not present.
+  # Therefore, search for the "(RW)" fields first and if they aren't present,
+  # fallback to the other format. e.g. just "BIOS version:".
+  # TODO(mmortensen): Use JSON once the firmware updater supports it.
+  main = None
+  main_rw = None
+  ec = None
+  ec_rw = None
+  model = None
+
+  match = re.search(r'BIOS version:\s*(?P<version>.*)', cmd_output)
+  if match:
+    main = match.group('version')
+
+  match = re.search(r'BIOS \(RW\) version:\s*(?P<version>.*)', cmd_output)
+  if match:
+    main_rw = match.group('version')
+
+  match = re.search(r'EC version:\s*(?P<version>.*)', cmd_output)
+  if match:
+    ec = match.group('version')
+
+  match = re.search(r'EC \(RW\) version:\s*(?P<version>.*)', cmd_output)
+  if match:
+    ec_rw = match.group('version')
+
+  match = re.search(r'Model:\s*(?P<model>.*)', cmd_output)
+  if match:
+    model = match.group('model')
+
+  return FirmwareVersions(model, main, main_rw, ec, ec_rw)
+
+
+MainEcFirmwareVersions = collections.namedtuple(
+    'MainEcFirmwareVersions', ['main_fw_version', 'ec_fw_version'])
+
+def determine_firmware_versions(build_target):
+  """Returns a namedtuple with main and ec firmware versions.
+
+  Args:
+    build_target (build_target_lib.BuildTarget): The build target.
+
+  Returns:
+    MainEcFirmwareVersions namedtuple with results.
+  """
+  fw_versions = get_firmware_versions(build_target)
+  main_fw_version = fw_versions.main_rw or fw_versions.main
+  ec_fw_version = fw_versions.ec_rw or fw_versions.ec
+
+  return MainEcFirmwareVersions(main_fw_version, ec_fw_version)

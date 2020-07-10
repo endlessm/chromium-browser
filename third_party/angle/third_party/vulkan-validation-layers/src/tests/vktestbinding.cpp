@@ -104,20 +104,21 @@ VkPhysicalDeviceFeatures PhysicalDevice::features() const {
  */
 std::vector<VkLayerProperties> GetGlobalLayers() {
     VkResult err;
-    std::vector<VkLayerProperties> layers;
     uint32_t layer_count;
+    std::vector<VkLayerProperties> layers;
 
     do {
-        layer_count = 0;
-        err = vk::EnumerateInstanceLayerProperties(&layer_count, NULL);
+        err = vk::EnumerateInstanceLayerProperties(&layer_count, nullptr);
+        assert(!err);
+        if (err || 0 == layer_count) return {};
 
-        if (err == VK_SUCCESS) {
-            layers.reserve(layer_count);
-            err = vk::EnumerateInstanceLayerProperties(&layer_count, layers.data());
-        }
-    } while (err == VK_INCOMPLETE);
+        layers.resize(layer_count);
+        err = vk::EnumerateInstanceLayerProperties(&layer_count, layers.data());
+    } while (VK_INCOMPLETE == err);
 
-    assert(err == VK_SUCCESS);
+    assert(!err);
+    if (err) return {};
+    layers.resize(layer_count);
 
     return layers;
 }
@@ -125,7 +126,7 @@ std::vector<VkLayerProperties> GetGlobalLayers() {
 /*
  * Return list of Global extensions provided by the ICD / Loader
  */
-std::vector<VkExtensionProperties> GetGlobalExtensions() { return GetGlobalExtensions(NULL); }
+std::vector<VkExtensionProperties> GetGlobalExtensions() { return GetGlobalExtensions(nullptr); }
 
 /*
  * Return list of Global extensions provided by the specified layer
@@ -133,51 +134,46 @@ std::vector<VkExtensionProperties> GetGlobalExtensions() { return GetGlobalExten
  * ICDs
  */
 std::vector<VkExtensionProperties> GetGlobalExtensions(const char *pLayerName) {
-    std::vector<VkExtensionProperties> exts;
-    uint32_t ext_count;
     VkResult err;
+    uint32_t extension_count;
+    std::vector<VkExtensionProperties> extensions;
 
     do {
-        ext_count = 0;
-        err = vk::EnumerateInstanceExtensionProperties(pLayerName, &ext_count, NULL);
+        err = vk::EnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+        assert(!err);
+        if (err || 0 == extension_count) return {};
 
-        if (err == VK_SUCCESS) {
-            exts.resize(ext_count);
-            err = vk::EnumerateInstanceExtensionProperties(pLayerName, &ext_count, exts.data());
-        }
-    } while (err == VK_INCOMPLETE);
+        extensions.resize(extension_count);
+        err = vk::EnumerateInstanceExtensionProperties(nullptr, &extension_count, extensions.data());
+    } while (VK_INCOMPLETE == err);
 
-    assert(err == VK_SUCCESS);
+    assert(!err);
+    if (err) return {};
+    extensions.resize(extension_count);
 
-    return exts;
+    return extensions;
 }
-
-/*
- * Return list of PhysicalDevice extensions provided by the ICD / Loader
- */
-std::vector<VkExtensionProperties> PhysicalDevice::extensions() const { return extensions(NULL); }
 
 /*
  * Return list of PhysicalDevice extensions provided by the specified layer
  * If pLayerName is NULL, will return extensions for ICD / loader.
  */
 std::vector<VkExtensionProperties> PhysicalDevice::extensions(const char *pLayerName) const {
-    std::vector<VkExtensionProperties> exts;
     VkResult err;
-
+    uint32_t extension_count;
+    std::vector<VkExtensionProperties> extensions;
     do {
-        uint32_t extCount = 0;
-        err = vk::EnumerateDeviceExtensionProperties(handle(), pLayerName, &extCount, NULL);
+        err = vk::EnumerateDeviceExtensionProperties(handle(), pLayerName, &extension_count, nullptr);
+        if (err || 0 == extension_count) return {};
 
-        if (err == VK_SUCCESS) {
-            exts.resize(extCount);
-            err = vk::EnumerateDeviceExtensionProperties(handle(), pLayerName, &extCount, exts.data());
-        }
-    } while (err == VK_INCOMPLETE);
+        extensions.resize(extension_count);
+        err = vk::EnumerateDeviceExtensionProperties(handle(), pLayerName, &extension_count, extensions.data());
+    } while (VK_INCOMPLETE == err);
 
-    assert(err == VK_SUCCESS);
+    if (err) return {};
+    extensions.resize(extension_count);
 
-    return exts;
+    return extensions;
 }
 
 bool PhysicalDevice::set_memory_type(const uint32_t type_bits, VkMemoryAllocateInfo *info, const VkFlags properties,
@@ -203,22 +199,21 @@ bool PhysicalDevice::set_memory_type(const uint32_t type_bits, VkMemoryAllocateI
  * Return list of PhysicalDevice layers
  */
 std::vector<VkLayerProperties> PhysicalDevice::layers() const {
-    std::vector<VkLayerProperties> layer_props;
     VkResult err;
-
+    uint32_t layer_count;
+    std::vector<VkLayerProperties> layers;
     do {
-        uint32_t layer_count = 0;
-        err = vk::EnumerateDeviceLayerProperties(handle(), &layer_count, NULL);
+        err = vk::EnumerateDeviceLayerProperties(handle(), &layer_count, nullptr);
+        if (err || 0 == layer_count) return {};
 
-        if (err == VK_SUCCESS) {
-            layer_props.reserve(layer_count);
-            err = vk::EnumerateDeviceLayerProperties(handle(), &layer_count, layer_props.data());
-        }
-    } while (err == VK_INCOMPLETE);
+        layers.resize(layer_count);
+        err = vk::EnumerateDeviceLayerProperties(handle(), &layer_count, layers.data());
+    } while (VK_INCOMPLETE == err);
 
-    assert(err == VK_SUCCESS);
+    if (err) return {};
+    layers.resize(layer_count);
 
-    return layer_props;
+    return layers;
 }
 
 QueueCreateInfoArray::QueueCreateInfoArray(const std::vector<VkQueueFamilyProperties> &queue_props)
@@ -470,9 +465,9 @@ NON_DISPATCHABLE_HANDLE_DTOR(Fence, vk::DestroyFence)
 
 void Fence::init(const Device &dev, const VkFenceCreateInfo &info) { NON_DISPATCHABLE_HANDLE_INIT(vk::CreateFence, dev, &info); }
 
-VkResult Fence::wait(VkBool32 wait_all, uint64_t timeout) const {
+VkResult Fence::wait(uint64_t timeout) const {
     VkFence fence = handle();
-    return vk::WaitForFences(device(), 1, &fence, wait_all, timeout);
+    return vk::WaitForFences(device(), 1, &fence, VK_TRUE, timeout);
 }
 
 NON_DISPATCHABLE_HANDLE_DTOR(Semaphore, vk::DestroySemaphore)
@@ -625,7 +620,6 @@ VkMemoryRequirements2 AccelerationStructure::memory_requirements() const {
     memoryRequirementsInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_INFO_NV;
     memoryRequirementsInfo.type = VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_OBJECT_NV;
     memoryRequirementsInfo.accelerationStructure = handle();
-
     VkMemoryRequirements2 memoryRequirements = {};
     vkGetAccelerationStructureMemoryRequirementsNV(device(), &memoryRequirementsInfo, &memoryRequirements);
     return memoryRequirements;
@@ -677,14 +671,19 @@ void AccelerationStructure::init(const Device &dev, const VkAccelerationStructur
     }
 }
 
-void AccelerationStructure::create_scratch_buffer(const Device &dev, Buffer *buffer) {
+void AccelerationStructure::create_scratch_buffer(const Device &dev, Buffer *buffer, VkBufferCreateInfo *pCreateInfo) {
     VkMemoryRequirements scratch_buffer_memory_requirements = build_scratch_memory_requirements().memoryRequirements;
 
     VkBufferCreateInfo create_info = {};
-    create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     create_info.size = scratch_buffer_memory_requirements.size;
-    create_info.usage = VK_BUFFER_USAGE_RAY_TRACING_BIT_NV;
-    return buffer->init(dev, create_info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (pCreateInfo) {
+        create_info.sType = pCreateInfo->sType;
+        create_info.usage = pCreateInfo->usage;
+    } else {
+        create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        create_info.usage = VK_BUFFER_USAGE_RAY_TRACING_BIT_NV;
+    }
+    buffer->init(dev, create_info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 }
 
 NON_DISPATCHABLE_HANDLE_DTOR(ShaderModule, vk::DestroyShaderModule)

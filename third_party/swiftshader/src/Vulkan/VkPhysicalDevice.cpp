@@ -14,7 +14,7 @@
 
 #include "VkPhysicalDevice.hpp"
 
-#include "VkConfig.h"
+#include "VkConfig.hpp"
 #include "Pipeline/SpirvShader.hpp"  // sw::SIMD::Width
 #include "Reactor/Reactor.hpp"
 
@@ -39,6 +39,15 @@ static void setExternalMemoryProperties(VkExternalMemoryHandleTypeFlagBits handl
 	{
 		properties->compatibleHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
 		properties->exportFromImportedHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+		properties->externalMemoryFeatures = VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT | VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT;
+		return;
+	}
+#endif
+#if VK_USE_PLATFORM_FUCHSIA
+	if(handleType == VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA)
+	{
+		properties->compatibleHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA;
+		properties->exportFromImportedHandleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_TEMP_ZIRCON_VMO_BIT_FUCHSIA;
 		properties->externalMemoryFeatures = VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT | VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT;
 		return;
 	}
@@ -92,10 +101,10 @@ const VkPhysicalDeviceFeatures &PhysicalDevice::getFeatures() const
 		VK_FALSE,  // shaderStorageImageMultisample
 		VK_FALSE,  // shaderStorageImageReadWithoutFormat
 		VK_FALSE,  // shaderStorageImageWriteWithoutFormat
-		VK_FALSE,  // shaderUniformBufferArrayDynamicIndexing
-		VK_FALSE,  // shaderSampledImageArrayDynamicIndexing
-		VK_FALSE,  // shaderStorageBufferArrayDynamicIndexing
-		VK_FALSE,  // shaderStorageImageArrayDynamicIndexing
+		VK_TRUE,   // shaderUniformBufferArrayDynamicIndexing
+		VK_TRUE,   // shaderSampledImageArrayDynamicIndexing
+		VK_TRUE,   // shaderStorageBufferArrayDynamicIndexing
+		VK_TRUE,   // shaderStorageImageArrayDynamicIndexing
 		VK_TRUE,   // shaderClipDistance
 		VK_TRUE,   // shaderCullDistance
 		VK_FALSE,  // shaderFloat64

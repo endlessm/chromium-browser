@@ -59,11 +59,15 @@
 
 // Should only be used to test validation of function that can't be tested by regular validation
 // tests;
-#define ASSERT_DEVICE_ERROR(statement) \
-    StartExpectDeviceError();          \
-    statement;                         \
-    FlushWire();                       \
-    ASSERT_TRUE(EndExpectDeviceError());
+#define ASSERT_DEVICE_ERROR(statement)                          \
+    StartExpectDeviceError();                                   \
+    statement;                                                  \
+    FlushWire();                                                \
+    if (!EndExpectDeviceError()) {                              \
+        FAIL() << "Expected device error in:\n " << #statement; \
+    }                                                           \
+    do {                                                        \
+    } while (0)
 
 struct RGBA8 {
     constexpr RGBA8() : RGBA8(0, 0, 0, 0) {
@@ -132,7 +136,7 @@ void InitDawnEnd2EndTestEnvironment(int argc, char** argv);
 class DawnTestEnvironment : public testing::Environment {
   public:
     DawnTestEnvironment(int argc, char** argv);
-    ~DawnTestEnvironment() = default;
+    ~DawnTestEnvironment() override = default;
 
     static void SetEnvironment(DawnTestEnvironment* env);
 
@@ -190,6 +194,7 @@ class DawnTestBase {
     bool IsIntel() const;
     bool IsNvidia() const;
     bool IsQualcomm() const;
+    bool IsSwiftshader() const;
 
     bool IsWindows() const;
     bool IsLinux() const;
@@ -199,6 +204,7 @@ class DawnTestBase {
     bool IsBackendValidationEnabled() const;
     bool IsDawnValidationSkipped() const;
     bool IsSpvcBeingUsed() const;
+    bool IsSpvcParserBeingUsed() const;
 
     void StartExpectDeviceError();
     bool EndExpectDeviceError();
@@ -297,7 +303,7 @@ class DawnTestBase {
         uint64_t readbackOffset;
         uint64_t size;
         uint32_t rowBytes;
-        uint32_t rowPitch;
+        uint32_t bytesPerRow;
         std::unique_ptr<detail::Expectation> expectation;
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=54316
         // Use unique_ptr because of missing move/copy constructors on std::basic_ostringstream
@@ -313,12 +319,14 @@ class DawnTestBase {
 };
 
 // Skip a test when the given condition is satisfied.
-#define DAWN_SKIP_TEST_IF(condition)                        \
-    if (condition) {                                        \
-        dawn::InfoLog() << "Test skipped: " #condition "."; \
-        GTEST_SKIP();                                       \
-        return;                                             \
-    }
+#define DAWN_SKIP_TEST_IF(condition)                            \
+    do {                                                        \
+        if (condition) {                                        \
+            dawn::InfoLog() << "Test skipped: " #condition "."; \
+            GTEST_SKIP();                                       \
+            return;                                             \
+        }                                                       \
+    } while (0)
 
 template <typename Params = DawnTestParam>
 class DawnTestWithParams : public DawnTestBase, public ::testing::TestWithParam<Params> {
@@ -350,16 +358,19 @@ DawnTestWithParams<Params>::DawnTestWithParams() : DawnTestBase(this->GetParam()
 
 using DawnTest = DawnTestWithParams<>;
 
+// Helpers to get the first element of a __VA_ARGS__ without triggering empty __VA_ARGS__ warnings.
+#define DAWN_INTERNAL_PP_GET_HEAD(firstParam, ...) firstParam
+#define DAWN_PP_GET_HEAD(...) DAWN_INTERNAL_PP_GET_HEAD(__VA_ARGS__, dummyArg)
+
 // Instantiate the test once for each backend provided after the first argument. Use it like this:
 //     DAWN_INSTANTIATE_TEST(MyTestFixture, MetalBackend, OpenGLBackend)
-#define DAWN_INSTANTIATE_TEST(testName, firstParam, ...)                         \
-    const decltype(firstParam) testName##params[] = {firstParam, ##__VA_ARGS__}; \
-    INSTANTIATE_TEST_SUITE_P(                                                    \
-        , testName,                                                              \
-        testing::ValuesIn(::detail::FilterBackends(                              \
-            testName##params, sizeof(testName##params) / sizeof(firstParam))),   \
+#define DAWN_INSTANTIATE_TEST(testName, ...)                                            \
+    const decltype(DAWN_PP_GET_HEAD(__VA_ARGS__)) testName##params[] = {__VA_ARGS__};   \
+    INSTANTIATE_TEST_SUITE_P(                                                           \
+        , testName,                                                                     \
+        testing::ValuesIn(::detail::FilterBackends(                                     \
+            testName##params, sizeof(testName##params) / sizeof(testName##params[0]))), \
         testing::PrintToStringParamName())
-
 
 namespace detail {
     // Helper functions used for DAWN_INSTANTIATE_TEST

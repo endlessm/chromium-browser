@@ -90,7 +90,11 @@ class _MockApkHelper(object):
   def GetAbis(self):
     return self.abis
 
-  def GetApkPaths(self, device, modules=None, allow_cached_props=False):
+  def GetApkPaths(self,
+                  device,
+                  modules=None,
+                  allow_cached_props=False,
+                  additional_locales=None):
     return _FakeContextManager([self.path] + self.splits)
 
 
@@ -589,6 +593,42 @@ class DeviceUtils_GetApplicationVersionTest(DeviceUtilsTest):
         self.device.GetApplicationVersion('com.android.chrome')
 
 
+class DeviceUtils_GetApplicationTargetSdkTest(DeviceUtilsTest):
+  def test_GetApplicationTargetSdk_exists(self):
+    with self.assertCalls(
+        (self.call.device.IsApplicationInstalled('com.android.chrome'), True),
+        (self.call.device._GetDumpsysOutput(['package', 'com.android.chrome'],
+                                            'targetSdk='),
+         ['    versionCode=413200001 minSdk=21 targetSdk=29'])):
+      self.assertEquals(
+          '29', self.device.GetApplicationTargetSdk('com.android.chrome'))
+
+  def test_GetApplicationTargetSdk_notExists(self):
+    with self.assertCalls(
+        (self.call.device.IsApplicationInstalled('com.android.chrome'), False)):
+      self.assertIsNone(
+          self.device.GetApplicationTargetSdk('com.android.chrome'))
+
+  def test_GetApplicationTargetSdk_fails(self):
+    with self.assertCalls(
+        (self.call.device.IsApplicationInstalled('com.android.chrome'), True),
+        (self.call.device._GetDumpsysOutput(['package', 'com.android.chrome'],
+                                            'targetSdk='), [])):
+      with self.assertRaises(device_errors.CommandFailedError):
+        self.device.GetApplicationTargetSdk('com.android.chrome')
+
+  def test_GetApplicationTargetSdk_prefinalizedSdk(self):
+    with self.assertCalls(
+        (self.call.device.IsApplicationInstalled('com.android.chrome'), True),
+        (self.call.device._GetDumpsysOutput(['package', 'com.android.chrome'],
+                                            'targetSdk='),
+         ['    versionCode=410301483 minSdk=10000 targetSdk=10000']),
+        (self.call.device.GetProp('ro.build.version.codename',
+                                  cache=True), 'R')):
+      self.assertEquals(
+          'R', self.device.GetApplicationTargetSdk('com.android.chrome'))
+
+
 class DeviceUtils_GetPackageArchitectureTest(DeviceUtilsTest):
   def test_GetPackageArchitecture_exists(self):
     with self.assertCall(
@@ -633,7 +673,7 @@ class DeviceUtilsGetApplicationDataDirectoryTest(DeviceUtilsTest):
 
 @mock.patch('time.sleep', mock.Mock())
 class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
-  def testWaitUntilFullyBooted_succeedsNoWifi(self):
+  def testWaitUntilFullyBooted_succeedsWithDefaults(self):
     with self.assertCalls(
         self.call.adb.WaitForDevice(),
         # sd_card_ready
@@ -644,7 +684,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
             'android', skip_cache=True), ['package:/some/fake/path']),
         # boot_completed
         (self.call.device.GetProp('sys.boot_completed', cache=False), '1')):
-      self.device.WaitUntilFullyBooted(wifi=False)
+      self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_succeedsWithWifi(self):
     with self.assertCalls(
@@ -660,7 +700,38 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
         # wifi_enabled
         (self.call.adb.Shell('dumpsys wifi'),
          'stuff\nWi-Fi is enabled\nmore stuff\n')):
-      self.device.WaitUntilFullyBooted(wifi=True)
+      self.device.WaitUntilFullyBooted(wifi=True, decrypt=False)
+
+  def testWaitUntilFullyBooted_succeedsWithDecryptFDE(self):
+    with self.assertCalls(
+        self.call.adb.WaitForDevice(),
+        # sd_card_ready
+        (self.call.device.GetExternalStoragePath(), '/fake/storage/path'),
+        (self.call.adb.Shell('test -d /fake/storage/path'), ''),
+        # pm_ready
+        (self.call.device._GetApplicationPathsInternal(
+            'android', skip_cache=True), ['package:/some/fake/path']),
+        # boot_completed
+        (self.call.device.GetProp('sys.boot_completed', cache=False), '1'),
+        # decryption_completed
+        (self.call.device.GetProp('vold.decrypt', cache=False),
+         'trigger_restart_framework')):
+      self.device.WaitUntilFullyBooted(wifi=False, decrypt=True)
+
+  def testWaitUntilFullyBooted_succeedsWithDecryptNotFDE(self):
+    with self.assertCalls(
+        self.call.adb.WaitForDevice(),
+        # sd_card_ready
+        (self.call.device.GetExternalStoragePath(), '/fake/storage/path'),
+        (self.call.adb.Shell('test -d /fake/storage/path'), ''),
+        # pm_ready
+        (self.call.device._GetApplicationPathsInternal(
+            'android', skip_cache=True), ['package:/some/fake/path']),
+        # boot_completed
+        (self.call.device.GetProp('sys.boot_completed', cache=False), '1'),
+        # decryption_completed
+        (self.call.device.GetProp('vold.decrypt', cache=False), '')):
+      self.device.WaitUntilFullyBooted(wifi=False, decrypt=True)
 
   def testWaitUntilFullyBooted_deviceNotInitiallyAvailable(self):
     with self.assertCalls(
@@ -681,7 +752,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
             'android', skip_cache=True), ['package:/some/fake/path']),
         # boot_completed
         (self.call.device.GetProp('sys.boot_completed', cache=False), '1')):
-      self.device.WaitUntilFullyBooted(wifi=False)
+      self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_deviceBrieflyOffline(self):
     with self.assertCalls(
@@ -697,7 +768,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
          self.AdbCommandError()),
         # boot_completed
         (self.call.device.GetProp('sys.boot_completed', cache=False), '1')):
-      self.device.WaitUntilFullyBooted(wifi=False)
+      self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_sdCardReadyFails_noPath(self):
     with self.assertCalls(
@@ -705,7 +776,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
         # sd_card_ready
         (self.call.device.GetExternalStoragePath(), self.CommandError())):
       with self.assertRaises(device_errors.CommandFailedError):
-        self.device.WaitUntilFullyBooted(wifi=False)
+        self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_sdCardReadyFails_notExists(self):
     with self.assertCalls(
@@ -721,7 +792,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
         (self.call.adb.Shell('test -d /fake/storage/path'),
          self.TimeoutError())):
       with self.assertRaises(device_errors.CommandTimeoutError):
-        self.device.WaitUntilFullyBooted(wifi=False)
+        self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_devicePmFails(self):
     with self.assertCalls(
@@ -739,7 +810,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
         (self.call.device._GetApplicationPathsInternal(
             'android', skip_cache=True), self.TimeoutError())):
       with self.assertRaises(device_errors.CommandTimeoutError):
-        self.device.WaitUntilFullyBooted(wifi=False)
+        self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_bootFails(self):
     with self.assertCalls(
@@ -758,7 +829,7 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
         (self.call.device.GetProp('sys.boot_completed', cache=False),
          self.TimeoutError())):
       with self.assertRaises(device_errors.CommandTimeoutError):
-        self.device.WaitUntilFullyBooted(wifi=False)
+        self.device.WaitUntilFullyBooted(wifi=False, decrypt=False)
 
   def testWaitUntilFullyBooted_wifiFails(self):
     with self.assertCalls(
@@ -778,7 +849,30 @@ class DeviceUtilsWaitUntilFullyBootedTest(DeviceUtilsTest):
         # wifi_enabled
         (self.call.adb.Shell('dumpsys wifi'), self.TimeoutError())):
       with self.assertRaises(device_errors.CommandTimeoutError):
-        self.device.WaitUntilFullyBooted(wifi=True)
+        self.device.WaitUntilFullyBooted(wifi=True, decrypt=False)
+
+  def testWaitUntilFullyBooted_decryptFails(self):
+    with self.assertCalls(
+        self.call.adb.WaitForDevice(),
+        # sd_card_ready
+        (self.call.device.GetExternalStoragePath(), '/fake/storage/path'),
+        (self.call.adb.Shell('test -d /fake/storage/path'), ''),
+        # pm_ready
+        (self.call.device._GetApplicationPathsInternal(
+            'android', skip_cache=True), ['package:/some/fake/path']),
+        # boot_completed
+        (self.call.device.GetProp('sys.boot_completed', cache=False), '1'),
+        # decryption_completed
+        (self.call.device.GetProp('vold.decrypt', cache=False),
+         'trigger_restart_min_framework'),
+        # decryption_completed
+        (self.call.device.GetProp('vold.decrypt', cache=False),
+         'trigger_restart_min_framework'),
+        # decryption_completed
+        (self.call.device.GetProp('vold.decrypt', cache=False),
+         self.TimeoutError())):
+      with self.assertRaises(device_errors.CommandTimeoutError):
+        self.device.WaitUntilFullyBooted(wifi=False, decrypt=True)
 
 
 @mock.patch('time.sleep', mock.Mock())
@@ -790,18 +884,25 @@ class DeviceUtilsRebootTest(DeviceUtilsTest):
       self.device.Reboot(block=False)
 
   def testReboot_blocking(self):
-    with self.assertCalls(self.call.adb.Reboot(),
-                          (self.call.device.IsOnline(), True),
-                          (self.call.device.IsOnline(), False),
-                          self.call.device.WaitUntilFullyBooted(wifi=False)):
+    with self.assertCalls(
+        self.call.adb.Reboot(), (self.call.device.IsOnline(), True),
+        (self.call.device.IsOnline(), False),
+        self.call.device.WaitUntilFullyBooted(wifi=False, decrypt=False)):
       self.device.Reboot(block=True)
 
   def testReboot_blockUntilWifi(self):
-    with self.assertCalls(self.call.adb.Reboot(),
-                          (self.call.device.IsOnline(), True),
-                          (self.call.device.IsOnline(), False),
-                          self.call.device.WaitUntilFullyBooted(wifi=True)):
-      self.device.Reboot(block=True, wifi=True)
+    with self.assertCalls(
+        self.call.adb.Reboot(), (self.call.device.IsOnline(), True),
+        (self.call.device.IsOnline(), False),
+        self.call.device.WaitUntilFullyBooted(wifi=True, decrypt=False)):
+      self.device.Reboot(block=True, wifi=True, decrypt=False)
+
+  def testReboot_blockUntilDecrypt(self):
+    with self.assertCalls(
+        self.call.adb.Reboot(), (self.call.device.IsOnline(), True),
+        (self.call.device.IsOnline(), False),
+        self.call.device.WaitUntilFullyBooted(wifi=False, decrypt=True)):
+      self.device.Reboot(block=True, wifi=False, decrypt=True)
 
 
 class DeviceUtilsInstallTest(DeviceUtilsTest):
@@ -2283,42 +2384,28 @@ class DeviceUtilsReadFileTest(DeviceUtilsTest):
       with self.assertRaises(device_errors.CommandFailedError):
         self.device._ReadFileWithPull('/path/to/device/file')
 
-  def testReadFile_exists(self):
+  def testReadFile_withSU_zeroSize(self):
     with self.assertCalls(
-        (self.call.device.FileSize('/read/this/test/file', as_root=False), 256),
-        (self.call.device.RunShellCommand(
-            ['cat', '/read/this/test/file'], as_root=False, check_return=True),
-         ['this is a test file'])):
-      self.assertEqual('this is a test file\n',
-                       self.device.ReadFile('/read/this/test/file'))
-
-  def testReadFile_exists2(self):
-    # Same as testReadFile_exists, but uses Android N ls output.
-    with self.assertCalls(
-        (self.call.device.FileSize('/read/this/test/file', as_root=False), 256),
-        (self.call.device.RunShellCommand(
-            ['cat', '/read/this/test/file'], as_root=False, check_return=True),
-         ['this is a test file'])):
-      self.assertEqual('this is a test file\n',
-                       self.device.ReadFile('/read/this/test/file'))
-
-  def testReadFile_doesNotExist(self):
-    with self.assertCall(
-        self.call.device.FileSize('/this/file/does.not.exist', as_root=False),
-        self.CommandError('File does not exist')):
-      with self.assertRaises(device_errors.CommandFailedError):
-        self.device.ReadFile('/this/file/does.not.exist')
-
-  def testReadFile_zeroSize(self):
-    with self.assertCalls(
-        (self.call.device.FileSize('/this/file/has/zero/size', as_root=False),
-         0), (self.call.device._ReadFileWithPull('/this/file/has/zero/size'),
-              'but it has contents\n')):
+        (self.call.device.NeedsSU(), True),
+        (self.call.device.FileSize(
+            '/this/file/has/zero/size', as_root=True), 0),
+        (mock.call.devil.android.device_temp_file.DeviceTempFile(self.adb),
+         MockTempFile('/sdcard/tmp/on.device')),
+        self.call.device.RunShellCommand(
+            'SRC=/this/file/has/zero/size DEST=/sdcard/tmp/on.device;'
+            'cp "$SRC" "$DEST" && chmod 666 "$DEST"',
+            shell=True,
+            as_root=True,
+            check_return=True),
+        (self.call.device._ReadFileWithPull('/sdcard/tmp/on.device'),
+         'but it has contents\n')):
       self.assertEqual('but it has contents\n',
-                       self.device.ReadFile('/this/file/has/zero/size'))
+                       self.device.ReadFile('/this/file/has/zero/size',
+                       as_root=True))
 
   def testReadFile_withSU(self):
     with self.assertCalls(
+        (self.call.device.NeedsSU(), True),
         (self.call.device.FileSize(
             '/this/file/can.be.read.with.su', as_root=True), 256),
         (self.call.device.RunShellCommand(
@@ -2329,11 +2416,17 @@ class DeviceUtilsReadFileTest(DeviceUtilsTest):
           'this is a test file\nread with su\n',
           self.device.ReadFile('/this/file/can.be.read.with.su', as_root=True))
 
+  def testReadFile_withSU_doesNotExist(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), True),
+        (self.call.device.FileSize('/this/file/does.not.exist', as_root=True),
+         self.CommandError('File does not exist'))):
+      with self.assertRaises(device_errors.CommandFailedError):
+        self.device.ReadFile('/this/file/does.not.exist', as_root=True)
+
   def testReadFile_withPull(self):
     contents = 'a' * 123456
     with self.assertCalls(
-        (self.call.device.FileSize('/read/this/big/test/file', as_root=False),
-         123456),
         (self.call.device._ReadFileWithPull('/read/this/big/test/file'),
          contents)):
       self.assertEqual(contents,
@@ -2342,9 +2435,9 @@ class DeviceUtilsReadFileTest(DeviceUtilsTest):
   def testReadFile_withPullAndSU(self):
     contents = 'b' * 123456
     with self.assertCalls(
+        (self.call.device.NeedsSU(), True),
         (self.call.device.FileSize(
             '/this/big/file/can.be.read.with.su', as_root=True), 123456),
-        (self.call.device.NeedsSU(), True),
         (mock.call.devil.android.device_temp_file.DeviceTempFile(self.adb),
          MockTempFile('/sdcard/tmp/on.device')),
         self.call.device.RunShellCommand(
@@ -3099,11 +3192,28 @@ class DeviceUtilsSetWebViewImplementationTest(DeviceUtilsTest):
     self._testSetWebViewImplementationHelper(mock_dump_sys,
                                              'WebView native library')
 
-  def testSetWebViewImplementation_lowTargetSdkVersion(self):
+  def testSetWebViewImplementation_lowTargetSdkVersion_finalizedSdk(self):
     mock_dump_sys = {'WebViewPackages': {'foo.org': 'SDK version too low', }}
-    with self.patch_call(self.call.device.build_version_sdk, return_value=26):
-      self._testSetWebViewImplementationHelper(mock_dump_sys,
-                                               'higher targetSdkVersion')
+    with self.assertCalls(
+        (self.call.device.GetApplicationTargetSdk('foo.org'), '29'),
+        (self.call.device.GetProp('ro.build.version.preview_sdk'), '0')):
+      with self.patch_call(self.call.device.build_version_sdk, return_value=30):
+        self._testSetWebViewImplementationHelper(
+            mock_dump_sys,
+            "has targetSdkVersion '29', but valid WebView providers must "
+            "target >= 30 on this device")
+
+  def testSetWebViewImplementation_lowTargetSdkVersion_prefinalizedSdk(self):
+    mock_dump_sys = {'WebViewPackages': {'foo.org': 'SDK version too low', }}
+    with self.assertCalls(
+        (self.call.device.GetApplicationTargetSdk('foo.org'), '29'),
+        (self.call.device.GetProp('ro.build.version.preview_sdk'), '1'),
+        (self.call.device.GetProp('ro.build.version.codename'), 'R')):
+      with self.patch_call(self.call.device.build_version_sdk, return_value=29):
+        self._testSetWebViewImplementationHelper(
+            mock_dump_sys,
+            "targets a finalized SDK ('29'), but valid WebView providers must "
+            "target a pre-finalized SDK ('R') on this device")
 
   def testSetWebViewImplementation_lowVersionCode(self):
     mock_dump_sys = {

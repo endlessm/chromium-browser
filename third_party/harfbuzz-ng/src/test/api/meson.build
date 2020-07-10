@@ -24,12 +24,6 @@ if conf.get('HAVE_GLIB', 0) == 1
     'test-ot-metrics-tt-var.c',
     'test-set.c',
     'test-shape.c',
-    'test-unicode.c',
-    'test-var-coords.c',
-    'test-version.c',
-  ]
-
-  subset_tests = [
     'test-subset.c',
     'test-subset-cmap.c',
     'test-subset-drop-tables.c',
@@ -49,6 +43,9 @@ if conf.get('HAVE_GLIB', 0) == 1
     'test-subset-gpos.c',
     'test-subset-colr.c',
     'test-subset-cbdt.c',
+    'test-unicode.c',
+    'test-var-coords.c',
+    'test-version.c',
   ]
 
   if conf.get('HAVE_FREETYPE', 0) == 1
@@ -69,20 +66,18 @@ if conf.get('HAVE_GLIB', 0) == 1
 
   foreach source : tests
     test_name = source.split('.')[0]
-    test(test_name, executable(test_name, source,
-      include_directories: [incconfig, incsrc],
-      dependencies: deps,
-      link_with: libharfbuzz,
-      install: false,
-    ), env: env)
-  endforeach
 
-  foreach source : subset_tests
-    test_name = source.split('.')[0]
+    link_withs = libharfbuzz
+    if test_name.contains('-subset')
+      link_withs = [libharfbuzz, libharfbuzz_subset]
+    elif test_name == 'test-unicode' and have_icu and not have_icu_builtin
+      link_withs = [libharfbuzz, libharfbuzz_icu]
+    endif
+
     test(test_name, executable(test_name, source,
       include_directories: [incconfig, incsrc],
       dependencies: deps,
-      link_with: [libharfbuzz, libharfbuzz_subset],
+      link_with: link_withs,
       install: false,
     ), env: env)
   endforeach

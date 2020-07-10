@@ -8,16 +8,12 @@
 from __future__ import print_function
 
 import os
-import sys
 import uuid
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import cros_sdk_lib
-
-
-assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class CreateArguments(object):
@@ -328,13 +324,14 @@ def _EnsureSnapshottableState(chroot=None, replace=False):
   cache_dir = chroot.cache_dir if chroot else None
   chroot_path = chroot.path if chroot else None
 
-  res = cros_build_lib.run(cmd, check=False, encoding='utf-8')
+  res = cros_build_lib.run(cmd, check=False, encoding='utf-8',
+                           capture_output=True)
 
   if res.returncode == 0:
     return
   elif 'Unable to find VG' in res.stderr and replace:
-    logging.warn('SDK was created with nouse-image which does not support '
-                 'snapshots. Recreating SDK to support snapshots.')
+    logging.warning('SDK was created with nouse-image which does not support '
+                    'snapshots. Recreating SDK to support snapshots.')
 
     args = CreateArguments(
         replace=True,

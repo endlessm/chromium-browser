@@ -609,7 +609,7 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
         chroot_args=None, debug_level=logging.INFO,
         check=True, int_timeout=1, kill_timeout=1,
         log_output=False, capture_output=False,
-        quiet=False, mute_output=None, encoding=None, errors=None, dryrun=False,
+        quiet=False, encoding=None, errors=None, dryrun=False,
         **kwargs):
   """Runs a command.
 
@@ -659,10 +659,7 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
       invoked process to shutdown from a SIGTERM before we SIGKILL it.
     log_output: Log the command and its output automatically.
     capture_output: Set |stdout| and |stderr| to True.
-    quiet: Set |print_cmd| to False, |stdout| to True, and |stderr| to
-      subprocess.STDOUT.
-    mute_output: Mute subprocess printing to parent stdout/stderr. Defaults to
-      None, which bases muting on |debug_level|.
+    quiet: Set |print_cmd| to False, and |capture_output| to True.
     encoding: Encoding for stdin/stdout/stderr, otherwise bytes are used.  Most
       users want 'utf-8' here for string data.
     errors: How to handle errors when |encoding| is used.  Defaults to 'strict',
@@ -689,6 +686,10 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
       stdout_file_mode = 'a+b'
   assert not kwargs, 'Unknown arguments to run: %s' % (list(kwargs),)
 
+  if quiet:
+    print_cmd = False
+    capture_output = True
+
   if capture_output:
     # TODO(vapier): Enable this once we migrate all the legacy arguments above.
     # if stdout is not None or stderr is not None:
@@ -700,13 +701,6 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
     if stderr is None:
       stderr = True
 
-  if quiet:
-    debug_level = logging.DEBUG
-    if stdout is None:
-      stdout = subprocess.PIPE
-    if stderr is None:
-      stderr = subprocess.STDOUT
-
   if encoding is not None and errors is None:
     errors = 'strict'
 
@@ -715,14 +709,6 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
   popen_stderr = None
   stdin = None
   cmd_result = CommandResult()
-
-  if mute_output is None:
-    mute_output = logging.getLogger().getEffectiveLevel() > debug_level
-  if mute_output or log_output:
-    if stdout is None:
-      stdout = True
-    if stderr is None:
-      stderr = True
 
   # Force the timeout to float; in the process, if it's not convertible,
   # a self-explanatory exception will be thrown.
@@ -757,6 +743,8 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
       popen_stdout = _get_tempfile()
   elif isinstance(stdout, int):
     popen_stdout = stdout
+  elif log_output:
+    popen_stdout = _get_tempfile()
 
   log_stderr_to_file = False
   if hasattr(stderr, 'fileno'):
@@ -768,6 +756,8 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
       popen_stderr = _get_tempfile()
   elif isinstance(stderr, int):
     popen_stderr = stderr
+  elif log_output:
+    popen_stderr = _get_tempfile()
 
   # If subprocesses have direct access to stdout or stderr, they can bypass
   # our buffers, so we need to flush to ensure that output is not interleaved.
@@ -935,6 +925,14 @@ def run(cmd, print_cmd=True, stdout=None, stderr=None,
     if proc is not None:
       # Ensure the process is dead.
       _KillChildProcess(proc, int_timeout, kill_timeout, cmd, None, None, None)
+
+  # We might capture stdout/stderr for internal reasons (like logging), but we
+  # don't want to let it leak back out to the callers.  They only get output if
+  # they explicitly requested it.
+  if stdout is None:
+    cmd_result.stdout = None
+  if stderr is None:
+    cmd_result.stderr = None
 
   return cmd_result
 # pylint: enable=redefined-builtin
@@ -1243,12 +1241,26 @@ def CreateTarball(target, cwd, sudo=False, compression=COMP_XZ, chroot=None,
   # If tar fails with status 1, retry twice. Once after timeout seconds and
   # again 2*timeout seconds after that.
   for try_count in range(3):
-    result = rc_func(cmd, cwd=cwd, **dict(kwargs, check=False, input=rc_input))
+    try:
+      result = rc_func(cmd, cwd=cwd, **dict(kwargs, check=False,
+                                            input=rc_input))
+    except RunCommandError as rce:
+      # There are cases where run never executes the command (cannot find tar,
+      # cannot execute tar, such as when cwd does not exist). Although the run
+      # command will show low-level problems, we also want to log the context
+      # of what CreateTarball was trying to do.
+      logging.error('CreateTarball unable to run tar for %s in %s. cmd={%s}',
+                    target, cwd, cmd)
+      raise rce
     if result.returncode == 0:
       return result
     if result.returncode != 1 or try_count > 1:
       # Since the build is abandoned at this point, we will take 5
       # entire minutes to track down the competing process.
+      # Error will have the low-level tar command error, so log the context
+      # of the tar command (target file, current working dir).
+      logging.error('CreateTarball failed creating %s in %s. cmd={%s}',
+                    target, cwd, cmd)
       raise CreateTarballError('CreateTarball', result)
 
     assert result.returncode == 1
@@ -1441,11 +1453,6 @@ class MasterPidContextManager(object):
 
   def _exit(self, exc_type, exc, exc_tb):
     raise NotImplementedError(self, '_exit')
-
-
-@contextlib.contextmanager
-def NoOpContextManager():
-  yield
 
 
 class ContextManagerStack(object):

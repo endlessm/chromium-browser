@@ -8,6 +8,7 @@
 //
 // UNSUPPORTED: libcpp-has-no-threads, c++98, c++03
 // REQUIRES: libatomic
+// FILE_DEPENDENCIES: %t.exe
 // RUN: %{build} -latomic
 // RUN: %{run}
 //
@@ -27,11 +28,14 @@
 #include <atomic>
 #include <cassert>
 
-template <typename T> struct atomic_test : public std::__atomic_base<T> {
+template <typename T>
+struct atomic_test : public std::__atomic_base<T> {
   atomic_test() {
-    if (this->is_lock_free())
-      assert(alignof(this->__a_) >= sizeof(this->__a_) &&
+    if (this->is_lock_free()) {
+      using AtomicImpl = decltype(this->__a_);
+      assert(alignof(AtomicImpl) >= sizeof(AtomicImpl) &&
              "expected natural alignment for lock-free type");
+    }
   }
 };
 

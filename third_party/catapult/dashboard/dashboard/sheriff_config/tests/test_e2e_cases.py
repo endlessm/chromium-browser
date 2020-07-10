@@ -45,6 +45,7 @@ class LuciPollingTest(unittest.TestCase):
                 'status': '200'
             }, self.sample_config)]),
     })
+    self.maxDiff = None
 
   def testPollAndMatch(self):
     client = self.app.test_client()
@@ -77,12 +78,54 @@ class LuciPollingTest(unittest.TestCase):
                     'contact_email': 'expected-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
-                    'patterns': [{
-                        'glob': 'Master/Bot/Test/Metric/Something'
-                    }]
+                    'auto_triage': {'enable': False},
+                    'auto_bisection': {'enable': False},
+                    'rules': {},
                 }
             }]
         })
+
+  def testPollAndMatchTriageBisect(self):
+    client = self.app.test_client()
+    response = client.get(
+        '/configs/update', headers={'X-Forwarded-Proto': 'https'})
+    self.assertEqual(response.status_code, 200)
+    def Test(path, triaged, bisected):
+      response = client.post(
+          '/subscriptions/match',
+          json={
+              'path': 'Master/Bot/Test/Metric/Something_' + path,
+              'stats': ['PCT_99'],
+              'metadata': {
+                  'units': 'SomeUnit',
+                  'master': 'Master',
+                  'bot': 'Bot',
+                  'benchmark': 'Test',
+                  'metric_parts': ['Metric', 'Something'],
+              }
+          },
+          headers={'X-Forwarded-Proto': 'https'})
+      self.assertEqual(response.status_code, 200)
+      response_proto = response.get_json()
+      self.assertDictEqual(
+          response_proto, {
+              'subscriptions': [{
+                  'config_set': 'projects/other_project',
+                  'revision': '0123456789abcdff',
+                  'subscription': {
+                      'name': 'Expected 1',
+                      'contact_email': 'expected-1@example.com',
+                      'bug_labels': ['Some-Label'],
+                      'bug_components': ['Some>Component'],
+                      'auto_triage': {'enable': triaged},
+                      'auto_bisection': {'enable': bisected},
+                      'rules': {},
+                  }
+              }]
+          })
+    Test('Triage_Bisect', True, True)
+    Test('NoTriage_Bisect', False, False)
+    Test('Triage_NoBisect', True, False)
 
   def testPollAndMatchMultiple(self):
     client = self.app.test_client()
@@ -115,9 +158,9 @@ class LuciPollingTest(unittest.TestCase):
                     'contact_email': 'config-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
-                    'patterns': [{
-                        'glob': 'project/**'
-                    }]
+                    'auto_triage': {'enable': False},
+                    'auto_bisection': {'enable': False},
+                    'rules': {},
                 }
             }, {
                 'config_set': 'projects/project',
@@ -127,9 +170,9 @@ class LuciPollingTest(unittest.TestCase):
                     'contact_email': 'config-2@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
-                    'patterns': [{
-                        'regex': '^project/platform/.*/memory_peak$'
-                    }]
+                    'auto_triage': {'enable': False},
+                    'auto_bisection': {'enable': False},
+                    'rules': {},
                 }
             }]
         })
@@ -213,6 +256,9 @@ class LuciPollingTest(unittest.TestCase):
                 'contact_email': 'config-1@example.com',
                 'bug_labels': ['Some-Label'],
                 'bug_components': ['Some>Component'],
+                'auto_triage': {'enable': False},
+                'auto_bisection': {'enable': False},
+                'rules': {},
             }
         }, {
             'config_set': 'projects/project',
@@ -222,6 +268,9 @@ class LuciPollingTest(unittest.TestCase):
                 'contact_email': 'config-2@example.com',
                 'bug_labels': ['Some-Label'],
                 'bug_components': ['Some>Component'],
+                'auto_triage': {'enable': False},
+                'auto_bisection': {'enable': False},
+                'rules': {},
             }
         }, {
             'config_set': 'projects/other_project',
@@ -231,6 +280,9 @@ class LuciPollingTest(unittest.TestCase):
                 'contact_email': 'expected-1@example.com',
                 'bug_labels': ['Some-Label'],
                 'bug_components': ['Some>Component'],
+                'auto_triage': {'enable': False},
+                'auto_bisection': {'enable': False},
+                'rules': {},
             }
         }]
     })
@@ -259,6 +311,7 @@ class LuciContentChangesTest(unittest.TestCase):
     with open(
         'tests/sample-configs-get_project_configs.json') as sample_config_file:
       self.sample_config = sample_config_file.read()
+    self.maxDiff = None
 
   def AssertProjectConfigSet1Holds(self, client, expected_code):
     response = client.post(
@@ -289,9 +342,9 @@ class LuciContentChangesTest(unittest.TestCase):
                     'contact_email': 'expected-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
-                    'patterns': [{
-                        'glob': 'Master/Bot/Test/Metric/Something'
-                    }]
+                    'auto_triage': {'enable': False},
+                    'auto_bisection': {'enable': False},
+                    'rules': {},
                 }
             }]
         })
@@ -325,9 +378,9 @@ class LuciContentChangesTest(unittest.TestCase):
                     'contact_email': 'config-1@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
-                    'patterns': [{
-                        'glob': 'project/**'
-                    }]
+                    'auto_triage': {'enable': False},
+                    'auto_bisection': {'enable': False},
+                    'rules': {},
                 }
             }, {
                 'config_set': 'projects/project',
@@ -337,9 +390,9 @@ class LuciContentChangesTest(unittest.TestCase):
                     'contact_email': 'config-2@example.com',
                     'bug_labels': ['Some-Label'],
                     'bug_components': ['Some>Component'],
-                    'patterns': [{
-                        'regex': '^project/platform/.*/memory_peak$'
-                    }]
+                    'auto_triage': {'enable': False},
+                    'auto_bisection': {'enable': False},
+                    'rules': {},
                 }
             }]
         })

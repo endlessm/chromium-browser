@@ -1,4 +1,4 @@
-//===----------------- Linux implementation of __restore_rt ---------------===//
+//===-- Linux implementation of __restore_rt ------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-// This file is implemented seperately from sigaction.cpp so that we can
+// This file is implemented separately from sigaction.cpp so that we can
 // strongly control the options this file is compiled with. __restore_rt cannot
 // make any stack allocations so we must ensure this.
 

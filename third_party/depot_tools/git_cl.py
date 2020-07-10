@@ -34,7 +34,6 @@ import zlib
 from third_party import colorama
 import auth
 import clang_format
-import dart_format
 import fix_encoding
 import gclient_utils
 import gerrit_util
@@ -138,6 +137,8 @@ _KNOWN_GERRIT_TO_SHORT_URLS = {
     'https://chrome-internal-review.googlesource.com': 'https://crrev.com/i',
     'https://chromium-review.googlesource.com': 'https://crrev.com/c',
 }
+assert len(_KNOWN_GERRIT_TO_SHORT_URLS) == len(
+    set(_KNOWN_GERRIT_TO_SHORT_URLS.values())), 'must have unique values'
 
 
 def DieWithError(message, change_desc=None):
@@ -858,6 +859,11 @@ def ParseIssueNumberArgument(arg):
     return fail_result
 
   url = gclient_utils.UpgradeToHttps(arg)
+  for gerrit_url, short_url in _KNOWN_GERRIT_TO_SHORT_URLS.items():
+    if url.startswith(short_url):
+      url = gerrit_url + url[len(short_url):]
+      break
+
   try:
     parsed_url = urllib.parse.urlparse(url)
   except ValueError:
@@ -1424,7 +1430,7 @@ class Changelist(object):
         # Remove the dependencies flag from args so that we do not end up in a
         # loop.
         orig_args.remove('--dependencies')
-        ret = upload_branch_deps(self, orig_args)
+        ret = upload_branch_deps(self, orig_args, options.force)
     return ret
 
   def SetCQState(self, new_state):
@@ -2022,10 +2028,7 @@ class Changelist(object):
     git_info_dir = tempfile.mkdtemp()
     git_info_zip = trace_name + '-git-info'
 
-    git_push_metadata['now'] = datetime_now().strftime('%c')
-    if sys.stdin.encoding and sys.stdin.encoding != 'utf-8':
-      git_push_metadata['now'] = git_push_metadata['now'].decode(
-          sys.stdin.encoding)
+    git_push_metadata['now'] = datetime_now().strftime('%Y-%m-%dT%H:%M:%S.%f')
 
     git_push_metadata['trace_name'] = trace_name
     gclient_utils.FileWrite(
@@ -3202,7 +3205,7 @@ def get_cl_statuses(changes, fine_grained, max_processes=None):
     yield (cl, 'error')
 
 
-def upload_branch_deps(cl, args):
+def upload_branch_deps(cl, args, force=False):
   """Uploads CLs of local branches that are dependents of the current branch.
 
   If the local branch dependency tree looks like:
@@ -3266,8 +3269,9 @@ def upload_branch_deps(cl, args):
     print('There are no dependent local branches for %s' % root_branch)
     return 0
 
-  confirm_or_exit('This command will checkout all dependent branches and run '
-                  '"git cl upload".', action='continue')
+  if not force:
+    confirm_or_exit('This command will checkout all dependent branches and run '
+                    '"git cl upload".', action='continue')
 
   # Record all dependents that failed to upload.
   failures = {}
@@ -4649,6 +4653,9 @@ def CMDowners(parser, args):
   author = cl.GetAuthor()
 
   if options.show_all:
+    if len(args) == 0:
+      print('No files specified for --show-all. Nothing to do.')
+      return 0
     for arg in args:
       base_branch = cl.GetCommonAncestorWithUpstream()
       database = owners.Database(settings.GetRoot(), open, os.path)
@@ -4750,22 +4757,25 @@ def _RunClangFormatDiff(opts, clang_diff_files, top_dir, upstream_commit):
       if opts.diff:
         sys.stdout.write(stdout)
   else:
-    env = os.environ.copy()
-    env['PATH'] = str(os.path.dirname(clang_format_tool))
     try:
       script = clang_format.FindClangFormatScriptInChromiumTree(
           'clang-format-diff.py')
     except clang_format.NotFoundError as e:
       DieWithError(e)
 
-    cmd = [sys.executable, script, '-p0']
+    cmd = ['vpython', script, '-p0']
     if not opts.dry_run and not opts.diff:
       cmd.append('-i')
 
     diff_cmd = BuildGitDiffCmd('-U0', upstream_commit, clang_diff_files)
     diff_output = RunGit(diff_cmd).encode('utf-8')
 
-    stdout = RunCommand(cmd, stdin=diff_output, cwd=top_dir, env=env)
+    env = os.environ.copy()
+    env['PATH'] = (
+        str(os.path.dirname(clang_format_tool)) + os.pathsep + env['PATH'])
+    stdout = RunCommand(
+        cmd, stdin=diff_output, cwd=top_dir, env=env,
+        shell=bool(sys.platform.startswith('win32')))
     if opts.diff:
       sys.stdout.write(stdout)
     if opts.dry_run and len(stdout) > 0:
@@ -4864,7 +4874,6 @@ def CMDformat(parser, args):
         x for x in diff_files if MatchingFileType(x, CLANG_EXTS)
     ]
   python_diff_files = [x for x in diff_files if MatchingFileType(x, ['.py'])]
-  dart_diff_files = [x for x in diff_files if MatchingFileType(x, ['.dart'])]
   gn_diff_files = [x for x in diff_files if MatchingFileType(x, GN_EXTS)]
 
   top_dir = settings.GetRoot()
@@ -4943,23 +4952,6 @@ def CMDformat(parser, args):
         cmd += ['-i']
         RunCommand(cmd, cwd=top_dir)
 
-  # Dart's formatter does not have the nice property of only operating on
-  # modified chunks, so hard code full.
-  if dart_diff_files:
-    try:
-      command = [dart_format.FindDartFmtToolInChromiumTree()]
-      if not opts.dry_run and not opts.diff:
-        command.append('-w')
-      command.extend(dart_diff_files)
-
-      stdout = RunCommand(command, cwd=top_dir)
-      if opts.dry_run and stdout:
-        return_value = 2
-    except dart_format.NotFoundError:
-      print('Warning: Unable to check Dart code formatting. Dart SDK not '
-            'found in this checkout. Files in other languages are still '
-            'formatted.')
-
   # Format GN build files. Always run on full build files for canonical form.
   if gn_diff_files:
     cmd = ['gn', 'format']
@@ -4967,7 +4959,7 @@ def CMDformat(parser, args):
       cmd.append('--dry-run')
     for gn_diff_file in gn_diff_files:
       gn_ret = subprocess2.call(cmd + [gn_diff_file],
-                                shell=sys.platform == 'win32',
+                                shell=bool(sys.platform.startswith('win')),
                                 cwd=top_dir)
       if opts.dry_run and gn_ret == 2:
         return_value = 2  # Not formatted.

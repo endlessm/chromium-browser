@@ -131,7 +131,7 @@ public:
     vl_concurrent_unordered_map<T, std::shared_ptr<ObjectUseData>, 6> object_table;
 
     void CreateObject(T object) {
-        object_table.insert_or_assign(object, std::make_shared<ObjectUseData>());
+        object_table.insert(object, std::make_shared<ObjectUseData>());
     }
 
     void DestroyObject(T object) {
@@ -348,6 +348,7 @@ public:
     counter<VkPipeline> c_VkPipeline;
     counter<VkPipelineCache> c_VkPipelineCache;
     counter<VkPipelineLayout> c_VkPipelineLayout;
+    counter<VkPrivateDataSlotEXT> c_VkPrivateDataSlotEXT;
     counter<VkQueryPool> c_VkQueryPool;
     counter<VkRenderPass> c_VkRenderPass;
     counter<VkSampler> c_VkSampler;
@@ -399,6 +400,7 @@ public:
           c_VkPipeline("VkPipeline", kVulkanObjectTypePipeline, this),
           c_VkPipelineCache("VkPipelineCache", kVulkanObjectTypePipelineCache, this),
           c_VkPipelineLayout("VkPipelineLayout", kVulkanObjectTypePipelineLayout, this),
+          c_VkPrivateDataSlotEXT("VkPrivateDataSlotEXT", kVulkanObjectTypePrivateDataSlotEXT, this),
           c_VkQueryPool("VkQueryPool", kVulkanObjectTypeQueryPool, this),
           c_VkRenderPass("VkRenderPass", kVulkanObjectTypeRenderPass, this),
           c_VkSampler("VkSampler", kVulkanObjectTypeSampler, this),
@@ -413,7 +415,9 @@ public:
 #else   // DISTINCT_NONDISPATCHABLE_HANDLES
           c_uint64_t("NON_DISPATCHABLE_HANDLE", kVulkanObjectTypeUnknown, this)
 #endif  // DISTINCT_NONDISPATCHABLE_HANDLES
-              {};
+    {
+        container_type = LayerObjectTypeThreading;
+    };
 
 #define WRAPPER(type)                                                \
     void StartWriteObject(type object, const char *api_name) {       \
@@ -484,6 +488,7 @@ WRAPPER(VkPerformanceConfigurationINTEL)
 WRAPPER(VkPipeline)
 WRAPPER(VkPipelineCache)
 WRAPPER(VkPipelineLayout)
+WRAPPER(VkPrivateDataSlotEXT)
 WRAPPER(VkQueryPool)
 WRAPPER(VkRenderPass)
 WRAPPER(VkSampler)
@@ -3497,6 +3502,17 @@ void PostCallRecordGetImageViewHandleNVX(
     VkDevice                                    device,
     const VkImageViewHandleInfoNVX*             pInfo);
 
+void PreCallRecordGetImageViewAddressNVX(
+    VkDevice                                    device,
+    VkImageView                                 imageView,
+    VkImageViewAddressPropertiesNVX*            pProperties);
+
+void PostCallRecordGetImageViewAddressNVX(
+    VkDevice                                    device,
+    VkImageView                                 imageView,
+    VkImageViewAddressPropertiesNVX*            pProperties,
+    VkResult                                    result);
+
 void PreCallRecordCmdDrawIndirectCountAMD(
     VkCommandBuffer                             commandBuffer,
     VkBuffer                                    buffer,
@@ -4620,6 +4636,58 @@ void PostCallRecordDestroyIndirectCommandsLayoutNV(
     VkDevice                                    device,
     VkIndirectCommandsLayoutNV                  indirectCommandsLayout,
     const VkAllocationCallbacks*                pAllocator);
+
+void PreCallRecordCreatePrivateDataSlotEXT(
+    VkDevice                                    device,
+    const VkPrivateDataSlotCreateInfoEXT*       pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkPrivateDataSlotEXT*                       pPrivateDataSlot);
+
+void PostCallRecordCreatePrivateDataSlotEXT(
+    VkDevice                                    device,
+    const VkPrivateDataSlotCreateInfoEXT*       pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkPrivateDataSlotEXT*                       pPrivateDataSlot,
+    VkResult                                    result);
+
+void PreCallRecordDestroyPrivateDataSlotEXT(
+    VkDevice                                    device,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    const VkAllocationCallbacks*                pAllocator);
+
+void PostCallRecordDestroyPrivateDataSlotEXT(
+    VkDevice                                    device,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    const VkAllocationCallbacks*                pAllocator);
+
+void PreCallRecordSetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t                                    data);
+
+void PostCallRecordSetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t                                    data,
+    VkResult                                    result);
+
+void PreCallRecordGetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t*                                   pData);
+
+void PostCallRecordGetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t*                                   pData);
 
 #ifdef VK_ENABLE_BETA_EXTENSIONS
 

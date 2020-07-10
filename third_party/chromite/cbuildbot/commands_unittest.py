@@ -15,6 +15,7 @@ import hashlib
 import os
 import struct
 import subprocess
+import sys
 
 import mock
 
@@ -37,6 +38,9 @@ from chromite.lib import sysroot_lib
 from chromite.scripts import pushimage
 
 from chromite.service import artifacts as artifacts_service
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class RunBuildScriptTest(cros_test_lib.RunCommandTempDirTestCase):
@@ -757,7 +761,7 @@ The suite job has another 2:39:39.789250 till timeout.
         (self.JOB_ID_OUTPUT, False, None),
         (self.JSON_OUTPUT, False, None),
     ])
-    with (mock.patch.object(commands, '_HWTestWait', return_value=False)):
+    with mock.patch.object(commands, '_HWTestWait', return_value=False):
       with self.OutputCapturer() as output:
         self.RunHWTestSuite(wait_for_results=self._wait_for_results)
         self.assertCommandCalled(self.create_cmd, capture_output=True,
@@ -1969,7 +1973,6 @@ class MarkAndroidAsStableTest(cros_test_lib.RunCommandTempDirTestCase):
     android_build_branch = 'refs/build'
     boards = ['foo', 'bar']
     android_version = '1.0'
-    android_gts_build_branch = 'refs/gts-build'
 
     # Write out the mock response.
     response_package = {'category': 'android', 'package_name': 'android',
@@ -1981,8 +1984,7 @@ class MarkAndroidAsStableTest(cros_test_lib.RunCommandTempDirTestCase):
 
     new_atom = commands.MarkAndroidAsStable(
         buildroot, tracking_branch, android_package, android_build_branch,
-        boards=boards, android_version=android_version,
-        android_gts_build_branch=android_gts_build_branch)
+        boards=boards, android_version=android_version)
 
     # Make sure the atom is rebuilt correctly from the package info.
     self.assertEqual('android/android-1.0-r2', new_atom)
@@ -1992,7 +1994,6 @@ class MarkAndroidAsStableTest(cros_test_lib.RunCommandTempDirTestCase):
         'packageName': android_package,
         'androidBuildBranch': android_build_branch,
         'androidVersion': android_version,
-        'androidGtsBuildBranch': android_gts_build_branch,
         'buildTargets': [{'name': 'foo'}, {'name': 'bar'}],
     }
     call_patch.assert_called_with(

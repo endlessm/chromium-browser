@@ -918,6 +918,8 @@ elseif(APPLE)
 elseif(ANDROID)
     list(APPEND LLVM_INCLUDE_DIR ${LLVM_CONFIG_DIR}/android/include)
     list(APPEND LIBBACKTRACE_INCLUDE_DIR ${LIBBACKTRACE_CONFIG_DIR}/android/include)
+elseif(FUCHSIA)
+    list(APPEND LLVM_INCLUDE_DIR ${LLVM_CONFIG_DIR}/fuchsia/include)
 endif()
 
 list(APPEND LLVM_INCLUDE_DIR
@@ -968,17 +970,35 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         "/wd4805" # 'X': unsafe mix of type 'unsigned int' and type 'bool' in operation
         "/wd4996" # 'X': Call to 'Y' with parameters that may be unsafe - this call relies on the caller to check that the passed values are correct.
     )
+elseif(FUCHSIA)
+    list(APPEND LLVM_COMPILE_OPTIONS
+          "-Wno-error"   # The Fuchsia builds triggers several minor explicit #warning lines.
+    )
 endif()
 
 add_library(llvm STATIC EXCLUDE_FROM_ALL ${LLVM_LIST})
+
 set_target_properties(llvm PROPERTIES
     POSITION_INDEPENDENT_CODE 1
     INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIR}"
-    COMPILE_OPTIONS "${LLVM_COMPILE_OPTIONS}"
-    COMPILE_DEFINITIONS "__STDC_CONSTANT_MACROS; __STDC_LIMIT_MACROS;"
     FOLDER "LLVM"
 )
-target_include_directories(llvm PUBLIC "${LLVM_INCLUDE_DIR}")
+
+target_include_directories(llvm
+    PUBLIC
+        ${LLVM_INCLUDE_DIR}
+)
+
+target_compile_options(llvm
+    PUBLIC
+        ${LLVM_COMPILE_OPTIONS}
+)
+
+target_compile_definitions(llvm
+    PUBLIC
+        "__STDC_CONSTANT_MACROS"
+        "__STDC_LIMIT_MACROS"
+)
 
 # Add required libraries for LLVM
 if(LINUX)

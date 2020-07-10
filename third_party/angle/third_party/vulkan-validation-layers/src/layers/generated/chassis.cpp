@@ -47,7 +47,6 @@ bool wrap_handles = true;
 // Include layer validation object definitions
 #include "best_practices_validation.h"
 #include "core_validation.h"
-#include "command_counter.h"
 #include "gpu_validation.h"
 #include "object_lifetime_validation.h"
 #include "debug_printf.h"
@@ -445,56 +444,28 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
 
     // Create temporary dispatch vector for pre-calls until instance is created
     std::vector<ValidationObject*> local_object_dispatch;
+
     // Add VOs to dispatch vector. Order here will be the validation dispatch order!
     auto thread_checker = new ThreadSafety(nullptr);
-    if (!local_disables.thread_safety) {
-        local_object_dispatch.emplace_back(thread_checker);
-    }
-    thread_checker->container_type = LayerObjectTypeThreading;
-    thread_checker->api_version = api_version;
-    thread_checker->report_data = report_data;
+    thread_checker->RegisterValidationObject(!local_disables.thread_safety, api_version, report_data, local_object_dispatch);
+
     auto parameter_validation = new StatelessValidation;
-    if (!local_disables.stateless_checks) {
-        local_object_dispatch.emplace_back(parameter_validation);
-    }
-    parameter_validation->container_type = LayerObjectTypeParameterValidation;
-    parameter_validation->api_version = api_version;
-    parameter_validation->report_data = report_data;
+    parameter_validation->RegisterValidationObject(!local_disables.stateless_checks, api_version, report_data, local_object_dispatch);
+
     auto object_tracker = new ObjectLifetimes;
-    if (!local_disables.object_tracking) {
-        local_object_dispatch.emplace_back(object_tracker);
-    }
-    object_tracker->container_type = LayerObjectTypeObjectTracker;
-    object_tracker->api_version = api_version;
-    object_tracker->report_data = report_data;
+    object_tracker->RegisterValidationObject(!local_disables.object_tracking, api_version, report_data, local_object_dispatch);
+
     auto core_checks = new CoreChecks;
-    if (!local_disables.core_checks) {
-        local_object_dispatch.emplace_back(core_checks);
-    }
-    core_checks->container_type = LayerObjectTypeCoreValidation;
-    core_checks->api_version = api_version;
-    core_checks->report_data = report_data;
+    core_checks->RegisterValidationObject(!local_disables.core_checks, api_version, report_data, local_object_dispatch);
+
     auto best_practices = new BestPractices;
-    if (local_enables.best_practices) {
-        local_object_dispatch.emplace_back(best_practices);
-    }
-    best_practices->container_type = LayerObjectTypeBestPractices;
-    best_practices->api_version = api_version;
-    best_practices->report_data = report_data;
+    best_practices->RegisterValidationObject(local_enables.best_practices, api_version, report_data, local_object_dispatch);
+
     auto gpu_assisted = new GpuAssisted;
-    if (local_enables.gpu_validation) {
-        local_object_dispatch.emplace_back(gpu_assisted);
-    }
-    gpu_assisted->container_type = LayerObjectTypeGpuAssisted;
-    gpu_assisted->api_version = api_version;
-    gpu_assisted->report_data = report_data;
+    gpu_assisted->RegisterValidationObject(local_enables.gpu_validation, api_version, report_data, local_object_dispatch);
+
     auto debug_printf = new DebugPrintf;
-    if (local_enables.debug_printf) {
-        local_object_dispatch.emplace_back(debug_printf);
-    }
-    debug_printf->container_type = LayerObjectTypeDebugPrintf;
-    debug_printf->api_version = api_version;
-    debug_printf->report_data = report_data;
+    debug_printf->RegisterValidationObject(local_enables.debug_printf, api_version, report_data, local_object_dispatch);
 
     // If handle wrapping is disabled via the ValidationFeatures extension, override build flag
     if (local_disables.handle_wrapping) {
@@ -502,10 +473,14 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
     }
 
     // Init dispatch array and call registration functions
+    bool skip = false;
     for (auto intercept : local_object_dispatch) {
-        (const_cast<const ValidationObject*>(intercept))->PreCallValidateCreateInstance(pCreateInfo, pAllocator, pInstance);
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCreateInstance(pCreateInfo, pAllocator, pInstance);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
     }
     for (auto intercept : local_object_dispatch) {
+        auto lock = intercept->write_lock();
         intercept->PreCallRecordCreateInstance(pCreateInfo, pAllocator, pInstance);
     }
 
@@ -527,31 +502,18 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
 
     layer_debug_messenger_actions(framework->report_data, pAllocator, OBJECT_LAYER_DESCRIPTION);
 
-    object_tracker->instance_dispatch_table = framework->instance_dispatch_table;
-    object_tracker->enabled = framework->enabled;
-    object_tracker->disabled = framework->disabled;
-    thread_checker->instance_dispatch_table = framework->instance_dispatch_table;
-    thread_checker->enabled = framework->enabled;
-    thread_checker->disabled = framework->disabled;
-    parameter_validation->instance_dispatch_table = framework->instance_dispatch_table;
-    parameter_validation->enabled = framework->enabled;
-    parameter_validation->disabled = framework->disabled;
-    core_checks->instance_dispatch_table = framework->instance_dispatch_table;
+    thread_checker->FinalizeInstanceValidationObject(framework);
+    object_tracker->FinalizeInstanceValidationObject(framework);
+    parameter_validation->FinalizeInstanceValidationObject(framework);
+    core_checks->FinalizeInstanceValidationObject(framework);
     core_checks->instance = *pInstance;
-    core_checks->enabled = framework->enabled;
-    core_checks->disabled = framework->disabled;
     core_checks->instance_state = core_checks;
-    best_practices->instance_dispatch_table = framework->instance_dispatch_table;
-    best_practices->enabled = framework->enabled;
-    best_practices->disabled = framework->disabled;
-    gpu_assisted->instance_dispatch_table = framework->instance_dispatch_table;
-    gpu_assisted->enabled = framework->enabled;
-    gpu_assisted->disabled = framework->disabled;
-    debug_printf->instance_dispatch_table = framework->instance_dispatch_table;
-    debug_printf->enabled = framework->enabled;
-    debug_printf->disabled = framework->disabled;
+    best_practices->FinalizeInstanceValidationObject(framework);
+    gpu_assisted->FinalizeInstanceValidationObject(framework);
+    debug_printf->FinalizeInstanceValidationObject(framework);
 
     for (auto intercept : framework->object_dispatch) {
+        auto lock = intercept->write_lock();
         intercept->PostCallRecordCreateInstance(pCreateInfo, pAllocator, pInstance, result);
     }
 
@@ -565,9 +527,11 @@ VKAPI_ATTR void VKAPI_CALL DestroyInstance(VkInstance instance, const VkAllocati
     auto layer_data = GetLayerDataPtr(key, layer_data_map);
     ActivateInstanceDebugCallbacks(layer_data->report_data);
 
+    bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
         auto lock = intercept->read_lock();
-        (const_cast<const ValidationObject*>(intercept))->PreCallValidateDestroyInstance(instance, pAllocator);
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateDestroyInstance(instance, pAllocator);
+        //if (skip) return; // WORKAROUD: does not currently work properly
     }
     for (auto intercept : layer_data->object_dispatch) {
         auto lock = intercept->write_lock();
@@ -653,71 +617,30 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice gpu, const VkDevice
     device_interceptor->instance = instance_interceptor->instance;
     device_interceptor->report_data = instance_interceptor->report_data;
 
-    // Note that this defines the order in which the layer validation objects are called
-    auto thread_safety = new ThreadSafety(reinterpret_cast<ThreadSafety *>(instance_interceptor->GetValidationObject(instance_interceptor->object_dispatch, LayerObjectTypeThreading)));
-    thread_safety->container_type = LayerObjectTypeThreading;
-    if (!instance_interceptor->disabled.thread_safety) {
-        device_interceptor->object_dispatch.emplace_back(thread_safety);
-    }
-    auto stateless_validation = new StatelessValidation;
-    stateless_validation->container_type = LayerObjectTypeParameterValidation;
-    if (!instance_interceptor->disabled.stateless_checks) {
-        device_interceptor->object_dispatch.emplace_back(stateless_validation);
-    }
-    auto object_tracker = new ObjectLifetimes;
-    object_tracker->container_type = LayerObjectTypeObjectTracker;
-    if (!instance_interceptor->disabled.object_tracking) {
-        device_interceptor->object_dispatch.emplace_back(object_tracker);
-    }
-    auto core_checks = new CoreChecks;
-    core_checks->container_type = LayerObjectTypeCoreValidation;
-    core_checks->instance_state = reinterpret_cast<CoreChecks *>(
-        core_checks->GetValidationObject(instance_interceptor->object_dispatch, LayerObjectTypeCoreValidation));
-    if (!instance_interceptor->disabled.core_checks) {
-        // Only enable the command counters when needed.
-        if (device_extensions.vk_khr_performance_query) {
-            auto command_counter = new CommandCounter(core_checks);
-            command_counter->container_type = LayerObjectTypeDevice;
-            device_interceptor->object_dispatch.emplace_back(command_counter);
-        }
-        device_interceptor->object_dispatch.emplace_back(core_checks);
-    }
-    auto best_practices = new BestPractices;
-    best_practices->container_type = LayerObjectTypeBestPractices;
-    best_practices->instance_state = reinterpret_cast<BestPractices *>(
-        best_practices->GetValidationObject(instance_interceptor->object_dispatch, LayerObjectTypeBestPractices));
-    if (instance_interceptor->enabled.best_practices) {
-        device_interceptor->object_dispatch.emplace_back(best_practices);
-    }
-    auto gpu_assisted = new GpuAssisted;
-    gpu_assisted->container_type = LayerObjectTypeGpuAssisted;
-    gpu_assisted->instance_state = reinterpret_cast<GpuAssisted *>(
-        gpu_assisted->GetValidationObject(instance_interceptor->object_dispatch, LayerObjectTypeGpuAssisted));
-    if (instance_interceptor->enabled.gpu_validation) {
-        device_interceptor->object_dispatch.emplace_back(gpu_assisted);
-    }
-    auto debug_printf = new DebugPrintf;
-    debug_printf->container_type = LayerObjectTypeDebugPrintf;
-    debug_printf->instance_state = reinterpret_cast<DebugPrintf *>(
-        debug_printf->GetValidationObject(instance_interceptor->object_dispatch, LayerObjectTypeDebugPrintf));
-    if (instance_interceptor->enabled.debug_printf) {
-        device_interceptor->object_dispatch.emplace_back(debug_printf);
-    }
+    // Note that this DEFINES THE ORDER IN WHICH THE LAYER VALIDATION OBJECTS ARE CALLED
+    auto disables = instance_interceptor->disabled;
+    auto enables = instance_interceptor->enabled;
 
-    // Set per-intercept common data items
-    for (auto dev_intercept : device_interceptor->object_dispatch) {
-        dev_intercept->device = *pDevice;
-        dev_intercept->physical_device = gpu;
-        dev_intercept->instance = instance_interceptor->instance;
-        dev_intercept->report_data = device_interceptor->report_data;
-        dev_intercept->device_dispatch_table = device_interceptor->device_dispatch_table;
-        dev_intercept->api_version = device_interceptor->api_version;
-        dev_intercept->disabled = instance_interceptor->disabled;
-        dev_intercept->enabled = instance_interceptor->enabled;
-        dev_intercept->instance_dispatch_table = instance_interceptor->instance_dispatch_table;
-        dev_intercept->instance_extensions = instance_interceptor->instance_extensions;
-        dev_intercept->device_extensions = device_interceptor->device_extensions;
-    }
+    auto thread_safety = new ThreadSafety(reinterpret_cast<ThreadSafety *>(instance_interceptor->GetValidationObject(instance_interceptor->object_dispatch, LayerObjectTypeThreading)));
+    thread_safety->InitDeviceValidationObject(!disables.thread_safety, instance_interceptor, device_interceptor);
+
+    auto stateless_validation = new StatelessValidation;
+    stateless_validation->InitDeviceValidationObject(!disables.stateless_checks, instance_interceptor, device_interceptor);
+
+    auto object_tracker = new ObjectLifetimes;
+    object_tracker->InitDeviceValidationObject(!disables.object_tracking, instance_interceptor, device_interceptor);
+
+    auto core_checks = new CoreChecks;
+    core_checks->InitDeviceValidationObject(!disables.core_checks, instance_interceptor, device_interceptor);
+
+    auto best_practices = new BestPractices;
+    best_practices->InitDeviceValidationObject(enables.best_practices, instance_interceptor, device_interceptor);
+
+    auto gpu_assisted = new GpuAssisted;
+    gpu_assisted->InitDeviceValidationObject(enables.gpu_validation, instance_interceptor, device_interceptor);
+
+    auto debug_printf = new DebugPrintf;
+    debug_printf->InitDeviceValidationObject(enables.debug_printf, instance_interceptor, device_interceptor);
 
     for (auto intercept : instance_interceptor->object_dispatch) {
         auto lock = intercept->write_lock();
@@ -732,9 +655,11 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice gpu, const VkDevice
 VKAPI_ATTR void VKAPI_CALL DestroyDevice(VkDevice device, const VkAllocationCallbacks *pAllocator) {
     dispatch_key key = get_dispatch_key(device);
     auto layer_data = GetLayerDataPtr(key, layer_data_map);
+    bool skip = false;
     for (auto intercept : layer_data->object_dispatch) {
         auto lock = intercept->read_lock();
-        (const_cast<const ValidationObject*>(intercept))->PreCallValidateDestroyDevice(device, pAllocator);
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateDestroyDevice(device, pAllocator);
+        if (skip) return;
     }
     for (auto intercept : layer_data->object_dispatch) {
         auto lock = intercept->write_lock();
@@ -7651,6 +7576,29 @@ VKAPI_ATTR uint32_t VKAPI_CALL GetImageViewHandleNVX(
     return result;
 }
 
+VKAPI_ATTR VkResult VKAPI_CALL GetImageViewAddressNVX(
+    VkDevice                                    device,
+    VkImageView                                 imageView,
+    VkImageViewAddressPropertiesNVX*            pProperties) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetImageViewAddressNVX(device, imageView, pProperties);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetImageViewAddressNVX(device, imageView, pProperties);
+    }
+    VkResult result = DispatchGetImageViewAddressNVX(device, imageView, pProperties);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetImageViewAddressNVX(device, imageView, pProperties, result);
+    }
+    return result;
+}
+
 
 VKAPI_ATTR void VKAPI_CALL CmdDrawIndirectCountAMD(
     VkCommandBuffer                             commandBuffer,
@@ -9097,6 +9045,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CompileDeferredNV(
 
 
 
+
 VKAPI_ATTR VkResult VKAPI_CALL GetMemoryHostPointerPropertiesEXT(
     VkDevice                                    device,
     VkExternalMemoryHandleTypeFlagBits          handleType,
@@ -10020,6 +9969,105 @@ VKAPI_ATTR void VKAPI_CALL DestroyIndirectCommandsLayoutNV(
 
 
 
+
+VKAPI_ATTR VkResult VKAPI_CALL CreatePrivateDataSlotEXT(
+    VkDevice                                    device,
+    const VkPrivateDataSlotCreateInfoEXT*       pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkPrivateDataSlotEXT*                       pPrivateDataSlot) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateCreatePrivateDataSlotEXT(device, pCreateInfo, pAllocator, pPrivateDataSlot);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordCreatePrivateDataSlotEXT(device, pCreateInfo, pAllocator, pPrivateDataSlot);
+    }
+    VkResult result = DispatchCreatePrivateDataSlotEXT(device, pCreateInfo, pAllocator, pPrivateDataSlot);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordCreatePrivateDataSlotEXT(device, pCreateInfo, pAllocator, pPrivateDataSlot, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR void VKAPI_CALL DestroyPrivateDataSlotEXT(
+    VkDevice                                    device,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    const VkAllocationCallbacks*                pAllocator) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateDestroyPrivateDataSlotEXT(device, privateDataSlot, pAllocator);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordDestroyPrivateDataSlotEXT(device, privateDataSlot, pAllocator);
+    }
+    DispatchDestroyPrivateDataSlotEXT(device, privateDataSlot, pAllocator);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordDestroyPrivateDataSlotEXT(device, privateDataSlot, pAllocator);
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL SetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t                                    data) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateSetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, data);
+        if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordSetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, data);
+    }
+    VkResult result = DispatchSetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, data);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordSetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, data, result);
+    }
+    return result;
+}
+
+VKAPI_ATTR void VKAPI_CALL GetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t*                                   pData) {
+    auto layer_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = false;
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->read_lock();
+        skip |= (const_cast<const ValidationObject*>(intercept))->PreCallValidateGetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, pData);
+        if (skip) return;
+    }
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PreCallRecordGetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, pData);
+    }
+    DispatchGetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, pData);
+    for (auto intercept : layer_data->object_dispatch) {
+        auto lock = intercept->write_lock();
+        intercept->PostCallRecordGetPrivateDataEXT(device, objectType, objectHandle, privateDataSlot, pData);
+    }
+}
+
+
+
+
 #ifdef VK_ENABLE_BETA_EXTENSIONS
 
 VKAPI_ATTR VkResult VKAPI_CALL CreateAccelerationStructureKHR(
@@ -10758,6 +10806,7 @@ const std::unordered_map<std::string, function_data> name_to_funcptr_map = {
     {"vkCmdEndQueryIndexedEXT", {kFuncTypeDev, (void*)CmdEndQueryIndexedEXT}},
     {"vkCmdDrawIndirectByteCountEXT", {kFuncTypeDev, (void*)CmdDrawIndirectByteCountEXT}},
     {"vkGetImageViewHandleNVX", {kFuncTypeDev, (void*)GetImageViewHandleNVX}},
+    {"vkGetImageViewAddressNVX", {kFuncTypeDev, (void*)GetImageViewAddressNVX}},
     {"vkCmdDrawIndirectCountAMD", {kFuncTypeDev, (void*)CmdDrawIndirectCountAMD}},
     {"vkCmdDrawIndexedIndirectCountAMD", {kFuncTypeDev, (void*)CmdDrawIndexedIndirectCountAMD}},
     {"vkGetShaderInfoAMD", {kFuncTypeDev, (void*)GetShaderInfoAMD}},
@@ -10890,6 +10939,10 @@ const std::unordered_map<std::string, function_data> name_to_funcptr_map = {
     {"vkCmdBindPipelineShaderGroupNV", {kFuncTypeDev, (void*)CmdBindPipelineShaderGroupNV}},
     {"vkCreateIndirectCommandsLayoutNV", {kFuncTypeDev, (void*)CreateIndirectCommandsLayoutNV}},
     {"vkDestroyIndirectCommandsLayoutNV", {kFuncTypeDev, (void*)DestroyIndirectCommandsLayoutNV}},
+    {"vkCreatePrivateDataSlotEXT", {kFuncTypeDev, (void*)CreatePrivateDataSlotEXT}},
+    {"vkDestroyPrivateDataSlotEXT", {kFuncTypeDev, (void*)DestroyPrivateDataSlotEXT}},
+    {"vkSetPrivateDataEXT", {kFuncTypeDev, (void*)SetPrivateDataEXT}},
+    {"vkGetPrivateDataEXT", {kFuncTypeDev, (void*)GetPrivateDataEXT}},
 #ifdef VK_ENABLE_BETA_EXTENSIONS
     {"vkCreateAccelerationStructureKHR", {kFuncTypeDev, (void*)CreateAccelerationStructureKHR}},
 #endif

@@ -15,6 +15,7 @@ import multiprocessing
 import os
 import re
 import shutil
+import sys
 
 import six
 
@@ -26,6 +27,9 @@ from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.utils import key_value_store
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # The parsed output of running `ebuild <ebuild path> info`.
@@ -2212,12 +2216,15 @@ def HasPrebuilt(atom, board=None, extra_env=None):
   # Emerge args: binpkg only, no deps, pretend, quiet. --binpkg-respect-use is
   # disabled by default when you use -K, so turn it back on.
   cmd = [emerge, '-gKOpq', '--binpkg-respect-use=y', '=%s' % best.cpf]
+  logging.debug('Checking %s for %s.', board or 'sdk', best.cpf)
   result = cros_build_lib.run(
       cmd,
+      print_cmd=True,
       enter_chroot=True,
       extra_env=extra_env,
       check=False,
-      quiet=True)
+      debug_level=logging.DEBUG)
+
   return not result.returncode
 
 
@@ -2414,8 +2421,8 @@ def GeneratePackageSizes(db, root, installed_packages):
         try:
           filesize = os.path.getsize(filename)
         except OSError as e:
-          logging.warn('unable to compute the size of %s (skipping): %s',
-                       filename, e)
+          logging.warning('unable to compute the size of %s (skipping): %s',
+                          filename, e)
           continue
         logging.debug('size of %s = %d', filename, filesize)
         total_package_filesize += filesize

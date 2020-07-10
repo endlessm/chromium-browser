@@ -393,12 +393,6 @@ static inline int64_t decodePPC64LocalEntryOffset(unsigned Other) {
   unsigned Val = (Other & STO_PPC64_LOCAL_MASK) >> STO_PPC64_LOCAL_BIT;
   return ((1 << Val) >> 2) << 2;
 }
-static inline unsigned encodePPC64LocalEntryOffset(int64_t Offset) {
-  unsigned Val =
-      (Offset >= 4 * 4 ? (Offset >= 8 * 4 ? (Offset >= 16 * 4 ? 6 : 5) : 4)
-                       : (Offset >= 2 * 4 ? 3 : (Offset >= 1 * 4 ? 2 : 0)));
-  return Val << STO_PPC64_LOCAL_BIT;
-}
 
 // ELF Relocation types for PPC64
 enum {
@@ -880,6 +874,8 @@ enum : unsigned {
   SHT_MIPS_ABIFLAGS = 0x7000002a, // ABI information.
 
   SHT_MSP430_ATTRIBUTES = 0x70000003U,
+
+  SHT_RISCV_ATTRIBUTES = 0x70000003U,
 
   SHT_HIPROC = 0x7fffffff, // Highest processor arch-specific type.
   SHT_LOUSER = 0x80000000, // Lowest type reserved for applications.

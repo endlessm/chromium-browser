@@ -14,9 +14,9 @@ add_mlir_dialect_library(MLIRQuant
 
   DEPENDS
   MLIRQuantOpsIncGen
-  )
-target_link_libraries(MLIRQuant
-  PUBLIC
+  MLIRQuantPassIncGen
+
+  LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
   MLIRSideEffects

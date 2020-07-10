@@ -448,7 +448,7 @@ static SDValue getTargetNode(BlockAddressSDNode *N, SDLoc DL, EVT Ty,
 
 static SDValue getTargetNode(ConstantPoolSDNode *N, SDLoc DL, EVT Ty,
                              SelectionDAG &DAG, unsigned Flags) {
-  return DAG.getTargetConstantPool(N->getConstVal(), Ty, N->getAlignment(),
+  return DAG.getTargetConstantPool(N->getConstVal(), Ty, N->getAlign(),
                                    N->getOffset(), Flags);
 }
 
@@ -1206,7 +1206,7 @@ static MachineBasicBlock *emitSplitF64Pseudo(MachineInstr &MI,
                           RI);
   MachineMemOperand *MMO =
       MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                              MachineMemOperand::MOLoad, 8, 8);
+                              MachineMemOperand::MOLoad, 8, Align(8));
   BuildMI(*BB, MI, DL, TII.get(RISCV::LW), LoReg)
       .addFrameIndex(FI)
       .addImm(0)
@@ -1236,7 +1236,7 @@ static MachineBasicBlock *emitBuildPairF64Pseudo(MachineInstr &MI,
 
   MachineMemOperand *MMO =
       MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(MF, FI),
-                              MachineMemOperand::MOStore, 8, 8);
+                              MachineMemOperand::MOStore, 8, Align(8));
   BuildMI(*BB, MI, DL, TII.get(RISCV::SW))
       .addReg(LoReg, getKillRegState(MI.getOperand(1).isKill()))
       .addFrameIndex(FI)
@@ -2152,7 +2152,7 @@ SDValue RISCVTargetLowering::LowerCall(CallLoweringInfo &CLI,
 
   if (IsTailCall)
     ++NumTailCalls;
-  else if (CLI.CS && CLI.CS.isMustTailCall())
+  else if (CLI.CB && CLI.CB->isMustTailCall())
     report_fatal_error("failed to perform tail call elimination on a call "
                        "site marked musttail");
 
@@ -2915,12 +2915,12 @@ Value *RISCVTargetLowering::emitMaskedAtomicCmpXchgIntrinsic(
   return Result;
 }
 
-unsigned RISCVTargetLowering::getExceptionPointerRegister(
+Register RISCVTargetLowering::getExceptionPointerRegister(
     const Constant *PersonalityFn) const {
   return RISCV::X10;
 }
 
-unsigned RISCVTargetLowering::getExceptionSelectorRegister(
+Register RISCVTargetLowering::getExceptionSelectorRegister(
     const Constant *PersonalityFn) const {
   return RISCV::X11;
 }

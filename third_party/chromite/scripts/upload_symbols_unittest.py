@@ -19,6 +19,7 @@ import mock
 from six.moves import BaseHTTPServer
 from six.moves import socketserver
 from six.moves import urllib
+import pytest  # pylint: disable=import-error
 
 # We specifically set up a local server to connect to, so make sure we
 # delete any proxy settings that might screw that up.  We also need to
@@ -144,6 +145,7 @@ class SymbolServer(socketserver.ThreadingTCPServer, BaseHTTPServer.HTTPServer):
   """Simple HTTP server that forks each request"""
 
 
+@pytest.mark.usefixtures('singleton_manager')
 class UploadSymbolsServerTest(cros_test_lib.MockTempDirTestCase):
   """Tests for UploadSymbols() and a local HTTP server"""
 
@@ -564,6 +566,7 @@ class PerformSymbolFilesUploadTest(SymbolsTestBase):
     self.assertEqual(skipped, 10 * 2)
 
 
+@pytest.mark.usefixtures('singleton_manager')
 class UploadSymbolsTest(SymbolsTestBase):
   """Test UploadSymbols, along with most helper methods."""
   def setUp(self):

@@ -162,7 +162,7 @@
   firmware-nocturne-10984.B-firmwarebranch
   firmware-nyan-5771.B-firmwarebranch
   firmware-oak-8438.B-firmwarebranch
-  firmware-octopus-11297.83.B-firmwarebranch
+  firmware-octopus-11297.106.B-firmwarebranch
   firmware-octopus-11297.B-firmwarebranch
   firmware-orco-5216.362.B-firmwarebranch
   firmware-paine-6301.58.B-firmwarebranch
@@ -215,10 +215,6 @@
   betty-asan
   betty-vmtest-informational
 
-== mst_android_pfq ==
-  master-mst-android-pfq
-    betty-arcmaster-mst-android-pfq
-
 == pi_android_pfq ==
   master-pi-android-pfq
     betty-pi-arc-pi-android-pfq
@@ -228,10 +224,6 @@
     grunt-pi-android-pfq
     kevin-pi-android-pfq
     reef-pi-android-pfq
-
-== qt_android_pfq ==
-  master-qt-android-pfq
-    eve-arcnext-qt-android-pfq
 
 == release ==
   master-lakitu-release
@@ -249,6 +241,7 @@
     banon-release
     beaglebone-release
     beaglebone_servo-release
+    betty-arc-r-release
     betty-arcmaster-release
     betty-arcnext-release
     betty-arcvm-master-release
@@ -256,6 +249,7 @@
     betty-kernelnext-release
     betty-pi-arc-release
     betty-qt-arc-release
+    betty-release
     bob-release
     bubs-release
     buddy-cfm-release
@@ -277,7 +271,6 @@
     cyan-kernelnext-release
     cyan-release
     dedede-release
-    deltaur-release
     drallion-release
     edgar-release
     elm-kernelnext-release
@@ -285,7 +278,6 @@
     endeavour-release
     enguarde-release
     eve-arc-r-release
-    eve-arcnext-release
     eve-arcvm-mesa-virgl-next-release
     eve-arm64-release
     eve-kvm-release
@@ -299,7 +291,6 @@
     fizz-labstation-release
     fizz-moblab-release
     fizz-release
-    flapjack-release
     gale-release
     gandof-release
     gnawty-release
@@ -307,13 +298,13 @@
     grunt-kernelnext-release
     grunt-release
     guado-cfm-release
-    guado-kernelnext-release
     guado-macrophage-release
     guado-release
     guado_labstation-release
     hana-kernelnext-release
     hana-release
     hatch-arc-r-release
+    hatch-blueznext-release
     hatch-diskswap-release
     hatch-kernelnext-release
     hatch-kvm-release
@@ -328,6 +319,7 @@
     kevin-release
     kevin64-release
     kip-release
+    kukui-arc-r-release
     kukui-release
     kumo-release
     lakitu-gpu-release
@@ -358,6 +350,7 @@
     palkia-release
     puff-release
     pyro-release
+    rammus-arc-r-release
     rammus-release
     reef-release
     reks-release
@@ -366,12 +359,10 @@
     rikku-cfm-release
     rikku-release
     romer-release
-    samus-kernelnext-release
     samus-release
     sand-release
     sarien-kvm-release
     sarien-release
-    scarlet-arcnext-release
     scarlet-release
     sentry-release
     setzer-release
@@ -404,24 +395,10 @@
   master-rvc-android-pfq
 
 == toolchain ==
-  amd64-pgo-generate-llvm-next-toolchain
-  arm-pgo-generate-llvm-next-toolchain
-  arm64-pgo-generate-llvm-next-toolchain
-  benchmark-afdo-generate
-  chrome-airmont-release-afdo-verify
-  chrome-broadwell-release-afdo-verify
-  chrome-silvermont-release-afdo-verify
-  kernel-3_18-release-afdo-verify
-  kernel-4_14-release-afdo-verify
-  kernel-4_19-release-afdo-verify
-  kernel-4_4-release-afdo-verify
-  llvm-clang-tidy-toolchain
   master-toolchain
     amd64-llvm-next-toolchain
     arm-llvm-next-toolchain
     arm64-llvm-next-toolchain
-  orderfile-generate-toolchain
-  orderfile-verify-toolchain
 
 == utility ==
   chromeos-infra-go
@@ -441,8 +418,9 @@
 
 == vmrvc_android_pfq ==
   master-vmrvc-android-pfq
-    eve-arc-r-vmrvc-android-pfq
     hatch-arc-r-vmrvc-android-pfq
+    kukui-arc-r-vmrvc-android-pfq
+    rammus-arc-r-vmrvc-android-pfq
 
 == tryjob ==
   amd64-generic-asan-tryjob
@@ -463,7 +441,6 @@
   amd64-generic-ubsan-tryjob
   amd64-generic-unittest-stress
   amd64-llvm-next-toolchain-tryjob
-  amd64-pgo-generate-llvm-next-toolchain-tryjob
   arkham-full-tryjob
   arkham-llvm-next-toolchain-tryjob
   arkham-llvm-toolchain-tryjob
@@ -475,7 +452,6 @@
   arm-generic-llvm-toolchain-tryjob
   arm-generic-unittest-stress
   arm-llvm-next-toolchain-tryjob
-  arm-pgo-generate-llvm-next-toolchain-tryjob
   arm64-generic-full-tryjob
   arm64-generic-llvm-next-toolchain-tryjob
   arm64-generic-llvm-toolchain-tryjob
@@ -485,7 +461,6 @@
   arm64-llvmpipe-llvm-next-toolchain-tryjob
   arm64-llvmpipe-llvm-toolchain-tryjob
   arm64-llvmpipe-unittest-stress
-  arm64-pgo-generate-llvm-next-toolchain-tryjob
   asuka-factory-glados-7828.B-factorybranch-tryjob
   asuka-full-tryjob
   asuka-llvm-next-toolchain-tryjob
@@ -558,16 +533,15 @@
   beaglebone_servo-release-tryjob
   beaglebone_servo-unittest-stress
   benchmark-afdo-generate-tryjob
-  betty-arc64-full-tryjob
-  betty-arc64-llvm-next-toolchain-tryjob
-  betty-arc64-llvm-toolchain-tryjob
-  betty-arc64-payloads-tryjob
-  betty-arc64-release-tryjob
-  betty-arc64-unittest-stress
+  betty-arc-r-full-tryjob
+  betty-arc-r-llvm-next-toolchain-tryjob
+  betty-arc-r-llvm-toolchain-tryjob
+  betty-arc-r-payloads-tryjob
+  betty-arc-r-release-tryjob
+  betty-arc-r-unittest-stress
   betty-arcmaster-full-tryjob
   betty-arcmaster-llvm-next-toolchain-tryjob
   betty-arcmaster-llvm-toolchain-tryjob
-  betty-arcmaster-mst-android-pfq-tryjob
   betty-arcmaster-release-tryjob
   betty-arcmaster-unittest-stress
   betty-arcnext-full-tryjob
@@ -702,7 +676,6 @@
   celes-release-tryjob
   celes-unittest-stress
   chell-chrome-no-afdo-uprev-pre-flight-branch-tryjob
-  chell-chrome-pre-flight-branch-tryjob
   chell-factory-glados-7657.B-factorybranch-tryjob
   chell-factory-glados-7828.B-factorybranch-tryjob
   chell-full-tryjob
@@ -814,14 +787,6 @@
   eve-arc-r-payloads-tryjob
   eve-arc-r-release-tryjob
   eve-arc-r-unittest-stress
-  eve-arc-r-vmrvc-android-pfq-tryjob
-  eve-arcnext-full-tryjob
-  eve-arcnext-llvm-next-toolchain-tryjob
-  eve-arcnext-llvm-toolchain-tryjob
-  eve-arcnext-payloads-tryjob
-  eve-arcnext-qt-android-pfq-tryjob
-  eve-arcnext-release-tryjob
-  eve-arcnext-unittest-stress
   eve-arcvm-mesa-virgl-next-full-tryjob
   eve-arcvm-mesa-virgl-next-llvm-next-toolchain-tryjob
   eve-arcvm-mesa-virgl-next-llvm-toolchain-tryjob
@@ -1042,7 +1007,7 @@
   firmware-nocturne-10984.B-firmwarebranch-tryjob
   firmware-nyan-5771.B-firmwarebranch-tryjob
   firmware-oak-8438.B-firmwarebranch-tryjob
-  firmware-octopus-11297.83.B-firmwarebranch-tryjob
+  firmware-octopus-11297.106.B-firmwarebranch-tryjob
   firmware-octopus-11297.B-firmwarebranch-tryjob
   firmware-orco-5216.362.B-firmwarebranch-tryjob
   firmware-paine-6301.58.B-firmwarebranch-tryjob
@@ -1096,12 +1061,6 @@
   fizz-payloads-tryjob
   fizz-release-tryjob
   fizz-unittest-stress
-  flapjack-full-tryjob
-  flapjack-llvm-next-toolchain-tryjob
-  flapjack-llvm-toolchain-tryjob
-  flapjack-payloads-tryjob
-  flapjack-release-tryjob
-  flapjack-unittest-stress
   gale-factory-gale-8743.19.B-factorybranch-tryjob
   gale-full-tryjob
   gale-llvm-next-toolchain-tryjob
@@ -1161,11 +1120,6 @@
   guado-cfm-unittest-stress
   guado-factory-auron-6772.B-factorybranch-tryjob
   guado-full-tryjob
-  guado-kernelnext-full-tryjob
-  guado-kernelnext-llvm-next-toolchain-tryjob
-  guado-kernelnext-llvm-toolchain-tryjob
-  guado-kernelnext-release-tryjob
-  guado-kernelnext-unittest-stress
   guado-llvm-next-toolchain-tryjob
   guado-llvm-toolchain-tryjob
   guado-macrophage-full-tryjob
@@ -1201,6 +1155,11 @@
   hatch-arc-r-release-tryjob
   hatch-arc-r-unittest-stress
   hatch-arc-r-vmrvc-android-pfq-tryjob
+  hatch-blueznext-full-tryjob
+  hatch-blueznext-llvm-next-toolchain-tryjob
+  hatch-blueznext-llvm-toolchain-tryjob
+  hatch-blueznext-release-tryjob
+  hatch-blueznext-unittest-stress
   hatch-diskswap-full-tryjob
   hatch-diskswap-llvm-next-toolchain-tryjob
   hatch-diskswap-llvm-toolchain-tryjob
@@ -1302,6 +1261,13 @@
   kip-payloads-tryjob
   kip-release-tryjob
   kip-unittest-stress
+  kukui-arc-r-full-tryjob
+  kukui-arc-r-llvm-next-toolchain-tryjob
+  kukui-arc-r-llvm-toolchain-tryjob
+  kukui-arc-r-payloads-tryjob
+  kukui-arc-r-release-tryjob
+  kukui-arc-r-unittest-stress
+  kukui-arc-r-vmrvc-android-pfq-tryjob
   kukui-factory-kukui-12587.B-factorybranch-tryjob
   kukui-full-tryjob
   kukui-llvm-next-toolchain-tryjob
@@ -1369,7 +1335,6 @@
   littlejoe-llvm-toolchain-tryjob
   littlejoe-release-tryjob
   littlejoe-unittest-stress
-  llvm-clang-tidy-toolchain-tryjob
   luci-scheduler-updater-tryjob
   lulu-factory-auron-6459.B-factorybranch-tryjob
   lulu-full-tryjob
@@ -1407,8 +1372,6 @@
     chell-incremental-tryjob
     lakitu-incremental-tryjob
   master-lakitu-release-tryjob
-  master-mst-android-pfq-tryjob
-    betty-arcmaster-mst-android-pfq-tryjob
   master-pi-android-pfq-tryjob
     betty-pi-arc-pi-android-pfq-tryjob
     caroline-pi-android-pfq-tryjob
@@ -1417,8 +1380,6 @@
     grunt-pi-android-pfq-tryjob
     kevin-pi-android-pfq-tryjob
     reef-pi-android-pfq-tryjob
-  master-qt-android-pfq-tryjob
-    eve-arcnext-qt-android-pfq-tryjob
   master-release-tryjob
     amd64-generic-cheets-release-tryjob
     arkham-release-tryjob
@@ -1433,6 +1394,7 @@
     banon-release-tryjob
     beaglebone-release-tryjob
     beaglebone_servo-release-tryjob
+    betty-arc-r-release-tryjob
     betty-arcmaster-release-tryjob
     betty-arcnext-release-tryjob
     betty-arcvm-master-release-tryjob
@@ -1440,6 +1402,7 @@
     betty-kernelnext-release-tryjob
     betty-pi-arc-release-tryjob
     betty-qt-arc-release-tryjob
+    betty-release-tryjob
     bob-release-tryjob
     bubs-release-tryjob
     buddy-cfm-release-tryjob
@@ -1461,7 +1424,6 @@
     cyan-kernelnext-release-tryjob
     cyan-release-tryjob
     dedede-release-tryjob
-    deltaur-release-tryjob
     drallion-release-tryjob
     edgar-release-tryjob
     elm-kernelnext-release-tryjob
@@ -1469,7 +1431,6 @@
     endeavour-release-tryjob
     enguarde-release-tryjob
     eve-arc-r-release-tryjob
-    eve-arcnext-release-tryjob
     eve-arcvm-mesa-virgl-next-release-tryjob
     eve-arm64-release-tryjob
     eve-kvm-release-tryjob
@@ -1483,7 +1444,6 @@
     fizz-labstation-release-tryjob
     fizz-moblab-release-tryjob
     fizz-release-tryjob
-    flapjack-release-tryjob
     gale-release-tryjob
     gandof-release-tryjob
     gnawty-release-tryjob
@@ -1491,13 +1451,13 @@
     grunt-kernelnext-release-tryjob
     grunt-release-tryjob
     guado-cfm-release-tryjob
-    guado-kernelnext-release-tryjob
     guado-macrophage-release-tryjob
     guado-release-tryjob
     guado_labstation-release-tryjob
     hana-kernelnext-release-tryjob
     hana-release-tryjob
     hatch-arc-r-release-tryjob
+    hatch-blueznext-release-tryjob
     hatch-diskswap-release-tryjob
     hatch-kernelnext-release-tryjob
     hatch-kvm-release-tryjob
@@ -1512,6 +1472,7 @@
     kevin-release-tryjob
     kevin64-release-tryjob
     kip-release-tryjob
+    kukui-arc-r-release-tryjob
     kukui-release-tryjob
     kumo-release-tryjob
     lakitu-gpu-release-tryjob
@@ -1542,6 +1503,7 @@
     palkia-release-tryjob
     puff-release-tryjob
     pyro-release-tryjob
+    rammus-arc-r-release-tryjob
     rammus-release-tryjob
     reef-release-tryjob
     reks-release-tryjob
@@ -1550,12 +1512,10 @@
     rikku-cfm-release-tryjob
     rikku-release-tryjob
     romer-release-tryjob
-    samus-kernelnext-release-tryjob
     samus-release-tryjob
     sand-release-tryjob
     sarien-kvm-release-tryjob
     sarien-release-tryjob
-    scarlet-arcnext-release-tryjob
     scarlet-release-tryjob
     sentry-release-tryjob
     setzer-release-tryjob
@@ -1595,8 +1555,9 @@
     eve-arcvm-mesa-virgl-next-vmpi-android-pfq-tryjob
     kukui-vmpi-android-pfq-tryjob
   master-vmrvc-android-pfq-tryjob
-    eve-arc-r-vmrvc-android-pfq-tryjob
     hatch-arc-r-vmrvc-android-pfq-tryjob
+    kukui-arc-r-vmrvc-android-pfq-tryjob
+    rammus-arc-r-vmrvc-android-pfq-tryjob
   mistral-factory-mistral-12361.B-factorybranch-tryjob
   mistral-full-tryjob
   mistral-llvm-next-toolchain-tryjob
@@ -1746,6 +1707,13 @@
   pyro-payloads-tryjob
   pyro-release-tryjob
   pyro-unittest-stress
+  rammus-arc-r-full-tryjob
+  rammus-arc-r-llvm-next-toolchain-tryjob
+  rammus-arc-r-llvm-toolchain-tryjob
+  rammus-arc-r-payloads-tryjob
+  rammus-arc-r-release-tryjob
+  rammus-arc-r-unittest-stress
+  rammus-arc-r-vmrvc-android-pfq-tryjob
   rammus-factory-rammus-11289.B-factorybranch-tryjob
   rammus-full-tryjob
   rammus-llvm-next-toolchain-tryjob
@@ -1832,11 +1800,6 @@
   sarien-payloads-tryjob
   sarien-release-tryjob
   sarien-unittest-stress
-  scarlet-arcnext-full-tryjob
-  scarlet-arcnext-llvm-next-toolchain-tryjob
-  scarlet-arcnext-llvm-toolchain-tryjob
-  scarlet-arcnext-release-tryjob
-  scarlet-arcnext-unittest-stress
   scarlet-factory-scarlet-10211.B-factorybranch-tryjob
   scarlet-full-tryjob
   scarlet-llvm-next-toolchain-tryjob

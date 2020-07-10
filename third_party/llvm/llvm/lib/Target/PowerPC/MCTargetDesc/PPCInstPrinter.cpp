@@ -400,9 +400,13 @@ void PPCInstPrinter::printS16ImmOperand(const MCInst *MI, unsigned OpNo,
 
 void PPCInstPrinter::printS34ImmOperand(const MCInst *MI, unsigned OpNo,
                                         raw_ostream &O) {
-  long long Value = MI->getOperand(OpNo).getImm();
-  assert(isInt<34>(Value) && "Invalid s34imm argument!");
-  O << (long long)Value;
+  if (MI->getOperand(OpNo).isImm()) {
+    long long Value = MI->getOperand(OpNo).getImm();
+    assert(isInt<34>(Value) && "Invalid s34imm argument!");
+    O << (long long)Value;
+  }
+  else
+    printOperand(MI, OpNo, O);
 }
 
 void PPCInstPrinter::printU16ImmOperand(const MCInst *MI, unsigned OpNo,
@@ -414,12 +418,11 @@ void PPCInstPrinter::printU16ImmOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void PPCInstPrinter::printBranchOperand(const MCInst *MI, uint64_t Address,
-                                        unsigned OpNo, raw_ostream &O,
-                                        bool RelativeForm) {
+                                        unsigned OpNo, raw_ostream &O) {
   if (!MI->getOperand(OpNo).isImm())
     return printOperand(MI, OpNo, O);
   int32_t Imm = SignExtend32<32>((unsigned)MI->getOperand(OpNo).getImm() << 2);
-  if (PrintBranchImmAsAddress && !RelativeForm) {
+  if (PrintBranchImmAsAddress) {
     uint64_t Target = Address + Imm;
     if (!TT.isPPC64())
       Target &= 0xffffffff;

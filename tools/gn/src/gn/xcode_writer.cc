@@ -251,12 +251,12 @@ const SourceFileSet& XCTestFilesResolver::SearchFilesForTarget(
 
 // Add xctest files to the "Compiler Sources" of corresponding test module
 // native targets.
-void AddXCTestFilesToTestModuleTarget(const SourceFileSet& xctest_file_list,
+void AddXCTestFilesToTestModuleTarget(const std::vector<SourceFile>& sources,
                                       PBXNativeTarget* native_target,
                                       PBXProject* project,
                                       SourceDir source_dir,
                                       const BuildSettings* build_settings) {
-  for (const SourceFile& source : xctest_file_list) {
+  for (const SourceFile& source : sources) {
     std::string source_path = RebasePath(source.value(), source_dir,
                                          build_settings->root_path_utf8());
 
@@ -367,6 +367,39 @@ PBXAttributes ProjectAttributesFromBuildSettings(
       attributes["SDKROOT"] = "macosx";
       break;
   }
+
+  // Xcode complains that the project needs to be upgraded if those keys are
+  // not set. Since the generated Xcode project is only used for debugging
+  // and the source of truth for build settings is the .gn files themselves,
+  // we can safely set them in the project as they won't be used by "ninja".
+  attributes["CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED"] = "YES";
+  attributes["CLANG_WARN__DUPLICATE_METHOD_MATCH"] = "YES";
+  attributes["CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING"] = "YES";
+  attributes["CLANG_WARN_BOOL_CONVERSION"] = "YES";
+  attributes["CLANG_WARN_COMMA"] = "YES";
+  attributes["CLANG_WARN_CONSTANT_CONVERSION"] = "YES";
+  attributes["CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS"] = "YES";
+  attributes["CLANG_WARN_EMPTY_BODY"] = "YES";
+  attributes["CLANG_WARN_ENUM_CONVERSION"] = "YES";
+  attributes["CLANG_WARN_INFINITE_RECURSION"] = "YES";
+  attributes["CLANG_WARN_INT_CONVERSION"] = "YES";
+  attributes["CLANG_WARN_NON_LITERAL_NULL_CONVERSION"] = "YES";
+  attributes["CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF"] = "YES";
+  attributes["CLANG_WARN_OBJC_LITERAL_CONVERSION"] = "YES";
+  attributes["CLANG_WARN_RANGE_LOOP_ANALYSIS"] = "YES";
+  attributes["CLANG_WARN_STRICT_PROTOTYPES"] = "YES";
+  attributes["CLANG_WARN_SUSPICIOUS_MOVE"] = "YES";
+  attributes["CLANG_WARN_UNREACHABLE_CODE"] = "YES";
+  attributes["ENABLE_STRICT_OBJC_MSGSEND"] = "YES";
+  attributes["ENABLE_TESTABILITY"] = "YES";
+  attributes["GCC_NO_COMMON_BLOCKS"] = "YES";
+  attributes["GCC_WARN_64_TO_32_BIT_CONVERSION"] = "YES";
+  attributes["GCC_WARN_ABOUT_RETURN_TYPE"] = "YES";
+  attributes["GCC_WARN_UNDECLARED_SELECTOR"] = "YES";
+  attributes["GCC_WARN_UNINITIALIZED_AUTOS"] = "YES";
+  attributes["GCC_WARN_UNUSED_FUNCTION"] = "YES";
+  attributes["GCC_WARN_UNUSED_VARIABLE"] = "YES";
+  attributes["ONLY_ACTIVE_ARCH"] = "YES";
 
   return attributes;
 }
@@ -631,13 +664,18 @@ bool XcodeProject::AddCXTestSourceFilesForTestModuleTargets(
       target_with_xctest_files = target;
     }
 
-    const SourceFileSet& xctest_file_list =
+    const SourceFileSet& sources =
         resolver.SearchFilesForTarget(target_with_xctest_files);
+
+    // Sort files to ensure deterministic generation of the project file (and
+    // nicely sorted file list in Xcode).
+    std::vector<SourceFile> sorted_sources(sources.begin(), sources.end());
+    std::sort(sorted_sources.begin(), sorted_sources.end());
 
     // Add xctest files to the "Compiler Sources" of corresponding xctest
     // and xcuitest native targets for proper indexing and for discovery of
     // tests function.
-    AddXCTestFilesToTestModuleTarget(xctest_file_list, pair.second, &project_,
+    AddXCTestFilesToTestModuleTarget(sorted_sources, pair.second, &project_,
                                      source_dir, build_settings_);
   }
 

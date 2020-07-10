@@ -18,6 +18,7 @@ from chromite.api.gen.chromite.api import toolchain_pb2
 from chromite.api.gen.chromiumos.builder_config_pb2 import BuilderConfig
 from chromite.lib import cros_logging as logging
 from chromite.lib import toolchain_util
+from chromite.api.gen.chromite.api.artifacts_pb2 import PrepareForBuildResponse
 
 
 assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
@@ -30,19 +31,20 @@ _TOOLCHAIN_ARTIFACT_HANDLERS = {
                   toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.VERIFIED_CHROME_LLVM_ORDERFILE:
-        _Handlers('VerifiedChromeLlvmOrderfile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('VerifiedChromeLlvmOrderfile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.CHROME_CLANG_WARNINGS_FILE:
-        _Handlers('ChromeClangWarningsFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('ChromeClangWarningsFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.UNVERIFIED_LLVM_PGO_FILE:
-        _Handlers('UnverifiedLlvmPgoFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('UnverifiedLlvmPgoFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.UNVERIFIED_CHROME_BENCHMARK_AFDO_FILE:
         _Handlers('UnverifiedChromeBenchmarkAfdoFile',
+                  toolchain_util.PrepareForBuild,
+                  toolchain_util.BundleArtifacts),
+    BuilderConfig.Artifacts.CHROME_DEBUG_BINARY:
+        _Handlers('ChromeDebugBinary',
                   toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.UNVERIFIED_CHROME_BENCHMARK_PERF_FILE:
@@ -54,26 +56,44 @@ _TOOLCHAIN_ARTIFACT_HANDLERS = {
                   toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.UNVERIFIED_KERNEL_CWP_AFDO_FILE:
-        _Handlers('UnverifiedKernelCwpAfdoFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('UnverifiedKernelCwpAfdoFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.VERIFIED_KERNEL_CWP_AFDO_FILE:
-        _Handlers('VerifiedKernelCwpAfdoFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('VerifiedKernelCwpAfdoFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.UNVERIFIED_CHROME_CWP_AFDO_FILE:
-        _Handlers('UnverifiedChromeCwpAfdoFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('UnverifiedChromeCwpAfdoFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.VERIFIED_CHROME_CWP_AFDO_FILE:
-        _Handlers('VerifiedChromeCwpAfdoFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('VerifiedChromeCwpAfdoFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
     BuilderConfig.Artifacts.VERIFIED_RELEASE_AFDO_FILE:
-        _Handlers('VerifiedReleaseAfdoFile',
-                  toolchain_util.PrepareForBuild,
+        _Handlers('VerifiedReleaseAfdoFile', toolchain_util.PrepareForBuild,
                   toolchain_util.BundleArtifacts),
 }
+
+
+def _GetProfileInfoDict(profile_info):
+  """Convert profile_info to a dict.
+
+  Args:
+    profile_info (ArtifactProfileInfo): The artifact profile_info.
+
+  Returns:
+    A dictionary containing profile info.
+  """
+  ret = {}
+  which = profile_info.WhichOneof('artifact_profile_info')
+  if which:
+    value = getattr(profile_info, which)
+    # If it is a message, then use the contents of the message.  This works as
+    # long as simple types do not have a 'DESCRIPTOR' attribute. (And protobuf
+    # messages do.)
+    if getattr(value, 'DESCRIPTOR', None):
+      ret.update({k.name: v for k, v in value.ListFields()})
+    else:
+      ret[which] = value
+  return ret
 
 
 # TODO(crbug/1031213): When @faux is expanded to have more than success/failure,
@@ -98,8 +118,8 @@ def PrepareForBuild(input_proto, output_proto, _config):
       input_artifacts ({(str) name:[str gs_locations]}): locations for possible
           input artifacts.  The handler is expected to know which keys it should
           be using, and ignore any keys that it does not understand.
-      additional_args ({(str) name: (str) value}) Dictionary of additional
-          arguments.
+      profile_info ({(str) name: (str) value}) Dictionary containing profile
+          information.
 
   They locate and modify any ebuilds and/or source required for the artifact
   being created, then return a value from toolchain_util.PrepareForBuildReturn.
@@ -123,13 +143,7 @@ def PrepareForBuild(input_proto, output_proto, _config):
       input_artifacts[item.name].extend(
           ['gs://%s' % str(x) for x in art.input_artifact_gs_locations])
 
-  # Pass along any additional args.
-  additional_args = {}
-  which = input_proto.additional_args.WhichOneof('prepare_for_build_args')
-  if which:
-    # All of the additional arguments we understand are strings, so we can
-    # copy whichever argument we got without processing it.
-    additional_args[which] = getattr(input_proto.additional_args, which)
+  profile_info = _GetProfileInfoDict(input_proto.profile_info)
 
   results = set()
   sysroot_path = input_proto.sysroot.path
@@ -140,30 +154,28 @@ def PrepareForBuild(input_proto, output_proto, _config):
     if handler.prepare:
       results.add(handler.prepare(
           handler.name, chroot, sysroot_path, build_target, input_artifacts,
-          additional_args))
+          profile_info))
 
   # Translate the returns from the handlers we called.
   #   If any NEEDED => NEEDED
   #   elif any UNKNOWN => UNKNOWN
   #   elif any POINTLESS => POINTLESS
   #   else UNKNOWN.
-  proto_resp = toolchain_pb2.PrepareForToolchainBuildResponse
   if toolchain_util.PrepareForBuildReturn.NEEDED in results:
-    output_proto.build_relevance = proto_resp.NEEDED
+    output_proto.build_relevance = PrepareForBuildResponse.NEEDED
   elif toolchain_util.PrepareForBuildReturn.UNKNOWN in results:
-    output_proto.build_relevance = proto_resp.UNKNOWN
+    output_proto.build_relevance = PrepareForBuildResponse.UNKNOWN
   elif toolchain_util.PrepareForBuildReturn.POINTLESS in results:
-    output_proto.build_relevance = proto_resp.POINTLESS
+    output_proto.build_relevance = PrepareForBuildResponse.POINTLESS
   else:
-    output_proto.build_relevance = proto_resp.UNKNOWN
+    output_proto.build_relevance = PrepareForBuildResponse.UNKNOWN
   return controller.RETURN_CODE_SUCCESS
 
 
 # TODO(crbug/1031213): When @faux is expanded to have more than success/failure,
 # this should be changed.
 @faux.all_empty
-@validate.require('chroot.path', 'sysroot.path', 'sysroot.build_target.name',
-                  'output_dir', 'artifact_types')
+@validate.require('chroot.path', 'output_dir', 'artifact_types')
 @validate.exists('output_dir')
 @validate.validation_complete
 def BundleArtifacts(input_proto, output_proto, _config):
@@ -172,11 +184,14 @@ def BundleArtifacts(input_proto, output_proto, _config):
   The handlers (from _TOOLCHAIN_ARTIFACT_HANDLERS above) are called with:
       artifact_name (str): name of the artifact type
       chroot (chroot_lib.Chroot): chroot
-      sysroot_path (str): sysroot path inside the chroot (e.g., /build/atlas)
+      sysroot_path (str): sysroot path inside the chroot (e.g., /build/atlas),
+          or None.
       chrome_root (str): path to chrome root. (e.g., /b/s/w/ir/k/chrome)
-      build_target_name (str): name of the build target (e.g., atlas)
+      build_target_name (str): name of the build target (e.g., atlas), or None.
       output_dir (str): absolute path where artifacts are being bundled.
         (e.g., /b/s/w/ir/k/recipe_cleanup/artifactssptfMU)
+      profile_info ({(str) name: (str) value}) Dictionary containing profile
+          information.
 
   Note: the actual upload to GS is done by CI, not here.
 
@@ -187,13 +202,7 @@ def BundleArtifacts(input_proto, output_proto, _config):
   """
   chroot = controller_util.ParseChroot(input_proto.chroot)
 
-  # Pass along any additional args.
-  additional_args = {}
-  which = input_proto.additional_args.WhichOneof('prepare_for_build_args')
-  if which:
-    # All of the additional arguments we understand are strings, so we can
-    # copy whichever argument we got without processing it.
-    additional_args[which] = getattr(input_proto.additional_args, which)
+  profile_info = _GetProfileInfoDict(input_proto.profile_info)
 
   for artifact_type in input_proto.artifact_types:
     if artifact_type not in _TOOLCHAIN_ARTIFACT_HANDLERS:
@@ -204,7 +213,7 @@ def BundleArtifacts(input_proto, output_proto, _config):
       artifacts = handler.bundle(
           handler.name, chroot, input_proto.sysroot.path,
           input_proto.sysroot.build_target.name, input_proto.output_dir,
-          additional_args)
+          profile_info)
       if artifacts:
         art_info = output_proto.artifacts_info.add()
         art_info.artifact_type = artifact_type

@@ -127,12 +127,6 @@ class ChromiumOSUpdater(BaseUpdater):
   UPDATE_CHECK_INTERVAL_PROGRESSBAR = 0.5
   UPDATE_CHECK_INTERVAL_NORMAL = 10
 
-  # Update engine perf files.
-  REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH = \
-      '/mnt/stateful_partition/unencrypted/preserve/' \
-      'update_engine_performance_monitor.py'
-  REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH = '/var/log/perf_data_results.json'
-
   # `mode` parameter when copying payload files to the DUT.
   PAYLOAD_MODE_PARALLEL = 'parallel'
   PAYLOAD_MODE_SCP = 'scp'
@@ -252,6 +246,15 @@ class ChromiumOSUpdater(BaseUpdater):
   def is_au_endtoendtest(self):
     return self.payload_filename is not None
 
+  @property
+  def request_logs_dir(self):
+    """Returns path to the nebraska request logfiles directory.
+
+    Returns:
+      A complete path to the logfiles directory.
+    """
+    return self.tempdir
+
   def _CreateTransferObject(self, transfer_class):
     """Create the correct Transfer class.
 
@@ -312,7 +315,8 @@ class ChromiumOSUpdater(BaseUpdater):
     nebraska_bin = os.path.join(self.device_dev_dir,
                                 self.REMOTE_NEBRASKA_FILENAME)
     nebraska = nebraska_wrapper.RemoteNebraskaWrapper(
-        self.device, nebraska_bin=nebraska_bin)
+        self.device, nebraska_bin=nebraska_bin,
+        copy_mode=self._transfer_obj.mode)
     nebraska.CheckNebraskaCanRun()
 
   @classmethod
@@ -452,7 +456,8 @@ class ChromiumOSUpdater(BaseUpdater):
     nebraska = nebraska_wrapper.RemoteNebraskaWrapper(
         self.device, nebraska_bin=nebraska_bin,
         update_payloads_address='file://' + self.device_payload_dir,
-        update_metadata_dir=self.device_payload_dir)
+        update_metadata_dir=self.device_payload_dir,
+        copy_mode=self._transfer_obj.mode)
 
     try:
       nebraska.Start()
@@ -463,7 +468,6 @@ class ChromiumOSUpdater(BaseUpdater):
       cmd = [self.REMOTE_UPDATE_ENGINE_BIN_FILENAME, '--check_for_update',
              '--omaha_url="%s"' % nebraska_url]
 
-      self._StartPerformanceMonitoringForAUTest()
       self.device.run(cmd, **self._cmd_kwargs)
 
       # If we are using a progress bar, update it every 0.5s instead of 10s.
@@ -535,17 +539,15 @@ class ChromiumOSUpdater(BaseUpdater):
           self.REMOTE_UPDATE_ENGINE_LOGFILE_PATH,
           os.path.join(self.tempdir, os.path.basename(
               self.REMOTE_UPDATE_ENGINE_LOGFILE_PATH)),
-          follow_symlinks=True,
+          follow_symlinks=True, mode=self._transfer_obj.mode,
           **self._cmd_kwargs_omit_error)
       self.device.CopyFromDevice(
           self.REMOTE_QUICK_PROVISION_LOGFILE_PATH,
           os.path.join(self.tempdir, os.path.basename(
               self.REMOTE_QUICK_PROVISION_LOGFILE_PATH)),
-          follow_symlinks=True,
+          follow_symlinks=True, mode=self._transfer_obj.mode,
           ignore_failures=True,
           **self._cmd_kwargs_omit_error)
-
-      self._StopPerformanceMonitoringForAUTest()
 
   def UpdateStateful(self, use_original_build=False):
     """Update the stateful partition of the device.
@@ -581,18 +583,16 @@ class ChromiumOSUpdater(BaseUpdater):
 
     TODO(ahassani): Once we only test delta or full payload with
     source image of M77 or higher, this function can be deprecated.
-
-    TODO(ahassani): Merge this somehow with ResolveAPPIDMismatchIfAny().
     """
     logging.info('Fixing payload properties file.')
     payload_properties_path = self._transfer_obj.GetPayloadPropsFile()
     props = json.loads(osutils.ReadFile(payload_properties_path))
+    props['appid'] = self.ResolveAPPIDMismatchIfAny(props.get('appid'))
     values = self._transfer_obj.GetPayloadProps()
 
     # TODO(ahassani): Use the keys form nebraska.py once it is moved to
     # chromite.
     valid_entries = {
-        'appid': '',
         # Since only old payloads don't have this and they are only used for
         # provisioning, they will be full payloads.
         'is_delta': False,
@@ -600,15 +600,12 @@ class ChromiumOSUpdater(BaseUpdater):
         'target_version': values['image_version'],
     }
 
-    are_props_modified = False
     for key, value in valid_entries.items():
       if props.get(key) is None:
         props[key] = value
-        are_props_modified = True
 
-    if are_props_modified:
-      with open(payload_properties_path, 'w') as fp:
-        json.dump(props, fp)
+    with open(payload_properties_path, 'w') as fp:
+      json.dump(props, fp)
 
   def RunUpdateRootfs(self):
     """Run all processes needed by updating rootfs.
@@ -617,7 +614,6 @@ class ChromiumOSUpdater(BaseUpdater):
     2. Copy files to remote device needed for rootfs update.
     3. Do root updating.
     """
-    self.SetupRootfsUpdate()
 
     # Any call to self._transfer_obj.TransferRootfsUpdate() must be preceeded by
     # a conditional call to self._FixPayloadPropertiesFile() as this handles the
@@ -680,34 +676,31 @@ class ChromiumOSUpdater(BaseUpdater):
             'signing problem, or an automated rollback occurred because '
             'your new image failed to boot.')
 
-  def PreparePayloadPropsFile(self):
-    """Triggers download for payload properties file for LabTransfer usecase."""
-    prop_file = self._transfer_obj.GetPayloadPropsFile()
-    self.ResolveAPPIDMismatchIfAny(prop_file)
-
-  def ResolveAPPIDMismatchIfAny(self, prop_file):
+  def ResolveAPPIDMismatchIfAny(self, payload_app_id):
     """Resolves and APP ID mismatch between the payload and device.
 
     If the APP ID of the payload is different than the device, then the nebraska
     will fail. We empty the payload's AppID so nebraska can do partial APP ID
     matching.
     """
-    content = json.loads(osutils.ReadFile(prop_file))
-    payload_app_id = content.get('appid')
-
     if ((self.device.app_id and self.device.app_id == payload_app_id) or
         payload_app_id == ''):
-      return
+      return payload_app_id
 
-    logging.warn('You are installing an image with a different release '
-                 'App ID than the device (%s vs %s), we are forcing the '
-                 'install!', payload_app_id, self.device.app_id)
-    # Override the properties file with the new empty APP ID.
-    content['appid'] = ''
-    osutils.WriteFile(prop_file, json.dumps(content))
+    logging.warning('You are installing an image with a different release '
+                    'App ID than the device (%s vs %s), we are forcing the '
+                    'install!', payload_app_id, self.device.app_id)
+    return ''
 
   def RunUpdate(self):
     """Update the device with image of specific version."""
+
+    # SetupRootfsUpdate() may reboot the device and therefore should be called
+    # before any payloads are transferred to the device and only if rootfs
+    # update is required.
+    if self._do_rootfs_update:
+      self.SetupRootfsUpdate()
+
     self._transfer_obj.TransferUpdateUtilsPackage()
 
     restore_stateful = self.CheckRestoreStateful()
@@ -729,35 +722,6 @@ class ChromiumOSUpdater(BaseUpdater):
     if self._disable_verification:
       logging.info('Disabling rootfs verification on the device...')
       self.device.DisableRootfsVerification()
-
-  def _StartPerformanceMonitoringForAUTest(self):
-    """Start update_engine performance monitoring script in rootfs update.
-
-    This script is used by autoupdate_EndToEndTest.
-    """
-    if self._clobber_stateful or not self.is_au_endtoendtest:
-      return None
-
-    cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--start-bg']
-    try:
-      perf_id = self.device.run(cmd).stdout.strip()
-      logging.info('update_engine_performance_monitors pid is %s.', perf_id)
-      self.perf_id = perf_id
-    except cros_build_lib.RunCommandError as e:
-      logging.debug('Could not start performance monitoring script: %s', e)
-
-  def _StopPerformanceMonitoringForAUTest(self):
-    """Stop the performance monitoring script and save results to file."""
-    if self.perf_id is None:
-      return
-    cmd = ['python', self.REMOTE_UPDATE_ENGINE_PERF_SCRIPT_PATH, '--stop-bg',
-           self.perf_id]
-    try:
-      perf_json_data = self.device.run(cmd).stdout.strip()
-      self.device.run(['echo', json.dumps(perf_json_data), '>',
-                       self.REMOTE_UPDATE_ENGINE_PERF_RESULTS_PATH])
-    except cros_build_lib.RunCommandError as e:
-      logging.debug('Could not stop performance monitoring process: %s', e)
 
   def _CopyHostLogFromDevice(self, nebraska, partial_filename):
     """Copy the hostlog file generated by the nebraska from the device.
@@ -1209,7 +1173,8 @@ class ChromiumOSUpdater(BaseUpdater):
                                 self.REMOTE_NEBRASKA_FILENAME)
     nebraska = nebraska_wrapper.RemoteNebraskaWrapper(
         self.device, nebraska_bin=nebraska_bin,
-        update_metadata_dir=self.device_payload_dir)
+        update_metadata_dir=self.device_payload_dir,
+        copy_mode=self._transfer_obj.mode)
 
     try:
       nebraska.Start()

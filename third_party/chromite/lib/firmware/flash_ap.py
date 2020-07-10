@@ -288,15 +288,17 @@ def _deploy_servo(image, module, flashrom, fast, verbose, port, dryrun):
     dryrun (bool): Whether to actually execute the deployment or just print the
       operations that would have been performed.
   """
-  logging.info('Attempting to flash via servo.')
+  logging.notice('Attempting to flash via servo.')
   dut_ctl = DutControl(port)
   servo = servo_lib.get(dut_ctl)
   # TODO(b/143240576): Fast mode is sometimes necessary to flash successfully.
-  if not fast and module.is_fast_required(not flashrom, servo):
+  if (not fast and hasattr(module, 'is_fast_required') and
+      module.is_fast_required(not flashrom, servo)):
     logging.notice('There is a known error with the board and servo type being '
                    'used, enabling --fast to bypass this problem.')
     fast = True
-  if hasattr(module, '__use_flashrom__') and module.__use_flashrom__:
+  if (hasattr(module, 'DEPLOY_SERVO_FORCE_FLASHROM') and
+      module.DEPLOY_SERVO_FORCE_FLASHROM):
     # Futility needs VBoot to flash so boards without functioning VBoot
     # can set this attribute to True to force the use of flashrom.
     flashrom = True
@@ -312,7 +314,7 @@ def _deploy_servo(image, module, flashrom, fast, verbose, port, dryrun):
     futility_cmd += ['-v']
   flash_cmd = flashrom_cmd if flashrom else futility_cmd
   if _flash(dut_ctl, dut_on, dut_off, flash_cmd, verbose, dryrun):
-    logging.info('SUCCESS. Exiting flash_ap.')
+    logging.notice('SUCCESS. Exiting flash_ap.')
   else:
     logging.error('Unable to complete flash, verify servo connection '
                   'is correct and servod is running in the background.')
@@ -331,15 +333,15 @@ def _deploy_ssh(image, module, flashrom, fast, verbose, ip, dryrun):
     dryrun (bool): Whether to execute the deployment or just print the
       commands that would have been executed.
   """
-  logging.info('Attempting to flash via ssh.')
+  logging.notice('Attempting to flash via ssh.')
   # TODO(b/143241417): Can't use flashrom over ssh on wilco.
-  if (hasattr(module, 'use_futility_ssh') and module.use_futility_ssh and
-      flashrom):
+  if (hasattr(module, 'DEPLOY_SSH_FORCE_FUTILITY') and
+      module.DEPLOY_SSH_FORCE_FUTILITY and flashrom):
     logging.warning('Flashing with flashrom over ssh on this device fails '
                     'consistently, flashing with futility instead.')
     flashrom = False
   if _ssh_flash(not flashrom, image, verbose, ip, fast, dryrun):
-    logging.info('ssh flash successful. Exiting flash_ap')
+    logging.notice('ssh flash successful. Exiting flash_ap')
   else:
     raise DeployFailed('ssh failed, try using a servo connection instead.')
 

@@ -371,6 +371,13 @@ func (r *regres) run() error {
 		// already got a test result.
 		msg = reportHeader + "\n\n" + msg
 
+		// Limit the message length to prevent '400 Bad Request' response.
+		maxMsgLength := 16000
+		if len(msg) > maxMsgLength {
+			trunc := " [truncated]\n"
+			msg = msg[0:maxMsgLength-len(trunc)] + trunc
+		}
+
 		if r.dryRun {
 			log.Printf("DRY RUN: add review to change '%v':\n%v\n", change.id, msg)
 		} else {
@@ -632,6 +639,27 @@ func (r *regres) runDaily(client *gerrit.Client, reactorBackend reactorBackend, 
 		dailyHash = git.ParseHash(r.dailyChange)
 	}
 
+	return r.runDailyTest(dailyHash, reactorBackend, genCov,
+		func(test *test, testLists testlist.Lists, results *deqp.Results) error {
+			errs := []error{}
+
+			if err := r.postDailyResults(client, test, testLists, results, reactorBackend, dailyHash); err != nil {
+				errs = append(errs, err)
+			}
+
+			if genCov {
+				if err := r.postCoverageResults(results.Coverage, dailyHash); err != nil {
+					errs = append(errs, err)
+				}
+			}
+
+			return cause.Merge(errs...)
+		})
+}
+
+// runDailyTest performs the full deqp run on the HEAD change, calling
+// withResults with the test results.
+func (r *regres) runDailyTest(dailyHash git.Hash, reactorBackend reactorBackend, genCov bool, withResults func(*test, testlist.Lists, *deqp.Results) error) error {
 	// Get the full test results.
 	test := r.newTest(dailyHash).setReactorBackend(reactorBackend)
 	defer test.cleanup()
@@ -671,6 +699,21 @@ func (r *regres) runDaily(client *gerrit.Client, reactorBackend reactorBackend, 
 	if err != nil {
 		return cause.Wrap(err, "Failed to test '%s'", dailyHash)
 	}
+
+	return withResults(test, testLists, results)
+}
+
+// postDailyResults posts the results of the daily full deqp run to gerrit as
+// a new change, or reusing an old, unsubmitted change.
+// This change contains the updated test lists, along with a summary of the
+// test results.
+func (r *regres) postDailyResults(
+	client *gerrit.Client,
+	test *test,
+	testLists testlist.Lists,
+	results *deqp.Results,
+	reactorBackend reactorBackend,
+	dailyHash git.Hash) error {
 
 	// Write out the test list status files.
 	filePaths, err := test.writeTestListsByStatus(testLists, results)
@@ -738,16 +781,10 @@ func (r *regres) runDaily(client *gerrit.Client, reactorBackend reactorBackend, 
 		return err
 	}
 
-	if genCov {
-		if err := r.commitCoverage(results.Coverage, dailyHash); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-func (r *regres) commitCoverage(cov *cov.Tree, revision git.Hash) error {
+func (r *regres) postCoverageResults(cov *cov.Tree, revision git.Hash) error {
 	log.Printf("Committing coverage for %v\n", revision.String())
 
 	url := coverageURL
@@ -983,7 +1020,7 @@ func (r *regres) newTest(commit git.Hash) *test {
 		checkoutDir:    checkoutDir,
 		resDir:         resDir,
 		buildDir:       filepath.Join(checkoutDir, "build"),
-		reactorBackend: backendLLVM,
+		reactorBackend: backendSubzero,
 	}
 }
 

@@ -75,6 +75,8 @@ class DebugPrintf : public ValidationStateTracker {
     uint32_t output_buffer_size;
 
   public:
+    DebugPrintf() { container_type = LayerObjectTypeDebugPrintf; }
+
     bool aborted = false;
     bool verbose = false;
     bool use_stdout = false;
@@ -82,8 +84,8 @@ class DebugPrintf : public ValidationStateTracker {
     VkPhysicalDevice physicalDevice;
     uint32_t adjusted_max_desc_sets;
     uint32_t desc_set_bind_index;
-    VkDescriptorSetLayout debug_desc_layout;
-    VkDescriptorSetLayout dummy_desc_layout;
+    VkDescriptorSetLayout debug_desc_layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout dummy_desc_layout = VK_NULL_HANDLE;
     std::unique_ptr<UtilDescriptorSetManager> desc_set_manager;
     std::unordered_map<uint32_t, DPFShaderTracker> shader_map;
     PFN_vkSetDeviceLoaderData vkSetDeviceLoaderData;

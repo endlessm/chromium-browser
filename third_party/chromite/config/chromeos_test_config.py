@@ -19,7 +19,6 @@ vmtest_boards = frozenset([
     # from betty & co.
     'amd64-generic', # Has kernel 4.4, used with public Chromium.
     'betty',         # amd64 Chrome OS VM board with 32 bit arm/x86 ARC++ ABI.
-    'betty-arc64',   # Chrome OS VM board with 64 bit x86_64 ARC++ ABI.
     'betty-pi-arc',  # Like betty but P version of ARC++.
     'novato',        # Like betty but with GMSCore but not the Play Store
     'novato-arc64',  # 64 bit x86_64 ARC++ ABI
@@ -284,32 +283,6 @@ class HWTestList(object):
             config_lib.HWTestConfig('security',
                                     **default_dict)]
 
-  # pylint: disable=unused-argument
-  def CtsGtsQualTests(self, **kwargs):
-    """Return a list of HWTestConfigs for CTS, GTS tests."""
-    cts_config = dict(
-        pool=constants.HWTEST_CTS_POOL,
-        timeout=config_lib.HWTestConfig.CTS_QUAL_HW_TEST_TIMEOUT,
-        priority=constants.HWTEST_CTS_PRIORITY,
-        enable_skylab=False)
-    # Python 3.7+ made async a reserved keyword.
-    cts_config['async'] = True
-    cts_config.update(kwargs)
-
-    gts_config = dict(
-        pool=constants.HWTEST_GTS_POOL,
-        timeout=config_lib.HWTestConfig.GTS_QUAL_HW_TEST_TIMEOUT,
-        priority=constants.HWTEST_GTS_PRIORITY,
-        enable_skylab=False)
-    # Python 3.7+ made async a reserved keyword.
-    gts_config['async'] = True
-    gts_config.update(kwargs)
-
-    return [config_lib.HWTestConfig(constants.HWTEST_CTS_QUAL_SUITE,
-                                    **cts_config),
-            config_lib.HWTestConfig(constants.HWTEST_GTS_QUAL_SUITE,
-                                    **gts_config)]
-
   def TastConfig(self, suite_name, **kwargs):
     """Return an HWTestConfig that runs the provided Tast test suite.
 
@@ -447,7 +420,6 @@ def ApplyCustomOverrides(site_config):
       # to validate informational Tast tests on amd64-generic:
       # https://crbug.com/946858
       'amd64-generic-full': site_config.templates.tast_vm_canary_tests,
-      'betty-arc64-release': site_config.templates.tast_vm_canary_tests,
       'betty-pi-arc-release': site_config.templates.tast_vm_canary_tests,
       'betty-release': site_config.templates.tast_vm_canary_tests,
   }
@@ -632,8 +604,7 @@ def GeneralTemplates(site_config, ge_build_config):
   # END Dustbuster
 
   # BEGIN Release
-  release_hw_tests = (hw_test_list.CtsGtsQualTests() +
-                      hw_test_list.SharedPoolCanary())
+  release_hw_tests = hw_test_list.SharedPoolCanary()
 
   site_config.templates.release.apply(
       site_config.templates.default_hw_tests_override,
@@ -699,10 +670,6 @@ def AndroidTemplates(site_config):
                  and configs.
   """
   site_config.templates.generic_android_pfq.apply(
-      site_config.templates.default_hw_tests_override,
-  )
-
-  site_config.templates.mst_android_pfq.apply(
       site_config.templates.default_hw_tests_override,
   )
 

@@ -122,6 +122,13 @@ enum loader_data_files_type {
 loader_platform_thread_mutex loader_lock;
 loader_platform_thread_mutex loader_json_lock;
 
+// A list of ICDs that gets initialized when the loader does its global initialization. This list should never be used by anything
+// other than EnumerateInstanceExtensionProperties(), vkDestroyInstance, and loader_release(). This list does not change
+// functionality, but the fact that the libraries already been loaded causes any call that needs to load ICD libraries to speed up
+// significantly. This can have a huge impact when making repeated calls to vkEnumerateInstanceExtensionProperties and
+// vkCreateInstance.
+static struct loader_icd_tramp_list scanned_icds;
+
 LOADER_PLATFORM_THREAD_ONCE_DECLARATION(once_init);
 
 void *loader_instance_heap_alloc(const struct loader_instance *instance, size_t size, VkSystemAllocationScope alloc_scope) {
@@ -396,7 +403,7 @@ void loader_log(const struct loader_instance *inst, VkFlags msg_type, int32_t ms
         } else if ((msg_type & LOADER_ERROR_BIT) != 0) {
             severity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         } else if ((msg_type & LOADER_DEBUG_BIT) != 0) {
-            severity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+            severity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
         }
 
         if ((msg_type & LOADER_PERF_BIT) != 0) {
@@ -2450,9 +2457,37 @@ struct loader_data_files {
 };
 
 void loader_release() {
+    // Guarantee release of the preloaded ICD libraries. This may have already been called in vkDestroyInstance.
+    loader_unload_preloaded_icds();
+
     // release mutexes
     loader_platform_thread_delete_mutex(&loader_lock);
     loader_platform_thread_delete_mutex(&loader_json_lock);
+}
+
+// Preload the ICD libraries that are likely to be needed so we don't repeatedly load/unload them later
+void loader_preload_icds(void) {
+    loader_platform_thread_lock_mutex(&loader_lock);
+
+    // Already preloaded, skip loading again.
+    if (scanned_icds.scanned_list != NULL) {
+        loader_platform_thread_unlock_mutex(&loader_lock);
+        return;
+    }
+
+    memset(&scanned_icds, 0, sizeof(scanned_icds));
+    VkResult result = loader_icd_scan(NULL, &scanned_icds);
+    if (result != VK_SUCCESS) {
+        loader_scanned_icd_clear(NULL, &scanned_icds);
+    }
+    loader_platform_thread_unlock_mutex(&loader_lock);
+}
+
+// Release the ICD libraries that were preloaded
+void loader_unload_preloaded_icds(void) {
+    loader_platform_thread_lock_mutex(&loader_lock);
+    loader_scanned_icd_clear(NULL, &scanned_icds);
+    loader_platform_thread_unlock_mutex(&loader_lock);
 }
 
 // Get next file or dirname given a string list or registry key path
@@ -3857,6 +3892,39 @@ static VkResult ReadDataFilesInSearchPaths(const struct loader_instance *inst, e
         *cur_path_ptr = '\0';
 #endif
     }
+
+    // Remove duplicate paths, or it would result in duplicate extensions, duplicate devices, etc.
+    // This uses minimal memory, but is O(N^2) on the number of paths. Expect only a few paths.
+    char path_sep_str[2] = {PATH_SEPARATOR, '\0'};
+    size_t search_path_updated_size = strlen(search_path);
+    for (size_t first = 0; first < search_path_updated_size;) {
+        // If this is an empty path, erase it
+        if (search_path[first] == PATH_SEPARATOR) {
+            memmove(&search_path[first], &search_path[first + 1], search_path_updated_size - first + 1);
+            search_path_updated_size -= 1;
+            continue;
+        }
+
+        size_t first_end = first + 1;
+        first_end += strcspn(&search_path[first_end], path_sep_str);
+        for (size_t second = first_end + 1; second < search_path_updated_size;) {
+            size_t second_end = second + 1;
+            second_end += strcspn(&search_path[second_end], path_sep_str);
+            if (first_end - first == second_end - second &&
+                !strncmp(&search_path[first], &search_path[second], second_end - second)) {
+                // Found duplicate. Include PATH_SEPARATOR in second_end, then erase it from search_path.
+                if (search_path[second_end] == PATH_SEPARATOR) {
+                    second_end++;
+                }
+                memmove(&search_path[second], &search_path[second_end], search_path_updated_size - second_end + 1);
+                search_path_updated_size -= second_end - second;
+            } else {
+                second = second_end + 1;
+            }
+        }
+        first = first_end + 1;
+    }
+    search_path_size = search_path_updated_size;
 
     // Print out the paths being searched if debugging is enabled
     if (search_path_size > 0) {
@@ -7277,6 +7345,9 @@ terminator_EnumerateInstanceExtensionProperties(const VkEnumerateInstanceExtensi
             }
         }
     } else {
+        // Preload ICD libraries so subsequent calls to EnumerateInstanceExtensionProperties don't have to load them
+        loader_preload_icds();
+
         // Scan/discover all ICD libraries
         memset(&icd_tramp_list, 0, sizeof(icd_tramp_list));
         res = loader_icd_scan(NULL, &icd_tramp_list);

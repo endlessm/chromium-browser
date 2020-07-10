@@ -383,6 +383,8 @@ bool Target::OnResolved(Err* err) {
   if (!FillOutputFiles(err))
     return false;
 
+  if (!CheckSourceSetLanguages(err))
+    return false;
   if (!CheckVisibility(err))
     return false;
   if (!CheckTestonly(err))
@@ -628,8 +630,7 @@ void Target::PullDependentTargetLibsFrom(const Target* dep, bool is_public) {
     inherited_libraries_.Append(dep, is_public);
   }
 
-  if (dep->output_type() == RUST_LIBRARY ||
-      dep->output_type() == RUST_PROC_MACRO) {
+  if (dep->output_type() == RUST_LIBRARY) {
     rust_values().transitive_libs().Append(dep, is_public);
     rust_values().transitive_libs().AppendInherited(
         dep->rust_values().transitive_libs(), is_public);
@@ -644,6 +645,11 @@ void Target::PullDependentTargetLibsFrom(const Target* dep, bool is_public) {
                                     is_public && inherited.second);
       }
     }
+  } else if (dep->output_type() == RUST_PROC_MACRO) {
+    // We will need to specify the path to find a procedural macro,
+    // but have no need to specify the paths to find its dependencies
+    // as the procedural macro is now a complete .so.
+    rust_values().transitive_libs().Append(dep, is_public);
   } else if (dep->output_type() == SHARED_LIBRARY) {
     // Shared library dependendencies are inherited across public shared
     // library boundaries.
@@ -930,6 +936,17 @@ bool Target::CheckVisibility(Err* err) const {
   for (const auto& pair : GetDeps(DEPS_ALL)) {
     if (!Visibility::CheckItemVisibility(this, pair.ptr, err))
       return false;
+  }
+  return true;
+}
+
+bool Target::CheckSourceSetLanguages(Err* err) const {
+  if (output_type() == Target::SOURCE_SET &&
+      source_types_used().RustSourceUsed()) {
+    *err = Err(defined_from(), "source_set contained Rust code.",
+               label().GetUserVisibleName(false) +
+                   " has Rust code. Only C/C++ source_sets are supported.");
+    return false;
   }
   return true;
 }

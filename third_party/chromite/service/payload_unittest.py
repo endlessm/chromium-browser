@@ -7,16 +7,11 @@
 
 from __future__ import print_function
 
-import sys
-
 from chromite.api.gen.chromiumos import common_pb2
 from chromite.api.gen.chromite.api import payload_pb2
 from chromite.lib import cros_test_lib
 from chromite.lib.paygen import paygen_payload_lib
 from chromite.service import payload
-
-
-assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class PayloadServiceTest(cros_test_lib.MockTestCase):
@@ -45,8 +40,12 @@ class PayloadServiceTest(cros_test_lib.MockTestCase):
         build=self.tgt_build, image_type='BASE', milestone='R80')
 
     payload_config = payload.PayloadConfig(
-        tgt_image=tgt_image, src_image=src_image, dest_bucket='test',
-        verify=True, keyset=None)
+        tgt_image=tgt_image,
+        src_image=src_image,
+        dest_bucket='test',
+        verify=True,
+        keyset=None,
+        upload=True)
 
     payload_config.GeneratePayload()
 
@@ -60,8 +59,12 @@ class PayloadServiceTest(cros_test_lib.MockTestCase):
         build=self.tgt_build, image_type='BASE', key='cave-mp-v4')
 
     payload_config = payload.PayloadConfig(
-        tgt_image=tgt_image, src_image=src_image, dest_bucket='test',
-        verify=True, keyset=None)
+        tgt_image=tgt_image,
+        src_image=src_image,
+        dest_bucket='test',
+        verify=True,
+        keyset=None,
+        upload=True)
 
     payload_config.GeneratePayload()
 
@@ -73,8 +76,12 @@ class PayloadServiceTest(cros_test_lib.MockTestCase):
         build=self.tgt_build, image_type='BASE', milestone='R80')
 
     payload_config = payload.PayloadConfig(
-        tgt_image=tgt_image, src_image=None, dest_bucket='test',
-        verify=True, keyset=None)
+        tgt_image=tgt_image,
+        src_image=None,
+        dest_bucket='test',
+        verify=True,
+        keyset=None,
+        upload=True)
 
     payload_config.GeneratePayload()
 

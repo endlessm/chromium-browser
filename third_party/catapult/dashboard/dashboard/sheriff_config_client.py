@@ -8,13 +8,15 @@ from __future__ import division
 from __future__ import print_function
 
 from dashboard.common.utils import GetEmail
-from dashboard import sheriff_config_pb2
 from dashboard.models.subscription import Subscription
 import google.auth
 from google.auth import jwt
 from google.auth.transport.requests import AuthorizedSession
 from google.protobuf import json_format
 
+# Move the protobuf import later, to let AppEngine work-arounds to kick in
+# before we do any protobuf imports.
+from dashboard import sheriff_config_pb2
 
 class InternalServerError(Exception):
   """An error indicating that something unexpected happens."""
@@ -54,6 +56,7 @@ class SheriffConfigClient(object):
         bug_components=list(subscription.bug_components),
         bug_cc_emails=list(subscription.bug_cc_emails),
         visibility=subscription.visibility,
+        auto_triage_enable=subscription.auto_triage.enable,
     )
 
   def Match(self, path, check=False):

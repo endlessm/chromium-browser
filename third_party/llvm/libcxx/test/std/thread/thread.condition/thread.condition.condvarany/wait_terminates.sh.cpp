@@ -6,13 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-// UNSUPPORTED: libcpp-no-exceptions
+// UNSUPPORTED: no-exceptions
 // UNSUPPORTED: libcpp-has-no-threads
 
 // <condition_variable>
 
 // class condition_variable_any;
 
+// FILE_DEPENDENCIES: %t.exe
 // RUN: %{build}
 // RUN: %{run} 1
 // RUN: %{run} 2

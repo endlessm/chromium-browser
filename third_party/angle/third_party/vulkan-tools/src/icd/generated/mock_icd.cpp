@@ -21,6 +21,8 @@
 
 #include "mock_icd.h"
 #include <stdlib.h>
+#include <algorithm>
+#include <array>
 #include <vector>
 #include "vk_typemap_helper.h"
 namespace vkmock {
@@ -28,12 +30,21 @@ namespace vkmock {
 
 using std::unordered_map;
 
+static constexpr uint32_t icd_physical_device_count = 1;
+static unordered_map<VkInstance, std::array<VkPhysicalDevice, icd_physical_device_count>> physical_device_map;
+
 // Map device memory handle to any mapped allocations that we'll need to free on unmap
 static unordered_map<VkDeviceMemory, std::vector<void*>> mapped_memory_map;
 
-static VkPhysicalDevice physical_device = nullptr;
+// Map device memory allocation handle to the size
+static unordered_map<VkDeviceMemory, VkDeviceSize> allocated_memory_size_map;
+
 static unordered_map<VkDevice, unordered_map<uint32_t, unordered_map<uint32_t, VkQueue>>> queue_map;
 static unordered_map<VkDevice, unordered_map<VkBuffer, VkBufferCreateInfo>> buffer_map;
+static unordered_map<VkDevice, unordered_map<VkImage, VkDeviceSize>> image_memory_size_map;
+
+static constexpr uint32_t icd_swapchain_image_count = 1;
+static unordered_map<VkSwapchainKHR, VkImage[icd_swapchain_image_count]> swapchain_image_map;
 
 // TODO: Would like to codegen this but limits aren't in XML
 static VkPhysicalDeviceLimits SetLimits(VkPhysicalDeviceLimits *limits) {
@@ -177,6 +188,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(
         return VK_ERROR_INCOMPATIBLE_DRIVER;
     }
     *pInstance = (VkInstance)CreateDispObjHandle();
+    for (auto& physical_device : physical_device_map[*pInstance])
+        physical_device = (VkPhysicalDevice)CreateDispObjHandle();
     // TODO: If emulating specific device caps, will need to add intelligence here
     return VK_SUCCESS;
 }
@@ -186,10 +199,12 @@ static VKAPI_ATTR void VKAPI_CALL DestroyInstance(
     const VkAllocationCallbacks*                pAllocator)
 {
 
-    // Destroy physical device
-    DestroyDispObjHandle((void*)physical_device);
-
-    DestroyDispObjHandle((void*)instance);
+    if (instance) {
+        for (const auto physical_device : physical_device_map.at(instance))
+            DestroyDispObjHandle((void*)physical_device);
+        physical_device_map.erase(instance);
+        DestroyDispObjHandle((void*)instance);
+    }
 }
 
 static VKAPI_ATTR VkResult VKAPI_CALL EnumeratePhysicalDevices(
@@ -197,15 +212,16 @@ static VKAPI_ATTR VkResult VKAPI_CALL EnumeratePhysicalDevices(
     uint32_t*                                   pPhysicalDeviceCount,
     VkPhysicalDevice*                           pPhysicalDevices)
 {
+    VkResult result_code = VK_SUCCESS;
     if (pPhysicalDevices) {
-        if (!physical_device) {
-            physical_device = (VkPhysicalDevice)CreateDispObjHandle();
-        }
-        *pPhysicalDevices = physical_device;
+        const auto return_count = (std::min)(*pPhysicalDeviceCount, icd_physical_device_count);
+        for (uint32_t i = 0; i < return_count; ++i) pPhysicalDevices[i] = physical_device_map.at(instance)[i];
+        if (return_count < icd_physical_device_count) result_code = VK_INCOMPLETE;
+        *pPhysicalDeviceCount = return_count;
     } else {
-        *pPhysicalDeviceCount = 1;
+        *pPhysicalDeviceCount = icd_physical_device_count;
     }
-    return VK_SUCCESS;
+    return result_code;
 }
 
 static VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceFeatures(
@@ -357,6 +373,8 @@ static VKAPI_ATTR void VKAPI_CALL DestroyDevice(
         }
     }
     queue_map.clear();
+    buffer_map.erase(device);
+    image_memory_size_map.erase(device);
     // Now destroy device
     DestroyDispObjHandle((void*)device);
     // TODO: If emulating specific device caps, will need to add intelligence here
@@ -488,6 +506,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL AllocateMemory(
     VkDeviceMemory*                             pMemory)
 {
     unique_lock_t lock(global_lock);
+    allocated_memory_size_map[(VkDeviceMemory)global_unique_handle] = pAllocateInfo->allocationSize;
     *pMemory = (VkDeviceMemory)global_unique_handle++;
     return VK_SUCCESS;
 }
@@ -498,6 +517,7 @@ static VKAPI_ATTR void VKAPI_CALL FreeMemory(
     const VkAllocationCallbacks*                pAllocator)
 {
 //Destroy object
+    allocated_memory_size_map.erase(memory);
 }
 
 static VKAPI_ATTR VkResult VKAPI_CALL MapMemory(
@@ -509,9 +529,12 @@ static VKAPI_ATTR VkResult VKAPI_CALL MapMemory(
     void**                                      ppData)
 {
     unique_lock_t lock(global_lock);
-    // TODO: Just hard-coding 64k whole size for now
-    if (VK_WHOLE_SIZE == size)
-        size = 0x10000;
+    if (VK_WHOLE_SIZE == size) {
+        if (allocated_memory_size_map.count(memory) != 0)
+            size = allocated_memory_size_map[memory] - offset;
+        else
+            size = 0x10000;
+    }
     void* map_addr = malloc((size_t)size);
     mapped_memory_map[memory].push_back(map_addr);
     *ppData = map_addr;
@@ -599,10 +622,16 @@ static VKAPI_ATTR void VKAPI_CALL GetImageMemoryRequirements(
     VkImage                                     image,
     VkMemoryRequirements*                       pMemoryRequirements)
 {
-    // TODO: Just hard-coding reqs for now
-    pMemoryRequirements->size = 4096;
+    pMemoryRequirements->size = 0;
     pMemoryRequirements->alignment = 1;
 
+    auto d_iter = image_memory_size_map.find(device);
+    if(d_iter != image_memory_size_map.end()){
+        auto iter = d_iter->second.find(image);
+        if (iter != d_iter->second.end()) {
+            pMemoryRequirements->size = iter->second;
+        }
+    }
     // Here we hard-code that the memory type at index 3 doesn't support this image.
     pMemoryRequirements->memoryTypeBits = 0xFFFF & ~(0x1 << 3);
 }
@@ -829,6 +858,38 @@ static VKAPI_ATTR VkResult VKAPI_CALL CreateImage(
 {
     unique_lock_t lock(global_lock);
     *pImage = (VkImage)global_unique_handle++;
+    // TODO: A pixel size is 32 bytes. This accounts for the largest possible pixel size of any format. It could be changed to more accurate size if need be.
+    image_memory_size_map[device][*pImage] = pCreateInfo->extent.width * pCreateInfo->extent.height * pCreateInfo->extent.depth *
+                                             32 * pCreateInfo->arrayLayers * (pCreateInfo->mipLevels > 1 ? 2 : 1);
+    // plane count
+    switch (pCreateInfo->format) {
+        case VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM:
+        case VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM:
+        case VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM:
+        case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16:
+        case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_422_UNORM_3PACK16:
+        case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_444_UNORM_3PACK16:
+        case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16:
+        case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_422_UNORM_3PACK16:
+        case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_444_UNORM_3PACK16:
+        case VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM:
+        case VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM:
+        case VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM:
+            image_memory_size_map[device][*pImage] *= 3;
+            break;
+        case VK_FORMAT_G8_B8R8_2PLANE_420_UNORM:
+        case VK_FORMAT_G8_B8R8_2PLANE_422_UNORM:
+        case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16:
+        case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_422_UNORM_3PACK16:
+        case VK_FORMAT_G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16:
+        case VK_FORMAT_G12X4_B12X4R12X4_2PLANE_422_UNORM_3PACK16:
+        case VK_FORMAT_G16_B16R16_2PLANE_420_UNORM:
+        case VK_FORMAT_G16_B16R16_2PLANE_422_UNORM:
+            image_memory_size_map[device][*pImage] *= 2;
+            break;
+        default:
+            break;
+    }
     return VK_SUCCESS;
 }
 
@@ -837,7 +898,8 @@ static VKAPI_ATTR void VKAPI_CALL DestroyImage(
     VkImage                                     image,
     const VkAllocationCallbacks*                pAllocator)
 {
-//Destroy object
+    unique_lock_t lock(global_lock);
+    image_memory_size_map[device].erase(image);
 }
 
 static VKAPI_ATTR void VKAPI_CALL GetImageSubresourceLayout(
@@ -846,7 +908,7 @@ static VKAPI_ATTR void VKAPI_CALL GetImageSubresourceLayout(
     const VkImageSubresource*                   pSubresource,
     VkSubresourceLayout*                        pLayout)
 {
-    // Need safe values. Callers are computing memory offsets from pLayout, with no return code to flag failure. 
+    // Need safe values. Callers are computing memory offsets from pLayout, with no return code to flag failure.
     *pLayout = VkSubresourceLayout(); // Default constructor zero values.
 }
 
@@ -2122,6 +2184,9 @@ static VKAPI_ATTR VkResult VKAPI_CALL CreateSwapchainKHR(
 {
     unique_lock_t lock(global_lock);
     *pSwapchain = (VkSwapchainKHR)global_unique_handle++;
+    for(uint32_t i = 0; i < icd_swapchain_image_count; ++i){
+        swapchain_image_map[*pSwapchain][i] = (VkImage)global_unique_handle++;
+    }
     return VK_SUCCESS;
 }
 
@@ -2130,7 +2195,8 @@ static VKAPI_ATTR void VKAPI_CALL DestroySwapchainKHR(
     VkSwapchainKHR                              swapchain,
     const VkAllocationCallbacks*                pAllocator)
 {
-//Destroy object
+    unique_lock_t lock(global_lock);
+    swapchain_image_map.clear();
 }
 
 static VKAPI_ATTR VkResult VKAPI_CALL GetSwapchainImagesKHR(
@@ -2140,12 +2206,15 @@ static VKAPI_ATTR VkResult VKAPI_CALL GetSwapchainImagesKHR(
     VkImage*                                    pSwapchainImages)
 {
     if (!pSwapchainImages) {
-        *pSwapchainImageCount = 1;
-    } else if (*pSwapchainImageCount > 0) {
-        pSwapchainImages[0] = (VkImage)global_unique_handle++;
-        if (*pSwapchainImageCount != 1) {
-            return VK_INCOMPLETE;
+        *pSwapchainImageCount = icd_swapchain_image_count;
+    } else {
+        unique_lock_t lock(global_lock);
+        for (uint32_t img_i = 0; img_i < (std::min)(*pSwapchainImageCount, icd_swapchain_image_count); ++img_i){
+            pSwapchainImages[img_i] = swapchain_image_map.at(swapchain)[img_i];
         }
+
+        if (*pSwapchainImageCount < icd_swapchain_image_count) return VK_INCOMPLETE;
+        else if (*pSwapchainImageCount > icd_swapchain_image_count) *pSwapchainImageCount = icd_swapchain_image_count;
     }
     return VK_SUCCESS;
 }
@@ -2158,7 +2227,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL AcquireNextImageKHR(
     VkFence                                     fence,
     uint32_t*                                   pImageIndex)
 {
-//Not a CREATE or DESTROY function
+    *pImageIndex = 0;
     return VK_SUCCESS;
 }
 
@@ -2202,7 +2271,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL AcquireNextImage2KHR(
     const VkAcquireNextImageInfoKHR*            pAcquireInfo,
     uint32_t*                                   pImageIndex)
 {
-//Not a CREATE or DESTROY function
+    *pImageIndex = 0;
     return VK_SUCCESS;
 }
 
@@ -3327,6 +3396,15 @@ static VKAPI_ATTR uint32_t VKAPI_CALL GetImageViewHandleNVX(
     return VK_SUCCESS;
 }
 
+static VKAPI_ATTR VkResult VKAPI_CALL GetImageViewAddressNVX(
+    VkDevice                                    device,
+    VkImageView                                 imageView,
+    VkImageViewAddressPropertiesNVX*            pProperties)
+{
+//Not a CREATE or DESTROY function
+    return VK_SUCCESS;
+}
+
 
 static VKAPI_ATTR void VKAPI_CALL CmdDrawIndirectCountAMD(
     VkCommandBuffer                             commandBuffer,
@@ -4015,6 +4093,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL CompileDeferredNV(
 
 
 
+
 static VKAPI_ATTR VkResult VKAPI_CALL GetMemoryHostPointerPropertiesEXT(
     VkDevice                                    device,
     VkExternalMemoryHandleTypeFlagBits          handleType,
@@ -4415,6 +4494,50 @@ static VKAPI_ATTR void VKAPI_CALL DestroyIndirectCommandsLayoutNV(
 }
 
 
+
+
+
+
+
+static VKAPI_ATTR VkResult VKAPI_CALL CreatePrivateDataSlotEXT(
+    VkDevice                                    device,
+    const VkPrivateDataSlotCreateInfoEXT*       pCreateInfo,
+    const VkAllocationCallbacks*                pAllocator,
+    VkPrivateDataSlotEXT*                       pPrivateDataSlot)
+{
+    unique_lock_t lock(global_lock);
+    *pPrivateDataSlot = (VkPrivateDataSlotEXT)global_unique_handle++;
+    return VK_SUCCESS;
+}
+
+static VKAPI_ATTR void VKAPI_CALL DestroyPrivateDataSlotEXT(
+    VkDevice                                    device,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    const VkAllocationCallbacks*                pAllocator)
+{
+//Destroy object
+}
+
+static VKAPI_ATTR VkResult VKAPI_CALL SetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t                                    data)
+{
+//Not a CREATE or DESTROY function
+    return VK_SUCCESS;
+}
+
+static VKAPI_ATTR void VKAPI_CALL GetPrivateDataEXT(
+    VkDevice                                    device,
+    VkObjectType                                objectType,
+    uint64_t                                    objectHandle,
+    VkPrivateDataSlotEXT                        privateDataSlot,
+    uint64_t*                                   pData)
+{
+//Not a CREATE or DESTROY function
+}
 
 
 

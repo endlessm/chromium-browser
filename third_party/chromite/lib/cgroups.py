@@ -7,11 +7,13 @@
 
 from __future__ import print_function
 
+import contextlib
 import errno
 import numbers
 import os
 import signal
 import subprocess
+import sys
 import time
 
 from chromite.lib import cros_build_lib
@@ -20,6 +22,9 @@ from chromite.lib import osutils
 from chromite.lib import signals
 from chromite.lib import sudo
 from chromite.utils import memoize
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 # Rough hierarchy sketch:
@@ -755,6 +760,11 @@ class ContainChildren(cros_build_lib.MasterPidContextManager):
         self.child.RemoveThisGroup(strict=False)
 
 
+@contextlib.contextmanager
+def _NoOpContextManager():
+  yield
+
+
 def SimpleContainChildren(process_name, nesting=True, pid=None, **kwargs):
   """Convenience context manager to create a cgroup for children containment
 
@@ -763,7 +773,7 @@ def SimpleContainChildren(process_name, nesting=True, pid=None, **kwargs):
   """
   node = Cgroup.FindStartingGroup(process_name, nesting=nesting)
   if node is None:
-    return cros_build_lib.NoOpContextManager()
+    return _NoOpContextManager()
   if pid is None:
     pid = os.getpid()
   name = '%s:%i' % (process_name, pid)

@@ -216,6 +216,7 @@ func (c *Config) Run() (*Results, error) {
 
 	if c.CoverageEnv != nil {
 		out.Coverage = &cov.Tree{}
+		out.Coverage.Add(cov.Path{}, c.CoverageEnv.AllSourceFiles())
 	}
 
 	// Collect the results.
@@ -292,7 +293,11 @@ func (c *Config) TestRoutine(exe string, tests <-chan string, results chan<- Tes
 			env = cov.AppendRuntimeEnv(env, coverageFile)
 		}
 	}
-	logPath := filepath.Join(c.TempDir, fmt.Sprintf("%v.log", goroutineIndex))
+
+	logPath := "/dev/null" // TODO(bclayton): Try "nul" on windows.
+	if !util.IsFile(logPath) {
+		logPath = filepath.Join(c.TempDir, fmt.Sprintf("%v.log", goroutineIndex))
+	}
 
 nextTest:
 	for name := range tests {
@@ -315,7 +320,7 @@ nextTest:
 		}
 
 		var coverage *cov.Coverage
-		if c.CoverageEnv != nil && supportsCoverage { // IsFile() check here is for GLES tests that don't emit coverage.
+		if c.CoverageEnv != nil && supportsCoverage {
 			coverage, err = c.CoverageEnv.Import(coverageFile)
 			if err != nil {
 				log.Printf("Warning: Failed to process test coverage for test '%v'. %v", name, err)

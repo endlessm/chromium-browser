@@ -20,6 +20,7 @@
 #include "source/fuzz/transformation_access_chain.h"
 #include "source/fuzz/transformation_add_constant_boolean.h"
 #include "source/fuzz/transformation_add_constant_composite.h"
+#include "source/fuzz/transformation_add_constant_null.h"
 #include "source/fuzz/transformation_add_constant_scalar.h"
 #include "source/fuzz/transformation_add_dead_block.h"
 #include "source/fuzz/transformation_add_dead_break.h"
@@ -40,6 +41,7 @@
 #include "source/fuzz/transformation_add_type_vector.h"
 #include "source/fuzz/transformation_composite_construct.h"
 #include "source/fuzz/transformation_composite_extract.h"
+#include "source/fuzz/transformation_compute_data_synonym_fact_closure.h"
 #include "source/fuzz/transformation_copy_object.h"
 #include "source/fuzz/transformation_equation_instruction.h"
 #include "source/fuzz/transformation_function_call.h"
@@ -78,6 +80,9 @@ std::unique_ptr<Transformation> Transformation::FromMessage(
     case protobufs::Transformation::TransformationCase::kAddConstantComposite:
       return MakeUnique<TransformationAddConstantComposite>(
           message.add_constant_composite());
+    case protobufs::Transformation::TransformationCase::kAddConstantNull:
+      return MakeUnique<TransformationAddConstantNull>(
+          message.add_constant_null());
     case protobufs::Transformation::TransformationCase::kAddConstantScalar:
       return MakeUnique<TransformationAddConstantScalar>(
           message.add_constant_scalar());
@@ -130,6 +135,10 @@ std::unique_ptr<Transformation> Transformation::FromMessage(
     case protobufs::Transformation::TransformationCase::kCompositeExtract:
       return MakeUnique<TransformationCompositeExtract>(
           message.composite_extract());
+    case protobufs::Transformation::TransformationCase::
+        kComputeDataSynonymFactClosure:
+      return MakeUnique<TransformationComputeDataSynonymFactClosure>(
+          message.compute_data_synonym_fact_closure());
     case protobufs::Transformation::TransformationCase::kCopyObject:
       return MakeUnique<TransformationCopyObject>(message.copy_object());
     case protobufs::Transformation::TransformationCase::kEquationInstruction:
@@ -195,9 +204,9 @@ std::unique_ptr<Transformation> Transformation::FromMessage(
 }
 
 bool Transformation::CheckIdIsFreshAndNotUsedByThisTransformation(
-    uint32_t id, opt::IRContext* context,
+    uint32_t id, opt::IRContext* ir_context,
     std::set<uint32_t>* ids_used_by_this_transformation) {
-  if (!fuzzerutil::IsFreshId(context, id)) {
+  if (!fuzzerutil::IsFreshId(ir_context, id)) {
     return false;
   }
   if (ids_used_by_this_transformation->count(id) != 0) {

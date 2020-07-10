@@ -10,29 +10,29 @@ from __future__ import print_function
 import json
 import os
 import re
-import sys
 
 from google.protobuf import json_format
 from google.protobuf.field_mask_pb2 import FieldMask
+import pytest
 
+import chromite as cr
 from chromite.api.gen.config.replication_config_pb2 import (
     ReplicationConfig, FileReplicationRule, FILE_TYPE_JSON,
     REPLICATION_TYPE_FILTER
 )
 from chromite.cbuildbot import manifest_version
 from chromite.lib import build_target_lib
+from chromite.lib import chroot_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
 from chromite.lib import osutils
 from chromite.lib import partial_mock
 from chromite.lib import portage_util
+from chromite.lib import uprev_lib
 from chromite.lib.chroot_lib import Chroot
 from chromite.lib.uprev_lib import GitRef
 from chromite.service import packages
-
-
-assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 D = cros_test_lib.Directory
@@ -95,7 +95,7 @@ class UprevsVersionedPackageTest(cros_test_lib.MockTestCase):
 
   def test_calls_function(self):
     """Test calling a registered function."""
-    patch = self.PatchObject(self, 'uprev_category_package')
+    self.PatchObject(self, 'uprev_category_package')
 
     cpv = portage_util.SplitCPV('category/package', strict=False)
     packages.uprev_versioned_package(cpv, [], [], Chroot())
@@ -572,6 +572,47 @@ class AndroidVersionsTest(cros_test_lib.MockTestCase):
     self.assertEqual(target, None)
 
 
+class GetFirmwareVersionsTest(cros_test_lib.RunCommandTempDirTestCase):
+  """Tests for get_firmware_versions."""
+
+  def setUp(self):
+    self.board = 'test-board'
+    self.rc.SetDefaultCmdResult(output="""
+
+flashrom(8): a8f99c2e61e7dc09c4b25ef5a76ef692 */build/kevin/usr/sbin/flashrom
+             ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV), statically linked, for GNU/Linux 2.d
+             0.9.4  : 860875a : Apr 10 2017 23:54:29 UTC
+
+BIOS image:   6b5b855a0b8fd1657546d1402c15b206 *chromeos-firmware-kevin-0.0.1/.dist/kevin_fw_8785.178.0.n
+BIOS version: Google_Kevin.8785.178.0
+EC image:     1ebfa9518e6cac0558a80b7ab2f5b489 *chromeos-firmware-kevin-0.0.1/.dist/kevin_ec_8785.178.0.n
+EC version:kevin_v1.10.184-459421c
+
+Package Content:
+a8f99c2e61e7dc09c4b25ef5a76ef692 *./flashrom
+3c3a99346d1ca1273cbcd86c104851ff *./shflags
+457a8dc8546764affc9700f8da328d23 *./dump_fmap
+c392980ddb542639edf44a965a59361a *./updater5.sh
+490c95d6123c208d20d84d7c16857c7c *./crosfw.sh
+6b5b855a0b8fd1657546d1402c15b206 *./bios.bin
+7b5bef0d2da90c23ff2e157250edf0fa *./crosutil.sh
+d78722e4f1a0dc2d8c3d6b0bc7010ae3 *./crossystem
+457a8dc8546764affc9700f8da328d23 *./gbb_utility
+1ebfa9518e6cac0558a80b7ab2f5b489 *./ec.bin
+c98ca54db130886142ad582a58e90ddc *./common.sh
+5ba978bdec0f696f47f0f0de90936880 *./mosys
+312e8ee6122057f2a246d7bcf1572f49 *./vpd
+""")
+
+  def test_get_firmware_versions(self):
+    """Tests get_firmware_versions with mocked output."""
+    build_target = build_target_lib.BuildTarget(self.board)
+    result = packages.get_firmware_versions(build_target)
+    versions = packages.FirmwareVersions(
+        None, 'Google_Kevin.8785.178.0', None, 'kevin_v1.10.184-459421c', None)
+    self.assertEqual(result, versions)
+
+
 class ChromeVersionsTest(cros_test_lib.MockTestCase):
   """Tests getting chrome version."""
 
@@ -644,3 +685,82 @@ class PlatformVersionsTest(cros_test_lib.MockTestCase):
     self.assertEqual(platform_version, test_platform_version)
     self.assertEqual(milestone_version, test_chrome_branch)
     self.assertEqual(full_version, test_full_version)
+
+
+# Each of the columns in the following table is a separate dimension along
+# which Chrome uprev test cases can vary in behavior. The full test space would
+# be the Cartesian product of the possible values of each column.
+# 'CHROME_EBUILD' refers to the relationship between the version of the existing
+# Chrome ebuild vs. the requested uprev version. 'FOLLOWER_EBUILDS' refers to
+# the same relationship but for the packages defined in OTHER_CHROME_PACKAGES.
+# 'EBUILDS MODIFIED' refers to whether any of the existing 9999 ebuilds have
+# modified contents relative to their corresponding stable ebuilds.
+#
+# CHROME_EBUILD            FOLLOWER_EBUILDS           EBUILDS_MODIFIED
+#
+# HIGHER                   HIGHER                     YES
+# SAME                     SAME                       NO
+# LOWER                    LOWER
+#                          DOESN'T EXIST YET
+
+# These test cases cover both CHROME & FOLLOWER ebuilds being identically
+# higher, lower, or the same versions, with no modified ebuilds.
+UPREV_VERSION_CASES = (
+    pytest.param(
+        '80.0.8080.0',
+        '81.0.8181.0',
+        # One added and one deleted for chrome and each "other" package.
+        2 * (1 + len(constants.OTHER_CHROME_PACKAGES)),
+        id='newer_chrome_version',
+    ),
+    # No files should be changed in these cases.
+    pytest.param(
+        '80.0.8080.0',
+        '80.0.8080.0',
+        0,
+        id='same_chrome_version',
+    ),
+    pytest.param(
+        '80.0.8080.0',
+        '79.0.7979.0',
+        0,
+        id='older_chrome_version',
+    ),
+)
+
+
+@pytest.mark.parametrize('old_version, new_version, expected_count',
+                         UPREV_VERSION_CASES)
+def test_uprev_chrome_all_files_already_exist(old_version, new_version,
+                                              expected_count, monkeypatch,
+                                              overlay_stack):
+  """Test Chrome uprevs work as expected when all packages already exist."""
+  overlay, = overlay_stack(1)
+  monkeypatch.setattr(uprev_lib, '_CHROME_OVERLAY_PATH', overlay.path)
+
+  unstable_chrome = cr.test.Package(
+      'chromeos-base', 'chromeos-chrome', version='9999', keywords='~*')
+  stable_chrome = cr.test.Package(
+      'chromeos-base', 'chromeos-chrome', version=f'{old_version}_rc-r1')
+
+  overlay.add_package(unstable_chrome)
+  overlay.add_package(stable_chrome)
+
+  for pkg_str in constants.OTHER_CHROME_PACKAGES:
+    category, pkg_name = pkg_str.split('/')
+    unstable_pkg = cr.test.Package(
+        category, pkg_name, version='9999', keywords='~*')
+    stable_pkg = cr.test.Package(
+        category, pkg_name, version=f'{old_version}_rc-r1')
+
+    overlay.add_package(unstable_pkg)
+    overlay.add_package(stable_pkg)
+
+  git_refs = [
+      GitRef(
+          path='/foo', ref=f'refs/tags/{new_version}', revision='dummycommit')
+  ]
+  res = packages.uprev_chrome(build_targets=None, refs=git_refs, chroot=None)
+
+  modified_file_count = sum(len(m.files) for m in res.modified)
+  assert modified_file_count == expected_count

@@ -19,9 +19,7 @@
 namespace llvm {
 
 class FunctionPass;
-class ImmutablePass;
 class InstructionSelector;
-class ModulePass;
 class PassRegistry;
 class X86RegisterBankInfo;
 class X86Subtarget;
@@ -120,7 +118,7 @@ FunctionPass *createX86DomainReassignmentPass();
 FunctionPass *createX86EvexToVexInsts();
 
 /// This pass creates the thunks for the retpoline feature.
-FunctionPass *createX86RetpolineThunksPass();
+FunctionPass *createX86IndirectThunksPass();
 
 /// This pass ensures instructions featuring a memory operand
 /// have distinctive <LineNumber, Discriminator> (with respect to eachother)
@@ -142,6 +140,7 @@ InstructionSelector *createX86InstructionSelector(const X86TargetMachine &TM,
                                                   X86Subtarget &,
                                                   X86RegisterBankInfo &);
 
+FunctionPass *createX86LoadValueInjectionRetHardeningPass();
 FunctionPass *createX86SpeculativeLoadHardeningPass();
 
 void initializeEvexToVexInstPassPass(PassRegistry &);
@@ -157,7 +156,9 @@ void initializeX86CondBrFoldingPassPass(PassRegistry &);
 void initializeX86DomainReassignmentPass(PassRegistry &);
 void initializeX86ExecutionDomainFixPass(PassRegistry &);
 void initializeX86ExpandPseudoPass(PassRegistry &);
+void initializeX86FixupSetCCPassPass(PassRegistry &);
 void initializeX86FlagsCopyLoweringPassPass(PassRegistry &);
+void initializeX86LoadValueInjectionRetHardeningPassPass(PassRegistry &);
 void initializeX86OptimizeLEAPassPass(PassRegistry &);
 void initializeX86PartialReductionPass(PassRegistry &);
 void initializeX86SpeculativeLoadHardeningPassPass(PassRegistry &);

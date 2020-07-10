@@ -135,6 +135,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
         self.no_autogen_list = [
             'vkDestroyInstance',
             'vkCreateInstance',
+            'vkCreateDevice',
             'vkEnumeratePhysicalDevices',
             'vkGetPhysicalDeviceQueueFamilyProperties',
             'vkGetPhysicalDeviceQueueFamilyProperties2',
@@ -214,6 +215,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             "VkGraphicsPipelineCreateInfo-basePipelineHandle": "\"VUID-VkGraphicsPipelineCreateInfo-flags-00722\"",
             "VkComputePipelineCreateInfo-basePipelineHandle": "\"VUID-VkComputePipelineCreateInfo-flags-00697\"",
             "VkRayTracingPipelineCreateInfoNV-basePipelineHandle": "\"VUID-VkRayTracingPipelineCreateInfoNV-flags-03421\"",
+			"VkRayTracingPipelineCreateInfoKHR-basePipelineHandle": "\"VUID-VkRayTracingPipelineCreateInfoKHR-flags-03421\"",
            }
 
         # Commands shadowed by interface functions and are not implemented
@@ -262,7 +264,10 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             # Matching logic in parameter validation and ValidityOutputGenerator.isHandleOptional
             optString = param.attrib.get('noautovalidity')
             if optString and optString == 'true':
-                isoptional = True;
+                if param.attrib.get('len'):
+                    isoptional = [True, True]
+                else:
+                    isoptional = True
         return isoptional
     #
     # Get VUID identifier from implicit VUID tag
@@ -380,7 +385,7 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
         self.valid_usage_path = genOpts.valid_usage_path
         vu_json_filename = os.path.join(self.valid_usage_path + os.sep, 'validusage.json')
         if os.path.isfile(vu_json_filename):
-            json_file = open(vu_json_filename, 'r')
+            json_file = open(vu_json_filename, 'r', encoding='utf-8')
             self.vuid_dict = json.load(json_file)
             json_file.close()
         if len(self.vuid_dict) == 0:
@@ -789,10 +794,17 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             if member.iscreate and first_level_param and member == members[-1]:
                 continue
             if member.type in self.handle_types:
-                count_name = member.len
-                if (count_name is not None):
+                if member.len:
                     count_name = '%s%s' % (prefix, member.len)
-                null_allowed = member.isoptional
+                    # isoptional may be a list for array types: [the array, the array elements]
+                    if type(member.isoptional) == list:
+                        null_allowed = member.isoptional[1]
+                    else:
+                        # Default to false if a value is not provided for the array elements
+                        null_allowed = False
+                else:
+                    count_name = None
+                    null_allowed = member.isoptional
                 tmp_pre = self.outputObjects(member.type, member.name, count_name, prefix, index, indent, disp_name, parent_name, str(null_allowed).lower(), first_level_param)
                 pre_code += tmp_pre
             # Handle Structs that contain objects at some level
@@ -891,11 +903,15 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
         # Generate member info
         membersInfo = []
         allocator = 'nullptr'
+
         for member in members:
             # Get type and name of member
             info = self.getTypeNameTuple(member)
             type = info[0]
             name = info[1]
+            # Skip fake parameters
+            if type == '' or name == '':
+                continue
             cdecl = self.makeCParamDecl(member, 0)
             # Check for parameter name in lens set
             iscount = True if name in lens else False
@@ -937,7 +953,6 @@ class ObjectTrackerOutputGenerator(OutputGenerator):
             manual = False
             if cmdname in self.no_autogen_list:
                 manual = True
-
             # Generate object handling code
             (pre_call_validate, pre_call_record, post_call_record) = self.generate_wrapping_code(cmdinfo.elem)
 

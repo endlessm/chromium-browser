@@ -112,6 +112,8 @@ class _RunTestExecutionTest(unittest.TestCase):
             'UNUSED',
         'pubsub_userdata':
             mock.ANY,
+        'service_account':
+            mock.ANY,
         'task_slices': [{
             'expiration_secs': '86400',
             'properties': {
@@ -126,58 +128,6 @@ class _RunTestExecutionTest(unittest.TestCase):
                     mock.ANY,
                 'io_timeout_secs':
                     mock.ANY,
-                'caches': [{
-                    'name': 'swarming_module_cache_vpython',
-                    'path': '.swarming_module_cache/vpython',
-                },],
-                'cipd_input': {
-                    'client_package': {
-                        'version': mock.ANY,
-                        'package_name': 'infra/tools/cipd/${platform}',
-                    },
-                    'packages': [
-                        {
-                            'package_name': 'infra/python/cpython/${platform}',
-                            'path': '.swarming_module',
-                            'version': mock.ANY,
-                        },
-                        {
-                            'package_name':
-                                'infra/tools/luci/logdog/butler/${platform}',
-                            'path':
-                                '.swarming_module',
-                            'version':
-                                mock.ANY,
-                        },
-                        {
-                            'package_name':
-                                'infra/tools/luci/vpython/${platform}',
-                            'path':
-                                '.swarming_module',
-                            'version':
-                                mock.ANY,
-                        },
-                        {
-                            'package_name':
-                                'infra/tools/luci/vpython-native/${platform}',
-                            'path':
-                                '.swarming_module',
-                            'version':
-                                mock.ANY,
-                        },
-                    ],
-                    'server': 'https://chrome-infra-packages.appspot.com',
-                },
-                'env_prefixes': [
-                    {
-                        'key': 'PATH',
-                        'value': ['.swarming_module', '.swarming_module/bin'],
-                    },
-                    {
-                        'key': 'VPYTHON_VIRTUALENV_ROOT',
-                        'value': ['.swarming_module_cache/vpython'],
-                    },
-                ],
             }
         },],
     }
@@ -312,7 +262,7 @@ class SwarmingTaskStatusTest(_RunTestExecutionTest):
         'failure': True,
         'state': 'COMPLETED',
         'outputs_ref': {
-            'isolatedserver': 'server',
+            'isolatedserver': 'https://server',
             'isolated': 'deadc0de',
         },
     }

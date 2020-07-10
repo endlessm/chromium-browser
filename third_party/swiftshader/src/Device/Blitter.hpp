@@ -18,10 +18,12 @@
 #include "Memset.hpp"
 #include "RoutineCache.hpp"
 #include "Reactor/Reactor.hpp"
-#include "Vulkan/VkFormat.h"
+#include "Vulkan/VkFormat.hpp"
+
+#include "marl/mutex.h"
+#include "marl/tsa.h"
 
 #include <cstring>
-#include <mutex>
 
 namespace vk {
 
@@ -95,6 +97,7 @@ class Blitter
 		int destSamples = 0;
 		bool filter3D = false;
 	};
+	friend std::hash<Blitter::State>;
 
 	struct BlitData
 	{
@@ -185,12 +188,31 @@ private:
 	                  const VkImageSubresourceLayers &dstSubresourceLayers, Edge dstEdge,
 	                  const VkImageSubresourceLayers &srcSubresourceLayers, Edge srcEdge);
 
-	std::mutex blitMutex;
-	RoutineCacheT<State, BlitFunction::CFunctionType> blitCache;  // guarded by blitMutex
-	std::mutex cornerUpdateMutex;
-	RoutineCacheT<State, CornerUpdateFunction::CFunctionType> cornerUpdateCache;  // guarded by cornerUpdateMutex
+	marl::mutex blitMutex;
+	RoutineCache<State, BlitFunction::CFunctionType> blitCache GUARDED_BY(blitMutex);
+
+	marl::mutex cornerUpdateMutex;
+	RoutineCache<State, CornerUpdateFunction::CFunctionType> cornerUpdateCache GUARDED_BY(cornerUpdateMutex);
 };
 
 }  // namespace sw
+
+namespace std {
+
+template<>
+struct hash<sw::Blitter::State>
+{
+	uint64_t operator()(const sw::Blitter::State &state) const
+	{
+		uint64_t hash = state.sourceFormat;
+		hash = hash * 31 + state.destFormat;
+		hash = hash * 31 + state.srcSamples;
+		hash = hash * 31 + state.destSamples;
+		hash = hash * 31 + state.filter3D;
+		return hash;
+	}
+};
+
+}  // namespace std
 
 #endif  // sw_Blitter_hpp

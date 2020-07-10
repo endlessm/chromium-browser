@@ -22,6 +22,7 @@ from six.moves import configparser
 from chromite.lib import constants
 from chromite.lib import image_lib
 from chromite.lib import gs
+from chromite.lib import path_util
 from chromite.lib.xbuddy import artifact_info
 from chromite.lib.xbuddy import build_artifact
 from chromite.lib.xbuddy import common_util
@@ -350,7 +351,7 @@ class XBuddy(object):
                     'board': board,
                     'suffix': suffix})
     # Full release + version is in the LATEST file.
-    version = self._ctx.Cat(latest_addr)
+    version = self._ctx.Cat(latest_addr, encoding='utf-8')
 
     return devserver_constants.IMAGE_DIR % {'board':board,
                                             'suffix':suffix,
@@ -609,15 +610,14 @@ class XBuddy(object):
     # Do the stuff that is well known first. We know that if paths have a
     # image_type, it must be one of the GS/LOCAL aliases and it must be at the
     # end. Similarly, local/remote are well-known and must start the path list.
-    is_local = True
+    # Default to remote for chrome checkout.
+    is_local = (path_util.DetermineCheckout().type !=
+                path_util.CHECKOUT_TYPE_GCLIENT)
     if path_list and path_list[0] in (REMOTE, LOCAL):
       is_local = (path_list.pop(0) == LOCAL)
 
     # Default image type is determined by remote vs. local.
-    if is_local:
-      image_type = ANY
-    else:
-      image_type = TEST
+    image_type = ANY if is_local else TEST
 
     if path_list and path_list[-1] in GS_ALIASES + LOCAL_ALIASES:
       image_type = path_list.pop(-1)
@@ -629,9 +629,11 @@ class XBuddy(object):
     version = default_version or LATEST
     if len(path_list) == 1:
       path = path_list.pop(0)
+      if board == path or version == path:
+        pass
       # Treat this as a version if it's one we know (contains default or
       # latest), or we were given an actual default board.
-      if default_version in path or LATEST in path or default_board is not None:
+      elif default_version in path or LATEST in path or board is not None:
         version = path
       else:
         board = path
@@ -853,7 +855,7 @@ class XBuddy(object):
                                             artifact.
     """
     path = '/'.join(path_list)
-    default_board = self._board if self._board else board
+    default_board = self._board or board
     default_version = self._version or version or LATEST
     # Rewrite the path if there is an appropriate default.
     path, suffix = self.LookupAlias(path, board=default_board,

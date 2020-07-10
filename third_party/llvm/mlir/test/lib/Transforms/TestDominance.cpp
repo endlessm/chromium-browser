@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Analysis/Dominance.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/Pass/Pass.h"
 
 using namespace mlir;
@@ -64,7 +64,7 @@ private:
   DenseMap<Block *, size_t> blockIds;
 };
 
-struct TestDominancePass : public FunctionPass<TestDominancePass> {
+struct TestDominancePass : public PassWrapper<TestDominancePass, FunctionPass> {
 
   void runOnFunction() override {
     llvm::errs() << "Testing : " << getFunction().getName() << "\n";

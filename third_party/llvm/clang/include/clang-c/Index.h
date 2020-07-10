@@ -33,7 +33,7 @@
  * compatible, thus CINDEX_VERSION_MAJOR is expected to remain stable.
  */
 #define CINDEX_VERSION_MAJOR 0
-#define CINDEX_VERSION_MINOR 59
+#define CINDEX_VERSION_MINOR 60
 
 #define CINDEX_VERSION_ENCODE(major, minor) (((major)*10000) + ((minor)*1))
 
@@ -2176,7 +2176,16 @@ enum CXCursorKind {
    */
   CXCursor_FixedPointLiteral = 149,
 
-  CXCursor_LastExpr = CXCursor_FixedPointLiteral,
+  /** OpenMP 5.0 [2.1.4, Array Shaping].
+   */
+  CXCursor_OMPArrayShapingExpr = 150,
+
+  /**
+   * OpenMP 5.0 [2.1.6 Iterators]
+   */
+  CXCursor_OMPIteratorExpr = 151,
+
+  CXCursor_LastExpr = CXCursor_OMPIteratorExpr,
 
   /* Statements */
   CXCursor_FirstStmt = 200,
@@ -3333,7 +3342,8 @@ enum CXTypeKind {
 
   CXType_OCLIntelSubgroupAVCImeDualRefStreamin = 175,
 
-  CXType_ExtVector = 176
+  CXType_ExtVector = 176,
+  CXType_Atomic = 177
 };
 
 /**
@@ -3922,6 +3932,13 @@ CINDEX_LINKAGE long long clang_Type_getOffsetOf(CXType T, const char *S);
  * If the type is not an attributed type, an invalid type is returned.
  */
 CINDEX_LINKAGE CXType clang_Type_getModifiedType(CXType T);
+
+/**
+ * Gets the type contained by this atomic type.
+ *
+ * If a non-atomic type is passed in, an invalid type is returned.
+ */
+CINDEX_LINKAGE CXType clang_Type_getValueType(CXType CT);
 
 /**
  * Return the offset of the field represented by the Cursor.

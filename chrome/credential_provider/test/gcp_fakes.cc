@@ -535,15 +535,7 @@ bool FakeScopedLsaPolicy::PrivateDataExists(const wchar_t* key) {
   return private_data().count(key) != 0;
 }
 
-HRESULT FakeScopedLsaPolicy::AddAccountRights(
-    PSID sid,
-    const std::vector<base::string16>& rights) {
-  return S_OK;
-}
-
-HRESULT FakeScopedLsaPolicy::RemoveAccountRights(
-    PSID sid,
-    const std::vector<base::string16>& rights) {
+HRESULT FakeScopedLsaPolicy::AddAccountRights(PSID sid, const wchar_t* right) {
   return S_OK;
 }
 

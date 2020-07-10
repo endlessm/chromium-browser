@@ -71,8 +71,10 @@ ExprDependence clang::computeDependence(UnaryExprOrTypeTraitExpr *E) {
   if (!D)
     return Deps;
   for (const auto *I : D->specific_attrs<AlignedAttr>()) {
+    if (I->isAlignmentErrorDependent())
+      Deps |= ExprDependence::Error;
     if (I->isAlignmentDependent())
-      return Deps | ExprDependence::ValueInstantiation;
+      Deps |= ExprDependence::ValueInstantiation;
   }
   return Deps;
 }
@@ -360,6 +362,31 @@ ExprDependence clang::computeDependence(OMPArraySectionExpr *E) {
     D |= LB->getDependence();
   if (auto *Len = E->getLength())
     D |= Len->getDependence();
+  return D;
+}
+
+ExprDependence clang::computeDependence(OMPArrayShapingExpr *E) {
+  auto D = E->getBase()->getDependence() |
+           toExprDependence(E->getType()->getDependence());
+  for (Expr *Dim: E->getDimensions())
+    if (Dim)
+      D |= Dim->getDependence();
+  return D;
+}
+
+ExprDependence clang::computeDependence(OMPIteratorExpr *E) {
+  auto D = toExprDependence(E->getType()->getDependence());
+  for (unsigned I = 0, End = E->numOfIterators(); I < End; ++I) {
+    if (auto *VD = cast_or_null<ValueDecl>(E->getIteratorDecl(I)))
+      D |= toExprDependence(VD->getType()->getDependence());
+    OMPIteratorExpr::IteratorRange IR = E->getIteratorRange(I);
+    if (Expr *BE = IR.Begin)
+      D |= BE->getDependence();
+    if (Expr *EE = IR.End)
+      D |= EE->getDependence();
+    if (Expr *SE = IR.Step)
+      D |= SE->getDependence();
+  }
   return D;
 }
 

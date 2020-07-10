@@ -454,7 +454,7 @@ def freeze():
       die("Cannot freeze unmerged changes!")
     if limit_mb > 0:
       if s.lstat == '?':
-        untracked_bytes += os.stat(os.path.join(root_path, f)).st_size
+        untracked_bytes += os.lstat(os.path.join(root_path, f)).st_size
   if limit_mb > 0 and untracked_bytes > limit_mb * MB:
     die("""\
       You appear to have too much untracked+unignored data in your git
@@ -469,7 +469,7 @@ def freeze():
         .git/info/exclude
       file. See `git help ignore` for the format of this file.
 
-      If this data is indended as part of your commit, you may adjust the
+      If this data is intended as part of your commit, you may adjust the
       freeze limit by running:
         git config %s <new_limit>
       Where <new_limit> is an integer threshold in megabytes.""",
@@ -662,7 +662,8 @@ def rebase(parent, start, branch, abort=False):
   except subprocess2.CalledProcessError as cpe:
     if abort:
       run_with_retcode('rebase', '--abort')  # ignore failure
-    return RebaseRet(False, cpe.stdout, cpe.stderr)
+    return RebaseRet(False, cpe.stdout.decode('utf-8', 'replace'),
+                     cpe.stderr.decode('utf-8', 'replace'))
 
 
 def remove_merge_base(branch):
@@ -766,7 +767,7 @@ def run_stream_with_retcode(*cmd, **kwargs):
     retcode = proc.wait()
     if retcode != 0:
       raise subprocess2.CalledProcessError(retcode, cmd, os.getcwd(),
-                                           None, None)
+                                           b'', b'')
 
 
 def run_with_stderr(*cmd, **kwargs):

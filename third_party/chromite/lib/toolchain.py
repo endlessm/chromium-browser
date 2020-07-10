@@ -9,10 +9,10 @@ from __future__ import print_function
 
 import os
 import subprocess
+import sys
 
 from chromite.lib import constants
 from chromite.lib import cros_build_lib
-from chromite.lib import cros_test_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -20,14 +20,15 @@ from chromite.lib import portage_util
 from chromite.lib import toolchain_list
 from chromite.utils import key_value_store
 
-pytestmark = cros_test_lib.pytestmark_requires_portage
-
 if cros_build_lib.IsInsideChroot():
   # Only import portage after we've checked that we're inside the chroot.
   # Outside may not have portage, in which case the above may not happen.
   # We'll check in main() if the operation needs portage.
   # pylint: disable=import-error
   import portage
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 class Error(Exception):

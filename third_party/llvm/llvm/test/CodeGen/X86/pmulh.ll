@@ -219,10 +219,16 @@ define <64 x i16> @mulhuw_v64i16(<64 x i16> %a, <64 x i16> %b) {
 ;
 ; AVX512F-LABEL: mulhuw_v64i16:
 ; AVX512F:       # %bb.0:
-; AVX512F-NEXT:    vpmulhuw %ymm4, %ymm0, %ymm0
-; AVX512F-NEXT:    vpmulhuw %ymm5, %ymm1, %ymm1
-; AVX512F-NEXT:    vpmulhuw %ymm6, %ymm2, %ymm2
-; AVX512F-NEXT:    vpmulhuw %ymm7, %ymm3, %ymm3
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm2, %ymm4
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm0, %ymm5
+; AVX512F-NEXT:    vpmulhuw %ymm4, %ymm5, %ymm4
+; AVX512F-NEXT:    vpmulhuw %ymm2, %ymm0, %ymm0
+; AVX512F-NEXT:    vinserti64x4 $1, %ymm4, %zmm0, %zmm0
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm3, %ymm2
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm1, %ymm4
+; AVX512F-NEXT:    vpmulhuw %ymm2, %ymm4, %ymm2
+; AVX512F-NEXT:    vpmulhuw %ymm3, %ymm1, %ymm1
+; AVX512F-NEXT:    vinserti64x4 $1, %ymm2, %zmm1, %zmm1
 ; AVX512F-NEXT:    retq
 ;
 ; AVX512BW-LABEL: mulhuw_v64i16:
@@ -270,10 +276,16 @@ define <64 x i16> @mulhw_v64i16(<64 x i16> %a, <64 x i16> %b) {
 ;
 ; AVX512F-LABEL: mulhw_v64i16:
 ; AVX512F:       # %bb.0:
-; AVX512F-NEXT:    vpmulhw %ymm4, %ymm0, %ymm0
-; AVX512F-NEXT:    vpmulhw %ymm5, %ymm1, %ymm1
-; AVX512F-NEXT:    vpmulhw %ymm6, %ymm2, %ymm2
-; AVX512F-NEXT:    vpmulhw %ymm7, %ymm3, %ymm3
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm2, %ymm4
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm0, %ymm5
+; AVX512F-NEXT:    vpmulhw %ymm4, %ymm5, %ymm4
+; AVX512F-NEXT:    vpmulhw %ymm2, %ymm0, %ymm0
+; AVX512F-NEXT:    vinserti64x4 $1, %ymm4, %zmm0, %zmm0
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm3, %ymm2
+; AVX512F-NEXT:    vextracti64x4 $1, %zmm1, %ymm4
+; AVX512F-NEXT:    vpmulhw %ymm2, %ymm4, %ymm2
+; AVX512F-NEXT:    vpmulhw %ymm3, %ymm1, %ymm1
+; AVX512F-NEXT:    vinserti64x4 $1, %ymm2, %zmm1, %zmm1
 ; AVX512F-NEXT:    retq
 ;
 ; AVX512BW-LABEL: mulhw_v64i16:
@@ -287,4 +299,40 @@ define <64 x i16> @mulhw_v64i16(<64 x i16> %a, <64 x i16> %b) {
   %d = lshr <64 x i32> %c, <i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16, i32 16>
   %e = trunc <64 x i32> %d to <64 x i16>
   ret <64 x i16> %e
+}
+
+define <8 x i16> @mulhuw_v8i16_i64(<8 x i16> %a, <8 x i16> %b) {
+; SSE-LABEL: mulhuw_v8i16_i64:
+; SSE:       # %bb.0:
+; SSE-NEXT:    pmulhuw %xmm1, %xmm0
+; SSE-NEXT:    retq
+;
+; AVX-LABEL: mulhuw_v8i16_i64:
+; AVX:       # %bb.0:
+; AVX-NEXT:    vpmulhuw %xmm1, %xmm0, %xmm0
+; AVX-NEXT:    retq
+  %a1 = zext <8 x i16> %a to <8 x i64>
+  %b1 = zext <8 x i16> %b to <8 x i64>
+  %c = mul <8 x i64> %a1, %b1
+  %d = lshr <8 x i64> %c, <i64 16, i64 16, i64 16, i64 16, i64 16, i64 16, i64 16, i64 16>
+  %e = trunc <8 x i64> %d to <8 x i16>
+  ret <8 x i16> %e
+}
+
+define <8 x i16> @mulhw_v8i16_i64(<8 x i16> %a, <8 x i16> %b) {
+; SSE-LABEL: mulhw_v8i16_i64:
+; SSE:       # %bb.0:
+; SSE-NEXT:    pmulhw %xmm1, %xmm0
+; SSE-NEXT:    retq
+;
+; AVX-LABEL: mulhw_v8i16_i64:
+; AVX:       # %bb.0:
+; AVX-NEXT:    vpmulhw %xmm1, %xmm0, %xmm0
+; AVX-NEXT:    retq
+  %a1 = sext <8 x i16> %a to <8 x i64>
+  %b1 = sext <8 x i16> %b to <8 x i64>
+  %c = mul <8 x i64> %a1, %b1
+  %d = lshr <8 x i64> %c, <i64 16, i64 16, i64 16, i64 16, i64 16, i64 16, i64 16, i64 16>
+  %e = trunc <8 x i64> %d to <8 x i16>
+  ret <8 x i16> %e
 }

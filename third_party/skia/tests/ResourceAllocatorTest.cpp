@@ -5,10 +5,8 @@
  * found in the LICENSE file.
  */
 
-#include "include/core/SkTypes.h"
-
-#include "tests/Test.h"
-
+#include "include/core/SkCanvas.h"
+#include "include/core/SkSurface.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrProxyProvider.h"
@@ -17,8 +15,8 @@
 #include "src/gpu/GrSurfaceProxyPriv.h"
 #include "src/gpu/GrTexture.h"
 #include "src/gpu/GrTextureProxy.h"
-
-#include "include/core/SkSurface.h"
+#include "tests/Test.h"
+#include "tests/TestUtils.h"
 
 struct ProxyParams {
     int             fSize;
@@ -44,10 +42,9 @@ static sk_sp<GrSurfaceProxy> make_backend(GrContext* context, const ProxyParams&
     SkColorType skColorType = GrColorTypeToSkColorType(p.fColorType);
     SkASSERT(SkColorType::kUnknown_SkColorType != skColorType);
 
-    *backendTex = context->createBackendTexture(p.fSize, p.fSize, skColorType,
-                                                SkColors::kTransparent,
-                                                GrMipMapped::kNo, GrRenderable::kNo,
-                                                GrProtected::kNo);
+    CreateBackendTexture(context, backendTex, p.fSize, p.fSize, skColorType,
+                         SkColors::kTransparent, GrMipMapped::kNo, GrRenderable::kNo);
+
     if (!backendTex->isValid()) {
         return nullptr;
     }
@@ -259,21 +256,22 @@ sk_sp<GrSurfaceProxy> make_lazy(GrProxyProvider* proxyProvider, const GrCaps* ca
                                 const ProxyParams& p) {
     const auto format = caps->getDefaultBackendFormat(p.fColorType, p.fRenderable);
 
-    SkBackingFit fit = p.fFit;
-    SkISize dims = {p.fSize, p.fSize};
-    auto callback = [fit, dims, format, p](GrResourceProvider* resourceProvider) {
+    auto callback = [](GrResourceProvider* resourceProvider,
+                       const GrSurfaceProxy::LazySurfaceDesc& desc) {
         sk_sp<GrTexture> texture;
-        if (fit == SkBackingFit::kApprox) {
-            texture = resourceProvider->createApproxTexture(dims, format, p.fRenderable,
-                                                            p.fSampleCnt, GrProtected::kNo);
+        if (desc.fFit == SkBackingFit::kApprox) {
+            texture = resourceProvider->createApproxTexture(desc.fDimensions, desc.fFormat,
+                                                            desc.fRenderable, desc.fSampleCnt,
+                                                            desc.fProtected);
         } else {
-            texture = resourceProvider->createTexture(dims, format, p.fRenderable, p.fSampleCnt,
-                                                      GrMipMapped::kNo, SkBudgeted::kNo,
-                                                      GrProtected::kNo);
+            texture = resourceProvider->createTexture(
+                    desc.fDimensions, desc.fFormat, desc.fRenderable, desc.fSampleCnt,
+                    desc.fMipMapped, desc.fBudgeted, desc.fProtected);
         }
         return GrSurfaceProxy::LazyCallbackResult(std::move(texture));
     };
     GrInternalSurfaceFlags flags = GrInternalSurfaceFlags::kNone;
+    SkISize dims = {p.fSize, p.fSize};
     return proxyProvider->createLazyProxy(callback, format, dims, p.fRenderable, p.fSampleCnt,
                                           GrMipMapped::kNo, GrMipMapsStatus::kNotAllocated, flags,
                                           p.fFit, p.fBudgeted, GrProtected::kNo,

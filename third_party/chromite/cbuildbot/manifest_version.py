@@ -13,6 +13,7 @@ import glob
 import os
 import re
 import shutil
+import sys
 import tempfile
 from xml.dom import minidom
 
@@ -27,6 +28,9 @@ from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
+
+
+assert sys.version_info >= (3, 6), 'This module requires Python 3.6+'
 
 
 PUSH_BRANCH = 'temp_auto_checkin_branch'
@@ -1103,7 +1107,8 @@ def FilterManifest(manifest, whitelisted_remotes=None, whitelisted_groups=None):
 
   with os.fdopen(temp_fd, 'w') as manifest_file:
     # Filter out empty lines.
-    stripped = [x.strip() for x in manifest_dom.toxml('utf-8').splitlines()]
+    lines = manifest_dom.toxml('utf-8').decode('utf-8').splitlines()
+    stripped = [x.strip() for x in lines]
     filtered_manifest_noempty = [x for x in stripped if x]
     manifest_file.write(os.linesep.join(filtered_manifest_noempty))
 

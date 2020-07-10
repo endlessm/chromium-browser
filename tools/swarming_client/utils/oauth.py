@@ -26,7 +26,13 @@ tools.force_local_third_party()
 import httplib2
 from oauth2client import client
 from oauth2client.contrib import locked_file
-from oauth2client.contrib import multistore_file
+# Handle the internal use case, where multistore_file has
+# 2 copies in oauth2client. One is in root folder, one is
+# in contrib folder.
+try:
+  from oauth2client.contrib import multistore_file
+except ImportError:
+  from oauth2client import multistore_file
 from pyasn1.codec.der import decoder
 from pyasn1.type import univ
 import requests
@@ -716,8 +722,8 @@ def _get_luci_context_access_token(local_auth):
       headers={'Content-Type': 'application/json'})
   if resp.status != 200:
     logging.error(
-        'local_auth: Failed to grab access token from LUCI context server: %r',
-        content)
+        'local_auth: Failed to grab access token for %s from LUCI context '
+        'server: %r', local_auth.default_account_id, content)
     return None
 
   try:

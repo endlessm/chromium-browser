@@ -484,16 +484,6 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
   config_name = 'debug_symbols'
   category = constants.PRODUCT_OS_STAGE
 
-  def WaitUntilReady(self):
-    """Block until UnitTest completes.
-
-    The attribute 'unittest_completed' is set by UnitTestStage.
-
-    Returns:
-      Boolean that authorizes running of this stage.
-    """
-    return self.board_runattrs.GetParallel('unittest_completed', timeout=None)
-
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     """Generate debug symbols and upload debug.tgz."""
@@ -524,6 +514,8 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
     # Upload them to crash server.
     if self._run.config.upload_symbols:
       self.UploadSymbols(buildroot, board)
+
+    self.board_runattrs.SetParallel('debug_symbols_completed', True)
 
   def UploadDebugTarball(self):
     """Generate and upload the debug tarball."""
@@ -585,11 +577,13 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
   def HandleSkip(self):
     """Tell other stages to not wait on us if we are skipped."""
     self._SymbolsNotGenerated()
+    self.board_runattrs.SetParallel('debug_symbols_completed', True)
     return super(DebugSymbolsStage, self).HandleSkip()
 
   def _HandleStageException(self, exc_info):
     """Tell other stages to not wait on us if we die for some reason."""
     self._SymbolsNotGenerated()
+    self.board_runattrs.SetParallel('debug_symbols_completed', True)
 
     # TODO(dgarrett): Get failures tracked in metrics (crbug.com/652463).
     exc_type, e, _ = exc_info
@@ -736,7 +730,9 @@ class UploadTestArtifactsStage(generic_stages.BoardSpecificBuilderStage,
             os.path.join(self._build_root, 'chroot', 'build',
                          self._current_board, constants.AUTOTEST_BUILD_PATH,
                          '..'))
-        logging.info('Running commands.BuildAutotestTarballsForHWTest')
+        logging.debug(
+            'Running BuildAutotestTarballsForHWTest root %s cwd %s target %s',
+            self._build_root, cwd, tempdir)
         for tarball in commands.BuildAutotestTarballsForHWTest(
             self._build_root, cwd, tempdir):
           queue.put([tarball])
@@ -994,7 +990,8 @@ class CollectPGOProfilesStage(generic_stages.BoardSpecificBuilderStage,
 
   def _CollectLLVMMetadata(self):
     def check_chroot_output(command):
-      cmd = cros_build_lib.run(command, enter_chroot=True, stdout=True)
+      cmd = cros_build_lib.run(command, enter_chroot=True, stdout=True,
+                               encoding='utf-8')
       return cmd.output
 
     # The baked-in clang should be the one we're looking for. If not, yell.

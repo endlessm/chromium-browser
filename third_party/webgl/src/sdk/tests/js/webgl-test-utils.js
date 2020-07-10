@@ -1611,6 +1611,17 @@ var create3DContext = function(opt_canvas, opt_attributes, opt_version) {
 };
 
 /**
+ * Indicates whether the given context is WebGL 2.0 or greater.
+ * @param {!WebGLRenderingContext} gl The WebGLRenderingContext to use.
+ * @return {boolean} True if the given context is WebGL 2.0 or greater.
+ */
+var isWebGL2 = function(gl) {
+  // Duck typing is used so that the conformance suite can be run
+  // against libraries emulating WebGL 1.0 on top of WebGL 2.0.
+  return !!gl.drawArraysInstanced;
+};
+
+/**
  * Defines the exception type for a GL error.
  * @constructor
  * @param {string} message The error message.
@@ -1722,7 +1733,32 @@ var glErrorShouldBe = function(gl, glErrors, opt_msg) {
   return glErrorShouldBeImpl(gl, glErrors, true, opt_msg);
 };
 
-
+/**
+ * Tests that the given framebuffer has a specific status
+ * @param {!WebGLRenderingContext} gl The WebGLRenderingContext to use.
+ * @param {number|Array.<number>} glStatuses The expected gl
+ *        status or an array of expected statuses.
+ * @param {string} opt_msg Optional additional message.
+ */
+var framebufferStatusShouldBe = function(gl, target, glStatuses, opt_msg) {
+  if (!glStatuses.length) {
+    glStatuses = [glStatuses];
+  }
+  opt_msg = opt_msg || "";
+  const status = gl.checkFramebufferStatus(target);
+  const ndx = glStatuses.indexOf(status);
+  const expected = glStatuses.map((status) => {
+    return glEnumToString(gl, status);
+  }).join(' or ');
+  if (ndx < 0) {
+    var msg = "checkFramebufferStatus expected" + ((glStatuses.length > 1) ? " one of: " : ": ");
+    testFailed(msg + expected +  ". Was " + glEnumToString(gl, status) + " : " + opt_msg);
+  } else {
+    var msg = "checkFramebufferStatus was " + ((glStatuses.length > 1) ? "one of: " : "expected value: ");
+    testPassed(msg + expected + " : " + opt_msg);
+  }
+  return status;
+}
 
 /**
  * Tests that the first error GL returns is the specified error. Allows suppression of successes.
@@ -2137,7 +2173,7 @@ var loadShaderFromScript = function(
   if (!shaderScript) {
     throw("*** Error: unknown script element " + scriptId);
   }
-  shaderSource = shaderScript.text;
+  shaderSource = shaderScript.text.trim();
 
   if (!opt_shaderType) {
     if (shaderScript.type == "x-shader/x-vertex") {
@@ -3087,12 +3123,13 @@ var startPlayingAndWaitForVideo = function(video, callback) {
     }
   };
 
-  requestAnimFrame.call(window, timeWatcher);
   video.loop = true;
   video.muted = true;
   // See whether setting the preload flag de-flakes video-related tests.
   video.preload = 'auto';
   video.play();
+
+  timeWatcher();
 };
 
 var getHost = function(url) {
@@ -3158,21 +3195,22 @@ var getRelativePath = function(path) {
   return relparts.join("/");
 }
 
-var setupImageForCrossOriginTest = function(img, imgUrl, localUrl, callback) {
-  window.addEventListener("load", function() {
-    if (typeof(img) == "string")
-      img = document.querySelector(img);
-    if (!img)
-      img = new Image();
+async function loadCrossOriginImage(img, webUrl, localUrl) {
+  img.src = getUrlOptions().imgUrl || webUrl;
+  try {
+    console.log('[loadCrossOriginImage]', 'trying', img.src);
+    await img.decode();
+    return;
+  } catch {}
 
-    img.addEventListener("load", callback, false);
-    img.addEventListener("error", callback, false);
+  if (runningOnLocalhost()) {
+    img.src = getLocalCrossOrigin() + getRelativePath(localUrl);
+    console.log('[loadCrossOriginImage]', '  trying', img.src);
+    await img.decode();
+    return;
+  }
 
-    if (runningOnLocalhost())
-      img.src = getLocalCrossOrigin() + getRelativePath(localUrl);
-    else
-      img.src = getUrlOptions().imgUrl || imgUrl;
-  }, false);
+  throw 'createCrossOriginImage failed';
 }
 
 /**
@@ -3309,6 +3347,23 @@ function createImageFromPixel(buf, width, height) {
     return img;
 }
 
+async function awaitTimeout(ms) {
+  await new Promise(res => {
+    setTimeout(() => {
+      res();
+    }, ms);
+  });
+}
+
+async function awaitOrTimeout(promise, timeout_ms) {
+  async function throwOnTimeout(ms) {
+    await awaitTimeout(ms);
+    throw 'timeout';
+  }
+
+  await Promise.race([promise, throwOnTimeout(timeout_ms)]);
+}
+
 var API = {
   addShaderSource: addShaderSource,
   addShaderSources: addShaderSources,
@@ -3342,6 +3397,7 @@ var API = {
   endsWith: endsWith,
   failIfGLError: failIfGLError,
   fillTexture: fillTexture,
+  framebufferStatusShouldBe: framebufferStatusShouldBe,
   getBytesPerComponent: getBytesPerComponent,
   getDefault3DContextVersion: getDefault3DContextVersion,
   getExtensionPrefixedNames: getExtensionPrefixedNames,
@@ -3361,7 +3417,9 @@ var API = {
   glTypeToTypedArrayType: glTypeToTypedArrayType,
   hasAttributeCaseInsensitive: hasAttributeCaseInsensitive,
   insertImage: insertImage,
+  isWebGL2: isWebGL2,
   linkProgram: linkProgram,
+  loadCrossOriginImage: loadCrossOriginImage,
   loadImageAsync: loadImageAsync,
   loadImagesAsync: loadImagesAsync,
   loadProgram: loadProgram,
@@ -3434,7 +3492,8 @@ var API = {
   runningOnLocalhost: runningOnLocalhost,
   getLocalCrossOrigin: getLocalCrossOrigin,
   getRelativePath: getRelativePath,
-  setupImageForCrossOriginTest: setupImageForCrossOriginTest,
+  awaitOrTimeout: awaitOrTimeout,
+  awaitTimeout: awaitTimeout,
 
   none: false
 };

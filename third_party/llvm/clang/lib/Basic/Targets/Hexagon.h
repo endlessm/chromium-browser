@@ -57,6 +57,7 @@ public:
     LargeArrayAlign = 64;
     UseBitFieldTypeAlignment = true;
     ZeroLengthBitfieldBoundary = 32;
+    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
 
     // These are the default values anyway, but explicitly make sure
     // that the size of the boolean type is 8 bits. Bool vectors are used
@@ -137,6 +138,8 @@ public:
     // We can write more stricter checks later.
     return CPU.find('t') != std::string::npos;
   }
+
+  bool hasExtIntType() const override { return true; }
 };
 } // namespace targets
 } // namespace clang

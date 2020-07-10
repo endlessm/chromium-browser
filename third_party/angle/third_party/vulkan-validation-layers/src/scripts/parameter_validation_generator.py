@@ -196,6 +196,26 @@ class ParameterValidationOutputGenerator(OutputGenerator):
             'vkCreateSamplerYcbcrConversionKHR',
             'vkImportSemaphoreFdKHR',
             'vkCmdBindVertexBuffers',
+            'vkCreateImageView',
+            'vkCopyAccelerationStructureToMemoryKHR',
+            'vkCmdCopyAccelerationStructureToMemoryKHR',
+            'vkCopyAccelerationStructureKHR',
+            'vkCmdCopyAccelerationStructureKHR',
+            'vkCopyMemoryToAccelerationStructureKHR',
+            'vkCmdCopyMemoryToAccelerationStructureKHR',
+            'vkCmdDrawIndirectCount',
+            'vkCmdDrawIndirectCountKHR',
+            'vkCmdDrawIndexedIndirectCount',
+            'vkCmdDrawIndexedIndirectCountKHR',
+            'vkCmdWriteAccelerationStructuresPropertiesKHR',
+            'vkWriteAccelerationStructuresPropertiesKHR',
+            'vkGetRayTracingCaptureReplayShaderGroupHandlesKHR',
+            'vkCmdTraceRaysKHR',
+            'vkCmdTraceRaysNV',
+            'vkCmdTraceRaysIndirectKHR',
+            'vkCmdBuildAccelerationStructureIndirectKHR',
+            'vkGetDeviceAccelerationStructureCompatibilityKHR',
+            'vkBuildAccelerationStructureKHR'
             ]
 
         # Commands to ignore
@@ -332,7 +352,7 @@ class ParameterValidationOutputGenerator(OutputGenerator):
         self.valid_usage_path = genOpts.valid_usage_path
         vu_json_filename = os.path.join(self.valid_usage_path + os.sep, 'validusage.json')
         if os.path.isfile(vu_json_filename):
-            json_file = open(vu_json_filename, 'r')
+            json_file = open(vu_json_filename, 'r', encoding='utf-8')
             self.vuid_dict = json.load(json_file)
             json_file.close()
         if len(self.vuid_dict) == 0:
@@ -375,7 +395,7 @@ class ParameterValidationOutputGenerator(OutputGenerator):
                     protect = self.struct_feature_protect[item]
                     pnext_case += '#ifdef %s\n' % protect
                 pnext_case += '        // Validation code for %s structure members\n' % item
-                pnext_case += '        case %s: {\n' % self.structTypes[item]
+                pnext_case += '        case %s: { // Covers VUID-%s-sType-sType\n' % (self.structTypes[item], item)
                 pnext_case += '            %s *structure = (%s *) header;\n' % (item, item)
                 expr = self.expandStructCode(item, item, 'structure->', '', '            ', [], postProcSpec)
                 struct_validation_source = self.ScrubStructCode(expr)
@@ -386,6 +406,8 @@ class ParameterValidationOutputGenerator(OutputGenerator):
                 # Skip functions containing no validation
                 if struct_validation_source:
                     pnext_handler += pnext_case;
+                else:
+                    pnext_handler += '\n        // No Validation code for %s structure members  -- Covers VUID-%s-sType-sType\n' % (item, item)
             pnext_handler += '        default:\n'
             pnext_handler += '            skip = false;\n'
             pnext_handler += '    }\n'
