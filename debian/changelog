@@ -1,3 +1,29 @@
+chromium-browser (84.0.4147.55-0endless0) UNRELEASED; urgency=medium
+
+  * Upstream beta channel update: 84.0.4147.55
+
+ -- Andre Moreira Magalhaes <andre@endlessm.com>  Fri, 10 Jul 2020 18:17:23 -0300
+
+chromium-browser (84.0.4147.38-0ubuntu0.18.04) UNRELEASED; urgency=medium
+
+  * Upstream beta channel update: 84.0.4147.38
+  * debian/control:
+    - add build dependencies on python-xcbgen and xcb-proto
+      (needed since https://chromium.googlesource.com/chromium/src.git/+/e43aa4b)
+    - build-depend on nodejs-mozilla instead of nodejs to get a newer version,
+      required to build the devtools frontend (LP: #1873996)
+  * debian/patches/chromium_useragent.patch: removed (LP: #1868117)
+  * debian/patches/default-allocator: refreshed
+  * debian/patches/node-use-system-wide.patch: updated
+  * debian/patches/search-credit.patch: refreshed
+  * debian/patches/set-rpath-on-chromium-executables.patch: refreshed
+  * debian/patches/suppress-newer-clang-warning-flags.patch: refreshed
+  * debian/patches/title-bar-default-system.patch-v35: refreshed
+  * debian/patches/touch-v35: refreshed
+  * debian/patches/widevine-enable-version-string.patch: refreshed
+
+ -- Olivier Tilloy <olivier.tilloy@canonical.com>  Thu, 04 Jun 2020 22:45:01 +0200
+
 chromium-browser (83.0.4103.116-0endless0) eos; urgency=medium
 
   * Upstream release: 83.0.4103.116

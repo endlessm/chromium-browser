@@ -3,7 +3,7 @@ Section: web
 Priority: optional
 Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
 XS-Testsuite: autopkgtest
-Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/bionic-stable
+Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/bionic-beta
 Homepage: https://chromium.googlesource.com/chromium/src/
 Build-Depends:
 	debhelper (>= 9),
@@ -14,12 +14,14 @@ Build-Depends:
 	quilt,
 	python,
 	python-pkg-resources,
+	python-xcbgen,
+	xcb-proto,
 	bison,
 	clang-9,
 	llvm-9,
 	default-jre-headless,
 	gperf,
-	nodejs,
+	nodejs-mozilla,
 	libpulse-dev,
 	libcups2-dev | libcupsys2-dev,
 	libasound2-dev,
