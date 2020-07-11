@@ -14,6 +14,8 @@ Build-Depends:
 	quilt,
 	python,
 	python-pkg-resources,
+	python-xcbgen,
+	xcb-proto,
 	bison,
 	clang-9,
 	llvm-9,
