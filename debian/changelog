@@ -1,3 +1,15 @@
+chromium-browser (84.0.4147.105-0endless0) UNRELEASED; urgency=medium
+
+  * Upstream release: 84.0.4147.105
+    - CVE-2020-6537: Type Confusion in V8.
+    - CVE-2020-6538: Inappropriate implementation in WebView.
+    - CVE-2020-6532: Use after free in SCTP.
+    - CVE-2020-6539: Use after free in CSS.
+    - CVE-2020-6540: Heap buffer overflow in Skia.
+    - CVE-2020-6541: Use after free in WebUSB.
+
+ -- Andre Moreira Magalhaes <andre@endlessm.com>  Tue, 28 Jul 2020 11:14:27 -0300
+
 chromium-browser (84.0.4147.89-0endless0) UNRELEASED; urgency=medium
 
   * Upstream release: 84.0.4147.89
