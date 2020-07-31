@@ -51,6 +51,7 @@ if ((is_android && current_cpu == "arm" && arm_use_neon) || (is_android && curre
     "libavcodec/flac_parser.c",
     "libavcodec/flacdata.c",
     "libavcodec/golomb.c",
+    "libavcodec/h264_mp4toannexb_bsf.c",
     "libavcodec/imgconvert.c",
     "libavcodec/jni.c",
     "libavcodec/libfdk-aacdec.c",
