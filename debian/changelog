@@ -1,3 +1,23 @@
+chromium-browser (84.0.4147.125-0endless0) UNRELEASED; urgency=medium
+
+  * Upstream release: 84.0.4147.125
+    - CVE-2020-6542: Use after free in ANGLE.
+    - CVE-2020-6543: Use after free in task scheduling.
+    - CVE-2020-6544: Use after free in media.
+    - CVE-2020-6545: Use after free in audio.
+    - CVE-2020-6546: Inappropriate implementation in installer.
+    - CVE-2020-6547: Incorrect security UI in media.
+    - CVE-2020-6548: Heap buffer overflow in Skia.
+    - CVE-2020-6549: Use after free in media.
+    - CVE-2020-6550: Use after free in IndexedDB.
+    - CVE-2020-6551: Use after free in WebXR.
+    - CVE-2020-6552: Use after free in Blink.
+    - CVE-2020-6553: Use after free in offline mode.
+    - CVE-2020-6554: Use after free in extensions.
+    - CVE-2020-6555: Out of bounds read in WebGL.
+
+ -- Andre Moreira Magalhaes <andre@endlessm.com>  Wed, 12 Aug 2020 19:34:13 -0300
+
 chromium-browser (84.0.4147.105-0endless0) UNRELEASED; urgency=medium
 
   * Upstream release: 84.0.4147.105
